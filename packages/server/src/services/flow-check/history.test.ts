@@ -23,6 +23,7 @@ jest.mock('../flow-drafts', () => ({
     default: { getState: async () => ({ draftFlowData: '{"nodes":[{"id":"n"}],"edges":[]}' }) }
 }))
 import { StatusCodes } from 'http-status-codes'
+import { resetRuntimeLimitsForTests } from '../../settings/runtime'
 import {
     bindHistoryRepository,
     HISTORY_SCAN_CAP,
@@ -55,6 +56,8 @@ function row(id: string, content: string, iso: string, extra: Partial<HistoryRow
 }
 
 beforeEach(() => {
+    delete process.env.CUTTLELY_PUBLISH_CHECK
+    resetRuntimeLimitsForTests()
     historyHooks.loadUserMessages = null
     bindHistoryRepository(() => ({
         createQueryBuilder: () => queryBuilder,
@@ -66,6 +69,16 @@ beforeEach(() => {
 })
 
 describe('question history', () => {
+    test('does not read messages when the publish check is off', async () => {
+        process.env.CUTTLELY_PUBLISH_CHECK = 'false'
+        resetRuntimeLimitsForTests()
+        await expect(listQuestionHistory(FLOW, {}, CALLER)).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'The publish check is turned off on this server.'
+        })
+        expect(queryCalls).toEqual([])
+    })
+
     test('pages equal timestamps by id and stays stable', async () => {
         const stored = [row('m-a', 'two loaf', '2026-10-08T10:00:00.000Z'), row('m-b', 'one loaf', '2026-10-08T10:00:00.000Z')]
         historyHooks.loadUserMessages = async () => stored

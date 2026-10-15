@@ -156,7 +156,7 @@ The response is the [Restore](./versioning-api.md#restore) response plus `status
 
 ## Publish check
 
-Before Publish, the check asks a few recent real questions again, once to Live and once to the draft, and returns both answers side by side with the tokens and time each took. It is optional. Publish looks at a result only when the flow requires a passing test set, and then it reads the stored verdict, not these in-memory answers. How it looks in the Publish dialog: [Check recent questions before you publish](../how-to/versioning.md#check-recent-questions-before-you-publish). The gate: [Require a passing test set before you publish](../how-to/versioning.md#require-a-passing-test-set-before-you-publish).
+Before Publish, the check asks a few recent real questions again, once to Live and once to the draft, and returns both answers side by side with the tokens and time each took. It is optional. Publish looks at a result only when the flow requires a passing test set, and then it reads the stored verdict, not these in-memory answers. The server runs this check only when `CUTTLELY_PUBLISH_CHECK` is on, which is the default. Turning it off refuses a new check with 409 and does not change Publish. [Server settings API](./server-settings-api.md#publish-check-switch). How it looks in the Publish dialog: [Check recent questions before you publish](../how-to/versioning.md#check-recent-questions-before-you-publish). The gate: [Require a passing test set before you publish](../how-to/versioning.md#require-a-passing-test-set-before-you-publish).
 
 Each question runs the model twice, so a check costs tokens on the flow's model account. The server caps each check:
 

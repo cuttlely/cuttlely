@@ -49,6 +49,7 @@ jest.mock('../../identity/rbac', () => ({
 
 import controller from './index'
 import { BadQuestionIdsError } from '../../services/flow-check/question-ids-error'
+import { resetRuntimeLimitsForTests } from '../../settings/runtime'
 
 const FLOW = { id: '0b5c3a1e-1111-2222-3333-444455556666', type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}', workspaceId: 'team-a' }
 
@@ -457,6 +458,37 @@ describe('the publish check', () => {
             evaluators: false
         })
         expect(res.json).toHaveBeenCalledWith({ unavailable: null, questions: [] })
+    })
+
+    it('refuses a check, a read, a stop, and the question list when the publish check is off', async () => {
+        process.env.CUTTLELY_PUBLISH_CHECK = 'false'
+        resetRuntimeLimitsForTests()
+        granted.add('chatflows:view')
+        granted.add('chatflows:update')
+        try {
+            const next = jest.fn()
+            await controller.getCheckHistory(checkRequest(), response(), next)
+            expect(next.mock.calls[0][0]).toMatchObject({
+                statusCode: 409,
+                message: 'The publish check is turned off on this server.'
+            })
+            expect(listQuestionHistory).not.toHaveBeenCalled()
+            const startNext = jest.fn()
+            await controller.startCheck(checkRequest({ count: 1 }), accepted(), startNext)
+            expect(startNext.mock.calls[0][0]).toMatchObject({ statusCode: 409 })
+            expect(checkService.startCheck).not.toHaveBeenCalled()
+            const readNext = jest.fn()
+            await controller.getCheck(checkRequest({}, { checkId: 'c1' }), response(), readNext)
+            expect(readNext.mock.calls[0][0]).toMatchObject({ statusCode: 409 })
+            expect(checkService.getCheck).not.toHaveBeenCalled()
+            const stopNext = jest.fn()
+            await controller.stopCheck(checkRequest({}, { checkId: 'c1' }), response(), stopNext)
+            expect(stopNext.mock.calls[0][0]).toMatchObject({ statusCode: 409 })
+            expect(checkService.stopCheck).not.toHaveBeenCalled()
+        } finally {
+            delete process.env.CUTTLELY_PUBLISH_CHECK
+            resetRuntimeLimitsForTests()
+        }
     })
 
     it('starts a check with update permission, answers 202, and passes the server address', async () => {

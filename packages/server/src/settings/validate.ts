@@ -90,7 +90,9 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
         }
         input = String(input)
     }
-    if (typeof input !== 'string') return { ok: false, error: `${setting.label}: enter text.` }
+    if (typeof input !== 'string') {
+        return { ok: false, error: `${setting.label}: enter text.`, code: setting.runtime ? 'INVALID' : undefined }
+    }
     if (input.includes('\0')) return { ok: false, error: `${setting.label}: the value has a character that cannot be used.` }
     const value = input.trim()
     if (value === '') return { ok: true, value: '' }
@@ -102,7 +104,7 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
             const on = setting.on ?? 'true'
             const off = setting.off ?? 'false'
             if (value === on || value === off) return { ok: true, value }
-            return { ok: false, error: `${setting.label}: choose on or off.` }
+            return { ok: false, error: `${setting.label}: choose on or off.`, code: 'INVALID' }
         }
         case 'select': {
             if ((setting.options ?? []).some((option) => option.value === value)) return { ok: true, value }

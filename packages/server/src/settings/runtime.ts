@@ -40,12 +40,25 @@ interface Candidate {
 }
 
 let cache: { at: number; stamp: string; values: Map<string, ResolvedRuntime> } | null = null
+let flagCache: { at: number; stamp: string; values: Map<string, ResolvedFlag> } | null = null
 const warned = new Set<string>()
 let readWarned = false
 let hooked = false
 
+export const PUBLISH_CHECK_KEY = 'CUTTLELY_PUBLISH_CHECK'
+export const PUBLISH_CHECK_OFF_MESSAGE = 'The publish check is turned off on this server.'
+
+export interface ResolvedFlag {
+    value: boolean
+    source: CandidateSource
+}
+
 function runtimeSettings(): SettingDef[] {
     return SETTINGS.filter((setting) => setting.runtime && setting.type === 'number')
+}
+
+function runtimeSwitches(): SettingDef[] {
+    return SETTINGS.filter((setting) => setting.runtime && setting.type === 'switch')
 }
 
 function warnKey(key: string): void {
@@ -66,19 +79,30 @@ function ensureHook(): void {
     hooked = true
     onSettingsFileWritten(() => {
         cache = null
+        flagCache = null
     })
 }
 
 /** Drops a cached read. A successful save of server.json does this on its own. */
 export function invalidateRuntimeCache(): void {
     cache = null
+    flagCache = null
 }
 
 /** Tests start from an empty cache and an empty warning set. */
 export function resetRuntimeLimitsForTests(): void {
     cache = null
+    flagCache = null
     warned.clear()
     readWarned = false
+}
+
+/** Exactly the switch's on or off string. Blank, other words, and different casing are not. */
+export function parseRuntimeFlag(raw: string, on = 'true', off = 'false'): boolean | null {
+    if (typeof raw !== 'string') return null
+    if (raw === on) return true
+    if (raw === off) return false
+    return null
 }
 
 /** A whole number in the safe integer range. Blank, floats, exponents, NaN and Infinity are not. */
@@ -323,6 +347,82 @@ export function runtimeSnapshot(env: Env = process.env): Map<string, ResolvedRun
     }
     cache = { at: now, stamp, values }
     return values
+}
+
+function defaultFlag(setting: SettingDef): boolean {
+    const on = setting.on ?? 'true'
+    return (setting.defaultValue ?? setting.off ?? 'false') === on
+}
+
+function flagStamp(env: Env): string {
+    const keys = runtimeSwitches().map((setting) => setting.key)
+    return [
+        env.CUTTLELY_DATA_DIR ?? '',
+        env.CUTTLELY_IGNORE_ADMIN_SETTINGS ?? '',
+        env.CUTTLELY_SETTINGS_HOST_KEYS ?? '',
+        ...keys.map((key) => env[key] ?? '')
+    ].join('\0')
+}
+
+function computeFlags(env: Env): Map<string, ResolvedFlag> {
+    const hostKeys = hostSetKeys(env)
+    const file = panelFile(env)
+    const out = new Map<string, ResolvedFlag>()
+    for (const setting of runtimeSwitches()) {
+        const on = setting.on ?? 'true'
+        const off = setting.off ?? 'false'
+        if (hostKeys.has(setting.key)) {
+            const raw = present(env[setting.key])
+            if (raw !== null) {
+                const flag = parseRuntimeFlag(raw, on, off)
+                if (flag !== null) {
+                    out.set(setting.key, { value: flag, source: 'host' })
+                    continue
+                }
+                warnKey(setting.key)
+            }
+        }
+        const saved = present(file[setting.key])
+        if (saved !== null) {
+            const flag = parseRuntimeFlag(saved, on, off)
+            if (flag !== null) {
+                out.set(setting.key, { value: flag, source: 'panel' })
+                continue
+            }
+            warnKey(setting.key)
+        }
+        out.set(setting.key, { value: defaultFlag(setting), source: 'default' })
+    }
+    return out
+}
+
+export function flagSnapshot(env: Env = process.env): Map<string, ResolvedFlag> {
+    ensureHook()
+    const stamp = flagStamp(env)
+    const now = Date.now()
+    if (flagCache && flagCache.stamp === stamp && now - flagCache.at < RUNTIME_CACHE_MS) return flagCache.values
+    let values: Map<string, ResolvedFlag>
+    try {
+        values = computeFlags(env)
+    } catch (error) {
+        if (error instanceof Error && error.message.startsWith('runtime setting ')) throw error
+        warnUnread()
+        values = new Map(runtimeSwitches().map((setting) => [setting.key, { value: defaultFlag(setting), source: 'default' as const }]))
+    }
+    flagCache = { at: now, stamp, values }
+    return values
+}
+
+/** The boolean in effect for one runtime switch. */
+export function runtimeFlag(key: string, env: Env = process.env): ResolvedFlag {
+    const row = flagSnapshot(env).get(key)
+    if (!row) throw new Error(`${key} is not a runtime switch`)
+    return row
+}
+
+/** True unless a valid host or saved value turned the publish check off. */
+export function publishCheckEnabled(env: Env = process.env): boolean {
+    return runtimeFlag(PUBLISH_CHECK_KEY, env).value
 }
 
 /** The limit in effect for one runtime setting. */

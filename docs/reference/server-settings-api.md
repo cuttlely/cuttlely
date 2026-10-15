@@ -79,6 +79,53 @@ A refusal is 400:
 
 The question cap default of 100 and the concurrency default of 2 are the same numbers the publish check used before these settings existed. With nothing set, behaviour is unchanged. How to set them in the page: [Limits that apply immediately](../how-to/server-settings.md#limits-that-apply-immediately).
 
+## Publish check switch
+
+`CUTTLELY_PUBLISH_CHECK` is a runtime switch on the same routes. It is not a new URL. The organization owner reads and updates it with `GET` and `PUT /api/v1/server-settings`. A missing session, an expired session, an invalid session cookie, and an API key are 401 `{ "error": "Unauthorized Access" }`. A signed-in caller who is not the owner is 403 `{ "message": "Forbidden" }`. A caller with no user id is 403. These settings are instance-wide. The body and the query do not take a workspace id. A `workspaceId` sent beside `values` is ignored. A workspace id sent as a setting name is an unknown key and is refused. There is no `/api/v1/workspaces/:id/server-settings` route. A caller in one workspace cannot read or change this switch through another workspace's id.
+
+The mutable value is stored in the settings file, the same file as the other Server settings. History records the old and new value (`true` or `false`). It is not a secret, so the history row is not reduced to "changed". A host value that is exactly `true` or `false` wins, and `PUT` cannot change it while that variable is set.
+
+|                           |                                                                                                                                                                                                                                  |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default                   | `true` (the check runs, as it did before this setting existed)                                                                                                                                                                   |
+| Accepted values           | Exactly `true` or `false`. A JSON boolean is stored as that string.                                                                                                                                                              |
+| Empty string or `null`    | Removes the saved value. The default applies again, unless the host set a valid value.                                                                                                                                           |
+| Invalid                   | `yes`, `on`, `1`, `TRUE`, `False`, a float, an object, or an array. The save is refused. A host value of that kind is ignored: the saved value is used, then the default. The field stays locked while the host variable is set. |
+| Where a restart is needed | Nowhere. The next check reads the value. Another process re-reads the file within 5 seconds.                                                                                                                                     |
+
+`GET` includes the switch with the other settings. `type` is `switch`, `on` is `true`, `off` is `false`, and `runtime` is `true`. `unit` is absent. `key` is the stable name. `source` is `host`, `panel`, or `default`. `effective` is `true` or `false`. `value` is empty when the default applies.
+
+```json
+{ "values": { "CUTTLELY_PUBLISH_CHECK": false } }
+```
+
+A value that is not on or off is 400:
+
+```json
+{
+    "code": "INVALID",
+    "key": "CUTTLELY_PUBLISH_CHECK",
+    "message": "Publish check: choose on or off.",
+    "errors": [{ "key": "CUTTLELY_PUBLISH_CHECK", "message": "Publish check: choose on or off.", "code": "INVALID" }]
+}
+```
+
+A number outside its range is still 400 `OUT_OF_RANGE`, with `min` and `max`. A value that is not a whole number is 400 `INVALID`. An unknown key is 400 `INVALID`. Examples that are refused: `""` is not an error for this switch (it clears the saved value); `null` clears it too; `"yes"`, `1`, `{}`, and `"CUTTLELY_NOT_A_REAL_SETTING"` are refused and nothing is written.
+
+When the host has set the variable, `PUT` is 409 and the file is unchanged:
+
+```json
+{
+    "code": "LOCKED",
+    "message": "Publish check is set by the host, so it is locked here.",
+    "errors": [{ "key": "CUTTLELY_PUBLISH_CHECK", "message": "Publish check is set by the host, so it is locked here.", "code": "LOCKED" }]
+}
+```
+
+The same 409 `LOCKED` applies to any setting the host set, including a numeric limit. The settings list and the host-only list are small and fixed. They are not paged.
+
+While the switch is off, `POST`, `GET`, and `DELETE` of `/api/v1/flow-drafts/:id/check` return 409 with the message `The publish check is turned off on this server.` So does `GET /api/v1/flow-drafts/:id/check/history`. No question is replayed. `GET /api/v1/flow-drafts/:id/check` (the setup, with no check id) returns 200 with `publishCheck: false` and `unavailable.code` `disabled`, and an empty question list. Publish itself still succeeds. A passing test set that was already stored can still publish. A new check cannot be started until the switch is on again. With the variable unset, the check behaves as it did before this setting existed.
+
 ## Security limits
 
 These are runtime limits too. The same read order applies: a valid host value, then the saved value, then the default. A host value outside the range is ignored. A save outside the range is refused. Idle time cannot be longer than the absolute lifetime (`CUTTLELY_SESSION_IDLE_MINUTES` must be at most `CUTTLELY_SESSION_ABSOLUTE_HOURS` times 60). That refusal is `CROSS_FIELD`.

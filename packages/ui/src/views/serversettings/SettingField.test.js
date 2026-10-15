@@ -99,4 +99,34 @@ describe('SettingField', () => {
         expect(fallback.max).toBe('500')
         expect(fallback.min).toBe('1')
     })
+
+    it('shows a lock and Set by the host on a testing limit the host set', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        const setting = {
+            ...bounded,
+            section: 'testing',
+            unit: 'seconds',
+            runtime: true,
+            locked: true,
+            range: { min: 10, max: 1800 },
+            value: '90',
+            effective: '90'
+        }
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(SettingField, { setting, drafts: {}, onDraft: () => {} })
+                )
+            )
+        })
+        expect(document.body.textContent).toContain('Set by the host')
+        expect(document.querySelector('[data-testid="lock-CUTTLELY_CHECK_COUNT_DEFAULT"]')).toBeTruthy()
+        expect(document.body.textContent).toContain('Range: 10 to 1800 seconds')
+        const input = document.querySelector('[data-testid="setting-CUTTLELY_CHECK_COUNT_DEFAULT"] input')
+        expect(input.disabled).toBe(true)
+    })
 })

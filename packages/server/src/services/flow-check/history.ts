@@ -4,6 +4,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { authSecret } from '../../identity/authSecrets'
+import { PUBLISH_CHECK_OFF_MESSAGE, publishCheckEnabled } from '../../settings/runtime'
 
 class HistoryError extends Error {
     constructor(readonly statusCode: number, message: string) {
@@ -359,6 +360,7 @@ export async function listQuestionHistory(
     query: { cursor?: unknown; limit?: unknown; q?: unknown; source?: unknown; [key: string]: unknown },
     caller: string
 ): Promise<HistoryPage> {
+    if (!publishCheckEnabled()) throw new HistoryError(StatusCodes.CONFLICT, PUBLISH_CHECK_OFF_MESSAGE)
     rejectBracketQueryKeys(query)
     const limit = parseHistoryLimit(query.limit)
     const q = parseHistoryQuery(query.q)

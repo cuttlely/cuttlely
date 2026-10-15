@@ -24,6 +24,7 @@ import SwitchDatabase from './SwitchDatabase'
 import HistoryPanel from './HistoryPanel'
 import ReviewDialog from './ReviewDialog'
 import { RestartChoice, RestartScreen, RestartSteps } from './RestartScreen'
+import ReadOnlyRows from './ReadOnlyRows'
 import SettingField from './SettingField'
 import TestConnection from './TestConnection'
 import SaveBar from './SaveBar'
@@ -328,9 +329,22 @@ const ServerSettings = () => {
         return null
     }
 
+    const readOnlyRows = (sectionId) => {
+        if (sectionId !== 'testing') return []
+        const q = query.trim().toLowerCase()
+        return (data?.readOnly ?? []).filter(
+            (row) =>
+                !q ||
+                String(row.key ?? '')
+                    .toLowerCase()
+                    .includes(q)
+        )
+    }
+
     const sectionView = (section) => {
         const visible = visibleIn(section.id)
-        if (searching && visible.length === 0) return null
+        const hostRows = readOnlyRows(section.id)
+        if (searching && visible.length === 0 && hostRows.length === 0) return null
         return (
             <Box key={section.id} sx={{ mb: searching ? 4 : 0 }} data-testid={`section-${section.id}`}>
                 <Stack direction='row' alignItems='center' gap={1.5} sx={{ mb: 0.75 }}>
@@ -400,10 +414,16 @@ const ServerSettings = () => {
                     >
                         <IconRefresh size={17} style={{ marginTop: 2, flexShrink: 0, color: theme.palette.info.main }} />
                         <Typography variant='body2'>
-                            <Box component='span' sx={{ fontWeight: 600 }}>
-                                After a restart.{' '}
-                            </Box>
-                            {section.afterRestart}
+                            {section.id === 'testing' ? (
+                                section.afterRestart
+                            ) : (
+                                <>
+                                    <Box component='span' sx={{ fontWeight: 600 }}>
+                                        After a restart.{' '}
+                                    </Box>
+                                    {section.afterRestart}
+                                </>
+                            )}
                         </Typography>
                     </Stack>
                 )}
@@ -462,6 +482,7 @@ const ServerSettings = () => {
                             </Paper>
                         </Box>
                     ))}
+                    {hostRows.length > 0 && <ReadOnlyRows rows={hostRows} />}
                     {!searching && testKindFor(section.id) && (
                         <TestConnection
                             kind={testKindFor(section.id)}
@@ -587,7 +608,7 @@ const ServerSettings = () => {
                 >
                     {!data ? (
                         <Stack gap={1}>
-                            {Array.from({ length: 9 }).map((_, i) => (
+                            {Array.from({ length: 10 }).map((_, i) => (
                                 <Skeleton key={i} variant='rounded' height={38} sx={{ borderRadius: 2.5 }} />
                             ))}
                         </Stack>
@@ -617,7 +638,7 @@ const ServerSettings = () => {
                     ) : searching ? (
                         <>
                             {sections.map((section) => sectionView(section))}
-                            {sections.every((section) => visibleIn(section.id).length === 0) && (
+                            {sections.every((section) => visibleIn(section.id).length === 0 && readOnlyRows(section.id).length === 0) && (
                                 <Typography color='text.secondary' sx={{ py: 6, textAlign: 'center' }}>
                                     No setting matches that search. Try All settings to see everything.
                                 </Typography>

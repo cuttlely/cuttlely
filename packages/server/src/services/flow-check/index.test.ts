@@ -184,12 +184,44 @@ beforeEach(() => {
     delete process.env.CUTTLELY_CHECK_MAX_TOKENS
     delete process.env.CUTTLELY_CHECK_MAX_SECONDS
     delete process.env.CUTTLELY_CHECK_CONCURRENCY
+    delete process.env.CUTTLELY_PUBLISH_CHECK
     resetRuntimeLimitsForTests()
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
     replayHooks.run = async ({ flowData }) => ({ text: wordOf(flowData), metrics: [JSON.stringify({ totalTokens: 50 })] })
     priceHooks.load = null
     historyHooks.loadUserMessages = null
     jest.clearAllMocks()
+})
+
+describe('the publish check switch', () => {
+    test('turning it off refuses a run and does not replay questions', async () => {
+        messages.push({ content: 'What is the code word?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null })
+        process.env.CUTTLELY_PUBLISH_CHECK = 'false'
+        resetRuntimeLimitsForTests()
+        const ran = jest.fn()
+        replayHooks.run = ran
+        const setup = await getCheckSetup(flow())
+        expect(setup.publishCheck).toBe(false)
+        expect(setup.unavailable).toEqual({
+            code: 'disabled',
+            message: 'The publish check is turned off on this server.'
+        })
+        expect(setup.questions).toEqual([])
+        await expect(startCheck(flow(), { count: 1 }, 'http://127.0.0.1')).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'The publish check is turned off on this server.'
+        })
+        await expect(getCheck(flow(), 'missing')).rejects.toMatchObject({ statusCode: 409 })
+        await expect(stopCheck(flow(), 'missing')).rejects.toMatchObject({ statusCode: 409 })
+        expect(ran).not.toHaveBeenCalled()
+        expect(checks.size).toBe(0)
+        delete process.env.CUTTLELY_PUBLISH_CHECK
+        resetRuntimeLimitsForTests()
+        const back = await getCheckSetup(flow())
+        expect(back.publishCheck).toBeUndefined()
+        expect(back.unavailable).toBeNull()
+        expect(back.questions).toEqual([{ text: 'What is the code word?', date: '2026-10-08T10:00:00.000Z' }])
+    })
 })
 
 describe('setup', () => {

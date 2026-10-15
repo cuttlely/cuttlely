@@ -11,6 +11,7 @@ import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { hasAnyPermission } from '../../identity/rbac'
 import { putVersionLive } from '../flow-versions'
+import { PUBLISH_CHECK_OFF_MESSAGE, publishCheckEnabled } from '../../settings/runtime'
 
 const SHA = /^[0-9a-f]{7,40}$/
 
@@ -201,9 +202,14 @@ function historyCaller(req: Request): string {
 }
 
 // Past questions a caller can hand to the check. Reading them needs the same view permission as this flow's messages.
+function assertPublishCheckOn(): void {
+    if (!publishCheckEnabled()) throw new AppError(StatusCodes.CONFLICT, PUBLISH_CHECK_OFF_MESSAGE)
+}
+
 const getCheckHistory = async (req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Cache-Control', 'no-store')
     try {
+        assertPublishCheckOn()
         const flow = await flowFor(req, 'view')
         return res.json(await listQuestionHistory(flow, req.query, historyCaller(req)))
     } catch (error) {
@@ -257,6 +263,7 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
     let stopped = false
     let detach: () => void = () => undefined
     try {
+        assertPublishCheckOn()
         const flow = await flowFor(req, 'update')
         const body = req.body || {}
         // Picking stored questions reads this flow's messages. A key that can run a check but cannot view messages is refused.
@@ -339,6 +346,7 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
 
 const getCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
+        assertPublishCheckOn()
         const flow = await flowFor(req, 'view')
         return res.json(await flowCheckService.getCheck(flow, req.params.checkId, undefined, await checkReveal(req)))
     } catch (error) {
@@ -348,6 +356,7 @@ const getCheck = async (req: Request, res: Response, next: NextFunction) => {
 
 const stopCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
+        assertPublishCheckOn()
         const flow = await flowFor(req, 'update')
         return res.json(await flowCheckService.stopCheck(flow, req.params.checkId, undefined, await checkReveal(req)))
     } catch (error) {

@@ -5,9 +5,12 @@ import { SETTINGS, settingFor } from './registry'
 import {
     RUNTIME_CACHE_MS,
     invalidateRuntimeCache,
+    parseRuntimeFlag,
     parseRuntimeInteger,
+    publishCheckEnabled,
     resetRuntimeLimitsForTests,
     runtimeConflict,
+    runtimeFlag,
     runtimeNumber,
     runtimeSnapshot
 } from './runtime'
@@ -228,5 +231,43 @@ describe('runtime limits', () => {
                 Number(bounds.defaultValue)
             )
         }
+    })
+})
+
+describe('CUTTLELY_PUBLISH_CHECK', () => {
+    it('defaults on, then uses a saved false, then a host true or false', () => {
+        const { data, env } = tempEnv()
+        expect(publishCheckEnabled(env)).toBe(true)
+        expect(runtimeFlag('CUTTLELY_PUBLISH_CHECK', env)).toEqual({ value: true, source: 'default' })
+        save(data, { CUTTLELY_PUBLISH_CHECK: 'false' })
+        expect(runtimeFlag('CUTTLELY_PUBLISH_CHECK', env)).toEqual({ value: false, source: 'panel' })
+        env.CUTTLELY_PUBLISH_CHECK = 'true'
+        expect(runtimeFlag('CUTTLELY_PUBLISH_CHECK', env)).toEqual({ value: true, source: 'host' })
+        expect(publishCheckEnabled(env)).toBe(true)
+    })
+
+    it('ignores a host value that is not exactly true or false and keeps the saved value', () => {
+        const { data, env } = tempEnv()
+        save(data, { CUTTLELY_PUBLISH_CHECK: 'false' })
+        for (const raw of ['TRUE', 'False', '1', '0', 'yes', 'on', ' true', 'true ']) {
+            env.CUTTLELY_PUBLISH_CHECK = raw
+            resetRuntimeLimitsForTests()
+            expect(runtimeFlag('CUTTLELY_PUBLISH_CHECK', env)).toEqual({ value: false, source: 'panel' })
+        }
+        expect(parseRuntimeFlag('true')).toBe(true)
+        expect(parseRuntimeFlag('false')).toBe(false)
+        expect(parseRuntimeFlag('yes')).toBeNull()
+        delete env.CUTTLELY_PUBLISH_CHECK
+        save(data, { CUTTLELY_PUBLISH_CHECK: 'YES' })
+        resetRuntimeLimitsForTests()
+        expect(runtimeFlag('CUTTLELY_PUBLISH_CHECK', env)).toEqual({ value: true, source: 'default' })
+        expect(console.warn).toHaveBeenCalled()
+    })
+
+    it('ignores the settings file when the admin file is turned off', () => {
+        const { data, env } = tempEnv()
+        save(data, { CUTTLELY_PUBLISH_CHECK: 'false' })
+        env.CUTTLELY_IGNORE_ADMIN_SETTINGS = '1'
+        expect(publishCheckEnabled(env)).toBe(true)
     })
 })
