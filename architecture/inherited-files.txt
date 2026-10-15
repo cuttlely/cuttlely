@@ -1107,6 +1107,7 @@ packages/server/src/database/migrations/mariadb/1772000000000-AddScheduleEntitie
 packages/server/src/database/migrations/mariadb/1776240000003-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/mariadb/1795000000000-AddDatasetRowSource.ts
 packages/server/src/database/migrations/mariadb/1796000000000-AddDatasetRowRating.ts
+packages/server/src/database/migrations/mariadb/1797000000000-AddChatMessageFlowCreatedIndex.ts
 packages/server/src/database/migrations/mariadb/index.ts
 packages/server/src/database/migrations/mysql/1693840429259-Init.ts
 packages/server/src/database/migrations/mysql/1693997791471-ModifyChatFlow.ts
@@ -1160,6 +1161,7 @@ packages/server/src/database/migrations/mysql/1772000000000-AddScheduleEntities.
 packages/server/src/database/migrations/mysql/1776240000002-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/mysql/1795000000000-AddDatasetRowSource.ts
 packages/server/src/database/migrations/mysql/1796000000000-AddDatasetRowRating.ts
+packages/server/src/database/migrations/mysql/1797000000000-AddChatMessageFlowCreatedIndex.ts
 packages/server/src/database/migrations/mysql/index.ts
 packages/server/src/database/migrations/postgres/1693891895163-Init.ts
 packages/server/src/database/migrations/postgres/1693995626941-ModifyChatFlow.ts
@@ -1211,6 +1213,7 @@ packages/server/src/database/migrations/postgres/1772000000000-AddScheduleEntiti
 packages/server/src/database/migrations/postgres/1776240000001-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/postgres/1795000000000-AddDatasetRowSource.ts
 packages/server/src/database/migrations/postgres/1796000000000-AddDatasetRowRating.ts
+packages/server/src/database/migrations/postgres/1797000000000-AddChatMessageFlowCreatedIndex.ts
 packages/server/src/database/migrations/postgres/index.ts
 packages/server/src/database/migrations/sqlite/1693835579790-Init.ts
 packages/server/src/database/migrations/sqlite/1693920824108-ModifyChatFlow.ts
@@ -1260,6 +1263,7 @@ packages/server/src/database/migrations/sqlite/1772000000000-AddScheduleEntities
 packages/server/src/database/migrations/sqlite/1776240000000-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/sqlite/1795000000000-AddDatasetRowSource.ts
 packages/server/src/database/migrations/sqlite/1796000000000-AddDatasetRowRating.ts
+packages/server/src/database/migrations/sqlite/1797000000000-AddChatMessageFlowCreatedIndex.ts
 packages/server/src/database/migrations/sqlite/index.ts
 packages/server/src/errors/appError/index.test.ts
 packages/server/src/errors/appError/index.ts

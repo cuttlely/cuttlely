@@ -471,6 +471,12 @@
             "foreignKeys": [],
             "indexes": [
                 {
+                    "name": "IDX_chat_message_flow_created_id",
+                    "unique": false,
+                    "columns": ["chatflowid", "createdDate", "id"],
+                    "origin": "c"
+                },
+                {
                     "name": "IDX_e574527322272fd838f4f0f3d3",
                     "unique": false,
                     "columns": ["chatflowid"],
@@ -3892,6 +3898,11 @@
             "foreignKeys": [],
             "indexes": [
                 {
+                    "name": "IDX_chat_message_flow_created_id",
+                    "unique": false,
+                    "columns": ["chatflowid", "createdDate", "id"]
+                },
+                {
                     "name": "IDX_e574527322272fd838f4f0f3d3",
                     "unique": false,
                     "columns": ["chatflowid"]
@@ -7125,6 +7136,11 @@
             ],
             "foreignKeys": [],
             "indexes": [
+                {
+                    "name": "IDX_chat_message_flow_created_id",
+                    "unique": false,
+                    "columns": ["chatflowid", "createdDate", "id"]
+                },
                 {
                     "name": "IDX_e574527322272fd838f4f0f3d3",
                     "unique": false,
@@ -11083,6 +11099,11 @@
             ],
             "foreignKeys": [],
             "indexes": [
+                {
+                    "name": "IDX_chat_message_flow_created_id",
+                    "unique": false,
+                    "columns": ["chatflowid", "createdDate", "id"]
+                },
                 {
                     "name": "IDX_e574527322272fd838f4f0f3d3",
                     "unique": false,

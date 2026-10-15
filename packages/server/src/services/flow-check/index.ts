@@ -65,7 +65,11 @@ import {
 } from './kinds'
 import { postProcessHash, publishGateApplies, readEvaluatorIdList, sameGateSettings } from '../flow-drafts/gate'
 import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
+import { bindHistoryRepository, parseQuestionIds, questionIdPrefix, resolveChatQuestionIds } from './history'
 import { CheckEvaluator, loadEvaluators, loadTestSet, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
+
+// The history reader uses the same database handle this module already uses.
+bindHistoryRepository(() => getRunningExpressApp().AppDataSource.getRepository(ChatMessage))
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
@@ -165,6 +169,8 @@ export interface CheckView {
     verdict: DraftVerdict | null
     // True when this dataset check uses the flow's current passing-test settings. A recent-question check is false.
     matchesPublishGate?: boolean
+    // Ids that were replayable when checked and gone when the run read them again. Absent on a check that did not pick ids.
+    skipped?: { count: number; ids: string[] }
 }
 
 interface CheckRecord {
@@ -191,6 +197,7 @@ interface CheckRecord {
     // Hash of the post-processing config this check scored against.
     postProcessHash: string
     evaluators: CheckEvaluator[]
+    skipped: { count: number; ids: string[] } | null
     // Tokens from a side that was dropped when the cap was hit. The case no longer shows them, but they still count.
     spentTokens: number
     inflight: Set<AbortController>
@@ -362,7 +369,8 @@ function view(record: CheckRecord, currentDraftHash: string | null, reveal?: Che
         })),
         summary,
         selection: record.selection,
-        verdict
+        verdict,
+        ...(record.skipped ? { skipped: { count: record.skipped.count, ids: [...record.skipped.ids] } } : {})
     }
 }
 
@@ -687,6 +695,7 @@ export async function startCheck(
         datasetId?: unknown
         evaluatorIds?: unknown
         threshold?: unknown
+        questionIds?: unknown
     },
     baseURL: string,
     given?: Candidate,
@@ -697,13 +706,18 @@ export async function startCheck(
     const candidate = await candidateFor(flow as DraftFlow, given)
     const draft = candidate.canvas
     const request = body || {}
+    const questionIds = request.questionIds !== undefined && request.questionIds !== null ? request.questionIds : undefined
+    if (questionIds !== undefined && request.count !== undefined && request.count !== null) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Send questionIds or count, not both.')
+    }
+    if (questionIds !== undefined) parseQuestionIds(questionIds)
     const datasetId = readDatasetId(request)
     const evaluatorIds = readEvaluatorIds(request)
     const parsedThreshold = parseCheckThreshold(request.threshold, Boolean(datasetId))
     if (!parsedThreshold.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsedThreshold.message)
     const threshold = parsedThreshold.threshold
-    if (datasetId && (request.questions !== undefined || request.count !== undefined)) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
+    if (datasetId && (request.questions !== undefined || request.count !== undefined || questionIds !== undefined)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions, count, or questionIds with it.')
     }
     // Resolve the dataset and the evaluators before any other refusal, so a missing one is 404 and starts nothing.
     // One read: the questions, the scores, and the stored hash all use that copy.
@@ -730,9 +744,19 @@ export async function startCheck(
     let previews: string[] = []
     let sources: ReplaySource[] = []
     let dates: string[] = []
+    let skipped: { count: number; ids: string[] } | null = null
     if (fromDataset) {
         questions = fromDataset.map((row) => row.question)
         selection = null
+    } else if (questionIds !== undefined) {
+        const prefix = questionIdPrefix(flow.type, [flow.flowData, draft])
+        if (prefix !== 'chat') {
+            throw new AppError(StatusCodes.CONFLICT, 'Choosing questions by id is not available for this flow yet.')
+        }
+        const picked = await resolveChatQuestionIds(flow.id, questionIds, cleanQuestions(request.questions, compareCountMax(), true))
+        questions = picked.questions
+        selection = null
+        skipped = picked.skipped
     } else if (kind) {
         const resolved = await inputsToRun(flow, kind, request)
         questions = resolved.questions
@@ -805,6 +829,7 @@ export async function startCheck(
         contentHash,
         postProcessHash: scoredPostProcess,
         evaluators,
+        skipped,
         spentTokens: 0,
         inflight: new Set<AbortController>(),
         stopRequested: false

@@ -5,6 +5,8 @@ import { ChatFlow } from '../../database/entities/ChatFlow'
 import chatflowsService from '../../services/chatflows'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import flowCheckService from '../../services/flow-check'
+import { listQuestionHistory } from '../../services/flow-check/history'
+import { BadQuestionIdsError } from '../../services/flow-check/question-ids-error'
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { hasAnyPermission } from '../../identity/rbac'
@@ -190,6 +192,25 @@ async function checkReveal(req: Request) {
     }
 }
 
+function historyCaller(req: Request): string {
+    const id = req.user?.id
+    if (typeof id === 'string' && id) return `user:${id}`
+    const keyId = req.user?.apiKeyId
+    if (typeof keyId === 'string' && keyId) return `key:${keyId}`
+    return 'api'
+}
+
+// Past questions a caller can hand to the check. Reading them needs the same view permission as this flow's messages.
+const getCheckHistory = async (req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store')
+    try {
+        const flow = await flowFor(req, 'view')
+        return res.json(await listQuestionHistory(flow, req.query, historyCaller(req)))
+    } catch (error) {
+        next(error)
+    }
+}
+
 // The publish check: recent questions replayed against Live and the draft. Optional; Publish never waits for it.
 const getCheckSetup = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -238,6 +259,14 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
         const body = req.body || {}
+        // Picking stored questions reads this flow's messages. A key that can run a check but cannot view messages is refused.
+        if (
+            body.questionIds !== undefined &&
+            body.questionIds !== null &&
+            !(await hasAnyPermission(req, permissionFor(flow.type, 'view')))
+        ) {
+            throw new AppError(StatusCodes.FORBIDDEN, "You do not have permission to read this flow's messages.")
+        }
         // On top of the flow permission: a dataset needs datasets:view, and evaluators need evaluators:view.
         if (body.datasetId !== undefined && body.datasetId !== null && !(await hasAnyPermission(req, 'datasets:view'))) {
             throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view datasets.')
@@ -300,6 +329,10 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         return res.status(StatusCodes.ACCEPTED).json(view)
     } catch (error) {
         detach()
+        if (error instanceof BadQuestionIdsError) {
+            res.setHeader('Cache-Control', 'no-store')
+            return res.status(StatusCodes.BAD_REQUEST).json({ code: error.code, badCount: error.badCount })
+        }
         next(error)
     }
 }
@@ -324,6 +357,7 @@ const stopCheck = async (req: Request, res: Response, next: NextFunction) => {
 
 export default {
     getCheckSetup,
+    getCheckHistory,
     startCheck,
     getCheck,
     stopCheck,
