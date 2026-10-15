@@ -396,6 +396,7 @@ async function loadRecent(flowId: string): Promise<{ rows: RecentRow[]; truncate
     const rows: RecentRow[] = []
     let truncated = false
     for (let skip = 0; skip < scanCap(); skip += SCAN_PAGE) {
+        const take = Math.min(SCAN_PAGE, scanCap() - skip)
         const page = await repo
             .createQueryBuilder('m')
             .select(['m.id', 'm.content', 'm.createdDate', 'm.fileUploads'])
@@ -405,12 +406,12 @@ async function loadRecent(flowId: string): Promise<{ rows: RecentRow[]; truncate
             .orderBy('m.createdDate', 'DESC')
             .addOrderBy('m.id', 'DESC')
             .skip(skip)
-            .take(SCAN_PAGE)
+            .take(take)
             .getMany()
         rows.push(...page)
         const distinct = pickQuestions(usableTexts(rows), compareCountMax(), MAX_QUESTION_CHARS)
-        if (distinct.length >= compareCountMax() || page.length < SCAN_PAGE) break
-        if (skip + SCAN_PAGE >= scanCap()) {
+        if (distinct.length >= compareCountMax() || page.length < take) break
+        if (skip + take >= scanCap()) {
             truncated = true
             break
         }

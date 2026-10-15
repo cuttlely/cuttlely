@@ -1,5 +1,6 @@
 // Runtime product limits. Read on each use: a valid host value, then the settings file, then the default.
 // Out of range on save is refused. A bad host value is logged by key and ignored. The read path does not throw.
+// On a pair, an in-range host value is kept. The other setting falls back, then is bounded by that host value.
 import { SETTINGS, SettingDef, settingFor } from './registry'
 import { hostSetKeys } from './resolve'
 import { encryptionKeySync, onSettingsFileWritten, readSettingsFile, settingsDir } from './store'
@@ -46,7 +47,7 @@ function warnKey(key: string): void {
     if (warned.has(key)) return
     warned.add(key)
     // Key only. The value can be a mistake and is not written here.
-    console.warn(`[server]: ${key} is not a usable runtime limit, so a saved or default value is used`)
+    console.warn(`[server]: ${key} is not a usable runtime limit, so another value is used`)
 }
 
 function warnUnread(): void {
@@ -146,13 +147,73 @@ function candidates(setting: SettingDef, env: Env, hostKeys: Set<string>, file: 
     return out
 }
 
+function boundTo(value: number, setting: SettingDef): number {
+    let n = value
+    if (setting.min !== undefined && n < setting.min) n = setting.min
+    if (setting.max !== undefined && n > setting.max) n = setting.max
+    return n
+}
+
+// The number is the host limit, not a value saved for this key. Source host so the page shows it.
+function forcedByHost(value: number, setting: SettingDef): Candidate {
+    return { value: boundTo(value, setting), source: 'host' }
+}
+
+/**
+ * An in-range host value wins and is not replaced by a looser candidate.
+ * The other setting walks its own candidates. If none fit, it is bounded by the host value.
+ * When both sides are host values and they conflict, the cap is kept and the other side is bounded.
+ */
+function pickHostPair(
+    limitKey: string,
+    otherKey: string,
+    limitCands: Candidate[],
+    otherCands: Candidate[]
+): { limit: Candidate; other: Candidate } {
+    const hostLimit = limitCands.find((candidate) => candidate.source === 'host')
+    const hostOther = otherCands.find((candidate) => candidate.source === 'host')
+    const limitSetting = setting(limitKey)
+    const otherSetting = setting(otherKey)
+    if (hostLimit) {
+        const other = otherCands.find((candidate) => candidate.value <= hostLimit.value)
+        if (other) {
+            if (other !== otherCands[0]) warnKey(otherKey)
+            return { limit: hostLimit, other }
+        }
+        warnKey(otherKey)
+        return { limit: hostLimit, other: forcedByHost(hostLimit.value, otherSetting) }
+    }
+    const other = hostOther as Candidate
+    const limit = limitCands.find((candidate) => other.value <= candidate.value)
+    if (limit) {
+        if (limit !== limitCands[0]) warnKey(limitKey)
+        return { limit, other }
+    }
+    warnKey(limitKey)
+    return { limit: forcedByHost(other.value, limitSetting), other }
+}
+
 function pickPair(
     depKey: string,
     indKey: string,
     depCands: Candidate[],
     indCands: Candidate[],
-    ok: (dep: number, ind: number) => boolean
+    ok: (dep: number, ind: number) => boolean,
+    limitSide: 'dep' | 'ind'
 ): { dep: Candidate; ind: Candidate } {
+    const hostDep = depCands.some((candidate) => candidate.source === 'host')
+    const hostInd = indCands.some((candidate) => candidate.source === 'host')
+    if (hostDep || hostInd) {
+        const limitKey = limitSide === 'dep' ? depKey : indKey
+        const otherKey = limitSide === 'dep' ? indKey : depKey
+        const picked = pickHostPair(
+            limitKey,
+            otherKey,
+            limitSide === 'dep' ? depCands : indCands,
+            limitSide === 'dep' ? indCands : depCands
+        )
+        return limitSide === 'dep' ? { dep: picked.limit, ind: picked.other } : { dep: picked.other, ind: picked.limit }
+    }
     for (const ind of indCands) {
         for (const dep of depCands) {
             if (!ok(dep.value, ind.value)) continue
@@ -189,10 +250,10 @@ function compute(env: Env): Map<string, ResolvedRuntime> {
         const chosen = cands(setting.key)[0]
         out.set(setting.key, { value: chosen.value, source: chosen.source })
     }
-    const counts = pickPair(COUNT_DEFAULT, COUNT_MAX, cands(COUNT_DEFAULT), cands(COUNT_MAX), (dep, ind) => dep <= ind)
+    const counts = pickPair(COUNT_DEFAULT, COUNT_MAX, cands(COUNT_DEFAULT), cands(COUNT_MAX), (dep, ind) => dep <= ind, 'ind')
     out.set(COUNT_DEFAULT, { value: counts.dep.value, source: counts.dep.source })
     out.set(COUNT_MAX, { value: counts.ind.value, source: counts.ind.source })
-    const ratings = pickPair(SCAN_CAP, IMPORT_CAP, cands(SCAN_CAP), cands(IMPORT_CAP), (dep, ind) => dep >= ind)
+    const ratings = pickPair(SCAN_CAP, IMPORT_CAP, cands(SCAN_CAP), cands(IMPORT_CAP), (dep, ind) => dep >= ind, 'dep')
     out.set(SCAN_CAP, { value: ratings.dep.value, source: ratings.dep.source })
     out.set(IMPORT_CAP, { value: ratings.ind.value, source: ratings.ind.source })
     return out

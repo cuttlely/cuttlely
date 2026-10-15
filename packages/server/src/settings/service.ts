@@ -162,7 +162,8 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
                 view.source = picked.source
                 view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key])
                 view.changed = false
-                view.range = { min: setting.min ?? 0, max: setting.max ?? 0 }
+                const cap = setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT' ? live.get('CUTTLELY_CHECK_COUNT_MAX') : undefined
+                view.range = { min: setting.min ?? 0, max: cap ? cap.value : setting.max ?? 0 }
                 view.value = shown
                 view.running = shown
                 view.effective = String(picked.value)

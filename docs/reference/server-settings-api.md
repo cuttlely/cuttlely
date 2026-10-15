@@ -53,7 +53,7 @@ A refusal is 400:
 }
 ```
 
-`code` is `OUT_OF_RANGE` for a number outside the range, `INVALID` for a value that is not a whole number, and `CROSS_FIELD` for a pair. `min` and `max` are the bounds that apply to that save. `errors` lists the same problem by key. A host value that is not a usable number is ignored on read: the saved value is used when it is in range, and otherwise the default. The read does not fail. A settings file that is not valid JSON is ignored the same way, and `GET` still returns 200.
+`code` is `OUT_OF_RANGE` for a number outside the range, `INVALID` for a value that is not a whole number, and `CROSS_FIELD` for a pair. `min` and `max` are the bounds that apply to that save. `errors` lists the same problem by key. A host value that is not a usable number is ignored on read: the saved value is used when it is in range, and otherwise the default. The read does not fail. An in-range host value on a pair always wins and is not loosened. The other setting falls back through its saved value and then its default. If none fit, that setting is bounded by the host value. A host `CUTTLELY_CHECK_COUNT_MAX` of 1 makes the effective question default 1. A host `CUTTLELY_RATING_SCAN_CAP` of 300 makes the effective import cap 300. When both sides are host values and they conflict, the cap is kept and the other side is bounded by it. The warning names the key only. A settings file that is not valid JSON is ignored the same way, and `GET` still returns 200. `range.max` for `CUTTLELY_CHECK_COUNT_DEFAULT` is the question cap in effect, not the static 500.
 
 ## Runtime limits
 

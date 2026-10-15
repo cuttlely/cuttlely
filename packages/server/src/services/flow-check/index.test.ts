@@ -1007,6 +1007,28 @@ describe('count', () => {
         expect(setup.pastTruncated).toBe(true)
     })
 
+    test('stops the message scan at the scan cap, including a short last page', async () => {
+        process.env.CUTTLELY_CHECK_SCAN_CAP = '500'
+        resetRuntimeLimitsForTests()
+        const takes: number[] = []
+        const take = queryBuilder.take
+        queryBuilder.take = (n: number) => {
+            takes.push(n)
+            return take(n)
+        }
+        try {
+            for (let i = 0; i < 600; i++) asked('same question', new Date(Date.UTC(2026, 0, 1) + i).toISOString(), `s${i}`)
+            const setup = await getCheckSetup(flow())
+            expect(takes).toEqual([200, 200, 100])
+            expect(setup.pastCount).toBe(1)
+            expect(setup.pastTruncated).toBe(true)
+        } finally {
+            queryBuilder.take = take
+            delete process.env.CUTTLELY_CHECK_SCAN_CAP
+            resetRuntimeLimitsForTests()
+        }
+    })
+
     test('runs a few questions at a time, and Stop keeps the ones that finished', async () => {
         process.env.CUTTLELY_CHECK_CONCURRENCY = '2'
         let active = 0

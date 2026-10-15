@@ -367,6 +367,15 @@ describe('runtime limits on the settings API', () => {
             effective: '100000',
             changed: false
         })
+        const countDefault = before.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT')
+        expect(countDefault.range).toEqual({ min: 1, max: 100 })
+        env.CUTTLELY_CHECK_COUNT_MAX = '10'
+        resetRuntimeLimitsForTests()
+        const capped = await app(OWNER).get('/api/v1/server-settings')
+        const cappedDefault = capped.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT')
+        expect(cappedDefault.range).toEqual({ min: 1, max: 10 })
+        delete env.CUTTLELY_CHECK_COUNT_MAX
+        resetRuntimeLimitsForTests()
         const saved = await app(OWNER)
             .put('/api/v1/server-settings')
             .send({ values: { CUTTLELY_CHECK_MAX_TOKENS: 5000 } })
