@@ -156,7 +156,9 @@ The response does not include cookies, bearer tokens, refresh tokens, token hash
 
 `userCount` is the number of people with that role on the caller's active team. A person who has the role only on another team is not included.
 
-`POST /api/v1/roles` and `PATCH /api/v1/roles/:id` use the same body as `POST /api/v1/role`: `name`, `description`, and `permissions` as a JSON string of catalog keys. The name cannot contain spaces and cannot be a reserved name. A role that still has people on any team cannot be deleted (**400** `{ "message": "Remove users with this role first" }`). That check is wider than `userCount`.
+`POST /api/v1/roles` and `PATCH /api/v1/roles/:id` use the same body as `POST /api/v1/role`: `name`, `description`, and `permissions` as a JSON string of catalog keys. The name cannot contain spaces and cannot be a reserved name. The new role belongs to the caller's organization. An `organizationId` in the body is ignored. A role that still has people on any team cannot be deleted (**400** `{ "message": "Remove users with this role first" }`). That check is wider than `userCount`.
+
+On `GET /api/v1/organizationuser`, `roleCount` and `lastLogin` for an organization owner include every team in the organization except Personal Workspace. Anyone else sees only the teams they belong to.
 
 ## Teams
 

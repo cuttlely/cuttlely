@@ -66,7 +66,7 @@ Cuttlely stores the person as active, does not send mail, and does not set a pas
 
 ![User Management. Casey Quinn, casey.quinn@example.com, is Super User, read-only, ACTIVE, last login Never, with 1 assigned role. Avery Chen, avery.chen@example.com, is ACTIVE, last login Never, with 1 assigned role. A notice says User created.](../images/roles/users-list.png)
 
-The eye on a row lists each team and the role on that team. The trash icon removes the person. You cannot delete the organization owner or your own row.
+The eye on a row lists each team and the role on that team. The trash icon removes the person. You cannot delete the organization owner or your own row. The assigned-role count and the last login include every team in the organization for an organization owner, except Personal Workspace. Anyone else sees only the teams they belong to.
 
 To change the role on a team, open **Teams**, open the team, and pick another role. That uses `workspace:update`. `workspace:add-user` creates a new user on a team. An email that already has an account is refused. Removing someone from a team uses `workspace:unlink-user`.
 

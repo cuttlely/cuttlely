@@ -436,13 +436,16 @@ export async function listOrganizationUsers(sql: Sql, actor: DirectoryActor, org
              INNER JOIN ${q(sql, 'workspace')} w ON w.${q(sql, 'id')} = wu.${q(sql, 'workspaceId')}
              WHERE w.${q(sql, 'organizationId')} = ?
                AND w.${q(sql, 'name')} <> ?
-               AND wu.${q(sql, 'workspaceId')} IN (
-                 SELECT caller.${q(sql, 'workspaceId')} FROM ${q(sql, 'workspace_user')} caller
-                 WHERE caller.${q(sql, 'userId')} = ?
+               AND (
+                 ? = 1
+                 OR wu.${q(sql, 'workspaceId')} IN (
+                   SELECT caller.${q(sql, 'workspaceId')} FROM ${q(sql, 'workspace_user')} caller
+                   WHERE caller.${q(sql, 'userId')} = ?
+                 )
                )
                AND wu.${q(sql, 'userId')} IN (${marks})
              GROUP BY wu.${q(sql, 'userId')}`,
-            [organizationId, PERSONAL_WORKSPACE, actor.id, ...ids]
+            [organizationId, PERSONAL_WORKSPACE, owner ? 1 : 0, actor.id, ...ids]
         )
         for (const row of aggregate) {
             counts.set(text(cell(row, 'userId')), { roleCount: num(cell(row, 'roleCount')), lastLogin: iso(cell(row, 'lastLogin')) })
@@ -1062,7 +1065,7 @@ function roleName(value: unknown): string {
 
 export async function createRole(sql: Sql, actor: DirectoryActor, body: unknown): Promise<RoleJson> {
     const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
-    const organizationId = text(record.organizationId).trim() || actor.organizationId
+    const organizationId = actor.organizationId
     sameOrg(actor, organizationId)
     const name = roleName(record.name)
     const description = text(record.description).trim()

@@ -519,15 +519,32 @@ describe('local directory rules', () => {
         })
     })
 
-    it('counts roles only on teams the caller shares', async () => {
+    it('counts an owner across every team and a non-owner only on shared teams', async () => {
         const { sql, db } = memorySql()
+        db.exec(
+            `UPDATE workspace_user SET "lastLogin" = '2026-10-02T00:00:00.000Z' WHERE "userId" = 'viewer-1' AND "workspaceId" = '${TEAM_B}'`
+        )
         const asAdmin = await listOrganizationUsers(sql, admin, ORG)
         expect(asAdmin.find((row) => row.userId === 'viewer-1')?.roleCount).toBe(1)
-        db.exec(
-            `INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM_B}', '${OWNER}', 'role-owner', 'active')`
-        )
+        expect(asAdmin.find((row) => row.userId === 'viewer-1')?.lastLogin).toBeNull()
         const asOwner = await listOrganizationUsers(sql, owner, ORG)
         expect(asOwner.find((row) => row.userId === 'viewer-1')?.roleCount).toBe(2)
+        expect(asOwner.find((row) => row.userId === 'viewer-1')?.lastLogin).toBe('2026-10-02T00:00:00.000Z')
+    })
+
+    it('creates a role in the caller organization and ignores a body organization id', async () => {
+        const { sql, db } = memorySql()
+        const omitted = await createRole(sql, admin, { name: 'Field', permissions: '["chatflows:view"]' })
+        expect(omitted.organizationId).toBe(ORG)
+        const ignored = await createRole(sql, admin, {
+            name: 'Other',
+            organizationId: 'org-other',
+            permissions: '["chatflows:view"]'
+        })
+        expect(ignored.organizationId).toBe(ORG)
+        expect(db.prepare('SELECT "organizationId" AS organizationId FROM role WHERE id = ?').all(ignored.id)).toEqual([
+            { organizationId: ORG }
+        ])
     })
 
     it('lets only one of two connections remove the last owner from their two teams', async () => {

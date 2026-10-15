@@ -255,7 +255,8 @@ export async function addLocalDirectory(runner: QueryRunner): Promise<void> {
             [role.name]
         )
         if (!existing.length) {
-            await runner.query(
+            await rows(
+                runner,
                 `INSERT INTO ${q(dialect, 'role')} (${q(dialect, 'id')}, ${q(dialect, 'name')}, ${q(dialect, 'description')}, ${q(
                     dialect,
                     'permissions'
@@ -264,7 +265,8 @@ export async function addLocalDirectory(runner: QueryRunner): Promise<void> {
             )
             continue
         }
-        await runner.query(
+        await rows(
+            runner,
             `UPDATE ${q(dialect, 'role')} SET ${q(dialect, 'description')} = ?, ${q(dialect, 'permissions')} = ?, ${q(
                 dialect,
                 'updatedDate'
@@ -278,7 +280,8 @@ export async function removeLocalDirectory(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
     if (await tableExists(runner, dialect, 'role')) {
         for (const role of SEEDED_BUILT_IN_ROLES) {
-            await runner.query(
+            await rows(
+                runner,
                 `DELETE FROM ${q(dialect, 'role')} WHERE ${q(dialect, 'id')} = ? AND ${q(dialect, 'organizationId')} IS NULL`,
                 [role.id]
             )
