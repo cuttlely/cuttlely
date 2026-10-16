@@ -21,6 +21,7 @@ const MODEL_NODES = new Set(['llmAgentflow', 'agentAgentflow', 'conditionAgentAg
 
 let provider: any
 let installed = false
+let warnedContentMax = false
 const failedSpans = new WeakSet<object>()
 
 function tracesRequested(): boolean {
@@ -79,7 +80,8 @@ function api(): {
 }
 
 export function registerCuttlelyTraces(): void {
-    if (traceContentMaxInvalid()) {
+    if (!warnedContentMax && traceContentMaxInvalid()) {
+        warnedContentMax = true
         logger.warn('CUTTLELY_OTEL_TRACES_CONTENT_MAX must be a whole number of characters, or 0 for no limit. Using 4000.')
     }
     if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return
@@ -129,6 +131,11 @@ export function registerCuttlelyTraces(): void {
         provider = undefined
         logger.error(`Run traces could not start (${error instanceof Error ? error.name : 'error'}). Run traces stay off.`)
     }
+}
+
+/** Lets a test see the bad-limit warning again. */
+export function resetTraceWarningsForTests(): void {
+    warnedContentMax = false
 }
 
 export async function flushCuttlelyTraces(): Promise<void> {

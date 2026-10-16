@@ -17,6 +17,7 @@ import {
     registerCuttlelyTraces,
     rememberTraceContinuation,
     resetHeldToolsForTests,
+    resetTraceWarningsForTests,
     setTraceParentClock,
     shutdownCuttlelyTraces,
     TRACE_PARENT_CAP,
@@ -73,6 +74,7 @@ describe('registerCuttlelyTraces', () => {
 
     it('warns once at start when the trace content limit is not a whole number', () => {
         const warn = logger.warn as jest.Mock
+        resetTraceWarningsForTests()
         warn.mockClear()
         process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = 'lots'
         registerCuttlelyTraces()
@@ -86,6 +88,19 @@ describe('registerCuttlelyTraces', () => {
             registerCuttlelyTraces()
         }
         expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('warns about a bad trace content limit once, not on every run, even when the install fails', async () => {
+        const warn = logger.warn as jest.Mock
+        resetTraceWarningsForTests()
+        warn.mockClear()
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = 'lots'
+        for (let i = 0; i < 5; i++) registerCuttlelyTraces()
+        for (let i = 0; i < 3; i++) await traceFlow('chatflow', `flow-${i}`, async () => 'ok')
+        expect(tracesInstalled()).toBe(false)
+        const limitWarnings = warn.mock.calls.filter(([message]) => String(message).includes('CUTTLELY_OTEL_TRACES_CONTENT_MAX'))
+        expect(limitWarnings).toHaveLength(1)
     })
 })
 
