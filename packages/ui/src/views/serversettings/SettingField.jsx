@@ -210,9 +210,12 @@ const SwitchControl = ({ setting, value, disabled, onDraft }) => {
 
 const SelectControl = ({ setting, value, disabled, onDraft, error }) => {
     const options = setting.options ?? []
-    const known = value === '' || options.some((option) => option.value === value)
+    const listed = options.some((option) => option.value === value)
+    // A saved value equal to the default, with no option of its own, is the Default item.
+    const isDefault = value === '' || (!listed && setting.defaultValue !== undefined && value === setting.defaultValue)
+    const known = isDefault || listed
     const [custom, setCustom] = useState(!known)
-    const selected = custom ? CUSTOM : value === '' ? '' : value
+    const selected = custom ? CUSTOM : isDefault ? '' : value
     return (
         <Stack gap={1}>
             <Select
@@ -254,7 +257,7 @@ const SelectControl = ({ setting, value, disabled, onDraft, error }) => {
                 <TextField
                     size='small'
                     fullWidth
-                    value={known ? '' : value}
+                    value={listed || value === '' ? '' : value}
                     placeholder={setting.custom?.placeholder}
                     disabled={disabled}
                     onChange={(event) => onDraft(setting.key, event.target.value)}
