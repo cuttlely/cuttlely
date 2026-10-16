@@ -145,6 +145,11 @@
             "to": "packages/components/src/httpSecurity.ts"
         },
         {
+            "from": "packages/components/src/otelRunSpans.test.ts",
+            "to": "packages/components/src/otelRunSpans.ts",
+            "reason": "Unit test for the trace content limit in the run span module it covers"
+        },
+        {
             "from": "packages/components/src/storage/fileStorageTraversal.test.ts",
             "to": "packages/components/src/storage/LocalStorageProvider.ts"
         },

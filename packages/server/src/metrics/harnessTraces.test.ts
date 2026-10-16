@@ -13,7 +13,13 @@ jest.mock('../utils/logger', () => ({
     default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() }
 }))
 
-const TRACE_ENV = ['CUTTLELY_OTEL_TRACES', 'CUTTLELY_OTEL_TRACES_ENDPOINT', 'CUTTLELY_OTEL_TRACES_PROTOCOL', 'CUTTLELY_OTEL_TRACES_CONTENT']
+const TRACE_ENV = [
+    'CUTTLELY_OTEL_TRACES',
+    'CUTTLELY_OTEL_TRACES_ENDPOINT',
+    'CUTTLELY_OTEL_TRACES_PROTOCOL',
+    'CUTTLELY_OTEL_TRACES_CONTENT',
+    'CUTTLELY_OTEL_TRACES_CONTENT_MAX'
+]
 
 const T0 = 1_700_000_000_000
 const WORKSPACE = '11111111-1111-4111-8111-111111111111'
@@ -277,6 +283,28 @@ describe('harness run spans', () => {
         expect(String(sqlTool?.attributes['content.output'])).toContain(ROW_TEXT)
         expect(String(sqlTool?.attributes['content.output'])).not.toContain(SQL)
         expect(sqlTool?.attributes['tool.rows']).toBe(2)
+    })
+
+    it('exports the full question and answer with no limit, and cuts at 4,000 by default', () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'true'
+        const question = 'How many loaves did the bakery sell this week? '.repeat(300).trim()
+        const answer = 'The bakery sold two loaves. '.repeat(600).trim()
+        expect(question.length).toBeGreaterThan(4000)
+        expect(answer.length).toBeGreaterThan(4000)
+
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = '0'
+        openHarnessRunTrace({ name: 'bakery', workspaceId: WORKSPACE, question })?.finish({ text: answer })
+        const full = memory.spans().find((span) => span.name === 'harness.run')
+        expect(full?.attributes['content.input']).toBe(question)
+        expect(full?.attributes['content.output']).toBe(answer)
+
+        memory.reset()
+        delete process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX
+        openHarnessRunTrace({ name: 'bakery', workspaceId: WORKSPACE, question })?.finish({ text: answer })
+        const capped = memory.spans().find((span) => span.name === 'harness.run')
+        expect(capped?.attributes['content.input']).toBe(question.slice(0, 4000))
+        expect(capped?.attributes['content.output']).toBe(answer.slice(0, 4000))
     })
 
     it('keeps at most 200 characters of the run-card task on the specialist span', () => {

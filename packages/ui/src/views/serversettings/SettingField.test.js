@@ -197,4 +197,52 @@ describe('SettingField', () => {
         const input = document.querySelector('[data-testid="setting-CUTTLELY_CHECK_COUNT_DEFAULT"] input')
         expect(input.disabled).toBe(true)
     })
+
+    it('offers No limit and a typed limit for trace text, and shows the server refusal', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        const setting = {
+            key: 'CUTTLELY_OTEL_TRACES_CONTENT_MAX',
+            label: 'Prompt and tool text limit',
+            help: 'Sensitive. No limit (stored as 0) sends the full question and answer text to your collector.',
+            type: 'select',
+            options: [
+                { value: '4000', label: '4,000 characters' },
+                { value: '0', label: 'No limit' }
+            ],
+            custom: { label: 'Another limit', placeholder: '20000' },
+            defaultLabel: '4,000 characters',
+            defaultValue: '4000',
+            value: '',
+            effective: '4000',
+            locked: false
+        }
+        const onDraft = jest.fn()
+        const render = async (drafts, error) => {
+            await act(async () => {
+                root.render(
+                    createElement(ThemeProvider, { theme: createTheme() }, createElement(SettingField, { setting, drafts, onDraft, error }))
+                )
+            })
+        }
+
+        await render({ CUTTLELY_OTEL_TRACES_CONTENT_MAX: '0' })
+        const field = () => document.querySelector('[data-testid="setting-CUTTLELY_OTEL_TRACES_CONTENT_MAX"]')
+        expect(field().textContent).toContain('No limit')
+        expect(document.querySelector('input[aria-label="Prompt and tool text limit, Another limit"]')).toBeNull()
+
+        await act(async () => {
+            root.unmount()
+        })
+        root = createRoot(container)
+        await render({ CUTTLELY_OTEL_TRACES_CONTENT_MAX: '20000' })
+        const typed = document.querySelector('input[aria-label="Prompt and tool text limit, Another limit"]')
+        expect(typed.value).toBe('20000')
+        expect(typed.placeholder).toBe('20000')
+
+        const refusal = 'Prompt and tool text limit: enter a whole number of characters greater than 0, or choose No limit.'
+        await render({ CUTTLELY_OTEL_TRACES_CONTENT_MAX: 'lots' }, refusal)
+        expect(field().textContent).toContain(refusal)
+    })
 })

@@ -171,6 +171,7 @@ export abstract class BaseCommand extends Command {
         CUTTLELY_OTEL_TRACES_ENDPOINT: Flags.string(),
         CUTTLELY_OTEL_TRACES_PROTOCOL: Flags.string(),
         CUTTLELY_OTEL_TRACES_CONTENT: Flags.string(),
+        CUTTLELY_OTEL_TRACES_CONTENT_MAX: Flags.string(),
 
         // Proxy
         GLOBAL_AGENT_HTTP_PROXY: Flags.string(),

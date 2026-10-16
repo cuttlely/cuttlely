@@ -26,7 +26,7 @@ interface TraceSpan {
  * This module does not create a provider. The server does, and only when traces are on.
  */
 
-const CONTENT_MAX = 4000
+export const TRACE_CONTENT_MAX_DEFAULT = 4000
 
 type TracerLike = {
     startSpan: (name: string, options?: object, ctx?: unknown) => TraceSpan
@@ -42,8 +42,20 @@ export function traceContentOn(): boolean {
     return process.env.CUTTLELY_OTEL_TRACES === 'true' && process.env.CUTTLELY_OTEL_TRACES_CONTENT === 'true'
 }
 
+/**
+ * CUTTLELY_OTEL_TRACES_CONTENT_MAX: characters kept per content attribute. 0 is no limit.
+ * Unset or not a whole number keeps the default, so a bad host value does not drop the cap.
+ */
+export function traceContentMax(): number {
+    const raw = process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX?.trim()
+    if (!raw || !/^\d+$/.test(raw)) return TRACE_CONTENT_MAX_DEFAULT
+    const max = Number(raw)
+    return Number.isSafeInteger(max) ? max : TRACE_CONTENT_MAX_DEFAULT
+}
+
 export function capTraceText(value: string): string {
-    return value.length > CONTENT_MAX ? value.slice(0, CONTENT_MAX) : value
+    const max = traceContentMax()
+    return max > 0 && value.length > max ? value.slice(0, max) : value
 }
 
 export function tokenCount(value: unknown): number | undefined {
