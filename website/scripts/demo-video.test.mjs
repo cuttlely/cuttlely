@@ -859,8 +859,8 @@ test('the home page puts a play button on the hero and on every tile loop', () =
     assert.match(src, /<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">/)
     assert.match(src, /aria-label="Play the testing video with sound"/)
     const ids = [
-        'ab-test-every-change-before-it-goes-live',
         'watch-a-team-resolve-a-complaint',
+        'ab-test-every-change-before-it-goes-live',
         'one-complaint-three-specialists',
         'agent-teams-that-power-your-apps',
         'use-a-team-from-your-app',
@@ -903,12 +903,16 @@ test('the home page keeps the old anchors, one testing video, and no testing til
     assert.equal((src.match(/aria-label="Play the testing video with sound"/g) || []).length, 1)
 })
 
-test('the A/B section leads, and the demo copy shares a row with its video', () => {
+test('the demo follows the hero, the A/B section follows the demo, and the demo copy shares a row with its video', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
     assert.match(src, /<h2 id="test-every-change-title" class="cl-display">A\/B test every change before it goes live<\/h2>/)
-    assert.ok(src.indexOf('class="cl-proof"') < src.indexOf('id="ab-test-every-change-before-it-goes-live"'))
-    const showcase = src.slice(src.indexOf('id="watch-a-team-resolve-a-complaint"'), src.indexOf('id="one-complaint-three-specialists"'))
+    const proof = src.indexOf('class="cl-proof"')
+    const demo = src.indexOf('<section id="watch-a-team-resolve-a-complaint"')
+    const ab = src.indexOf('<section id="ab-test-every-change-before-it-goes-live"')
+    assert.ok(proof < demo && demo < ab)
+    assert.equal(src.slice(proof, demo).match(/<section/g), null, 'nothing sits between the proof row and the demo')
+    const showcase = src.slice(demo, ab)
     assert.ok(showcase.indexOf('class="cl-showcase-copy"') < showcase.indexOf('class="cl-demo-window"'), 'copy comes before the video')
     // An anchor span in the flow takes the first grid cell and pushes the copy onto a second row.
     assert.match(css, /\.cl-home \.cl-anchor \{\s*position: absolute;/)
