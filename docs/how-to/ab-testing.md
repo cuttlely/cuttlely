@@ -21,7 +21,7 @@ A change on a chatflow, agentflow, or harness canvas saves to a draft. Live keep
 | `Changed` | The words differ. Read both: the meaning may still be the same.       |
 | `Error`   | One side could not answer, for example because it took over a minute. |
 
-![The check results for Bakery helper: 1 of 4 answered differently, 3 of 4 answered the same. What time do you open on Saturday? is marked Changed: Live says We open at 8 AM on Saturdays, and Draft says We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same: Live and Draft both say No, we bake gluten-free bread only on Tuesdays.](../images/versioning/publish-check-results.png)
+![The check results for Bakery helper: 1 of 4 answered differently, 3 of 4 answered the same. Tokens are Live 235 and draft 235. Typical time is 0.1 s on both sides. Estimated cost is no price. What time do you open on Saturday? is marked Changed: Live says We open at 8 AM on Saturdays, and Draft says We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same: Live and Draft both say No, we bake gluten-free bread only on Tuesdays.](../images/versioning/publish-check-results.png)
 
 A model can word an answer a little differently between runs with no change, so `Changed` means "look at this one", not "something broke". The check never changes Live or your draft and leaves nothing in chat history. **Publish** works with or without it, unless the flow requires a passing test set.
 

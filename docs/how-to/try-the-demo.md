@@ -24,11 +24,11 @@ A smaller bakery team is on the same card as a [quickstart](#the-bakery-quicksta
 
 4. Select the first question. The run card shows Harness Prime sending the work to `customer` and `operations` at the same time, then to `policy` once operations has finished, with the model, the time and the tokens each step took. Open a row to see the task Harness Prime gave that specialist and the tools it ran.
 
-    ![Customer care demo run for Maya Okafor's late espresso machine order. Harness Prime sent work to customer, operations, then policy. The policy step is open, and the decision is a shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a store credit, and a call from the Customer Care Lead.](../images/try-the-demo/customer-care-policy.png)
+    ![Customer care demo run for Maya Okafor's late espresso machine order. Harness Prime sent work to customer, operations, then policy. The policy step is open, and the decision refunds the $9.95 shipping, reships by 2026-10-08 and gives a $55.80 store credit.](../images/try-the-demo/customer-care-policy.png)
 
 5. Scroll down for the rest of the answer: the reply to send the customer, the actions for the team, and the evidence from each specialist with the policy sections it rests on.
 
-    ![The reply to Maya offers a replacement by Express arriving Thursday, October 8, or a refund, plus a store credit and a call from the Customer Care Lead, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy sections.](../images/try-the-demo/customer-care-answer.png)
+    ![The reply letter to Maya with the $9.95 shipping refund, reship from Reno and $55.80 store credit, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy.](../images/try-the-demo/customer-care-answer.png)
 
 On a laptop the answer usually arrives in 15 to 20 seconds. If the agent runtime is still starting, the question waits for it, up to a minute (`CUTTLELY_HERMES_START_WAIT_MS`). The wording changes from run to run, but the facts, the amounts and the policy sections come from the specialists' tools.
 
@@ -44,11 +44,11 @@ Harness Prime puts it together: whose fault it was, which remedy applies and why
 
 The second starter is the contrast. Daniel's duvet set was picked up on time and held by a road closure for snow, so it is the carrier's fault. Daniel is a Standard customer, so he gets a carrier trace and a $10 goodwill credit, and a reship only if the carrier has no new scan for 3 business days.
 
-![Daniel Reyes asks about his late duvet set. The operations step is open, and the decision says the carrier is at fault because of a road closure for snow: ask the carrier for a trace, reship only after 3 business days with no new scan, and add a goodwill credit.](../images/try-the-demo/customer-care-carrier.png)
+![Daniel Reyes asks about his late duvet set. The operations step is open, and the decision says the carrier is at fault because of a road closure for snow: open a trace, wait 3 business days before reshipping and give a $10.00 goodwill credit.](../images/try-the-demo/customer-care-carrier.png)
 
 The third starter crosses both systems in the other order: operations lists the held orders, then customer looks up who placed them.
 
-![The question about which orders are held in a warehouse. Harness Prime sent work to operations, then customer, and the answer starts: Five orders are held in packing wave W-0929-B, with LH-20409, Premier, first.](../images/try-the-demo/customer-care-held.png)
+![Answer to which orders are held in a warehouse: five orders in exception cage E-2 at CMH after failed scale checks on 2026-09-29, each with the customer's name and tier.](../images/try-the-demo/customer-care-held.png)
 
 ## What the demo makes
 
