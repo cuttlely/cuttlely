@@ -956,6 +956,7 @@
 .cl-video-dialog {
     width: min(64rem, 94vw);
     max-width: none;
+    margin: auto;
     padding: 0;
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 1rem;
