@@ -1,0 +1,12 @@
+# Image and video files over 5 MB that were committed before scripts/media-size.mjs.
+# One repository path per line. Do not add a new file here: compress it or host it elsewhere.
+# Remove a line when that file is deleted or shrinks under the limit; the check fails until you do.
+website/public/media/customer-care-demo.mp4
+website/public/media/customer-care-demo.webm
+website/public/media/products/agentflows.mp4
+website/public/media/products/build-with-ai.mp4
+website/public/media/products/chatflows.mp4
+website/public/media/products/harnesses.mp4
+website/public/media/products/knowledge-pipelines.mp4
+website/public/media/products/testing.mp4
+website/public/media/products/testing.webm

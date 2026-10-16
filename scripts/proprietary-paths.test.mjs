@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
-import { commercialTreePresent, isCommercialPath, proprietaryViolations, reportedViolations } from './proprietary-paths.mjs'
+import { commercialTreePresent, isCommercialPath, parseBase, proprietaryViolations, reportedViolations } from './proprietary-paths.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -88,5 +88,13 @@ describe('proprietary paths', () => {
             reportedViolations(['packages/server/src/enterprise/rbac/PermissionCheck.ts', 'packages/server/src/IdentityManager.ts'], ROOT),
             []
         )
+    })
+
+    it('reads --base for the CI diff and rejects other arguments', () => {
+        assert.equal(parseBase([]), '')
+        assert.equal(parseBase(['--base', 'HEAD^1']), 'HEAD^1')
+        assert.equal(parseBase(['--base=abc123']), 'abc123')
+        assert.throws(() => parseBase(['--base']), /needs a commit/)
+        assert.throws(() => parseBase(['--fast']), /Unknown argument/)
     })
 })
