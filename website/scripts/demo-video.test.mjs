@@ -914,6 +914,13 @@ test('the A/B section leads, and the demo copy shares a row with its video', () 
     assert.match(css, /\.cl-home \.cl-anchor \{\s*position: absolute;/)
 })
 
+test('the home page ends with the sign-off line below the site footer, and other pages do not', () => {
+    const footer = readFileSync(new URL('../src/components/Footer.astro', import.meta.url), 'utf8')
+    assert.ok(footer.indexOf('<SiteFooter />') < footer.indexOf('cl-signoff'))
+    assert.match(footer, /const isHome = Astro\.url\.pathname === '\/'/)
+    assert.match(footer, /\{isHome && <p class="cl-signoff not-content">Cuttlely · Cute name, serious work\.<\/p>\}/)
+})
+
 test('reduced motion, a narrow screen and Save-Data keep the poster and the play button', () => {
     for (const options of [{ reduced: true }, { small: true }, { saveData: true }]) {
         const video = shellVideo({ demoVideo: '' })
