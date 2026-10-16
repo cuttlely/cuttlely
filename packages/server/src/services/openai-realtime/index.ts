@@ -12,6 +12,7 @@ import {
 } from '../../utils'
 import { checkStorage, updateStorageUsage } from '../../utils/quotaUsage'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import { withoutRemovedNodes } from '../../utils/nodePacks'
 import chatflowsService from '../chatflows'
 import { IDepthQueue, IReactFlowNode } from '../../Interface'
 import { ICommonObject, INodeData } from '@cuttlely/components'
@@ -32,7 +33,7 @@ const buildAndInitTool = async (chatflowid: string, reqWorkspaceId?: string, _ch
 
     const chatId = _chatId || uuidv4()
     const apiMessageId = _apiMessageId || uuidv4()
-    const flowData = JSON.parse(chatflow.flowData)
+    const flowData = withoutRemovedNodes(JSON.parse(chatflow.flowData))
     const nodes = flowData.nodes
     const edges = flowData.edges
 

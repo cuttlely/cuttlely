@@ -12,6 +12,8 @@ const catalog = JSON.parse(
     readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../packages/components/nodes/module-catalog.json'), 'utf8')
 )
 
+const catalogHas = (name) => (Array.isArray(catalog) ? catalog : catalog.nodes).some((entry) => entry && entry.name === name)
+
 const node = (id, name, extra = {}) => ({
     id,
     type: 'customNode',
@@ -120,6 +122,40 @@ describe('scanFlowiseMigration', () => {
         assert.equal(report.canvas, null)
         assert.match(report.unsupported[0].message, /LlamaIndex/)
         assert.match(report.reason, /cannot place/)
+        const dumped = JSON.stringify(report)
+        assert.equal(dumped.includes(SECRET), false)
+        assert.equal(dumped.includes(CREDENTIAL_ID), false)
+    })
+
+    it('drops the removed configuration cards with a note and still opens the canvas', () => {
+        const removed = ['arize', 'langFuse', 'langSmith', 'LangWatch', 'lunary', 'opik', 'phoenix', 'assemblyAI']
+        for (const name of removed) assert.equal(catalogHas(name), false, `${name} is still in the catalog`)
+        const report = scan({
+            name: 'Traced harness',
+            type: 'CHATFLOW',
+            nodes: [
+                node('harness_0', 'harness', { label: 'Harness', category: 'Harness' }),
+                node('langFuse_0', 'langFuse', {
+                    label: 'LangFuse',
+                    category: 'Analytic',
+                    credential: CREDENTIAL_ID,
+                    inputs: { langFuseSecretKey: SECRET }
+                }),
+                node('assemblyAI_0', 'assemblyAI', { label: 'AssemblyAI', category: 'SpeechToText' })
+            ],
+            edges: [edge('langFuse_0', 'harness_0')]
+        })
+        assert.equal(report.ok, true)
+        assert.equal(report.level, 'attention')
+        assert.deepEqual(report.unsupported, [])
+        assert.deepEqual(report.attention, [])
+        assert.deepEqual(
+            report.canvas.nodes.map((item) => item.id),
+            ['harness_0']
+        )
+        assert.deepEqual(report.canvas.edges, [])
+        assert.equal(report.fixes.filter((fix) => /^Dropped (LangFuse|AssemblyAI)\. Cuttlely no longer has this card/.test(fix)).length, 2)
+        assert.ok(report.fixes.includes('Dropped 1 edge that pointed at a missing node.'))
         const dumped = JSON.stringify(report)
         assert.equal(dumped.includes(SECRET), false)
         assert.equal(dumped.includes(CREDENTIAL_ID), false)

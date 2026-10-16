@@ -69,6 +69,7 @@ Cuttlely upgrades the database when it starts. Your flows, credentials and the r
 
 -   A whole-workspace export (several flows, tools and variables in one file). Import one flow at a time.
 -   LlamaIndex nodes. Cuttlely removed them, and the wizard names each one and does not open the file.
+-   The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix, and AssemblyAI configuration cards. Cuttlely removed them. The wizard drops each one, with a note under **Fixes**, and still opens the file. Set up tracing in Analyse Flow and transcription in Speech to Text instead.
 -   A node Cuttlely does not have, or a node saved without its input and output lists. The wizard names it and does not open the file.
 -   Matching or creating credentials inside the wizard. Select them on the canvas after it opens.
 -   Rewriting an older completion model into the chat model of the same provider. The wizard keeps it as it is.

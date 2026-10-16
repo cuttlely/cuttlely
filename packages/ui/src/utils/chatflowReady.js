@@ -1,3 +1,5 @@
+import { withoutRemovedNodes } from './removedNodes.mjs'
+
 // Keep this sentence identical to the ending-node error in packages/server/src/utils/index.ts.
 export const CHATFLOW_NEEDS_ENDING_NODE = 'This chatflow cannot chat yet. Add a Chain, Agent, or Engine, connect the model to it, and save.'
 
@@ -14,8 +16,7 @@ export function chatflowCanChat(flowData) {
             return true
         }
     }
-    const nodes = Array.isArray(flow.nodes) ? flow.nodes : []
-    const edges = Array.isArray(flow.edges) ? flow.edges : []
+    const { nodes, edges } = withoutRemovedNodes(flow.nodes, flow.edges)
     if (!nodes.length) return false
 
     const outgoing = {}

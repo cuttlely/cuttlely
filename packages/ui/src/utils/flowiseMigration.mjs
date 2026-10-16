@@ -1,8 +1,10 @@
 // Flowise migration scan. Pure data in, report out. No network and no secret values in the report.
 // Deprecated nodes stay on the canvas. Unknown nodes and removed LlamaIndex nodes do not.
+// The removed configuration-only cards are dropped with a note and do not block the import.
 // Credential ids and password inputs are stripped the same way a Flowise export strips them.
 
 import { isLangflowExport } from './langflowImport.mjs'
+import { REMOVED_NODE_NAMES } from './removedNodes.mjs'
 
 const CHATFLOW_NEEDS_ENDING_NODE = 'This chatflow cannot chat yet. Add a Chain, Agent, or Engine, connect the model to it, and save.'
 
@@ -245,6 +247,10 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
                 name,
                 message: 'This node has no name, so the canvas cannot place it.'
             })
+            continue
+        }
+        if (!catalog.has(name) && REMOVED_NODE_NAMES.has(name)) {
+            fixes.push(`Dropped ${label}. Cuttlely no longer has this card. Set it up in Analyse Flow or Speech to Text instead.`)
             continue
         }
         if (!drawable(node)) {
