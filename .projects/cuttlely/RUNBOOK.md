@@ -178,6 +178,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 -   **Chatflow API keys are hashes.** A key cannot be shown again; create a new one if it was not saved (D22).
 -   **Docker's published port is not loopback inside the container.** First-account registration from the host needs the one-time setup link the server prints in its log.
 -   **A sticky bar inside a MUI `MainCard` does not stick,** because the card sets `overflow: hidden`. Give that card `sx={{ overflow: 'visible' }}` and check in a real browser.
+-   **Retaking one docs picture.** `capture-settings.mjs` and `reshoot-harnesses-analyst.mjs` take their whole set, and `reshoot-harnesses-analyst.mjs` stops at its Postgres step (`sudo: unknown user postgres`) on a machine without a local `postgres` user, after the earlier frames are written. Keep the frames you meant to retake and `git checkout` the rest. `versioning-evaluations.mjs` (`DOCS_SHOTS_ONLY`) and `capture-etl-usage.mjs` (picture names) can take a subset.
 
 ## Harness queue and workers (D15)
 
