@@ -129,6 +129,22 @@ async function newPage(browser, size = WIDE) {
     return { context, page }
 }
 
+// Tall enough that the whole Admin group shows in the sidebar.
+const ADMIN_VIEW = { width: 1440, height: 1400 }
+const ADMIN_ORDER = ['Users', 'Teams', 'Roles', 'Server Settings', 'Logs', 'Audit log', 'Version History']
+
+async function assertAdminMenu(page, rel) {
+    const tops = []
+    for (const label of ADMIN_ORDER) {
+        const item = page.locator('nav, aside, .MuiDrawer-root').getByText(label, { exact: true }).last()
+        const box = await item.boundingBox()
+        if (!box || box.y + box.height > ADMIN_VIEW.height) throw new Error(`${rel}: Admin > ${label} is not on screen`)
+        tops.push(box.y)
+    }
+    if (tops.some((top, i) => i && top <= tops[i - 1]))
+        throw new Error(`${rel}: the Admin menu is not in the order ${ADMIN_ORDER.join(', ')}`)
+}
+
 async function shot(page, rel, size = WIDE) {
     if (size) await page.setViewportSize(size)
     const file = path.join(IMAGES, rel)
@@ -561,7 +577,11 @@ async function captureRoles(browser) {
             await shotBox(page, add, 'roles/add-user.png', { width: 600, height: 498 })
             await add.getByRole('button', { name: 'Create User' }).click()
             await page.getByText(AVERY.name).waitFor()
-            await shot(page, 'roles/users-list.png')
+            // A fresh load drops the User created notice, which would sit over the Admin menu.
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await page.getByText(AVERY.name).waitFor()
+            await shot(page, 'roles/users-list.png', ADMIN_VIEW)
+            await assertAdminMenu(page, 'roles/users-list.png')
 
             await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
             await page.getByText('Reader').first().waitFor()
@@ -748,14 +768,16 @@ async function captureLocalUsers(browser) {
             await page.locator('tr', { hasText: 'Ada Baker' }).locator('button[aria-label="expand row"]').click()
             await page.getByRole('heading', { name: 'Assigned Roles' }).waitFor()
             await page.getByRole('cell', { name: 'Admin' }).waitFor()
-            await shot(page, 'users/users-list.png', { width: 1440, height: 1100 })
+            await shot(page, 'users/users-list.png', ADMIN_VIEW)
+            await assertAdminMenu(page, 'users/users-list.png')
             await page.keyboard.press('Escape')
 
             await page.locator('tr', { hasText: 'Cam Diaz' }).locator('button[title="Sessions"]').click()
             await page.getByRole('heading', { name: 'Sessions' }).waitFor()
             await page.getByText('Open sign-ins for Cam Diaz').waitFor()
             await page.getByText(/Started /).waitFor()
-            await shot(page, 'users/sessions-list.png', { width: 1440, height: 1100 })
+            await shot(page, 'users/sessions-list.png', ADMIN_VIEW)
+            await assertAdminMenu(page, 'users/sessions-list.png')
 
             const saved = await api(page, server.base, 'PUT', '/api/v1/server-settings', {
                 values: { CUTTLELY_AUDIT_RETENTION_DAYS: 120 }
@@ -767,7 +789,8 @@ async function captureLocalUsers(browser) {
             await page.getByRole('option', { name: 'Settings changed' }).click()
             await page.getByRole('columnheader', { name: 'Detail' }).waitFor()
             await page.getByText('CUTTLELY_AUDIT_RETENTION_DAYS').waitFor()
-            await shot(page, 'audit/audit-log.png', { width: 1440, height: 1100 })
+            await shot(page, 'audit/audit-log.png', ADMIN_VIEW)
+            await assertAdminMenu(page, 'audit/audit-log.png')
         } finally {
             await context.close()
         }

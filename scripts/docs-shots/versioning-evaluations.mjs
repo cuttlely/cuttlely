@@ -9,6 +9,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { freePort, waitForPing } from '../smoke-server.mjs'
+import { costHit, maskTexts } from './money.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(ROOT, 'package.json'))
@@ -512,6 +513,55 @@ async function ready(page, locator, timeout = 20000) {
     )
 }
 
+// No frame shows a price: the Estimated cost line and any dollar amount are removed before the picture.
+async function hideMoney(page, rel) {
+    const values = await page.evaluate(() => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+        window.__docsShotText = []
+        while (walker.nextNode()) window.__docsShotText.push(walker.currentNode)
+        return window.__docsShotText.map((node) => node.nodeValue || '')
+    })
+    const masked = maskTexts(values)
+    masked.values = masked.values.map((value) => value.replace(/,?\s*\bno price\b/gi, ''))
+    await page.evaluate((next) => {
+        window.__docsShotText.forEach((node, i) => {
+            if (node.nodeValue !== next[i]) node.nodeValue = next[i]
+        })
+        delete window.__docsShotText
+    }, masked.values)
+    if (masked.leftovers.length) throw new Error(`${rel} still shows an amount after an Estimated cost label (${masked.leftovers[0]})`)
+    const text = await page.locator('body').innerText()
+    const cost = costHit(text) || text.match(/no price/i)
+    if (cost) throw new Error(`${rel} shows an estimated cost (${cost[0]})`)
+    const money = text.match(/\$\s?\d/)
+    if (money) throw new Error(`${rel} shows a dollar amount (${money[0]})`)
+}
+
+// Scrolls the dialog so the box titled `title` (or, with `own`, that heading itself) starts at the top,
+// so no half line is cut off above it.
+async function startAtBox(page, title, own = false) {
+    await page.evaluate(
+        ([text, self]) => {
+            const heading = [...document.querySelectorAll('[role="dialog"] *')].find(
+                (el) => el.childElementCount === 0 && el.textContent.trim().startsWith(text)
+            )
+            if (!heading) throw new Error(`no ${text} heading`)
+            let scroller = heading.parentElement
+            while (
+                scroller &&
+                !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))
+            ) {
+                scroller = scroller.parentElement
+            }
+            if (!scroller) return
+            const box = (self ? heading : heading.parentElement).getBoundingClientRect()
+            scroller.scrollTop += box.top - scroller.getBoundingClientRect().top - 8
+        },
+        [title, own]
+    )
+    await page.waitForTimeout(200)
+}
+
 async function shot(page, rel, size = VIEW) {
     if (!want(rel)) return
     if (page.viewportSize().width !== size.width || page.viewportSize().height !== size.height) {
@@ -519,6 +569,7 @@ async function shot(page, rel, size = VIEW) {
         await animationsDone(page)
     }
     await animationsDone(page)
+    await hideMoney(page, rel)
     const target = path.join(ROOT, rel)
     fs.mkdirSync(path.dirname(target), { recursive: true })
     await page.screenshot({ path: target })
@@ -836,6 +887,8 @@ async function main() {
     const gluten = page.getByTestId('check-case').filter({ hasText: 'gluten-free' })
     await sitAbove(page, gluten, page.getByRole('button', { name: 'Discard Draft' }))
     await onScreen(page, gluten.getByText('No, we bake gluten-free bread only on Tuesdays.').nth(0))
+    await onScreen(page, gluten.getByText('No, we bake gluten-free bread only on Tuesdays.').nth(1))
+    await startAtBox(page, 'Check recent questions')
     await onScreen(page, gluten.getByText('No, we bake gluten-free bread only on Tuesdays.').nth(1))
     await shot(page, 'docs/images/versioning/publish-check-results.png')
     await page.keyboard.press('Escape')
@@ -1303,6 +1356,7 @@ async function main() {
     await showFully(page, birthday)
     await onScreen(page, birthday.getByText('Yes, you need to place your birthday cake order by Wednesday'))
     await onScreen(page, birthday.getByText('Yes, please place your order by Wednesday for a Friday birthday cake'))
+    await startAtBox(page, 'Each question runs twice', true)
     await shot(page, 'docs/images/versioning/publish-check-agentflow-results.png')
     await page.keyboard.press('Escape')
     json(await api(`${dev.base}/api/v1/chatflows/${agent.id}`, { method: 'DELETE', cookie }), 'delete agent')

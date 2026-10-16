@@ -26,7 +26,7 @@ Before the carrier, held-orders and croissant pictures, the script waits 3 secon
 
 ## Theme
 
-A frame whose main subject is the canvas editor is taken in the app's dark theme. A large dialog or the expanded chat over a canvas, a crop of only the chat panel, and every other page stay in the light theme. `capture.mjs` and `reshoot-harnesses-analyst.mjs` each list their dark frames in a `DARK` set. `theme.mjs` switches the theme on the open page through the same store action as the header toggle, so a canvas reached by in-app navigation changes too, and it does not save the choice, so the next page loads light. `DOCS_SHOTS_CANVAS_THEME=light` takes every frame in the light theme.
+A frame whose main subject is the canvas editor is taken in the app's dark theme. A large dialog or the expanded chat over a canvas, a crop of only the chat panel, and every other page stay in the light theme. `capture.mjs`, `capture-etl-usage.mjs`, and `reshoot-harnesses-analyst.mjs` each list their dark frames in a `DARK` set. `theme.mjs` switches the theme on the open page through the same store action as the header toggle, so a canvas reached by in-app navigation changes too, and it does not save the choice, so the next page loads light. `DOCS_SHOTS_CANVAS_THEME=light` takes every frame in the light theme.
 
 ## Server settings, sign-in, roles, source install and imports
 
@@ -39,7 +39,7 @@ The script starts its own servers on empty data directories, in a headless brows
 
 `DOCS_SHOTS=testing` takes only the Testing and Limits picture. The server is started with one in-range publish-check limit set on the host so that field shows as set by the host. Host-only rows show set or not set and never a value.
 
-`DOCS_SHOTS=local-users` takes the Users list, the sessions drawer, and the audit log. It uses local password sign-in, example.com addresses, and a one-time invite link that the script does not print.
+`DOCS_SHOTS=local-users` takes the Users list, the sessions drawer, and the audit log. It uses local password sign-in, example.com addresses, and a one-time invite link that the script does not print. Those three frames, and the Users list in the roles set, are 1440 by 1400 so the whole Admin menu shows. The script fails if the sidebar does not show Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History, in that order.
 
 Sample files for the import frames are `examples/imports/bakery-helper.json` and `examples/imports/bakery-greeter.json`. That directory is in `.dockerignore` with this one. The image does not read those files.
 
@@ -52,7 +52,7 @@ pnpm build
 node scripts/docs-shots/capture-etl-usage.mjs
 ```
 
-The server has to be built first (`packages/server/dist`). The script starts a local server on an empty data directory, signs in as the local owner, and drives the pages with Playwright. A picture name on the command line reshoots only that file. Pipeline drawer pictures grow the viewport until the whole drawer, including its right edge, is in the frame. It does not sign in to an outside service. Chat replies come from `fake-chat.cjs`, which reads `DOCS_SHOT_CATALOG`. The capture script sets that to the sample catalog path.
+The server has to be built first (`packages/server/dist`), and the padding step needs Python with Pillow. The script starts a local server on an empty data directory, signs in as the local owner, and drives the pages with Playwright. A picture name on the command line reshoots only that file. Pipeline drawer pictures grow the viewport until the whole drawer, including its right edge, is in the frame. It does not sign in to an outside service. Chat replies come from `fake-chat.cjs`, which reads `DOCS_SHOT_CATALOG`. The capture script sets that to the sample catalog path.
 
 ## Version history, the Publish check, and evaluations
 
@@ -61,6 +61,8 @@ node scripts/docs-shots/versioning-evaluations.mjs
 ```
 
 Chat answers come from an in-process stand-in (`fake-model.cjs`) so the script does not call a model provider. The GitHub card uses the local stand-in in `docs/reference/versioning-settings.md` (`CUTTLELY_GITHUB_ALLOW_FILE_REMOTES`, `CUTTLELY_GITHUB_TEST_ROOT`, `CUTTLELY_GITHUB_TEST_API`) and a bare repository on this machine. After a dialog, popover, toast, or collapse opens, the script waits until that element is visible and its transition has finished, then takes the picture.
+
+Before each picture the script removes the Estimated cost line, `no price`, and any `$` amount with `money.mjs`, and fails if one is still on the page. The Publish dialog frames are scrolled so the top of the dialog starts on a whole line.
 
 `DOCS_SHOTS_ONLY=canvas-last-edited,history-drawer` captures a subset. The script prints no passwords, tokens, or model keys.
 

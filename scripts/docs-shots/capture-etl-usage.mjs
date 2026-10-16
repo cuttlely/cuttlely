@@ -11,6 +11,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { freePort, request, waitForPing } from '../smoke-server.mjs'
+import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(ROOT, 'package.json'))
@@ -198,11 +199,22 @@ async function revealDrawer(page) {
     return drawer
 }
 
+// Frames whose main subject is the canvas editor. Drawers, dialogs and list pages stay light.
+const DARK = new Set([
+    'etl-canvas-sample.png',
+    'etl-retriever-pick.png',
+    'harness-etl-canvas.png',
+    'harness-etl-chat.png',
+    'build-with-ai-built.png',
+    'etl-version-restored.png'
+])
+
 async function shot(page, file, { clip, pad, note, fit } = {}) {
     if (!wanted(file)) {
         console.log('skip', path.basename(file))
         return
     }
+    await themeFor(page, DARK.has(path.basename(file)))
     if (fit) await reveal(page, fit)
     fs.mkdirSync(path.dirname(file), { recursive: true })
     if (clip) await page.screenshot({ path: file, clip })
