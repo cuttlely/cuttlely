@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-15
+
 ### Added
 
 -   An audit log for sign-in success and failure, lockout, invite, reset, role change, user disable, and settings changes. `GET /api/v1/audit` is for the organization owner or `audit:view`. Passwords, tokens, secret values, and question text are not stored. Rows older than `CUTTLELY_AUDIT_RETENTION_DAYS` (90, from 1 to 3650) are left out. Settings changes are the existing settings history. Login activity stays closed. [Audit log](./docs/how-to/audit-log.md), [Audit API](./docs/reference/audit-api.md).
@@ -32,6 +34,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Fixed
 
 -   Dollar amounts in chat replies show as text. A reply with two amounts, such as `a store credit of $10 ... shipping ($5.99)`, no longer loses the text between them. In the app's chat a single `$` is never math. Math is `$$...$$` (inline or on its own lines), `\(...\)` or `\[...\]`. The embed widget and the shared chat page do not render math: `$$...$$` shows as written, and `\(...\)` and `\[...\]` lose their backslashes.
+
+### Security
+
+-   The agent runtime's MCP Python SDK is 2.2.0, which fixes unbounded session accumulation in the StreamableHTTP transport (GHSA-84m7-p3x7-pcfv).
 
 ### Upgrade notes / breaking changes
 
@@ -292,7 +298,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/cuttlely/cuttlely/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/cuttlely/cuttlely/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/cuttlely/cuttlely/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/cuttlely/cuttlely/compare/v1.0.1...v1.0.2

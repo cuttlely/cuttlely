@@ -65,7 +65,7 @@ docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 
 Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest release is also `:latest`. The [changelog](../../CHANGELOG.md) lists what changed in each one.
 
--   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.1.0` in `.env`, then run `docker compose up -d`.
+-   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.2.0` in `.env`, then run `docker compose up -d`.
 -   **Move to the newest release.** Run `docker compose pull`, then `docker compose up -d`. Back up the volume first and read the release's upgrade notes in the changelog. [Upgrading Cuttlely](../upgrading.md) has the backup, upgrade and roll back steps.
 -   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image. [Smaller images](#smaller-images) covers leaving Chromium, optional node packs, or the geolocation database out of that build.
 
