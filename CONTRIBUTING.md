@@ -223,6 +223,13 @@ pnpm verify
 
 `pnpm verify` is the check to run before a pull request. A pull request that only changes docs or markdown can use `pnpm verify --fast`. Anything that changes server code, tests, `scripts/verify.mjs`, hooks, package manifests, or `render.yaml` needs the full run. The README section [Contributing](./README.md#contributing) is the same rule. Workflows in `.github/workflows/` are the CI definition.
 
+The run ends with a timing table of the steps that ran, slowest first, and `.verify/verify-summary.md` keeps each step's time.
+
+Two checks guard what a pull request can add:
+
+-   **Media size.** An image or video file over 5 MB fails `pnpm verify` (including `--fast` and the pre-push hook) and the required `lint` CI job. Compress it or host it outside the repository. `scripts/media-size.allowlist` lists the large files that were committed before the check. Do not add a new file there. Remove a line when that file is deleted or shrinks under 5 MB; the check fails until you do. Run it alone with `node scripts/media-size.mjs`.
+-   **Proprietary paths.** `extensions/`, `apps/` other than `apps/oss-app/`, and the commercial identity tree are refused by the required `lint` CI job. `pnpm verify` does not run it. Run it locally with `node scripts/proprietary-paths.mjs`.
+
 `pnpm harness:check` is the offline harness check (no model key). `pnpm etl:check` is the offline ETL check. `node harness/check.mjs` and `node etl/check.mjs` still run those checks for one release.
 
 `pnpm test:queue-abort` checks queue mode end to end: it starts a server and a worker on a throwaway queue, stops a streaming prediction partway, and checks that the worker stops the run and saves no messages. It needs a built server (`pnpm build`) and a Redis it can use, for example `docker run -d --rm --name cuttlely-test-redis -p 127.0.0.1:6390:6379 redis:7-alpine`, then `REDIS_URL=redis://127.0.0.1:6390 pnpm test:queue-abort`. It uses a placeholder model, so it needs no model key. `QUEUE_ABORT_KEEP=1` keeps its temporary data folder for a look after a failure. `pnpm verify` does not run it; the daily scheduled CI run on `main` does.

@@ -4,8 +4,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   `pnpm verify` ends with a timing table of the steps that ran, slowest first, with each step's time and share of the total. It prints on a pass and on a failure, and pass or fail is unchanged.
+-   A media size check (`scripts/media-size.mjs`) fails when a tracked or staged image or video file is over 5 MB and is not listed in `scripts/media-size.allowlist`. The allowlist holds the large website videos already committed. It runs as a `pnpm verify` step, including `--fast` and the pre-push hook, and in the required `lint` CI job.
+
 ### Changed
 
+-   The proprietary path check runs once, in the required `lint` CI job. The `proprietary-paths` step of `pnpm verify` and the separate Proprietary Path Guard workflow are removed. `node scripts/proprietary-paths.mjs` still runs the same check locally.
 -   The Admin menu lists Users and Teams first, then Roles, Server Settings, Logs, Audit log, and Version History. The page you are on is still marked, including a team's members page under Teams. After sign-in, someone who is not the organization owner and has none of the earlier pages now lands on Users, then Teams, before Roles, in the same order as the menu.
 
 ### Removed

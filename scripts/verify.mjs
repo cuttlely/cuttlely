@@ -68,6 +68,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'package-names.test.mjs'),
             path.join(ROOT, 'scripts', 'check-static-ui-image.test.mjs'),
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
+            path.join(ROOT, 'scripts', 'media-size.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
             path.join(ROOT, 'scripts', 'eval-routes.test.cjs'),
             path.join(ROOT, 'scripts', 'flow-drafts-sqlite-race.test.cjs'),
@@ -204,10 +205,12 @@ const STEPS = [
         args: [path.join(ROOT, 'packages', 'harness', 'check.mjs')]
     },
     {
-        name: 'proprietary-paths',
-        fast: false,
+        // Tracked image or video files over 5 MB must be in scripts/media-size.allowlist.
+        // The proprietary path check is not a step here: it runs once, in the required lint job.
+        name: 'media-size',
+        fast: true,
         command: process.execPath,
-        args: [path.join(ROOT, 'scripts', 'proprietary-paths.mjs')]
+        args: [path.join(ROOT, 'scripts', 'media-size.mjs')]
     },
     {
         name: 'secrets',
@@ -336,7 +339,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, boundaries, typecheck, verify-test, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(
@@ -366,6 +369,37 @@ function gitHead() {
 function formatDuration(ms) {
     if (ms < 1000) return `${ms}ms`
     return `${(ms / 1000).toFixed(1)}s`
+}
+
+// Steps that ran, slowest first, with each step's share of the total. Skipped and not-run steps have no time.
+export function timingTable(steps) {
+    const timed = steps.filter((step) => typeof step.durationMs === 'number')
+    if (!timed.length) return []
+    const total = timed.reduce((sum, step) => sum + step.durationMs, 0)
+    const rows = [...timed]
+        .sort((a, b) => b.durationMs - a.durationMs)
+        .map((step) => [
+            step.name,
+            step.status,
+            formatDuration(step.durationMs),
+            total ? `${((step.durationMs / total) * 100).toFixed(1)}%` : '0.0%'
+        ])
+    rows.push(['total', '', formatDuration(total), '100.0%'])
+    const header = ['step', 'result', 'time', 'share']
+    const widths = header.map((title, column) => Math.max(title.length, ...rows.map((row) => row[column].length)))
+    const line = (cells) =>
+        cells
+            .map((cell, column) => (column >= 2 ? cell.padStart(widths[column]) : cell.padEnd(widths[column])))
+            .join('  ')
+            .trimEnd()
+    return [line(header), line(widths.map((width) => '-'.repeat(width))), ...rows.map(line)]
+}
+
+function printTimings(steps) {
+    const lines = timingTable(steps)
+    if (!lines.length) return
+    console.log('\nstep timings (slowest first)')
+    for (const text of lines) console.log(text)
 }
 
 function writeReport(report) {
@@ -483,11 +517,13 @@ function main() {
                 report.steps.push({ name: later.name, status: 'not-run', durationMs: null })
             }
             writeReport(report)
+            printTimings(report.steps)
             console.error(`\npnpm verify failed at ${step.name}`)
             process.exit(1)
         }
     }
     writeReport(report)
+    printTimings(report.steps)
     console.log(`\npnpm verify passed (${report.mode})`)
     console.log(`report ${path.join(REPORT_DIR, 'verify-report.json')}`)
 }
