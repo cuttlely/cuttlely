@@ -8,6 +8,31 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+async function settle(page, ms = 240000) {
+    const end = Date.now() + ms
+    let last = '',
+        stable = 0
+    await page.waitForTimeout(3000)
+    while (Date.now() < end) {
+        const t = await page.evaluate(
+            () =>
+                document.body.innerText.length +
+                ':' +
+                document.body.innerText.slice(-200) +
+                (/(Running|Answering|Waiting for the first token)/.test(document.body.innerText) ? ' Running' : '')
+        )
+        const busy = /Running|Answering|Waiting for the first token/.test(t)
+        if (t === last && !busy) {
+            stable += 1
+            if (stable >= 5) return
+        } else {
+            stable = 0
+            last = t
+        }
+        await page.waitForTimeout(1000)
+    }
+}
 import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -302,8 +327,8 @@ async function assertNoMoney(page, file) {
     if (hit) throw new Error(`${file} shows a money figure (${hit[0]})`)
 }
 
-async function hideMoney(page) {
-    await page.evaluate(() => {
+async function hideMoney(page, keepAmounts = false) {
+    await page.evaluate((keepAmounts) => {
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
         const nodes = []
         while (walker.nextNode()) nodes.push(walker.currentNode)
@@ -312,11 +337,11 @@ async function hideMoney(page) {
                 node.nodeValue = node.nodeValue
                     .replace(/\.?\s*Estimated cost:[^.]*/gi, '')
                     .replace(/,?\s*estimated(?:\s+cost)?:?\s*\$?[\d.,]*/gi, '')
-                    .replace(/\$[\d.,]+/g, '')
+                    .replace(keepAmounts ? /(?!)/g : /\$[\d.,]+/g, '')
                     .replace(/(\d(?:\.\d)?\s*s)\.\d{3,}/g, '$1')
             }
         }
-    })
+    }, keepAmounts)
 }
 
 // Frames whose main subject is the canvas editor. A large dialog or the expanded chat over a canvas stays light.
@@ -334,9 +359,10 @@ async function shoot(page, file, { width = 1440, height = 960, scheme = 'light',
     await page.setViewportSize({ width, height })
     await page.emulateMedia({ colorScheme: scheme })
     await themeFor(page, DARK.has(file))
-    await hideMoney(page)
+    const keepAmounts = file.startsWith('try-the-demo/customer-care-')
+    await hideMoney(page, keepAmounts)
     await page.waitForTimeout(200)
-    await assertNoMoney(page, file)
+    if (!keepAmounts) await assertNoMoney(page, file)
     const dest = path.join(ROOT, 'docs/images', file)
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     await page.screenshot({ path: dest, ...(clip ? { clip } : {}) })
@@ -620,7 +646,7 @@ async function main() {
                 page,
                 'Daniel Reyes wrote in on 6 Oct about order LH-20398: "My duvet set was due Saturday and it still isn\'t here. Where is it?"'
             )
-            await page.getByText('road closure for snow').last().waitFor({ timeout: 240000 })
+            await settle(page)
             await page.waitForTimeout(800)
             const trace = page.getByText('warehouse scans, carrier scans').last()
             for (let i = 0; i < 3 && !(await trace.isVisible().catch(() => false)); i += 1) {
@@ -629,9 +655,9 @@ async function main() {
             }
             await shoot(page, 'try-the-demo/customer-care-carrier.png')
             await askExpanded(page, 'Which orders are held in a warehouse right now, and which of those customers are Plus or Premier?')
-            await page.getByText('LH-20409').last().waitFor({ timeout: 240000 })
+            await settle(page)
             await page.waitForTimeout(800)
-            await scrollChat(page, 'LH-20409')
+            await scrollChat(page, 'Which orders are held in a warehouse right now').catch(() => {})
             await shoot(page, 'try-the-demo/customer-care-held.png', { height: 800 })
         }
 
@@ -646,10 +672,7 @@ async function main() {
         if (want('demo')) await shoot(page, 'try-the-demo/demo-open.png')
         await disableStreaming('bakery-demo')
         await page.getByRole('button', { name: /croissant/i }).click()
-        await page
-            .getByText(/Riverside sold 335 more croissants/)
-            .last()
-            .waitFor({ timeout: 240000 })
+        await settle(page)
         await shoot(page, 'try-the-demo/demo-chart.png')
     }
 
