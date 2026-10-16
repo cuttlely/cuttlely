@@ -213,7 +213,8 @@ const PreviewTab = ({ chatflowId, getFlowData }) => {
 
     const steps = preview?.steps
     return (
-        <Stack sx={{ gap: 2 }}>
+        // The scroll area clips at its top edge; the first field's floating label sits above the field.
+        <Stack sx={{ gap: 2, pt: 1 }}>
             <Stack direction='row' alignItems='center' sx={{ gap: 1 }} flexWrap='wrap'>
                 <TextField
                     select
