@@ -8,6 +8,8 @@ A secret setting and every host-only key are named here and marked **not shown**
 
 The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Accepted values are exactly `true` and `false`. How a host value wins, and the error codes, are in the [Server settings API](./server-settings-api.md#publish-check-switch).
 
+The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters each `content.input` and `content.output` span attribute keeps. The default is `4000`. Accepted values are a positive whole number, or `0` for no limit. No limit sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. [Run traces](../how-to/observability.md#full-question-and-answer-text).
+
 | Key                                          | Default                                     | Range             | Unit          | Where it can be set            | Restart |
 | -------------------------------------------- | ------------------------------------------- | ----------------- | ------------- | ------------------------------ | ------- |
 | `CUTTLELY_LOCAL_ADMIN`                       | On from source and in Docker, off on Render | —                 | —             | Host, then Server settings     | Yes     |
@@ -119,6 +121,7 @@ The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Acc
 | `CUTTLELY_OTEL_TRACES_ENDPOINT`              | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_OTEL_TRACES_PROTOCOL`              | http                                        | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_OTEL_TRACES_CONTENT`               | false                                       | —                 | —             | Host, then Server settings     | Yes     |
+| `CUTTLELY_OTEL_TRACES_CONTENT_MAX`           | 4000                                        | —                 | —             | Host, then Server settings     | Yes     |
 | `E2B_APIKEY`                                 | not shown                                   | —                 | —             | Host, then Server settings     | Yes     |
 | `LOG_LEVEL`                                  | info                                        | —                 | —             | Host, then Server settings     | Yes     |
 | `DEBUG`                                      | false                                       | —                 | —             | Host, then Server settings     | Yes     |

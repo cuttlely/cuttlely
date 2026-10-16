@@ -23,12 +23,13 @@ The example collector below has a traces pipeline only. It does not print metric
 
 Set these in the server environment, or under **Admin** > **Server Settings** > **Integrations** > **Traces**, then restart. A value set by the host is locked on that page.
 
-| Variable                        | On the Traces page                | Default       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------- | --------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CUTTLELY_OTEL_TRACES`          | **Run traces**                    | Off           | `true` sends traces. Anything else, including unset, sends nothing and does not create a tracer.                                                                                                                                                                                                                                                                                                                                          |
-| `CUTTLELY_OTEL_TRACES_ENDPOINT` | **Trace collector address**       | Not set       | Collector address. Required when traces are on. Shown when **Run traces** is on.                                                                                                                                                                                                                                                                                                                                                          |
-| `CUTTLELY_OTEL_TRACES_PROTOCOL` | **Trace protocol**                | HTTP (`http`) | `http`, `grpc`, or `proto`. The page lists them as HTTP, gRPC, and Protobuf.                                                                                                                                                                                                                                                                                                                                                              |
-| `CUTTLELY_OTEL_TRACES_CONTENT`  | **Include prompts and tool text** | Off           | **Sensitive.** Adds `content.input` and `content.output`, cut at 4,000 characters: the question and the answer, the model prompt and reply, tool arguments and results, analyst SQL when the tool detail still has it, and the analyst run-card preview. A specialist span's `content.input` is the run-card task, at most 200 characters. Leave this off unless you trust the collector with that text. Shown when **Run traces** is on. |
+| Variable                           | On the Traces page                | Default                   | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------- | --------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CUTTLELY_OTEL_TRACES`             | **Run traces**                    | Off                       | `true` sends traces. Anything else, including unset, sends nothing and does not create a tracer.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `CUTTLELY_OTEL_TRACES_ENDPOINT`    | **Trace collector address**       | Not set                   | Collector address. Required when traces are on. Shown when **Run traces** is on.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `CUTTLELY_OTEL_TRACES_PROTOCOL`    | **Trace protocol**                | HTTP (`http`)             | `http`, `grpc`, or `proto`. The page lists them as HTTP, gRPC, and Protobuf.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `CUTTLELY_OTEL_TRACES_CONTENT`     | **Include prompts and tool text** | Off                       | **Sensitive.** Adds `content.input` and `content.output`, cut at the limit in `CUTTLELY_OTEL_TRACES_CONTENT_MAX` (4,000 characters by default): the question and the answer, the model prompt and reply, tool arguments and results, analyst SQL when the tool detail still has it, and the analyst run-card preview. A specialist span's `content.input` is the run-card task, at most 200 characters. Leave this off unless you trust the collector with that text. Shown when **Run traces** is on. |
+| `CUTTLELY_OTEL_TRACES_CONTENT_MAX` | **Prompt and tool text limit**    | 4,000 characters (`4000`) | **Sensitive.** Characters kept in each `content.input` and `content.output`. A positive whole number, or `0` for **No limit**. Applies only when **Include prompts and tool text** is on. A host value that is not a whole number keeps 4,000. Shown when **Run traces** is on.                                                                                                                                                                                                                        |
 
 HTTP and protobuf use a path such as `http://localhost:4318/v1/traces`. gRPC uses the collector port without that path, for example `http://localhost:4317`.
 
@@ -39,6 +40,7 @@ CUTTLELY_OTEL_TRACES=true
 CUTTLELY_OTEL_TRACES_ENDPOINT=http://localhost:4318/v1/traces
 CUTTLELY_OTEL_TRACES_PROTOCOL=http
 CUTTLELY_OTEL_TRACES_CONTENT=false
+CUTTLELY_OTEL_TRACES_CONTENT_MAX=4000
 ```
 
 Queue workers need the same variables. Restart each worker after a change. Chatflow and agentflow queue workers (`MODE=queue`) export the same tree. A harness run with `CUTTLELY_HARNESS_QUEUE=external` is still exported by the server that accepted the run. That worker does not load a tracer.
@@ -51,9 +53,28 @@ Turning traces on does not claim the process-wide tracer. A span another library
 
 ## What stays off the span
 
-`CUTTLELY_OTEL_TRACES_CONTENT` defaults to off. **Sensitive.** It adds `content.input` and `content.output`, cut at 4,000 characters: the question and the answer, the model prompt and reply, tool arguments and results, analyst SQL when the tool detail still has it, and the analyst run-card preview. A specialist span's `content.input` is the run-card task, at most 200 characters. Leave this off unless you trust the collector with that text. A string is kept. A message object is kept when it has `text`, `content`, or `question`. Any other object is left out, so a credential object is not copied onto the span.
+`CUTTLELY_OTEL_TRACES_CONTENT` defaults to off. **Sensitive.** It adds `content.input` and `content.output`, cut at 4,000 characters unless you change the limit (see [Full question and answer text](#full-question-and-answer-text)): the question and the answer, the model prompt and reply, tool arguments and results, analyst SQL when the tool detail still has it, and the analyst run-card preview. A specialist span's `content.input` is the run-card task, at most 200 characters. Leave this off unless you trust the collector with that text. A string is kept. A message object is kept when it has `text`, `content`, or `question`. Any other object is left out, so a credential object is not copied onto the span.
 
 With the switch off, spans do not include that text. An analyst query still has `tool.rows`, which is the row count on the settled chip, not the rows or the preview.
+
+### Full question and answer text
+
+`CUTTLELY_OTEL_TRACES_CONTENT_MAX` sets how many characters each `content.input` and `content.output` keeps. It applies only when `CUTTLELY_OTEL_TRACES_CONTENT` is on.
+
+-   Unset, or `4000`, keeps the first 4,000 characters. This is the behaviour before the setting existed.
+-   A positive whole number, for example `20000`, keeps that many characters. Longer text is cut at that length with no marker added.
+-   `0` is **No limit**. Nothing is cut, so the full question, the full answer, model prompts and replies, and tool text reach the span.
+
+Under **Admin** > **Server Settings** > **Integrations** > **Traces**, **Prompt and tool text limit** offers **4,000 characters**, **No limit** (saved as `0`), and **Another limit** for your own number. The page refuses anything that is not a positive whole number or `0`, and the change goes through **Review and save** and the settings history like the other trace settings. Restart for it to take effect. A host value wins and locks the field. A host value that is not a whole number keeps the 4,000 default.
+
+```bash
+CUTTLELY_OTEL_TRACES=true
+CUTTLELY_OTEL_TRACES_ENDPOINT=http://localhost:4318/v1/traces
+CUTTLELY_OTEL_TRACES_CONTENT=true
+CUTTLELY_OTEL_TRACES_CONTENT_MAX=0
+```
+
+**No limit sends the full question and answer text to your OpenTelemetry collector**, along with whatever is stored downstream of it. Use it only with a collector you trust with that text. The OpenTelemetry SDK's own `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT`, when the host sets it, still applies after this limit. Some collectors and backends also cap attribute size.
 
 ## Local collector
 
@@ -272,7 +293,7 @@ A graph node that ends in error marks the run span `error` as well. The predicti
 
 `tokens.input` and `tokens.output` are set when the model reports them.
 
-With `CUTTLELY_OTEL_TRACES_CONTENT` left off, spans do not include the question, the answer, the model prompt and reply, tool arguments and results, a specialist's task, analyst SQL, or the analyst run-card preview. With it on, `content.input` and `content.output` hold that text, cut at 4,000 characters. A specialist span's `content.input` is the run-card task, at most 200 characters. Treat those attributes as sensitive.
+With `CUTTLELY_OTEL_TRACES_CONTENT` left off, spans do not include the question, the answer, the model prompt and reply, tool arguments and results, a specialist's task, analyst SQL, or the analyst run-card preview. With it on, `content.input` and `content.output` hold that text, cut at `CUTTLELY_OTEL_TRACES_CONTENT_MAX` characters (4,000 by default, `0` for no limit). A specialist span's `content.input` is the run-card task, at most 200 characters. Treat those attributes as sensitive.
 
 A publish check does not send these traces.
 
