@@ -49,13 +49,17 @@ node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and 
 
 ```bash
 pnpm verify                   # the full gate; `pnpm verify --help` lists the 26 steps
-pnpm verify --fast            # lint, boundaries, typecheck, verify-test, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
+pnpm verify --fast            # lint, boundaries, typecheck, verify-test, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
 node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
 pnpm verify:comment           # prints the summary for a pull request comment
 CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
+node scripts/media-size.mjs          # image or video over 5 MB not in scripts/media-size.allowlist
+node scripts/proprietary-paths.mjs   # the lint CI job runs it with --base HEAD^1; verify does not
 ```
+
+A run ends with a timing table of the steps that ran, slowest first. `scripts/media-size.allowlist` holds the large media committed before the check. A new file does not go there. A listed path that is gone or under 5 MB fails until its line is removed.
 
 The `unit` step runs the server Jest suite, then `packages/components/nodes/load-coverage.test.ts` with `--coverage=false` (same worker cap, Node heap 4096). That second command enforces the test's 20 second module-evaluation budget and its 150 second ceiling for the whole run, including a cold ts-jest compile. `pnpm test:coverage`, including the CI build job, runs the file with instrumentation: the load and the problem checks still run, the time assertions do not, and the elapsed time is printed. No workflow job runs the file without coverage.
 
