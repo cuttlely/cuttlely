@@ -365,12 +365,25 @@ async function captureRosa(browser) {
             await page.locator('#field-CUTTLELY_POSTGRES_URL').fill('postgres://bakery@127.0.0.1:1/demo')
             await page.getByTestId('test-analyst-run').click()
             await page.getByTestId('test-analyst-result').getByText('Could not connect').waitFor({ timeout: 20000 })
+            // The result opens in a Collapse, and the page keeps room under its last setting for the pinned unsaved-change
+            // bar. Once the Collapse has finished opening, the end of the page shows the result clear of the bar.
+            await page.locator('.MuiCollapse-entered', { has: page.getByTestId('test-analyst-result') }).waitFor()
+            await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }))
+            await page.waitForTimeout(300)
             await shot(page, 'server-settings/test-connection-analyst-failed.png')
             const resetDraft = page.getByRole('button', { name: 'Reset' })
             if (await resetDraft.isVisible()) await resetDraft.click()
 
             await section(page, 'database')
             await page.getByTestId('database-card').waitFor()
+            await page
+                .getByRole('heading', { name: 'Server settings' })
+                .first()
+                .evaluate((node) => {
+                    for (let el = node.parentElement; el; el = el.parentElement) el.scrollTop = 0
+                    window.scrollTo(0, 0)
+                })
+            await page.waitForTimeout(300)
             await shot(page, 'server-settings/database-card.png')
             await page.getByTestId('database-switch').click()
             const database = page.getByRole('dialog').last()
