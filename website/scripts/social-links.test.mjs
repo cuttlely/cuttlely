@@ -9,13 +9,13 @@ const componentPath = path.join(root, 'src/components/SocialLinks.astro')
 const component = fs.readFileSync(componentPath, 'utf8')
 
 const EXPECTED = [
-    { name: 'GitHub', href: 'https://github.com/cuttlely/cuttlely', me: true },
-    { name: 'X', href: 'https://x.com/cuttlely', me: false },
-    { name: 'Bluesky', href: 'https://bsky.app/profile/cuttlely.bsky.social', me: false },
-    { name: 'Mastodon', href: 'https://mastodon.social/@cuttlely', me: true },
     { name: 'LinkedIn', href: 'https://www.linkedin.com/company/cuttlely/', me: false },
+    { name: 'Reddit', href: 'https://www.reddit.com/user/cuttlely', me: false },
+    { name: 'X', href: 'https://x.com/cuttlely', me: false },
+    { name: 'GitHub', href: 'https://github.com/cuttlely/cuttlely', me: true },
+    { name: 'Bluesky', href: 'https://bsky.app/profile/cuttlely.bsky.social', me: false },
     { name: 'DEV', href: 'https://dev.to/cuttlely', me: false },
-    { name: 'Reddit', href: 'https://www.reddit.com/user/cuttlely', me: false }
+    { name: 'Mastodon', href: 'https://mastodon.social/@cuttlely', me: true }
 ]
 
 test('the social links list all seven profiles in order, with rel="me" on GitHub and Mastodon', () => {
