@@ -4,7 +4,6 @@
 .github/ISSUE_TEMPLATE/bug_report.yml
 .github/ISSUE_TEMPLATE/feature_request.yml
 .github/workflows/main.yml
-.github/workflows/proprietary-path-guard.yml
 .github/workflows/test_docker_build.yml
 .gitignore
 .husky/pre-commit

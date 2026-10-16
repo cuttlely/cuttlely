@@ -1,6 +1,7 @@
-// Local port of .github/workflows/proprietary-path-guard.yml
-// ("Check for Proprietary Paths"). extensions/ is blocked. apps/ is blocked
-// except apps/oss-app/. The commercial identity tree must stay deleted.
+// Proprietary path check. The required lint job in .github/workflows/main.yml runs it
+// with --base HEAD^1 on a pull request, so the diff is the PR merge commit against its base.
+// Without --base it diffs against the merge base with origin/main, plus staged and unstaged files.
+// extensions/ is blocked. apps/ is blocked except apps/oss-app/. The commercial identity tree must stay deleted.
 // tsc leaves outputs behind after a source file is removed, so IdentityManager
 // and StripeManager .js, .d.ts, and .js.map files under the server src or dist
 // trees are commercial too. The server build deletes the dist copies.
@@ -120,8 +121,13 @@ function names(result) {
         .filter(Boolean)
 }
 
-export function filesToCheck() {
-    const base = mergeBase()
+export function filesToCheck(baseRev = '') {
+    let base = null
+    if (baseRev) {
+        const resolved = git(['rev-parse', '--verify', `${baseRev}^{commit}`])
+        if (resolved.status !== 0) throw new Error(`--base ${baseRev} is not a commit in this checkout`)
+        base = { name: baseRev, sha: resolved.stdout.trim() }
+    } else base = mergeBase()
     const committed = base ? names(git(['diff', '--name-only', `${base.sha}..HEAD`])) : []
     const staged = names(git(['diff', '--name-only', '--cached']))
     const unstaged = names(git(['diff', '--name-only']))
@@ -139,8 +145,29 @@ export function reportedViolations(files, root = ROOT) {
     return [...fromDiff, ...tree.filter((item) => !fromDiff.includes(item))]
 }
 
+export function parseBase(argv) {
+    for (let i = 0; i < argv.length; i += 1) {
+        const arg = argv[i]
+        if (arg === '--base') {
+            const value = argv[i + 1]
+            if (!value || value.startsWith('--')) throw new Error('--base needs a commit')
+            return value
+        }
+        if (arg.startsWith('--base=')) return arg.slice('--base='.length)
+        throw new Error(`Unknown argument ${arg}`)
+    }
+    return ''
+}
+
 function main() {
-    const { base, files } = filesToCheck()
+    let checked
+    try {
+        checked = filesToCheck(parseBase(process.argv.slice(2)))
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error))
+        process.exit(1)
+    }
+    const { base, files } = checked
     const violations = reportedViolations(files)
     console.log(base ? `proprietary paths vs ${base} (${files.length} files)` : `proprietary paths (${files.length} files)`)
     if (!violations.length) {

@@ -17,12 +17,18 @@ concurrency:
 jobs:
     # Every pnpm/action-setup step takes the pnpm version from packageManager in package.json.
     # Cheap and required: runs on every PR push, drafts included, and on the daily run.
+    # The proprietary path check runs only here, because lint is the required status check.
     lint:
         runs-on: ubuntu-latest
         env:
             PUPPETEER_SKIP_DOWNLOAD: true
         steps:
             - uses: actions/checkout@v6
+              with:
+                  # On a pull request HEAD is the merge commit, and HEAD^1 is the base it is diffed against.
+                  fetch-depth: 2
+            - name: proprietary paths
+              run: node scripts/proprietary-paths.mjs ${{ github.event_name == 'pull_request' && '--base HEAD^1' || '' }}
             - uses: pnpm/action-setup@v4
             - name: Use Node.js 24.15.0
               uses: actions/setup-node@v6
@@ -37,7 +43,7 @@ jobs:
 
     # Decides whether build, cypress (and docker-build in its workflow) are needed: false only for a ready PR whose
     # changes are all docs (*.md, .projects/**); a mixed diff runs everything. Job-level `if:` only, never workflow-level
-    # `paths` filters, so required checks always report. lint (and the path guard workflow) never depend on it.
+    # `paths` filters, so required checks always report. lint never depends on it.
     # Nothing in build, unit tests or Cypress reads .projects/** or *.md (checked with rg); root lint does lint *.md.
     changes:
         if: github.event_name != 'pull_request' || github.event.pull_request.draft == false

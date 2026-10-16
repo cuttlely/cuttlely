@@ -204,12 +204,6 @@ const STEPS = [
         args: [path.join(ROOT, 'packages', 'harness', 'check.mjs')]
     },
     {
-        name: 'proprietary-paths',
-        fast: false,
-        command: process.execPath,
-        args: [path.join(ROOT, 'scripts', 'proprietary-paths.mjs')]
-    },
-    {
         name: 'secrets',
         fast: false,
         command: process.execPath,
