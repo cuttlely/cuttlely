@@ -128,7 +128,7 @@ A run reads every source, embeds the chunks, and writes them to the store. Save 
 
 A run card appears under **New run**. The sample takes about a second.
 
-![The run card for Run 89869204: v1 · incremental · attempt 1 · started just now, a green succeeded chip, and a full progress bar at 6.0 KB of 6.0 KB, 100.0%. Embedded 33, Unchanged 0, Deleted 0, Rejected 0, Errors 0. The panel reads v1 · serving v1 · 33 chunks indexed.](../images/etl/etl-run-done.png)
+![The run card for the first run: v1 · incremental · attempt 1 · started just now, a green succeeded chip, and a full progress bar at 6.0 KB of 6.0 KB, 100.0%. Embedded 33, Unchanged 0, Deleted 0, Rejected 0, Errors 0. The panel reads v1 · serving v1 · 33 chunks indexed.](../images/etl/etl-run-done.png)
 
 The panel's first line now reads `v1 · serving v1 · 33 chunks indexed`. **Serving** is the version the ETL Retriever searches.
 
@@ -149,7 +149,7 @@ The panel's first line now reads `v1 · serving v1 · 33 chunks indexed`. **Serv
 
 Below the numbers, each step has a check mark when it is done, then a line of counts. The log at the bottom lists what happened, with times.
 
-![The steps of Run 89869204: Load 33 documents, 1 of 1 sources; Clean & transform 33 kept, 0 dropped; Split 33 chunks; Embed 33 embedded, 0 unchanged; Store 33 written, 0s writing; Delete removed 0 deleted. The log says Queued, Started, and Succeeded: 33 records read, 33 new. Try retrieval is below the card.](../images/etl/etl-run-steps.png)
+![The steps of the first run: Load 33 documents, 1 of 1 sources; Clean & transform 33 kept, 0 dropped; Split 33 chunks; Embed 33 embedded, 0 unchanged; Store 33 written, 0s writing; Delete removed 0 deleted. The log says Queued, Started, and Succeeded: 33 records read, 33 new. Try retrieval is below the card.](../images/etl/etl-run-steps.png)
 
 While a run is going, **Pause** stops it after the current batch and **Cancel** stops it for good. A paused run shows **Resume**. A run that read to the end but rejected some records, or could not read a file, is `partial`. A file it could not read keeps the chunks from the last run. A `partial` run is served, the same as `succeeded`. If more than 5% of the records are rejected, after at least 100 records, the run fails instead and the served version does not change.
 
@@ -157,7 +157,7 @@ While a run is going, **Pause** stops it after the current batch and **Cancel** 
 
 Select **Start Run** again with nothing changed. The incremental run reads the file, sees it has not changed, and embeds nothing.
 
-![A second run, Run e155498f, succeeded. Embedded 0, Unchanged 0 with 1 sources skipped, Deleted 0. Load reads 0 documents, 1 of 1 sources, 1 unchanged.](../images/etl/etl-run-incremental.png)
+![A second run succeeded. Embedded 0, Unchanged 0 with 1 sources skipped, Deleted 0. Load reads 0 documents, 1 of 1 sources, 1 unchanged.](../images/etl/etl-run-incremental.png)
 
 Add, edit, or remove rows in the CSV and run again. Only the changed rows are embedded, and rows you removed are deleted from the store.
 
@@ -188,7 +188,7 @@ To see a failure, change **Paths** on the Streaming Files node to a file that do
 
 After you publish, a run of that version fails with the same message.
 
-![Failed Run ea9f8d6a of version 2. The panel still reads serving v1. A red message says File or folder "products-2026.csv" was not found on the server. Retry From Checkpoint and Cancel are below it, and the last log line repeats that message. Try retrieval still searches version 1.](../images/etl/etl-run-failed.png)
+![A failed run of version 2. The panel still reads serving v1. A red message says File or folder "products-2026.csv" was not found on the server. Retry From Checkpoint and Cancel are below it, and the last log line repeats that message. Try retrieval still searches version 1.](../images/etl/etl-run-failed.png)
 
 This run failed before it wrote anything, so the served data is as it was. The panel still reads `serving v1`, and **Try retrieval** still searches version 1. A run can also fail partway, for example when the embeddings provider stops answering. The batches it wrote before it stopped are already in the store, and search can return them. Retry the run, or start a new one, so the store matches a finished run again.
 
@@ -213,7 +213,7 @@ A **Code Repository** source can also read the Cuttlely checkout itself while `C
 1. Select **Versions** in the panel.
 2. Select **Restore** on the version you want.
 
-![The Versions tab while version 2 is latest and version 1 is serving. Version 2 was saved at 10:52:36 AM and version 1 at 10:52:26 AM. Version 1 has a Restore button. Each row reads Streaming Files → Local Vector Store.](../images/etl/etl-versions.png)
+![The Versions tab while version 2 is latest and version 1 is serving. Each row shows the time that version was saved. Version 1 has a Restore button. Each row reads Streaming Files → Local Vector Store.](../images/etl/etl-versions.png)
 
 The canvas loads that version. Nothing is saved yet: an asterisk appears before the name, and **Paths** is back to `outdoor-catalog.csv`.
 
@@ -247,7 +247,7 @@ A schedule starts a run at a fixed interval or on a cron expression.
 
 The schedule appears below the form.
 
-![A schedule card under the form: Every 6 hours, with incremental and green active chips. Next run 10/14/2026, 4:52:32 PM, Last run never, Last result –. Edit, Pause, and Delete buttons.](../images/etl/etl-schedule.png)
+![A schedule card under the form: Every 6 hours, with incremental and green active chips. Next run shows the next time, Last run never, Last result –. Edit, Pause, and Delete buttons.](../images/etl/etl-schedule.png)
 
 -   **Kind** **Cron** takes five fields, `minute hour day month weekday`, in UTC. `0 2 * * *` runs at 02:00 UTC every day.
 -   **Edit** changes the schedule, **Pause** stops it until you select **Resume**, and **Delete** removes it.
@@ -271,7 +271,7 @@ Uploads go to `CUTTLELY_ETL_DIR/uploads/`, in a folder for your workspace. A pip
 
 Once a pipeline is saved, the ETL page lists it. **Search pipelines** filters the list by name. **Upcoming runs** shows the next scheduled run of each pipeline.
 
-![The ETL page with Search pipelines and the What are you building? card. Upcoming runs lists Outdoor Catalog, Every 6 hours, incremental, 10/14/2026, 4:52:32 PM. The table row is Outdoor Catalog: Streaming Files, Local Vector Store, Local Hash Embeddings, 33 chunks, v1 and serving v1, a green succeeded chip, and the same next run.](../images/etl/etl-list.png)
+![The ETL page with Search pipelines and the What are you building? card. Upcoming runs lists Outdoor Catalog, Every 6 hours, incremental, and the next run time. The table row is Outdoor Catalog: Streaming Files, Local Vector Store, Local Hash Embeddings, 33 chunks, v1 and serving v1, a green succeeded chip, and the same next run.](../images/etl/etl-list.png)
 
 | Column   | Meaning                                               |
 | -------- | ----------------------------------------------------- |

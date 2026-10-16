@@ -90,7 +90,7 @@ The query timeout stops a statement that runs too long, on the private store and
 
 The picture is from a local demo install. The account is a made-up owner. It shows no chat text, no token, and no host name.
 
-![Testing and Limits. Publish check is On. Publish check time limit shows Set by the host. The range line is under the field. Host-only rows show Set or Not set, with no values.](../images/server-settings/testing-and-limits.png)
+![Testing and Limits. Publish check is On. Publish check time limit shows Set by the host. The range line is under the field. Host-only rows show Set or Not set, with no values. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/server-settings/testing-and-limits.png)
 
 The full list of startup options, with the default, the range, where each one can be set, and whether a restart is needed, is [Startup options](../reference/startup-options.md). Secret values and host-only values are named and marked not shown.
 

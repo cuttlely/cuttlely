@@ -4,7 +4,7 @@
 
 The list is newest first. Filter by type, or by a user id, and load the next page from the cursor. One cursor orders database rows and settings changes together, so a page does not skip or repeat a row when both happened at the same time.
 
-![Audit log filtered to Settings changed. The filters are Type and User id, with Apply. The table has When, Type, User, Summary, and Detail. The Detail cell names CUTTLELY_AUDIT_RETENTION_DAYS.](../images/audit/audit-log.png)
+![Audit log filtered to Settings changed. The filters are Type and User id, with Apply. The table has When, Type, User, Summary, and Detail. The Detail cell names CUTTLELY_AUDIT_RETENTION_DAYS. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/audit/audit-log.png)
 
 Settings changes are the same rows as **Admin** > **Server Settings** > **History**. Only the organization owner sees them here. A role with `audit:view` does not. The Detail column lists each setting name. A secret change is marked hidden and does not show the value.
 
