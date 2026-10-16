@@ -90,7 +90,7 @@ Preview runs the pipeline on a few documents and shows what each step would prod
 2. Leave **Documents per source** at `5`, or pick `3`, `10`, or `25`.
 3. Select **Refresh Preview**.
 
-![The Preview tab. Documents per source is 5, Call embeddings is off, and Refresh Preview is below. Step 1 Load reads 5 documents from Streaming Files (1 files, 6.0 KB) and shows product cards with chips for chars, source, root, row, sku, and category. The first card is Ridgeline 2P Ultralight Tent, sku TNT-2P-ULT, category Tents.](../images/etl/etl-preview.png)
+![The Preview tab of the live Outdoor Catalog pipeline over the dark canvas. The panel reads v1 · 0 chunks indexed. Documents per source is 5, Call embeddings is off, and Refresh Preview is below. Step 1 Load reads 5 documents from Streaming Files (1 files, 6.0 KB) and shows product cards with chips for chars, source, root, row, sku, and category. The first card is Ridgeline 2P Ultralight Tent, sku TNT-2P-ULT, category Tents.](../images/etl/etl-preview.png)
 
 The preview has five numbered steps. Select a step to open it.
 
@@ -184,7 +184,7 @@ To see a failure, change **Paths** on the Streaming Files node to a file that do
 
 **Preview** shows the problem before you run.
 
-![The Preview tab of the Outdoor Catalog draft over the dark canvas. The panel reads v1 · serving v1 · 33 chunks indexed. A red box with an error icon reads Streaming Files: File or folder "products-2026.csv" was not found on the server. Load reads 0 documents from Streaming Files and says No documents came out of the sources. Clean & transform shows 0 kept · 0 dropped and Split shows 0 chunks.](../images/etl/etl-preview-missing-file.png)
+![The Preview tab of the Outdoor Catalog draft over the dark canvas. The panel reads v1 · serving v1 · 33 chunks indexed. Documents per source is 5 and Call embeddings is off. A red box with an error icon reads Streaming Files: File or folder "products-2026.csv" was not found on the server. Load reads 0 documents from Streaming Files and says No documents came out of the sources. Clean & transform shows 0 kept · 0 dropped and Split shows 0 chunks.](../images/etl/etl-preview-missing-file.png)
 
 After you publish, a run of that version fails with the same message.
 

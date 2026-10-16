@@ -63,7 +63,7 @@ Model keys live under **Credentials**, never on the canvas. Skip this if you alr
 
 The list shows the new credential and the message `New Credential added`. The key is stored encrypted.
 
-![The Credentials page listing OpenAI main with its Last Updated and Created dates, and a green New Credential added message at the bottom.](../images/harnesses/credentials-list.png)
+![The Credentials page listing one credential, OpenAI main, with its Last Updated and Created dates and edit and delete buttons.](../images/harnesses/credentials-list.png)
 
 ## Connect a chat model to Harness Prime
 
