@@ -2,7 +2,7 @@
 
 A question someone asked, and the rating they left on the answer, can become a row in a test set. That set is what the Publish dialog scores, and it is what can refuse Publish until the draft passes. This page walks that path on one chatflow. The field rules for datasets, evaluators, and the gate are in [Evaluations](./evaluations.md). The check request is in [Start a check](../reference/drafts-api.md#start-a-check).
 
-Test with up to the question cap (`CUTTLELY_CHECK_COUNT_MAX`, 100 question-and-answer pairs by default), with more on the roadmap. A dataset can hold more rows, and the check asks the first of those, up to that cap, in order.
+Test with up to 100 question-and-answer pairs, with more on the roadmap. That is the default question cap, `CUTTLELY_CHECK_COUNT_MAX`. A dataset can hold more rows, and the check asks the first of those, up to that cap, in order.
 
 [![The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish. Narrated run of a draft compared with Live, scored on a test set, and published after it passes, 56 seconds with captions.](../images/evaluations/testing-video-poster.png)](https://cuttlely.com/media/products/testing.mp4)
 
@@ -135,10 +135,10 @@ A dry run sends `dryRun: true` and does not send `feedbackIds`. The write sends 
 | `days`        | A whole number from 1 to 90. Required.                                                                       |
 | `limit`       | A whole number of at least 1. Omit it for 500. A larger number is capped at 500.                             |
 | `dryRun`      | `true` counts and previews. `false` writes. Omit it and the call writes, which still requires `feedbackIds`. |
-| `cursor`      | `{ "createdDate", "id" }` from the previous preview, to read older ratings.                                  |
+| `cursor`      | `{ "createdDate", "id" }` from the previous preview, to read older ratings. Pass it back unchanged.          |
 | `feedbackIds` | The rating ids from the preview. Required when `dryRun` is not `true`.                                       |
 
-The response is `{ "dryRun", "count", "skipped", "preview", "truncated", "cursor", "feedbackIds" }`. `preview` lists `input`, `output`, `rating`, `feedbackId`, `messageId`, and `needsExpectedAnswer`. `cursor` is `null` when the window was read to the end.
+The response is `{ "dryRun", "count", "skipped", "preview", "truncated", "cursor", "feedbackIds" }`. `preview` lists `input`, `output`, `rating`, `feedbackId`, `messageId`, and `needsExpectedAnswer`. `cursor` is `null` when the window was read to the end. To read the next page, send that `cursor` object back exactly as it came. Do not parse it, reformat the time, or build one yourself: `createdDate` is the stored text, and a time in another form is rejected.
 
 | Status | When                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

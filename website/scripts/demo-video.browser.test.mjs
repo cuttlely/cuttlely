@@ -1028,9 +1028,10 @@ initVideoDialogs()
         )
         const readExpr = `(() => {
         const hero = document.querySelector('[data-demo-video]')
-        const heroButton = hero.nextElementSibling
-        const tile = document.querySelector('[data-loop-video]')
+        const heroButton = hero && hero.nextElementSibling
         const dialog = document.getElementById('full')
+        // Chrome can answer before the page has parsed. Null keeps waitFor polling.
+        if (!heroButton || !dialog) return null
         const full = dialog.querySelector('video')
         return {
             hero: { t: hero.currentTime, muted: hero.muted, loop: hero.loop, controls: hero.controls, volume: hero.volume, paused: hero.paused },
@@ -1106,7 +1107,25 @@ initVideoDialogs()
             assert.ok(dialog.full.t < 0.45, `dialog playhead ${dialog.full.t}`)
             assert.equal(dialog.full.muted, false)
             assert.equal(dialog.full.volume, 0.3)
-            await evalValue(`document.querySelector('#full video').currentTime = 1.1`)
+            // Under load the seek can still be pending when close() runs, so close only once the playhead has moved.
+            const seeked = await evalValue(`new Promise((resolve, reject) => {
+            const video = document.querySelector('#full video')
+            const events = ['seeked', 'timeupdate', 'loadedmetadata']
+            const timer = setTimeout(() => {
+                events.forEach((name) => video.removeEventListener(name, check))
+                reject(new Error('seek to 1.1 did not land, playhead ' + video.currentTime))
+            }, 5000)
+            function check() {
+                if (video.seeking || video.currentTime <= 1.0) return
+                clearTimeout(timer)
+                events.forEach((name) => video.removeEventListener(name, check))
+                resolve(video.currentTime)
+            }
+            events.forEach((name) => video.addEventListener(name, check))
+            video.currentTime = 1.1
+            check()
+        })`)
+            assert.ok(seeked > 1.0, `seeked playhead ${seeked}`)
             await evalValue(`document.getElementById('full').close()`)
             const closed = await waitFor('dialog paused', (state) => state.dialogOpen === false && state.full.paused === true)
             assert.ok(closed.full.t > 0.8, `closed playhead ${closed.full.t}`)
@@ -1283,6 +1302,16 @@ test('the tile play button stays clear of the watch chip at each column width', 
     })()`
     try {
         const { send, evalValue, close } = await connectChrome(port, debugPort)
+        // Chrome can answer before the page has parsed. Wait for the tiles before the first read.
+        const parsedBy = Date.now() + 8000
+        let parsed = false
+        while (!parsed && Date.now() < parsedBy) {
+            parsed = await evalValue(
+                `(() => !!document.documentElement && document.readyState !== 'loading' && document.querySelectorAll('.cl-tile').length === 3)()`
+            )
+            if (!parsed) await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        assert.ok(parsed, 'the page did not finish parsing')
         await evalValue(`document.documentElement.dataset.theme = 'light'`)
         for (const width of [1280, 1024, 480, 390]) {
             await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false })

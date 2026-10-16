@@ -9,6 +9,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { freePort, waitForPing } from '../smoke-server.mjs'
+import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(ROOT, 'package.json'))
@@ -512,12 +513,45 @@ async function ready(page, locator, timeout = 20000) {
     )
 }
 
+// Scrolls the dialog so the box titled `title` (or, with `own`, that heading itself) starts at the top,
+// so no half line is cut off above it.
+async function startAtBox(page, title, own = false) {
+    await page.evaluate(
+        ([text, self]) => {
+            const heading = [...document.querySelectorAll('[role="dialog"] *')].find(
+                (el) => el.childElementCount === 0 && el.textContent.trim().startsWith(text)
+            )
+            if (!heading) throw new Error(`no ${text} heading`)
+            let scroller = heading.parentElement
+            while (
+                scroller &&
+                !(scroller.scrollHeight > scroller.clientHeight && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))
+            ) {
+                scroller = scroller.parentElement
+            }
+            if (!scroller) return
+            const box = (self ? heading : heading.parentElement).getBoundingClientRect()
+            scroller.scrollTop += box.top - scroller.getBoundingClientRect().top - 8
+        },
+        [title, own]
+    )
+    await page.waitForTimeout(200)
+}
+
+// A frame with a canvas on screen is dark, including a drawer or dialog over it, and the read-only version page.
+const CANVAS_PATH = /^\/(canvas|agentcanvas|v2\/agentcanvas|harnesscanvas|etlcanvas|versions)(\/|$)/
+
+function onCanvas(page) {
+    return CANVAS_PATH.test(new URL(page.url()).pathname)
+}
+
 async function shot(page, rel, size = VIEW) {
     if (!want(rel)) return
     if (page.viewportSize().width !== size.width || page.viewportSize().height !== size.height) {
         await page.setViewportSize(size)
         await animationsDone(page)
     }
+    await themeFor(page, onCanvas(page))
     await animationsDone(page)
     const target = path.join(ROOT, rel)
     fs.mkdirSync(path.dirname(target), { recursive: true })
@@ -836,6 +870,8 @@ async function main() {
     const gluten = page.getByTestId('check-case').filter({ hasText: 'gluten-free' })
     await sitAbove(page, gluten, page.getByRole('button', { name: 'Discard Draft' }))
     await onScreen(page, gluten.getByText('No, we bake gluten-free bread only on Tuesdays.').nth(0))
+    await onScreen(page, gluten.getByText('No, we bake gluten-free bread only on Tuesdays.').nth(1))
+    await startAtBox(page, 'Check recent questions')
     await onScreen(page, gluten.getByText('No, we bake gluten-free bread only on Tuesdays.').nth(1))
     await shot(page, 'docs/images/versioning/publish-check-results.png')
     await page.keyboard.press('Escape')
@@ -1303,6 +1339,7 @@ async function main() {
     await showFully(page, birthday)
     await onScreen(page, birthday.getByText('Yes, you need to place your birthday cake order by Wednesday'))
     await onScreen(page, birthday.getByText('Yes, please place your order by Wednesday for a Friday birthday cake'))
+    await startAtBox(page, 'Each question runs twice', true)
     await shot(page, 'docs/images/versioning/publish-check-agentflow-results.png')
     await page.keyboard.press('Escape')
     json(await api(`${dev.base}/api/v1/chatflows/${agent.id}`, { method: 'DELETE', cookie }), 'delete agent')

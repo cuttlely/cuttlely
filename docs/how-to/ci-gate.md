@@ -70,12 +70,12 @@ npx cuttlely@^1.1.0 check --flow <flow id> --dataset <dataset id> --evaluator <e
 npx cuttlely@^1.1.0 check --flow <flow id> --gate
 ```
 
-| Flag          | Meaning                                                                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--dataset`   | Dataset id. Selects scored mode. The server asks that dataset's rows.                                                                             |
-| `--evaluator` | Evaluator id. Repeat the flag for another evaluator.                                                                                              |
-| `--threshold` | Pass mark, a whole number from 0 to 100. Omit it and the server uses 100.                                                                         |
-| `--gate`      | Use the dataset, evaluators, and threshold saved on the flow (`publishGate` from `GET /api/v1/flow-drafts/:id`). Do not pass `--dataset` with it. |
+| Flag          | Meaning                                                                                                                                                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--dataset`   | Dataset id. Selects scored mode. The server asks that dataset's rows.                                                                                                                                                                                   |
+| `--evaluator` | Evaluator id. Repeat the flag for another evaluator.                                                                                                                                                                                                    |
+| `--threshold` | Pass mark, a whole number from 0 to 100. Omit it and the server uses 100.                                                                                                                                                                               |
+| `--gate`      | Use the dataset, evaluators, and threshold saved on a chatflow or an agentflow (`publishGate` from `GET /api/v1/flow-drafts/:id`). Do not pass `--dataset` with it. A harness has no saved test set, so `--gate` on a harness exits 2 before any check. |
 
 `--evaluator` and `--threshold` need `--dataset`. `--gate` already carries those settings, so do not pass `--evaluator` or `--threshold` with it either. Combining any of these flags with `--fail-on-changed` is a usage error (exit 2).
 

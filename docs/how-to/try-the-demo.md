@@ -20,7 +20,7 @@ A smaller bakery team is on the same card as a [quickstart](#the-bakery-quicksta
     - Daniel Reyes wrote in on 6 Oct about order LH-20398: "My duvet set was due Saturday and it still isn't here. Where is it?"
     - Which orders are held in a warehouse right now, and which of those customers are Plus or Premier?
 
-    ![The customer-care-demo team's chat, expanded, with the greeting Hi there! How can I help? and the three starter questions about Maya Okafor's order LH-20417, Daniel Reyes's order LH-20398, and which orders are held in a warehouse.](../images/try-the-demo/customer-care-open.png)
+    ![The customer-care-demo team's chat, expanded over its dark canvas, with the greeting Hi there! How can I help? and the three starter questions in full: Maya Okafor's refund request about order LH-20417, Daniel Reyes's order LH-20398, and which orders are held in a warehouse.](../images/try-the-demo/customer-care-open.png)
 
 4. Select the first question. The run card shows Harness Prime sending the work to `customer` and `operations` at the same time, then to `policy` once operations has finished, with the model, the time and the tokens each step took. Open a row to see the task Harness Prime gave that specialist and the tools it ran.
 
@@ -71,7 +71,7 @@ Select **Or start with the bakery quickstart** on the card for a smaller team on
 -   **analyst** answers with Python on a SQLite database of made-up sales from January to June 2026, and draws charts with a small chart helper.
 -   **librarian** searches the **Bakery Handbook**, a knowledge pipeline under **ETL** built from a made-up shop handbook. It runs once when the team is set up, with local embeddings, so it needs no second key.
 
-![The bakery-demo team's chat, expanded, with Hi there! How can I help? and three starter questions: which products brought in the most revenue from January to June as a bar chart, the Old Town shop's opening hours and items with nuts, and which shop sold more croissants in March 2026.](../images/try-the-demo/demo-open.png)
+![The bakery-demo team's chat, expanded over its dark canvas, with Hi there! How can I help? and three starter questions: which products brought in the most revenue from January to June as a bar chart, the Old Town shop's opening hours and items with nuts, and which shop sold more croissants in March 2026.](../images/try-the-demo/demo-open.png)
 
 The March croissant starter answers in units. Riverside sold 335 more croissants than Old Town in March 2026: 1346 against 1011.
 

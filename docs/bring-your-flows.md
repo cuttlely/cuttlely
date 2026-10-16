@@ -84,7 +84,7 @@ Cuttlely opens a Langflow export when it is one chat: exactly one chat model, at
 2. In Cuttlely, open **Chatflows** and select **Import**, then **Import Langflow JSON**, and pick the file. The same option is on the chatflow canvas gear menu.
 3. The chat opens on the chatflow canvas. The prompt becomes the system message, and a note on the canvas says the API key was not copied.
 
-    ![Bakery greeter, not saved yet, drawn with classic cards. OpenAI shows Model Name gpt-4.1-mini, Temperature 0.2, and an empty Connect Credential box. Buffer Memory and Conversation Chain are connected to it. A yellow note reads Imported from Langflow. API keys were not copied. Select a credential on the chat model. Credentials stay in this app.](./images/bring-your-flows/langflow-opened.png)
+    ![Bakery greeter, not saved yet, drawn with classic cards on the dark canvas. OpenAI shows an empty Connect Credential box, Model Name gpt-4.1-mini, and Temperature 0.2. OpenAI and Buffer Memory plug into Conversation Chain: OpenAI into its Chat Model, and Buffer Memory into its Memory. The Buffer Memory card sits over the bottom of the OpenAI card. A yellow note reads Imported from Langflow. API keys were not copied. Select a credential on the chat model. Credentials stay in this app.](./images/bring-your-flows/langflow-opened.png)
 
 4. Select a credential on the chat model card, then select **Save**.
 

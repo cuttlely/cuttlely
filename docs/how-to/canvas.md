@@ -84,7 +84,7 @@ Describe your assistant in plain words and **Build with AI** puts a chatflow on 
 
 The chatflow lands on the canvas unsaved. The message at the bottom names it, for example `"Math Helper with Calculator" is on the canvas. Save to keep it as a draft.` Nothing is saved yet, so you can look it over, change cards, or close the tab.
 
-![The built chatflow Math Helper with Calculator in compact cards, in the dark theme, not saved yet. The OpenAI, Calculator and Buffer Memory cards plug into the Tool Agent card. A green message at the bottom reads "Math Helper with Calculator" is on the canvas. Save to keep it as a draft.](../images/canvas/build-with-ai-built.png)
+![The built chatflow Math Helper with Calculator in compact cards, in the dark theme, not saved yet. The OpenAI, Calculator and Buffer Memory cards plug into the Math helper agent card. A green message at the bottom reads "Math Helper with Calculator" is on the canvas. Save to keep it as a draft.](../images/canvas/build-with-ai-built.png)
 
 6. Select **Save**. The name box starts with the built name; change it if you like. The first save keeps the flow as a **Draft**: Live stays empty, so the API, embeds and shared links serve nothing until you publish. See [Drafts and Publish](./versioning.md#drafts-and-publish).
 7. Open the chat. Three starter questions are waiting, written as things people would ask this assistant. Select one. The test chat runs your draft.
