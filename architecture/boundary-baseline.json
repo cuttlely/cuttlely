@@ -1096,6 +1096,11 @@
             "to": "packages/ui/src/layout/MainLayout/Sidebar/MenuList/NavCollapse/index.jsx"
         },
         {
+            "from": "packages/ui/src/routes/DefaultRedirect.test.js",
+            "to": "packages/ui/src/routes/DefaultRedirect.jsx",
+            "reason": "DefaultRedirect.test.js renders DefaultRedirect to check the landing order"
+        },
+        {
             "from": "packages/ui/src/themes/compStyleOverride.test.js",
             "to": "packages/ui/src/themes/compStyleOverride.js"
         },
