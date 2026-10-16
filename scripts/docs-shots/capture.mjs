@@ -612,6 +612,7 @@ async function main() {
         await shoot(page, 'try-the-demo/try-the-demo-card.png')
         const controls = page.locator('#try-the-demo').getByRole('button', { name: 'Try the demo' })
         await controls.waitFor()
+        await assertNoEstimatedCost(page, 'try-the-demo/try-the-demo-key.png')
         await assertNoMoney(page, 'try-the-demo/try-the-demo-key.png')
         await page.locator('#try-the-demo').screenshot({ path: path.join(ROOT, 'docs/images/try-the-demo/try-the-demo-key.png') })
         log('wrote try-the-demo/try-the-demo-key.png')

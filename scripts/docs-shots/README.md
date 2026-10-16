@@ -14,7 +14,7 @@ The script starts a fresh server on an empty data directory, signs in with the l
 
 Set `DOCS_SHOT_USE_EXTERNAL=1` and `OPENAI_API_KEY` to answer with that key. With the variable unset, a loopback stand-in answers so the pictures stay on made-up bakery and customer-care text. The key is read from the environment only. The script never prints it, and no picture shows a key, a token or a masked prefix.
 
-Amounts are masked in `money.mjs` before each picture, and `money.test.mjs` (run by `pnpm verify`) covers it:
+Amounts are masked in `money.mjs` before each picture, and `money.test.mjs` (run by `pnpm verify`) covers it. `try-the-demo/try-the-demo-key.png`, a crop of the Try the demo card, is not masked. It only gets the Estimated cost check and the money check, and fails on either.
 
 -   Every frame: the phrase `Estimated cost` is removed up to the end of its sentence or its text. When nothing with a digit follows the phrase in its text, a `$` amount at the start of the next text is removed too, including one after `≈`, `~`, `about` or `approx`, and a text holding only that lead-in is removed with it. The bare word `estimated` does not count as the label. The frame fails without being saved if a `$` amount is still in the first sentence of that next text, or if `Estimated cost` is still visible on the page.
 -   `try-the-demo/customer-care-*` frames keep every other `$` amount, such as the shipping refund and the store credit. Answer text such as `estimated $279.00 value` is left as written.
