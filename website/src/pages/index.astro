@@ -122,8 +122,114 @@ const installs = [
             <li><Icon name="rocket" /> The demo shows a team at work in about a minute</li>
         </ul>
 
+        <section id="ab-test-every-change-before-it-goes-live" class="cl-section cl-ab" aria-labelledby="test-every-change-title">
+            <span id="test-every-change-before-it-goes-live" class="cl-anchor" aria-hidden="true"></span>
+            <span id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-anchor" aria-hidden="true"></span>
+            <div class="cl-center">
+                <p class="cl-kicker">Draft vs Live</p>
+                <h2 id="test-every-change-title" class="cl-display">A/B test every change before it goes live</h2>
+                <p class="cl-lead">
+                    Every edit saves to a draft while Live keeps serving your app. Compare asks real questions on Live and on the draft, side by side, and marks
+                    each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes.
+                </p>
+                <p>Test with up to 100 question-and-answer pairs, with more on the roadmap.</p>
+            </div>
+            <figure class="cl-demo-window cl-testing-window">
+                <div class="cl-video-stage cl-testing-stage">
+                    <video
+                        class="cl-demo-video"
+                        data-demo-video
+                        controls
+                        muted
+                        loop
+                        playsinline
+                        preload="none"
+                        width="1280"
+                        height="720"
+                        poster={mediaUrl('/media/products/testing-poster.webp')}
+                        aria-label="Testing video. Compare, score, then publish."
+                    >
+                        <source src={mediaUrl('/media/products/testing.webm')} type="video/webm" />
+                        <source src={mediaUrl('/media/products/testing.mp4')} type="video/mp4" />
+                        <track kind="captions" src={mediaUrl('/media/products/testing.vtt')} srclang="en" label="English" />
+                    </video>
+                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the testing video with sound">
+                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+                            <path d="M8 5v14l12-7z" fill="currentColor" />
+                        </svg>
+                    </button>
+                </div>
+            </figure>
+            <div class="cl-testing-points">
+                <ul class="cl-checks">
+                    <li><strong>Drafts never touch Live.</strong> The API, embeds and shared links keep serving Live until you publish.</li>
+                    <li>
+                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
+                    </li>
+                    <li>
+                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
+                    </li>
+                    <li>
+                        <strong>Score the draft.</strong> Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft.
+                    </li>
+                    <li>
+                        <strong>Publish waits for a pass.</strong> The Passing test set gate is off until you turn it on, for a chatflow or an agentflow that starts from chat. Once on, Publish stays disabled until the current draft passes.
+                        <code>cuttlely check --gate</code> runs the same check in CI.
+                    </li>
+                    <li>
+                        <strong>Every version is kept.</strong> Open an old version as your draft or roll Live back in one step, and promote from Dev to Prod, which goes Live only when its owner selects <strong>Promote to Live</strong>.
+                    </li>
+                    <li>Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it.</li>
+                    <li>
+                        Dev and Prod connect to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, and can run the same side-by-side check. Each server keeps its own credentials; only their names travel.
+                    </li>
+                </ul>
+                <p class="cl-note">
+                    This covers Publish of the current draft only. Roll back Live, Promote from Dev, and <code>PUT /api/v1/chatflows/:id</code> still change Live.
+                    <a href="/docs/how-to/versioning/#require-a-passing-test-set-before-you-publish">See which paths stay open</a>.
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/ab-testing/">A/B test a change with Compare <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/tests-from-answers/">Turn real answers into tests <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/evaluations/">Evaluations <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/ci-gate/"><code>cuttlely check --gate</code> <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/versioning/">Version history guide <Icon name="right-arrow" /></a>
+                </p>
+            </div>
+            <figure class="cl-shot cl-testing-shot">
+                <Focus
+                    src={publishCheck}
+                    alt="The Publish dialog for Bakery helper after a check: What time do you open on Saturday? is marked Changed, with Live We open at 8 AM on Saturdays and Draft We open at 7 AM on Saturdays, next to a Same row for Do you have gluten-free bread today? where Live and Draft both say No, we bake gluten-free bread only on Tuesdays."
+                    cx={0.5}
+                    cy={0.7}
+                    zoom={1.45}
+                    ratio={4 / 3}
+                    widths={[960, 1440]}
+                    sizes="(min-width: 46rem) 46rem, 100vw"
+                />
+            </figure>
+        </section>
+
         <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
             <span id="chat-with-a-team-in-minutes" class="cl-anchor" aria-hidden="true"></span>
+            <div class="cl-showcase-copy">
+                <p class="cl-kicker">Try the demo</p>
+                <h2 id="cl-showcase-title" class="cl-display">Watch a team resolve a complaint</h2>
+                <p>
+                    Add one model key and select <strong>Try the demo</strong>. A customer writes in about a late espresso machine. A customer specialist reads
+                    the account, an operations specialist traces the parcel, and a policy specialist checks the written policy, each with its own data and tools.
+                    Harness Prime writes the decision, the reply and the actions, with the evidence. All the data is made up.
+                </p>
+                <a class="cl-link-arrow" href="/docs/how-to/try-the-demo/">Try the demo <Icon name="right-arrow" /></a>
+            </div>
             <figure class="cl-demo-window">
                 <div class="cl-video-stage">
                     <video
@@ -153,16 +259,6 @@ const installs = [
                     the team is routed at 1.9 seconds, and the full answer lands at 19.8 seconds. Across five runs the median is 16.5 seconds.
                 </figcaption>
             </figure>
-            <div class="cl-showcase-copy">
-                <p class="cl-kicker">Try the demo</p>
-                <h2 id="cl-showcase-title" class="cl-display">Watch a team resolve a complaint</h2>
-                <p>
-                    Add one model key and select <strong>Try the demo</strong>. A customer writes in about a late espresso machine. A customer specialist reads
-                    the account, an operations specialist traces the parcel, and a policy specialist checks the written policy, each with its own data and tools.
-                    Harness Prime writes the decision, the reply and the actions, with the evidence. All the data is made up.
-                </p>
-                <a class="cl-link-arrow" href="/docs/how-to/try-the-demo/">Try the demo <Icon name="right-arrow" /></a>
-            </div>
         </section>
 
         <section id="one-complaint-three-specialists" class="cl-section cl-case" aria-labelledby="case-title">
@@ -255,94 +351,6 @@ const installs = [
                     alt="A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst. The answer is a table of open tasks: draft agenda, open, and send invites, open."
                     widths={[640, 960, 1440]}
                     sizes="(min-width: 68rem) 560px, 100vw"
-                />
-            </figure>
-        </section>
-
-        <section id="test-every-change-before-it-goes-live" class="cl-section" aria-labelledby="test-every-change-title">
-            <span id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-anchor" aria-hidden="true"></span>
-            <div class="cl-center">
-                <p class="cl-kicker">Test every change</p>
-                <h2 id="test-every-change-title" class="cl-display">Test every change before it goes live</h2>
-                <p>Test with up to 100 question-and-answer pairs, with more on the roadmap.</p>
-            </div>
-            <figure class="cl-demo-window cl-testing-window">
-                <div class="cl-video-stage cl-testing-stage">
-                    <video
-                        class="cl-demo-video"
-                        data-demo-video
-                        controls
-                        muted
-                        loop
-                        playsinline
-                        preload="none"
-                        width="1280"
-                        height="720"
-                        poster={mediaUrl('/media/products/testing-poster.webp')}
-                        aria-label="Testing video. Compare, score, then publish."
-                    >
-                        <source src={mediaUrl('/media/products/testing.webm')} type="video/webm" />
-                        <source src={mediaUrl('/media/products/testing.mp4')} type="video/mp4" />
-                        <track kind="captions" src={mediaUrl('/media/products/testing.vtt')} srclang="en" label="English" />
-                    </video>
-                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the testing video with sound">
-                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
-                            <path d="M8 5v14l12-7z" fill="currentColor" />
-                        </svg>
-                    </button>
-                </div>
-            </figure>
-            <div class="cl-testing-points">
-                <ul class="cl-checks">
-                    <li><strong>Drafts never touch Live.</strong> The API, embeds and shared links keep serving Live until you publish.</li>
-                    <li>
-                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
-                    </li>
-                    <li>
-                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
-                    </li>
-                    <li>
-                        <strong>Score the draft.</strong> Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft.
-                    </li>
-                    <li>
-                        <strong>Publish waits for a pass.</strong> The Passing test set gate is off until you turn it on, for a chatflow or an agentflow that starts from chat. Once on, Publish stays disabled until the current draft passes.
-                        <code>cuttlely check --gate</code> runs the same check in CI.
-                    </li>
-                    <li>
-                        <strong>Every version is kept.</strong> Open an old version as your draft or roll Live back in one step, and promote from Dev to Prod, which goes Live only when its owner selects <strong>Promote to Live</strong>.
-                    </li>
-                    <li>Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it.</li>
-                    <li>
-                        Dev and Prod connect to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, and can run the same side-by-side check. Each server keeps its own credentials; only their names travel.
-                    </li>
-                </ul>
-                <p class="cl-note">
-                    This covers Publish of the current draft only. Roll back Live, Promote from Dev, and <code>PUT /api/v1/chatflows/:id</code> still change Live.
-                    <a href="/docs/how-to/versioning/#require-a-passing-test-set-before-you-publish">See which paths stay open</a>.
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/tests-from-answers/">Turn real answers into tests <Icon name="right-arrow" /></a>
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/evaluations/">Evaluations <Icon name="right-arrow" /></a>
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/ci-gate/"><code>cuttlely check --gate</code> <Icon name="right-arrow" /></a>
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/versioning/">Version history guide <Icon name="right-arrow" /></a>
-                </p>
-            </div>
-            <figure class="cl-shot cl-testing-shot">
-                <Focus
-                    src={publishCheck}
-                    alt="The Publish dialog for Bakery helper after a check: What time do you open on Saturday? is marked Changed, with Live We open at 8 AM on Saturdays and Draft We open at 7 AM on Saturdays, next to a Same row for Do you have gluten-free bread today? where Live and Draft both say No, we bake gluten-free bread only on Tuesdays."
-                    cx={0.5}
-                    cy={0.7}
-                    zoom={1.45}
-                    ratio={4 / 3}
-                    widths={[960, 1440]}
-                    sizes="(min-width: 46rem) 46rem, 100vw"
                 />
             </figure>
         </section>
