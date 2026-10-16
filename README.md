@@ -32,7 +32,7 @@ Every edit saves to a draft while Live keeps serving your app. Compare, in the P
 <a href="https://cuttlely.com/media/products/testing.mp4">Watch the testing run (56 seconds, sound on)</a>
 </p>
 
-![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays.](./docs/images/versioning/publish-check-results.png)
+![Passing test set in the Bakery helper configuration. Require a passing test set before Publish is on, the dataset is Saturday hours, Pass at is 100, and Mentions rye and Short answer are ticked.](./docs/images/evaluations/publish-gate-settings.png)
 
 [A/B test a change with Compare](./docs/how-to/ab-testing.md) walks through it. [Drafts, tests, and version history](#drafts-tests-and-version-history) lists what else is covered.
 
@@ -85,6 +85,8 @@ Give your app a team instead of a single prompt. An agent team is a lead agent w
 The gate covers Publish of the current draft only. Roll back Live, Promote from Dev, and `PUT /api/v1/chatflows/:id` still change Live: [see which](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
 
 On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. **Choose questions** hand-picks stored questions instead, still up to that admin cap. **Save as dataset** keeps the ticked questions, with blank expected answers to fill in on Datasets. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway. On a chatflow or a chat-started agentflow, under **Questions from**, choose **A dataset**, pick the evaluators, and turn on the passing test set. A harness can score a dataset for that run only, and a form, webhook, or schedule start cannot. **Admin** > **Server settings** > **Testing and Limits** turns the Publish check on or off. That switch applies on the next check and does not change Publish.
+
+![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently, 3 of 4 answered the same. Tokens: Live 235, draft 235. Typical time: Live 0.1 s, draft 0.1 s. Estimated cost: Live no price, draft no price. What time do you open on Saturday? is marked Changed: Live says We open at 8 AM on Saturdays, and Draft says We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same: Live and Draft both say No, we bake gluten-free bread only on Tuesdays. Each answer shows its tokens, 0.1 s, and no price.](./docs/images/versioning/publish-check-results.png)
 
 [Version history guide](./docs/how-to/versioning.md) · [Check recent questions before you publish](./docs/how-to/versioning.md#check-recent-questions-before-you-publish) · [Move a flow from Dev to Prod](./docs/how-to/versioning.md#move-a-flow-from-dev-to-prod)
 
