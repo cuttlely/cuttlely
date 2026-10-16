@@ -8,31 +8,6 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-async function settle(page, ms = 240000) {
-    const end = Date.now() + ms
-    let last = '',
-        stable = 0
-    await page.waitForTimeout(3000)
-    while (Date.now() < end) {
-        const t = await page.evaluate(
-            () =>
-                document.body.innerText.length +
-                ':' +
-                document.body.innerText.slice(-200) +
-                (/(Running|Answering|Waiting for the first token)/.test(document.body.innerText) ? ' Running' : '')
-        )
-        const busy = /Running|Answering|Waiting for the first token/.test(t)
-        if (t === last && !busy) {
-            stable += 1
-            if (stable >= 5) return
-        } else {
-            stable = 0
-            last = t
-        }
-        await page.waitForTimeout(1000)
-    }
-}
 import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -327,19 +302,40 @@ async function assertNoMoney(page, file) {
     if (hit) throw new Error(`${file} shows a money figure (${hit[0]})`)
 }
 
+function costHit(text) {
+    return text.match(/estimated(?:\s+cost)?\s*:?\s*\$\s?\d[\d.,]*/i) || text.match(/estimated\s+cost/i)
+}
+
+// innerText joins separate elements, so a label and an amount in different elements still match.
+async function assertNoEstimatedCost(page, file) {
+    const hit = costHit(await page.locator('body').innerText())
+    if (hit) throw new Error(`${file} shows an estimated cost (${hit[0].replace(/\s+/g, ' ')})`)
+}
+
 async function hideMoney(page, keepAmounts = false) {
     await page.evaluate((keepAmounts) => {
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
         const nodes = []
         while (walker.nextNode()) nodes.push(walker.currentNode)
+        // A label such as "Estimated cost:" can end one element while its amount starts the next.
+        let labelOpen = false
         for (const node of nodes) {
-            if (/\$\s?\d/.test(node.nodeValue || '')) {
-                node.nodeValue = node.nodeValue
-                    .replace(/\.?\s*Estimated cost:[^.]*/gi, '')
-                    .replace(/,?\s*estimated(?:\s+cost)?:?\s*\$?[\d.,]*/gi, '')
-                    .replace(keepAmounts ? /(?!)/g : /\$[\d.,]+/g, '')
-                    .replace(/(\d(?:\.\d)?\s*s)\.\d{3,}/g, '$1')
+            let value = node.nodeValue || ''
+            if (labelOpen && value.trim()) {
+                value = value.replace(/^\s*:?\s*\$?\s?[\d.,]+/, '')
+                labelOpen = false
             }
+            if (/estimated/i.test(value)) {
+                labelOpen = /estimated(?:\s+cost)?\s*:?\s*$/i.test(value)
+                value = value
+                    .replace(/\.?\s*Estimated cost:.*?(?:\.(?=\s|$)|$)/gi, '')
+                    .replace(/,?\s*estimated(?:\s+cost)?:?\s*\$?[\d.,]*/gi, '')
+            }
+            if (/\$\s?\d/.test(value)) {
+                if (!keepAmounts) value = value.replace(/\$[\d.,]+/g, '')
+                value = value.replace(/(\d(?:\.\d)?\s*s)\.\d{3,}/g, '$1')
+            }
+            if (value !== node.nodeValue) node.nodeValue = value
         }
     }, keepAmounts)
 }
@@ -362,7 +358,8 @@ async function shoot(page, file, { width = 1440, height = 960, scheme = 'light',
     const keepAmounts = file.startsWith('try-the-demo/customer-care-')
     await hideMoney(page, keepAmounts)
     await page.waitForTimeout(200)
-    if (!keepAmounts) await assertNoMoney(page, file)
+    if (keepAmounts) await assertNoEstimatedCost(page, file)
+    else await assertNoMoney(page, file)
     const dest = path.join(ROOT, 'docs/images', file)
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     await page.screenshot({ path: dest, ...(clip ? { clip } : {}) })
@@ -402,14 +399,45 @@ async function askExpanded(page, question) {
 }
 
 async function scrollChat(page, text) {
-    await page.evaluate((needle) => {
+    const found = await page.evaluate((needle) => {
         const root = document.querySelector('.MuiDialog-root') || document.body
         const target = [...root.querySelectorAll('p, span, strong, div, button, li')]
             .filter((el) => el.textContent.includes(needle))
             .sort((a, b) => a.textContent.length - b.textContent.length)[0]
         if (target) target.scrollIntoView({ block: 'start' })
+        return Boolean(target)
     }, text)
     await page.waitForTimeout(300)
+    return found
+}
+
+// Wait until the chat stops changing and no step is still running, then check the answer it should contain.
+async function settle(page, file, expected, ms = 240000) {
+    const end = Date.now() + ms
+    let last = ''
+    let stable = 0
+    await page.waitForTimeout(3000)
+    for (;;) {
+        const text = await page.evaluate(() => document.body.innerText)
+        const busy = /Running|Answering|Waiting for the first token/.test(text)
+        const snapshot = `${text.length}:${text.slice(-200)}`
+        if (snapshot === last && !busy) {
+            stable += 1
+            if (stable >= 5) break
+        } else {
+            stable = 0
+            last = snapshot
+        }
+        if (Date.now() >= end) throw new Error(`${file}: the answer was still changing after ${ms / 1000} s`)
+        await page.waitForTimeout(1000)
+    }
+    const visible = await page
+        .getByText(expected)
+        .last()
+        .waitFor({ timeout: 10000 })
+        .then(() => true)
+        .catch(() => false)
+    if (!visible) throw new Error(`${file}: the settled answer does not show ${expected}`)
 }
 
 async function fitCanvas(page) {
@@ -646,7 +674,7 @@ async function main() {
                 page,
                 'Daniel Reyes wrote in on 6 Oct about order LH-20398: "My duvet set was due Saturday and it still isn\'t here. Where is it?"'
             )
-            await settle(page)
+            await settle(page, 'try-the-demo/customer-care-carrier.png', 'road closure for snow')
             await page.waitForTimeout(800)
             const trace = page.getByText('warehouse scans, carrier scans').last()
             for (let i = 0; i < 3 && !(await trace.isVisible().catch(() => false)); i += 1) {
@@ -655,9 +683,12 @@ async function main() {
             }
             await shoot(page, 'try-the-demo/customer-care-carrier.png')
             await askExpanded(page, 'Which orders are held in a warehouse right now, and which of those customers are Plus or Premier?')
-            await settle(page)
+            await settle(page, 'try-the-demo/customer-care-held.png', 'LH-20409')
             await page.waitForTimeout(800)
-            await scrollChat(page, 'Which orders are held in a warehouse right now').catch(() => {})
+            const heldQuestion = 'Which orders are held in a warehouse right now'
+            if (!(await scrollChat(page, heldQuestion))) {
+                throw new Error(`try-the-demo/customer-care-held.png: could not scroll to "${heldQuestion}"`)
+            }
             await shoot(page, 'try-the-demo/customer-care-held.png', { height: 800 })
         }
 
@@ -672,7 +703,7 @@ async function main() {
         if (want('demo')) await shoot(page, 'try-the-demo/demo-open.png')
         await disableStreaming('bakery-demo')
         await page.getByRole('button', { name: /croissant/i }).click()
-        await settle(page)
+        await settle(page, 'try-the-demo/demo-chart.png', /Riverside sold 335 more/)
         await shoot(page, 'try-the-demo/demo-chart.png')
     }
 
