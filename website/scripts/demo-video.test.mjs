@@ -935,6 +935,28 @@ test('Made for real teams follows the A/B section, links each card to a guide, a
     assert.match(css, /\.cl-team-cards \{\s*max-width: 68rem;\s*grid-template-columns: minmax\(0, 1fr\);/)
 })
 
+test('the light home page colour tokens and rules apply only to the light theme', () => {
+    const brand = readFileSync(new URL('../src/styles/brand.css', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+    const light = brand.slice(brand.indexOf(":root[data-theme='light'] {"))
+    const dark = brand.slice(0, brand.indexOf(":root[data-theme='light'] {"))
+    for (const token of [
+        '--cuttlely-wash:',
+        '--cuttlely-chip:',
+        '--cuttlely-chip-ink:',
+        '--cuttlely-card-border:',
+        '--cuttlely-card-shadow:'
+    ]) {
+        assert.ok(light.includes(token), token)
+        assert.equal(dark.includes(token), false, `${token} stays out of the dark theme`)
+    }
+    for (const line of css.split('\n').filter((l) => /var\(--cuttlely-(wash|chip|card-border|card-shadow)/.test(l))) {
+        const rule = css.slice(0, css.indexOf(line))
+        const selector = rule.slice(rule.lastIndexOf('}') + 1)
+        assert.match(selector, /:root\[data-theme='light'\]/, line.trim())
+    }
+})
+
 test('the hero paragraph, the page description and the README intro say the same thing', () => {
     const lead =
         'Cuttlely is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.'
