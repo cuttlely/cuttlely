@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   The Admin menu lists Users and Teams first, then Roles, Server Settings, Logs, Audit log, and Version History. The page you are on is still marked, including a team's members page under Teams.
+
 ## [1.2.0] - 2026-10-15
 
 ### Added
