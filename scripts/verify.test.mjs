@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
-import { jestMaxWorkers, nodeLoadBudgetJestArgs, unitJestArgs } from './verify.mjs'
+import { jestMaxWorkers, nodeLoadBudgetJestArgs, timingTable, unitJestArgs } from './verify.mjs'
 
 const KEY = 'CUTTLELY_VERIFY_JEST_WORKERS'
 const previous = process.env[KEY]
@@ -50,5 +50,27 @@ describe('verify jest workers', () => {
             process.env[KEY] = value
             assert.throws(() => jestMaxWorkers(), /CUTTLELY_VERIFY_JEST_WORKERS/)
         }
+    })
+})
+
+describe('verify timing table', () => {
+    it('lists the steps that ran, slowest first, with a total', () => {
+        const lines = timingTable([
+            { name: 'lint', status: 'pass', durationMs: 2000 },
+            { name: 'build', status: 'pass', durationMs: 6000 },
+            { name: 'typecheck', status: 'skip', durationMs: null },
+            { name: 'unit', status: 'fail', durationMs: 2000 },
+            { name: 'smoke', status: 'not-run', durationMs: null }
+        ])
+        const names = lines.slice(2).map((line) => line.split(/\s+/)[0])
+        assert.deepEqual(names, ['build', 'lint', 'unit', 'total'])
+        assert.match(lines[2], /^build\s+pass\s+6\.0s\s+60\.0%$/)
+        assert.match(lines[4], /^unit\s+fail\s+2\.0s\s+20\.0%$/)
+        assert.match(lines.at(-1), /^total\s+10\.0s\s+100\.0%$/)
+    })
+
+    it('prints nothing when no step ran', () => {
+        assert.deepEqual(timingTable([{ name: 'lint', status: 'skip', durationMs: null }]), [])
+        assert.deepEqual(timingTable([]), [])
     })
 })

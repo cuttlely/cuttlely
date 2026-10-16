@@ -368,6 +368,37 @@ function formatDuration(ms) {
     return `${(ms / 1000).toFixed(1)}s`
 }
 
+// Steps that ran, slowest first, with each step's share of the total. Skipped and not-run steps have no time.
+export function timingTable(steps) {
+    const timed = steps.filter((step) => typeof step.durationMs === 'number')
+    if (!timed.length) return []
+    const total = timed.reduce((sum, step) => sum + step.durationMs, 0)
+    const rows = [...timed]
+        .sort((a, b) => b.durationMs - a.durationMs)
+        .map((step) => [
+            step.name,
+            step.status,
+            formatDuration(step.durationMs),
+            total ? `${((step.durationMs / total) * 100).toFixed(1)}%` : '0.0%'
+        ])
+    rows.push(['total', '', formatDuration(total), '100.0%'])
+    const header = ['step', 'result', 'time', 'share']
+    const widths = header.map((title, column) => Math.max(title.length, ...rows.map((row) => row[column].length)))
+    const line = (cells) =>
+        cells
+            .map((cell, column) => (column >= 2 ? cell.padStart(widths[column]) : cell.padEnd(widths[column])))
+            .join('  ')
+            .trimEnd()
+    return [line(header), line(widths.map((width) => '-'.repeat(width))), ...rows.map(line)]
+}
+
+function printTimings(steps) {
+    const lines = timingTable(steps)
+    if (!lines.length) return
+    console.log('\nstep timings (slowest first)')
+    for (const text of lines) console.log(text)
+}
+
 function writeReport(report) {
     fs.mkdirSync(REPORT_DIR, { recursive: true })
     fs.writeFileSync(path.join(REPORT_DIR, 'verify-report.json'), `${JSON.stringify(report, null, 2)}\n`)
@@ -483,11 +514,13 @@ function main() {
                 report.steps.push({ name: later.name, status: 'not-run', durationMs: null })
             }
             writeReport(report)
+            printTimings(report.steps)
             console.error(`\npnpm verify failed at ${step.name}`)
             process.exit(1)
         }
     }
     writeReport(report)
+    printTimings(report.steps)
     console.log(`\npnpm verify passed (${report.mode})`)
     console.log(`report ${path.join(REPORT_DIR, 'verify-report.json')}`)
 }
