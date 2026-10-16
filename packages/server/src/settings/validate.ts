@@ -15,7 +15,21 @@ function checkKnown(setting: SettingDef, value: string): Checked | null {
     if (setting.key === 'LOG_SANITIZE_BODY_FIELDS' || setting.key === 'LOG_SANITIZE_HEADER_FIELDS') return checkLogFields(setting, value)
     if (setting.key === 'LANGSMITH_PROJECT') return checkProjectName(setting, value)
     if (setting.key === 'LANGSMITH_ENDPOINT') return checkEndpoint(setting, value)
+    if (setting.key === 'CUTTLELY_OTEL_TRACES_CONTENT_MAX') return checkContentMax(setting, value)
     return null
+}
+
+/** A positive whole number of characters, or 0 for no limit. */
+function checkContentMax(setting: SettingDef, value: string): Checked {
+    const max = /^\d+$/.test(value) ? Number(value) : NaN
+    if (!Number.isSafeInteger(max)) {
+        return {
+            ok: false,
+            code: 'INVALID',
+            error: `${setting.label}: enter a whole number of characters greater than 0, or choose No limit.`
+        }
+    }
+    return { ok: true, value: String(max) }
 }
 
 /** Field names only. The submitted text is not copied into the error. */

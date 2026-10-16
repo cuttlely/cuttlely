@@ -82,6 +82,7 @@ test('the guide uses that file and names only attributes the server sets', () =>
         'CUTTLELY_OTEL_TRACES_ENDPOINT',
         'CUTTLELY_OTEL_TRACES_PROTOCOL',
         'CUTTLELY_OTEL_TRACES_CONTENT',
+        'CUTTLELY_OTEL_TRACES_CONTENT_MAX',
         'METRICS_SERVICE_NAME',
         'ENABLE_METRICS',
         'METRICS_PROVIDER',
@@ -177,6 +178,7 @@ test('both compose files pass the trace variables from .env', () => {
         'CUTTLELY_OTEL_TRACES_ENDPOINT',
         'CUTTLELY_OTEL_TRACES_PROTOCOL',
         'CUTTLELY_OTEL_TRACES_CONTENT',
+        'CUTTLELY_OTEL_TRACES_CONTENT_MAX',
         'METRICS_SERVICE_NAME'
     ]
     for (const file of ['docker-compose.yml', 'docker/docker-compose.yml']) {

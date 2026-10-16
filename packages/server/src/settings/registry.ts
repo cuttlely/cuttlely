@@ -1555,6 +1555,23 @@ export const SETTINGS: SettingDef[] = [
         showWhen: { key: 'CUTTLELY_OTEL_TRACES', equals: ['true'] }
     },
     {
+        key: 'CUTTLELY_OTEL_TRACES_CONTENT_MAX',
+        section: 'integrations',
+        group: 'Traces',
+        label: 'Prompt and tool text limit',
+        help: 'Sensitive. Applies when Include prompts and tool text is on. How many characters of each content.input and content.output a span keeps. No limit (stored as 0) sends the full question and answer text to your collector, so use it only with a collector you trust.',
+        type: 'select',
+        options: [
+            { value: '4000', label: '4,000 characters' },
+            { value: '0', label: 'No limit' }
+        ],
+        custom: { label: 'Another limit', placeholder: '20000' },
+        defaultLabel: '4,000 characters',
+        defaultValue: '4000',
+        risk: 'high',
+        showWhen: { key: 'CUTTLELY_OTEL_TRACES', equals: ['true'] }
+    },
+    {
         key: 'E2B_APIKEY',
         section: 'integrations',
         group: 'Code sandbox',
