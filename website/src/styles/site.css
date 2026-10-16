@@ -117,6 +117,13 @@
 .cl-home .cl-anchor {
     scroll-margin-top: calc(var(--sl-nav-height) + 1rem);
 }
+/* Old link targets. Out of the flow, so a grid section does not give one its own cell. */
+.cl-home .cl-anchor {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
 .cl-home h2 {
     font-size: clamp(1.9rem, 1.4rem + 2vw, 2.75rem);
     line-height: 1.1;
@@ -384,7 +391,7 @@
 }
 @media (min-width: 60rem) {
     .cl-showcase {
-        grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+        grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
         gap: 4rem;
     }
 }
@@ -1150,6 +1157,14 @@
     margin: 0;
     color: var(--sl-color-gray-3);
     font-size: var(--sl-text-xs);
+}
+.cl-signoff {
+    margin: 2rem 0 0;
+    padding-bottom: 0.5rem;
+    text-align: center;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    letter-spacing: 0.01em;
 }
 
 /* ---------- zoomed screenshot crops ---------- */

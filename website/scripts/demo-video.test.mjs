@@ -859,10 +859,10 @@ test('the home page puts a play button on the hero and on every tile loop', () =
     assert.match(src, /<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">/)
     assert.match(src, /aria-label="Play the testing video with sound"/)
     const ids = [
+        'ab-test-every-change-before-it-goes-live',
         'watch-a-team-resolve-a-complaint',
         'one-complaint-three-specialists',
         'agent-teams-that-power-your-apps',
-        'test-every-change-before-it-goes-live',
         'use-a-team-from-your-app',
         'small-context-big-answers',
         'tools-your-teams-use',
@@ -887,7 +887,12 @@ test('the home page puts a play button on the hero and on every tile loop', () =
 
 test('the home page keeps the old anchors, one testing video, and no testing tile', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
-    for (const id of ['chat-with-a-team-in-minutes', 'ship-changes-safely-draft-compare-publish-roll-back', 'run-it-your-way']) {
+    for (const id of [
+        'chat-with-a-team-in-minutes',
+        'test-every-change-before-it-goes-live',
+        'ship-changes-safely-draft-compare-publish-roll-back',
+        'run-it-your-way'
+    ]) {
         assert.match(src, new RegExp(`id="${id}"`))
     }
     const tools = src.slice(src.indexOf('const tools'), src.indexOf('const installs'))
@@ -896,6 +901,37 @@ test('the home page keeps the old anchors, one testing video, and no testing til
     assert.match(tools, /slug: 'chatflows'/)
     assert.equal((src.match(/\/media\/products\/testing\.mp4/g) || []).length, 1)
     assert.equal((src.match(/aria-label="Play the testing video with sound"/g) || []).length, 1)
+})
+
+test('the A/B section leads, and the demo copy shares a row with its video', () => {
+    const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+    assert.match(src, /<h2 id="test-every-change-title" class="cl-display">A\/B test every change before it goes live<\/h2>/)
+    assert.ok(src.indexOf('class="cl-proof"') < src.indexOf('id="ab-test-every-change-before-it-goes-live"'))
+    const showcase = src.slice(src.indexOf('id="watch-a-team-resolve-a-complaint"'), src.indexOf('id="one-complaint-three-specialists"'))
+    assert.ok(showcase.indexOf('class="cl-showcase-copy"') < showcase.indexOf('class="cl-demo-window"'), 'copy comes before the video')
+    // An anchor span in the flow takes the first grid cell and pushes the copy onto a second row.
+    assert.match(css, /\.cl-home \.cl-anchor \{\s*position: absolute;/)
+})
+
+test('the hero paragraph, the page description and the README intro say the same thing', () => {
+    const lead =
+        'Cuttlely is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.'
+    const hero = readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
+    const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
+    const heroLead = hero.slice(hero.indexOf('<p class="cl-hero-lead">') + 24, hero.indexOf('</p>', hero.indexOf('cl-hero-lead')))
+    assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
+    assert.match(hero, /Each agent sees only what its job needs, and every run shows the tokens it used\./)
+    assert.ok(page.includes(`'${lead}'`))
+    assert.ok(readme.includes(`**Your applications deserve agents.**\n\n${lead}\n`))
+})
+
+test('the home page ends with the sign-off line below the site footer, and other pages do not', () => {
+    const footer = readFileSync(new URL('../src/components/Footer.astro', import.meta.url), 'utf8')
+    assert.ok(footer.indexOf('<SiteFooter />') < footer.indexOf('cl-signoff'))
+    assert.match(footer, /const isHome = Astro\.url\.pathname === '\/'/)
+    assert.match(footer, /\{isHome && <p class="cl-signoff not-content">Cuttlely · Cute name, serious work\.<\/p>\}/)
 })
 
 test('reduced motion, a narrow screen and Save-Data keep the poster and the play button', () => {

@@ -13,11 +13,12 @@ export const ROOT_PAGES = {
 
 // README sections that the home page shows with the same heading id, so links into the README land there.
 export const HOME_ANCHORS = [
+    'ab-test-every-change-before-it-goes-live',
+    'test-every-change-before-it-goes-live',
+    'ship-changes-safely-draft-compare-publish-roll-back',
     'watch-a-team-resolve-a-complaint',
     'chat-with-a-team-in-minutes',
     'agent-teams-that-power-your-apps',
-    'test-every-change-before-it-goes-live',
-    'ship-changes-safely-draft-compare-publish-roll-back',
     'use-a-team-from-your-app',
     'small-context-big-answers',
     'tools-your-teams-use',
