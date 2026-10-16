@@ -2,10 +2,12 @@
 // Starlight's page footer (edit link, previous and next), then the site footer.
 import Default from '@astrojs/starlight/components/Footer.astro'
 import SiteFooter from './SiteFooter.astro'
+const isHome = Astro.url.pathname === '/'
 ---
 
 <Default />
 <SiteFooter />
+{isHome && <p class="cl-signoff not-content">Cuttlely · Cute name, serious work.</p>}
 <script>
     import { initScreenshotViewer } from '../scripts/screenshot-viewer.mjs'
     import { initDemoVideo, initVideoDialogs } from '../scripts/demo-video.mjs'

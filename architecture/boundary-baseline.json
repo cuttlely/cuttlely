@@ -1236,6 +1236,16 @@
             "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx"
         },
         {
+            "from": "packages/ui/src/views/canvas/PublishCheck.darkAlert.test.js",
+            "to": "packages/ui/src/themes/compStyleOverride.js",
+            "reason": "the dark Alert test renders the Publish check with the app theme to resolve the icon and checkbox colors"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishCheck.darkAlert.test.js",
+            "to": "packages/ui/src/themes/index.js",
+            "reason": "the dark Alert test renders the Publish check with the app theme to resolve the icon and checkbox colors"
+        },
+        {
             "from": "packages/ui/src/views/canvas/PublishCheck.jsx",
             "to": "packages/ui/src/api/dataset.js",
             "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."

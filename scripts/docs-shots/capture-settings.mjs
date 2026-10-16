@@ -9,6 +9,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(ROOT, 'package.json'))
@@ -129,8 +130,28 @@ async function newPage(browser, size = WIDE) {
     return { context, page }
 }
 
+// Tall enough that the whole Admin group shows in the sidebar.
+const ADMIN_VIEW = { width: 1440, height: 1400 }
+const ADMIN_ORDER = ['Users', 'Teams', 'Roles', 'Server Settings', 'Logs', 'Audit log', 'Version History']
+
+async function assertAdminMenu(page, rel) {
+    const tops = []
+    for (const label of ADMIN_ORDER) {
+        const item = page.locator('nav, aside, .MuiDrawer-root').getByText(label, { exact: true }).last()
+        const box = await item.boundingBox()
+        if (!box || box.y + box.height > ADMIN_VIEW.height) throw new Error(`${rel}: Admin > ${label} is not on screen`)
+        tops.push(box.y)
+    }
+    if (tops.some((top, i) => i && top <= tops[i - 1]))
+        throw new Error(`${rel}: the Admin menu is not in the order ${ADMIN_ORDER.join(', ')}`)
+}
+
+// A frame with a canvas on screen is dark. Admin, settings, sign-in and list pages stay light.
+const CANVAS_PATH = /^\/(canvas|agentcanvas|v2\/agentcanvas|harnesscanvas|etlcanvas)(\/|$)/
+
 async function shot(page, rel, size = WIDE) {
     if (size) await page.setViewportSize(size)
+    await themeFor(page, CANVAS_PATH.test(new URL(page.url()).pathname))
     const file = path.join(IMAGES, rel)
     mkdirSync(path.dirname(file), { recursive: true })
     await page.screenshot({ path: file, animations: 'disabled' })
@@ -344,12 +365,25 @@ async function captureRosa(browser) {
             await page.locator('#field-CUTTLELY_POSTGRES_URL').fill('postgres://bakery@127.0.0.1:1/demo')
             await page.getByTestId('test-analyst-run').click()
             await page.getByTestId('test-analyst-result').getByText('Could not connect').waitFor({ timeout: 20000 })
+            // The result opens in a Collapse, and the page keeps room under its last setting for the pinned unsaved-change
+            // bar. Once the Collapse has finished opening, the end of the page shows the result clear of the bar.
+            await page.locator('.MuiCollapse-entered', { has: page.getByTestId('test-analyst-result') }).waitFor()
+            await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }))
+            await page.waitForTimeout(300)
             await shot(page, 'server-settings/test-connection-analyst-failed.png')
             const resetDraft = page.getByRole('button', { name: 'Reset' })
             if (await resetDraft.isVisible()) await resetDraft.click()
 
             await section(page, 'database')
             await page.getByTestId('database-card').waitFor()
+            await page
+                .getByRole('heading', { name: 'Server settings' })
+                .first()
+                .evaluate((node) => {
+                    for (let el = node.parentElement; el; el = el.parentElement) el.scrollTop = 0
+                    window.scrollTo(0, 0)
+                })
+            await page.waitForTimeout(300)
             await shot(page, 'server-settings/database-card.png')
             await page.getByTestId('database-switch').click()
             const database = page.getByRole('dialog').last()
@@ -561,7 +595,11 @@ async function captureRoles(browser) {
             await shotBox(page, add, 'roles/add-user.png', { width: 600, height: 498 })
             await add.getByRole('button', { name: 'Create User' }).click()
             await page.getByText(AVERY.name).waitFor()
-            await shot(page, 'roles/users-list.png')
+            // A fresh load drops the User created notice, which would sit over the Admin menu.
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await page.getByText(AVERY.name).waitFor()
+            await shot(page, 'roles/users-list.png', ADMIN_VIEW)
+            await assertAdminMenu(page, 'roles/users-list.png')
 
             await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
             await page.getByText('Reader').first().waitFor()
@@ -748,14 +786,16 @@ async function captureLocalUsers(browser) {
             await page.locator('tr', { hasText: 'Ada Baker' }).locator('button[aria-label="expand row"]').click()
             await page.getByRole('heading', { name: 'Assigned Roles' }).waitFor()
             await page.getByRole('cell', { name: 'Admin' }).waitFor()
-            await shot(page, 'users/users-list.png', { width: 1440, height: 1100 })
+            await shot(page, 'users/users-list.png', ADMIN_VIEW)
+            await assertAdminMenu(page, 'users/users-list.png')
             await page.keyboard.press('Escape')
 
             await page.locator('tr', { hasText: 'Cam Diaz' }).locator('button[title="Sessions"]').click()
             await page.getByRole('heading', { name: 'Sessions' }).waitFor()
             await page.getByText('Open sign-ins for Cam Diaz').waitFor()
             await page.getByText(/Started /).waitFor()
-            await shot(page, 'users/sessions-list.png', { width: 1440, height: 1100 })
+            await shot(page, 'users/sessions-list.png', ADMIN_VIEW)
+            await assertAdminMenu(page, 'users/sessions-list.png')
 
             const saved = await api(page, server.base, 'PUT', '/api/v1/server-settings', {
                 values: { CUTTLELY_AUDIT_RETENTION_DAYS: 120 }
@@ -767,7 +807,8 @@ async function captureLocalUsers(browser) {
             await page.getByRole('option', { name: 'Settings changed' }).click()
             await page.getByRole('columnheader', { name: 'Detail' }).waitFor()
             await page.getByText('CUTTLELY_AUDIT_RETENTION_DAYS').waitFor()
-            await shot(page, 'audit/audit-log.png', { width: 1440, height: 1100 })
+            await shot(page, 'audit/audit-log.png', ADMIN_VIEW)
+            await assertAdminMenu(page, 'audit/audit-log.png')
         } finally {
             await context.close()
         }

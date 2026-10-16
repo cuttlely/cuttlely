@@ -8,11 +8,11 @@ The owner password form (`CUTTLELY_LOCAL_ADMIN`) is a separate switch. [Sign in]
 
 **Admin** > **Users** lists the people on this server. Owner, Admin, Builder, and Viewer are built-in. Their permission sets are fixed.
 
-![User Management. The note says Owner, Admin, Builder, and Viewer are built-in. Rosa Diaz is Super User, read-only. Ada Baker's Assigned Roles drawer shows Admin on Default Workspace. Cam Diaz and Bea Chen are in the list.](../images/users/users-list.png)
+![User Management. The note says Owner, Admin, Builder, and Viewer are built-in. Rosa Diaz is Super User, read-only. Ada Baker's Assigned Roles drawer shows Admin on Default Workspace. Cam Diaz and Bea Chen are in the list. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/users/users-list.png)
 
 **Sessions** on a row lists that person's open sign-ins. The list shows when the sign-in started and when it goes idle. It does not include cookies or tokens.
 
-![Sessions for Cam Diaz. The note says the list does not include cookies or tokens. One row shows Started Oct 15, 2026 and Idle until the next day, with End Session and End All Sessions.](../images/users/sessions-list.png)
+![Sessions for Cam Diaz. The note says the list does not include cookies or tokens. One row shows when it started and the idle limit 12 hours later, with End Session and End All Sessions. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/users/sessions-list.png)
 
 ## Turn it on
 
