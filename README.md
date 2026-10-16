@@ -32,7 +32,7 @@ Every edit saves to a draft while Live keeps serving your app. Compare, in the P
 <a href="https://cuttlely.com/media/products/testing.mp4">Watch the testing run (56 seconds, sound on)</a>
 </p>
 
-![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays. Estimated cost is no price.](./docs/images/versioning/publish-check-results.png)
+![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays.](./docs/images/versioning/publish-check-results.png)
 
 [A/B test a change with Compare](./docs/how-to/ab-testing.md) walks through it. [Drafts, tests, and version history](#drafts-tests-and-version-history) lists what else is covered.
 

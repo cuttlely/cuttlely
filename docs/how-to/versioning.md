@@ -284,7 +284,7 @@ When it is done, the totals sit above the rows: how many answered the same, how 
 | `Changed` | The words differ. Read both: the meaning may still be the same.       |
 | `Error`   | One side could not answer, for example because it took over a minute. |
 
-![The check results for Bakery helper: 1 of 4 answered differently, 3 of 4 answered the same. Tokens are Live 235 and draft 235. Typical time is 0.1 s on both sides. Estimated cost is no price. What time do you open on Saturday? is marked Changed: Live says We open at 8 AM on Saturdays, and Draft says We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same: Live and Draft both say No, we bake gluten-free bread only on Tuesdays.](../images/versioning/publish-check-results.png)
+![The check results for Bakery helper: 1 of 4 answered differently, 3 of 4 answered the same. Tokens are Live 235 and draft 235. Typical time is 0.1 s on both sides. What time do you open on Saturday? is marked Changed: Live says We open at 8 AM on Saturdays, and Draft says We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same: Live and Draft both say No, we bake gluten-free bread only on Tuesdays.](../images/versioning/publish-check-results.png)
 
 A flow that was never published has nothing Live to compare with. The box says `Live is empty until the first publish`, each question runs once, on your draft, and the result counts the questions your draft answered, for example `3 of 3 answered on your draft.` A new flow with no past questions offers its starter questions, marked `(starter question)`, so there is still something to check. A chatflow made with [Build with AI](./canvas.md#build-a-chatflow-with-ai) starts this way: its first save is a draft and Live stays empty until you publish.
 
@@ -551,7 +551,7 @@ Select a flow to open its review page:
 
 ![The review page for Bakery helper, marked New version available from Dev. What changes on this server lists Changed ChatOpenAI: temperature and Changed Conversation Chain: system message prompt. What changed on Dev lists Changed System Message on Conversation Chain and Changed Temperature on ChatOpenAI, both by Rosa Diaz. Credentials says every credential it uses is on this server. Check recent questions says only 2 past questions are available and lists Do you have gluten-free bread today? and What time do you open on Saturday?](../images/versioning/promote-review.png)
 
-![The check after it ran. 2 of 2 answered differently. Estimated cost is no price. Do you have gluten-free bread today? is marked Changed: Live says No, we bake gluten-free bread only on Tuesdays, and From Dev says Yes, we bake gluten-free bread every day.](../images/versioning/promote-check.png)
+![The check after it ran. 2 of 2 answered differently. Do you have gluten-free bread today? is marked Changed: Live says No, we bake gluten-free bread only on Tuesdays, and From Dev says Yes, we bake gluten-free bread every day.](../images/versioning/promote-check.png)
 
 When it looks right, select **Promote to Live**. The version from the previous environment is Live here right away. History titles it `Promoted from` that environment, and the secondary line uses the same name. On the saved Dev and Prod pair both say Dev. The finished screen has **Open the flow**, **Roll back**, and **All new versions from Dev**.
 
