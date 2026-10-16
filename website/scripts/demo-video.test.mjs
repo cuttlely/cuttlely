@@ -923,6 +923,14 @@ test('the demo follows the hero, the case study follows the demo, then the A/B s
     assert.match(css, /\.cl-home \.cl-anchor \{\s*position: absolute;/)
 })
 
+test('the video dialog centres itself in the viewport', () => {
+    const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+    // Starlight's reset sets `* { margin: 0 }`, which pins a modal dialog to the top-left corner.
+    const rule = css.match(/\n\.cl-video-dialog \{([^}]*)\}/)[1]
+    assert.match(rule, /\n\s*margin: auto;/)
+    assert.equal(/position:/.test(rule), false, 'the native modal positioning stays in charge')
+})
+
 test('Made for real teams follows the A/B section, links each card to a guide, and stacks on a phone', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
