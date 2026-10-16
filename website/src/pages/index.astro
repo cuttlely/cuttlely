@@ -96,6 +96,45 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
     }
 ]
 
+const teamFeatures = [
+    {
+        title: 'Roles and permissions',
+        text: 'Owner, Admin, Builder and Viewer are built in, and you can add your own roles. Creating a credential or deleting a flow checks the permission first.',
+        href: '/docs/how-to/roles-and-permissions/',
+        icon: 'approve-check-circle'
+    },
+    {
+        title: 'Each team keeps its own work',
+        text: 'Flows, harnesses, credentials and API keys belong to one team. Another team gets not found.',
+        href: '/docs/how-to/roles-and-permissions/#teams',
+        icon: 'seti:folder'
+    },
+    {
+        title: 'Sign in your way',
+        text: 'Start with one owner account, then add WorkOS AuthKit or an email and password for each person.',
+        href: '/docs/how-to/sign-in/',
+        icon: 'padlock'
+    },
+    {
+        title: 'Audit log',
+        text: 'Sign-ins, lockouts, invites, role changes and settings changes. Passwords, tokens and secret values are not stored.',
+        href: '/docs/how-to/audit-log/',
+        icon: 'list-format'
+    },
+    {
+        title: 'The owner runs the server',
+        text: 'Only the owner changes sign-in, the database, models and security in Server Settings, with a review step and a history.',
+        href: '/docs/how-to/server-settings/',
+        icon: 'setting'
+    },
+    {
+        title: 'On your own servers',
+        text: 'Docker, Render or from source, with SQLite, Postgres, MySQL or MariaDB.',
+        href: '/docs/how-to/docker/',
+        icon: 'server'
+    }
+] as const
+
 const installs = [
     { title: 'Docker', text: 'The install most people want. SQLite, one container.', href: '/docs/how-to/docker/', icon: 'laptop' },
     { title: 'Render', text: 'A hosted install with Postgres, from the Blueprint in the repository.', href: '/docs/how-to/render/', icon: 'rocket' },
@@ -121,6 +160,49 @@ const installs = [
             <li><Icon name="laptop" /> Docker, Render or from source</li>
             <li><Icon name="rocket" /> The demo shows a team at work in about a minute</li>
         </ul>
+
+        <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
+            <span id="chat-with-a-team-in-minutes" class="cl-anchor" aria-hidden="true"></span>
+            <div class="cl-showcase-copy">
+                <p class="cl-kicker">Try the demo</p>
+                <h2 id="cl-showcase-title" class="cl-display">Watch a team resolve a complaint</h2>
+                <p>
+                    Add one model key and select <strong>Try the demo</strong>. A customer writes in about a late espresso machine. A customer specialist reads
+                    the account, an operations specialist traces the parcel, and a policy specialist checks the written policy, each with its own data and tools.
+                    Harness Prime writes the decision, the reply and the actions, with the evidence. All the data is made up.
+                </p>
+                <a class="cl-link-arrow" href="/docs/how-to/try-the-demo/">Try the demo <Icon name="right-arrow" /></a>
+            </div>
+            <figure class="cl-demo-window">
+                <div class="cl-video-stage">
+                    <video
+                        class="cl-demo-video"
+                        data-demo-video
+                        controls
+                        muted
+                        loop
+                        playsinline
+                        preload="none"
+                        width="1280"
+                        height="720"
+                        poster={mediaUrl('/media/customer-care-demo-poster.webp')}
+                        aria-describedby="cl-demo-caption"
+                    >
+                        <source src={mediaUrl('/media/customer-care-demo.webm')} type="video/webm" />
+                        <source src={mediaUrl('/media/customer-care-demo.mp4')} type="video/mp4" />
+                    </video>
+                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">
+                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+                            <path d="M8 5v14l12-7z" fill="currentColor" />
+                        </svg>
+                    </button>
+                </div>
+                <figcaption id="cl-demo-caption" class="cl-demo-caption">
+                    A narrated walkthrough of one real run, with captions. The live part plays in real time: this run's plan starts streaming at 0.8 seconds,
+                    the team is routed at 1.9 seconds, and the full answer lands at 19.8 seconds. Across five runs the median is 16.5 seconds.
+                </figcaption>
+            </figure>
+        </section>
 
         <section id="ab-test-every-change-before-it-goes-live" class="cl-section cl-ab" aria-labelledby="test-every-change-title">
             <span id="test-every-change-before-it-goes-live" class="cl-anchor" aria-hidden="true"></span>
@@ -218,47 +300,25 @@ const installs = [
             </figure>
         </section>
 
-        <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
-            <span id="chat-with-a-team-in-minutes" class="cl-anchor" aria-hidden="true"></span>
-            <div class="cl-showcase-copy">
-                <p class="cl-kicker">Try the demo</p>
-                <h2 id="cl-showcase-title" class="cl-display">Watch a team resolve a complaint</h2>
-                <p>
-                    Add one model key and select <strong>Try the demo</strong>. A customer writes in about a late espresso machine. A customer specialist reads
-                    the account, an operations specialist traces the parcel, and a policy specialist checks the written policy, each with its own data and tools.
-                    Harness Prime writes the decision, the reply and the actions, with the evidence. All the data is made up.
-                </p>
-                <a class="cl-link-arrow" href="/docs/how-to/try-the-demo/">Try the demo <Icon name="right-arrow" /></a>
+        <section id="made-for-real-teams" class="cl-section" aria-labelledby="real-teams-title">
+            <div class="cl-center">
+                <p class="cl-kicker">For teams</p>
+                <h2 id="real-teams-title" class="cl-display">Made for real teams</h2>
+                <p class="cl-lead">Roles, separate teams, sign-in and an audit log, on a server you run.</p>
             </div>
-            <figure class="cl-demo-window">
-                <div class="cl-video-stage">
-                    <video
-                        class="cl-demo-video"
-                        data-demo-video
-                        controls
-                        muted
-                        loop
-                        playsinline
-                        preload="none"
-                        width="1280"
-                        height="720"
-                        poster={mediaUrl('/media/customer-care-demo-poster.webp')}
-                        aria-describedby="cl-demo-caption"
-                    >
-                        <source src={mediaUrl('/media/customer-care-demo.webm')} type="video/webm" />
-                        <source src={mediaUrl('/media/customer-care-demo.mp4')} type="video/mp4" />
-                    </video>
-                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">
-                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
-                            <path d="M8 5v14l12-7z" fill="currentColor" />
-                        </svg>
-                    </button>
-                </div>
-                <figcaption id="cl-demo-caption" class="cl-demo-caption">
-                    A narrated walkthrough of one real run, with captions. The live part plays in real time: this run's plan starts streaming at 0.8 seconds,
-                    the team is routed at 1.9 seconds, and the full answer lands at 19.8 seconds. Across five runs the median is 16.5 seconds.
-                </figcaption>
-            </figure>
+            <ul class="cl-installs cl-team-cards">
+                {
+                    teamFeatures.map((item) => (
+                        <li>
+                            <a href={item.href}>
+                                <Icon name={item.icon} size="1.5rem" />
+                                <span class="cl-display">{item.title}</span>
+                                <span>{item.text}</span>
+                            </a>
+                        </li>
+                    ))
+                }
+            </ul>
         </section>
 
         <section id="one-complaint-three-specialists" class="cl-section cl-case" aria-labelledby="case-title">

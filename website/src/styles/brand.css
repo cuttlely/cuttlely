@@ -79,6 +79,16 @@
     --cuttlely-surface-2: #f5f8fe;
     --cuttlely-border: #e3e8f4;
     --cuttlely-glow: rgba(106, 61, 242, 0.18);
+    /* Light-only home page colour: lavender-to-sky washes, icon chips and card bars from the logo gradient. */
+    --cuttlely-wash: linear-gradient(180deg, #f7f4ff 0%, #f1f5ff 100%);
+    --cuttlely-wash-violet: rgba(139, 92, 246, 0.12);
+    --cuttlely-wash-sky: rgba(95, 179, 253, 0.14);
+    --cuttlely-chip: linear-gradient(135deg, #efe9ff 0%, #e4edff 100%);
+    --cuttlely-chip-ink: #5a2fe0;
+    --cuttlely-card-border: #e2dcfb;
+    --cuttlely-card-shadow: 0 18px 40px -30px rgba(106, 61, 242, 0.45);
+    /* The wordmark's last stop (#4f92fc) is under 3:1 on the hero wash; these blues stay above 4.5:1. */
+    --cuttlely-gradient-headline: linear-gradient(90deg, #6a3df2, #4b4fea, #3a64d8);
 }
 
 /* Headlines use Urbanist; body text stays on the system font. */

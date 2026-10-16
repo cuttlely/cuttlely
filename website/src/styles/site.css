@@ -1037,6 +1037,20 @@
     font-weight: 800;
     color: var(--sl-color-white);
 }
+.cl-team-cards {
+    max-width: 68rem;
+    grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 40rem) {
+    .cl-team-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (min-width: 64rem) {
+    .cl-team-cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
 
 /* ---------- home: band and final call ---------- */
 .cl-band {
@@ -1064,6 +1078,122 @@
 }
 .cl-final p {
     margin: 0 auto 1.75rem;
+}
+
+/* ---------- home: light theme colour ---------- */
+/* Dark already glows on its own; these rules only bring the logo palette into the light page. */
+:root[data-theme='light'] .cl-hero::before {
+    background: radial-gradient(56rem 30rem at 85% 5%, rgba(139, 92, 246, 0.24), transparent 62%),
+        radial-gradient(42rem 26rem at 0% 0%, rgba(95, 179, 253, 0.24), transparent 60%),
+        radial-gradient(36rem 20rem at 45% 100%, rgba(92, 96, 249, 0.1), transparent 70%), linear-gradient(180deg, #f8f5ff 0%, #ffffff 100%);
+    -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
+}
+:root[data-theme='light'] .cl-hero-title .cl-gradient-text {
+    background-image: var(--cuttlely-gradient-headline);
+}
+:root[data-theme='light'] .cl-orb {
+    background: radial-gradient(circle at 35% 35%, rgba(95, 179, 253, 0.5), rgba(106, 61, 242, 0.38) 45%, transparent 70%);
+}
+:root[data-theme='light'] .cl-eyebrow {
+    background: var(--cuttlely-chip);
+    border-color: var(--cuttlely-card-border);
+}
+:root[data-theme='light'] .cl-kicker {
+    display: inline-block;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    background: var(--cuttlely-chip);
+    color: var(--cuttlely-chip-ink) !important;
+}
+
+/* Alternating sections sit on a full-width lavender-to-sky wash with two soft glows. */
+:root[data-theme='light'] :is(#made-for-real-teams, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes) {
+    position: relative;
+    isolation: isolate;
+    border-top-color: transparent;
+}
+:root[data-theme='light']
+    :is(#made-for-real-teams, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes)::before {
+    content: '';
+    position: absolute;
+    inset: 0 -50vw;
+    z-index: -1;
+    background: radial-gradient(40rem 18rem at 15% 0%, var(--cuttlely-wash-violet), transparent 70%),
+        radial-gradient(36rem 18rem at 88% 100%, var(--cuttlely-wash-sky), transparent 70%), var(--cuttlely-wash);
+    pointer-events: none;
+}
+:root[data-theme='light']
+    :is(#made-for-real-teams, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes)
+    + .cl-section {
+    border-top-color: transparent;
+}
+
+/* A soft mascot-coloured glow behind the demo video and the closing call. */
+:root[data-theme='light'] :is(.cl-showcase, .cl-final) {
+    position: relative;
+    isolation: isolate;
+}
+:root[data-theme='light'] .cl-showcase::before,
+:root[data-theme='light'] .cl-final::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: 50%;
+    filter: blur(40px);
+}
+:root[data-theme='light'] .cl-showcase::before {
+    inset: 5% -4% 15% 40%;
+    background: radial-gradient(closest-side, rgba(139, 92, 246, 0.22), rgba(95, 179, 253, 0.14) 60%, transparent);
+}
+:root[data-theme='light'] .cl-final::before {
+    inset: 10% 25% 20%;
+    background: radial-gradient(closest-side, rgba(139, 92, 246, 0.18), rgba(95, 179, 253, 0.12) 60%, transparent);
+}
+
+/* Cards: a gradient top bar from the logo, a violet-tinted edge and shadow, and icons in a colour chip. */
+:root[data-theme='light'] :is(.cl-installs a, .cl-contrasts li, .cl-case-steps li) {
+    position: relative;
+    overflow: hidden;
+    border-color: var(--cuttlely-card-border);
+    box-shadow: var(--cuttlely-card-shadow);
+}
+:root[data-theme='light'] :is(.cl-installs a, .cl-contrasts li, .cl-case-steps li)::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    background: var(--cuttlely-gradient-mark);
+}
+:root[data-theme='light'] .cl-tile:not(:hover, :focus-within) {
+    border-color: var(--cuttlely-card-border);
+    box-shadow: var(--cuttlely-card-shadow);
+}
+:root[data-theme='light'] .cl-installs a:hover {
+    border-color: var(--sl-color-text-accent);
+}
+:root[data-theme='light'] .cl-installs svg {
+    box-sizing: content-box;
+    padding: 0.55rem;
+    border-radius: 0.8rem;
+    background: var(--cuttlely-chip);
+    color: var(--cuttlely-chip-ink);
+}
+:root[data-theme='light'] .cl-proof svg {
+    color: var(--cuttlely-chip-ink);
+}
+:root[data-theme='light'] .cl-steps li::before {
+    background: linear-gradient(135deg, #6a3df2 0%, #4b4fea 100%);
+}
+:root[data-theme='light'] .cl-case-quote {
+    background: var(--cuttlely-wash);
+}
+:root[data-theme='light'] .cl-band {
+    border-color: var(--cuttlely-card-border);
+    background: radial-gradient(30rem 14rem at 50% 0%, rgba(139, 92, 246, 0.2), transparent 70%),
+        radial-gradient(24rem 12rem at 100% 100%, rgba(95, 179, 253, 0.2), transparent 70%),
+        linear-gradient(120deg, #f3eeff 0%, #ecf2ff 100%);
 }
 
 /* ---------- quickstart: numbered steps ---------- */
