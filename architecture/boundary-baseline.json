@@ -1182,6 +1182,11 @@
         },
         {
             "from": "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+            "to": "packages/ui/src/hooks/useAuth.jsx",
+            "reason": "Try the demo asks for the saved credential list only when the person can view credentials."
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
             "to": "packages/ui/src/store/context/ErrorContext.jsx"
         },
         {
@@ -1195,6 +1200,11 @@
         {
             "from": "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
             "to": "packages/ui/src/views/credentials/CredentialListDialog.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/TryTheDemo.test.js",
+            "to": "packages/ui/src/api/credentials.js",
+            "reason": "The Try the demo test checks which credential API calls the card makes for each role."
         },
         {
             "from": "packages/ui/src/ui-component/flow/WhichFlow.jsx",
