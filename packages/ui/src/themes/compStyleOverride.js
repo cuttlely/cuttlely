@@ -6,6 +6,41 @@ export const DARK_DISABLED_FILL = '#33363d'
 export const LIGHT_DISABLED_LABEL = '#555a66'
 export const LIGHT_DISABLED_FILL = '#e3e5ea'
 
+// Dark theme Alerts, per severity: icon, text, fill, and border. Each text color reads at 4.5:1 or better on its fill over the dark paper.
+export const DARK_ALERT = {
+    error: { icon: '#f47067', text: '#ffc4bf', fill: 'rgba(244, 67, 54, 0.1)', border: 'rgba(244, 67, 54, 0.5)' },
+    warning: { icon: '#ffa726', text: '#ffd782', fill: 'rgba(255, 167, 38, 0.08)', border: 'rgba(255, 167, 38, 0.5)' },
+    info: { icon: '#4fc3f7', text: '#b3e5fc', fill: 'rgba(41, 182, 246, 0.08)', border: 'rgba(41, 182, 246, 0.5)' },
+    success: { icon: '#66bb6a', text: '#c8e6c9', fill: 'rgba(102, 187, 106, 0.08)', border: 'rgba(102, 187, 106, 0.5)' }
+}
+const SEVERITIES = Object.keys(DARK_ALERT)
+const cap = (word) => word[0].toUpperCase() + word.slice(1)
+
+// The dark theme paints every SvgIcon white. Inside an Alert, the icon takes the severity color and a checkbox
+// takes the Alert's text color; the nested selectors outrank the plain root rule.
+const darkAlertIcons = () => ({
+    '.MuiAlert-icon &, .MuiAlert-root .MuiCheckbox-root &': { color: 'inherit' },
+    ...Object.fromEntries(
+        SEVERITIES.flatMap((severity) => [
+            [`.MuiAlert-standard${cap(severity)} .MuiAlert-icon &`, { color: DARK_ALERT[severity].icon }],
+            [`.MuiAlert-standard${cap(severity)} .MuiCheckbox-root &`, { color: DARK_ALERT[severity].text }]
+        ])
+    )
+})
+
+const darkAlerts = () =>
+    Object.fromEntries(
+        SEVERITIES.map((severity) => [
+            `standard${cap(severity)}`,
+            {
+                color: DARK_ALERT[severity].text,
+                backgroundColor: DARK_ALERT[severity].fill,
+                border: `1px solid ${DARK_ALERT[severity].border}`,
+                '& .MuiAlert-icon': { color: DARK_ALERT[severity].icon }
+            }
+        ])
+    )
+
 const disabledButton = (dark) => ({
     '&.Mui-disabled': { color: dark ? DARK_DISABLED_LABEL : LIGHT_DISABLED_LABEL },
     '&.MuiButton-contained.Mui-disabled': { backgroundColor: dark ? DARK_DISABLED_FILL : LIGHT_DISABLED_FILL },
@@ -65,9 +100,13 @@ export default function componentStyleOverrides(theme) {
         MuiSvgIcon: {
             styleOverrides: {
                 root: {
-                    color: theme?.customization?.isDarkMode ? theme.colors?.paper : 'inherit'
+                    color: theme?.customization?.isDarkMode ? theme.colors?.paper : 'inherit',
+                    ...(theme?.customization?.isDarkMode ? darkAlertIcons() : {})
                 }
             }
+        },
+        MuiAlert: {
+            styleOverrides: theme?.customization?.isDarkMode ? darkAlerts() : {}
         },
         MuiPaper: {
             defaultProps: {

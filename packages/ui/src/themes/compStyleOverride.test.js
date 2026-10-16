@@ -1,4 +1,5 @@
 import componentStyleOverrides, {
+    DARK_ALERT,
     DARK_DISABLED_FILL,
     DARK_DISABLED_LABEL,
     LIGHT_DISABLED_FILL,
@@ -71,5 +72,55 @@ describe('Cuttle Violet primary', () => {
         expect(light.primary.contrastText).toBe('#ffffff')
         expect(dark.primary.main).toBe(DARK_MAIN)
         expect(dark.primary.contrastText).toBe(INK)
+    })
+})
+
+describe('dark Alerts', () => {
+    const blend = (rgba, under) => {
+        const [r, g, b, a] = rgba.match(/[\d.]+/g).map(Number)
+        const base = [1, 3, 5].map((i) => parseInt(under.slice(i, i + 2), 16))
+        return (
+            '#' +
+            [r, g, b]
+                .map((c, i) =>
+                    Math.round(c * a + base[i] * (1 - a))
+                        .toString(16)
+                        .padStart(2, '0')
+                )
+                .join('')
+        )
+    }
+
+    test('error, warning, info and success each get their own text, fill, border and icon color on dark only', () => {
+        const dark = componentStyleOverrides({ customization: { isDarkMode: true }, colors: {} }).MuiAlert.styleOverrides
+        const light = componentStyleOverrides({ customization: { isDarkMode: false }, colors: {} }).MuiAlert.styleOverrides
+        for (const severity of ['error', 'warning', 'info', 'success']) {
+            const key = `standard${severity[0].toUpperCase()}${severity.slice(1)}`
+            expect(dark[key]).toEqual({
+                color: DARK_ALERT[severity].text,
+                backgroundColor: DARK_ALERT[severity].fill,
+                border: `1px solid ${DARK_ALERT[severity].border}`,
+                '& .MuiAlert-icon': { color: DARK_ALERT[severity].icon }
+            })
+            expect(light[key]).toBeUndefined()
+        }
+    })
+
+    test('dark Alert text reads at 4.5:1 or better on its fill over the dark surfaces', () => {
+        for (const { text, fill } of Object.values(DARK_ALERT)) {
+            for (const surface of ['#191b1f', '#23262c']) {
+                expect(contrast(text, blend(fill, surface))).toBeGreaterThanOrEqual(4.5)
+            }
+        }
+    })
+
+    test('dark theme: an icon inside an Alert does not keep the white SvgIcon color', () => {
+        const root = componentStyleOverrides({ customization: { isDarkMode: true }, colors: { paper: '#ffffff' } }).MuiSvgIcon
+            .styleOverrides.root
+        expect(root.color).toBe('#ffffff')
+        expect(root['.MuiAlert-standardWarning .MuiAlert-icon &']).toEqual({ color: DARK_ALERT.warning.icon })
+        expect(root['.MuiAlert-standardError .MuiAlert-icon &']).toEqual({ color: DARK_ALERT.error.icon })
+        expect(root['.MuiAlert-standardInfo .MuiAlert-icon &']).toEqual({ color: DARK_ALERT.info.icon })
+        expect(root['.MuiAlert-standardWarning .MuiCheckbox-root &']).toEqual({ color: DARK_ALERT.warning.text })
     })
 })

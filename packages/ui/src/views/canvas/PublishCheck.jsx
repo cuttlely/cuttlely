@@ -15,7 +15,6 @@ import {
     Typography
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
-import { useSelector } from 'react-redux'
 
 import flowDraftsApi from '@/api/flowDrafts'
 import datasetsApi from '@/api/dataset'
@@ -567,8 +566,7 @@ export const PublishCheckView = ({
     onSaveDataset = () => {},
     savingDataset = false,
     saveDatasetMessage = '',
-    saveDatasetError = '',
-    isDarkMode = false
+    saveDatasetError = ''
 }) => {
     const theme = useTheme()
     const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
@@ -859,20 +857,7 @@ export const PublishCheckView = ({
                         </Stack>
                     )}
                     {risky.length > 0 && (
-                        <Alert
-                            severity='warning'
-                            data-testid='check-risky'
-                            sx={{
-                                mt: 0.5,
-                                ...(isDarkMode && {
-                                    color: 'rgba(255, 215, 130, 0.95)',
-                                    backgroundColor: 'rgba(255, 167, 38, 0.08)',
-                                    border: '1px solid rgba(255, 167, 38, 0.5)',
-                                    '& .MuiAlert-icon': { color: 'rgba(255, 167, 38, 0.95)' },
-                                    '& .MuiCheckbox-root': { color: 'rgba(255, 215, 130, 0.95)' }
-                                })
-                            }}
-                        >
+                        <Alert severity='warning' data-testid='check-risky' sx={{ mt: 0.5 }}>
                             {riskyWarning(risky)}
                             <FormControlLabel
                                 sx={{ display: 'flex', mt: 0.5 }}
@@ -995,7 +980,6 @@ export const PublishCheckView = ({
 }
 
 PublishCheckView.propTypes = {
-    isDarkMode: PropTypes.bool,
     setup: PropTypes.object,
     loading: PropTypes.bool,
     loadError: PropTypes.string,
@@ -1062,7 +1046,6 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const words = variant === 'promote' ? promoteCheckWords(sourceTitle) : CHECK_WORDS[variant] || CHECK_WORDS.publish
     const hintedKind = checkKind(flowType, canvases)
     const { hasPermission } = useAuth()
-    const isDarkMode = useSelector((state) => state.customization?.isDarkMode)
     const canUseDatasets = hasPermission('datasets:view')
     const canUseEvaluators = hasPermission('evaluators:view')
     const canSaveDataset = hasPermission('datasets:create')
@@ -1316,7 +1299,6 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
 
     return (
         <PublishCheckView
-            isDarkMode={Boolean(isDarkMode)}
             setup={setup}
             loading={loading}
             loadError={loadError}

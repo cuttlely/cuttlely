@@ -414,17 +414,6 @@ describe('PublishCheckView', () => {
         expect(html).toContain('Run it anyway, including those steps')
     })
 
-    test('the risky-step warning keeps its icon and checkbox visible in dark mode', () => {
-        const props = {
-            setup: { unavailable: null, questions: [], riskySteps: [{ id: 'p', label: 'Post-processing code' }], limits, check: null },
-            list: initialPicks([{ text: 'Hi' }])
-        }
-        const dark = render({ ...props, isDarkMode: true })
-        expect(dark).toContain('rgba(255, 167, 38, 0.08)')
-        expect(dark).toContain('rgba(255, 167, 38, 0.95)')
-        expect(render(props)).not.toContain('rgba(255, 167, 38, 0.08)')
-    })
-
     test('a running check shows progress and Stop instead of Run', () => {
         const check = {
             id: 'c1',
