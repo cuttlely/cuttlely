@@ -940,6 +940,21 @@
             "to": "packages/components/src/index.ts"
         },
         {
+            "from": "packages/server/src/utils/removedNodesPrediction.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts",
+            "reason": "Route test drives the real prediction and streaming routes, as streaming.test.ts does."
+        },
+        {
+            "from": "packages/server/src/utils/removedNodesPrediction.test.ts",
+            "to": "packages/server/src/routes/chatflows-streaming/index.ts",
+            "reason": "Route test drives the real prediction and streaming routes, as streaming.test.ts does."
+        },
+        {
+            "from": "packages/server/src/utils/removedNodesPrediction.test.ts",
+            "to": "packages/server/src/routes/predictions/index.ts",
+            "reason": "Route test drives the real prediction and streaming routes, as streaming.test.ts does."
+        },
+        {
             "from": "packages/server/src/utils/replaceInputsWithConfig.test.ts",
             "to": "packages/server/src/utils/index.ts"
         },
