@@ -138,7 +138,7 @@ If no credential has that name and type, the **What changed** box warns you, for
 
 If several credentials in the workspace have that name and type, Cuttlely picks the one the flow uses now. If none of them is in use, it picks the oldest. The choice is the same every time. The **What changed** box and the restore dialog say which one was used, for example `2 credentials are named OpenAI main. This version uses the one the flow uses now.` To use a different one, select it on the node after the restore and save.
 
-![A read-only version of Bakery helper. Below the list of changes, a blue note in the What changed box reads 2 credentials are named OpenAI main. This version uses the one the flow uses now.](../images/versioning/version-duplicate-credential-name.png)
+![A read-only version of Bakery helper on the dark canvas, with the ChatOpenAI card outlined in orange as changed. The What changed panel lists Changed ChatOpenAI: credential, temperature. Below it, a blue box with an info icon reads 2 credentials are named OpenAI main. This version uses the one the flow uses now.](../images/versioning/version-duplicate-credential-name.png)
 
 ## What is stored, and what is not
 
