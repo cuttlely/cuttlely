@@ -7,6 +7,7 @@ jest.mock('@/api/dataset', () => ({
     default: { getAllDatasets: jest.fn(), createDatasetFromQuestions: jest.fn() }
 }))
 jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
+jest.mock('react-redux', () => ({ useSelector: (selector) => selector({ customization: { isDarkMode: false } }) }))
 jest.mock('@/hooks/useAuth', () => {
     const state = { hasPermission: () => false }
     return {

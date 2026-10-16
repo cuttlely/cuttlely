@@ -35,7 +35,8 @@ jest.mock('@/hooks/useConfirm', () => {
     return { __esModule: true, default: () => ({ confirm }) }
 })
 jest.mock('react-redux', () => ({
-    useDispatch: () => jest.fn()
+    useDispatch: () => jest.fn(),
+    useSelector: (selector) => selector({ customization: { isDarkMode: false } })
 }))
 
 import { createElement } from 'react'

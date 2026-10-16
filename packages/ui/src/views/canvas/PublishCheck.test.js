@@ -16,11 +16,11 @@ import { CHECK_WORDS, initialPicks, noPastRunsMessage } from '@/utils/publishChe
 
 const limits = { maxQuestions: 10, maxQuestionChars: 2000, maxTokens: 100000, maxSeconds: 180 }
 const noop = () => {}
-const render = (props, theme = createTheme()) =>
+const render = (props) =>
     renderToStaticMarkup(
         createElement(
             ThemeProvider,
-            { theme },
+            { theme: createTheme() },
             createElement(PublishCheckView, {
                 setup: { unavailable: null, questions: [], riskySteps: [], limits, check: null },
                 loading: false,
@@ -419,7 +419,7 @@ describe('PublishCheckView', () => {
             setup: { unavailable: null, questions: [], riskySteps: [{ id: 'p', label: 'Post-processing code' }], limits, check: null },
             list: initialPicks([{ text: 'Hi' }])
         }
-        const dark = render(props, createTheme({ palette: { mode: 'dark' } }))
+        const dark = render({ ...props, isDarkMode: true })
         expect(dark).toContain('rgba(255, 167, 38, 0.08)')
         expect(dark).toContain('rgba(255, 167, 38, 0.95)')
         expect(render(props)).not.toContain('rgba(255, 167, 38, 0.08)')
