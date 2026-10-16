@@ -1,6 +1,6 @@
 # Server settings API
 
-Owner-only settings for this server. The page is **Admin** > **Server settings**. This page is the HTTP API. A runtime limit applies on the next use. Every other saved value applies at the next start.
+Owner-only settings for this server. The page is **Admin** > **Server Settings**. This page is the HTTP API. A runtime limit applies on the next use. Every other saved value applies at the next start.
 
 `GET /api/v1/server-settings`
 

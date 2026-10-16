@@ -176,7 +176,7 @@ A pipeline made with [Build with AI](#build-a-pipeline-with-ai) also lists its s
 
 ### Better matches
 
-Local Hash Embeddings match words, not meaning. In the example, the Summit Bivy Shelter is the one built for alpine starts, but the family tent scores slightly higher because it shares more words with the question. To match on meaning, replace **Local Hash Embeddings** with a provider embeddings node, such as **OpenAI Embeddings**, select its credential, **Publish**, and run a **Full rebuild**. A canvas save alone leaves the rebuild on the published pipeline.
+Local Hash Embeddings match words, not meaning. In the example, the Summit Bivy Shelter is the one built for alpine starts, but the family tent scores slightly higher because it shares more words with the question. To match on meaning, replace **Local Hash Embeddings** with a provider embeddings node, such as **OpenAI Embedding**, select its credential, **Publish**, and run a **Full rebuild**. A canvas save alone leaves the rebuild on the published pipeline.
 
 ## When a run fails
 

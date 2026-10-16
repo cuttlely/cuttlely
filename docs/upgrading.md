@@ -115,7 +115,7 @@ You can also fix it by hand. Most changes apply at the next start. The sign-in f
 | `pnpm settings unset NAME` | Removes one saved setting, for example `CUTTLELY_LOCAL_ADMIN` |
 | `pnpm settings restore`    | Goes back to the last settings that started                   |
 
-In Docker, run them as the `node` user: `docker compose exec -u node Cuttlely pnpm settings list`. To start once without the file, set `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` (in `.env` for Docker, in the shell from source, or as an environment variable on Render).
+In Docker, run them as the `node` user: `docker compose exec -u node cuttlely pnpm settings list`. To start once without the file, set `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` (in `.env` for Docker, in the shell from source, or as an environment variable on Render).
 
 ## Publish check limits set outside their range
 

@@ -13,7 +13,7 @@ Cuttlely 是一款开源的可视化图形编辑器，用来构建和编排 AI �
 
 智能体团队由一个领头的智能体和若干专员组成。领头的 Harness Prime 把每个问题拆成几部分，专员各自用自己的模型、工具和数据完成工作，分析员则查询真实的数据表，交回实实在在的数字。你的应用通过 API 把问题发给团队，拿回一个经过研究的回答、一张图表或一个操作。在 Cuttlely 里，智能体团队叫作 harness。知识流水线、可视化工作流和 Build with AI 为团队备齐所需的一切，而每一处改动都会先作为草稿等着，直到你发布（Publish）。Cuttlely 是开源的，可以跑在你的笔记本、你自己的服务器或 Render 上。
 
-> 功能列表（包括[在你的应用里使用团队](../README.md#use-a-team-from-your-app)的 API 示例）、发布流程（Ship changes safely）和快速上手（Your first 10 minutes）目前只有[英文 README](../README.md)。
+> 功能列表（包括[在你的应用里使用团队](../README.md#use-a-team-from-your-app)的 API 示例）、发布流程（Drafts, tests, and version history）和快速上手（Your first 10 minutes）目前只有[英文 README](../README.md)。
 
 第一次安装用 **SQLite**。不要设置 `DATABASE_TYPE`。你不用在自己的电脑上装 Postgres。Docker 一直用 SQLite。从源码运行时，Postgres 是可选的；放到公网上时，Render Blueprint 会帮你设好。每条路径的步骤都在[使用指南](#使用指南)。
 
@@ -101,7 +101,7 @@ docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 新安装没有任何用户。打开 `docker compose logs cuttlely` 打印的设置链接，创建一个本地的所有者账号。也可以在终端里创建。
 
 ```bash
-docker compose exec -u node -it Cuttlely pnpm user --email you@example.com
+docker compose exec -u node -it -e CUTTLELY_LOCAL_ADMIN=true cuttlely pnpm user --email you@example.com
 ```
 
 打开 [http://localhost:43117/signin](http://localhost:43117/signin)。密码按钮的文字是 **Sign in**。

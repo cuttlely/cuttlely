@@ -13,7 +13,7 @@
 
 エージェントチームは、リーダー役のエージェントとスペシャリストたちの集まりです。リーダーの Harness Prime が質問をいくつかの部分に分け、スペシャリストがそれぞれ自分のモデル、ツール、データで作業します。アナリストは実際のテーブルに問い合わせ、本当の数字を返します。アプリは API でチームに質問を送り、調べ上げた一つの答え、グラフ、またはアクションを受け取ります。Cuttlely では、エージェントチームを harness と呼びます。知識のパイプライン、ビジュアルなワークフロー、Build with AI がチームに必要なものをそろえ、変更はすべて、あなたが公開（Publish）するまで下書きのまま待ちます。Cuttlely はオープンソースで、ノート PC、自分のサーバー、Render で動きます。
 
-> 機能の一覧（[アプリからチームを使う](../README.md#use-a-team-from-your-app) API の例を含む）、リリースの流れ（Ship changes safely）、「最初の 10 分（Your first 10 minutes）」は、今のところ[英語の README](../README.md) にだけあります。
+> 機能の一覧（[アプリからチームを使う](../README.md#use-a-team-from-your-app) API の例を含む）、リリースの流れ（Drafts, tests, and version history）、「最初の 10 分（Your first 10 minutes）」は、今のところ[英語の README](../README.md) にだけあります。
 
 最初のインストールは **SQLite** です。`DATABASE_TYPE` は空のままにしてください。ノート PC に Postgres を用意する必要はありません。Docker は SQLite のままです。ソースから動かすときは Postgres を選べます。公開用のホストでは Render の Blueprint が Postgres を設定します。それぞれの手順は[使い方ガイド](#使い方ガイド)にあります。
 
@@ -94,7 +94,7 @@ Cuttlely のインストールと使い方のガイドです。コードを変�
 新しいインストールにはユーザーがいません。`docker compose logs cuttlely` に出るセットアップ用リンクを開いて、オーナーのローカルアカウントを一つ作ります。ターミナルで作ることもできます。
 
 ```bash
-docker compose exec -u node -it Cuttlely pnpm user --email you@example.com
+docker compose exec -u node -it -e CUTTLELY_LOCAL_ADMIN=true cuttlely pnpm user --email you@example.com
 ```
 
 [http://localhost:43117/signin](http://localhost:43117/signin) を開きます。パスワードのボタンは **Sign in** です。
