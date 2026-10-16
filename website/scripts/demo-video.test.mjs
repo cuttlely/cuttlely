@@ -914,6 +914,19 @@ test('the A/B section leads, and the demo copy shares a row with its video', () 
     assert.match(css, /\.cl-home \.cl-anchor \{\s*position: absolute;/)
 })
 
+test('the hero paragraph, the page description and the README intro say the same thing', () => {
+    const lead =
+        'Cuttlely is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.'
+    const hero = readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
+    const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
+    const heroLead = hero.slice(hero.indexOf('<p class="cl-hero-lead">') + 24, hero.indexOf('</p>', hero.indexOf('cl-hero-lead')))
+    assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
+    assert.match(hero, /Each agent sees only what its job needs, and every run shows the tokens it used\./)
+    assert.ok(page.includes(`'${lead}'`))
+    assert.ok(readme.includes(`**Your applications deserve agents.**\n\n${lead}\n`))
+})
+
 test('the home page ends with the sign-off line below the site footer, and other pages do not', () => {
     const footer = readFileSync(new URL('../src/components/Footer.astro', import.meta.url), 'utf8')
     assert.ok(footer.indexOf('<SiteFooter />') < footer.indexOf('cl-signoff'))
