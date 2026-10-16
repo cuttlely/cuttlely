@@ -861,6 +861,7 @@ test('the home page puts a play button on the hero and on every tile loop', () =
     const ids = [
         'watch-a-team-resolve-a-complaint',
         'ab-test-every-change-before-it-goes-live',
+        'made-for-real-teams',
         'one-complaint-three-specialists',
         'agent-teams-that-power-your-apps',
         'use-a-team-from-your-app',
@@ -916,6 +917,22 @@ test('the demo follows the hero, the A/B section follows the demo, and the demo 
     assert.ok(showcase.indexOf('class="cl-showcase-copy"') < showcase.indexOf('class="cl-demo-window"'), 'copy comes before the video')
     // An anchor span in the flow takes the first grid cell and pushes the copy onto a second row.
     assert.match(css, /\.cl-home \.cl-anchor \{\s*position: absolute;/)
+})
+
+test('Made for real teams follows the A/B section, links each card to a guide, and stacks on a phone', () => {
+    const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+    const ab = src.indexOf('<section id="ab-test-every-change-before-it-goes-live"')
+    const teams = src.indexOf('<section id="made-for-real-teams"')
+    const caseStudy = src.indexOf('<section id="one-complaint-three-specialists"')
+    assert.ok(ab < teams && teams < caseStudy)
+    assert.equal(src.slice(ab + 1, teams).match(/<section/g), null, 'nothing sits between the A/B section and Made for real teams')
+    assert.match(src, /<h2 id="real-teams-title" class="cl-display">Made for real teams<\/h2>/)
+    const features = src.slice(src.indexOf('const teamFeatures'), src.indexOf('const installs'))
+    const hrefs = [...features.matchAll(/href: '([^']+)'/g)].map((m) => m[1])
+    assert.ok(hrefs.length >= 4 && hrefs.length <= 6, `${hrefs.length} cards`)
+    for (const href of hrefs) assert.match(href, /^\/docs\/how-to\//)
+    assert.match(css, /\.cl-team-cards \{\s*max-width: 68rem;\s*grid-template-columns: minmax\(0, 1fr\);/)
 })
 
 test('the hero paragraph, the page description and the README intro say the same thing', () => {

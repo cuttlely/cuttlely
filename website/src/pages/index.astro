@@ -96,6 +96,45 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
     }
 ]
 
+const teamFeatures = [
+    {
+        title: 'Roles and permissions',
+        text: 'Owner, Admin, Builder and Viewer are built in, and you can add your own roles. Creating a credential or deleting a flow checks the permission first.',
+        href: '/docs/how-to/roles-and-permissions/',
+        icon: 'approve-check-circle'
+    },
+    {
+        title: 'Each team keeps its own work',
+        text: 'Flows, harnesses, credentials and API keys belong to one team. Another team gets not found.',
+        href: '/docs/how-to/roles-and-permissions/#teams',
+        icon: 'seti:folder'
+    },
+    {
+        title: 'Sign in your way',
+        text: 'Start with one owner account, then add WorkOS AuthKit or an email and password for each person.',
+        href: '/docs/how-to/sign-in/',
+        icon: 'padlock'
+    },
+    {
+        title: 'Audit log',
+        text: 'Sign-ins, lockouts, invites, role changes and settings changes. Passwords, tokens and secret values are not stored.',
+        href: '/docs/how-to/audit-log/',
+        icon: 'list-format'
+    },
+    {
+        title: 'The owner runs the server',
+        text: 'Only the owner changes sign-in, the database, models and security in Server Settings, with a review step and a history.',
+        href: '/docs/how-to/server-settings/',
+        icon: 'setting'
+    },
+    {
+        title: 'On your own servers',
+        text: 'Docker, Render or from source, with SQLite, Postgres, MySQL or MariaDB.',
+        href: '/docs/how-to/docker/',
+        icon: 'server'
+    }
+] as const
+
 const installs = [
     { title: 'Docker', text: 'The install most people want. SQLite, one container.', href: '/docs/how-to/docker/', icon: 'laptop' },
     { title: 'Render', text: 'A hosted install with Postgres, from the Blueprint in the repository.', href: '/docs/how-to/render/', icon: 'rocket' },
@@ -259,6 +298,27 @@ const installs = [
                     sizes="(min-width: 46rem) 46rem, 100vw"
                 />
             </figure>
+        </section>
+
+        <section id="made-for-real-teams" class="cl-section" aria-labelledby="real-teams-title">
+            <div class="cl-center">
+                <p class="cl-kicker">For teams</p>
+                <h2 id="real-teams-title" class="cl-display">Made for real teams</h2>
+                <p class="cl-lead">Roles, separate teams, sign-in and an audit log, on a server you run.</p>
+            </div>
+            <ul class="cl-installs cl-team-cards">
+                {
+                    teamFeatures.map((item) => (
+                        <li>
+                            <a href={item.href}>
+                                <Icon name={item.icon} size="1.5rem" />
+                                <span class="cl-display">{item.title}</span>
+                                <span>{item.text}</span>
+                            </a>
+                        </li>
+                    ))
+                }
+            </ul>
         </section>
 
         <section id="one-complaint-three-specialists" class="cl-section cl-case" aria-labelledby="case-title">
