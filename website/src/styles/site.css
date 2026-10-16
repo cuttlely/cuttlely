@@ -1107,14 +1107,20 @@
     color: var(--cuttlely-chip-ink) !important;
 }
 
-/* Alternating sections sit on a full-width lavender-to-sky wash with two soft glows. */
-:root[data-theme='light'] :is(#made-for-real-teams, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes) {
+/* Alternating sections sit on a full-width lavender-to-sky wash with two soft glows. Keep this list in step with the section order. */
+:root[data-theme='light']
+    :is(#ab-test-every-change-before-it-goes-live, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes) {
     position: relative;
     isolation: isolate;
     border-top-color: transparent;
 }
 :root[data-theme='light']
-    :is(#made-for-real-teams, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes)::before {
+    :is(
+        #ab-test-every-change-before-it-goes-live,
+        #agent-teams-that-power-your-apps,
+        #small-context-big-answers,
+        #start-in-minutes
+    )::before {
     content: '';
     position: absolute;
     inset: 0 -50vw;
@@ -1124,7 +1130,7 @@
     pointer-events: none;
 }
 :root[data-theme='light']
-    :is(#made-for-real-teams, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes)
+    :is(#ab-test-every-change-before-it-goes-live, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes)
     + .cl-section {
     border-top-color: transparent;
 }

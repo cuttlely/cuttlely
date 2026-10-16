@@ -860,9 +860,9 @@ test('the home page puts a play button on the hero and on every tile loop', () =
     assert.match(src, /aria-label="Play the testing video with sound"/)
     const ids = [
         'watch-a-team-resolve-a-complaint',
+        'one-complaint-three-specialists',
         'ab-test-every-change-before-it-goes-live',
         'made-for-real-teams',
-        'one-complaint-three-specialists',
         'agent-teams-that-power-your-apps',
         'use-a-team-from-your-app',
         'small-context-big-answers',
@@ -904,16 +904,20 @@ test('the home page keeps the old anchors, one testing video, and no testing til
     assert.equal((src.match(/aria-label="Play the testing video with sound"/g) || []).length, 1)
 })
 
-test('the demo follows the hero, the A/B section follows the demo, and the demo copy shares a row with its video', () => {
+test('the demo follows the hero, the case study follows the demo, then the A/B section, and the demo copy shares a row with its video', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
     assert.match(src, /<h2 id="test-every-change-title" class="cl-display">A\/B test every change before it goes live<\/h2>/)
+    assert.match(src, /<h2 id="case-title" class="cl-display">Not the obvious answer<\/h2>/)
     const proof = src.indexOf('class="cl-proof"')
     const demo = src.indexOf('<section id="watch-a-team-resolve-a-complaint"')
+    const caseStudy = src.indexOf('<section id="one-complaint-three-specialists"')
     const ab = src.indexOf('<section id="ab-test-every-change-before-it-goes-live"')
-    assert.ok(proof < demo && demo < ab)
+    assert.ok(proof < demo && demo < caseStudy && caseStudy < ab)
     assert.equal(src.slice(proof, demo).match(/<section/g), null, 'nothing sits between the proof row and the demo')
-    const showcase = src.slice(demo, ab)
+    assert.equal(src.slice(demo + 1, caseStudy).match(/<section/g), null, 'nothing sits between the demo and the case study')
+    assert.equal(src.slice(caseStudy + 1, ab).match(/<section/g), null, 'nothing sits between the case study and the A/B section')
+    const showcase = src.slice(demo, caseStudy)
     assert.ok(showcase.indexOf('class="cl-showcase-copy"') < showcase.indexOf('class="cl-demo-window"'), 'copy comes before the video')
     // An anchor span in the flow takes the first grid cell and pushes the copy onto a second row.
     assert.match(css, /\.cl-home \.cl-anchor \{\s*position: absolute;/)
@@ -924,8 +928,8 @@ test('Made for real teams follows the A/B section, links each card to a guide, a
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
     const ab = src.indexOf('<section id="ab-test-every-change-before-it-goes-live"')
     const teams = src.indexOf('<section id="made-for-real-teams"')
-    const caseStudy = src.indexOf('<section id="one-complaint-three-specialists"')
-    assert.ok(ab < teams && teams < caseStudy)
+    const agentTeams = src.indexOf('<section id="agent-teams-that-power-your-apps"')
+    assert.ok(ab < teams && teams < agentTeams)
     assert.equal(src.slice(ab + 1, teams).match(/<section/g), null, 'nothing sits between the A/B section and Made for real teams')
     assert.match(src, /<h2 id="real-teams-title" class="cl-display">Made for real teams<\/h2>/)
     const features = src.slice(src.indexOf('const teamFeatures'), src.indexOf('const installs'))
@@ -951,12 +955,26 @@ test('the light home page colour tokens and rules apply only to the light theme'
         assert.ok(light.includes(token), token)
         assert.equal(dark.includes(token), false, `${token} stays out of the dark theme`)
     }
-    for (const line of css
-        .split('\n')
-        .filter((l) => /var\(--cuttlely-(wash|chip|card-border|card-shadow|gradient-headline)/.test(l))) {
+    for (const line of css.split('\n').filter((l) => /var\(--cuttlely-(wash|chip|card-border|card-shadow|gradient-headline)/.test(l))) {
         const rule = css.slice(0, css.indexOf(line))
         const selector = rule.slice(rule.lastIndexOf('}') + 1)
         assert.match(selector, /:root\[data-theme='light'\]/, line.trim())
+    }
+})
+
+test('no two light-theme tinted bands sit next to each other on the home page', () => {
+    const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+    const banded = new Set(
+        css
+            .match(/:root\[data-theme='light'\] :is\(([^)]+)\) \{/)[1]
+            .split(', ')
+            .map((s) => s.replace('#', ''))
+    )
+    const order = [...src.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1])
+    for (const id of banded) assert.ok(order.includes(id), id)
+    for (let i = 1; i < order.length; i++) {
+        assert.ok(!(banded.has(order[i - 1]) && banded.has(order[i])), `${order[i - 1]} and ${order[i]} are both tinted`)
     }
 })
 
@@ -972,7 +990,10 @@ test('the light hero headline gradient keeps 3.5:1 on the darkest point of the h
     const wash = css.match(/:root\[data-theme='light'\] \.cl-hero::before \{([^}]+)\}/)[1]
     assert.match(wash, /mask-image: linear-gradient\(180deg, #000 \d+%, transparent 100%\)/, 'the wash fades to the page')
     // The glows sit in opposite corners, so the darkest point is one glow at full strength over the darker base end.
-    const base = wash.match(/linear-gradient\(180deg, (#[0-9a-f]{6}) 0%, (#[0-9a-f]{6}) 100%\)/).slice(1).map(hex)
+    const base = wash
+        .match(/linear-gradient\(180deg, (#[0-9a-f]{6}) 0%, (#[0-9a-f]{6}) 100%\)/)
+        .slice(1)
+        .map(hex)
     const under = base.sort((a, b) => lum(a) - lum(b))[0]
     const glows = [...wash.matchAll(/rgba\((\d+), (\d+), (\d+), ([\d.]+)\)/g)].map((m) => [m.slice(1, 4).map(Number), +m[4]])
     assert.equal(glows.length, 3)
@@ -983,7 +1004,10 @@ test('the light hero headline gradient keeps 3.5:1 on the darkest point of the h
             assert.ok(ratio >= 3.5, `${stop} under the rgba(${rgb}, ${a}) glow is ${ratio.toFixed(2)}:1`)
         }
     }
-    assert.match(css, /:root\[data-theme='light'\] \.cl-hero-title \.cl-gradient-text \{\s*background-image: var\(--cuttlely-gradient-headline\);/)
+    assert.match(
+        css,
+        /:root\[data-theme='light'\] \.cl-hero-title \.cl-gradient-text \{\s*background-image: var\(--cuttlely-gradient-headline\);/
+    )
 })
 
 test('the hero paragraph, the page description and the README intro say the same thing', () => {

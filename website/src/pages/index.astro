@@ -204,6 +204,78 @@ const installs = [
             </figure>
         </section>
 
+        <section id="one-complaint-three-specialists" class="cl-section cl-case" aria-labelledby="case-title">
+            <div class="cl-center">
+                <p class="cl-kicker">One real run</p>
+                <h2 id="case-title" class="cl-display">Not the obvious answer</h2>
+                <blockquote class="cl-case-quote">
+                    <p>"My espresso machine was due Friday. Tracking hasn't moved in a week, and it's your second late order. I want a refund."</p>
+                    <footer>Maya Okafor, order LH-20417</footer>
+                </blockquote>
+                <p class="cl-lead">
+                    It looks like a carrier delay, and she already had a goodwill credit for the last one. The specialists find something else.
+                </p>
+            </div>
+            <div class="cl-case-fold">
+                <details class="cl-case-more">
+                    <summary class="cl-case-toggle">
+                        <span class="cl-case-toggle-closed">See how the agent team worked it out</span>
+                        <span class="cl-case-toggle-open">Hide how the agent team worked it out</span>
+                        <span class="cl-case-chevron" aria-hidden="true"></span>
+                    </summary>
+                    <div class="cl-case-more-body">
+                        <ol class="cl-case-steps">
+                            <li>
+                                <p class="cl-case-who"><span class="cl-case-name">customer</span> support desk database · 6.5 s · 2 tools</p>
+                                <h3 class="cl-display">A Plus customer, late twice in 120 days</h3>
+                                <p>LH-18802 arrived 3 days late on 2026-08-15, with a $10 goodwill credit. LH-20417 is late now.</p>
+                            </li>
+                            <li>
+                                <p class="cl-case-who"><span class="cl-case-name">operations</span> warehouse and carrier scans · 4.8 s · 1 tool</p>
+                                <h3 class="cl-display">The carrier never had the parcel</h3>
+                                <p>
+                                    It failed the outbound scale check in Columbus on 2026-09-29 and went to an exception cage. Four more orders from the same packing wave
+                                    are held. Reno can reship by Express for Thursday.
+                                </p>
+                            </li>
+                            <li>
+                                <p class="cl-case-who"><span class="cl-case-name">policy</span> after operations · 9.6 s · 1 tool</p>
+                                <h3 class="cl-display">Larkfield's fault, section 1.2</h3>
+                                <p>
+                                    So the goodwill limit does not apply. A second late delivery lifts Plus to the Premier remedy: a $55.80 credit, 20% of $279.00, and a
+                                    call from the Customer Care Lead. Five held orders mean an operations incident.
+                                </p>
+                            </li>
+                        </ol>
+                        <div class="cl-case-answer">
+                            <div class="cl-case-answer-copy">
+                                <p class="cl-case-who"><span class="cl-case-name">Harness Prime</span> decision, reply, actions, evidence · 19.8 s in all, median 16.5 s over five runs</p>
+                                <p>
+                                    Refund the $9.95 shipping, reship by Express for Thursday, recall the held parcel, add a $55.80 store credit, have the Customer Care Lead
+                                    call, and open an operations incident for the packing wave. Or a full refund, if Maya prefers. Every amount and section comes from a
+                                    specialist's tools.
+                                </p>
+                                <a class="cl-link-arrow" href="/docs/how-to/customer-care-demo/">How the team is built <Icon name="right-arrow" /></a>
+                            </div>
+                            <div class="cl-shot cl-case-shot">
+                                <Focus
+                                    src={careAnswer}
+                                    alt="The reply letter to Maya with the $9.95 shipping refund, reship from Reno and $55.80 store credit, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy."
+                                    cx={0.5}
+                                    cy={0.6}
+                                    zoom={1.75}
+                                    ratio={16 / 10}
+                                    widths={[720, 1080]}
+                                    sizes="(min-width: 60rem) 560px, 100vw"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </details>
+                <a class="cl-link-arrow cl-case-guide" href="/docs/how-to/harnesses/">Read how harnesses work <Icon name="right-arrow" /></a>
+            </div>
+        </section>
+
         <section id="ab-test-every-change-before-it-goes-live" class="cl-section cl-ab" aria-labelledby="test-every-change-title">
             <span id="test-every-change-before-it-goes-live" class="cl-anchor" aria-hidden="true"></span>
             <span id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-anchor" aria-hidden="true"></span>
@@ -319,78 +391,6 @@ const installs = [
                     ))
                 }
             </ul>
-        </section>
-
-        <section id="one-complaint-three-specialists" class="cl-section cl-case" aria-labelledby="case-title">
-            <div class="cl-center">
-                <p class="cl-kicker">One real run</p>
-                <h2 id="case-title" class="cl-display">Not the obvious answer</h2>
-                <blockquote class="cl-case-quote">
-                    <p>"My espresso machine was due Friday. Tracking hasn't moved in a week, and it's your second late order. I want a refund."</p>
-                    <footer>Maya Okafor, order LH-20417</footer>
-                </blockquote>
-                <p class="cl-lead">
-                    It looks like a carrier delay, and she already had a goodwill credit for the last one. The specialists find something else.
-                </p>
-            </div>
-            <div class="cl-case-fold">
-                <details class="cl-case-more">
-                    <summary class="cl-case-toggle">
-                        <span class="cl-case-toggle-closed">See how the agent team worked it out</span>
-                        <span class="cl-case-toggle-open">Hide how the agent team worked it out</span>
-                        <span class="cl-case-chevron" aria-hidden="true"></span>
-                    </summary>
-                    <div class="cl-case-more-body">
-                        <ol class="cl-case-steps">
-                            <li>
-                                <p class="cl-case-who"><span class="cl-case-name">customer</span> support desk database · 6.5 s · 2 tools</p>
-                                <h3 class="cl-display">A Plus customer, late twice in 120 days</h3>
-                                <p>LH-18802 arrived 3 days late on 2026-08-15, with a $10 goodwill credit. LH-20417 is late now.</p>
-                            </li>
-                            <li>
-                                <p class="cl-case-who"><span class="cl-case-name">operations</span> warehouse and carrier scans · 4.8 s · 1 tool</p>
-                                <h3 class="cl-display">The carrier never had the parcel</h3>
-                                <p>
-                                    It failed the outbound scale check in Columbus on 2026-09-29 and went to an exception cage. Four more orders from the same packing wave
-                                    are held. Reno can reship by Express for Thursday.
-                                </p>
-                            </li>
-                            <li>
-                                <p class="cl-case-who"><span class="cl-case-name">policy</span> after operations · 9.6 s · 1 tool</p>
-                                <h3 class="cl-display">Larkfield's fault, section 1.2</h3>
-                                <p>
-                                    So the goodwill limit does not apply. A second late delivery lifts Plus to the Premier remedy: a $55.80 credit, 20% of $279.00, and a
-                                    call from the Customer Care Lead. Five held orders mean an operations incident.
-                                </p>
-                            </li>
-                        </ol>
-                        <div class="cl-case-answer">
-                            <div class="cl-case-answer-copy">
-                                <p class="cl-case-who"><span class="cl-case-name">Harness Prime</span> decision, reply, actions, evidence · 19.8 s in all, median 16.5 s over five runs</p>
-                                <p>
-                                    Refund the $9.95 shipping, reship by Express for Thursday, recall the held parcel, add a $55.80 store credit, have the Customer Care Lead
-                                    call, and open an operations incident for the packing wave. Or a full refund, if Maya prefers. Every amount and section comes from a
-                                    specialist's tools.
-                                </p>
-                                <a class="cl-link-arrow" href="/docs/how-to/customer-care-demo/">How the team is built <Icon name="right-arrow" /></a>
-                            </div>
-                            <div class="cl-shot cl-case-shot">
-                                <Focus
-                                    src={careAnswer}
-                                    alt="The reply letter to Maya with the $9.95 shipping refund, reship from Reno and $55.80 store credit, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy."
-                                    cx={0.5}
-                                    cy={0.6}
-                                    zoom={1.75}
-                                    ratio={16 / 10}
-                                    widths={[720, 1080]}
-                                    sizes="(min-width: 60rem) 560px, 100vw"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </details>
-                <a class="cl-link-arrow cl-case-guide" href="/docs/how-to/harnesses/">Read how harnesses work <Icon name="right-arrow" /></a>
-            </div>
         </section>
 
         <section id="agent-teams-that-power-your-apps" class="cl-section cl-split" aria-labelledby="agent-teams-title">
