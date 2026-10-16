@@ -65,6 +65,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+-   **A dark-theme style in the UI reads `customization.isDarkMode` from the store, not `theme.palette.mode`.** The palette mode comes from `navType`, which the header toggle does not change, so `palette.mode === 'dark'` is false on a dark canvas. Pass the flag into a view component as a prop so its tests can render it without a store.
 -   **`CUTTLELY_PUBLISH_CHECK` accepts only `true` and `false`.** `yes`, `on`, `1`, and `TRUE` are ignored on the host and refused in Server settings. The default is on, so leaving it unset does not change Publish or the check (D84).
 -   **A look at another environment's versions must not use the incoming ref.** That ref is what this server offers to promote. A temporary ref, dropped after the read, keeps the offer on the previous environment.
 -   **A failed try-directory delete is not a finished cleanup.** The runtime can keep `logs/errors.log` and `logs/gateway.log` open in the try directory and in each specialist directory. Close those profiles before deleting, then retry. A directory that is still there is logged once and removed on the next start, and only when it carries the try marker. A saved harness is left in place.
