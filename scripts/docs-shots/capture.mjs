@@ -323,8 +323,11 @@ async function hideMoney(page, file, keepAmounts) {
     }
 }
 
-// Frames whose main subject is the canvas editor. A large dialog or the expanded chat over a canvas stays light.
+// Frames whose main subject is the canvas editor, and the opening Try the demo chats over the team canvas.
+// Other large dialogs and expanded chats over a canvas stay light.
 const DARK = new Set([
+    'try-the-demo/customer-care-open.png',
+    'try-the-demo/demo-open.png',
     'canvas/canvas-new-look.png',
     'canvas/canvas-side-panel.png',
     'canvas/grok-model-dropdown.png',
@@ -348,6 +351,31 @@ async function shoot(page, file, { width = 1440, height = 960, scheme = 'light',
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     await page.screenshot({ path: dest, ...(clip ? { clip } : {}) })
     log(`wrote ${file}`)
+}
+
+// A starter chip keeps its label on one line and cuts it off at the dialog edge, so the opening frames let it wrap.
+async function widenExpandedChat(page) {
+    await page.evaluate(() => {
+        const paper = document.querySelector('.MuiDialog-paper')
+        if (paper) {
+            paper.style.maxWidth = '960px'
+            paper.style.width = '960px'
+        }
+        document.querySelectorAll('.MuiDialog-paper button, .MuiDialog-paper .MuiChip-root').forEach((el) => {
+            el.style.whiteSpace = 'normal'
+            el.style.height = 'auto'
+            el.style.maxWidth = '100%'
+            el.style.textAlign = 'left'
+        })
+        document.querySelectorAll('.MuiDialog-paper .MuiChip-label').forEach((el) => {
+            el.style.whiteSpace = 'normal'
+            el.style.overflow = 'visible'
+            el.style.textOverflow = 'clip'
+            el.style.paddingTop = '6px'
+            el.style.paddingBottom = '6px'
+        })
+    })
+    await page.waitForTimeout(300)
 }
 
 async function signIn(page) {
@@ -631,19 +659,7 @@ async function main() {
             await disableStreaming('customer-care-demo')
             await page.getByRole('button', { name: 'expand' }).click()
             await page.getByText('Hi there! How can I help?').waitFor()
-            await page.evaluate(() => {
-                const paper = document.querySelector('.MuiDialog-paper')
-                if (paper) {
-                    paper.style.maxWidth = '960px'
-                    paper.style.width = '960px'
-                }
-                document.querySelectorAll('.MuiDialog-paper button').forEach((button) => {
-                    button.style.whiteSpace = 'normal'
-                    button.style.height = 'auto'
-                    button.style.textAlign = 'left'
-                })
-            })
-            await page.waitForTimeout(300)
+            await widenExpandedChat(page)
             await shoot(page, 'try-the-demo/customer-care-open.png')
             await page.getByRole('button', { name: /Maya Okafor/ }).click()
             await page.getByText('Decision', { exact: false }).waitFor({ timeout: 240000 })
@@ -691,7 +707,10 @@ async function main() {
             .first()
             .waitFor({ timeout: 60000 })
         if (await page.getByRole('button', { name: 'expand' }).count()) await page.getByRole('button', { name: 'expand' }).click()
-        if (want('demo')) await shoot(page, 'try-the-demo/demo-open.png')
+        if (want('demo')) {
+            await widenExpandedChat(page)
+            await shoot(page, 'try-the-demo/demo-open.png')
+        }
         await disableStreaming('bakery-demo')
         await page.getByRole('button', { name: /croissant/i }).click()
         await settle(page, 'try-the-demo/demo-chart.png', { expected: /Riverside sold 335 more/ })
