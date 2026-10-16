@@ -30,6 +30,19 @@ describe('a node that is not in the loaded catalog', () => {
         expect(packFromIndex(index, 'other', 'Missing')).toBe('')
     })
 
+    test('says a removed configuration card was removed and can be deleted', () => {
+        const index = [{ name: 'langFuse', label: 'LangFuse', pack: 'some-pack' }]
+        expect(missingNodeInfo({ name: 'langFuse', label: 'LangFuse', nodePack: 'some-pack' }, catalog, index)).toEqual({
+            label: 'LangFuse',
+            pack: '',
+            message: 'LangFuse was removed from Cuttlely and no longer runs. You can delete this card.'
+        })
+        expect(missingNodeInfo({ name: 'assemblyAI' }, catalog).message).toBe(
+            'assemblyAI was removed from Cuttlely and no longer runs. You can delete this card.'
+        )
+        expect(missingNodeInfo({ name: 'someTracer', label: 'Some Tracer' }, catalog).message).toBe('Some Tracer is not installed.')
+    })
+
     test('leaves a loaded node and an empty catalog alone', () => {
         expect(missingNodeInfo({ name: 'chatOpenAI', label: 'ChatOpenAI' }, catalog)).toBeNull()
         expect(missingNodeInfo({ name: 'samplePackNode', label: 'Sample Pack Node', nodePack: 'sample-pack' }, [])).toBeNull()

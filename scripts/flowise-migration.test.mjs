@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { migrationRoute, scanFlowiseMigration } from '../packages/ui/src/utils/flowiseMigration.mjs'
+import { REMOVED_NODE_NAMES } from '../packages/ui/src/utils/removedNodes.mjs'
 
 const SECRET = 'super-secret-flowise-key'
 const CREDENTIAL_ID = 'cred-should-not-leak-9f3a'
@@ -34,6 +35,17 @@ const node = (id, name, extra = {}) => ({
 const edge = (source, target) => ({ id: `${source}-${target}`, source, target })
 
 const scan = (parsed) => scanFlowiseMigration(parsed, { catalog })
+
+describe('removed node names', () => {
+    it('match between the UI list and the server list', () => {
+        const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../packages/server/src/utils/nodePacks.ts'), 'utf8')
+        const match = source.match(/export const REMOVED_NODE_NAMES = new Set\(\[([^\]]*)\]\)/)
+        assert.ok(match, 'REMOVED_NODE_NAMES is not declared as a Set literal in nodePacks.ts')
+        const server = [...match[1].matchAll(/'([^']+)'/g)].map((item) => item[1]).sort()
+        assert.ok(server.length > 0)
+        assert.deepEqual([...REMOVED_NODE_NAMES].sort(), server)
+    })
+})
 
 describe('scanFlowiseMigration', () => {
     it('marks a clean chatflow ready to open and keeps the nodes', () => {

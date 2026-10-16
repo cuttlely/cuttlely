@@ -16,7 +16,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Removed
 
--   The eight hidden configuration nodes the server already skipped at load: Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix, and AssemblyAI. They never appeared in the node list. Analyse Flow tracing, Speech to Text, and their credentials are unchanged. On the Credentials page, seven of those credentials now show the generic key icon. The Langfuse credential keeps its icon because the Langfuse prompt node still uses it. A saved chatflow or agentflow that still holds one of these cards runs without it instead of returning 422 or "This chatflow cannot chat yet", in the prediction API, the streaming check, and canvas chat. Import JSON drops these cards with a note and still opens the file.
+-   The eight hidden configuration nodes the server already skipped at load: Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix, and AssemblyAI. They never appeared in the node list. Analyse Flow tracing, Speech to Text, and their credentials are unchanged. On the Credentials page, seven of those credentials now show the generic key icon. The Langfuse credential keeps its icon because the Langfuse prompt node still uses it. A saved chatflow or agentflow that still holds one of these cards runs without it instead of returning 422 or "This chatflow cannot chat yet", in the prediction API, the streaming check, and canvas chat. Import JSON drops these cards with a note and still opens the file. On a saved canvas, such a card now says it was removed and can be deleted, instead of "not installed".
 
 ### Fixed
 
