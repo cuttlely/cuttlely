@@ -13,6 +13,27 @@ describe('Sidebar active item', () => {
         expect(isGroupActive(admin, '/server-settings')).toBe(true)
     })
 
+    it('lists Users and Teams first under Admin', () => {
+        expect(admin.children.map((item) => item.id)).toEqual([
+            'users',
+            'workspaces',
+            'roles',
+            'serverSettings',
+            'serverLogs',
+            'auditLog',
+            'versionHistory'
+        ])
+    })
+
+    it('marks Users and Teams by address, including a team members page', () => {
+        expect(activeOn('/users')).toEqual(['users'])
+        expect(activeOn('/workspaces')).toEqual(['workspaces'])
+        expect(activeOn('/workspace-users/team-1')).toEqual(['workspaces'])
+        expect(activeOn('/roles')).toEqual(['roles'])
+        expect(isGroupActive(admin, '/users')).toBe(true)
+        expect(isGroupActive(admin, '/workspace-users/team-1')).toBe(true)
+    })
+
     it('marks Version History on its page even though its id is not its address', () => {
         expect(activeOn('/version-history')).toEqual(['versionHistory'])
     })

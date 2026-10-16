@@ -221,16 +221,6 @@ const dashboard = {
             icon: icons.IconShield,
             children: [
                 {
-                    id: 'roles',
-                    title: 'Roles',
-                    type: 'item',
-                    url: '/roles',
-                    icon: icons.IconLockCheck,
-                    breadcrumbs: true,
-                    display: 'feat:roles',
-                    permission: 'roles:manage'
-                },
-                {
                     id: 'users',
                     title: 'Users',
                     type: 'item',
@@ -239,6 +229,28 @@ const dashboard = {
                     breadcrumbs: true,
                     display: 'feat:users',
                     permission: 'users:manage'
+                },
+                {
+                    id: 'workspaces',
+                    title: 'Teams',
+                    type: 'item',
+                    url: '/workspaces',
+                    // A team's members page belongs to Teams too.
+                    activeRoutes: ['/workspace-users'],
+                    icon: icons.IconStack2,
+                    breadcrumbs: true,
+                    display: 'feat:workspaces',
+                    permission: 'workspace:view'
+                },
+                {
+                    id: 'roles',
+                    title: 'Roles',
+                    type: 'item',
+                    url: '/roles',
+                    icon: icons.IconLockCheck,
+                    breadcrumbs: true,
+                    display: 'feat:roles',
+                    permission: 'roles:manage'
                 },
                 {
                     // Server-wide: only the organization owner sees it (no role holds this permission).
@@ -277,18 +289,6 @@ const dashboard = {
                     icon: icons.IconHistory,
                     breadcrumbs: true,
                     permission: 'server:owner'
-                },
-                {
-                    id: 'workspaces',
-                    title: 'Teams',
-                    type: 'item',
-                    url: '/workspaces',
-                    // A team's members page belongs to Teams too.
-                    activeRoutes: ['/workspace-users'],
-                    icon: icons.IconStack2,
-                    breadcrumbs: true,
-                    display: 'feat:workspaces',
-                    permission: 'workspace:view'
                 }
             ]
         }
