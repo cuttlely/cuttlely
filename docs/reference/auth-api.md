@@ -210,4 +210,14 @@ Audit rows in `identity_action_audit` record link issued, token consumed, token 
 
 ## Errors
 
-Failures use `{ "message": "..." }`. The server does not log the password, the hash, the cookie, a setup code, the raw email, or a one-time token. A token in a query string or a fragment is redacted before a request line is written.
+Failures from these routes use `{ "message": "..." }`. The sign-in, sign-out, change-password, and accept routes are on the public list, so a call with no session reaches the route and gets the bodies above, for example 401 `{ "message": "Unauthorized" }` from `POST /api/v1/auth/local/password`.
+
+The routes that need a session, such as `POST /api/v1/account/invite` and `POST /api/v1/users/:id/reset-link`, are refused before the route when the call has no session and no valid API key. That response comes from the API gate and uses a different key:
+
+```json
+{ "error": "Unauthorized Access" }
+```
+
+The status is 401, with or without `x-request-from: internal`. A signed-in browser that sends a write without `x-request-from: internal` gets 401 `{ "message": "Unauthorized" }` from that same gate.
+
+The server does not log the password, the hash, the cookie, a setup code, the raw email, or a one-time token. A token in a query string or a fragment is redacted before a request line is written.
