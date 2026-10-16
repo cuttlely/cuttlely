@@ -1107,7 +1107,25 @@ initVideoDialogs()
             assert.ok(dialog.full.t < 0.45, `dialog playhead ${dialog.full.t}`)
             assert.equal(dialog.full.muted, false)
             assert.equal(dialog.full.volume, 0.3)
-            await evalValue(`document.querySelector('#full video').currentTime = 1.1`)
+            // Under load the seek can still be pending when close() runs, so close only once the playhead has moved.
+            const seeked = await evalValue(`new Promise((resolve, reject) => {
+            const video = document.querySelector('#full video')
+            const events = ['seeked', 'timeupdate', 'loadedmetadata']
+            const timer = setTimeout(() => {
+                events.forEach((name) => video.removeEventListener(name, check))
+                reject(new Error('seek to 1.1 did not land, playhead ' + video.currentTime))
+            }, 5000)
+            function check() {
+                if (video.seeking || video.currentTime <= 1.0) return
+                clearTimeout(timer)
+                events.forEach((name) => video.removeEventListener(name, check))
+                resolve(video.currentTime)
+            }
+            events.forEach((name) => video.addEventListener(name, check))
+            video.currentTime = 1.1
+            check()
+        })`)
+            assert.ok(seeked > 1.0, `seeked playhead ${seeked}`)
             await evalValue(`document.getElementById('full').close()`)
             const closed = await waitFor('dialog paused', (state) => state.dialogOpen === false && state.full.paused === true)
             assert.ok(closed.full.t > 0.8, `closed playhead ${closed.full.t}`)
