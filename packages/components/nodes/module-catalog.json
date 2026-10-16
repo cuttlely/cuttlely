@@ -3,7 +3,7 @@
     "registration": "NodesPool loads every nodeClass under packages/components/nodes, then the packs in CUTTLELY_NODE_PACKS. Unset loads the packs that ship with the install. packages/components/nodes/index.ts re-exports this catalog. tier is core (a bundled template, a sample canvas, or a Build with AI recipe), supported, legacy (DEPRECATING badge), or hidden (a category the server skips at load).",
     "langgraphUpgradeBlocked": false,
     "counts": {
-        "native": 265,
+        "native": 257,
         "adapt": 17,
         "replaced": 15
     },
@@ -11,7 +11,7 @@
         "core": 88,
         "supported": 177,
         "legacy": 24,
-        "hidden": 8
+        "hidden": 0
     },
     "nodes": [
         {
@@ -233,76 +233,6 @@
             "disposition": "adapt",
             "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
             "tier": "supported"
-        },
-        {
-            "name": "arize",
-            "label": "Arize",
-            "category": "Analytic",
-            "folder": "analytic",
-            "file": "packages/components/nodes/analytic/Arize/Arize.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "hidden"
-        },
-        {
-            "name": "langFuse",
-            "label": "LangFuse",
-            "category": "Analytic",
-            "folder": "analytic",
-            "file": "packages/components/nodes/analytic/LangFuse/LangFuse.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "hidden"
-        },
-        {
-            "name": "langSmith",
-            "label": "LangSmith",
-            "category": "Analytic",
-            "folder": "analytic",
-            "file": "packages/components/nodes/analytic/LangSmith/LangSmith.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "hidden"
-        },
-        {
-            "name": "LangWatch",
-            "label": "LangWatch",
-            "category": "Analytic",
-            "folder": "analytic",
-            "file": "packages/components/nodes/analytic/LangWatch/LangWatch.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "hidden"
-        },
-        {
-            "name": "lunary",
-            "label": "Lunary",
-            "category": "Analytic",
-            "folder": "analytic",
-            "file": "packages/components/nodes/analytic/Lunary/Lunary.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "hidden"
-        },
-        {
-            "name": "opik",
-            "label": "Opik",
-            "category": "Analytic",
-            "folder": "analytic",
-            "file": "packages/components/nodes/analytic/Opik/Opik.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "hidden"
-        },
-        {
-            "name": "phoenix",
-            "label": "Phoenix",
-            "category": "Analytic",
-            "folder": "analytic",
-            "file": "packages/components/nodes/analytic/Phoenix/Phoenix.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "hidden"
         },
         {
             "name": "conversationalRetrievalQAChain",
@@ -1793,16 +1723,6 @@
             "disposition": "adapt",
             "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
             "tier": "core"
-        },
-        {
-            "name": "assemblyAI",
-            "label": "AssemblyAI",
-            "category": "SpeechToText",
-            "folder": "speechtotext",
-            "file": "packages/components/nodes/speechtotext/assemblyai/AssemblyAI.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "hidden"
         },
         {
             "name": "characterTextSplitter",

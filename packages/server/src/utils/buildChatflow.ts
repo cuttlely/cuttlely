@@ -62,7 +62,7 @@ import {
     getAPIOverrideConfig
 } from '../utils'
 import { toPredictionError } from './predictionErrors'
-import { missingNodeFailure } from './nodePacks'
+import { missingNodeFailure, withoutRemovedNodes } from './nodePacks'
 import {
     assertDocumentUploadSize,
     localStoredUploadPath,
@@ -616,7 +616,7 @@ export const executeFlow = async ({
         async () => {
             /*** Get chatflows and prepare data  ***/
             const flowData = chatflow.flowData
-            const parsedFlowData: IReactFlowObject = JSON.parse(flowData)
+            const parsedFlowData: IReactFlowObject = withoutRemovedNodes(JSON.parse(flowData))
             const nodes = parsedFlowData.nodes
             const edges = parsedFlowData.edges
 

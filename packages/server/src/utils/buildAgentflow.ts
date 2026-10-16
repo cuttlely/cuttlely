@@ -67,6 +67,7 @@ import {
     warnUnmatchedAllowlistLabels
 } from './replaceInputsWithConfig'
 import logger from './logger'
+import { withoutRemovedNodes } from './nodePacks'
 import { getErrorMessage } from '../errors/utils'
 import { Execution } from '../database/entities/Execution'
 import { utilAddChatMessage } from './addChatMesage'
@@ -1845,7 +1846,7 @@ const runAgentFlow = async ({
 
     /*** Get chatflows and prepare data  ***/
     const flowData = chatflow.flowData
-    const parsedFlowData: IReactFlowObject = JSON.parse(flowData)
+    const parsedFlowData: IReactFlowObject = withoutRemovedNodes(JSON.parse(flowData))
     const nodes = (parsedFlowData.nodes || []).filter((node) => node.data.name !== 'stickyNoteAgentflow')
     const edges = parsedFlowData.edges
     const { graph, nodeDependencies } = constructGraphs(nodes, edges)
