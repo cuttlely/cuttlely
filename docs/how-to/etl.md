@@ -102,7 +102,7 @@ The preview has five numbered steps. Select a step to open it.
 | **4 Embed**             | The embeddings model, its dimensions, and the time it took.                                             |
 | **5 Store**             | `Written by a run. Preview never writes.`                                                               |
 
-![The Preview tab scrolled to the end of the chunk cards. The last two cards each have a violet new chip: Aster 15°F Down Sleeping Bag, 221 chars, row 4, sku SLP-15F-DWN, and Trailhead 30°F Synthetic Bag, 210 chars, row 5, sku SLP-30F-SYN, both in category Sleeping. Below them, step 4 Embed reads Local Hash Embeddings · 384 dimensions, for 3 chunks, and step 5 Store reads Written by a run. Preview never writes. An Upload a file to the server box with a Choose File button is at the bottom.](../images/etl/etl-preview-steps.png)
+![The Preview tab scrolled to the end of the chunk cards. The last two cards each have a violet new chip: Aster 15°F Down Sleeping Bag, 221 chars, row 4, sku SLP-15F-DWN, and Trailhead 30°F Synthetic Bag, 210 chars, row 5, sku SLP-30F-SYN, both in category Sleeping. Below them, step 4 Embed reads Local Hash Embeddings · 384 dimensions, with the time it took for 3 chunks, and step 5 Store reads Written by a run. Preview never writes. An Upload a file to the server box with a Choose File button is at the bottom.](../images/etl/etl-preview-steps.png)
 
 **Call embeddings** is off by default. Local Hash Embeddings always run in the preview. Turn it on to also call a provider embeddings model. That call is billed to the model's credential.
 
