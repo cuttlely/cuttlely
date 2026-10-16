@@ -1028,9 +1028,10 @@ initVideoDialogs()
         )
         const readExpr = `(() => {
         const hero = document.querySelector('[data-demo-video]')
-        const heroButton = hero.nextElementSibling
-        const tile = document.querySelector('[data-loop-video]')
+        const heroButton = hero && hero.nextElementSibling
         const dialog = document.getElementById('full')
+        // Chrome can answer before the page has parsed. Null keeps waitFor polling.
+        if (!heroButton || !dialog) return null
         const full = dialog.querySelector('video')
         return {
             hero: { t: hero.currentTime, muted: hero.muted, loop: hero.loop, controls: hero.controls, volume: hero.volume, paused: hero.paused },
