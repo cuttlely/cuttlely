@@ -45,9 +45,9 @@ export const DefaultRedirect = () => {
         { component: Datasets, permission: 'datasets:view' },
         { component: Evaluators, permission: 'evaluators:view' },
         { component: Evaluations, permission: 'evaluations:view' },
-        { component: RolesPage, permission: 'roles:manage', display: 'feat:roles' },
         { component: UsersPage, permission: 'users:manage', display: 'feat:users' },
-        { component: Workspaces, permission: 'workspace:view', display: 'feat:workspaces' }
+        { component: Workspaces, permission: 'workspace:view', display: 'feat:workspaces' },
+        { component: RolesPage, permission: 'roles:manage', display: 'feat:roles' }
     ]
 
     // If user is not authenticated, show login page
