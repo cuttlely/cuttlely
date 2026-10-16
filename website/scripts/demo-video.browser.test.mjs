@@ -1284,6 +1284,16 @@ test('the tile play button stays clear of the watch chip at each column width', 
     })()`
     try {
         const { send, evalValue, close } = await connectChrome(port, debugPort)
+        // Chrome can answer before the page has parsed. Wait for the tiles before the first read.
+        const parsedBy = Date.now() + 8000
+        let parsed = false
+        while (!parsed && Date.now() < parsedBy) {
+            parsed = await evalValue(
+                `(() => !!document.documentElement && document.readyState !== 'loading' && document.querySelectorAll('.cl-tile').length === 3)()`
+            )
+            if (!parsed) await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        assert.ok(parsed, 'the page did not finish parsing')
         await evalValue(`document.documentElement.dataset.theme = 'light'`)
         for (const width of [1280, 1024, 480, 390]) {
             await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false })
