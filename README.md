@@ -19,11 +19,29 @@ English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.
 
 The open-source agent platform for applications. Cuttlely gives your applications their own intelligent capabilities and coordinated agent teams. Start chatting with a team in minutes, then call it from your app through the API. It runs on infrastructure you control.
 
+## A/B test every change before it goes live
+
+<span id="test-every-change-before-it-goes-live"></span>
+<span id="ship-changes-safely-draft-compare-publish-roll-back"></span>
+
+Every edit saves to a draft while Live keeps serving your app. Compare, in the Publish dialog, asks real questions on Live and on the draft and marks each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes. Test with up to 100 question-and-answer pairs, with more on the roadmap.
+
+<p align="center">
+<a href="https://cuttlely.com/media/products/testing.mp4"><img src="./website/public/media/products/testing-poster.webp" alt="The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish." width="880"></a>
+<br>
+<a href="https://cuttlely.com/media/products/testing.mp4">Watch the testing run (56 seconds, sound on)</a>
+</p>
+
+![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays.](./docs/images/versioning/publish-check-results.png)
+
+[A/B test a change with Compare](./docs/how-to/ab-testing.md) walks through it. [Drafts, tests, and version history](#drafts-tests-and-version-history) lists what else is covered.
+
 ## Contents
 
+-   [A/B test every change before it goes live](#ab-test-every-change-before-it-goes-live)
 -   [What you can build](#what-you-can-build)
     -   [Agent teams that power your apps](#agent-teams-that-power-your-apps)
--   [Test every change before it goes live](#test-every-change-before-it-goes-live)
+-   [Drafts, tests, and version history](#drafts-tests-and-version-history)
 -   [Use your team](#use-your-team)
     -   [Use a team from your app](#use-a-team-from-your-app)
     -   [Small context, big answers](#small-context-big-answers)
@@ -53,17 +71,7 @@ Give your app a team instead of a single prompt. An agent team is a lead agent w
 
 ![The canvas chat after the database question, in the dark theme. The Run card says Harness Prime sent work to analyst, and the analyst row shows done, OpenAI gpt-5.6-luna, 3 tools. The answer is a table with title and status: draft agenda open, and send invites open.](./docs/images/harnesses/canvas-chat-analyst.png)
 
-## Test every change before it goes live
-
-<span id="ship-changes-safely-draft-compare-publish-roll-back"></span>
-
-Test with up to 100 question-and-answer pairs, with more on the roadmap.
-
-<p align="center">
-<a href="https://cuttlely.com/media/products/testing.mp4"><img src="./website/public/media/products/testing-poster.webp" alt="The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish." width="880"></a>
-<br>
-<a href="https://cuttlely.com/media/products/testing.mp4">Watch the testing run (56 seconds, sound on)</a>
-</p>
+## Drafts, tests, and version history
 
 -   **Drafts never touch Live.** On chatflows, agentflows, harnesses, and pipelines the canvas saves to a draft. The API, embeds, shared links, schedules, webhooks, a harness's external runs route, and a pipeline's scheduled runs keep serving Live until you publish. The canvas test chat runs your draft, including a harness canvas chat and Try it. **Preview** on a pipeline runs the draft and does not write to the store.
 -   **Compare before you publish.** Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
@@ -77,8 +85,6 @@ Test with up to 100 question-and-answer pairs, with more on the roadmap.
 The gate covers Publish of the current draft only. Roll back Live, Promote from Dev, and `PUT /api/v1/chatflows/:id` still change Live: [see which](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
 
 On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. **Choose questions** hand-picks stored questions instead, still up to that admin cap. **Save as dataset** keeps the ticked questions, with blank expected answers to fill in on Datasets. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway. On a chatflow or a chat-started agentflow, under **Questions from**, choose **A dataset**, pick the evaluators, and turn on the passing test set. A harness can score a dataset for that run only, and a form, webhook, or schedule start cannot. **Admin** > **Server settings** > **Testing and Limits** turns the Publish check on or off. That switch applies on the next check and does not change Publish.
-
-![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays. Estimated cost is no price.](./docs/images/versioning/publish-check-results.png)
 
 [Version history guide](./docs/how-to/versioning.md) · [Check recent questions before you publish](./docs/how-to/versioning.md#check-recent-questions-before-you-publish) · [Move a flow from Dev to Prod](./docs/how-to/versioning.md#move-a-flow-from-dev-to-prod)
 
