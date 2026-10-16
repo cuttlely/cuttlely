@@ -16,11 +16,11 @@ import { CHECK_WORDS, initialPicks, noPastRunsMessage } from '@/utils/publishChe
 
 const limits = { maxQuestions: 10, maxQuestionChars: 2000, maxTokens: 100000, maxSeconds: 180 }
 const noop = () => {}
-const render = (props) =>
+const render = (props, theme = createTheme()) =>
     renderToStaticMarkup(
         createElement(
             ThemeProvider,
-            { theme: createTheme() },
+            { theme },
             createElement(PublishCheckView, {
                 setup: { unavailable: null, questions: [], riskySteps: [], limits, check: null },
                 loading: false,
@@ -412,6 +412,17 @@ describe('PublishCheckView', () => {
         expect(html).toContain('data-testid="check-risky"')
         expect(html).toContain('Post-processing code')
         expect(html).toContain('Run it anyway, including those steps')
+    })
+
+    test('the risky-step warning keeps its icon and checkbox visible in dark mode', () => {
+        const props = {
+            setup: { unavailable: null, questions: [], riskySteps: [{ id: 'p', label: 'Post-processing code' }], limits, check: null },
+            list: initialPicks([{ text: 'Hi' }])
+        }
+        const dark = render(props, createTheme({ palette: { mode: 'dark' } }))
+        expect(dark).toContain('rgba(255, 167, 38, 0.08)')
+        expect(dark).toContain('rgba(255, 167, 38, 0.95)')
+        expect(render(props)).not.toContain('rgba(255, 167, 38, 0.08)')
     })
 
     test('a running check shows progress and Stop instead of Run', () => {

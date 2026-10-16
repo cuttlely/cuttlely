@@ -857,7 +857,20 @@ export const PublishCheckView = ({
                         </Stack>
                     )}
                     {risky.length > 0 && (
-                        <Alert severity='warning' data-testid='check-risky' sx={{ mt: 0.5 }}>
+                        <Alert
+                            severity='warning'
+                            data-testid='check-risky'
+                            sx={{
+                                mt: 0.5,
+                                ...(theme.palette.mode === 'dark' && {
+                                    color: 'rgba(255, 215, 130, 0.95)',
+                                    backgroundColor: 'rgba(255, 167, 38, 0.08)',
+                                    border: '1px solid rgba(255, 167, 38, 0.5)',
+                                    '& .MuiAlert-icon': { color: 'rgba(255, 167, 38, 0.95)' },
+                                    '& .MuiCheckbox-root': { color: 'rgba(255, 215, 130, 0.95)' }
+                                })
+                            }}
+                        >
                             {riskyWarning(risky)}
                             <FormControlLabel
                                 sx={{ display: 'flex', mt: 0.5 }}
