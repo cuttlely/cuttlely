@@ -967,7 +967,7 @@ test('no two light-theme tinted bands sit next to each other on the home page', 
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
     const banded = new Set(
         css
-            .match(/:root\[data-theme='light'\] :is\(([^)]+)\) \{/)[1]
+            .match(/:root\[data-theme='light'\]\s+:is\(([^)]+)\) \{/)[1]
             .split(', ')
             .map((s) => s.replace('#', ''))
     )

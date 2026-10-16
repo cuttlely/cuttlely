@@ -1107,7 +1107,7 @@
     color: var(--cuttlely-chip-ink) !important;
 }
 
-/* Alternating sections sit on a full-width lavender-to-sky wash with two soft glows. Keep this list in step with the section order. */
+/* Alternating sections sit on a full-width lavender-to-sky wash with two soft glows. */
 :root[data-theme='light']
     :is(#ab-test-every-change-before-it-goes-live, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes) {
     position: relative;
