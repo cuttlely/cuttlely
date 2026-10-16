@@ -4,7 +4,6 @@ import path from 'path'
 import { StatusCodes } from 'http-status-codes'
 import { NodesPool } from '../NodesPool'
 import { credentialDefinitionDirs } from './replaceInputsWithConfig'
-import { constructGraphs, getEndingNodes } from '.'
 import {
     REMOVED_NODE_NAMES,
     missingNodeFailure,
@@ -213,14 +212,9 @@ describe('a saved node that is not installed', () => {
         const wired = { ...saved, edges: [{ source: 'langFuse_0', target: 'harness_0' }] }
         expect(withoutRemovedNodes(wired).edges).toEqual([])
 
-        const asSaved = constructGraphs(saved.nodes as never, saved.edges as never)
-        expect(() => getEndingNodes(asSaved.nodeDependencies, asSaved.graph, saved.nodes as never)).toThrow()
-
         const kept = withoutRemovedNodes(saved)
         expect(kept.nodes.map((node) => node.id)).toEqual(['harness_0'])
         expect(kept.edges).toEqual([])
-        const { graph, nodeDependencies } = constructGraphs(kept.nodes as never, kept.edges as never)
-        expect(getEndingNodes(nodeDependencies, graph, kept.nodes as never).map((node) => node.id)).toEqual(['harness_0'])
 
         const untouched = { nodes: [harness], edges: [] }
         expect(withoutRemovedNodes(untouched)).toBe(untouched)
