@@ -1303,6 +1303,36 @@
     font-size: var(--sl-text-xs);
     letter-spacing: 0.01em;
 }
+.cl-social {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.25rem 0.5rem;
+    margin: 0;
+    padding: 0 0 1rem;
+    list-style: none;
+}
+.cl-social a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.5rem;
+    color: var(--sl-color-gray-3);
+    transition: color 0.15s ease;
+}
+.cl-social a:hover,
+.cl-social a:focus-visible {
+    color: var(--sl-color-white);
+}
+.cl-social a:focus-visible {
+    outline: 2px solid var(--sl-color-text-accent);
+    outline-offset: 2px;
+}
+.cl-social svg {
+    display: block;
+}
 
 /* ---------- zoomed screenshot crops ---------- */
 .cl-focus {
