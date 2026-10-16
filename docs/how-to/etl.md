@@ -102,7 +102,7 @@ The preview has five numbered steps. Select a step to open it.
 | **4 Embed**             | The embeddings model, its dimensions, and the time it took.                                             |
 | **5 Store**             | `Written by a run. Preview never writes.`                                                               |
 
-![The Preview tab with Split open: 5 chunks, avg 217 chars, min 198, max 250. Each chunk card has a violet new chip. The first open card is Ridgeline 2P Ultralight Tent, 250 chars, sku TNT-2P-ULT.](../images/etl/etl-preview-steps.png)
+![The Preview tab scrolled to the end of the chunk cards. The last two cards each have a violet new chip: Aster 15°F Down Sleeping Bag, 221 chars, row 4, sku SLP-15F-DWN, and Trailhead 30°F Synthetic Bag, 210 chars, row 5, sku SLP-30F-SYN, both in category Sleeping. Below them, step 4 Embed reads Local Hash Embeddings · 384 dimensions, for 3 chunks, and step 5 Store reads Written by a run. Preview never writes. An Upload a file to the server box with a Choose File button is at the bottom.](../images/etl/etl-preview-steps.png)
 
 **Call embeddings** is off by default. Local Hash Embeddings always run in the preview. Turn it on to also call a provider embeddings model. That call is billed to the model's credential.
 
@@ -230,7 +230,7 @@ The ETL Retriever serves the version of the last `succeeded` or `partial` run, n
 
 **History** lists every run of the pipeline, newest first. Each row has the run id, the version, the mode, the start time, how long it took, the counts, and the status.
 
-![The History tab, newest first. c3726035 · v3 · incremental, succeeded, 0 embedded, 0 unchanged, 0 deleted. ea9f8d6a · v2 · incremental, failed, 0 embedded, 0 unchanged, 0 deleted. e155498f · v1 · incremental, succeeded, 0 embedded, 0 unchanged, 0 deleted. 89869204 · v1 · incremental, succeeded, 33 embedded, 0 unchanged, 0 deleted. The panel reads v3 · serving v3 · 33 chunks indexed.](../images/etl/etl-history.png)
+![The History tab, newest first, with four incremental runs. Each row shows a short run id, the version, and when it ran. The newest, on v3, succeeded with 0 embedded, 0 unchanged, 0 deleted. The one on v2 failed. Two on v1 succeeded: the later one with 0 embedded, and the first with 33 embedded, 0 unchanged, 0 deleted. The panel reads v3 · serving v3 · 33 chunks indexed.](../images/etl/etl-history.png)
 
 Select a row to open that run's card in **Run**. With no runs, the tab says `No runs yet. Start one from the Run tab.`
 
