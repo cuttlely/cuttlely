@@ -9,6 +9,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(ROOT, 'package.json'))
@@ -145,8 +146,12 @@ async function assertAdminMenu(page, rel) {
         throw new Error(`${rel}: the Admin menu is not in the order ${ADMIN_ORDER.join(', ')}`)
 }
 
+// A frame with a canvas on screen is dark. Admin, settings, sign-in and list pages stay light.
+const CANVAS_PATH = /^\/(canvas|agentcanvas|v2\/agentcanvas|harnesscanvas|etlcanvas)(\/|$)/
+
 async function shot(page, rel, size = WIDE) {
     if (size) await page.setViewportSize(size)
+    await themeFor(page, CANVAS_PATH.test(new URL(page.url()).pathname))
     const file = path.join(IMAGES, rel)
     mkdirSync(path.dirname(file), { recursive: true })
     await page.screenshot({ path: file, animations: 'disabled' })

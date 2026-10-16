@@ -64,7 +64,8 @@ function childEnv(dataDir, port) {
     env.PORT = String(port)
     env.DATABASE_PATH = dataDir
     env.SECRETKEY_PATH = dataDir
-    env.CUTTLELY_DATA_DIR = path.join(dataDir, 'cuttlely')
+    // With DOCS_SHOTS_DATA_DIR the folder is the data folder itself, laid out like the Docker volume.
+    env.CUTTLELY_DATA_DIR = process.env.DOCS_SHOTS_DATA_DIR ? dataDir : path.join(dataDir, 'cuttlely')
     env.MODEL_LIST_CONFIG_JSON = 'bundled'
     env.CUTTLELY_WARM_HERMES = 'false'
     env.CUTTLELY_HARNESS_QUEUE = 'off'
@@ -199,22 +200,19 @@ async function revealDrawer(page) {
     return drawer
 }
 
-// Frames whose main subject is the canvas editor. Drawers, dialogs and list pages stay light.
-const DARK = new Set([
-    'etl-canvas-sample.png',
-    'etl-retriever-pick.png',
-    'harness-etl-canvas.png',
-    'harness-etl-chat.png',
-    'build-with-ai-built.png',
-    'etl-version-restored.png'
-])
+// A frame with a canvas on screen is dark, including a drawer or dialog over it. List and Usage pages stay light.
+const CANVAS_PATH = /^\/(etlcanvas|canvas|agentcanvas|v2\/agentcanvas|harnesscanvas)(\/|$)/
+
+function onCanvas(page) {
+    return CANVAS_PATH.test(new URL(page.url()).pathname)
+}
 
 async function shot(page, file, { clip, pad, note, fit } = {}) {
     if (!wanted(file)) {
         console.log('skip', path.basename(file))
         return
     }
-    await themeFor(page, DARK.has(path.basename(file)))
+    await themeFor(page, onCanvas(page) && !file.includes(`${path.sep}usage${path.sep}`))
     if (fit) await reveal(page, fit)
     fs.mkdirSync(path.dirname(file), { recursive: true })
     if (clip) await page.screenshot({ path: file, clip })
@@ -464,9 +462,11 @@ async function signIn(page, base) {
 async function main() {
     if (!fs.existsSync(path.join(SERVER, 'dist', 'commands'))) throw new Error('packages/server/dist is missing. Run pnpm build first.')
     restoreSample()
-    const dataDir = path.join(os.tmpdir(), 'cuttlely-docs-shots')
-    fs.rmSync(dataDir, { recursive: true, force: true })
-    fs.mkdirSync(dataDir)
+    // Paths show in the pictures, so DOCS_SHOTS_DATA_DIR can point at a neutral folder such as /var/cuttlely.
+    // The folder is emptied first; the folder itself stays.
+    const dataDir = process.env.DOCS_SHOTS_DATA_DIR || path.join(os.tmpdir(), 'cuttlely-docs-shots')
+    fs.mkdirSync(dataDir, { recursive: true })
+    for (const entry of fs.readdirSync(dataDir)) fs.rmSync(path.join(dataDir, entry), { recursive: true, force: true })
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
     const { child, logs, stop } = startServer(dataDir, port)

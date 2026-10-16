@@ -331,7 +331,8 @@ const DARK = new Set([
     'canvas/canvas-classic.png',
     'canvas/canvas-workflow-panel.png',
     'canvas/build-with-ai-built.png',
-    'canvas/build-with-ai-chat.png'
+    'canvas/build-with-ai-chat.png',
+    'canvas/build-with-ai-dialog.png'
 ])
 
 async function shoot(page, file, { width = 1440, height = 960, scheme = 'light', clip } = {}) {

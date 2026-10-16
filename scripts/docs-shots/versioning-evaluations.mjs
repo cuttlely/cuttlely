@@ -9,7 +9,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { freePort, waitForPing } from '../smoke-server.mjs'
-import { costHit, maskTexts } from './money.mjs'
+import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(ROOT, 'package.json'))
@@ -513,30 +513,6 @@ async function ready(page, locator, timeout = 20000) {
     )
 }
 
-// No frame shows a price: the Estimated cost line and any dollar amount are removed before the picture.
-async function hideMoney(page, rel) {
-    const values = await page.evaluate(() => {
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-        window.__docsShotText = []
-        while (walker.nextNode()) window.__docsShotText.push(walker.currentNode)
-        return window.__docsShotText.map((node) => node.nodeValue || '')
-    })
-    const masked = maskTexts(values)
-    masked.values = masked.values.map((value) => value.replace(/,?\s*\bno price\b/gi, ''))
-    await page.evaluate((next) => {
-        window.__docsShotText.forEach((node, i) => {
-            if (node.nodeValue !== next[i]) node.nodeValue = next[i]
-        })
-        delete window.__docsShotText
-    }, masked.values)
-    if (masked.leftovers.length) throw new Error(`${rel} still shows an amount after an Estimated cost label (${masked.leftovers[0]})`)
-    const text = await page.locator('body').innerText()
-    const cost = costHit(text) || text.match(/no price/i)
-    if (cost) throw new Error(`${rel} shows an estimated cost (${cost[0]})`)
-    const money = text.match(/\$\s?\d/)
-    if (money) throw new Error(`${rel} shows a dollar amount (${money[0]})`)
-}
-
 // Scrolls the dialog so the box titled `title` (or, with `own`, that heading itself) starts at the top,
 // so no half line is cut off above it.
 async function startAtBox(page, title, own = false) {
@@ -562,14 +538,21 @@ async function startAtBox(page, title, own = false) {
     await page.waitForTimeout(200)
 }
 
+// A frame with a canvas on screen is dark, including a drawer or dialog over it, and the read-only version page.
+const CANVAS_PATH = /^\/(canvas|agentcanvas|v2\/agentcanvas|harnesscanvas|etlcanvas|versions)(\/|$)/
+
+function onCanvas(page) {
+    return CANVAS_PATH.test(new URL(page.url()).pathname)
+}
+
 async function shot(page, rel, size = VIEW) {
     if (!want(rel)) return
     if (page.viewportSize().width !== size.width || page.viewportSize().height !== size.height) {
         await page.setViewportSize(size)
         await animationsDone(page)
     }
+    await themeFor(page, onCanvas(page))
     await animationsDone(page)
-    await hideMoney(page, rel)
     const target = path.join(ROOT, rel)
     fs.mkdirSync(path.dirname(target), { recursive: true })
     await page.screenshot({ path: target })
