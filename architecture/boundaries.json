@@ -182,6 +182,7 @@
             "packages/components/src/officeDocument.ts",
             "packages/components/src/openApiSpec.test.ts",
             "packages/components/src/openApiSpec.ts",
+            "packages/components/src/otelRunSpans.test.ts",
             "packages/components/src/storage/AzureBlobMulterStorage.test.ts",
             "packages/components/src/storage/AzureBlobMulterStorage.ts",
             "packages/components/src/storage/fileStorageTraversal.test.ts",
