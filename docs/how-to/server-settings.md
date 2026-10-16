@@ -69,7 +69,7 @@ Errors come back in plain words, never with a secret in them. Model keys themsel
 
 ![Storage. File storage is Default (This server) and Largest upload is 50mb. Test file storage passed: Files are kept on this server, and Cuttlely can write there. Write a small test file is checked. The button is Test again.](../images/server-settings/test-connection-storage-ok.png)
 
-![Analyst limits and the test card. Test the analyst database failed: Could not connect to the analyst database. The button is Test again. The bar says 1 unsaved change.](../images/server-settings/test-connection-analyst-failed.png)
+![The end of the Analyst section: Query timeout, Query previews in the run trace set to On, and the test card. Test the analyst database failed: Could not connect to the analyst database. Not the application database has a green dot, and Connect and sign in has a red dot: The analyst database refused the connection. Check the address and port, and that the service is running. The button is Test again. The bar at the bottom says 1 unsaved change.](../images/server-settings/test-connection-analyst-failed.png)
 
 ## Analyst limits
 
@@ -90,7 +90,7 @@ The query timeout stops a statement that runs too long, on the private store and
 
 The picture is from a local demo install. The account is a made-up owner. It shows no chat text, no token, and no host name.
 
-![Testing and Limits. Publish check is On. Publish check time limit shows Set by the host. The range line is under the field. Host-only rows show Set or Not set, with no values. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/server-settings/testing-and-limits.png)
+![Testing and Limits. Publish check is On. Publish check time limit shows Set by the host. The range line is under the field. At the bottom, Set by the host lists host-only settings with a status and no value; the two rows in view, PORT and HOST, show Set, from Environment. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/server-settings/testing-and-limits.png)
 
 The full list of startup options, with the default, the range, where each one can be set, and whether a restart is needed, is [Startup options](../reference/startup-options.md). Secret values and host-only values are named and marked not shown.
 
@@ -171,7 +171,7 @@ The password sign-in stays on by default as a backup. It can't be turned off unt
 
 Nothing is copied. Flows, credentials and accounts stay in the old database, and **Switch back** returns to it. A database that already holds Cuttlely data from another server needs that server's encryption key, or its saved credentials won't open; the dialog warns. With Analyst storage on Auto, the analyst's private stores follow the new database.
 
-![Database, running on SQLite, on this server, with Switch database. Database type is Default (SQLite).](../images/server-settings/database-card.png)
+![Server settings with the Database section open, under the Set up your server card. Running on SQLite, on this server, with Switch database. Database type is Default (SQLite).](../images/server-settings/database-card.png)
 
 ![Switch database, step 1 of 4, Choose a database. Postgres is selected. SQLite is the other choice. Cancel and Next are at the bottom.](../images/server-settings/database-switch-choose.png)
 

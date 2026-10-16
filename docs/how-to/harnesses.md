@@ -26,7 +26,7 @@ The **What are you building?** card names the four kinds of canvas, with **Agent
 2. Select **Chief of Staff Harness**.
 3. Select **Use Template**.
 
-![Templates with the Harness chip selected and Type set to Harness. Six cards: Calculator Harness, Chief of Staff Harness, Field Team Harness, Ops Harness, Research Harness, and Upload Harness. Each card is marked Harness · Agent Team and has a one-line description.](../images/harnesses/templates-harness-filter.png)
+![Templates with the Harness chip selected and Type set to Harness. Six cards: Calculator Harness, Chief of Staff Harness, Field Team Harness, Ops Harness, Research Harness, and Upload Harness. Each card is marked Harness · Agent Team, has a description of two to three lines, and ends with a row of node icons.](../images/harnesses/templates-harness-filter.png)
 
 ![The Chief of Staff Harness template preview in the dark theme, a read-only canvas with the Use Template button at the top right.](../images/harnesses/template-chief-of-staff.png)
 

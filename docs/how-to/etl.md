@@ -184,11 +184,11 @@ To see a failure, change **Paths** on the Streaming Files node to a file that do
 
 **Preview** shows the problem before you run.
 
-![The Preview tab while version 1 is still serving. A red message reads Streaming Files: File or folder "products-2026.csv" was not found on the server. Load reads 0 documents and says No documents came out of the sources.](../images/etl/etl-preview-missing-file.png)
+![The Preview tab of the Outdoor Catalog draft over the dark canvas. The panel reads v1 · serving v1 · 33 chunks indexed. A red box with an error icon reads Streaming Files: File or folder "products-2026.csv" was not found on the server. Load reads 0 documents from Streaming Files and says No documents came out of the sources. Clean & transform shows 0 kept · 0 dropped and Split shows 0 chunks.](../images/etl/etl-preview-missing-file.png)
 
 After you publish, a run of that version fails with the same message.
 
-![A failed run of version 2. The panel still reads serving v1. A red message says File or folder "products-2026.csv" was not found on the server. Retry From Checkpoint and Cancel are below it, and the last log line repeats that message. Try retrieval still searches version 1.](../images/etl/etl-run-failed.png)
+![A failed run of version 2 over the dark canvas, with a red failed chip. The panel reads v2 · serving v1 · 33 chunks indexed, and every count is 0. A red box with an error icon says File or folder "products-2026.csv" was not found on the server. Retry From Checkpoint and Cancel are below it, and the last log line repeats that message in red. Try retrieval says it searches version 1.](../images/etl/etl-run-failed.png)
 
 This run failed before it wrote anything, so the served data is as it was. The panel still reads `serving v1`, and **Try retrieval** still searches version 1. A run can also fail partway, for example when the embeddings provider stops answering. The batches it wrote before it stopped are already in the store, and search can return them. Retry the run, or start a new one, so the store matches a finished run again.
 
