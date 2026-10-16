@@ -945,16 +945,45 @@ test('the light home page colour tokens and rules apply only to the light theme'
         '--cuttlely-chip:',
         '--cuttlely-chip-ink:',
         '--cuttlely-card-border:',
-        '--cuttlely-card-shadow:'
+        '--cuttlely-card-shadow:',
+        '--cuttlely-gradient-headline:'
     ]) {
         assert.ok(light.includes(token), token)
         assert.equal(dark.includes(token), false, `${token} stays out of the dark theme`)
     }
-    for (const line of css.split('\n').filter((l) => /var\(--cuttlely-(wash|chip|card-border|card-shadow)/.test(l))) {
+    for (const line of css
+        .split('\n')
+        .filter((l) => /var\(--cuttlely-(wash|chip|card-border|card-shadow|gradient-headline)/.test(l))) {
         const rule = css.slice(0, css.indexOf(line))
         const selector = rule.slice(rule.lastIndexOf('}') + 1)
         assert.match(selector, /:root\[data-theme='light'\]/, line.trim())
     }
+})
+
+test('the light hero headline gradient keeps 3.5:1 on the darkest point of the hero wash, and the wash fades out', () => {
+    const brand = readFileSync(new URL('../src/styles/brand.css', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+    const lin = (c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+    const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
+    const stops = brand.match(/--cuttlely-gradient-headline: linear-gradient\(90deg, ([^)]+)\);/)[1].split(', ')
+    assert.equal(stops[0], '#6a3df2', 'the headline starts on the brand violet')
+
+    const wash = css.match(/:root\[data-theme='light'\] \.cl-hero::before \{([^}]+)\}/)[1]
+    assert.match(wash, /mask-image: linear-gradient\(180deg, #000 \d+%, transparent 100%\)/, 'the wash fades to the page')
+    // The glows sit in opposite corners, so the darkest point is one glow at full strength over the darker base end.
+    const base = wash.match(/linear-gradient\(180deg, (#[0-9a-f]{6}) 0%, (#[0-9a-f]{6}) 100%\)/).slice(1).map(hex)
+    const under = base.sort((a, b) => lum(a) - lum(b))[0]
+    const glows = [...wash.matchAll(/rgba\((\d+), (\d+), (\d+), ([\d.]+)\)/g)].map((m) => [m.slice(1, 4).map(Number), +m[4]])
+    assert.equal(glows.length, 3)
+    for (const [rgb, a] of glows) {
+        const bg = under.map((c, i) => rgb[i] * a + c * (1 - a))
+        for (const stop of stops) {
+            const ratio = (lum(bg) + 0.05) / (lum(hex(stop)) + 0.05)
+            assert.ok(ratio >= 3.5, `${stop} under the rgba(${rgb}, ${a}) glow is ${ratio.toFixed(2)}:1`)
+        }
+    }
+    assert.match(css, /:root\[data-theme='light'\] \.cl-hero-title \.cl-gradient-text \{\s*background-image: var\(--cuttlely-gradient-headline\);/)
 })
 
 test('the hero paragraph, the page description and the README intro say the same thing', () => {

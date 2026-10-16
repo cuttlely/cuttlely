@@ -87,6 +87,8 @@
     --cuttlely-chip-ink: #5a2fe0;
     --cuttlely-card-border: #e2dcfb;
     --cuttlely-card-shadow: 0 18px 40px -30px rgba(106, 61, 242, 0.45);
+    /* The wordmark's last stop (#4f92fc) is under 3:1 on the hero wash; these blues stay above 4.5:1. */
+    --cuttlely-gradient-headline: linear-gradient(90deg, #6a3df2, #4b4fea, #3a64d8);
 }
 
 /* Headlines use Urbanist; body text stays on the system font. */
