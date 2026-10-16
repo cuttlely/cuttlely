@@ -8,6 +8,7 @@ import os from 'os'
 import path from 'path'
 import { executeAgentFlow } from '../utils/buildAgentflow'
 import { executeFlow } from '../utils/buildChatflow'
+import logger from '../utils/logger'
 import {
     finishTraceContinuation,
     flushCuttlelyTraces,
@@ -16,6 +17,7 @@ import {
     registerCuttlelyTraces,
     rememberTraceContinuation,
     resetHeldToolsForTests,
+    resetTraceWarningsForTests,
     setTraceParentClock,
     shutdownCuttlelyTraces,
     TRACE_PARENT_CAP,
@@ -35,7 +37,13 @@ jest.mock('../utils/logger', () => ({
     default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() }
 }))
 
-const TRACE_ENV = ['CUTTLELY_OTEL_TRACES', 'CUTTLELY_OTEL_TRACES_ENDPOINT', 'CUTTLELY_OTEL_TRACES_PROTOCOL', 'CUTTLELY_OTEL_TRACES_CONTENT']
+const TRACE_ENV = [
+    'CUTTLELY_OTEL_TRACES',
+    'CUTTLELY_OTEL_TRACES_ENDPOINT',
+    'CUTTLELY_OTEL_TRACES_PROTOCOL',
+    'CUTTLELY_OTEL_TRACES_CONTENT',
+    'CUTTLELY_OTEL_TRACES_CONTENT_MAX'
+]
 
 function clearTraceEnv(): void {
     for (const key of TRACE_ENV) delete process.env[key]
@@ -62,6 +70,37 @@ describe('registerCuttlelyTraces', () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         registerCuttlelyTraces()
         expect(tracesInstalled()).toBe(false)
+    })
+
+    it('warns once at start when the trace content limit is not a whole number', () => {
+        const warn = logger.warn as jest.Mock
+        resetTraceWarningsForTests()
+        warn.mockClear()
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = 'lots'
+        registerCuttlelyTraces()
+        expect(warn).toHaveBeenCalledTimes(1)
+        expect(warn.mock.calls[0][0]).toContain('CUTTLELY_OTEL_TRACES_CONTENT_MAX')
+        expect(warn.mock.calls[0][0]).toContain('4000')
+
+        warn.mockClear()
+        for (const fine of ['0', '20000', ' ', '']) {
+            process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = fine
+            registerCuttlelyTraces()
+        }
+        expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('warns about a bad trace content limit once, not on every run, even when the install fails', async () => {
+        const warn = logger.warn as jest.Mock
+        resetTraceWarningsForTests()
+        warn.mockClear()
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = 'lots'
+        for (let i = 0; i < 5; i++) registerCuttlelyTraces()
+        for (let i = 0; i < 3; i++) await traceFlow('chatflow', `flow-${i}`, async () => 'ok')
+        expect(tracesInstalled()).toBe(false)
+        const limitWarnings = warn.mock.calls.filter(([message]) => String(message).includes('CUTTLELY_OTEL_TRACES_CONTENT_MAX'))
+        expect(limitWarnings).toHaveLength(1)
     })
 })
 

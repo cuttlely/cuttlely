@@ -557,7 +557,7 @@ When it looks right, select **Promote to Live**. The version from the previous e
 
 ![Promoted. This version is now Live on this server. History shows it as promoted from Dev. Roll back from version history any time. The buttons are Open the flow, Roll back, and All new versions from Dev.](../images/versioning/promote-done.png)
 
-**Roll back** puts the previous Live version back in one step, the same as **Roll back live to this version** in version history. Rolling back does not offer the same version from the previous environment again; the next version that environment publishes shows up as usual. On the saved Dev and Prod pair that environment is Dev.
+**Roll back** puts the previous Live version back in one step, the same as **Roll back Live to this version** in version history. Rolling back does not offer the same version from the previous environment again; the next version that environment publishes shows up as usual. On the saved Dev and Prod pair that environment is Dev.
 
 ![Version history of Bakery helper over the dark canvas. The newest version, marked Published and Live, begins Promoted from Dev: Changed System Message on Conversation Cha…, edited by Rosa Diaz, with Roll Back Live To This Version. The version under it is the same kind of promoted line, marked Published.](../images/versioning/promote-history.png)
 

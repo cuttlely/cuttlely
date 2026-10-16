@@ -26,6 +26,7 @@ export {
     setCuttlelyTracer,
     silenceRunTraces,
     tokenCount,
+    traceContentMaxInvalid,
     traceText,
     writeContent
 } from './otelRunSpans'

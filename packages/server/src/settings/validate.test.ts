@@ -104,6 +104,7 @@ describe('checking values from the page', () => {
         const limit = def('CUTTLELY_OTEL_TRACES_CONTENT_MAX')
         expect(limit.defaultValue).toBe('4000')
         expect(limit.options?.find((option) => option.value === '0')?.label).toBe('No limit')
+        expect(limit.options?.some((option) => option.value === limit.defaultValue)).toBe(false)
         expect(checkValue(limit, '4000')).toEqual({ ok: true, value: '4000' })
         expect(checkValue(limit, '0')).toEqual({ ok: true, value: '0' })
         expect(checkValue(limit, ' 20000 ')).toEqual({ ok: true, value: '20000' })

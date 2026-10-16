@@ -8,12 +8,15 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   `pnpm verify` ends with a timing table of the steps that ran, slowest first, with each step's time and share of the total. It prints on a pass and on a failure, and pass or fail is unchanged.
 -   A media size check (`scripts/media-size.mjs`) fails when a tracked or staged image or video file is over 5 MB and is not listed in `scripts/media-size.allowlist`. The allowlist holds the large website videos already committed. It runs as a `pnpm verify` step, including `--fast` and the pre-push hook, and in the required `lint` CI job.
--   `CUTTLELY_OTEL_TRACES_CONTENT_MAX` sets how many characters of question, answer, prompt, and tool text each run trace span keeps when `CUTTLELY_OTEL_TRACES_CONTENT` is on. The default stays 4,000, so existing installs see no change. `0` is no limit and sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. It is **Prompt and tool text limit** under **Admin** > **Server Settings** > **Integrations** > **Traces**, with **4,000 characters**, **No limit**, and **Another limit**. The page refuses anything that is not a positive whole number or `0`. [Run traces](./docs/how-to/observability.md#full-question-and-answer-text).
+-   `CUTTLELY_OTEL_TRACES_CONTENT_MAX` sets how many characters of question, answer, prompt, and tool text each run trace span keeps when `CUTTLELY_OTEL_TRACES_CONTENT` is on. The default stays 4,000, so existing installs see no change. `0` is no limit and sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. It is **Prompt and tool text limit** under **Admin** > **Server Settings** > **Integrations** > **Traces**, with **Default (4,000 characters)**, **No limit**, and **Another limit**. The page refuses anything that is not a positive whole number or `0`. A host value that is not a whole number keeps 4,000, and the server logs one warning about it at startup. [Run traces](./docs/how-to/observability.md#full-question-and-answer-text).
 
 ### Changed
 
 -   The proprietary path check runs once, in the required `lint` CI job. The `proprietary-paths` step of `pnpm verify` and the separate Proprietary Path Guard workflow are removed. `node scripts/proprietary-paths.mjs` still runs the same check locally.
 -   The Admin menu lists Users and Teams first, then Roles, Server Settings, Logs, Audit log, and Version History. The page you are on is still marked, including a team's members page under Teams. After sign-in, someone who is not the organization owner and has none of the earlier pages now lands on Users, then Teams, before Roles, in the same order as the menu.
+-   The homepage shows the customer care demo right after the hero, then the "Not the obvious answer" case study, then A/B testing, then a new "Made for real teams" section with six cards that link to the roles, sign-in, audit log, server settings, and Docker guides. The light theme uses the logo colours on the home page. The dark theme is unchanged.
+-   The **Watch with sound** video dialog on the homepage opens in the centre of the window.
+-   **Include prompts and tool text** in Server Settings now points at **Prompt and tool text limit** instead of saying the text is cut at 4,000 characters.
 
 ### Removed
 
@@ -21,6 +24,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   **Prompt and tool text limit** lists the 4,000-character default once, as **Default (4,000 characters)**, instead of also offering a separate **4,000 characters** item. A saved value of 4000 shows as that default item.
+-   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
 -   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. The card still offers Add a model key, and owners and roles with `credentials:view` still see their keys.
 
 ## [1.2.0] - 2026-10-15

@@ -13,7 +13,7 @@
 
 에이전트 팀은 리더 에이전트와 전문가들로 이루어집니다. 리더인 Harness Prime이 질문을 여러 부분으로 나누면, 전문가들이 각자의 모델, 도구, 데이터로 일을 처리하고, 분석가는 실제 테이블을 조회해 진짜 숫자를 돌려줍니다. 앱은 API로 팀에 질문을 보내고, 충분히 조사한 하나의 답, 차트 또는 액션을 돌려받습니다. Cuttlely에서는 에이전트 팀을 harness라고 부릅니다. 지식 파이프라인, 비주얼 워크플로, Build with AI가 팀에 필요한 것을 마련해 주고, 모든 변경은 여러분이 게시(Publish)할 때까지 초안으로 기다립니다. Cuttlely는 오픈 소스이며 노트북, 내 서버, Render에서 실행됩니다.
 
-> 기능 목록([앱에서 팀 사용하기](../README.md#use-a-team-from-your-app)의 API 예시 포함), 릴리스 흐름(Ship changes safely), "처음 10분(Your first 10 minutes)"은 지금은 [영어 README](../README.md)에만 있습니다.
+> 기능 목록([앱에서 팀 사용하기](../README.md#use-a-team-from-your-app)의 API 예시 포함), 릴리스 흐름(Drafts, tests, and version history), "처음 10분(Your first 10 minutes)"은 지금은 [영어 README](../README.md)에만 있습니다.
 
 처음 설치는 **SQLite**를 씁니다. `DATABASE_TYPE`은 비워 두세요. 노트북에 Postgres를 깔 필요는 없습니다. Docker는 SQLite를 유지합니다. 소스에서 실행할 때는 Postgres를 고를 수 있고, 공개 호스트에서는 Render Blueprint가 Postgres를 넣습니다. 경로별 단계는 [사용 안내](#사용-안내)에 있습니다.
 
@@ -94,7 +94,7 @@ Cuttlely를 설치하고 쓰는 안내입니다. 코드를 바꾸지 않는다�
 새로 설치하면 사용자가 없습니다. `docker compose logs cuttlely`에 나오는 설정 링크를 열어 소유자 로컬 계정을 하나 만듭니다. 터미널에서 만들 수도 있습니다.
 
 ```bash
-docker compose exec -u node -it Cuttlely pnpm user --email you@example.com
+docker compose exec -u node -it -e CUTTLELY_LOCAL_ADMIN=true cuttlely pnpm user --email you@example.com
 ```
 
 [http://localhost:43117/signin](http://localhost:43117/signin)으로 갑니다. 비밀번호 버튼 글자는 **Sign in**입니다.

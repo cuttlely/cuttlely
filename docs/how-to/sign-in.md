@@ -82,7 +82,7 @@ CUTTLELY_LOCAL_ADMIN=true pnpm user --email you@example.com
 Docker:
 
 ```bash
-docker compose exec -u node -it Cuttlely pnpm user --email you@example.com
+docker compose exec -u node -it -e CUTTLELY_LOCAL_ADMIN=true cuttlely pnpm user --email you@example.com
 ```
 
 It ends with:

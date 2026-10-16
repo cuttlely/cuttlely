@@ -53,6 +53,13 @@ export function traceContentMax(): number {
     return Number.isSafeInteger(max) ? max : TRACE_CONTENT_MAX_DEFAULT
 }
 
+/** True when CUTTLELY_OTEL_TRACES_CONTENT_MAX is set but traceContentMax ignores it. A blank value counts as unset. */
+export function traceContentMaxInvalid(): boolean {
+    const raw = process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX?.trim()
+    if (!raw) return false
+    return !/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))
+}
+
 export function capTraceText(value: string): string {
     const max = traceContentMax()
     return max > 0 && value.length > max ? value.slice(0, max) : value

@@ -49,7 +49,7 @@ describe('server settings registry', () => {
                 expect(setting.off).toBeDefined()
                 expect(setting.on).not.toBe(setting.off)
             }
-            if (setting.type === 'select') expect(setting.options?.length).toBeGreaterThan(1)
+            if (setting.type === 'select') expect((setting.options?.length ?? 0) + (setting.custom ? 1 : 0)).toBeGreaterThan(1)
             if (setting.showWhen) expect(settingFor(setting.showWhen.key)).toBeDefined()
             if (setting.min !== undefined && setting.max !== undefined) expect(setting.min).toBeLessThan(setting.max)
         }

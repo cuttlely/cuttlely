@@ -204,7 +204,7 @@ If two starts in a row don't finish after a change, safe boot puts back the last
 
 ![The safe boot banner on Server settings: The last two starts did not finish, so Cuttlely put back the last settings that started. See what changed and Try it again are on the right. Owner password sign-in below is On and Locked.](../images/server-settings/server-settings-safe-boot.png)
 
-From a terminal (in Docker, prefix with `docker compose exec -u node Cuttlely`):
+From a terminal (in Docker, prefix with `docker compose exec -u node cuttlely`):
 
 | Command                    | What it does                                                  |
 | -------------------------- | ------------------------------------------------------------- |
