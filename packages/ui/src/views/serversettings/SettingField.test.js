@@ -207,10 +207,7 @@ describe('SettingField', () => {
             label: 'Prompt and tool text limit',
             help: 'Sensitive. No limit (stored as 0) sends the full question and answer text to your collector.',
             type: 'select',
-            options: [
-                { value: '4000', label: '4,000 characters' },
-                { value: '0', label: 'No limit' }
-            ],
+            options: [{ value: '0', label: 'No limit' }],
             custom: { label: 'Another limit', placeholder: '20000' },
             defaultLabel: '4,000 characters',
             defaultValue: '4000',

@@ -1,4 +1,4 @@
-import { capTraceText, TRACE_CONTENT_MAX_DEFAULT, traceContentMax, writeContent } from './otelRunSpans'
+import { capTraceText, TRACE_CONTENT_MAX_DEFAULT, traceContentMax, traceContentMaxInvalid, writeContent } from './otelRunSpans'
 
 const ENV = ['CUTTLELY_OTEL_TRACES', 'CUTTLELY_OTEL_TRACES_CONTENT', 'CUTTLELY_OTEL_TRACES_CONTENT_MAX']
 
@@ -61,6 +61,19 @@ describe('trace content limit', () => {
             expect(traceContentMax()).toBe(4000)
             expect(capTraceText('d'.repeat(4001))).toHaveLength(4000)
         }
+    })
+
+    it('reports a set value it ignores as invalid, and blank or a whole number as fine', () => {
+        for (const bad of ['-1', '1.5', '1e6', 'unlimited', '99999999999999999999']) {
+            process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = bad
+            expect(traceContentMaxInvalid()).toBe(true)
+        }
+        for (const fine of ['', '  ', '0', '4000', ' 20000 ']) {
+            process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = fine
+            expect(traceContentMaxInvalid()).toBe(false)
+        }
+        delete process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX
+        expect(traceContentMaxInvalid()).toBe(false)
     })
 
     it('writes the full question and answer to the span with no limit', () => {

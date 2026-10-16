@@ -8,6 +8,7 @@ import os from 'os'
 import path from 'path'
 import { executeAgentFlow } from '../utils/buildAgentflow'
 import { executeFlow } from '../utils/buildChatflow'
+import logger from '../utils/logger'
 import {
     finishTraceContinuation,
     flushCuttlelyTraces,
@@ -35,7 +36,13 @@ jest.mock('../utils/logger', () => ({
     default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() }
 }))
 
-const TRACE_ENV = ['CUTTLELY_OTEL_TRACES', 'CUTTLELY_OTEL_TRACES_ENDPOINT', 'CUTTLELY_OTEL_TRACES_PROTOCOL', 'CUTTLELY_OTEL_TRACES_CONTENT']
+const TRACE_ENV = [
+    'CUTTLELY_OTEL_TRACES',
+    'CUTTLELY_OTEL_TRACES_ENDPOINT',
+    'CUTTLELY_OTEL_TRACES_PROTOCOL',
+    'CUTTLELY_OTEL_TRACES_CONTENT',
+    'CUTTLELY_OTEL_TRACES_CONTENT_MAX'
+]
 
 function clearTraceEnv(): void {
     for (const key of TRACE_ENV) delete process.env[key]
@@ -62,6 +69,23 @@ describe('registerCuttlelyTraces', () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         registerCuttlelyTraces()
         expect(tracesInstalled()).toBe(false)
+    })
+
+    it('warns once at start when the trace content limit is not a whole number', () => {
+        const warn = logger.warn as jest.Mock
+        warn.mockClear()
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = 'lots'
+        registerCuttlelyTraces()
+        expect(warn).toHaveBeenCalledTimes(1)
+        expect(warn.mock.calls[0][0]).toContain('CUTTLELY_OTEL_TRACES_CONTENT_MAX')
+        expect(warn.mock.calls[0][0]).toContain('4000')
+
+        warn.mockClear()
+        for (const fine of ['0', '20000', ' ', '']) {
+            process.env.CUTTLELY_OTEL_TRACES_CONTENT_MAX = fine
+            registerCuttlelyTraces()
+        }
+        expect(warn).not.toHaveBeenCalled()
     })
 })
 

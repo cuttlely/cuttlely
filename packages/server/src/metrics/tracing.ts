@@ -1,4 +1,12 @@
-import { openHarnessRunTrace, replaySilenced, setCuttlelyTracer, silenceRunTraces, tokenCount, writeContent } from '@cuttlely/components'
+import {
+    openHarnessRunTrace,
+    replaySilenced,
+    setCuttlelyTracer,
+    silenceRunTraces,
+    tokenCount,
+    traceContentMaxInvalid,
+    writeContent
+} from '@cuttlely/components'
 import logger from '../utils/logger'
 
 export { openHarnessRunTrace, silenceRunTraces }
@@ -71,6 +79,9 @@ function api(): {
 }
 
 export function registerCuttlelyTraces(): void {
+    if (traceContentMaxInvalid()) {
+        logger.warn('CUTTLELY_OTEL_TRACES_CONTENT_MAX must be a whole number of characters, or 0 for no limit. Using 4000.')
+    }
     if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return
     if (installed) return
 

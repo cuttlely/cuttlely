@@ -1546,7 +1546,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'integrations',
         group: 'Traces',
         label: 'Include prompts and tool text',
-        help: "Sensitive. Adds content.input and content.output, cut at 4,000 characters: the question and the answer, the model prompt and reply, tool arguments and results, analyst SQL when the tool detail still has it, and the analyst run-card preview. A specialist span's content.input is the run-card task, at most 200 characters. Leave this off unless you trust the collector with that text.",
+        help: "Sensitive. Adds content.input and content.output, cut at the Prompt and tool text limit below (4,000 characters by default, or no limit): the question and the answer, the model prompt and reply, tool arguments and results, analyst SQL when the tool detail still has it, and the analyst run-card preview. A specialist span's content.input is the run-card task, at most 200 characters. Leave this off unless you trust the collector with that text.",
         type: 'switch',
         ...TRUE_FALSE,
         defaultLabel: 'Off',
@@ -1561,10 +1561,7 @@ export const SETTINGS: SettingDef[] = [
         label: 'Prompt and tool text limit',
         help: 'Sensitive. Applies when Include prompts and tool text is on. How many characters of each content.input and content.output a span keeps. No limit (stored as 0) sends the full question and answer text to your collector, so use it only with a collector you trust.',
         type: 'select',
-        options: [
-            { value: '4000', label: '4,000 characters' },
-            { value: '0', label: 'No limit' }
-        ],
+        options: [{ value: '0', label: 'No limit' }],
         custom: { label: 'Another limit', placeholder: '20000' },
         defaultLabel: '4,000 characters',
         defaultValue: '4000',
