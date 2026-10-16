@@ -152,7 +152,7 @@ describe('canvas wiring', () => {
     it('the panel sits inside the same React Flow provider as the canvas', () => {
         const source = read('views/canvas/index.jsx')
         const provider = source.indexOf('<ReactFlowProvider>')
-        const panel = source.indexOf('<NodeSidePanel ')
+        const panel = source.search(/<NodeSidePanel\s/)
         expect(provider).toBeGreaterThan(-1)
         expect(panel).toBeGreaterThan(provider)
         expect(panel).toBeLessThan(source.indexOf('</ReactFlowProvider>'))

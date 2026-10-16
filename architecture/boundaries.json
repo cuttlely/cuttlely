@@ -129,7 +129,7 @@
             "packages/server/src/routes/demo/**",
             "packages/ui/src/api/demo.js",
             "packages/ui/src/utils/tryTheDemo*",
-            "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+            "packages/ui/src/ui-component/flow/TryTheDemo*",
             "samples/demo/**",
             "packages/ui/src/utils/*Migration.mjs",
             "packages/ui/src/utils/langflowImport.mjs",
@@ -703,7 +703,7 @@
                 "packages/server/src/routes/demo/**",
                 "packages/ui/src/api/demo.js",
                 "packages/ui/src/utils/tryTheDemo*",
-                "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+                "packages/ui/src/ui-component/flow/TryTheDemo*",
                 "samples/demo/**"
             ],
             "entryPoints": [

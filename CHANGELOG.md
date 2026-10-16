@@ -8,6 +8,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   The Admin menu lists Users and Teams first, then Roles, Server Settings, Logs, Audit log, and Version History. The page you are on is still marked, including a team's members page under Teams. After sign-in, someone who is not the organization owner and has none of the earlier pages now lands on Users, then Teams, before Roles, in the same order as the menu.
 
+### Fixed
+
+-   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. The card still offers Add a model key, and owners and roles with `credentials:view` still see their keys.
+
 ## [1.2.0] - 2026-10-15
 
 ### Added

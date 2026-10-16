@@ -12,6 +12,7 @@ import { t } from '@/i18n'
 import CredentialListDialog from '@/views/credentials/CredentialListDialog'
 import AddEditCredentialDialog from '@/views/credentials/AddEditCredentialDialog'
 import { useError } from '@/store/context/ErrorContext'
+import { useAuth } from '@/hooks/useAuth'
 import { defaultKey, keyTypesForDemo, usableKeys } from '@/utils/tryTheDemo'
 
 export const TRY_DEMO_KEY = 'cuttlely.dismissed.tryDemo'
@@ -27,6 +28,8 @@ export const openDemo = (navigate, id) => navigate(`/harnesscanvas/${id}`, { sta
 const TryTheDemo = ({ show }) => {
     const navigate = useNavigate()
     const { setError } = useError()
+    const { hasPermission } = useAuth()
+    const canViewKeys = hasPermission('credentials:view')
     const [dismissed, setDismissed] = useState(() => localStorage.getItem(TRY_DEMO_KEY) === '1')
     const [status, setStatus] = useState(null)
     const [keys, setKeys] = useState([])
@@ -41,7 +44,7 @@ const TryTheDemo = ({ show }) => {
         try {
             const [demo, credentials, components] = await Promise.all([
                 demoApi.getDemo(),
-                credentialsApi.getAllCredentials(),
+                canViewKeys ? credentialsApi.getAllCredentials() : { data: [] },
                 credentialsApi.getAllComponentsCredentials()
             ])
             const names = demo.data?.credentialNames || []
