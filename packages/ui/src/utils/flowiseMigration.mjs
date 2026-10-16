@@ -250,7 +250,9 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
             continue
         }
         if (!catalog.has(name) && REMOVED_NODE_NAMES.has(name)) {
-            fixes.push(`Dropped ${label}. Cuttlely no longer has this card. Set it up in Analyse Flow or Speech to Text instead.`)
+            fixes.push(
+                `Dropped ${label}. Cuttlely no longer has this card. Set it up in Analytics (Chatflow Configuration) or Speech to Text instead.`
+            )
             continue
         }
         if (!drawable(node)) {
