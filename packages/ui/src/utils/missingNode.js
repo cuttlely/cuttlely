@@ -1,5 +1,8 @@
+import { REMOVED_NODE_NAMES } from './removedNodes.mjs'
+
 // The same sentence packages/server/src/utils/nodePacks.ts returns for a prediction.
 // The canvas shows it on the placeholder card. Keep the two copies the same.
+// A removed configuration card gets its own sentence; the server runs the flow without it.
 
 export function packFromIndex(packIndex, name, label) {
     const rows = Array.isArray(packIndex) ? packIndex : Array.isArray(packIndex?.nodes) ? packIndex.nodes : []
@@ -16,6 +19,9 @@ export function missingNodeInfo(data, componentNodes, packIndex) {
     if (!data || typeof data.name !== 'string' || !data.name) return null
     if (componentNodes.some((node) => node && node.name === data.name)) return null
     const label = typeof data.label === 'string' && data.label.trim() ? data.label : data.name
+    if (REMOVED_NODE_NAMES.has(data.name)) {
+        return { label, pack: '', message: `${label} was removed from Cuttlely and no longer runs. You can delete this card.` }
+    }
     const saved = typeof data.nodePack === 'string' ? data.nodePack.trim() : ''
     const pack = saved || packFromIndex(packIndex, data.name, label)
     const message = pack ? `${label} is not installed. Install the ${pack} pack.` : `${label} is not installed.`

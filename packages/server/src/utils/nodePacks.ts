@@ -212,6 +212,24 @@ export function packForNode(name: string, label = '', index?: NodePackIndexNode[
     return byLabel.length === 1 ? byLabel[0].pack : ''
 }
 
+// Configuration-only nodes that were never registered and are no longer shipped. They had no
+// anchors, so a saved flow can only hold them as loose cards. A run drops them instead of refusing.
+export const REMOVED_NODE_NAMES = new Set(['arize', 'langFuse', 'langSmith', 'LangWatch', 'lunary', 'opik', 'phoenix', 'assemblyAI'])
+
+type FlowNodeLike = { id: string; data?: { name?: string } }
+type FlowEdgeLike = { source: string; target: string }
+
+export function withoutRemovedNodes<T extends { nodes: FlowNodeLike[]; edges: FlowEdgeLike[] }>(flow: T): T {
+    const nodes = Array.isArray(flow?.nodes) ? flow.nodes : []
+    const removed = new Set(nodes.filter((node) => REMOVED_NODE_NAMES.has(node?.data?.name ?? '')).map((node) => node.id))
+    if (!removed.size) return flow
+    return {
+        ...flow,
+        nodes: nodes.filter((node) => !removed.has(node.id)),
+        edges: (Array.isArray(flow.edges) ? flow.edges : []).filter((edge) => !removed.has(edge?.source) && !removed.has(edge?.target))
+    }
+}
+
 export function missingNodeMessage(label: string, pack: string): string {
     return pack ? `${label} is not installed. Install the ${pack} pack.` : `${label} is not installed.`
 }
@@ -240,7 +258,7 @@ export function missingNodeFailure(
         if (!data || typeof data !== 'object') continue
         const record = data as { name?: unknown; label?: unknown; nodePack?: unknown }
         const name = typeof record.name === 'string' ? record.name : ''
-        if (!name || Object.prototype.hasOwnProperty.call(loaded, name)) continue
+        if (!name || REMOVED_NODE_NAMES.has(name) || Object.prototype.hasOwnProperty.call(loaded, name)) continue
         const label = typeof record.label === 'string' && record.label.trim() ? record.label : name
         const saved = typeof record.nodePack === 'string' ? record.nodePack.trim() : ''
         const pack = saved || packForNode(name, label, index)

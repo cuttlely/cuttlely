@@ -14,6 +14,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The proprietary path check runs once, in the required `lint` CI job. The `proprietary-paths` step of `pnpm verify` and the separate Proprietary Path Guard workflow are removed. `node scripts/proprietary-paths.mjs` still runs the same check locally.
 -   The Admin menu lists Users and Teams first, then Roles, Server Settings, Logs, Audit log, and Version History. The page you are on is still marked, including a team's members page under Teams. After sign-in, someone who is not the organization owner and has none of the earlier pages now lands on Users, then Teams, before Roles, in the same order as the menu.
 
+### Removed
+
+-   The eight hidden configuration nodes the server already skipped at load: Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix, and AssemblyAI. They never appeared in the node list. Analytics tracing (Chatflow Configuration > Analytics), Speech to Text, and their credentials are unchanged. On the Credentials page, seven of those credentials now show the generic key icon. The Langfuse credential keeps its icon because the Langfuse prompt node still uses it. A saved chatflow or agentflow that still holds one of these cards runs without it instead of returning 422 or "This chatflow cannot chat yet", in the prediction API, the streaming check, and canvas chat. Import JSON drops these cards with a note and still opens the file. On a saved canvas, such a card now says it was removed and can be deleted, instead of "not installed".
+
 ### Fixed
 
 -   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. The card still offers Add a model key, and owners and roles with `credentials:view` still see their keys.

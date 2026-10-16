@@ -47,7 +47,7 @@ import { VersionActor } from '../flow-versions/author'
 import { VersionKind } from '../flow-versions/store'
 import { updateStorageUsage } from '../../utils/quotaUsage'
 import { flowDataForPublicChatbotConfig } from '../../utils/sanitizeFlowData'
-import { stampNodePack } from '../../utils/nodePacks'
+import { stampNodePack, withoutRemovedNodes } from '../../utils/nodePacks'
 
 export const enum ChatflowErrorMessage {
     INVALID_CHATFLOW_TYPE = 'Invalid Chatflow Type',
@@ -87,7 +87,7 @@ const checkIfChatflowIsValidForStreaming = async (chatflowId: string): Promise<a
 
         /*** Get Ending Node with Directed Graph  ***/
         const flowData = chatflow.flowData
-        const parsedFlowData: IReactFlowObject = JSON.parse(flowData)
+        const parsedFlowData: IReactFlowObject = withoutRemovedNodes(JSON.parse(flowData))
         const nodes = parsedFlowData.nodes
         const edges = parsedFlowData.edges
         const { graph, nodeDependencies } = constructGraphs(nodes, edges)

@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { migrationRoute, scanFlowiseMigration } from '../packages/ui/src/utils/flowiseMigration.mjs'
+import { REMOVED_NODE_NAMES } from '../packages/ui/src/utils/removedNodes.mjs'
 
 const SECRET = 'super-secret-flowise-key'
 const CREDENTIAL_ID = 'cred-should-not-leak-9f3a'
@@ -11,6 +12,8 @@ const CREDENTIAL_ID = 'cred-should-not-leak-9f3a'
 const catalog = JSON.parse(
     readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../packages/components/nodes/module-catalog.json'), 'utf8')
 )
+
+const catalogHas = (name) => (Array.isArray(catalog) ? catalog : catalog.nodes).some((entry) => entry && entry.name === name)
 
 const node = (id, name, extra = {}) => ({
     id,
@@ -32,6 +35,17 @@ const node = (id, name, extra = {}) => ({
 const edge = (source, target) => ({ id: `${source}-${target}`, source, target })
 
 const scan = (parsed) => scanFlowiseMigration(parsed, { catalog })
+
+describe('removed node names', () => {
+    it('match between the UI list and the server list', () => {
+        const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../packages/server/src/utils/nodePacks.ts'), 'utf8')
+        const match = source.match(/export const REMOVED_NODE_NAMES = new Set\(\[([^\]]*)\]\)/)
+        assert.ok(match, 'REMOVED_NODE_NAMES is not declared as a Set literal in nodePacks.ts')
+        const server = [...match[1].matchAll(/'([^']+)'/g)].map((item) => item[1]).sort()
+        assert.ok(server.length > 0)
+        assert.deepEqual([...REMOVED_NODE_NAMES].sort(), server)
+    })
+})
 
 describe('scanFlowiseMigration', () => {
     it('marks a clean chatflow ready to open and keeps the nodes', () => {
@@ -120,6 +134,40 @@ describe('scanFlowiseMigration', () => {
         assert.equal(report.canvas, null)
         assert.match(report.unsupported[0].message, /LlamaIndex/)
         assert.match(report.reason, /cannot place/)
+        const dumped = JSON.stringify(report)
+        assert.equal(dumped.includes(SECRET), false)
+        assert.equal(dumped.includes(CREDENTIAL_ID), false)
+    })
+
+    it('drops the removed configuration cards with a note and still opens the canvas', () => {
+        const removed = ['arize', 'langFuse', 'langSmith', 'LangWatch', 'lunary', 'opik', 'phoenix', 'assemblyAI']
+        for (const name of removed) assert.equal(catalogHas(name), false, `${name} is still in the catalog`)
+        const report = scan({
+            name: 'Traced harness',
+            type: 'CHATFLOW',
+            nodes: [
+                node('harness_0', 'harness', { label: 'Harness', category: 'Harness' }),
+                node('langFuse_0', 'langFuse', {
+                    label: 'LangFuse',
+                    category: 'Analytic',
+                    credential: CREDENTIAL_ID,
+                    inputs: { langFuseSecretKey: SECRET }
+                }),
+                node('assemblyAI_0', 'assemblyAI', { label: 'AssemblyAI', category: 'SpeechToText' })
+            ],
+            edges: [edge('langFuse_0', 'harness_0')]
+        })
+        assert.equal(report.ok, true)
+        assert.equal(report.level, 'attention')
+        assert.deepEqual(report.unsupported, [])
+        assert.deepEqual(report.attention, [])
+        assert.deepEqual(
+            report.canvas.nodes.map((item) => item.id),
+            ['harness_0']
+        )
+        assert.deepEqual(report.canvas.edges, [])
+        assert.equal(report.fixes.filter((fix) => /^Dropped (LangFuse|AssemblyAI)\. Cuttlely no longer has this card/.test(fix)).length, 2)
+        assert.ok(report.fixes.includes('Dropped 1 edge that pointed at a missing node.'))
         const dumped = JSON.stringify(report)
         assert.equal(dumped.includes(SECRET), false)
         assert.equal(dumped.includes(CREDENTIAL_ID), false)

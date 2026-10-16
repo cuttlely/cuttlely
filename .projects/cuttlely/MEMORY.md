@@ -38,6 +38,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   The server serves the built UI from `packages/server/dist/ui` and from `packages/ui/build`, whichever `index.html` is newer. `@cuttlely/ui` is a devDependency of the server. The UI libraries are devDependencies of the UI package. A production install does not install them. `@swc/core` and `typescript` in the components package are already devDependencies. `/`, `/index.html`, and other client routes that read `index.html` are limited to 3000 a minute per client IP. Hashed UI files and `/embed/chat.js` are not counted.
 -   Workspace packages that are not published set `"private": true`: `packages/components`, `packages/server`, `packages/ui`, and `packages/api-documentation`. `packages/chat-widget` (`@cuttlely/chat`) sets `"private": false`. The root `workspaces` field is `["packages/*"]`, the same directories as `pnpm-workspace.yaml`. pnpm reads `pnpm-workspace.yaml`. npm reads the root `workspaces` field, so that field stays and matches.
 -   npm publishes only from the release tag.
+-   A dependency with no import in our code can still be live. `@langchain/community` loads optional peers such as `neo4j-driver` (the Neo4j node) and `epub2` (the Epub File loader), so `packages/components` must list them. Check the LangChain module a node imports before removing a package.
 
 ## Do
 

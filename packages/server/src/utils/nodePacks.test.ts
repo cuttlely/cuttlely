@@ -4,7 +4,15 @@ import path from 'path'
 import { StatusCodes } from 'http-status-codes'
 import { NodesPool } from '../NodesPool'
 import { credentialDefinitionDirs } from './replaceInputsWithConfig'
-import { missingNodeFailure, nodePackList, packForNode, resolveNodePacks, stampNodePack } from './nodePacks'
+import {
+    REMOVED_NODE_NAMES,
+    missingNodeFailure,
+    nodePackList,
+    packForNode,
+    resolveNodePacks,
+    stampNodePack,
+    withoutRemovedNodes
+} from './nodePacks'
 
 const NODE_SOURCE = `class SampleNode {
     constructor() {
@@ -191,6 +199,28 @@ describe('a saved node that is not installed', () => {
         })
         expect(missingNodeFailure('not json', {})).toBeNull()
         expect(missingNodeFailure(undefined, {})).toBeNull()
+    })
+
+    test('a removed configuration node is skipped, not refused', () => {
+        const harness = { id: 'harness_0', data: { name: 'harnessNode', label: 'Harness', category: 'Harness', outputs: {} } }
+        const loose = [
+            { id: 'langFuse_0', data: { name: 'langFuse', label: 'LangFuse', category: 'Analytic' } },
+            { id: 'assemblyAI_0', data: { name: 'assemblyAI', label: 'AssemblyAI', category: 'SpeechToText' } }
+        ]
+        const saved = { nodes: [harness, ...loose], edges: [] as { source: string; target: string }[] }
+        expect(missingNodeFailure(JSON.stringify(saved), { harnessNode: {} })).toBeNull()
+        const wired = { ...saved, edges: [{ source: 'langFuse_0', target: 'harness_0' }] }
+        expect(withoutRemovedNodes(wired).edges).toEqual([])
+
+        const kept = withoutRemovedNodes(saved)
+        expect(kept.nodes.map((node) => node.id)).toEqual(['harness_0'])
+        expect(kept.edges).toEqual([])
+
+        const untouched = { nodes: [harness], edges: [] }
+        expect(withoutRemovedNodes(untouched)).toBe(untouched)
+        for (const name of REMOVED_NODE_NAMES) {
+            expect(missingNodeFailure(JSON.stringify({ nodes: [{ id: 'n', data: { name, label: name } }] }), {})).toBeNull()
+        }
     })
 
     test('uses the index when the saved node has no nodePack', () => {
