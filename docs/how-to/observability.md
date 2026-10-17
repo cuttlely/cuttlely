@@ -188,6 +188,58 @@ service:
             exporters: [otlphttp/backend]
 ```
 
+## Grafana dashboard
+
+[`metrics/grafana/cuttlely-runs.json`](../../metrics/grafana/cuttlely-runs.json) is a ready-made Grafana dashboard for these traces and the server metrics. It queries only the span names and attributes listed in [What each span contains](#what-each-span-contains) and the metrics `GET /api/v1/metrics` publishes. `pnpm verify` checks that.
+
+It was checked against Grafana 13.2.4, Tempo 3.1.0, and Prometheus 3.15.0. The trace panels use TraceQL metrics, including instant queries, so an older Grafana or Tempo may show errors on those panels.
+
+### Datasources
+
+| Datasource | Needed for                              | Setup                                                                                                                                                                                                                                                                                  |
+| ---------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tempo      | Every panel except the last row         | Traces on, sent to Tempo through a collector as in the Tempo recipe above. Tempo must answer TraceQL metrics queries. [`examples/otel/tempo.yaml`](../../examples/otel/tempo.yaml) does on Tempo 3.1.0 with no other setting.                                                          |
+| Prometheus | The **Server metrics (Prometheus)** row | `ENABLE_METRICS=true` and `METRICS_PROVIDER=prometheus`, with Prometheus scraping `GET /api/v1/metrics`. That route needs an API key. [`metrics/prometheus/prometheus.config.yml`](../../metrics/prometheus/prometheus.config.yml) reads the key from a file. Do not commit that file. |
+
+Each half works without the other. With metrics off, the last row is empty. With traces off, every other panel is empty.
+
+### Import it
+
+1. In Grafana, add the Tempo and Prometheus datasources.
+2. Open **Dashboards** > **New** > **Import**, upload `metrics/grafana/cuttlely-runs.json`, and import it.
+3. At the top of the dashboard, pick the datasources in **Tempo** and **Prometheus**.
+
+To provision it instead, put the file in a folder a Grafana dashboard provider reads. The file has no instance id and no `__inputs` block, so it loads the same way as an import. The datasources are dashboard variables, not fixed ids.
+
+### Variables
+
+| Variable                           | Default    | What it does                                                                                                                                                                     |
+| ---------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Service name**                   | `cuttlely` | `service.name` on the trace resource. Set it to `METRICS_SERVICE_NAME` when you set that variable.                                                                               |
+| **Metrics app label**              | All        | The `app` label on each Prometheus metric. The server sets it from `METRICS_SERVICE_NAME`. When that is unset, the label keeps the server's older default, so leave this on All. |
+| **Metric prefix**                  | Empty      | `METRICS_PREFIX`. Leave it empty when that variable is unset.                                                                                                                    |
+| **Input price (USD / 1M tokens)**  | `0`        | Used only by the estimated cost panels.                                                                                                                                          |
+| **Output price (USD / 1M tokens)** | `0`        | Used only by the estimated cost panels.                                                                                                                                          |
+
+### Panels
+
+| Row                         | Panels                                                                                                                                                                  | Source                                                                                                                                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview                    | Runs and failed runs by root span name, and the run error rate, for the whole time range                                                                                | `chatflow.prediction`, `agentflow.run`, and `harness.run` spans, and their span status                                                                                                  |
+| Runs and latency            | Runs and failed runs per second. Run duration p50 and p95. p95 duration of model calls by `model.name`, tool calls by `tool.name`, and specialists by `specialist.name` | Span duration                                                                                                                                                                           |
+| Tokens and cost             | Input and output tokens in total and by `model.name`. Estimated cost in total and by model. Harness run tokens by `harness.name`                                        | `tokens.input` and `tokens.output` on `model` spans. `tokens.total.input` and `tokens.total.output` on `harness.run`                                                                    |
+| Errors                      | Tool, model, and specialist errors. A table of up to 20 failed runs with links to each trace                                                                            | Spans with status error                                                                                                                                                                 |
+| Per flow and harness        | Runs, failed runs, p95 duration, and model tokens by `flow.id`. Runs, failed runs, and p95 duration by `harness.name`                                                   | `flow.id` and `flow.kind` on flow runs and their model spans. `harness.name` on `harness.run`                                                                                           |
+| Server metrics (Prometheus) | Predictions per second by counter and status. Prediction failure ratio. HTTP requests per second, p95 duration by route, and 5xx per second by route                    | `chatflow_prediction_internal`, `chatflow_prediction_external`, `agentflow_prediction_internal`, `agentflow_prediction_external`, `http_requests_total`, and `http_request_duration_ms` |
+
+Cuttlely does not put a cost on spans. The cost panels multiply model-span tokens by the two price variables, one price for every model, so they are an estimate. With the prices left at `0` they show $0.
+
+The token panels add `tokens.input` and `tokens.output` from model spans. A harness specialist that runs in the agent runtime has no model span, so its tokens are not in those panels. The harness run token panels read the run-card rollup on `harness.run`, which does include them. Do not add the two together. See [Harness runs](#harness-runs).
+
+A harness run started from a chatflow is a child of that `chatflow.prediction`, so the run panels count it under both names. The per-flow panels leave out a harness API run, because it has no `flow.id`.
+
+The `http_request_duration_ms` histogram stops at 500 ms, so a p95 above that shows as 500 ms. Use the run duration panels for run latency. With `METRICS_PROVIDER=open_telemetry`, the collector's Prometheus exporter can publish different metric names, and the last row may stay empty.
+
 ## What each span contains
 
 One trace per run. The root span is `chatflow.prediction`, `agentflow.run`, or `harness.run`. A harness run started from a chatflow is a child of that prediction, so that prediction stays the root. A Harness node that is the step that answers sits under that node's span, and `harness.run` is a child of that node span.
