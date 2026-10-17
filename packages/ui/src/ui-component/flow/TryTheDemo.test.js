@@ -76,6 +76,22 @@ describe('Try the demo card', () => {
         await unmount()
     })
 
+    it('hints Add a model key first on the demo buttons for a role with credentials:create and no key', async () => {
+        mockPermissions = ['chatflows:view', 'chatflows:create', 'credentials:create']
+        const { container, unmount } = await render()
+        expect(container.querySelectorAll('[aria-label="Add a model key first"]')).toHaveLength(2)
+        expect(container.querySelector('[aria-label="Ask an admin to add a model key"]')).toBeNull()
+        await unmount()
+    })
+
+    it('asks a role without credentials:create to ask an admin instead of adding a key', async () => {
+        mockPermissions = ['chatflows:view', 'chatflows:create']
+        const { container, unmount } = await render()
+        expect(container.querySelectorAll('[aria-label="Ask an admin to add a model key"]')).toHaveLength(2)
+        expect(container.querySelector('[aria-label="Add a model key first"]')).toBeNull()
+        await unmount()
+    })
+
     it('hides Add a model key and Add another key from a role without credentials:create', async () => {
         mockPermissions = ['chatflows:view', 'chatflows:create']
         const { container, unmount } = await render()
