@@ -135,6 +135,25 @@ const teamFeatures = [
     }
 ] as const
 
+const analystPoints = [
+    {
+        title: 'Safe by design',
+        text: 'Once you tick tables and views, it sees and can query only those, over a read-only connection. Anything else is refused before it runs.'
+    },
+    {
+        title: 'Lean and low-cost',
+        text: 'The prompt carries only the names and columns of what you ticked, never your whole schema. Details of a table are fetched when a question needs them, and materialized views are listed first.'
+    },
+    {
+        title: 'One Analyst per database',
+        text: 'Put a sales, a budget and a CRM Analyst in one team, each with its own database. Harness Prime sends each question to the right one.'
+    },
+    {
+        title: 'Yours to shape, no code',
+        text: "Write lookup rules in the Analyst's instructions and routing rules in Harness Prime's, and add tools beside it, such as Jira or your own MCP server."
+    }
+] as const
+
 const installs = [
     { title: 'Docker', text: 'The install most people want. SQLite, one container.', href: '/docs/how-to/docker/', icon: 'laptop' },
     { title: 'Render', text: 'A hosted install with Postgres, from the Blueprint in the repository.', href: '/docs/how-to/render/', icon: 'rocket' },
@@ -413,6 +432,26 @@ const installs = [
                     sizes="(min-width: 68rem) 560px, 100vw"
                 />
             </figure>
+            <aside id="ask-your-database-in-plain-english" class="cl-callout" aria-labelledby="analyst-callout-title">
+                <p class="cl-kicker">The Analyst</p>
+                <h3 id="analyst-callout-title" class="cl-display">Ask your database in plain English</h3>
+                <p class="cl-callout-lead">Get answers backed by real queries against your own Postgres data, not guesses.</p>
+                <ul class="cl-callout-points">
+                    {
+                        analystPoints.map((point) => (
+                            <li>
+                                <strong>{point.title}</strong> {point.text}
+                            </li>
+                        ))
+                    }
+                </ul>
+                <p class="cl-callout-proof">
+                    <span class="cl-pair-label">Bakery demo</span>
+                    On the made-up bakery database, it used about a quarter of the prompt tokens of pasting in the whole schema, and answered 5 of 5 questions
+                    correctly in a <a href="/docs/how-to/analyst/#real-model-check">real-model test</a>, each data question on its first query.
+                </p>
+                <a class="cl-link-arrow" href="/docs/how-to/analyst/">Analyst guide <Icon name="right-arrow" /></a>
+            </aside>
         </section>
 
         <section id="use-a-team-from-your-app" class="cl-section" aria-labelledby="api-title">
