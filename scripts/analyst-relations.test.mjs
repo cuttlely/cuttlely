@@ -585,7 +585,7 @@ describe('analyst relations: bakery database', () => {
         running.catch(() => {})
         // Only an active analyst backend counts: an idle one still shows its last query text in pg_stat_activity.
         let pid = null
-        for (const deadline = Date.now() + 15000; pid === null && Date.now() < deadline; ) {
+        for (const deadline = Date.now() + 8000; pid === null && Date.now() < deadline; ) {
             const found = await admin.query(
                 "SELECT pid FROM pg_stat_activity WHERE datname = $1 AND application_name = 'cuttlely-analyst' AND state = 'active' AND query LIKE '%pg_sleep(10)%' AND pid <> pg_backend_pid()",
                 [dbName]
@@ -595,7 +595,7 @@ describe('analyst relations: bakery database', () => {
         }
         assert.notEqual(pid, null, 'the analyst backend never showed the query in pg_stat_activity')
         const killed = await admin.query('SELECT pg_terminate_backend($1) AS ok', [pid])
-        assert.equal(killed.rows[0].ok, true)
+        assert.equal(killed.rows[0].ok, true, `pg_terminate_backend(${pid}) did not signal the analyst backend`)
         await assert.rejects(running, (error) => {
             assert.equal(error.cuttlelyOutcome, 'transport', error.message)
             return true
