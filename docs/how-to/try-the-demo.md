@@ -24,7 +24,7 @@ A smaller bakery team is on the same card as a [quickstart](#the-bakery-quicksta
 
 4. Select the first question. The run card shows Harness Prime sending the work to `customer` and `operations` at the same time, then to `policy` once operations has finished, with the model, the time and the tokens each step took. Open a row to see the task Harness Prime gave that specialist and the tools it ran.
 
-    ![Customer care demo run for Maya Okafor's late espresso machine order. Harness Prime sent work to customer, operations, then policy. The policy step is open, and the decision refunds the $9.95 shipping, reships by 2026-10-08 and gives a $55.80 store credit.](../images/try-the-demo/customer-care-policy.png)
+    ![Customer care demo run for Maya Okafor's late espresso machine order. The customer, operations and policy steps are done, and the policy step is open. The decision refunds the $9.95 shipping, reships by Express arriving 2026-10-08, recalls the held parcel and gives a $55.80 store credit.](../images/try-the-demo/customer-care-policy.png)
 
 5. Scroll down for the rest of the answer: the reply to send the customer, the actions for the team, and the evidence from each specialist with the policy sections it rests on.
 
@@ -44,11 +44,11 @@ Harness Prime puts it together: whose fault it was, which remedy applies and why
 
 The second starter is the contrast. Daniel's duvet set was picked up on time and held by a road closure for snow, so it is the carrier's fault. Daniel is a Standard customer, so he gets a carrier trace and a $10 goodwill credit, and a reship only if the carrier has no new scan for 3 business days.
 
-![Daniel Reyes asks about his late duvet set. The operations step is open, and the decision says the carrier is at fault because of a road closure for snow: open a trace, wait 3 business days before reshipping and give a $10.00 goodwill credit.](../images/try-the-demo/customer-care-carrier.png)
+![The answer to Daniel Reyes about his late duvet set, order LH-20398. Harness Prime sent work to customer, operations, then policy, and the operations step is open. The decision says the carrier is at fault because of a road closure for snow: open a trace, reship only after 3 business days with no new scan and give a $10.00 goodwill credit.](../images/try-the-demo/customer-care-carrier.png)
 
 The third starter crosses both systems in the other order: operations lists the held orders, then customer looks up who placed them.
 
-![Answer to which orders are held in a warehouse: five orders in exception cage E-2 at CMH after failed scale checks on 2026-09-29, each with the customer's name and tier.](../images/try-the-demo/customer-care-held.png)
+![Answer to which orders are held in a warehouse. Harness Prime sent work to operations, then customer. The answer says five orders are held in exception cage E-2 at the Columbus warehouse (CMH) after failed scale checks in packing wave W-0929-B on 2026-09-29, listed with each customer's name and tier: LH-20409 Priya Natarajan (Premier), LH-20411 Tom Lindqvist (Standard), LH-20417 Maya Okafor (Plus), LH-20420 Grace Whitfield (Plus) and LH-20423 Lena Fischer (Standard). The last line names the Plus and Premier customers.](../images/try-the-demo/customer-care-held.png)
 
 ## What the demo makes
 
@@ -75,7 +75,7 @@ Select **Or start with the bakery quickstart** on the card for a smaller team on
 
 The March croissant starter answers in units. Riverside sold 335 more croissants than Old Town in March 2026: 1346 against 1011.
 
-![Bakery demo answer to which shop sold more croissants in March 2026: a bar chart shows Riverside 1,346 and Old Town 1,011, and the text says Riverside sold 335 more.](../images/try-the-demo/demo-chart.png)
+![Bakery demo answer to which shop sold more croissants in March 2026. Harness Prime sent work to analyst. A bar chart titled Croissants sold in March 2026 shows Riverside 1346 and Old Town 1011, and the text below it says Riverside sold 335 more croissants than Old Town.](../images/try-the-demo/demo-chart.png)
 
 `POST /api/v1/demo` with `{"credentialId": "<id>"}` makes the customer care team. Add `"demo": "bakery"` for the bakery team.
 
