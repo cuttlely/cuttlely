@@ -81,3 +81,13 @@ The server uses a new data directory under `/tmp/docs-shots`. Sample names are t
 Postgres pictures need a local Postgres the current user can reach with `sudo -u postgres psql`. The script creates a throwaway login and database for that run. A second team's harness gets its own credential through the API, not a copied row.
 
 `DOCS_SHOTS_FROM=<step>` restarts at one step (`empty`, `templates`, `analyst`, `paging`, `trace`, `workspaces`, `postgres`, and the others named in the script).
+
+## Analyst table picker
+
+```bash
+pnpm build
+bash scripts/setup-hermes.sh
+PGPASSWORD=... node scripts/docs-shots/capture-analyst-picker.mjs
+```
+
+This takes `docs/images/analyst/postgres-mcp-table-picker.png` (dark, a canvas frame) and `docs/images/analyst/try-it-describe-trace.png` (light). It needs a local Postgres admin login (`CUTTLELY_TEST_PG_HOST`, `CUTTLELY_TEST_PG_PORT`, `CUTTLELY_TEST_PG_USER`, and `PGPASSWORD`). It loads `samples/demo/bakery/bakery-postgres.sql` into a new database with a read-only login, saves that as a Postgres URL credential, and builds a one-analyst harness whose PostgreSQL MCP node ticks six relations. Without `OPENAI_API_KEY`, `model-stand-in.mjs` answers: for the unpaid invoices question it calls describe, then query. The database and the login are dropped at the end. The question asks for a count, so no amount appears in a picture. The model is scripted, so the run card's token counts and timings are illustrative, not a measurement.

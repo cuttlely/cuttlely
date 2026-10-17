@@ -49,6 +49,8 @@ const toolNames = (tools) => (Array.isArray(tools) ? tools.map((t) => t?.functio
 
 const queryToolName = (names) => names.find((name) => /query/i.test(name) && !/execute_sql/i.test(name)) || ''
 
+const describeToolName = (names) => names.find((name) => /describe$/i.test(name) && name !== 'tool_describe') || ''
+
 const otherTool = (names) => names.find((name) => name !== queryToolName(names) && !/execute_sql/i.test(name)) || ''
 
 function splitSql(text) {
@@ -75,6 +77,12 @@ function splitSql(text) {
 }
 
 function actionsFor(task) {
+    if (/WA-1004/i.test(task) && /unpaid invoices/i.test(task)) {
+        return [
+            { kind: 'describe', name: 'public.account_balances' },
+            { kind: 'sql', sql: `SELECT account_code, name, unpaid_invoices FROM account_balances WHERE account_code = 'WA-1004'` }
+        ]
+    }
     const cursorCall = task.match(/Call the query tool with cursor\s+(\S+?)(?:\s+and page\s+(\d+))?\./i)
     if (cursorCall) {
         const action = { kind: 'sql', sql: '', cursor: cursorCall[1].replace(/[.,]$/, '') }
@@ -238,6 +246,10 @@ function answerFromTools(task, results) {
     const last = payloads[payloads.length - 1] || {}
     const rows = rowsOf(last)
     const summary = typeof last.summary === 'string' ? last.summary : ''
+    if (/WA-1004/i.test(task) && rows[0]?.unpaid_invoices != null) {
+        const row = rows[0]
+        return `${row.account_code} (${row.name}) has ${row.unpaid_invoices} unpaid invoices.`
+    }
     if (/how many tasks are open/i.test(task)) {
         const titles = rows.map((row) => row.title).filter(Boolean)
         return `There are ${titles.length} open tasks:\n\n${titles.map((title, i) => `${i + 1}. ${title}`).join('\n')}`
@@ -445,6 +457,8 @@ function decide(body) {
                     'The sample note says the researcher reads this note from an in-memory store. Its vectors were built with Local Hash Embeddings, with no provider key.'
             }
         }
+        const unpaid = all.match(/WA-1004 \([^)]*\) has \d+ unpaid invoices\./)
+        if (unpaid) return { content: unpaid[0] }
         if (/how many tasks are open/i.test(user)) {
             return { content: 'There are 2 open tasks:\n\n1. draft agenda\n2. send invites' }
         }
@@ -493,6 +507,9 @@ function decide(body) {
     const actions = names.length ? actionsFor(user) : []
     if (names.length && actions.length && results.length < actions.length) {
         const action = actions[results.length]
+        if (action.kind === 'describe' && describeToolName(names)) {
+            return { tool: { name: describeToolName(names), arguments: { name: action.name } } }
+        }
         const name = queryToolName(names) || names[0]
         const args = {}
         if (action.cursor) args.cursor = action.cursor

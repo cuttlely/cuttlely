@@ -141,6 +141,49 @@ jobs:
               continue-on-error: true
               run: node scripts/health-report.mjs
 
+    # Analyst table selection against every supported Postgres major (advisory): same gating as build. The scope
+    # check reads Postgres query trees and catalogs, so each major runs scripts/analyst-relations.test.mjs.
+    # CUTTLELY_TEST_PG_REQUIRED fails the run instead of skipping when the service is not reachable. The case that
+    # loads the built node skips here, because this job does not build; the build job's verify covers it.
+    analyst-postgres:
+        name: analyst-postgres (${{ matrix.postgres }})
+        needs: changes
+        if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.code == 'true'
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                postgres: ['14', '15', '16', '17', '18']
+        env:
+            PUPPETEER_SKIP_DOWNLOAD: true
+        services:
+            postgres:
+                image: postgres:${{ matrix.postgres }}
+                env:
+                    POSTGRES_PASSWORD: postgres
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U postgres"
+                    --health-interval 5s
+                    --health-timeout 3s
+                    --health-retries 10
+        steps:
+            - uses: actions/checkout@v6
+            - uses: pnpm/action-setup@v4
+            - name: Use Node.js 24.15.0
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24.15.0
+                  cache: 'pnpm'
+                  cache-dependency-path: 'pnpm-lock.yaml'
+            - run: pnpm install
+            - name: Analyst table selection tests
+              env:
+                  PGPASSWORD: postgres
+                  CUTTLELY_TEST_PG_REQUIRED: '1'
+              run: node --test scripts/analyst-relations.test.mjs
+
     # Cypress end-to-end (advisory, not in the required set): same gating as build. Its own job so a Cypress failure
     # shows as a red "cypress" check without blocking the merge.
     cypress:

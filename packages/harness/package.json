@@ -34,6 +34,7 @@
         "./run.mjs": "./run.mjs",
         "./runtime/analyst-mcp-status.mjs": "./runtime/analyst-mcp-status.mjs",
         "./runtime/analyst-page.mjs": "./runtime/analyst-page.mjs",
+        "./runtime/analyst-relations.mjs": "./runtime/analyst-relations.mjs",
         "./runtime/analyst-postgres.mjs": "./runtime/analyst-postgres.mjs",
         "./runtime/analyst-sqlite-worker.mjs": "./runtime/analyst-sqlite-worker.mjs",
         "./runtime/analyst-store.mjs": "./runtime/analyst-store.mjs",

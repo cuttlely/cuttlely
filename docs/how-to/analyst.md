@@ -185,6 +185,149 @@ A chip for a create, an insert, or a failed statement has no preview.
 
 The row cap itself is the **Row cap** rule under [Safety](#safety). The default is 100 rows and the server never uses more than 1000. The trace and the page line are also covered in [Harnesses](./harnesses.md).
 
+## Pick the tables and views the analyst sees
+
+A database description pasted into the specialist's instructions travels with every prompt, whatever the question. The table picker replaces it. You tick the tables and views the analyst may use. The analyst gets one short line for each, reads the columns of one when it needs them, and cannot query anything else.
+
+This works on a database the node connects to by URL: a Postgres URL credential on the node, or `CUTTLELY_POSTGRES_URL`. Isolated analyst storage (`CUTTLELY_ANALYST=auto`) holds only the analyst's own tables, so the field says **Isolated analyst storage** and there is nothing to pick. The examples below use the made-up bakery database in `samples/demo/bakery/bakery-postgres.sql`.
+
+### Tick tables and views
+
+Open the **PostgreSQL MCP** card. **Tables and views** lists every table, view and materialized view the credential's login can read. Materialized views come first, then views, then tables, because a view usually answers a question in one step. Each row has the name, the kind, the column count, and the comment from `COMMENT ON`, when there is one. With eight or more rows there is a filter box. **Tick All** ticks the rows the filter shows, and **Clear** unticks everything. The refresh button lists the database again.
+
+![The Tables and views field on the PostgreSQL MCP card in the dark theme. A filter box, Clear, Tick All and a refresh button sit above the list. public.monthly_sales and public.top_products are materialized views with 6 and 3 columns, public.account_balances is a view with 6 columns, and all three are ticked with their comments under the names. public.open_orders is a view and is not ticked. The line under the list reads 6 of 20 ticked. Queries that read anything else are refused.](../images/analyst/postgres-mcp-table-picker.png)
+
+Save the harness. The selection is stored on the node as the list of names. A PostgreSQL MCP card saved before this field existed shows the orange outdated-node triangle. Select **Sync Nodes** and save to add the field.
+
+-   **Nothing ticked** keeps the behavior from before the picker: the analyst can query every table the login can read, and there is no describe tool.
+-   **A ticked name the database no longer has** stays in the list, marked **Not in this database any more**, until you untick it. If none of the ticked names exist, every query is refused with `None of the selected tables or views exist any more. Update the selection on the PostgreSQL MCP node.` The analyst does not fall back to every table.
+
+### What the model sees
+
+The query tool's description ends with one line per ticked relation and nothing about its columns. For the six bakery relations in the picture:
+
+```text
+Only these relations can be queried. Call describe with a name for its columns, keys and definition before writing SQL against it.
+- public.monthly_sales (materialized view, 6 columns): Shop sales per month, shop and product. Refreshed nightly.
+- public.top_products (materialized view, 3 columns): Products ranked by units sold this year
+- public.account_balances (view, 6 columns): What each wholesale account owes. Look up account_id by account_code first.
+- public.weekly_store_revenue (view, 4 columns): Shop revenue per week. Use for shop sales questions.
+- public.wholesale_accounts (table, 5 columns): Cafes and grocers that buy wholesale
+- public.stores (table, 4 columns): Bakery shops
+```
+
+A comment longer than 120 characters is cut. Write the comment that tells the analyst when to use the relation, as `account_balances` does above. That line is the routing hint the model reads on every question.
+
+### The describe tool
+
+With at least one relation ticked, the node also offers **describe**. It is not in **Available Actions** separately: it comes with **QUERY**. It takes one name from the list, with or without the schema, and returns:
+
+| Field           | What it holds                                                                                              |
+| --------------- | ---------------------------------------------------------------------------------------------------------- |
+| `name`, `kind`  | The schema-qualified name, and table, view, materialized view or foreign table                             |
+| `comment`       | The relation's comment, when there is one                                                                  |
+| `columns`       | One line per column: name, type, `not null`, and the column comment after `--`                             |
+| `primaryKey`    | The primary key columns of a table                                                                         |
+| `relationships` | Foreign keys between ticked relations, which ticked relations a view reads, and which ticked views read it |
+| `definition`    | The definition of a view or materialized view, cut at 4,000 characters                                     |
+
+`describe` for `account_balances` with the six relations above:
+
+```json
+{
+    "name": "public.account_balances",
+    "kind": "view",
+    "comment": "What each wholesale account owes. Look up account_id by account_code first.",
+    "columns": [
+        "account_id integer",
+        "account_code text",
+        "name text",
+        "credit_limit numeric(10,2)",
+        "unpaid_invoices bigint",
+        "balance_due numeric"
+    ],
+    "definition": "SELECT a.id AS account_id, a.account_code, ... FROM wholesale_accounts a LEFT JOIN invoices i ON i.account_id = a.id GROUP BY a.id;",
+    "relationships": ["reads public.wholesale_accounts"]
+}
+```
+
+`invoices` is not ticked, so it is not named under `relationships`, although the view definition reads it. A name that is not ticked is refused: `payroll_notes is not one of the selected tables or views. Choose one of: public.monthly_sales, ...`. A bare name that two ticked relations share in different schemas is refused as ambiguous: `stores is ambiguous: it matches sales.stores, public.stores. Call describe again with the schema-qualified name.` Column names that need quotes come back quoted, such as `"Unit Price" numeric(8,2)`.
+
+The run card shows each call as its own chip. In the picture below, a scripted stand-in model (`scripts/docs-shots/model-stand-in.mjs`) drove the analyst instead of a real provider model, so the order of calls is scripted, and the token counts and timings on the card are illustrative. It shows how a describe call and a query appear on the run card. It does not show what a real model chooses to do. Here the stand-in described the view, then queried it:
+
+![Try it on the bakery-accounts harness, run by a scripted stand-in model, so the token counts and timings are illustrative. The prompt is How many unpaid invoices does account WA-1004 have? The Run card says Harness Prime sent work to analyst, and the analyst row is open with 2 tools. Its chips read mcp__analyst__describe · done and mcp__analyst__query · done · 1 row. The answer is WA-1004 (Hilltop Deli) has 3 unpaid invoices.](../images/analyst/try-it-describe-trace.png)
+
+### How the selection is enforced
+
+The selection is checked by Postgres, on the server, for every query and every `show more`, before the statement runs. The model's text is not trusted to stay inside the list.
+
+1. Only `SELECT`, `WITH`, `VALUES` and `TABLE` statements run. Anything else is refused with `This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.`
+2. Cuttlely looks for risky domains in the database, from the catalog alone and before the statement is parsed. If there are any, every query is refused (see below). The result is kept for one minute per database.
+3. In the same transaction, Cuttlely creates a temporary view over the statement. Postgres parses it and resolves every name exactly as it would run it. Until step 6 the transaction can write: what runs then is the parse, the temporary view and the catalog reads below.
+4. Cuttlely reads that view's stored query tree. It names every relation, function and operator the statement uses, including those inside a `WITH`, a subquery, a system catalog such as `pg_class`, and `information_schema`.
+5. The query is refused when:
+    - it reads a relation that is not ticked;
+    - it calls a function or operator that is not built in (outside `pg_catalog`);
+    - it calls a built-in that can reach other data, report on objects outside the selection, act on other sessions, or change how names resolve: `query_to_xml` and the other `*_to_xml` functions, `ts_stat`, `set_config`, `pg_input_is_valid` and `pg_input_error_info`, `obj_description`, `col_description` and `shobj_description`, the `pg_stat_get_*` statistics, `pg_relation_size` and the other size functions, `pg_get_*` definitions, `has_*_privilege`, `*_is_visible`, `to_reg*`, `pg_terminate_backend` and `pg_cancel_backend`, large-object and file functions, and `dblink`;
+    - it uses a type whose input, output, receive or send function is outside `pg_catalog` (an extension type such as `citext`), or an object-identifier type such as `regclass`. The check follows a domain's base type, an array's element, a composite type's columns and a range's subtype.
+6. The temporary view is dropped, the transaction turns read only, and the statement runs. The transaction always ends with a rollback, so the temporary view and anything else that transaction changed is undone. A sequence advanced by `nextval` is the exception, which is one reason a domain check that calls it counts as risky.
+
+A refusal is an expected result, like a syntax error, and the analyst can quote it:
+
+> Cuttlely refused this query: it reads public.payroll_notes, which this node's table selection does not include. Selected: public.monthly_sales, public.top_products, public.account_balances, public.weekly_store_revenue, public.wholesale_accounts, public.stores.
+
+A ticked view is the gate. Its own definition is not expanded, so `account_balances` can read `invoices` while `invoices` stays unticked and `SELECT * FROM invoices` is refused. Tick views and leave their base tables unticked when the view is all the analyst should see.
+
+Why not a separate login or `search_path`: a `search_path` does not stop a schema-qualified name, and a login with grants on only the ticked relations would need Cuttlely to create roles in your database, which a read-only credential usually cannot do. The check above needs only what the credential already has, plus the right to create a temporary view.
+
+**Risky domains.** A literal of a composite, array or range type (`'{5}'::quiet_ref[]`) runs its element's input while Postgres parses the statement, and a domain element runs its `CHECK` then, in step 3, before Cuttlely can see the query tree. So a database with a risky domain refuses every query while a selection is set, whatever the statement, with the same text and without parsing it:
+
+> Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: public.quiet_ref. Queries are refused while a table selection is set. Change those CHECK constraints to built-in functions that are not volatile, or clear the selection on the PostgreSQL MCP node.
+
+A domain is risky when its `CHECK` calls a volatile function (such as `nextval` or `random`), a function or operator outside `pg_catalog`, a built-in from the deny list above, or uses an object-identifier type or a type whose input or output is outside `pg_catalog`. Domains are checked in every schema the database has, not only the ticked relations, because any of them can be named in a literal. A domain whose `CHECK` uses only built-in, non-volatile functions and operators, such as `CHECK (VALUE >= 0)`, is fine. To fix a risky domain, rewrite its `CHECK` with built-in functions that are not volatile (`ALTER DOMAIN ... DROP CONSTRAINT`, then `ADD CONSTRAINT`), move the rule into the application or a trigger on the tables that use it, or clear the selection on the node. A fix shows up within a minute. The other way round, a risky domain created within a minute after a scan can still run its check while a statement is parsed, until the next scan finds it.
+
+The check is tested against Postgres 14, 15, 16, 17 and 18.
+
+Limits of the check:
+
+-   The login needs `TEMP` on the database, which Postgres grants to every login by default. A read replica (hot standby) cannot create a temporary view, so with a selection set every query there is refused with `Cuttlely could not check this query against the table selection: this database login cannot create a temporary view (a read replica, or no TEMP privilege). Queries are refused while a selection is set.` Point the credential at the primary, or clear the selection.
+-   Functions, operators and types from extensions installed outside `pg_catalog`, such as `similarity()` from `pg_trgm` or a `citext` or PostGIS column, are refused while a selection is set, including when a query only reads a column of that type. Expose such a column through a ticked view that casts it to a built-in type.
+-   One risky domain anywhere in the database stops every scoped query there, including queries that never touch it.
+-   A view you tick runs with its owner's rights, as Postgres always runs views. Whatever its definition reads, the analyst can read through it.
+
+### Add your own routing in the instructions
+
+The lines and `describe` tell the analyst what exists. How to choose between relations is yours to write, in the analyst specialist's **Instructions** on the canvas. Keep it short and about choices, not columns. The analyst instructions in the bakery picture above are:
+
+```text
+Answer bakery questions from the selected tables and views.
+Pick the view that matches the question: account_balances for what an account owes, monthly_sales for sales by month, weekly_store_revenue for a shop by week.
+A question that names an account code such as WA-1004 is about that account. Look up its account_id in wholesale_accounts first when the view needs the id.
+Describe a view before the first query against it.
+```
+
+The same pattern fits any database: name the relation that answers each kind of question, name the lookup that has to come first (an id from a code, a date range from a week name), and leave the columns to `describe`. A routing rule that is long or only matters for some questions can be a [playbook](./context-and-tokens.md#playbooks-load-when-a-question-needs-them) instead, so it loads only when a question needs it.
+
+### How many tokens it saves
+
+`scripts/analyst-schema-tokens.mjs` measures the bakery database. It compares the whole database written into the instructions with the picker. On the bakery database, with the o200k_base encoding:
+
+| Prompt part                                                        | Tokens |
+| ------------------------------------------------------------------ | -----: |
+| Whole schema in the instructions, plus the query tool              |  2,549 |
+| Six relations ticked: the query tool with six lines, plus describe |    567 |
+| All 20 relations ticked                                            |    805 |
+| One `describe` result, `account_balances`                          |    172 |
+
+The schema part alone goes from 2,222 tokens to 160. A `describe` result is a tool result, so it costs tokens only in the turn that calls it. The bakery database is small; the whole-schema figure grows with every column and comment, and the picker's grows by one line per ticked relation.
+
+```bash
+psql -d bakery -f samples/demo/bakery/bakery-postgres.sql
+CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-schema-tokens.mjs
+```
+
+A URL without a login uses `PGUSER` and `PGPASSWORD` from the environment.
+
 ## Safety
 
 | Rule                     | What happens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -195,6 +338,7 @@ The row cap itself is the **Row cap** rule under [Safety](#safety). The default 
 | Statement timeout        | Every analyst statement stops after the query timeout, 15 seconds unless you change it. On Postgres and on SQLite, `SELECT pg_sleep(20)` fails with `canceling statement due to statement timeout` while the timeout is 15 seconds. The chat shows that sentence. [Statement timeout](#statement-timeout).                                                                                                                                                                                                                                                                                                                                                           |
 | Row cap                  | A result returns at most the row cap, 100 rows unless you change it. A lower cap puts fewer rows into the specialist's prompt. The tool sets `truncated` to `true` and adds a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)` when it knows the total. If the total is unknown, the line says `more rows available`. [Paging through large results](#paging-through-large-results). [Row cap and query timeout](#row-cap-and-query-timeout).                                                                                                                                                                                  |
 | Explicit URL             | `CUTTLELY_POSTGRES_URL` and a Postgres URL credential run **QUERY** as `Run a read-only SQL query`. They do not create or change tables. Each call opens a read-only session with the server query timeout, and results get the same row cap, page line and `show more` paging as auto storage. The analyst and Harness Prime are told the database is PostgreSQL and read-only, even on a server that runs on SQLite. Because nothing can change, a failed statement gets one fix: the analyst reads the SQL error, corrects the statement and runs it once more. A second failure, or a refusal, stops that step. The trace shows a failed chip, then a done chip. |
+| Table selection          | With tables or views ticked on the node, a query that reads anything else, calls a function, operator or type outside `pg_catalog`, calls a denied built-in, or is not a read is refused before it runs. Nothing ticked allows every table the login can read. [How the selection is enforced](#how-the-selection-is-enforced).                                                                                                                                                                                                                                                                                                                                      |
 | Auto                     | `CUTTLELY_ANALYST=auto`, with neither of those set, runs `Run one SQL statement in the isolated analyst store`. That path can create and change tables in the isolated store. The description also names SQLite or PostgreSQL.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | SQLite file writes       | The analyst store refuses `ATTACH`, `DETACH`, `VACUUM`, `load_extension`, and file-writing PRAGMAs. The query tool returns that refusal, and the chat quotes it. The text starts with `Analyst mode refused`. A refusal, and an ordinary SQL error such as `no such table` or a syntax error, is an expected result. It does not pause the analyst tool. Normal `CREATE`, `INSERT`, `UPDATE`, `SELECT`, and `DROP` in `analyst.db` still run.                                                                                                                                                                                                                        |
 | Postgres file reads      | Login `analyst_reader` is not a superuser and is not a member of `pg_read_server_files`, `pg_write_server_files`, or `pg_execute_server_program`. `COPY ... TO PROGRAM`, `pg_read_file`, and `lo_export` are denied.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -311,6 +455,12 @@ Encode the password, restart, and select **QUERY** again.
 **Harness name is not valid.** Save `chief-of-staff`, not the template title. The id is a letter, then letters, numbers, `_`, or `-`.
 
 **The node runs nothing.** Select **QUERY** under **Available Actions** and save. An empty action list means the `query` tool is filtered out.
+
+**Cuttlely refused this query: it reads ..., which this node's table selection does not include.** The statement reads a relation that is not ticked on the node. Tick it, or point the analyst at a ticked view that covers it. [Pick the tables and views the analyst sees](#pick-the-tables-and-views-the-analyst-sees).
+
+**Every query is refused with could not check this query against the table selection.** The credential's login cannot create a temporary view: it is a read replica, or `TEMP` was revoked. Use the primary, grant `TEMP`, or clear the selection. [How the selection is enforced](#how-the-selection-is-enforced).
+
+**Tables and views says Could not list tables and views.** The node could not reach the database with that credential. The description under it is the database error, with the password removed. Fix the URL and select the refresh button.
 
 **Create or insert fails, and the action says read-only.** `CUTTLELY_POSTGRES_URL` or a Postgres URL credential is set. That path is `Run a read-only SQL query`. Unset both to use auto storage, or point them at a database you only want to read.
 
