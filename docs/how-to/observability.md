@@ -188,6 +188,93 @@ service:
             exporters: [otlphttp/backend]
 ```
 
+## Grafana dashboard
+
+[`metrics/grafana/cuttlely-runs.json`](../../metrics/grafana/cuttlely-runs.json) is a ready-made Grafana dashboard for these traces and the server metrics. It queries only the span names and attributes listed in [What each span contains](#what-each-span-contains) and the metrics and labels `GET /api/v1/metrics` publishes. `pnpm verify` checks that, and checks the two tables below against the file.
+
+It was tried with Grafana 13.2.4, Tempo 3.1.0 on [`examples/otel/tempo.yaml`](../../examples/otel/tempo.yaml), and Prometheus 3.15.0, against a running Cuttlely server answering chatflow, agentflow, and harness runs. The trace panels use TraceQL metrics, including instant queries, so an older Grafana or Tempo may show errors on those panels.
+
+### Datasources
+
+| Datasource | Needed for                              | Setup                                                                                                                                                                                                                                                                                  |
+| ---------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tempo      | Every panel except the last row         | Traces on, sent to Tempo directly or through a collector as in the Tempo recipe above. Tempo must answer TraceQL metrics queries. [`examples/otel/tempo.yaml`](../../examples/otel/tempo.yaml) does on Tempo 3.1.0 with no other setting.                                              |
+| Prometheus | The **Server metrics (Prometheus)** row | `ENABLE_METRICS=true` and `METRICS_PROVIDER=prometheus`, with Prometheus scraping `GET /api/v1/metrics`. That route needs an API key. [`metrics/prometheus/prometheus.config.yml`](../../metrics/prometheus/prometheus.config.yml) reads the key from a file. Do not commit that file. |
+
+Each half works without the other. With metrics off, the last row is empty. With traces off, every other panel is empty.
+
+### Import it
+
+1. In Grafana, add the Tempo and Prometheus datasources.
+2. Open **Dashboards** > **New** > **Import**, upload `metrics/grafana/cuttlely-runs.json`, and import it.
+3. At the top of the dashboard, pick the datasources in **Tempo** and **Prometheus**.
+
+To provision it instead, put the file in a folder a Grafana dashboard provider reads. The file has no instance id and no `__inputs` block, so it loads the same way as an import. The datasources are dashboard variables, not fixed ids.
+
+### Variables
+
+| Variable                       | Default                      | What it does                                                                                                                                                                     |
+| ------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tempo                          | Grafana's default Tempo      | The Tempo datasource for the trace panels.                                                                                                                                       |
+| Prometheus                     | Grafana's default Prometheus | The Prometheus datasource for the last row.                                                                                                                                      |
+| Service name                   | `cuttlely`                   | `service.name` on the trace resource. Set it to `METRICS_SERVICE_NAME` when you set that variable.                                                                               |
+| Metrics app label              | All                          | The `app` label on each Prometheus metric. The server sets it from `METRICS_SERVICE_NAME`. When that is unset, the label keeps the server's older default, so leave this on All. |
+| Metric prefix                  | Empty                        | `METRICS_PREFIX`. Leave it empty when that variable is unset.                                                                                                                    |
+| Input price (USD / 1M tokens)  | `0`                          | Used only by the estimated cost panels.                                                                                                                                          |
+| Output price (USD / 1M tokens) | `0`                          | Used only by the estimated cost panels.                                                                                                                                          |
+
+### Panels
+
+| Panel                                        | Row                                 | Reads                                                                                                                                             |
+| -------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runs                                         | Overview (traces, whole time range) | `chatflow.prediction`, `agentflow.run`, and `harness.run` spans in the range, by span name                                                        |
+| Failed runs                                  | Overview (traces, whole time range) | The same spans with status error                                                                                                                  |
+| Run error rate                               | Overview (traces, whole time range) | Failed run spans divided by all run spans                                                                                                         |
+| Runs per second                              | Runs and latency                    | Run spans per second, by span name                                                                                                                |
+| Failed runs per second                       | Runs and latency                    | Run spans with status error per second, by span name                                                                                              |
+| Run duration p50 / p95                       | Runs and latency                    | Run span duration, by span name                                                                                                                   |
+| Model call duration p95                      | Runs and latency                    | `model` span duration, by `model.name`                                                                                                            |
+| Tool call duration p95                       | Runs and latency                    | `tool` span duration, by `tool.name`                                                                                                              |
+| Specialist duration p95                      | Runs and latency                    | `harness.specialist` span duration, by `specialist.name`                                                                                          |
+| Input tokens                                 | Tokens and cost                     | Sum of `tokens.input` on `model` spans                                                                                                            |
+| Output tokens                                | Tokens and cost                     | Sum of `tokens.output` on `model` spans                                                                                                           |
+| Estimated input cost                         | Tokens and cost                     | Input tokens times **Input price**                                                                                                                |
+| Estimated output cost                        | Tokens and cost                     | Output tokens times **Output price**                                                                                                              |
+| Input tokens by model                        | Tokens and cost                     | Sum of `tokens.input` on `model` spans, by `model.name`                                                                                           |
+| Output tokens by model                       | Tokens and cost                     | Sum of `tokens.output` on `model` spans, by `model.name`                                                                                          |
+| Estimated input cost by model                | Tokens and cost                     | Input tokens by `model.name` times **Input price**                                                                                                |
+| Estimated output cost by model               | Tokens and cost                     | Output tokens by `model.name` times **Output price**                                                                                              |
+| Harness run tokens, input (run-card rollup)  | Tokens and cost                     | Sum of `tokens.total.input` on `harness.run`, by `harness.name`                                                                                   |
+| Harness run tokens, output (run-card rollup) | Tokens and cost                     | Sum of `tokens.total.output` on `harness.run`, by `harness.name`                                                                                  |
+| Tool errors                                  | Errors                              | `tool` spans with status error, by `tool.name`                                                                                                    |
+| Model call errors                            | Errors                              | `model` spans with status error, by `model.name`                                                                                                  |
+| Specialist errors                            | Errors                              | `harness.specialist` spans with status error, by `specialist.name`                                                                                |
+| Failed runs (up to 20)                       | Errors                              | Up to 20 traces whose run span has status error, with a link to each trace. Tempo search does not promise the newest first                        |
+| Runs by flow                                 | Per flow and harness                | `chatflow.prediction` and `agentflow.run` per second, by `flow.id` and `flow.kind`                                                                |
+| Failed runs by flow                          | Per flow and harness                | The same spans with status error, by `flow.id` and `flow.kind`                                                                                    |
+| Run duration p95 by flow                     | Per flow and harness                | Flow run span duration, by `flow.id`                                                                                                              |
+| Model tokens by flow                         | Per flow and harness                | `tokens.input` plus `tokens.output` on `model` spans that carry `flow.id`, by `flow.id`                                                           |
+| Harness runs by harness                      | Per flow and harness                | `harness.run` per second, by `harness.name`                                                                                                       |
+| Failed harness runs by harness               | Per flow and harness                | `harness.run` with status error, by `harness.name`                                                                                                |
+| Harness run duration p95 by harness          | Per flow and harness                | `harness.run` duration, by `harness.name`                                                                                                         |
+| Predictions per second                       | Server metrics (Prometheus)         | `chatflow_prediction_internal`, `chatflow_prediction_external`, `agentflow_prediction_internal`, and `agentflow_prediction_external`, by `status` |
+| Prediction failure ratio                     | Server metrics (Prometheus)         | The same four counters, `status="failure"` over all                                                                                               |
+| HTTP requests per second                     | Server metrics (Prometheus)         | `http_requests_total`                                                                                                                             |
+| HTTP duration p95 by route                   | Server metrics (Prometheus)         | `http_request_duration_ms` buckets, by `route`                                                                                                    |
+| HTTP 5xx per second by route                 | Server metrics (Prometheus)         | `http_request_duration_ms` count with a 5xx `code`, by `code` and `route`                                                                         |
+
+Cuttlely does not put a cost on spans. The cost panels multiply model-span tokens by the two price variables, one price for every model, so they are an estimate. With the prices left at `0` they show $0.
+
+Each token query names its attribute in the span filter, for example `span.tokens.input != nil`. Tempo samples an attribute that the filter does not name, so a `sum_over_time` without that condition reports a small fraction of the real total. Keep the condition when you edit a token panel.
+
+The token panels add `tokens.input` and `tokens.output` from model spans, and only model spans whose model reported a count carry them. A harness specialist that runs in the agent runtime has no model span, so its tokens are not in those panels. The harness run token panels read the run-card rollup on `harness.run`, which does include them. Do not add the two together. See [Harness runs](#harness-runs).
+
+A harness run started from a chatflow is a child of that `chatflow.prediction`, so the run panels count it under both names. The per-flow panels leave out a harness API run, because it has no `flow.id`.
+
+The prediction counters count the prediction routes. `agentflow_prediction_*` counts legacy (V1) agentflows, which are Multi Agents and Sequential Agents canvases. An agentflow (V2) and a chatflow both count as `chatflow_prediction_*`. A harness API run is not counted.
+
+An error response (4xx or 5xx) has no `route` label in `http_request_duration_ms`. In **HTTP duration p95 by route** it is a series with no route name, and in **HTTP 5xx per second by route** most rows show only the code. The histogram also stops at 500 ms, so a p95 above that shows as 500 ms. Use the run duration panels for run latency. With `METRICS_PROVIDER=open_telemetry`, the collector's Prometheus exporter can publish different metric names, and the last row may stay empty.
+
 ## What each span contains
 
 One trace per run. The root span is `chatflow.prediction`, `agentflow.run`, or `harness.run`. A harness run started from a chatflow is a child of that prediction, so that prediction stays the root. A Harness node that is the step that answers sits under that node's span, and `harness.run` is a child of that node span.

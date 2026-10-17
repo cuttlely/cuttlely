@@ -1,0 +1,2439 @@
+{
+    "title": "Cuttlely runs",
+    "uid": "cuttlely-runs",
+    "description": "Cuttlely run traces (Tempo, TraceQL metrics) and server metrics (Prometheus). See docs/how-to/observability.md.",
+    "tags": ["cuttlely", "opentelemetry", "tempo", "prometheus"],
+    "editable": true,
+    "graphTooltip": 1,
+    "schemaVersion": 39,
+    "version": 1,
+    "time": {
+        "from": "now-6h",
+        "to": "now"
+    },
+    "refresh": "1m",
+    "timezone": "browser",
+    "links": [],
+    "annotations": {
+        "list": []
+    },
+    "templating": {
+        "list": [
+            {
+                "type": "datasource",
+                "name": "tempo",
+                "label": "Tempo",
+                "query": "tempo",
+                "current": {},
+                "hide": 0,
+                "refresh": 1,
+                "regex": "",
+                "options": []
+            },
+            {
+                "type": "datasource",
+                "name": "prometheus",
+                "label": "Prometheus",
+                "query": "prometheus",
+                "current": {},
+                "hide": 0,
+                "refresh": 1,
+                "regex": "",
+                "options": []
+            },
+            {
+                "type": "textbox",
+                "name": "service",
+                "label": "Service name",
+                "description": "service.name on the trace resource. METRICS_SERVICE_NAME, or cuttlely when unset.",
+                "query": "cuttlely",
+                "current": {
+                    "text": "cuttlely",
+                    "value": "cuttlely"
+                },
+                "options": [
+                    {
+                        "selected": true,
+                        "text": "cuttlely",
+                        "value": "cuttlely"
+                    }
+                ],
+                "hide": 0
+            },
+            {
+                "type": "query",
+                "name": "app",
+                "label": "Metrics app label",
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "${prometheus}"
+                },
+                "query": {
+                    "query": "label_values(${prefix}http_requests_total, app)",
+                    "refId": "app"
+                },
+                "definition": "label_values(${prefix}http_requests_total, app)",
+                "refresh": 2,
+                "includeAll": true,
+                "allValue": ".*",
+                "multi": false,
+                "current": {},
+                "options": [],
+                "hide": 0,
+                "sort": 1,
+                "description": "The app label Prometheus metrics carry. It comes from METRICS_SERVICE_NAME."
+            },
+            {
+                "type": "textbox",
+                "name": "prefix",
+                "label": "Metric prefix",
+                "description": "METRICS_PREFIX on the server. Leave empty when it is unset.",
+                "query": "",
+                "current": {
+                    "text": "",
+                    "value": ""
+                },
+                "options": [
+                    {
+                        "selected": true,
+                        "text": "",
+                        "value": ""
+                    }
+                ],
+                "hide": 0
+            },
+            {
+                "type": "textbox",
+                "name": "input_price",
+                "label": "Input price (USD / 1M tokens)",
+                "description": "Used only by the estimated cost panels. Cuttlely does not put a price on spans.",
+                "query": "0",
+                "current": {
+                    "text": "0",
+                    "value": "0"
+                },
+                "options": [
+                    {
+                        "selected": true,
+                        "text": "0",
+                        "value": "0"
+                    }
+                ],
+                "hide": 0
+            },
+            {
+                "type": "textbox",
+                "name": "output_price",
+                "label": "Output price (USD / 1M tokens)",
+                "description": "Used only by the estimated cost panels.",
+                "query": "0",
+                "current": {
+                    "text": "0",
+                    "value": "0"
+                },
+                "options": [
+                    {
+                        "selected": true,
+                        "text": "0",
+                        "value": "0"
+                    }
+                ],
+                "hide": 0
+            }
+        ]
+    },
+    "panels": [
+        {
+            "type": "row",
+            "id": 1,
+            "title": "Overview (traces, whole time range)",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            }
+        },
+        {
+            "type": "stat",
+            "id": 2,
+            "title": "Runs",
+            "description": "Run spans in the time range, by span name: chatflow.prediction, agentflow.run, and harness.run. A harness run started from a chatflow is counted here and under its chatflow.prediction.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 0,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run|harness.run\" } | count_over_time() by (name)",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "colorMode": "value",
+                "graphMode": "none",
+                "textMode": "auto",
+                "justifyMode": "auto",
+                "orientation": "auto"
+            },
+            "transformations": []
+        },
+        {
+            "type": "stat",
+            "id": 3,
+            "title": "Failed runs",
+            "description": "Run spans whose status is error, by span name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 8,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run|harness.run\" && status = error } | count_over_time() by (name)",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "colorMode": "value",
+                "graphMode": "none",
+                "textMode": "auto",
+                "justifyMode": "auto",
+                "orientation": "auto"
+            },
+            "transformations": []
+        },
+        {
+            "type": "stat",
+            "id": 4,
+            "title": "Run error rate",
+            "description": "Failed run spans divided by all run spans in the time range.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 16,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "({ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run|harness.run\" && status = error } | count_over_time()) / ({ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run|harness.run\" } | count_over_time())",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "decimals": 1
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "colorMode": "value",
+                "graphMode": "none",
+                "textMode": "auto",
+                "justifyMode": "auto",
+                "orientation": "auto"
+            },
+            "transformations": []
+        },
+        {
+            "type": "row",
+            "id": 5,
+            "title": "Runs and latency",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 6
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 6,
+            "title": "Runs per second",
+            "description": "Run spans per second, by span name. A harness.run started from a chatflow is also counted here, as harness.run, beside its chatflow.prediction.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 7
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run|harness.run\" } | rate() by (name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 7,
+            "title": "Failed runs per second",
+            "description": "Run spans with status error per second, by span name. A failed harness.run under a chatflow counts under both names.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 7
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run|harness.run\" && status = error } | rate() by (name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 8,
+            "title": "Run duration p50 / p95",
+            "description": "Span duration of each run kind. For a harness run this is the first run-card event to the final answer.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 15
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run|harness.run\" } | quantile_over_time(duration, .5, .95) by (name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 9,
+            "title": "Model call duration p95",
+            "description": "model span duration by model.name. A runtime specialist reports no model span, see Specialist duration.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 15
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | quantile_over_time(duration, .95) by (span.model.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 10,
+            "title": "Tool call duration p95",
+            "description": "tool span duration by tool.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 23
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"tool\" } | quantile_over_time(duration, .95) by (span.tool.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 11,
+            "title": "Specialist duration p95",
+            "description": "harness.specialist span duration by specialist.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 23
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.specialist\" } | quantile_over_time(duration, .95) by (span.specialist.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "row",
+            "id": 12,
+            "title": "Tokens and cost",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 31
+            }
+        },
+        {
+            "type": "stat",
+            "id": 13,
+            "title": "Input tokens",
+            "description": "Sum of tokens.input on model spans in the time range. A harness specialist that runs in the agent runtime reports only a rollup (tokens.total.input) and is not in this sum.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 6,
+                "x": 0,
+                "y": 32
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.input != nil } | sum_over_time(span.tokens.input)",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "colorMode": "value",
+                "graphMode": "none",
+                "textMode": "auto",
+                "justifyMode": "auto",
+                "orientation": "auto"
+            },
+            "transformations": []
+        },
+        {
+            "type": "stat",
+            "id": 14,
+            "title": "Output tokens",
+            "description": "Sum of tokens.output on model spans in the time range.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 6,
+                "x": 6,
+                "y": 32
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.output != nil } | sum_over_time(span.tokens.output)",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "colorMode": "value",
+                "graphMode": "none",
+                "textMode": "auto",
+                "justifyMode": "auto",
+                "orientation": "auto"
+            },
+            "transformations": []
+        },
+        {
+            "type": "stat",
+            "id": 15,
+            "title": "Estimated input cost",
+            "description": "Not emitted by Cuttlely. Input tokens on model spans times the input_price variable (USD per 1M tokens).",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 6,
+                "x": 12,
+                "y": 32
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.input != nil } | sum_over_time(span.tokens.input)",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "currencyUSD",
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "decimals": 2
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "colorMode": "value",
+                "graphMode": "none",
+                "textMode": "auto",
+                "justifyMode": "auto",
+                "orientation": "auto"
+            },
+            "transformations": [
+                {
+                    "id": "calculateField",
+                    "options": {
+                        "mode": "binary",
+                        "replaceFields": true,
+                        "binary": {
+                            "left": {
+                                "matcher": {
+                                    "id": "byType",
+                                    "options": "number"
+                                }
+                            },
+                            "operator": "*",
+                            "right": {
+                                "fixed": "${input_price}"
+                            }
+                        }
+                    }
+                },
+                {
+                    "id": "calculateField",
+                    "options": {
+                        "mode": "binary",
+                        "replaceFields": true,
+                        "binary": {
+                            "left": {
+                                "matcher": {
+                                    "id": "byType",
+                                    "options": "number"
+                                }
+                            },
+                            "operator": "/",
+                            "right": {
+                                "fixed": "1000000"
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "stat",
+            "id": 16,
+            "title": "Estimated output cost",
+            "description": "Not emitted by Cuttlely. Output tokens on model spans times the output_price variable (USD per 1M tokens).",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 5,
+                "w": 6,
+                "x": 18,
+                "y": 32
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.output != nil } | sum_over_time(span.tokens.output)",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "currencyUSD",
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "decimals": 2
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "colorMode": "value",
+                "graphMode": "none",
+                "textMode": "auto",
+                "justifyMode": "auto",
+                "orientation": "auto"
+            },
+            "transformations": [
+                {
+                    "id": "calculateField",
+                    "options": {
+                        "mode": "binary",
+                        "replaceFields": true,
+                        "binary": {
+                            "left": {
+                                "matcher": {
+                                    "id": "byType",
+                                    "options": "number"
+                                }
+                            },
+                            "operator": "*",
+                            "right": {
+                                "fixed": "${output_price}"
+                            }
+                        }
+                    }
+                },
+                {
+                    "id": "calculateField",
+                    "options": {
+                        "mode": "binary",
+                        "replaceFields": true,
+                        "binary": {
+                            "left": {
+                                "matcher": {
+                                    "id": "byType",
+                                    "options": "number"
+                                }
+                            },
+                            "operator": "/",
+                            "right": {
+                                "fixed": "1000000"
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "id": 17,
+            "title": "Input tokens by model",
+            "description": "Sum of tokens.input on model spans per step, by model.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 37
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.input != nil } | sum_over_time(span.tokens.input) by (span.model.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 18,
+            "title": "Output tokens by model",
+            "description": "Sum of tokens.output on model spans per step, by model.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 37
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.output != nil } | sum_over_time(span.tokens.output) by (span.model.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "bargauge",
+            "id": 19,
+            "title": "Estimated input cost by model",
+            "description": "Not emitted by Cuttlely. Input tokens by model.name in the time range times input_price. The price is the same for every model.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 0,
+                "y": 45
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.input != nil } | sum_over_time(span.tokens.input) by (span.model.name)",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "currencyUSD",
+                    "min": 0,
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "decimals": 2
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "orientation": "horizontal",
+                "displayMode": "basic",
+                "showUnfilled": true,
+                "valueMode": "color",
+                "namePlacement": "auto",
+                "sizing": "auto"
+            },
+            "transformations": [
+                {
+                    "id": "calculateField",
+                    "options": {
+                        "mode": "binary",
+                        "replaceFields": true,
+                        "binary": {
+                            "left": {
+                                "matcher": {
+                                    "id": "byType",
+                                    "options": "number"
+                                }
+                            },
+                            "operator": "*",
+                            "right": {
+                                "fixed": "${input_price}"
+                            }
+                        }
+                    }
+                },
+                {
+                    "id": "calculateField",
+                    "options": {
+                        "mode": "binary",
+                        "replaceFields": true,
+                        "binary": {
+                            "left": {
+                                "matcher": {
+                                    "id": "byType",
+                                    "options": "number"
+                                }
+                            },
+                            "operator": "/",
+                            "right": {
+                                "fixed": "1000000"
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "bargauge",
+            "id": 20,
+            "title": "Estimated output cost by model",
+            "description": "Not emitted by Cuttlely. Output tokens by model.name in the time range times output_price.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 6,
+                "y": 45
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.output != nil } | sum_over_time(span.tokens.output) by (span.model.name)",
+                    "metricsQueryType": "instant",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "currencyUSD",
+                    "min": 0,
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    },
+                    "decimals": 2
+                },
+                "overrides": []
+            },
+            "options": {
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "orientation": "horizontal",
+                "displayMode": "basic",
+                "showUnfilled": true,
+                "valueMode": "color",
+                "namePlacement": "auto",
+                "sizing": "auto"
+            },
+            "transformations": [
+                {
+                    "id": "calculateField",
+                    "options": {
+                        "mode": "binary",
+                        "replaceFields": true,
+                        "binary": {
+                            "left": {
+                                "matcher": {
+                                    "id": "byType",
+                                    "options": "number"
+                                }
+                            },
+                            "operator": "*",
+                            "right": {
+                                "fixed": "${output_price}"
+                            }
+                        }
+                    }
+                },
+                {
+                    "id": "calculateField",
+                    "options": {
+                        "mode": "binary",
+                        "replaceFields": true,
+                        "binary": {
+                            "left": {
+                                "matcher": {
+                                    "id": "byType",
+                                    "options": "number"
+                                }
+                            },
+                            "operator": "/",
+                            "right": {
+                                "fixed": "1000000"
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "id": 21,
+            "title": "Harness run tokens, input (run-card rollup)",
+            "description": "tokens.total.input on harness.run, by harness.name. This is the total the run card shows, including runtime specialists. Do not add it to the model-span panels.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 12,
+                "y": 45
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" && span.tokens.total.input != nil } | sum_over_time(span.tokens.total.input) by (span.harness.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 22,
+            "title": "Harness run tokens, output (run-card rollup)",
+            "description": "tokens.total.output on harness.run, by harness.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 6,
+                "x": 18,
+                "y": 45
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" && span.tokens.total.output != nil } | sum_over_time(span.tokens.total.output) by (span.harness.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "row",
+            "id": 23,
+            "title": "Errors",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 53
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 24,
+            "title": "Tool errors",
+            "description": "tool spans with status error, by tool.name. A tool call the caller rejected is error with error = \"rejected by user\".",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 54
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"tool\" && status = error } | count_over_time() by (span.tool.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 25,
+            "title": "Model call errors",
+            "description": "model spans with status error, by model.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 54
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && status = error } | count_over_time() by (span.model.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 26,
+            "title": "Specialist errors",
+            "description": "harness.specialist spans with status error, by specialist.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 54
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.specialist\" && status = error } | count_over_time() by (span.specialist.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "table",
+            "id": 27,
+            "title": "Failed runs (up to 20)",
+            "description": "Up to 20 traces in the time range whose run span has status error. Tempo search does not promise the newest first. Open a trace ID to see the span tree.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 9,
+                "w": 24,
+                "x": 0,
+                "y": 62
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run|harness.run\" && status = error }",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {
+                "showHeader": true
+            }
+        },
+        {
+            "type": "row",
+            "id": 28,
+            "title": "Per flow and harness",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 71
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 29,
+            "title": "Runs by flow",
+            "description": "chatflow.prediction and agentflow.run per second, by flow.id and flow.kind.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 72
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run\" } | rate() by (span.flow.id, span.flow.kind)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 30,
+            "title": "Failed runs by flow",
+            "description": "Flow run spans with status error, by flow.id.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 72
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run\" && status = error } | count_over_time() by (span.flow.id, span.flow.kind)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 31,
+            "title": "Run duration p95 by flow",
+            "description": "Flow run span duration, by flow.id.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 80
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name =~ \"chatflow.prediction|agentflow.run\" } | quantile_over_time(duration, .95) by (span.flow.id)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 32,
+            "title": "Model tokens by flow",
+            "description": "tokens.input plus tokens.output on model spans that carry flow.id. Harness API runs not started from a chatflow have no flow.id and are left out.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 80
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "({ resource.service.name = \"$service\" && name = \"model\" && span.flow.id != nil && span.tokens.input != nil } | sum_over_time(span.tokens.input) by (span.flow.id)) + ({ resource.service.name = \"$service\" && name = \"model\" && span.flow.id != nil && span.tokens.output != nil } | sum_over_time(span.tokens.output) by (span.flow.id))",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 33,
+            "title": "Harness runs by harness",
+            "description": "harness.run per second, by harness.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 88
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" } | rate() by (span.harness.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 34,
+            "title": "Failed harness runs by harness",
+            "description": "harness.run with status error, by harness.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 88
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" && status = error } | count_over_time() by (span.harness.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["sum", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 35,
+            "title": "Harness run duration p95 by harness",
+            "description": "harness.run duration, by harness.name.",
+            "datasource": {
+                "type": "tempo",
+                "uid": "${tempo}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 88
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "tempo",
+                        "uid": "${tempo}"
+                    },
+                    "queryType": "traceql",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" } | quantile_over_time(duration, .95) by (span.harness.name)",
+                    "metricsQueryType": "range",
+                    "limit": 20,
+                    "tableType": "traces"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "row",
+            "id": 36,
+            "title": "Server metrics (Prometheus)",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 96
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 37,
+            "title": "Predictions per second",
+            "description": "Prediction counters from GET /api/v1/metrics, by status (success or failure). agentflow_prediction_* counts legacy (V1) agentflows, which are Multi Agents and Sequential Agents canvases. An agentflow (V2) and a chatflow both count as chatflow_prediction_*. A harness API run is not counted. Internal is the app's own chat; external is the prediction API.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${prometheus}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 97
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${prometheus}"
+                    },
+                    "expr": "sum by (status) (rate(${prefix}chatflow_prediction_internal{app=~\"$app\"}[$__rate_interval]))",
+                    "legendFormat": "chatflow internal {{status}}",
+                    "range": true
+                },
+                {
+                    "refId": "B",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${prometheus}"
+                    },
+                    "expr": "sum by (status) (rate(${prefix}chatflow_prediction_external{app=~\"$app\"}[$__rate_interval]))",
+                    "legendFormat": "chatflow external {{status}}",
+                    "range": true
+                },
+                {
+                    "refId": "C",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${prometheus}"
+                    },
+                    "expr": "sum by (status) (rate(${prefix}agentflow_prediction_internal{app=~\"$app\"}[$__rate_interval]))",
+                    "legendFormat": "agentflow internal {{status}}",
+                    "range": true
+                },
+                {
+                    "refId": "D",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${prometheus}"
+                    },
+                    "expr": "sum by (status) (rate(${prefix}agentflow_prediction_external{app=~\"$app\"}[$__rate_interval]))",
+                    "legendFormat": "agentflow external {{status}}",
+                    "range": true
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "normal",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 38,
+            "title": "Prediction failure ratio",
+            "description": "failure divided by all prediction counter increments, across the four prediction counters.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${prometheus}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 97
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${prometheus}"
+                    },
+                    "expr": "((sum(rate(${prefix}chatflow_prediction_internal{app=~\"$app\", status=\"failure\"}[$__rate_interval])) or vector(0)) + (sum(rate(${prefix}chatflow_prediction_external{app=~\"$app\", status=\"failure\"}[$__rate_interval])) or vector(0)) + (sum(rate(${prefix}agentflow_prediction_internal{app=~\"$app\", status=\"failure\"}[$__rate_interval])) or vector(0)) + (sum(rate(${prefix}agentflow_prediction_external{app=~\"$app\", status=\"failure\"}[$__rate_interval])) or vector(0))) / ((sum(rate(${prefix}chatflow_prediction_internal{app=~\"$app\"}[$__rate_interval])) or vector(0)) + (sum(rate(${prefix}chatflow_prediction_external{app=~\"$app\"}[$__rate_interval])) or vector(0)) + (sum(rate(${prefix}agentflow_prediction_internal{app=~\"$app\"}[$__rate_interval])) or vector(0)) + (sum(rate(${prefix}agentflow_prediction_external{app=~\"$app\"}[$__rate_interval])) or vector(0)))",
+                    "legendFormat": "failure ratio",
+                    "range": true
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 39,
+            "title": "HTTP requests per second",
+            "description": "All HTTP requests the server finished (http_requests_total).",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${prometheus}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 105
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${prometheus}"
+                    },
+                    "expr": "sum(rate(${prefix}http_requests_total{app=~\"$app\"}[$__rate_interval]))",
+                    "legendFormat": "requests",
+                    "range": true
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 40,
+            "title": "HTTP duration p95 by route",
+            "description": "From http_request_duration_ms. The largest bucket is 500 ms, so a p95 above 500 ms shows as 500 ms. An error response (4xx or 5xx) has no route label and shows as an unnamed series. Use the trace panels for run latency.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${prometheus}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 105
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${prometheus}"
+                    },
+                    "expr": "histogram_quantile(0.95, sum by (le, route) (rate(${prefix}http_request_duration_ms_bucket{app=~\"$app\"}[$__rate_interval])))",
+                    "legendFormat": "{{route}}",
+                    "range": true
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        },
+        {
+            "type": "timeseries",
+            "id": 41,
+            "title": "HTTP 5xx per second by route",
+            "description": "http_request_duration_ms_count with a 5xx code, by code and route. An error response has no route label, so most 5xx show as one series per code with no route.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${prometheus}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 105
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "${prometheus}"
+                    },
+                    "expr": "sum by (route, code) (rate(${prefix}http_request_duration_ms_count{app=~\"$app\", code=~\"5..\"}[$__rate_interval]))",
+                    "legendFormat": "{{code}} {{route}}",
+                    "range": true
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "custom": {
+                        "drawStyle": "line",
+                        "lineWidth": 1,
+                        "fillOpacity": 10,
+                        "showPoints": "never",
+                        "spanNulls": true,
+                        "stacking": {
+                            "mode": "none",
+                            "group": "A"
+                        }
+                    }
+                },
+                "overrides": []
+            },
+            "options": {
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "bottom",
+                    "calcs": ["mean", "max"]
+                },
+                "tooltip": {
+                    "mode": "multi",
+                    "sort": "desc"
+                }
+            }
+        }
+    ]
+}
