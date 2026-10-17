@@ -103,7 +103,7 @@ export default function componentStyleOverrides(theme) {
                     // A disabled label stays readable in both themes (4.5:1 or better on its fill and on the page).
                     ...disabledButton(!!theme?.customization?.isDarkMode)
                 },
-                // Filled violet buttons: Royal on hover in light; on dark the lighter violet steps down to #8b5cf6.
+                // Filled violet buttons: Royal on hover in light; on dark the lighter violet steps down to #9470f7 (Ink label 5.44:1).
                 containedPrimary: theme?.customization?.isDarkMode
                     ? { '&:hover': { backgroundColor: theme.colors?.darkPrimaryAccentHover } }
                     : { '&:hover': { backgroundColor: theme.colors?.primaryDark } }
