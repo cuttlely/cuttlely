@@ -50,7 +50,7 @@ describe('Try the demo card', () => {
     })
 
     it('does not list saved keys for a role without credentials:view, and still shows the card', async () => {
-        mockPermissions = ['chatflows:view']
+        mockPermissions = ['chatflows:view', 'credentials:create']
         const { container, unmount } = await render()
         expect(credentialsApi.getAllCredentials).not.toHaveBeenCalled()
         expect(credentialsApi.getAllComponentsCredentials).toHaveBeenCalled()
@@ -61,11 +61,32 @@ describe('Try the demo card', () => {
     })
 
     it('lists saved keys for a role with credentials:view', async () => {
-        mockPermissions = ['chatflows:view', 'chatflows:create', 'credentials:view']
+        mockPermissions = ['chatflows:view', 'chatflows:create', 'credentials:view', 'credentials:create']
         const { container, unmount } = await render()
         expect(credentialsApi.getAllCredentials).toHaveBeenCalledTimes(1)
         expect(container.textContent).toContain('Add another key')
         expect(container.querySelector('input').value).toBe('k1')
         await unmount()
+    })
+
+    it('offers Add a model key to a role with credentials:create', async () => {
+        mockPermissions = ['chatflows:view', 'chatflows:create', 'credentials:create']
+        const { container, unmount } = await render()
+        expect(container.textContent).toContain('Add a model key')
+        await unmount()
+    })
+
+    it('hides Add a model key and Add another key from a role without credentials:create', async () => {
+        mockPermissions = ['chatflows:view', 'chatflows:create']
+        const { container, unmount } = await render()
+        expect(container.textContent).toContain('Try the demo')
+        expect(container.textContent).not.toContain('Add a model key')
+        await unmount()
+
+        mockPermissions = ['chatflows:view', 'chatflows:create', 'credentials:view']
+        const withKeys = await render()
+        expect(withKeys.container.querySelector('input').value).toBe('k1')
+        expect(withKeys.container.textContent).not.toContain('Add another key')
+        await withKeys.unmount()
     })
 })
