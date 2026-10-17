@@ -1791,6 +1791,64 @@ describe('grading limits', () => {
         expect(again.status).toBe('running')
     }, 60000)
 
+    // Pulls the deadline in to 600 ms after the first answer, and runs Date.now() 300 ms ahead while the grader
+    // timer for the chosen side is armed. That timer then fires at the deadline while Date.now() is short of it.
+    async function cutOffEarly(cut: 'live' | 'draft', input: Record<string, unknown>) {
+        const realNow = Date.now.bind(Date)
+        let skew = 0
+        const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + skew)
+        const asked: string[] = []
+        replayHooks.run = async ({ flowData }) => {
+            const side = flowData.includes('MANGO') ? 'live' : 'draft'
+            asked.push(side)
+            const record = checks.get('flow-1') as any
+            if (asked.length === 1) record.startedAt = realNow() - record.limits.maxSeconds * 1000 + 600
+            if (side === cut) skew = 300
+            return { text: 'ok', metrics: [JSON.stringify({ totalTokens: 4 })] }
+        }
+        scoreHooks.gradeLlm = async () => {
+            if (skew === 0) return [{ pass: true }]
+            skew = 0
+            return new Promise(() => undefined)
+        }
+        try {
+            const started = await startCheck(flow({ flowData: gradedCanvas('MANGO') }) as any, input, 'http://x')
+            for (let i = 0; i < 300 && checks.get('flow-1')?.status === 'running'; i++) await new Promise((r) => setTimeout(r, 10))
+            const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+            return { started, done, asked }
+        } finally {
+            nowSpy.mockRestore()
+        }
+    }
+
+    test('a Live grader cut off at the deadline stops the check before the draft runs', async () => {
+        const { done, asked } = await cutOffEarly('live', { questions: ['Q'], evaluatorIds: ['llm-1'] })
+        expect(asked).toEqual(['live'])
+        expect(done.cases[0].live).toBeNull()
+        expect(done.cases[0].draft).toBeNull()
+        expect(done.status).toBe('stopped')
+        expect(done.stopReason).toBe('time')
+    })
+
+    test('the last question cut off at the deadline ends the check stopped for time, not done', async () => {
+        const { done, asked } = await cutOffEarly('draft', { questions: ['Q'], evaluatorIds: ['llm-1'] })
+        expect(asked).toEqual(['live', 'draft'])
+        expect(done.status).toBe('stopped')
+        expect(done.stopReason).toBe('time')
+    })
+
+    test('a dataset check whose last question is cut off at the deadline stores no publish gate result', async () => {
+        datasets.set('ds-1', { id: 'ds-1', name: 'Bakery questions', workspaceId: 'team-a' })
+        datasetRows.push({ id: 'r1', datasetId: 'ds-1', input: 'First?', output: 'one', sequenceNo: 1 })
+        const { started, done, asked } = await cutOffEarly('draft', { datasetId: 'ds-1', evaluatorIds: ['llm-1'], threshold: 0 })
+        expect(asked).toEqual(['live', 'draft'])
+        expect(done.status).toBe('stopped')
+        expect(done.stopReason).toBe('time')
+        const forThisCheck = (mock: jest.Mock) => mock.mock.calls.filter((call) => call[1]?.checkId === started.id)
+        expect(forThisCheck(settlePublishGateCheck)).toEqual([])
+        expect(forThisCheck(recordPublishGateResult)).toEqual([])
+    })
+
     test('grader tokens push the check over the cap before the next question', async () => {
         process.env.CUTTLELY_CHECK_MAX_TOKENS = '1000'
         process.env.CUTTLELY_CHECK_CONCURRENCY = '1'
