@@ -14,6 +14,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   `pnpm dev` compiles the server when a file under `packages/server/src` changes and restarts on the new build. Before, it restarted on the last build, so a server change also needed `pnpm --filter @cuttlely/server build`.
 -   The proprietary path check runs once, in the required `lint` CI job. The `proprietary-paths` step of `pnpm verify` and the separate Proprietary Path Guard workflow are removed. `node scripts/proprietary-paths.mjs` still runs the same check locally.
 -   The Admin menu lists Users and Teams first, then Roles, Server Settings, Logs, Audit log, and Version History. The page you are on is still marked, including a team's members page under Teams. After sign-in, someone who is not the organization owner and has none of the earlier pages now lands on Users, then Teams, before Roles, in the same order as the menu.
 -   The homepage shows the customer care demo right after the hero, then the "Not the obvious answer" case study, then A/B testing, then a new "Made for real teams" section with six cards that link to the roles, sign-in, audit log, server settings, and Docker guides. The light theme uses the logo colours on the home page. The dark theme is unchanged.

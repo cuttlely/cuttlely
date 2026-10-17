@@ -203,11 +203,11 @@ The dev server uses the same database as `scripts/start-cuttlely.sh` (`~/.cuttle
 
 ### What updates when you save
 
-| You change                                   | What happens                                                                   | What you do                                                                                                                                                                         |
-| -------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The UI, `packages/ui/src`                    | The page updates in place within a second. No reload, and you stay signed in   | Nothing                                                                                                                                                                             |
-| The server, `packages/server/src`            | The server restarts, but it runs the last build, so your change isn't live yet | Run `pnpm --filter @cuttlely/server build` in a second terminal (about 10 seconds), then save your server file once more. The server restarts on the new build within a few seconds |
-| Nodes and credentials, `packages/components` | Nothing                                                                        | Run `pnpm --filter @cuttlely/components build`, then stop `pnpm dev` with Ctrl+C and start it again                                                                                 |
+| You change                                   | What happens                                                                                                      | What you do                                                                                         |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| The UI, `packages/ui/src`                    | The page updates in place within a second. No reload, and you stay signed in                                      | Nothing                                                                                             |
+| The server, `packages/server/src`            | The server compiles and restarts on the new build, in about 20 seconds. A type error stops it until the next save | Nothing                                                                                             |
+| Nodes and credentials, `packages/components` | Nothing                                                                                                           | Run `pnpm --filter @cuttlely/components build`, then stop `pnpm dev` with Ctrl+C and start it again |
 
 The package names in those commands are the names in each folder's `package.json`: `@cuttlely/server` is the server and `@cuttlely/components` is the nodes package.
 
