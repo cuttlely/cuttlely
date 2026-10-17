@@ -130,6 +130,31 @@ describe('UI page fallback limiter', () => {
         expect(source).not.toMatch(/embed\/chat\.js[\s\S]{0,400}uiPageRateLimiter/)
     })
 
+    it('also guards the sign-in, API-key check, OAuth, MCP server and icon routers, each with its own counter', () => {
+        const routes = fs.readFileSync(path.join(__dirname, '../routes/index.ts'), 'utf8')
+        for (const [mount, name] of [
+            ['/components-credentials-icon', 'componentsCredentialsIconRouter'],
+            ['/node-icon', 'nodeIconRouter'],
+            ['/oauth2-credential', 'oauth2Router'],
+            ['/verify', 'verifyRouter'],
+            ['/custom-mcp-servers', 'customMcpServersRouter'],
+            ['/auth', 'identityAuthRouter'],
+            ['/account', 'identityAccountRouter']
+        ]) {
+            expect(routes).toContain(`router.use('${mount}', uiPageRateLimiter(), ${name})`)
+        }
+    })
+
+    it('answers 429 on a mounted router once a client passes the budget', async () => {
+        const app = express()
+        const inner = express.Router()
+        inner.get('/callback', (_req, res) => res.send('ok'))
+        app.use('/api/v1/auth', uiPageRateLimiter(2), inner)
+        expect((await hangGuard(request(app).get('/api/v1/auth/callback'))).status).toBe(200)
+        expect((await hangGuard(request(app).get('/api/v1/auth/callback'))).status).toBe(200)
+        expect((await hangGuard(request(app).get('/api/v1/auth/callback'))).status).toBe(429)
+    })
+
     it('limits GET / and GET /index.html, and leaves hashed assets, the embed script, and ping unlimited', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-ui-limit-'))
         fs.mkdirSync(path.join(dir, 'assets'))

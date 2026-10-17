@@ -987,7 +987,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'security',
         group: 'Pages',
         label: 'Page loads a minute',
-        help: 'How many UI page loads one client may make in a minute. Hashed files are not counted. Applies on the next load. 100 to 50000.',
+        help: 'How many UI page loads one client may make in a minute. Hashed files are not counted. The same budget applies, counted separately, to sign-in, API-key check, OAuth, MCP server and icon requests. Applies on the next load. 100 to 50000.',
         type: 'number',
         unit: 'count',
         min: 100,
