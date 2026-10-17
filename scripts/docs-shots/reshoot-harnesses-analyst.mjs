@@ -512,7 +512,9 @@ async function inputCleared(page) {
         .waitForFunction(() => [...document.querySelectorAll('#userInput')].some((el) => el.offsetParent && !el.value), null, {
             timeout: 60000
         })
-        .catch(() => {})
+        .catch((error) => {
+            throw new Error(`the canvas chat input still holds the question after 60 s: ${error.message}`)
+        })
 }
 
 async function stepChats(page) {
