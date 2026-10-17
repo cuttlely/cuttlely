@@ -355,7 +355,7 @@
             "type": "timeseries",
             "id": 6,
             "title": "Runs per second",
-            "description": "Root run spans per second, by span name.",
+            "description": "Run spans per second, by span name. A harness.run started from a chatflow is also counted here, as harness.run, beside its chatflow.prediction.",
             "datasource": {
                 "type": "tempo",
                 "uid": "${tempo}"
@@ -413,7 +413,7 @@
             "type": "timeseries",
             "id": 7,
             "title": "Failed runs per second",
-            "description": "Run spans with status error, by span name.",
+            "description": "Run spans with status error per second, by span name. A failed harness.run under a chatflow counts under both names.",
             "datasource": {
                 "type": "tempo",
                 "uid": "${tempo}"
@@ -734,7 +734,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | sum_over_time(span.tokens.input)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.input != nil } | sum_over_time(span.tokens.input)",
                     "metricsQueryType": "instant",
                     "limit": 20,
                     "tableType": "traces"
@@ -795,7 +795,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | sum_over_time(span.tokens.output)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.output != nil } | sum_over_time(span.tokens.output)",
                     "metricsQueryType": "instant",
                     "limit": 20,
                     "tableType": "traces"
@@ -856,7 +856,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | sum_over_time(span.tokens.input)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.input != nil } | sum_over_time(span.tokens.input)",
                     "metricsQueryType": "instant",
                     "limit": 20,
                     "tableType": "traces"
@@ -957,7 +957,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | sum_over_time(span.tokens.output)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.output != nil } | sum_over_time(span.tokens.output)",
                     "metricsQueryType": "instant",
                     "limit": 20,
                     "tableType": "traces"
@@ -1058,7 +1058,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | sum_over_time(span.tokens.input) by (span.model.name)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.input != nil } | sum_over_time(span.tokens.input) by (span.model.name)",
                     "metricsQueryType": "range",
                     "limit": 20,
                     "tableType": "traces"
@@ -1116,7 +1116,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | sum_over_time(span.tokens.output) by (span.model.name)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.output != nil } | sum_over_time(span.tokens.output) by (span.model.name)",
                     "metricsQueryType": "range",
                     "limit": 20,
                     "tableType": "traces"
@@ -1174,7 +1174,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | sum_over_time(span.tokens.input) by (span.model.name)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.input != nil } | sum_over_time(span.tokens.input) by (span.model.name)",
                     "metricsQueryType": "instant",
                     "limit": 20,
                     "tableType": "traces"
@@ -1277,7 +1277,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"model\" } | sum_over_time(span.tokens.output) by (span.model.name)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"model\" && span.tokens.output != nil } | sum_over_time(span.tokens.output) by (span.model.name)",
                     "metricsQueryType": "instant",
                     "limit": 20,
                     "tableType": "traces"
@@ -1380,7 +1380,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" } | sum_over_time(span.tokens.total.input) by (span.harness.name)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" && span.tokens.total.input != nil } | sum_over_time(span.tokens.total.input) by (span.harness.name)",
                     "metricsQueryType": "range",
                     "limit": 20,
                     "tableType": "traces"
@@ -1438,7 +1438,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" } | sum_over_time(span.tokens.total.output) by (span.harness.name)",
+                    "query": "{ resource.service.name = \"$service\" && name = \"harness.run\" && span.tokens.total.output != nil } | sum_over_time(span.tokens.total.output) by (span.harness.name)",
                     "metricsQueryType": "range",
                     "limit": 20,
                     "tableType": "traces"
@@ -1904,7 +1904,7 @@
                         "uid": "${tempo}"
                     },
                     "queryType": "traceql",
-                    "query": "({ resource.service.name = \"$service\" && name = \"model\" && span.flow.id != nil } | sum_over_time(span.tokens.input) by (span.flow.id)) + ({ resource.service.name = \"$service\" && name = \"model\" && span.flow.id != nil } | sum_over_time(span.tokens.output) by (span.flow.id))",
+                    "query": "({ resource.service.name = \"$service\" && name = \"model\" && span.flow.id != nil && span.tokens.input != nil } | sum_over_time(span.tokens.input) by (span.flow.id)) + ({ resource.service.name = \"$service\" && name = \"model\" && span.flow.id != nil && span.tokens.output != nil } | sum_over_time(span.tokens.output) by (span.flow.id))",
                     "metricsQueryType": "range",
                     "limit": 20,
                     "tableType": "traces"
@@ -2129,7 +2129,7 @@
             "type": "timeseries",
             "id": 37,
             "title": "Predictions per second",
-            "description": "Prediction counters from GET /api/v1/metrics, by status (success or failure). Internal is the canvas and the app; external is the API.",
+            "description": "Prediction counters from GET /api/v1/metrics, by status (success or failure). agentflow_prediction_* counts Multi Agents canvases only: an agentflow and a chatflow both count as chatflow_prediction_*. A harness API run is not counted. Internal is the app's own chat; external is the prediction API.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${prometheus}"
@@ -2327,7 +2327,7 @@
             "type": "timeseries",
             "id": 40,
             "title": "HTTP duration p95 by route",
-            "description": "From http_request_duration_ms. The largest bucket is 500 ms, so a p95 above 500 ms shows as 500 ms. Use the trace panels for run latency.",
+            "description": "From http_request_duration_ms. The largest bucket is 500 ms, so a p95 above 500 ms shows as 500 ms. An error response (4xx or 5xx) has no route label and shows as an unnamed series. Use the trace panels for run latency.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${prometheus}"
@@ -2383,7 +2383,7 @@
             "type": "timeseries",
             "id": 41,
             "title": "HTTP 5xx per second by route",
-            "description": "http_request_duration_ms_count with a 5xx code, by route.",
+            "description": "http_request_duration_ms_count with a 5xx code, by code and route. An error response has no route label, so most 5xx show as one series per code with no route.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${prometheus}"
@@ -2402,7 +2402,7 @@
                         "uid": "${prometheus}"
                     },
                     "expr": "sum by (route, code) (rate(${prefix}http_request_duration_ms_count{app=~\"$app\", code=~\"5..\"}[$__rate_interval]))",
-                    "legendFormat": "{{route}} {{code}}",
+                    "legendFormat": "{{code}} {{route}}",
                     "range": true
                 }
             ],
