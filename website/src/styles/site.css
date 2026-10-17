@@ -1404,7 +1404,7 @@
 }
 .cl-zoom:hover::after,
 .cl-zoom:focus-visible::after {
-    opacity: 0.8;
+    opacity: 1;
 }
 html.cl-viewer-open,
 html.cl-viewer-open body {
