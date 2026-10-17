@@ -40,6 +40,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
 -   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. Owners and roles with `credentials:view` still see their keys.
 
+### Security
+
+-   `GET /api/v1/chatflows/apikey` and `GET /api/v1/verify/apikey` read the API key from the `Authorization: Bearer` header. The older form with the key in the URL path (`/chatflows/apikey/<key>`, `/verify/apikey/<key>`) now answers 400 and does not check the key, because proxies, browser history and access logs keep URLs.
+-   A Code Repository source refuses a branch that starts with `-`, and its git clone and fetch end options with `--`, so a branch or URL can never reach git as an option such as `--upload-pack`.
+
 ## [1.2.0] - 2026-10-15
 
 ### Added
