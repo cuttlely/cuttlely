@@ -29,6 +29,8 @@ const SCOPE_STATEMENT_NAME = 'cuttlely_scope_check'
 const COMMENT_CHARS = 120
 const DEFINITION_CHARS = 4000
 const REFUSED_LIST = 12
+const LINE_COLUMNS = 12
+const ERROR_COLUMNS = 60
 
 // Built-ins in pg_catalog that run SQL passed as text, read a relation passed by name or id, run a type's input
 // function from a type name, read files or large objects, report on objects outside the selection (comments,
@@ -157,7 +159,9 @@ WHERE c.relkind IN ('r', 'p', 'f', 'v', 'm') AND NOT c.relispartition
 ORDER BY CASE c.relkind WHEN 'm' THEN 0 WHEN 'v' THEN 1 ELSE 2 END, n.nspname, c.relname
 LIMIT 2000`
 
-const SELECTED_RELATIONS_SQL = `SELECT ${RELATION_COLUMNS}
+const SELECTED_RELATIONS_SQL = `SELECT ${RELATION_COLUMNS},
+    ARRAY(SELECT quote_ident(a.attname) FROM pg_attribute a
+          WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum) AS column_names
 FROM unnest(?::text[]) WITH ORDINALITY AS s(name, ord)
 JOIN pg_class c ON c.oid = to_regclass(s.name)
 JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -171,6 +175,7 @@ function shapeRelation(row) {
         kind: RELATION_KINDS[row.relkind] || 'table',
         oid: Number(row.oid),
         columns: Number(row.columns) || 0,
+        columnNames: Array.isArray(row.column_names) ? row.column_names.map(String) : [],
         comment
     }
 }
@@ -191,20 +196,71 @@ function clip(text, limit) {
     return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`
 }
 
-// One short line per relation: name, kind, column count, and the comment when there is one.
+// A name or comment can hold a newline. Each relation stays on one line of the tool description.
+function oneLine(text) {
+    return String(text || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+export function columnList(relation, limit = LINE_COLUMNS) {
+    const names = (relation.columnNames || []).map(oneLine)
+    return names.length > limit ? `${names.slice(0, limit).join(', ')}, …` : names.join(', ')
+}
+
+// One short line per relation: name, kind, its first column names, and the comment when there is one.
+// Models tend to write SQL before calling describe, so the names they need most are already in the line.
 export function relationLine(relation) {
-    if (!relation.kind) return relation.name
-    const count = `${relation.columns} column${relation.columns === 1 ? '' : 's'}`
-    const head = `${relation.name} (${relation.kind}, ${count})`
-    return relation.comment ? `${head}: ${clip(relation.comment, COMMENT_CHARS)}` : head
+    const name = oneLine(relation.name)
+    if (!relation.kind) return name
+    const columns = columnList(relation)
+    const head = columns ? `${name} (${relation.kind}): ${columns}` : `${name} (${relation.kind})`
+    const comment = oneLine(relation.comment)
+    if (!comment) return head
+    return `${head}${columns ? ' — ' : ': '}${clip(comment, COMMENT_CHARS)}`
 }
 
 export function relationToolNote(relations) {
     if (!relations.length) return ` ${SCOPE_NONE_LEFT}`
     return [
-        ' Only these relations can be queried. Call describe with a name for its columns, keys and definition before writing SQL against it.',
+        ' Only these relations can be queried. Each line lists its column names, the first 12 when there are more. Call describe with a name for column types and comments, keys, the full column list and a view definition.',
         ...relations.map((relation) => `- ${relationLine(relation)}`)
     ].join('\n')
+}
+
+// 42703 undefined column (also a JOIN ... USING column a side lacks), 42702 ambiguous column.
+const COLUMN_ERRORS = new Set(['42703', '42702'])
+
+// Each name in the statement, as [schema, name] or [name], folded as Postgres folds it. String literals are skipped.
+const STATEMENT_NAMES = new RegExp(`'(?:[^']|'')*'|(${IDENT})(?:\\s*\\.\\s*(${IDENT}))?`, 'g')
+
+function statementNames(statement) {
+    const names = []
+    for (const match of statement.matchAll(STATEMENT_NAMES)) {
+        if (!match[1]) continue
+        names.push(match[2] ? [unquote(match[1]), unquote(match[2])] : [unquote(match[1])])
+    }
+    return names
+}
+
+// A qualified name matches on schema and name. A bare name matches the relation's own name.
+function mentions(names, relation) {
+    const parts = nameParts(relation.name)
+    if (!parts) return false
+    return names.some((name) => (name.length === 2 ? name[0] === parts[0] && name[1] === parts[1] : name[0] === parts[1]))
+}
+
+// After a guessed column fails, the columns of each selected relation the statement names, so the retry can be right.
+export function columnErrorHint(error, statement, relations) {
+    if (!COLUMN_ERRORS.has(String(error?.code || ''))) return ''
+    const names = statementNames(String(statement || ''))
+    return relations
+        .filter((relation) => relation.columnNames?.length && mentions(names, relation))
+        .map((relation) => {
+            const list = columnList(relation, ERROR_COLUMNS)
+            return ` Columns of ${oneLine(relation.name)}: ${list}${list.endsWith('…') ? '' : '.'}`
+        })
+        .join('')
 }
 
 function unquote(part) {

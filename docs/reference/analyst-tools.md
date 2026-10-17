@@ -27,10 +27,10 @@ The result is JSON with `rows`, `truncated`, and on a capped result `summary` (t
 With a selection set, the description ends with `Only these relations can be queried.` and one line per selected relation that still exists, in the list order:
 
 ```text
-- <name> (<kind>, <n> columns): <comment, cut at 120 characters>
+- <name> (<kind>): <column>, <column>, ... — <comment, cut at 120 characters>
 ```
 
-A relation with no comment has no colon part. When the database does not answer while the tools are listed, each line is the name alone, and the check still applies to every call.
+Columns are in column order, quoted where Postgres needs it. More than 12 columns list the first 12, then `…`. A relation with no comment has no `—` part. A relation with no columns has `: <comment>` after the kind. Any run of whitespace in a name or comment, newlines included, becomes one space, so each relation stays on one line. Types, column comments, keys and definitions are only in `describe`. When the database does not answer while the tools are listed, each line is the name alone, and the check still applies to every call.
 
 ## describe
 
@@ -88,3 +88,7 @@ Each is returned as `{ "error": "...", "cuttlelyOutcome": "expected" }`. An expe
 | `describe` gets a bare name that two selected relations share                                                                                                                                                         | `<name> is ambiguous: it matches <names>. Call describe again with the schema-qualified name.`                                                |
 
 The built-ins refused while a selection is set are the `query_to_xml`, `table_to_xml`, `cursor_to_xml`, `schema_to_xml` and `database_to_xml` families, `ts_stat`, `ts_rewrite`, `currtid2`, `loread`, `set_config`, `pg_sequence_last_value`, `pg_input_is_valid`, `pg_input_error_info`, `obj_description`, `col_description`, `shobj_description`, `pg_relation_size`, `pg_total_relation_size`, `pg_table_size`, `pg_indexes_size`, `pg_database_size`, `pg_tablespace_size`, `pg_relation_filenode`, `pg_relation_filepath`, `pg_filenode_relation`, `pg_partition_tree`, `pg_partition_ancestors`, `pg_partition_root`, `pg_relation_is_updatable`, `pg_column_is_updatable`, `pg_describe_object`, `pg_identify_object`, `pg_identify_object_as_address`, `pg_terminate_backend`, `pg_cancel_backend`, any name starting with `lo_`, `pg_read_`, `pg_ls_`, `pg_stat_file`, `pg_stat_get_`, `pg_get_`, `dblink`, `has_` or `to_reg`, and any name ending in `_is_visible`. The object-identifier types refused are `regclass`, `regproc`, `regprocedure`, `regoper`, `regoperator`, `regtype`, `regconfig`, `regdictionary`, `regnamespace`, `regrole` and `regcollation`. The check itself is [How the selection is enforced](../how-to/analyst.md#how-the-selection-is-enforced). The source is `packages/harness/runtime/analyst-relations.mjs`. `scripts/analyst-relations.test.mjs` runs against Postgres 14, 15, 16, 17 and 18 in the `analyst-postgres` CI job. On 14 and 15, `pg_input_is_valid` and `pg_input_error_info` do not exist, and a call fails as an unknown function.
+
+## Column errors
+
+With a selection set, a Postgres error for an undefined column (`42703`, including a `JOIN ... USING` column one side lacks) or an ambiguous column (`42702`) ends with `Columns of <name>: <columns>.` for each selected relation the statement names, in list order. Each list stops at 60 names, then `…` with no period. A relation counts when the statement names it the way Postgres would resolve it: a qualified name matches on schema and name (`hr.stores` is not `public.stores`), a bare name matches the relation's name, an unquoted name folds to lower case, a quoted name keeps its case (`"stores"` matches `public.stores`, `"Stores"` does not), and text inside a string literal is not a name. A bare name counts for a selected relation in any schema. The error is still an expected result. Other errors are unchanged.

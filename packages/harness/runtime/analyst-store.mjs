@@ -31,6 +31,7 @@ import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } fro
 import {
     SCOPE_NONE_LEFT,
     checkStatementScope,
+    columnErrorHint,
     describeRefusal,
     describeRelation,
     findRelation,
@@ -1782,20 +1783,22 @@ async function queryUrlPostgres(
     return withUrlClient(
         postgresUrl,
         async (client, runner) => {
-            if (scoped) {
-                const selected = await resolveRelations(runner, relations)
-                await checkStatementScope(
-                    client,
-                    runner,
-                    replay?.plan?.statement || statement,
-                    selected,
-                    isRowQuery,
-                    urlStoreKey(postgresUrl)
-                )
-                await client.query('SET LOCAL transaction_read_only = on')
+            if (!scoped) {
+                if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
+                return await runPostgresStatement(client, statement, replay?.paging, runner)
             }
-            if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
-            return await runPostgresStatement(client, statement, replay?.paging, runner)
+            const selected = await resolveRelations(runner, relations)
+            const text = replay?.plan?.statement || statement
+            try {
+                await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl))
+                await client.query('SET LOCAL transaction_read_only = on')
+                if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
+                return await runPostgresStatement(client, statement, replay?.paging, runner)
+            } catch (error) {
+                const hint = columnErrorHint(error, text, selected)
+                if (hint && error instanceof Error) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
+                throw error
+            }
         },
         { timeoutMs, env, readOnly: !scoped }
     )
