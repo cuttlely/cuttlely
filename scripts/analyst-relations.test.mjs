@@ -151,6 +151,20 @@ describe('analyst relations: pure helpers', () => {
         )
     })
 
+    it('reads a tree in linear time, including long runs of whitespace after a list opener', () => {
+        const hostile = `:types\t(o\t${'\t\t'.repeat(100000)}x :coltypes (o 23 ${' '.repeat(100000)}25)`
+        const started = process.hrtime.bigint()
+        const ids = treeObjectIds(hostile)
+        const ms = Number(process.hrtime.bigint() - started) / 1e6
+        assert.ok(ms < 500, `${ms} ms`)
+        assert.deepEqual(
+            [...ids.types].sort((a, b) => a - b),
+            [23, 25]
+        )
+        assert.deepEqual([...treeObjectIds(':coltypes (o) :vartype 1043 :opnos (o 96').types], [1043])
+        assert.deepEqual([...treeObjectIds(':opnos (o 96').operators], [96])
+    })
+
     it('says a bare describe name is ambiguous when two schemas have it', () => {
         const two = [...sample, { name: 'sales.stores', kind: 'view', oid: 9, columns: 2, comment: '' }]
         assert.deepEqual(ambiguousRelations(two, 'stores'), ['public.stores', 'sales.stores'])

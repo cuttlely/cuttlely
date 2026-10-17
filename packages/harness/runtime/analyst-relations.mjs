@@ -332,6 +332,17 @@ export async function describeRelation(runner, relation, relations) {
     return body
 }
 
+// The digits a value token starts with, when only closing brackets follow them ("23", "1043}", "1700)}").
+function leadingId(token) {
+    const match = /^\d+/.exec(token || '')
+    if (!match) return ''
+    for (let k = match[0].length; k < token.length; k += 1) if (token[k] !== ')' && token[k] !== '}') return ''
+    return match[0]
+}
+
+const FUNCTION_FIELDS = new Set(['funcid', 'aggfnoid', 'winfnoid', 'opfuncid'])
+const OPERATOR_FIELDS = new Set(['opno', 'sortop', 'eqop'])
+
 // Object ids from a stored query tree. String values in the tree escape their spaces, so text in the statement
 // (an alias such as "x :relid 1") cannot add an id; constants are stored as bytes. A field name ending in type,
 // typeid or typid holds a type id (consttype, resulttype, vartype, funcresulttype, row_typeid, ...); a list of
@@ -346,17 +357,35 @@ export function treeObjectIds(tree) {
         const n = Number(value)
         if (Number.isInteger(n) && n > 0) set.add(n)
     }
-    const addList = (set, list) => {
-        for (const id of list.trim().split(/\s+/)) add(set, id)
+    // One pass over whitespace-separated tokens. A field is a token that is exactly ':' and a name; its value is
+    // the next token, or an "(o ...)" list of ids up to the token that ends with ')'.
+    const tokens = text.split(/\s+/)
+    for (let i = 0; i < tokens.length - 1; i += 1) {
+        const token = tokens[i]
+        if (!/^:[A-Za-z_]+$/.test(token)) continue
+        const name = token.slice(1).toLowerCase()
+        let target = null
+        let isList = false
+        if (name === 'relid') target = relations
+        else if (FUNCTION_FIELDS.has(name)) target = functions
+        else if (OPERATOR_FIELDS.has(name)) target = operators
+        else if (name === 'opnos') [target, isList] = [operators, true]
+        else if (name.endsWith('types')) [target, isList] = [types, true]
+        else if (name.endsWith('type') || name.endsWith('typeid') || name.endsWith('typid')) target = types
+        if (!target) continue
+        if (!isList) {
+            const id = leadingId(tokens[i + 1])
+            if (id) add(target, id)
+            continue
+        }
+        if (tokens[i + 1] !== '(o') continue
+        for (let j = i + 2; j < tokens.length; j += 1) {
+            const id = leadingId(tokens[j])
+            if (!id) break
+            add(target, id)
+            if (tokens[j].length > id.length) break
+        }
     }
-    const field = (names) => new RegExp(`(?:^|[\\s{(]):(?:${names})\\s+(\\d+)`, 'g')
-    const list = (names) => new RegExp(`(?:^|[\\s{(]):(?:${names})\\s+\\(o\\s+([\\d\\s]+)\\)`, 'g')
-    for (const match of text.matchAll(field('relid'))) add(relations, match[1])
-    for (const match of text.matchAll(field('funcid|aggfnoid|winfnoid|opfuncid'))) add(functions, match[1])
-    for (const match of text.matchAll(field('opno|sortop|eqop'))) add(operators, match[1])
-    for (const match of text.matchAll(list('opnos'))) addList(operators, match[1])
-    for (const match of text.matchAll(/(?:^|[\s{(]):[A-Za-z_]*(?:type|typeid|typid)\s+(\d+)/gi)) add(types, match[1])
-    for (const match of text.matchAll(/(?:^|[\s{(]):[A-Za-z_]*types\s+\(o\s+([\d\s]+)\)/gi)) addList(types, match[1])
     return { relations, functions, operators, types }
 }
 

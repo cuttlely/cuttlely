@@ -1725,8 +1725,10 @@ async function runSqliteStatement(db, guard, statement, replay) {
 // A PostgresUrl credential or CUTTLELY_POSTGRES_URL points at a database the user chose. Every call opens a
 // read-only session with the statement timeout, and results get the same row cap, page line and cursor as
 // the isolated store. The URL and its password never reach a result, an error or a cursor.
+// The key is the URL itself, kept only in this process's memory (cursor state and the risky-domain cache), so a
+// password is never run through a hash. It is never logged, returned, or sent to the SQLite worker.
 function urlStoreKey(postgresUrl) {
-    return ['url', createHash('sha256').update(String(postgresUrl)).digest('hex')].join('\0')
+    return ['url', String(postgresUrl)].join('\0')
 }
 
 function urlSecrets(postgresUrl) {
