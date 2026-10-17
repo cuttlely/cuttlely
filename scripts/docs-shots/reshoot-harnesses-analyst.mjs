@@ -502,7 +502,17 @@ async function askCanvas(page, question, until = 'Finished') {
     await input.fill(question)
     await input.press('Enter')
     await page.getByText(until).last().waitFor({ timeout: 180000 })
+    await inputCleared(page)
     await sleep(400)
+}
+
+// The input keeps the question and a spinner until the turn is saved; a frame taken before then shows both.
+async function inputCleared(page) {
+    await page
+        .waitForFunction(() => [...document.querySelectorAll('#userInput')].some((el) => el.offsetParent && !el.value), null, {
+            timeout: 60000
+        })
+        .catch(() => {})
 }
 
 async function stepChats(page) {
@@ -559,6 +569,7 @@ async function stepBuild(page) {
     await page.getByRole('button', { name: 'chat', exact: true }).click()
     await page.getByText(/seven days in Italy/i).click()
     await page.getByText('Finished').waitFor({ timeout: 180000 })
+    await inputCleared(page)
     // Clicking the starter scrolls an overflow: hidden ancestor, which shifts the whole canvas.
     await page.evaluate(() => {
         for (const el of document.querySelectorAll('*')) {
