@@ -341,11 +341,16 @@ function parseServerConfig(mcp) {
 // CUTTLELY_MCP_VALIDATOR_PATH points at another build of that module (a test, or a checkout built elsewhere).
 export const COMPONENTS_NOT_BUILT = 'the components package is not built, so the Custom MCP checks cannot run'
 
+let loggedValidatorPath = false
+
 export function mcpValidatorPath() {
-    return (
-        process.env.CUTTLELY_MCP_VALIDATOR_PATH ||
-        path.join(repoRoot(), 'packages', 'components', 'dist', 'nodes', 'tools', 'MCP', 'core.js')
-    )
+    const fallback = path.join(repoRoot(), 'packages', 'components', 'dist', 'nodes', 'tools', 'MCP', 'core.js')
+    const custom = process.env.CUTTLELY_MCP_VALIDATOR_PATH
+    if (custom && custom !== fallback && !loggedValidatorPath) {
+        loggedValidatorPath = true
+        console.warn(`[harness] Custom MCP checks load from CUTTLELY_MCP_VALIDATOR_PATH=${custom}`)
+    }
+    return custom || fallback
 }
 
 export function rawServerProblem(config) {
