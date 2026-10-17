@@ -17,6 +17,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   `pnpm dev` compiles the server when a file under `packages/server/src` changes and restarts on the new build. Before, it restarted on the last build, so a server change also needed `pnpm --filter @cuttlely/server build`.
 -   The proprietary path check runs once, in the required `lint` CI job. The `proprietary-paths` step of `pnpm verify` and the separate Proprietary Path Guard workflow are removed. `node scripts/proprietary-paths.mjs` still runs the same check locally.
 -   The Admin menu lists Users and Teams first, then Roles, Server Settings, Logs, Audit log, and Version History. The page you are on is still marked, including a team's members page under Teams. After sign-in, someone who is not the organization owner and has none of the earlier pages now lands on Users, then Teams, before Roles, in the same order as the menu.
 -   The homepage shows the customer care demo right after the hero, then the "Not the obvious answer" case study, then A/B testing, then a new "Made for real teams" section with six cards that link to the roles, sign-in, audit log, server settings, and Docker guides. The light theme uses the logo colours on the home page. The dark theme is unchanged.
@@ -35,6 +36,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Deleting an ETL pipeline whose Local Vector Store has a blank Collection field now removes its vectors from the collection of every name the pipeline ran under. Before, a pipeline whose name changed and that ran again left the vectors in the collection under its old name. A paused run resumed after the name changed now writes every chunk to the new collection, instead of splitting them across both and failing the store count check.
 -   A publish check whose last answer or grade is cut off by the check's time limit now ends stopped for time instead of done. Before, it could end done and, for a dataset check, store a verdict scored with that cut-off grade as Error. Now no publish gate result is stored for that check, so it cannot unblock Publish, and the next check runs as usual.
 -   **Prompt and tool text limit** lists the 4,000-character default once, as **Default (4,000 characters)**, instead of also offering a separate **4,000 characters** item. A saved value of 4000 shows as that default item.
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
@@ -44,6 +46,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   `GET /api/v1/chatflows/apikey` and `GET /api/v1/verify/apikey` read the API key from the `Authorization: Bearer` header. The older form with the key in the URL path (`/chatflows/apikey/<key>`, `/verify/apikey/<key>`) now answers 400 and does not check the key, because proxies, browser history and access logs keep URLs.
 -   A Code Repository source refuses a branch that starts with `-`, and its git clone and fetch end options with `--`, so a branch or URL can never reach git as an option such as `--upload-pack`.
+-   Text parsing that code scanning reported as slow regular expressions now runs in linear time: the chat widget's host and link base, ETL number, JSON and whitespace handling, quota error detection and collection names, and in harnesses the analyst statement fingerprint, keyword connection strings, upload stubs, pin lines, closing source lines, numbered task lists and arithmetic questions. Answers are unchanged, with two exceptions: a closing source at the end of a line that ends with a carriage return is now found, and the first-run owner email is refused when a domain label is empty (`rosa@bakery..example`, `rosa@bakery.example.`).
+-   A raw MCP server listed in a specialist record's `mcpServers` now passes the same checks as a Custom MCP node (`CUSTOM_MCP_ALLOWED_COMMANDS`, `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS`, `CUSTOM_MCP_ALLOWED_ENV_VARS`, no `cwd`, no shell characters, no code-running flags) before the agent runtime starts it. One that fails is left out of the profile with a warning in the server log. `CUSTOM_MCP_SECURITY_CHECK=false` turns the checks off, as it does for the node.
+
+### Upgrade notes / breaking changes
+
+-   **Raw MCP servers on specialist records.** A raw entry in a specialist's `mcpServers` (one that is not an MCP node connected on the canvas) now starts only if its command is in `CUSTOM_MCP_ALLOWED_COMMANDS` and its script path is in `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS`. Both are empty by default, so every such server is refused until you set them. A refused server is left out of the harness, and the server log has a warning that names it. If `packages/components` is not built, every raw server is refused. Before you upgrade, set those allow-lists (and `CUSTOM_MCP_ALLOWED_ENV_VARS` for any `env` the server passes), or set `CUSTOM_MCP_SECURITY_CHECK=false` to keep the old behavior.
+-   **Database changes.** At startup the ETL database moves to schema version 4 and gains a `run_names` table, which records the pipeline name each run ran under. Each run that started before the upgrade is recorded under the pipeline's name at upgrade time. Vectors written under a name the pipeline had before it was renamed, before the upgrade, are not removed when the pipeline is deleted.
 
 ## [1.2.0] - 2026-10-15
 

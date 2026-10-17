@@ -17,10 +17,20 @@ export async function createEmbeddings(spec, ctx = {}) {
     return embeddings
 }
 
+// "quota ... exceeded ... retry" on one line, found with indexOf so a long message stays linear.
+function quotaRetry(text) {
+    for (const line of text.toLowerCase().split(/[\n\r\u2028\u2029]/)) {
+        const quota = line.indexOf('quota')
+        const exceeded = quota === -1 ? -1 : line.indexOf('exceeded', quota + 5)
+        if (exceeded !== -1 && line.indexOf('retry', exceeded + 8) !== -1) return true
+    }
+    return false
+}
+
 export function classifyError(error) {
     const status = Number(error?.status ?? error?.statusCode ?? error?.response?.status ?? error?.cause?.status)
     const text = `${error?.code || ''} ${error?.message || error || ''}`
-    if (status === 429 || /\b429\b|rate.?limit|too many requests|quota.*exceeded.*retry|throttl/i.test(text)) return 'rate_limit'
+    if (status === 429 || /\b429\b|rate.?limit|too many requests|throttl/i.test(text) || quotaRetry(text)) return 'rate_limit'
     if ((status >= 500 && status < 600) || status === 408) return 'transient'
     if (
         /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up|fetch failed|network|timed? ?out|overloaded|unavailable|SQLITE_BUSY/i.test(

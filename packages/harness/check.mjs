@@ -18,6 +18,8 @@ const {
     compileProfileCached,
     compileTryProfile,
     discardTryProfile,
+    hermesToolsetsFor,
+    mcpValidatorPath,
     modelConfigured,
     readProfileEnv,
     CHIEF_TOOLSETS,
@@ -5703,38 +5705,165 @@ await expectCase('a database refusal stays the database error', async () => {
     )
 })
 
-await expectCase('typed MCP server extras stay raw', async () => {
-    compileProfile(
-        saveHarness(
+const withCustomMcpAllowLists = (values, fn) => {
+    const keys = [
+        'CUSTOM_MCP_SECURITY_CHECK',
+        'CUSTOM_MCP_ALLOWED_COMMANDS',
+        'CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS',
+        'CUSTOM_MCP_ALLOWED_ENV_VARS',
+        'CUTTLELY_MCP_VALIDATOR_PATH'
+    ]
+    const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+    for (const key of keys) {
+        if (values[key] === undefined) delete process.env[key]
+        else process.env[key] = values[key]
+    }
+    try {
+        return fn()
+    } finally {
+        for (const key of keys) {
+            if (saved[key] === undefined) delete process.env[key]
+            else process.env[key] = saved[key]
+        }
+    }
+}
+
+const componentsBuilt = fs.existsSync(mcpValidatorPath())
+
+await expectCase('raw MCP server extras pass the Custom MCP checks', async () => {
+    const record = (config) => ({
+        name: 'maMcpChecked',
+        chatflowId: 'canvas-mcp-checked',
+        chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+        specialists: [
+            { name: 'operator', instructions: 'Use the servers.', modules: [], mcpServers: [{ serverName: 'extra-tools', config }] }
+        ]
+    })
+    const yamlFor = (config) => {
+        compileProfile(saveHarness(record(config), { overwrite: true }))
+        return profilesFor('maMcpChecked')
+            .map((profile) => profile.yaml)
+            .join('\n')
+    }
+    const toolsets = (config) => hermesToolsetsFor(record(config).specialists[0])
+    const config = { command: 'keep-extra', args: ['/srv/mcp/extra.mjs'] }
+    const allowed = { CUSTOM_MCP_ALLOWED_COMMANDS: 'keep-extra', CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: '/srv/mcp/extra.mjs' }
+    const cases = {
+        noAllowList: withCustomMcpAllowLists({}, () => ({ yaml: yamlFor(config), sets: toolsets(config) })),
+        allowed: withCustomMcpAllowLists(allowed, () => ({ yaml: yamlFor(config), sets: toolsets(config) })),
+        injected: withCustomMcpAllowLists(allowed, () => yamlFor({ ...config, args: ['/srv/mcp/extra.mjs', '; rm -rf /'] })),
+        withCwd: withCustomMcpAllowLists(allowed, () => yamlFor({ ...config, cwd: '/' })),
+        env: withCustomMcpAllowLists(allowed, () => yamlFor({ ...config, env: { NODE_OPTIONS: '--require /tmp/x.js' } })),
+        checksOff: withCustomMcpAllowLists({ CUSTOM_MCP_SECURITY_CHECK: 'false' }, () => yamlFor(config))
+    }
+    const refused =
+        !cases.noAllowList.yaml.includes('keep-extra') &&
+        !cases.noAllowList.sets.includes('extra-tools') &&
+        !cases.injected.includes('keep-extra') &&
+        !cases.withCwd.includes('keep-extra') &&
+        !cases.env.includes('keep-extra') &&
+        cases.checksOff.includes('keep-extra')
+    const detail = JSON.stringify({
+        noAllowList: cases.noAllowList.yaml.includes('keep-extra'),
+        allowed: cases.allowed.yaml.includes('keep-extra'),
+        injected: cases.injected.includes('keep-extra'),
+        withCwd: cases.withCwd.includes('keep-extra'),
+        env: cases.env.includes('keep-extra'),
+        checksOff: cases.checksOff.includes('keep-extra')
+    })
+    if (componentsBuilt) {
+        check(
+            'raw MCP server extras pass the Custom MCP checks',
+            refused && cases.allowed.yaml.includes('keep-extra') && cases.allowed.sets.includes('extra-tools'),
+            detail
+        )
+    } else {
+        console.log('skip an allowed raw MCP server is kept (components not built); the refusals are still checked')
+        check('raw MCP server extras pass the Custom MCP checks', refused, detail)
+    }
+})
+
+await expectCase('raw MCP server extras are refused when the components package is not built', async () => {
+    const warnings = []
+    const warn = console.warn
+    console.warn = (...args) => warnings.push(args.join(' '))
+    let yaml = ''
+    let sets = []
+    try {
+        withCustomMcpAllowLists(
             {
-                name: 'maMcpExtra',
-                chatflowId: 'canvas-mcp-extra',
-                chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
-                specialists: [
-                    {
-                        name: 'operator',
-                        instructions: 'Use the servers.',
-                        modules: [],
-                        mcpServers: [
-                            {
-                                nodeName: 'customMCP',
-                                label: 'Custom MCP',
-                                inputs: { mcpServerConfig: JSON.stringify({ command: 'do-not-launch', args: ['--raw-mcp'] }) }
-                            },
-                            { serverName: 'extra-tools', config: { command: 'keep-extra', args: ['--flag'] } }
-                        ]
-                    }
-                ]
+                CUSTOM_MCP_ALLOWED_COMMANDS: 'keep-extra',
+                CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: '/srv/mcp/extra.mjs',
+                CUTTLELY_MCP_VALIDATOR_PATH: path.join(dataDir, 'no-components', 'core.js')
             },
-            { overwrite: true }
+            () => {
+                const record = {
+                    name: 'maMcpUnbuilt',
+                    chatflowId: 'canvas-mcp-unbuilt',
+                    chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+                    specialists: [
+                        {
+                            name: 'operator',
+                            instructions: 'Use the servers.',
+                            modules: [],
+                            mcpServers: [{ serverName: 'extra-tools', config: { command: 'keep-extra', args: ['/srv/mcp/extra.mjs'] } }]
+                        }
+                    ]
+                }
+                compileProfile(saveHarness(record, { overwrite: true }))
+                yaml = profilesFor('maMcpUnbuilt')
+                    .map((profile) => profile.yaml)
+                    .join('\n')
+                sets = hermesToolsetsFor(record.specialists[0])
+            }
+        )
+    } finally {
+        console.warn = warn
+    }
+    check(
+        'raw MCP server extras are refused when the components package is not built',
+        !yaml.includes('keep-extra') &&
+            !sets.includes('extra-tools') &&
+            warnings.some((line) => line.includes('extra-tools') && line.includes('components package is not built')),
+        JSON.stringify({ inYaml: yaml.includes('keep-extra'), sets, warnings })
+    )
+})
+
+await expectCase('typed MCP server extras stay raw', async () => {
+    withCustomMcpAllowLists({ CUSTOM_MCP_ALLOWED_COMMANDS: 'keep-extra', CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: '--flag' }, () =>
+        compileProfile(
+            saveHarness(
+                {
+                    name: 'maMcpExtra',
+                    chatflowId: 'canvas-mcp-extra',
+                    chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+                    specialists: [
+                        {
+                            name: 'operator',
+                            instructions: 'Use the servers.',
+                            modules: [],
+                            mcpServers: [
+                                {
+                                    nodeName: 'customMCP',
+                                    label: 'Custom MCP',
+                                    inputs: { mcpServerConfig: JSON.stringify({ command: 'do-not-launch', args: ['--raw-mcp'] }) }
+                                },
+                                { serverName: 'extra-tools', config: { command: 'keep-extra', args: ['--flag'] } }
+                            ]
+                        }
+                    ]
+                },
+                { overwrite: true }
+            )
         )
     )
     const yaml = profilesFor('maMcpExtra')
         .map((profile) => profile.yaml)
         .join('\n')
+    if (!componentsBuilt) console.log('skip the typed MCP server extra is written raw (components not built)')
     check(
         'typed MCP server extras stay raw',
-        yaml.includes('keep-extra') && !yaml.includes('do-not-launch') && yaml.includes('mcp-bridge.mjs'),
+        (!componentsBuilt || yaml.includes('keep-extra')) && !yaml.includes('do-not-launch') && yaml.includes('mcp-bridge.mjs'),
         yaml.includes('do-not-launch') ? 'custom MCP was written raw' : 'typed extra or bridge missing'
     )
 })
@@ -12904,6 +13033,95 @@ await (async () => {
         listed.map((row) => row.content).join('|') === `${prefix} wheat loaf|${prefix} rye bread` &&
             listed.every((row) => row.content.length > 240 && !row.content.endsWith('…')),
         listed.map((row) => row.content.length).join(',')
+    )
+})()
+
+// Slow-regex inputs from code scanning. Each must keep its old answer and finish in linear time.
+await (async () => {
+    const { closingLines, isMultiStepDataTask } = await import('./run.mjs')
+    const { analystCaptureId } = await import('./analyst-capture.mjs')
+    const { parseAnalystTarget } = await import('./runtime/analyst-postgres.mjs')
+    const { parseUploadStubs } = await import('./uploads.mjs')
+    const { appendTurn, readMemory } = await import('./session.mjs')
+    const timed = (fn) => {
+        const started = performance.now()
+        const value = fn()
+        return { value, ms: performance.now() - started }
+    }
+    const fast = (...runs) => runs.every((run) => run.ms < 500)
+
+    const semis = timed(() => analystCaptureId({ seq: 1, sql: 'select 1' + ';'.repeat(100000) + 'x' }))
+    check(
+        'an analyst statement fingerprint ignores trailing semicolons and is linear on a long run of them',
+        analystCaptureId({ seq: 1, sql: 'select  1 ; ;; ' }) === analystCaptureId({ seq: 1, sql: 'select 1' }) &&
+            analystCaptureId({ seq: 1, sql: 'select 1;x' }) !== analystCaptureId({ seq: 1, sql: 'select 1' }) &&
+            semis.value.startsWith('1:') &&
+            fast(semis),
+        String(semis.ms)
+    )
+
+    const marks = timed(() => normalizeArithmeticQuestion('1 plus 2' + '!'.repeat(100000) + 'x'))
+    check(
+        'arithmetic questions lose trailing punctuation, and a long run of it in the middle is linear',
+        normalizeArithmeticQuestion('What is 17 times 3?!？') === '17 * 3' &&
+            normalizeArithmeticQuestion('17 times 3.。') === '17 * 3' &&
+            marks.value === null &&
+            fast(marks),
+        String(marks.ms)
+    )
+
+    const tail = timed(() => closingLines('Done' + '!\tsource:!'.repeat(30000) + '\r'))
+    check(
+        'a closing source at the end of the last sentence is found, also on a CRLF line, and a long line is linear',
+        closingLines('Two rows match. Sources: orders, customers').join() === 'Sources: orders, customers' &&
+            closingLines('Two rows match. Sources: orders\r').join() === 'Sources: orders' &&
+            closingLines('Two rows match.').length === 0 &&
+            fast(tail),
+        String(tail.ms)
+    )
+
+    const steps = timed(() => isMultiStepDataTask('row' + '\n'.repeat(200000) + 'x'))
+    const carriage = timed(() => isMultiStepDataTask('row' + '\r'.repeat(200000) + 'x'))
+    check(
+        'a numbered list of table steps is a multi-step data task, and a long run of newlines is linear',
+        isMultiStepDataTask('Do this:\n\n  1. create the table\n  2. fill it') === true &&
+            isMultiStepDataTask('1) list each row') === true &&
+            isMultiStepDataTask('show one row') === false &&
+            steps.value === false &&
+            carriage.value === false &&
+            fast(steps, carriage),
+        `${steps.ms} ${carriage.ms}`
+    )
+
+    const words = timed(() => parseAnalystTarget('A'.repeat(100000)))
+    const keywords = parseAnalystTarget("host=db.example port=5433 dbname=Shop user=reader password='p w'")
+    check(
+        'a keyword connection string still parses, and a long word with no = is linear',
+        keywords?.host === 'db.example' &&
+            keywords.port === '5433' &&
+            keywords.database === 'shop' &&
+            keywords.password === 'p w' &&
+            words.value === null &&
+            fast(words),
+        JSON.stringify({ keywords, ms: words.ms })
+    )
+
+    const dashes = timed(() => parseUploadStubs(`<file ${'-'.repeat(100000)}>x</file>`))
+    const stub = parseUploadStubs("<file name='a.csv' path='/u/a.csv' rows='3'>body</file>")[0]
+    check(
+        'upload stubs keep their attributes, and a long attribute run with no = is linear',
+        stub?.name === 'a.csv' && stub.path === '/u/a.csv' && stub.rows === '3' && dashes.value.length === 1 && fast(dashes),
+        JSON.stringify({ stub, ms: dashes.ms })
+    )
+
+    const pinHarness = 'regex-pins'
+    const pinRun = timed(() => appendTurn(pinHarness, 'chat-1', 'pin:' + '\t'.repeat(100000) + '\r', 'ok'))
+    appendTurn(pinHarness, 'chat-1', 'pin:  rye only  \nhello', 'pin: oven at 220C')
+    const pins = readMemory(pinHarness, 'chat-1').pins
+    check(
+        'pin lines are kept trimmed, and a long run of tabs after pin: is linear',
+        pins.includes('rye only') && pins.includes('oven at 220C') && fast(pinRun),
+        JSON.stringify({ pins, ms: pinRun.ms })
     )
 })()
 

@@ -38,7 +38,8 @@ function parseUri(text) {
 function parseKeywords(text) {
     if (/^(postgres|postgresql):\/\//i.test(text)) return null
     const fields = {}
-    const pattern = /([A-Za-z][A-Za-z0-9]*)=(?:'([^']*)'|"([^"]*)"|(\S+))/g
+    // The lookbehind starts a keyword only at the start of a word, so a long run with no `=` is scanned once.
+    const pattern = /(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]*)=(?:'([^']*)'|"([^"]*)"|(\S+))/g
     let match = pattern.exec(text)
     let found = false
     while (match) {

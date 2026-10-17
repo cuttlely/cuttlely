@@ -369,3 +369,86 @@ function pineFlow(file, ns) {
         JSON.stringify({ before, after: pine.rows.size, result })
     )
 }
+
+// A blank collection follows the pipeline's name. After the name changes and the pipeline runs again, delete clears the
+// collection under the old name as well as the new one.
+{
+    api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
+    const file = csv('purge-new-name', 4)
+    const first = await runPipeline('purge-new-name', 'Purge name before', flowFor(file, ''))
+    const second = await runPipeline('purge-new-name', 'Purge name after', flowFor(file, ''))
+    const oldStore = LocalVectorStore.open('Purge name before')
+    const newStore = LocalVectorStore.open('Purge name after')
+    const before = { old: oldStore.count(), new: newStore.count() }
+    const result = await api.deletePipeline('purge-new-name')
+    const after = { old: oldStore.count(), new: newStore.count() }
+    check(
+        'purge 12: deleting a pipeline with a blank collection clears the collection of every name it ran under',
+        first.status === 'succeeded' &&
+            second.status === 'succeeded' &&
+            before.old === 4 &&
+            before.new === 4 &&
+            after.old === 0 &&
+            after.new === 0 &&
+            result.stores.length === 2 &&
+            result.errors.length === 0,
+        JSON.stringify({ before, after, result })
+    )
+}
+
+// A run paused under one name and resumed under another wrote to both collections. Delete clears both.
+{
+    const file = path.join(root, 'purge-resume.csv')
+    fs.writeFileSync(file, ['sku,name,notes', ...Array.from({ length: 2000 }, (_, i) => `S${i},Loaf ${i},sourdough batch ${i}`)].join('\n'))
+    const flow = flowFor(file, '')
+    api.configureRunner({ contextFor: () => ({ workspaceId: WS, embedDelayMs: 20 }) })
+    api.recordVersion({ workspaceId: WS, id: 'purge-resume', name: 'Purge resume first', flowData: flow })
+    const started = api.startRun('purge-resume', { settings: { batchSize: 40, concurrency: 1, maxRetries: 1, maxErrors: 5 } })
+    let progressed = api.runDetail(started.id)
+    for (let i = 0; i < 400 && progressed.counters.embedded < 80 && progressed.status !== 'succeeded'; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 15))
+        progressed = api.runDetail(started.id)
+    }
+    api.pauseRun(started.id)
+    api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
+    await api.waitForIdle()
+    const paused = api.runDetail(started.id)
+    api.recordVersion({ workspaceId: WS, id: 'purge-resume', name: 'Purge resume second', flowData: flow })
+    api.resumeRun(started.id)
+    await api.waitForIdle()
+    const done = api.runDetail(started.id)
+    const first = LocalVectorStore.open('Purge resume first')
+    const second = LocalVectorStore.open('Purge resume second')
+    const before = { first: first.count(), second: second.count() }
+    const result = await api.deletePipeline('purge-resume')
+    const after = { first: first.count(), second: second.count() }
+    check(
+        'purge 13: a run paused, given a new name and resumed is cleared from the collections of both names',
+        paused.status === 'paused' &&
+            done.status === 'succeeded' &&
+            done.id === started.id &&
+            before.first > 0 &&
+            before.first < 2000 &&
+            before.second === 2000 &&
+            done.counters.embedded === 2000 &&
+            after.first === 0 &&
+            after.second === 0 &&
+            result.errors.length === 0,
+        JSON.stringify({ paused: paused.status, done: done.status, error: done.error, before, after, result })
+    )
+}
+
+// A run from before run_names has no recorded name. Delete uses the current name, so that collection is emptied.
+{
+    api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
+    const run = await runPipeline('purge-unnamed', 'Purge unnamed', flowFor(csv('purge-unnamed', 3), ''))
+    stmt('DELETE FROM run_names WHERE pipeline_id = ?').run('purge-unnamed')
+    const store = LocalVectorStore.open('Purge unnamed')
+    const before = store.count()
+    const result = await api.deletePipeline('purge-unnamed')
+    check(
+        'purge 14: a run with no recorded name is cleared from the collection of the current name',
+        run.status === 'succeeded' && before === 3 && store.count() === 0 && result.errors.length === 0,
+        JSON.stringify({ before, after: store.count(), result })
+    )
+}
