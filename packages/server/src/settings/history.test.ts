@@ -121,7 +121,7 @@ describe('settings history retention', () => {
     it('does not drop a row that is still inside the cap when several appends overlap', async () => {
         const dir = folder()
         const markers = Array.from({ length: 12 }, (_, index) => `m${index}`)
-        await Promise.all(markers.map((marker) => appendInChild(dir, marker, 12)))
+        await appendInChildren(dir, markers, 12)
         const entries = readHistory(dir, 20)
         expect(entries).toHaveLength(12)
         expect(new Set(entries.map((entry) => entry.changes?.[0].to)).size).toBe(12)
@@ -133,7 +133,7 @@ describe('settings history retention', () => {
     it('keeps the newest cap when overlapping appends are past that cap', async () => {
         const dir = folder()
         const markers = Array.from({ length: 12 }, (_, index) => `c${index}`)
-        await Promise.all(markers.map((marker) => appendInChild(dir, marker, 4)))
+        await appendInChildren(dir, markers, 4)
         const entries = readHistory(dir, 20)
         expect(entries).toHaveLength(4)
         const kept = entries.map((entry) => entry.changes?.[0].to)
@@ -145,33 +145,76 @@ describe('settings history retention', () => {
     }, 60000)
 })
 
-function appendInChild(dir: string, marker: string, keep: number): Promise<void> {
-    const once = () =>
-        new Promise<void>((resolve, reject) => {
-            const historyFile = path.join(__dirname, 'history.ts')
-            const code = `
+// Each child pays for ts-node and the settings modules before it can append. Loading two at a time keeps that CPU
+// burst off the test files the suite runs alongside, and every append still starts together once all are loaded.
+const LOADING = 2
+
+async function appendInChildren(dir: string, markers: string[], keep: number): Promise<void> {
+    const appends: Array<() => Promise<void>> = []
+    for (let i = 0; i < markers.length; i += LOADING) {
+        appends.push(...(await Promise.all(markers.slice(i, i + LOADING).map((marker) => loadChild(dir, marker, keep)))))
+    }
+    await Promise.all(appends.map((append) => append()))
+}
+
+// A child can die in the runtime, or be killed by a signal, while the suite is already busy. One more try is the same
+// append, unless the first child wrote its row before it died.
+const retryable = (error: Error) => /Fatal error|unreachable code|killed by/.test(error.message)
+
+async function loadChild(dir: string, marker: string, keep: number): Promise<() => Promise<void>> {
+    const append = await startChild(dir, marker, keep).catch((error: Error) => {
+        if (!retryable(error)) throw error
+        return startChild(dir, marker, keep)
+    })
+    return () =>
+        append().catch(async (error: Error) => {
+            if (!retryable(error)) throw error
+            if (readHistory(dir, 1000).some((entry) => entry.changes?.[0].to === marker)) return
+            return (await startChild(dir, marker, keep))()
+        })
+}
+
+/** Resolves once the child has loaded history.ts. Calling the result makes it append and resolves when it exits. */
+function startChild(dir: string, marker: string, keep: number): Promise<() => Promise<void>> {
+    return new Promise((resolveReady, rejectReady) => {
+        const historyFile = path.join(__dirname, 'history.ts')
+        const code = `
         require('ts-node').register({ transpileOnly: true, skipProject: true, compilerOptions: { module: 'commonjs', esModuleInterop: true, target: 'ES2022' } })
         const { appendHistory } = require(${JSON.stringify(historyFile)})
-        appendHistory(process.argv[1], { kind: 'save', by: 'child', changes: [{ key: 'LOG_LEVEL', from: '', to: process.argv[2] }] }, Number(process.argv[3]))
+        process.stdin.once('data', () => {
+            appendHistory(process.argv[1], { kind: 'save', by: 'child', changes: [{ key: 'LOG_LEVEL', from: '', to: process.argv[2] }] }, Number(process.argv[3]))
+            process.exit(0)
+        })
+        process.stdout.write('ready\\n')
     `
-            const child = spawn(process.execPath, ['-e', code, dir, marker, String(keep)], {
-                cwd: path.resolve(__dirname, '../..')
-            })
-            let err = ''
-            child.stderr.on('data', (chunk) => {
-                err += String(chunk)
-            })
-            child.on('exit', (code, signal) => {
-                if (code === 0) resolve()
-                else if (signal) reject(new Error(`append killed by ${signal}${err ? `: ${err}` : ''}`))
-                else reject(new Error(err || `append exited ${code}`))
+        const child = spawn(process.execPath, ['-e', code, dir, marker, String(keep)], {
+            cwd: path.resolve(__dirname, '../..')
+        })
+        let err = ''
+        let ready = false
+        let settle: (error?: Error) => void = () => undefined
+        const exited = new Promise<void>((resolve, reject) => {
+            settle = (error) => (error ? reject(error) : resolve())
+        })
+        child.stdin.on('error', () => undefined)
+        child.stderr.on('data', (chunk) => {
+            err += String(chunk)
+        })
+        child.stdout.on('data', (chunk) => {
+            if (ready || !String(chunk).includes('ready')) return
+            ready = true
+            resolveReady(() => {
+                child.stdin.end('go\n')
+                return exited
             })
         })
-    // A child can die in the runtime, or be killed by a signal, while the suite is already busy. One more try is the
-    // same append, unless the first child wrote its row before it died.
-    return once().catch((error: Error) => {
-        if (!/Fatal error|unreachable code|killed by/.test(error.message)) throw error
-        if (readHistory(dir, 1000).some((entry) => entry.changes?.[0].to === marker)) return
-        return once()
+        child.on('exit', (code, signal) => {
+            const error =
+                code === 0
+                    ? undefined
+                    : new Error(signal ? `append killed by ${signal}${err ? `: ${err}` : ''}` : err || `append exited ${code}`)
+            if (ready) settle(error)
+            else rejectReady(error ?? new Error('append exited before it loaded'))
+        })
     })
 }
