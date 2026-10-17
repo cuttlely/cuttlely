@@ -1815,13 +1815,13 @@ packages/ui/src/views/assistants/custom/toolAgentFlow.js
 packages/ui/src/views/assistants/index.jsx
 packages/ui/src/views/assistants/openai/AssistantDialog.jsx
 packages/ui/src/views/assistants/openai/AssistantVectorStoreDialog.jsx
+packages/ui/src/views/assistants/openai/DeleteConfirmDialog.jsx
+packages/ui/src/views/assistants/openai/LoadAssistantDialog.jsx
+packages/ui/src/views/assistants/openai/OpenAIAssistantLayout.jsx
 packages/ui/src/views/audit/index.jsx
 packages/ui/src/views/audit/index.test.js
 packages/ui/src/views/audit/query.js
 packages/ui/src/views/audit/query.test.js
-packages/ui/src/views/assistants/openai/DeleteConfirmDialog.jsx
-packages/ui/src/views/assistants/openai/LoadAssistantDialog.jsx
-packages/ui/src/views/assistants/openai/OpenAIAssistantLayout.jsx
 packages/ui/src/views/auth/confirm-email-change.jsx
 packages/ui/src/views/auth/expired.jsx
 packages/ui/src/views/auth/forgotPassword.jsx

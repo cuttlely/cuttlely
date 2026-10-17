@@ -18,6 +18,8 @@
             "packages/ui/src/api/harnesses.js",
             "packages/ui/src/utils/harness*",
             "packages/server/src/utils/harnessStream.test.ts",
+            "packages/server/src/utils/apiKeyAccess.ts",
+            "packages/server/src/routes/internal-predictions/auth.test.ts",
             "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts",
             "packages/etl/**",
             "etl/**",
@@ -375,9 +377,12 @@
                 "packages/ui/src/api/harnesses.js",
                 "packages/ui/src/utils/harness*",
                 "packages/server/src/utils/harnessStream.test.ts",
+                "packages/server/src/utils/apiKeyAccess.ts",
+                "packages/server/src/routes/internal-predictions/auth.test.ts",
                 "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts"
             ],
             "entryPoints": [
+                "packages/server/src/utils/apiKeyAccess.ts",
                 "packages/harness/trace.mjs",
                 "harness/trace.mjs",
                 "packages/server/src/database/migrations/mariadb/1781000000000-AddHarnessPayloadToChatMessage.ts",
