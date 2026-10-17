@@ -3,6 +3,7 @@ import componentStyleOverrides, {
     DARK_DISABLED_FILL,
     DARK_DISABLED_LABEL,
     DARK_TOGGLE_LABEL,
+    LIGHT_TOGGLE_LABEL,
     LIGHT_DISABLED_FILL,
     LIGHT_DISABLED_LABEL
 } from './compStyleOverride'
@@ -147,8 +148,11 @@ describe('toggle buttons', () => {
         }
     })
 
-    test('light theme keeps the MUI label color', () => {
-        expect(toggleRoot(false).color).toBeUndefined()
+    test('light theme: an unselected label reads at 4.8:1 or better on white and on its hover fill', () => {
+        expect(toggleRoot(false).color).toBe(LIGHT_TOGGLE_LABEL)
+        for (const surface of ['#ffffff', '#f9f9f9', '#f5f5f5']) {
+            expect(contrast(LIGHT_TOGGLE_LABEL, surface)).toBeGreaterThanOrEqual(4.8)
+        }
     })
 
     test('keyboard focus draws a violet outline in each theme', () => {

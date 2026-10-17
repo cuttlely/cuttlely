@@ -44,9 +44,11 @@ const darkAlerts = () =>
 // The palette mode stays 'light' in the dark theme, so MUI's unselected ToggleButton label (action.active) is near-black there.
 // Dark theme: #c3c7cf reads about 10.2:1 on the dark page and about 9.2:1 on the hover fill.
 export const DARK_TOGGLE_LABEL = '#c3c7cf'
+// Light theme: MUI's default reads 4.53:1 on the hover fill; #666666 is about 5.7:1 on white and 5.4:1 on that fill.
+export const LIGHT_TOGGLE_LABEL = '#666666'
 
 const toggleButton = (dark, colors) => ({
-    ...(dark ? { color: DARK_TOGGLE_LABEL } : {}),
+    color: dark ? DARK_TOGGLE_LABEL : LIGHT_TOGGLE_LABEL,
     '&.Mui-focusVisible': {
         outline: `2px solid ${dark ? colors?.darkPrimaryAccent : colors?.primaryMain}`,
         outlineOffset: -2
