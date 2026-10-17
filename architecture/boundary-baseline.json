@@ -863,12 +863,12 @@
         {
             "from": "packages/server/src/utils/feedbackTypeFilters.test.ts",
             "to": "packages/server/src/Interface.ts",
-            "reason": "the file link test drives the inherited file handler it covers"
+            "reason": "the test uses the rating values from the inherited Interface"
         },
         {
             "from": "packages/server/src/utils/feedbackTypeFilters.ts",
             "to": "packages/server/src/Interface.ts",
-            "reason": "the file link test drives the inherited file handler it covers"
+            "reason": "the rating values the filter returns are defined in the inherited Interface"
         },
         {
             "from": "packages/server/src/utils/fileLinkSignature.test.ts",
@@ -1480,12 +1480,12 @@
         {
             "from": "packages/server/src/controllers/chat-messages/index.ts",
             "to": "packages/server/src/utils/feedbackTypeFilters.ts",
-            "reason": "the file link test drives the inherited file handler it covers"
+            "reason": "the inherited chat message routes parse feedbackType with the shared filter"
         },
         {
             "from": "packages/server/src/controllers/stats/index.ts",
             "to": "packages/server/src/utils/feedbackTypeFilters.ts",
-            "reason": "the file link test drives the inherited file handler it covers"
+            "reason": "the inherited stats route parses feedbackType with the shared filter"
         },
         {
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
