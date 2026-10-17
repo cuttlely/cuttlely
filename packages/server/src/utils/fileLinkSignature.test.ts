@@ -54,6 +54,7 @@ jest.mock('./getRunningExpressApp', () => ({
 // Imported after the mocks.
 import getUploadFileRouter from '../routes/get-upload-file'
 import errorHandlerMiddleware from '../middlewares/errors'
+import getUploadFileController from '../controllers/get-upload-file'
 import { configureSessionOwnershipForTests, createMemoryGrantStore, resetSessionOwnershipForTests } from './sessionOwnership'
 import { FILE_LINK_TTL_SECONDS, fileDownloadUrl, setFileLinkSecretForTests, signFileLink, verifyFileLink } from './fileLinkSignature'
 
@@ -227,6 +228,33 @@ describe('GET /api/v1/get-upload-file with a signed link on a key-protected flow
             .set('Authorization', `Bearer ${KEY}`)
         // The key passes flow access; the chat id is then checked against the caller's session, as before.
         expect(res.status).toBe(403)
+        expect(mockState.storageReads).toEqual([])
+    })
+
+    it('a repeated chatflowId, chatId or fileName is refused, signed or not, and nothing is read', async () => {
+        const signed = signFileLink(target)!
+        const sig = `&expires=${signed.expires}&signature=${encodeURIComponent(signed.signature)}`
+        for (const name of ['chatflowId', 'chatId', 'fileName']) {
+            const repeated = `${withQuery(query)}&${name}=${encodeURIComponent((query as Record<string, string>)[name])}`
+            for (const url of [repeated, repeated + sig]) {
+                const res = await request(app).get(url).set('Authorization', `Bearer ${KEY}`)
+                expect([400, 401, 403]).toContain(res.status)
+            }
+        }
+        expect(mockState.storageReads).toEqual([])
+    })
+
+    it('the file handler itself refuses a repeated parameter with 400 and reads nothing', async () => {
+        for (const name of ['chatflowId', 'chatId', 'fileName']) {
+            const req = { query: { ...query, [name]: [(query as Record<string, string>)[name], 'x'] } }
+            const res = { statusCode: 200, body: '', status: jest.fn(), send: jest.fn(), setHeader: jest.fn() }
+            res.status.mockImplementation((code: number) => ((res.statusCode = code), res))
+            res.send.mockImplementation((body: string) => ((res.body = body), res))
+            const next = jest.fn()
+            await getUploadFileController.streamUploadedFile(req as any, res as any, next)
+            expect(res.statusCode).toBe(400)
+            expect(next).not.toHaveBeenCalled()
+        }
         expect(mockState.storageReads).toEqual([])
     })
 
