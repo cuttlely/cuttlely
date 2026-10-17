@@ -48,6 +48,7 @@ import express from 'express'
 import request from 'supertest'
 import chatflowsController from './index'
 import chatflowsRouter from '../../routes/chatflows'
+import verifyRouter from '../../routes/verify'
 import apikeyController from '../apikey'
 
 const secret = 'not-a-real-key'
@@ -225,5 +226,31 @@ describe('chatflows API-key routes', () => {
         expect(res.status).toBe(400)
         expect(res.text).not.toContain(secret)
         expect(getApiKey).not.toHaveBeenCalled()
+    })
+})
+
+describe('verify API-key routes', () => {
+    const app = express()
+    app.use('/api/v1/verify', verifyRouter)
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+    })
+
+    it('serves GET /api/v1/verify/apikey without a trailing slash from the Authorization header', async () => {
+        verifyApiKey.mockResolvedValue('OK')
+
+        const res = await request(app).get('/api/v1/verify/apikey').set('Authorization', `Bearer ${secret}`)
+
+        expect(res.status).toBe(200)
+        expect(verifyApiKey).toHaveBeenCalledWith(secret)
+    })
+
+    it('refuses a key in the URL path without checking it', async () => {
+        const res = await request(app).get(`/api/v1/verify/apikey/${secret}`)
+
+        expect(res.status).toBe(400)
+        expect(res.text).not.toContain(secret)
+        expect(verifyApiKey).not.toHaveBeenCalled()
     })
 })
