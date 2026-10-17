@@ -118,6 +118,10 @@ const removeAllChatMessages = async (req: Request, res: Response, next: NextFunc
         if (typeof req.params === 'undefined' || !req.params.id) {
             throw new AppError(StatusCodes.PRECONDITION_FAILED, 'Error: chatMessagesController.removeAllChatMessages - id not provided!')
         }
+        // An unreadable filter would otherwise mean no filter, and delete every message instead of the rated ones.
+        if (req.query?.feedbackType !== undefined && !feedbackTypeFilters(req.query.feedbackType)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Error: chatMessagesController.removeAllChatMessages - feedbackType is not valid')
+        }
         const orgId = req.user?.activeOrganizationId
         if (!orgId) {
             throw new AppError(
