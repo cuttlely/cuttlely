@@ -14,9 +14,10 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
     # Uploads are refused while the repository's CodeQL default setup is on; switch it to advanced first.
-    # C and C++ are not analyzed: the only C and C++ files are under hermes/, which the config leaves out.
+    # C and C++ are not analyzed: the only C and C++ files are under hermes/, which codeql-config.yml leaves out.
+    # The hermes-patches entry scans back in the hermes/ files Cuttlely's patches touch.
     analyze:
-        name: Analyze (${{ matrix.language }})
+        name: Analyze (${{ matrix.category }})
         runs-on: ubuntu-latest
         permissions:
             actions: read
@@ -25,14 +26,28 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                language: [actions, javascript-typescript, python]
+                include:
+                    - language: actions
+                      config: ./.github/codeql/codeql-config.yml
+                      category: /language:actions
+                    - language: javascript-typescript
+                      config: ./.github/codeql/codeql-config.yml
+                      category: /language:javascript-typescript
+                    - language: python
+                      config: ./.github/codeql/codeql-config.yml
+                      category: /language:python
+                    - language: python
+                      config: ./.github/codeql/codeql-hermes-patches.yml
+                      category: /language:python/hermes-patches
         steps:
-            - uses: actions/checkout@v6
-            - uses: github/codeql-action/init@v4
+            - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+              with:
+                  persist-credentials: false
+            - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
               with:
                   languages: ${{ matrix.language }}
                   build-mode: none
-                  config-file: ./.github/codeql/codeql-config.yml
-            - uses: github/codeql-action/analyze@v4
+                  config-file: ${{ matrix.config }}
+            - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
               with:
-                  category: '/language:${{ matrix.language }}'
+                  category: ${{ matrix.category }}

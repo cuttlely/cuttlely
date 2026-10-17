@@ -86,6 +86,7 @@ To keep conflicts small, put Cuttlely logic in new Cuttlely files (like `tools/m
 2. Run `pnpm hermes:vendor --save-patches`. Each changed file goes into the patch that already owns it.
 3. For a file no patch owns yet, run `pnpm hermes:vendor --save-patches --new "<short name>" --message "What: ... Why: ..."`. That adds a new patch file.
 4. Add a line for a new patch to `hermes/CUTTLELY_VENDOR.txt` and to the table above.
+5. When a patch now touches a file it did not before, or no longer touches one, update `.github/codeql/codeql-hermes-patches.yml`. See [Code scanning](#code-scanning).
 
 A later patch may continue a file an earlier patch already edits. `--save-patches` leaves that earlier patch as it is and writes the new edit into the last patch that lists the file. A file no patch lists still needs `--new`. `--save-patches` fetches the pinned commit to compare against, so it needs the network.
 
@@ -107,9 +108,11 @@ node scripts/measure-runtime-loads.mjs --check
 
 ## Code scanning
 
-CodeQL does not analyze `hermes/`. `.github/codeql/codeql-config.yml` lists `hermes/**` under `paths-ignore`, and `.github/workflows/codeql.yml` runs CodeQL with that config for GitHub Actions, JavaScript and TypeScript, and Python. The folder stays in the repository and in the image.
+CodeQL does not analyze the upstream code in `hermes/`. `.github/codeql/codeql-config.yml` lists `hermes/**` under `paths-ignore`, and `.github/workflows/codeql.yml` runs CodeQL with that config for GitHub Actions, JavaScript and TypeScript, and Python. The folder stays in the repository and in the image.
 
-Why: `hermes/` is a pinned copy of one upstream commit (`hermes/UPSTREAM_COMMIT`), not code Cuttlely writes. Hermes security releases are tracked weekly. A fix arrives as a new pin through `pnpm hermes:vendor`, or as a dependency raise in patch 0006 until upstream ships it. Alerts on upstream code would repeat that work and bury alerts on Cuttlely's own code. Cuttlely's patches under `hermes/patches/` are reviewed in the pull request that changes them.
+The files Cuttlely's patches touch are still scanned. `.github/codeql/codeql-hermes-patches.yml` lists every file a patch in `hermes/patches/` touches, including `hermes/tools/mcp_tool_cuttlely.py`, and the workflow's `hermes-patches` entry runs a Python analysis on that list (category `/language:python/hermes-patches`). When a patch touches a new file, or stops touching one, update that list in the same pull request. `scripts/codeql-config.test.mjs`, in the `verify-test` step, reads the patches and fails when a patched file is missing from the list or a listed file is no longer patched.
+
+Why: `hermes/` is a pinned copy of one upstream commit (`hermes/UPSTREAM_COMMIT`), not code Cuttlely writes. Hermes security releases are tracked weekly. A fix arrives as a new pin through `pnpm hermes:vendor`, or as a dependency raise in a local patch (0006, 0007) until upstream ships it. Alerts on upstream code would repeat that work and bury alerts on Cuttlely's own code.
 
 C and C++ are not in the CodeQL matrix, because the only C and C++ files are under `hermes/native`.
 
