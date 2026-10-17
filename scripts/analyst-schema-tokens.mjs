@@ -75,12 +75,13 @@ async function main() {
     const described = []
     for (const name of allNames) described.push(await describeAnalystUrlRelation(url, { name }, allNames))
     const selected = await analystUrlRelations(url, SELECTION)
+    const allSelected = await analystUrlRelations(url, allNames)
     const describeTool = tool(analystDescribeToolSpec(), 'describe')
     const plainQuery = tool(analystUrlToolSpec(100), 'query')
     const rows = [
         ['Before: whole schema in instructions + query tool', `${schemaText(described)}\n${plainQuery}`],
         ['After: 6 selected relations (query + describe tools)', `${tool(analystUrlToolSpec(100, selected), 'query')}\n${describeTool}`],
-        [`After: all ${everything.length} relations selected`, `${tool(analystUrlToolSpec(100, everything), 'query')}\n${describeTool}`],
+        [`After: all ${allSelected.length} relations selected`, `${tool(analystUrlToolSpec(100, allSelected), 'query')}\n${describeTool}`],
         ['Schema part only, before (whole schema)', schemaText(described)],
         [
             'Schema part only, after (6 lines)',

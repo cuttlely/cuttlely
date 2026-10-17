@@ -29,6 +29,8 @@ const SCOPE_STATEMENT_NAME = 'cuttlely_scope_check'
 const COMMENT_CHARS = 120
 const DEFINITION_CHARS = 4000
 const REFUSED_LIST = 12
+const LINE_COLUMNS = 12
+const ERROR_COLUMNS = 60
 
 // Built-ins in pg_catalog that run SQL passed as text, read a relation passed by name or id, run a type's input
 // function from a type name, read files or large objects, report on objects outside the selection (comments,
@@ -157,7 +159,9 @@ WHERE c.relkind IN ('r', 'p', 'f', 'v', 'm') AND NOT c.relispartition
 ORDER BY CASE c.relkind WHEN 'm' THEN 0 WHEN 'v' THEN 1 ELSE 2 END, n.nspname, c.relname
 LIMIT 2000`
 
-const SELECTED_RELATIONS_SQL = `SELECT ${RELATION_COLUMNS}
+const SELECTED_RELATIONS_SQL = `SELECT ${RELATION_COLUMNS},
+    ARRAY(SELECT quote_ident(a.attname) FROM pg_attribute a
+          WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum) AS column_names
 FROM unnest(?::text[]) WITH ORDINALITY AS s(name, ord)
 JOIN pg_class c ON c.oid = to_regclass(s.name)
 JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -171,6 +175,7 @@ function shapeRelation(row) {
         kind: RELATION_KINDS[row.relkind] || 'table',
         oid: Number(row.oid),
         columns: Number(row.columns) || 0,
+        columnNames: Array.isArray(row.column_names) ? row.column_names.map(String) : [],
         comment
     }
 }
@@ -191,20 +196,49 @@ function clip(text, limit) {
     return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`
 }
 
-// One short line per relation: name, kind, column count, and the comment when there is one.
+export function columnList(relation, limit = LINE_COLUMNS) {
+    const names = relation.columnNames || []
+    return names.length > limit ? `${names.slice(0, limit).join(', ')}, …` : names.join(', ')
+}
+
+// One short line per relation: name, kind, its first column names, and the comment when there is one.
+// Models tend to write SQL before calling describe, so the names they need most are already in the line.
 export function relationLine(relation) {
     if (!relation.kind) return relation.name
-    const count = `${relation.columns} column${relation.columns === 1 ? '' : 's'}`
-    const head = `${relation.name} (${relation.kind}, ${count})`
-    return relation.comment ? `${head}: ${clip(relation.comment, COMMENT_CHARS)}` : head
+    const columns = columnList(relation)
+    const head = columns ? `${relation.name} (${relation.kind}): ${columns}` : `${relation.name} (${relation.kind})`
+    if (!relation.comment) return head
+    return `${head}${columns ? ' — ' : ': '}${clip(relation.comment, COMMENT_CHARS)}`
 }
 
 export function relationToolNote(relations) {
     if (!relations.length) return ` ${SCOPE_NONE_LEFT}`
     return [
-        ' Only these relations can be queried. Call describe with a name for its columns, keys and definition before writing SQL against it.',
+        ' Only these relations can be queried. Each line lists its column names, the first 12 when there are more. Call describe with a name for column types and comments, keys, the full column list and a view definition.',
         ...relations.map((relation) => `- ${relationLine(relation)}`)
     ].join('\n')
+}
+
+// 42703 undefined column (also a JOIN ... USING column a side lacks), 42702 ambiguous column.
+const COLUMN_ERRORS = new Set(['42703', '42702'])
+
+function mentions(statement, relation) {
+    const local = nameParts(relation.name)?.[1]
+    if (!local) return false
+    const quoted = relation.name.endsWith('"')
+    if (quoted) return statement.includes(`"${local.replace(/"/g, '""')}"`)
+    const escaped = local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(^|[^A-Za-z0-9_$"])${escaped}($|[^A-Za-z0-9_$"])`, 'i').test(statement)
+}
+
+// After a guessed column fails, the columns of each selected relation the statement names, so the retry can be right.
+export function columnErrorHint(error, statement, relations) {
+    if (!COLUMN_ERRORS.has(String(error?.code || ''))) return ''
+    const text = String(statement || '')
+    return relations
+        .filter((relation) => relation.columnNames?.length && mentions(text, relation))
+        .map((relation) => ` Columns of ${relation.name}: ${columnList(relation, ERROR_COLUMNS)}.`)
+        .join('')
 }
 
 function unquote(part) {
