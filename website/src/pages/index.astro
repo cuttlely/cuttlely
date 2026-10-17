@@ -8,6 +8,7 @@ import ZoomableImage from '../components/ZoomableImage.astro'
 import laptop from '../assets/cuttlely-mascot-laptop-512.webp'
 import careAnswer from '../content/docs/docs/images/try-the-demo/customer-care-answer.png'
 import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
+import analystPicker from '../content/docs/docs/images/analyst/postgres-mcp-table-picker.png'
 import publishCheck from '../content/docs/docs/images/versioning/publish-check-results.png'
 import serverSettings from '../content/docs/docs/images/server-settings/server-settings-all.png'
 import Focus from '../components/Focus.astro'
@@ -413,6 +414,39 @@ const installs = [
                     sizes="(min-width: 68rem) 560px, 100vw"
                 />
             </figure>
+            <aside id="the-analyst-sees-only-what-you-tick" class="cl-callout" aria-labelledby="analyst-callout-title">
+                <div class="cl-callout-copy">
+                    <p class="cl-kicker">The Analyst node</p>
+                    <h3 id="analyst-callout-title" class="cl-display">It sees only the tables you tick</h3>
+                    <p>
+                        Tick the tables and views the Analyst may use. It gets their names and column names, and fetches the details of one only when a question
+                        needs them. It answers from a small prompt, and every query stays limited to those tables.
+                    </p>
+                    <dl class="cl-stats">
+                        <div>
+                            <dt>Prompt tokens, about</dt>
+                            <dd><span class="cl-stat-value cl-display">643</span> versus about 2,562 with the whole schema pasted in</dd>
+                        </div>
+                        <div>
+                            <dt>Real-model test, gpt-4.1</dt>
+                            <dd><span class="cl-stat-value cl-display">5 of 5</span> questions answered correctly, each data question on its first query</dd>
+                        </div>
+                    </dl>
+                    <p class="cl-note">
+                        Measured on the made-up bakery demo database: 20 tables and views, 6 ticked. Token counts come from
+                        <a href={`${REPO_URL}/blob/main/scripts/analyst-schema-tokens.mjs`}><code>scripts/analyst-schema-tokens.mjs</code></a>.
+                    </p>
+                    <a class="cl-link-arrow" href="/docs/how-to/analyst/#pick-the-tables-and-views-the-analyst-sees">Analyst guide <Icon name="right-arrow" /></a>
+                </div>
+                <figure class="cl-shot cl-callout-shot">
+                    <ZoomableImage
+                        src={analystPicker}
+                        alt="The Tables and views field on the PostgreSQL MCP card, from the bakery demo. public.monthly_sales, public.top_products and public.account_balances are ticked, public.open_orders and public.product_margins are not. The line under the list reads 6 of 20 ticked. Queries that read anything else are refused."
+                        widths={[320, 529]}
+                        sizes="(min-width: 60rem) 18rem, 80vw"
+                    />
+                </figure>
+            </aside>
         </section>
 
         <section id="use-a-team-from-your-app" class="cl-section" aria-labelledby="api-title">

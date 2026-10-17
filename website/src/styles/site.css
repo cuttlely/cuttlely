@@ -739,6 +739,80 @@
     background: var(--cuttlely-surface);
     box-shadow: 0 30px 60px -35px var(--cuttlely-glow);
 }
+.cl-callout {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 2rem;
+    align-items: center;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    border: 1px solid var(--cuttlely-border);
+    background: var(--cuttlely-surface-2);
+}
+@media (min-width: 60rem) {
+    .cl-callout {
+        grid-template-columns: minmax(0, 1fr) 18rem;
+        gap: 3rem;
+        padding: 2rem 2.5rem;
+    }
+}
+.cl-callout-copy h3 {
+    margin: 0 0 0.75rem;
+    font-size: var(--sl-text-2xl);
+    font-weight: 800;
+    line-height: 1.2;
+    color: var(--sl-color-white);
+}
+.cl-callout-copy > p:not(.cl-kicker, .cl-note) {
+    margin: 0 0 1.25rem;
+    color: var(--sl-color-gray-2);
+    line-height: 1.6;
+}
+.cl-callout-copy .cl-note {
+    margin: 0 0 1rem;
+}
+.cl-callout-shot {
+    width: 100%;
+    max-width: 18rem;
+    justify-self: center;
+}
+.cl-stats {
+    display: grid;
+    gap: 1rem;
+    margin: 0 0 1rem;
+}
+@media (min-width: 40rem) {
+    .cl-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+.cl-stats > div {
+    padding: 1rem 1.1rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--cuttlely-border);
+    background: var(--cuttlely-surface);
+}
+.cl-stats dt {
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+}
+.cl-stats dd {
+    margin: 0.35rem 0 0;
+    font-size: var(--sl-text-sm);
+    line-height: 1.5;
+    color: var(--sl-color-gray-2);
+}
+.cl-stat-value {
+    display: block;
+    margin-bottom: 0.15rem;
+    font-size: var(--sl-text-3xl);
+    font-weight: 800;
+    line-height: 1.1;
+    color: var(--sl-color-text-accent);
+}
 .cl-testing-shot {
     max-width: 46rem;
     margin: 1.5rem auto 0;
@@ -1186,6 +1260,24 @@
     inset: 0 0 auto;
     height: 3px;
     background: var(--cuttlely-gradient-mark);
+}
+:root[data-theme='light'] .cl-callout {
+    position: relative;
+    overflow: hidden;
+    border-color: var(--cuttlely-card-border);
+    background: var(--cuttlely-surface);
+    box-shadow: var(--cuttlely-card-shadow);
+}
+:root[data-theme='light'] .cl-callout::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    background: var(--cuttlely-gradient-mark);
+}
+:root[data-theme='light'] .cl-stats > div {
+    border-color: var(--cuttlely-card-border);
+    background: var(--cuttlely-surface-2);
 }
 :root[data-theme='light'] .cl-tile:not(:hover, :focus-within) {
     border-color: var(--cuttlely-card-border);
