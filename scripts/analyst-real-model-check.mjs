@@ -60,23 +60,33 @@ const budget = analyst(
 
 // [question, analyst that should answer, check]. The check is a pattern one answer must contain, or a function over
 // every result. A null analyst means the question should go to every analyst.
+const dollarFigures = (text) => [...text.matchAll(/\$\s?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)/g)].map((m) => m[1])
+// For a "which X" question that does not ask for an amount: the answer must name X, and any dollar figure it gives
+// must be one of the given figures.
+const named =
+    (name, ...figures) =>
+    (results) =>
+        results.some((r) => name.test(r.answer) && dollarFigures(r.answer).every((f) => figures.some((re) => re.test(f))))
+const OLD_TOWN = named(/Old Town/, /^5,?976\.50?$/)
+// Engineering's 2026 plan, spend so far and what is left.
+const ENGINEERING = named(/Engineering/, /^260,?000(\.00?)?$/, /^237,?000(\.00?)?$/, /^23,?000(\.00?)?$/)
 const BAKERY = [
-    ['Which month had the highest total sales, and how much?', bakery, /June[\s\S]*(?<![\d,])49,?557\.50?(?!\d)/i],
+    ['Which month had the highest total sales, and how much?', bakery, /June[\s\S]*(?<![\d,])49,?557\.50?(?!,?\d)/i],
     ['What are the top 3 products by revenue?', bakery, /Sourdough Loaf[\s\S]*Seeded Rye[\s\S]*Lemon Tart/],
     ['Which wholesale account owes us the most right now, and how much?', bakery, /Hilltop Deli[\s\S]*(?<![\d,])600\.12(?!\d)/],
-    ['Which store had the most revenue in the most recent week?', bakery, /Old Town[\s\S]*(?<![\d,])5,?976\.50?(?!\d)/],
+    ['Which store had the most revenue in the most recent week?', bakery, OLD_TOWN],
     ['How many staff work at each store?', bakery, /\b(not|no|cannot|can't|don't|isn't|unable)\b/i]
 ]
 const answered = (results, s, pattern) => results.some((r) => r.analyst === s.name && pattern.test(r.answer))
 const TWO = [
     ['What are the top 3 products by revenue?', bakery, /Sourdough Loaf[\s\S]*Seeded Rye[\s\S]*Lemon Tart/],
     ['Which wholesale account owes us the most right now, and how much?', bakery, /Hilltop Deli[\s\S]*(?<![\d,])600\.12(?!\d)/],
-    ['Which store had the most revenue in the most recent week?', bakery, /Old Town[\s\S]*(?<![\d,])5,?976\.50?(?!\d)/],
-    ['Which department has used the largest share of its 2026 budget so far?', budget, /Engineering/],
-    ['Which vendor have we paid the most, and how much?', budget, /SkyCloud[\s\S]*(?<![\d,])215,?000(?!\d)/],
-    ['What is the total planned budget for fiscal 2026?', budget, /(?<![\d,])625,?000(?!\d)/],
-    ['How much did we spend on software this year?', budget, /(?<![\d,])26,?000(?!\d)/],
-    ['Analyst: what were total sales in June 2026?', bakery, /(?<![\d,])49,?557\.50?(?!\d)/],
+    ['Which store had the most revenue in the most recent week?', bakery, OLD_TOWN],
+    ['Which department has used the largest share of its 2026 budget so far?', budget, ENGINEERING],
+    ['Which vendor have we paid the most, and how much?', budget, /SkyCloud[\s\S]*(?<![\d,])215,?000(?!,?\d)/],
+    ['What is the total planned budget for fiscal 2026?', budget, /(?<![\d,])625,?000(?!,?\d)/],
+    ['How much did we spend on software this year?', budget, /(?<![\d,])26,?000(?!,?\d)/],
+    ['Analyst: what were total sales in June 2026?', bakery, /(?<![\d,])49,?557\.50?(?!,?\d)/],
     [
         'Analyst: list the tables you can see.',
         null,
