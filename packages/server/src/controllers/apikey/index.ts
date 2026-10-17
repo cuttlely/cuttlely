@@ -4,6 +4,7 @@ import { LoggedInUser } from '../../identity/types'
 import { AppError } from '../../errors/appError'
 import apikeyService from '../../services/apikey'
 import { getPageAndLimitParams } from '../../utils/pagination'
+import { API_KEY_IN_URL_MESSAGE, bearerApiKey } from '../../utils/apiKey'
 
 function actor(user: LoggedInUser | undefined) {
     if (!user?.activeWorkspaceId || !user.permissions) {
@@ -109,14 +110,20 @@ const deleteApiKey = async (req: Request, res: Response, next: NextFunction) => 
 // Verify api key
 const verifyApiKey = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        if (typeof req.params === 'undefined' || !req.params.apikey) {
+        const suppliedKey = bearerApiKey(req.headers.authorization)
+        if (!suppliedKey) {
             throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.verifyApiKey - apikey not provided!`)
         }
-        const apiResponse = await apikeyService.verifyApiKey(req.params.apikey)
+        const apiResponse = await apikeyService.verifyApiKey(suppliedKey)
         return res.json(apiResponse)
     } catch (error) {
         next(error)
     }
+}
+
+// The path value is never read, so a key sent this way is not checked.
+const refuseApiKeyInUrl = (_req: Request, res: Response) => {
+    res.status(StatusCodes.BAD_REQUEST).json({ message: API_KEY_IN_URL_MESSAGE })
 }
 
 export default {
@@ -124,5 +131,6 @@ export default {
     deleteApiKey,
     getAllApiKeys,
     updateApiKey,
-    verifyApiKey
+    verifyApiKey,
+    refuseApiKeyInUrl
 }

@@ -186,7 +186,17 @@
         },
         {
             "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
+            "to": "packages/server/src/controllers/apikey/index.ts",
+            "reason": "the API-key test drives the inherited controller and router it covers"
+        },
+        {
+            "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
             "to": "packages/server/src/controllers/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
+            "to": "packages/server/src/routes/chatflows/index.ts",
+            "reason": "the API-key test drives the inherited controller and router it covers"
         },
         {
             "from": "packages/server/src/controllers/demo/index.ts",

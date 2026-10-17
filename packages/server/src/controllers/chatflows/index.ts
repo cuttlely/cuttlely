@@ -10,6 +10,7 @@ import apiKeyService from '../../services/apikey'
 import { actorFromUser } from '../../services/flow-versions/author'
 import chatflowsService from '../../services/chatflows'
 import scheduleService from '../../services/schedule'
+import { bearerApiKey } from '../../utils/apiKey'
 import { GeneralErrorMessage } from '../../utils/constants'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { getPageAndLimitParams } from '../../utils/pagination'
@@ -118,18 +119,19 @@ const withoutSuppliedKey = (error: unknown, suppliedKey: string | undefined): un
 
 // Get specific chatflow via api key
 const getChatflowByApiKey = async (req: Request, res: Response, next: NextFunction) => {
+    const suppliedKey = bearerApiKey(req.headers?.authorization)
     try {
-        if (typeof req.params === 'undefined' || !req.params.apikey) {
+        if (!suppliedKey) {
             throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: chatflowsController.getChatflowByApiKey - apikey not provided!`)
         }
-        const apikey = await apiKeyService.getApiKey(req.params.apikey)
+        const apikey = await apiKeyService.getApiKey(suppliedKey)
         if (!apikey) {
             return res.status(401).send('Unauthorized')
         }
         const apiResponse = await chatflowsService.getChatflowByApiKey(apikey.id, apikey.workspaceId)
         return res.json(apiResponse)
     } catch (error) {
-        next(withoutSuppliedKey(error, req.params.apikey))
+        next(withoutSuppliedKey(error, suppliedKey))
     }
 }
 
