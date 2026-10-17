@@ -143,27 +143,49 @@ export function dueSchedules(now = new Date()) {
 }
 
 /**
- * Records what one due time did and moves the schedule to its next time, counted from `now`, so time the server
- * was down is not run as a backlog. A schedule changed or paused while the tick ran is left as it is.
+ * The next time after a due time, from the later of now and that due time, so time the server was down is not run as
+ * a backlog and a late tick does not run the same wall time again. Null when the cron has no later time.
  */
-export function recordScheduleTick(name, { dueAt, runId = null, result, reason = null, now = new Date() } = {}) {
+export function nextAfterDue(schedule, now = new Date()) {
+    try {
+        return nextCronRun(schedule.cron, schedule.timezone, now, { dueAt: new Date(schedule.nextRunAt) }).getTime()
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Takes one due time for this process. Only the process whose update moves `next_run_at` off the due time may start
+ * the run, so two servers on the same data never both start it. Returns false when another process took it, or when
+ * the schedule was paused or changed since it was read.
+ */
+export function claimSchedule(name, { dueAt, next, now = new Date() } = {}) {
+    const harnessName = assertHarnessName(name)
+    let changes = 0
+    immediate((db) => {
+        ensure(db)
+        changes = db
+            .prepare(
+                `UPDATE harness_schedules SET next_run_at = ?, last_result = 'starting', last_reason = NULL, updated_at = ?
+                 WHERE harness_name = ? AND status = 'active' AND next_run_at = ?`
+            )
+            .run(next, now.getTime(), harnessName, Date.parse(dueAt)).changes
+    })
+    return changes === 1
+}
+
+/** Records what a claimed due time did. A schedule saved again since the claim keeps its new state. */
+export function recordScheduleTick(name, { claimedNext = null, runId = null, result, reason = null, now = new Date() } = {}) {
     const current = getSchedule(name)
     if (!current) return null
-    let next = null
-    try {
-        next = nextCronRun(current.cron, current.timezone, now).getTime()
-    } catch {
-        next = null
-    }
     immediate((db) => {
         ensure(db)
         db.prepare(
             `UPDATE harness_schedules
-             SET next_run_at = ?, last_result = ?, last_reason = ?, updated_at = ?,
+             SET last_result = ?, last_reason = ?, updated_at = ?,
                  last_run_id = COALESCE(?, last_run_id), last_run_at = CASE WHEN ? IS NULL THEN last_run_at ELSE ? END
-             WHERE harness_name = ? AND status = 'active' AND next_run_at = ?`
+             WHERE harness_name = ? AND next_run_at IS ?`
         ).run(
-            next,
             String(result || '').slice(0, 32),
             reason ? String(reason).slice(0, 300) : null,
             now.getTime(),
@@ -171,7 +193,7 @@ export function recordScheduleTick(name, { dueAt, runId = null, result, reason =
             runId,
             now.getTime(),
             current.harness,
-            Date.parse(dueAt)
+            claimedNext
         )
     })
     return getSchedule(current.harness)
@@ -202,11 +224,13 @@ const inFlight = new Set()
 let ticking = false
 
 /**
- * Starts every due, active schedule once. A schedule whose last run is still queued or running is skipped, so runs
- * never overlap. Each due time is recorded, and the next time is counted from now.
+ * Starts every due, active schedule once. Each due time is claimed first, so only one process acts on it. A schedule
+ * whose last run is still queued or running is skipped, so runs never overlap. Each due time is recorded, and the
+ * next time is counted from the later of now and the due time.
  *
  * `start(schedule, onSettled)` starts the run and resolves to `{ runId }`. `ownerMayRun(schedule)` checks the owner's
- * permissions in the harness team at this due time. `audit(schedule, summary, detail)` writes an audit row.
+ * permissions in the harness team at this due time. `audit(schedule, summary, detail)` writes an audit row, including
+ * one with the run id for every run a schedule starts.
  */
 export async function tickSchedules({ now = () => new Date(), start, ownerMayRun, audit = async () => {}, log = () => {} } = {}) {
     if (ticking) return []
@@ -217,7 +241,9 @@ export async function tickSchedules({ now = () => new Date(), start, ownerMayRun
         const at = now()
         for (const schedule of dueSchedules(at)) {
             const name = schedule.harness
-            const tick = (fields) => recordScheduleTick(name, { dueAt: schedule.nextRunAt, now: at, ...fields })
+            const claimedNext = nextAfterDue(schedule, at)
+            if (!claimSchedule(name, { dueAt: schedule.nextRunAt, next: claimedNext, now: at })) continue
+            const tick = (fields) => recordScheduleTick(name, { claimedNext, now: at, ...fields })
             try {
                 const lastStatus = schedule.lastRunId ? getRun(name, schedule.lastRunId)?.status : null
                 if (inFlight.has(name) || OPEN_RUNS.has(lastStatus)) {
@@ -248,6 +274,7 @@ export async function tickSchedules({ now = () => new Date(), start, ownerMayRun
                     throw error
                 }
                 tick({ result: 'running', runId: started.runId })
+                await audit(schedule, 'Scheduled harness run started', { action: 'run_started', runId: started.runId })
                 log('info', `schedule ${name}: started run ${started.runId}`)
                 outcomes.push({ harness: name, result: 'running', runId: started.runId })
             } catch (error) {
@@ -255,7 +282,7 @@ export async function tickSchedules({ now = () => new Date(), start, ownerMayRun
                 try {
                     tick({ result: 'failed', reason })
                 } catch {
-                    // The next tick tries this schedule again.
+                    // The claim already moved the schedule to its next due time.
                 }
                 log('warn', `schedule ${name}: did not start: ${reason}`)
                 outcomes.push({ harness: name, result: 'failed', reason })

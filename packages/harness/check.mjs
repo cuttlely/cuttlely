@@ -10996,8 +10996,13 @@ await expectCase('a harness schedule fires when due in its time zone, never over
 
     const refused = await tick('2026-10-23T05:00:05Z', async () => false)
     check(
+        'every scheduled run that starts writes a run_started audit row with its run id',
+        audits[0]?.[2]?.action === 'run_started' && audits[0]?.[2]?.runId === fired[0]?.runId,
+        JSON.stringify(audits.map((row) => row[2]))
+    )
+    check(
         'a schedule whose owner can no longer run the harness is refused and audited',
-        refused[0]?.result === 'refused' && started.length === 1 && audits.length === 1 && audits[0][2]?.action === 'run_refused',
+        refused[0]?.result === 'refused' && started.length === 1 && audits.length === 2 && audits[1][2]?.action === 'run_refused',
         JSON.stringify(refused)
     )
 
@@ -11025,8 +11030,152 @@ await expectCase('a harness schedule fires when due in its time zone, never over
     )
     check(
         'a harness schedule fires when due in its time zone, never overlaps, pauses, and survives a restart',
-        started.length === 2 && audits.length === 1,
+        started.length === 2 && audits.length === 3,
         'see the rows above'
+    )
+})
+
+await expectCase('a schedule handles daylight saving, late ticks, impossible dates, and time zone names', async () => {
+    const cron = await import('./cron.mjs')
+    const iso = (expr, zone, from, dueAt) =>
+        cron.nextCronRun(expr, zone, new Date(from), dueAt ? { dueAt: new Date(dueAt) } : {}).toISOString()
+    check(
+        'a late tick inside the repeated hour does not run the same wall time again',
+        iso('30 2 * * *', 'Europe/Paris', '2026-10-25T01:10:00Z', '2026-10-25T00:30:00Z') === '2026-10-26T01:30:00.000Z',
+        iso('30 2 * * *', 'Europe/Paris', '2026-10-25T01:10:00Z', '2026-10-25T00:30:00Z')
+    )
+    check(
+        'a tick that runs late on an ordinary day counts the next time from now, once',
+        iso('0 7 * * *', 'Europe/Paris', '2026-10-19T09:00:00Z', '2026-10-19T05:00:00Z') === '2026-10-20T05:00:00.000Z',
+        iso('0 7 * * *', 'Europe/Paris', '2026-10-19T09:00:00Z', '2026-10-19T05:00:00Z')
+    )
+    const runs = []
+    let from = new Date('2026-10-24T23:50:00Z')
+    let due = null
+    for (let i = 0; i < 9; i += 1) {
+        const next = cron.nextCronRun('*/15 * * * *', 'Europe/Paris', from, due ? { dueAt: due } : {})
+        runs.push(next.toISOString().slice(11, 16))
+        due = next
+        from = next
+    }
+    check(
+        '*/15 runs each wall time of the repeated hour once, on its first pass',
+        runs.join(' ') === '00:00 00:15 00:30 00:45 02:00 02:15 02:30 02:45 03:00',
+        runs.join(' ')
+    )
+    const refused = (expr) => {
+        try {
+            cron.parseCron(expr)
+            return ''
+        } catch (error) {
+            return error.code
+        }
+    }
+    check(
+        '30 February and 31 April are refused up front, 29 February is kept',
+        refused('0 9 30 2 *') === 'bad_schedule' && refused('0 9 31 4,6,9,11 *') === 'bad_schedule' && refused('0 9 29 2 *') === '',
+        `${refused('0 9 30 2 *')} ${refused('0 9 29 2 *')}`
+    )
+    check(
+        'a day field that starts with * is unrestricted, so */2 with Monday runs on Mondays only',
+        iso('0 9 */2 * 1', 'UTC', '2026-01-01T00:00:00Z') === '2026-01-05T09:00:00.000Z' &&
+            iso('0 9 1 * 1', 'UTC', '2026-01-01T12:00:00Z') === '2026-01-05T09:00:00.000Z',
+        iso('0 9 */2 * 1', 'UTC', '2026-01-01T00:00:00Z')
+    )
+    check(
+        'a leap day schedule finds 29 February years ahead',
+        iso('0 0 29 2 *', 'UTC', '2026-01-01T00:00:00Z') === '2028-02-29T00:00:00.000Z',
+        iso('0 0 29 2 *', 'UTC', '2026-01-01T00:00:00Z')
+    )
+    const zone = (value) => {
+        try {
+            return cron.assertTimeZone(value)
+        } catch (error) {
+            return error.code
+        }
+    }
+    check(
+        'a time zone is stored in canonical form, and offsets and abbreviations are refused',
+        zone('utc') === 'UTC' &&
+            zone('Etc/UTC') === 'UTC' &&
+            zone('Europe/Paris') === 'Europe/Paris' &&
+            ['+02:00', 'Etc/GMT-2', 'CET', 'EST', 'Mars/Olympus'].every((value) => zone(value) === 'bad_schedule'),
+        ['utc', '+02:00', 'Etc/GMT-2', 'CET', 'EST'].map(zone).join(',')
+    )
+    check(
+        'a schedule handles daylight saving, late ticks, impossible dates, and time zone names',
+        runs.length === 9 && zone('utc') === 'UTC',
+        'see the rows above'
+    )
+})
+
+await expectCase('two processes ticking the same due schedule start it once', async () => {
+    const schedules = await import('./schedule.mjs')
+    schedules.saveSchedule(
+        'two-process',
+        { cron: '*/5 * * * *', timezone: 'UTC', question: 'Count the loaves.' },
+        { workspaceId: 'team-1', ownerId: 'user-1', now: new Date('2026-10-19T05:01:00Z') }
+    )
+    const startsFile = path.join(dataDir, 'two-process-starts.txt')
+    fs.rmSync(startsFile, { force: true })
+    const script = `
+        import fs from 'node:fs'
+        const schedules = await import(${JSON.stringify(new URL('./schedule.mjs', import.meta.url).href)})
+        const go = Number(process.argv[1])
+        while (Date.now() < go) await new Promise((resolve) => setTimeout(resolve, 2))
+        const outcomes = await schedules.tickSchedules({
+            now: () => new Date('2026-10-19T05:05:30Z'),
+            ownerMayRun: async () => true,
+            start: async () => {
+                fs.appendFileSync(${JSON.stringify(startsFile)}, process.pid + '\\n')
+                return { runId: 'run_' + process.pid + '-two-process' }
+            }
+        })
+        process.stdout.write(JSON.stringify(outcomes))
+    `
+    const go = String(Date.now() + 400)
+    const runChild = () =>
+        new Promise((resolve) => {
+            const child = spawn(process.execPath, ['--input-type=module', '-e', script, go], { env: process.env })
+            let out = ''
+            child.stdout.on('data', (chunk) => (out += chunk))
+            child.on('close', () => resolve(out))
+        })
+    const outputs = await Promise.all([runChild(), runChild()])
+    const lines = fs.existsSync(startsFile) ? fs.readFileSync(startsFile, 'utf8').trim().split('\n').filter(Boolean) : []
+    const after = schedules.getSchedule('two-process')
+    schedules.deleteSchedule('two-process')
+    check(
+        'two processes ticking the same due schedule start it once',
+        lines.length === 1 && after?.nextRunAt === '2026-10-19T05:10:00.000Z',
+        JSON.stringify({ lines, outputs, next: after?.nextRunAt })
+    )
+})
+
+await expectCase('a deleted schedule never starts, and a claim on a paused schedule is refused', async () => {
+    const schedules = await import('./schedule.mjs')
+    schedules.saveSchedule(
+        'gone-harness',
+        { cron: '0 * * * *', timezone: 'UTC', question: 'q' },
+        { workspaceId: 'team-1', ownerId: 'user-1', now: new Date('2026-10-19T04:30:00Z') }
+    )
+    const due = schedules.getSchedule('gone-harness')
+    schedules.setScheduleStatus('gone-harness', 'paused', { now: new Date('2026-10-19T04:40:00Z') })
+    const pausedClaim = schedules.claimSchedule('gone-harness', { dueAt: due.nextRunAt, next: null })
+    schedules.deleteSchedule('gone-harness')
+    let started = 0
+    const outcomes = await schedules.tickSchedules({
+        now: () => new Date('2026-10-19T05:00:30Z'),
+        ownerMayRun: async () => true,
+        start: async () => {
+            started += 1
+            return { runId: 'run_00000000-0000-4000-8000-00000000gone' }
+        }
+    })
+    check(
+        'a deleted schedule never starts, and a claim on a paused schedule is refused',
+        pausedClaim === false && started === 0 && outcomes.every((row) => row.harness !== 'gone-harness'),
+        JSON.stringify({ pausedClaim, started, outcomes })
     )
 })
 

@@ -4,6 +4,8 @@ import { HarnessError } from './errors.mjs'
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 }
 const DAYS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }
 const WEEKDAY = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+// The most days each month can have, February in a leap year included.
+const MONTH_DAYS = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 const MINUTE_MS = 60000
 // Far enough for 29 February plus a weekday constraint.
 const SEARCH_LIMIT_MS = 8 * 366 * 24 * 3600 * 1000
@@ -53,20 +55,30 @@ function parseField(expr, min, max, names) {
     return set
 }
 
+/**
+ * Day of the month and day of the week follow Vixie cron: a field that starts with `*` is unrestricted. When one of
+ * the two starts with `*`, a day must match the other. When both are restricted, a day that matches either one runs.
+ */
 export function parseCron(expr) {
     const fields = String(expr || '')
         .trim()
         .split(/\s+/)
     if (fields.length !== 5) throw bad('Cron needs 5 fields: minute hour day month weekday.')
-    return {
+    const parsed = {
         minute: parseField(fields[0], 0, 59),
         hour: parseField(fields[1], 0, 23),
         dom: parseField(fields[2], 1, 31),
         month: parseField(fields[3], 1, 12, MONTHS),
         dow: parseField(fields[4], 0, 7, DAYS),
-        domStar: fields[2] === '*',
-        dowStar: fields[4] === '*'
+        domStar: fields[2].startsWith('*'),
+        dowStar: fields[4].startsWith('*')
     }
+    // A day of the month that no chosen month has, such as 30 February, would never run.
+    if (!parsed.domStar && parsed.dowStar) {
+        const possible = [...parsed.month].some((month) => [...parsed.dom].some((day) => day <= MONTH_DAYS[month]))
+        if (!possible) throw bad('No chosen month has that day of the month, so this schedule would never run.')
+    }
+    return parsed
 }
 
 const formatters = new Map()
@@ -89,15 +101,26 @@ function formatterFor(timeZone) {
     return formatter
 }
 
+/**
+ * An IANA zone name such as Europe/Paris, or UTC, returned in the runtime's canonical spelling. An offset such as
+ * +02:00 or Etc/GMT-2, and an abbreviation such as CET or EST, are refused: they do not follow daylight saving time
+ * the way the place does.
+ */
 export function assertTimeZone(value) {
     const zone = String(value || '').trim()
     if (!zone || zone.length > 64) throw bad('Choose a time zone, for example Europe/Paris or UTC.')
+    let canonical
     try {
-        formatterFor(zone)
+        canonical = formatterFor(zone).resolvedOptions().timeZone
     } catch {
         throw bad(`"${zone.slice(0, 64)}" is not a time zone. Use a name such as Europe/Paris or UTC.`)
     }
-    return zone
+    if (canonical === 'UTC' && /^(etc\/)?(utc|uct|zulu|universal)$/i.test(zone)) return 'UTC'
+    const offset = /^[+-]\d/.test(canonical) || /^Etc\/GMT[+-]/i.test(canonical) || /^(etc\/)?gmt[+-]/i.test(zone)
+    if (offset || !canonical.includes('/') || !zone.includes('/')) {
+        throw bad(`"${zone.slice(0, 64)}" is an offset or an abbreviation. Use a place name such as Europe/Paris, or UTC.`)
+    }
+    return canonical
 }
 
 // The wall clock in that zone for one instant.
@@ -114,8 +137,9 @@ export function wallClock(ms, timeZone) {
     }
 }
 
-function wallKey(clock) {
-    return `${clock.year}-${clock.month}-${clock.day} ${clock.hour}:${clock.minute}`
+// Orders wall times: a later wall clock has a larger value.
+function wallValue(clock) {
+    return (((clock.year * 100 + clock.month) * 100 + clock.day) * 100 + clock.hour) * 100 + clock.minute
 }
 
 function dayMatches(clock, fields) {
@@ -129,24 +153,35 @@ function dayMatches(clock, fields) {
 }
 
 /**
- * The first whole minute strictly after `from` whose wall clock in `timeZone` matches.
- * A wall time the clocks skip (spring forward) does not run that day. A wall time that happens twice (fall back)
- * runs once: a minute with the same wall clock as `from` is skipped.
+ * The first whole minute after `from` whose wall clock in `timeZone` matches.
+ *
+ * `dueAt` is the due time that is being moved on from. The search starts at the later of `from` and `dueAt`, and a
+ * candidate whose wall clock is not later than the wall clock of both is skipped. So a tick that runs late, or
+ * an hour the clocks repeat when they fall back, never runs the same wall time twice: each wall time in a repeated
+ * hour runs once, on its first pass. A wall time the clocks skip when they spring forward does not run that day.
  */
-export function nextCronRun(expr, timeZone, from) {
+export function nextCronRun(expr, timeZone, from, { dueAt } = {}) {
     const fields = parseCron(expr)
     const zone = assertTimeZone(timeZone)
-    const start = from instanceof Date ? from.getTime() : Number(from)
-    const fromKey = wallKey(wallClock(start, zone))
+    const fromMs = from instanceof Date ? from.getTime() : Number(from)
+    const dueMs = dueAt instanceof Date ? dueAt.getTime() : Number(dueAt)
+    const start = Number.isFinite(dueMs) ? Math.max(fromMs, dueMs) : fromMs
+    // A late tick inside a repeated hour can sit at an earlier wall time than the due time it moves on from.
+    const floor = Math.max(wallValue(wallClock(start, zone)), Number.isFinite(dueMs) ? wallValue(wallClock(dueMs, zone)) : 0)
     let cursor = Math.floor(start / MINUTE_MS) * MINUTE_MS + MINUTE_MS
     const limit = start + SEARCH_LIMIT_MS
     while (cursor <= limit) {
         const clock = wallClock(cursor, zone)
-        if (!dayMatches(clock, fields) || !fields.hour.has(clock.hour)) {
+        if (!dayMatches(clock, fields)) {
+            // To 23:00 that day, then by the hour: a day with a clock change can be 23 or 25 hours long.
+            cursor += Math.max(60 - clock.minute, (23 - clock.hour) * 60 - clock.minute) * MINUTE_MS
+            continue
+        }
+        if (!fields.hour.has(clock.hour)) {
             cursor += (60 - clock.minute) * MINUTE_MS
             continue
         }
-        if (fields.minute.has(clock.minute) && wallKey(clock) !== fromKey) return new Date(cursor)
+        if (fields.minute.has(clock.minute) && wallValue(clock) > floor) return new Date(cursor)
         cursor += MINUTE_MS
     }
     throw bad('This cron expression has no upcoming time.')
