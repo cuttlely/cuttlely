@@ -861,6 +861,21 @@
             "to": "packages/server/src/utils/domainValidation.ts"
         },
         {
+            "from": "packages/server/src/utils/feedbackTypeFilters.test.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "the file link test drives the inherited file handler it covers"
+        },
+        {
+            "from": "packages/server/src/utils/feedbackTypeFilters.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "the file link test drives the inherited file handler it covers"
+        },
+        {
+            "from": "packages/server/src/utils/fileLinkSignature.test.ts",
+            "to": "packages/server/src/controllers/get-upload-file/index.ts",
+            "reason": "the file link test drives the inherited file handler it covers"
+        },
+        {
             "from": "packages/server/src/utils/fileLinkSignature.test.ts",
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
@@ -1462,6 +1477,16 @@
         }
     ],
     "r4Edges": [
+        {
+            "from": "packages/server/src/controllers/chat-messages/index.ts",
+            "to": "packages/server/src/utils/feedbackTypeFilters.ts",
+            "reason": "the file link test drives the inherited file handler it covers"
+        },
+        {
+            "from": "packages/server/src/controllers/stats/index.ts",
+            "to": "packages/server/src/utils/feedbackTypeFilters.ts",
+            "reason": "the file link test drives the inherited file handler it covers"
+        },
         {
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
