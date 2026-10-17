@@ -101,3 +101,5 @@ The first owner is still created with the one-time setup code. No route sets ano
 ## Maintainer checks
 
 The merge gate is `pnpm verify` on Node 24, described in [CONTRIBUTING.md](./CONTRIBUTING.md). It fails when a secret-like value or a removed commercial path is committed. Do not commit secrets, tokens or `.env` files.
+
+CodeQL code scanning (`.github/workflows/codeql.yml`) leaves out `hermes/`. That folder is a pinned copy of the agent runtime's upstream code, and its security releases are tracked weekly and brought in with `pnpm hermes:vendor`. [Hermes upgrades](./docs/reference/hermes-upgrades.md#code-scanning) has the details.

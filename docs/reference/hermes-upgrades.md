@@ -105,6 +105,16 @@ node scripts/measure-runtime-loads.mjs --check
 
 `--check` fails when a measured module is not in the tree. Commit the new list before `pnpm hermes:vendor`; the vendor command refuses an uncommitted `hermes/`. Re-running `pnpm hermes:vendor` at the same pin still changes nothing.
 
+## Code scanning
+
+CodeQL does not analyze `hermes/`. `.github/codeql/codeql-config.yml` lists `hermes/**` under `paths-ignore`, and `.github/workflows/codeql.yml` runs CodeQL with that config for GitHub Actions, JavaScript and TypeScript, and Python. The folder stays in the repository and in the image.
+
+Why: `hermes/` is a pinned copy of one upstream commit (`hermes/UPSTREAM_COMMIT`), not code Cuttlely writes. Hermes security releases are tracked weekly. A fix arrives as a new pin through `pnpm hermes:vendor`, or as a dependency raise in patch 0006 until upstream ships it. Alerts on upstream code would repeat that work and bury alerts on Cuttlely's own code. Cuttlely's patches under `hermes/patches/` are reviewed in the pull request that changes them.
+
+C and C++ are not in the CodeQL matrix, because the only C and C++ files are under `hermes/native`.
+
+The workflow uploads results only while the repository's CodeQL default setup is off. Default setup does not read a config file, so the exclusion applies only once a maintainer switches code scanning to the advanced setup in the repository's code security settings.
+
 ## What pnpm verify checks
 
 | Step            | When          | Fails if                                                                                                                                                                            |
