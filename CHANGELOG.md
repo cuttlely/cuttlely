@@ -40,6 +40,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
 -   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. Owners and roles with `credentials:view` still see their keys.
 
+### Security
+
+-   The sign-in (`/api/v1/auth`, `/api/v1/account`), API-key check (`/api/v1/verify`), OAuth credential, custom MCP server and node and credential icon routes are rate limited per client with the UI page-load budget (**Page loads a minute**, `CUTTLELY_UI_PAGE_LIMIT_MAX`, 3000 by default). Each router has its own count. A client over the budget gets 429.
+-   A `feedbackType` query value that is not a string or a list of strings is ignored instead of being passed on. `GET /api/v1/stats/:id` no longer answers 500 with the error object for such a value.
+-   The uploaded-file download refuses a repeated `chatflowId`, `chatId` or `fileName` with 400.
+-   An evaluation run puts the chatflow id in the prediction URL encoded as a path segment.
+
 ## [1.2.0] - 2026-10-15
 
 ### Added
