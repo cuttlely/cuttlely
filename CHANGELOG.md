@@ -49,7 +49,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Upgrade notes / breaking changes
 
 -   **Raw MCP servers on specialist records.** A raw entry in a specialist's `mcpServers` (one that is not an MCP node connected on the canvas) now starts only if its command is in `CUSTOM_MCP_ALLOWED_COMMANDS` and its script path is in `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS`. Both are empty by default, so every such server is refused until you set them. A refused server is left out of the harness, and the server log has a warning that names it. If `packages/components` is not built, every raw server is refused. Before you upgrade, set those allow-lists (and `CUSTOM_MCP_ALLOWED_ENV_VARS` for any `env` the server passes), or set `CUSTOM_MCP_SECURITY_CHECK=false` to keep the old behavior.
--   **Database changes.** At startup the ETL database moves to schema version 4 and gains a `run_names` table, which records the pipeline name each run ran under. Runs from before the upgrade have no names, so deleting a pipeline uses its current name for them. Vectors written under an older name before the upgrade are not removed by that delete.
+-   **Database changes.** At startup the ETL database moves to schema version 4 and gains a `run_names` table, which records the pipeline name each run ran under. Each run that started before the upgrade is recorded under the pipeline's name at upgrade time. Vectors written under a name the pipeline had before it was renamed, before the upgrade, are not removed when the pipeline is deleted.
 
 ## [1.2.0] - 2026-10-15
 

@@ -231,6 +231,9 @@ const MIGRATIONS = [
                     run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, workspace_id TEXT, name TEXT NOT NULL,
                     PRIMARY KEY (run_id, name)) WITHOUT ROWID;
                 CREATE INDEX IF NOT EXISTS run_names_pipeline ON run_names (pipeline_id);
+                INSERT OR IGNORE INTO run_names (run_id, pipeline_id, workspace_id, name)
+                    SELECT r.id, r.pipeline_id, r.workspace_id, p.name FROM runs r JOIN pipelines p ON p.id = r.pipeline_id
+                    WHERE r.started_at IS NOT NULL;
             `)
         }
     }
