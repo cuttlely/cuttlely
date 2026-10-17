@@ -355,7 +355,7 @@ On 2026-10-17 the analyst answered five questions on the bakery database with `g
 | Top store in the latest week           | Old Town, $5,976.50                                            |
 | Staff per store, with staff not ticked | Declined cleanly                                               |
 
-All four data questions were answered on the first query, and each answer matched the same question asked with direct SQL. The first prompt was about 650 tokens. All prompts for one question came to about 1.4k tokens, against 2k to 3k before the selection lines listed column names. This is one small, made-up database and one model; it is not a benchmark.
+Each of the four data answers matched the same question asked with direct SQL. The first prompt was about 650 tokens. All prompts for one question came to about 1.4k tokens, against 2k to 3k before the selection lines listed column names. This is one small, made-up database and one model; it is not a benchmark.
 
 On 2026-10-17, a second run with `gpt-4.1` used two analysts in one harness, with the routing that [Several analysts in one harness](#several-analysts-in-one-harness) describes: one on the made-up bakery database and one on a made-up household budget database. Harness Prime sent all 9 questions to the right analyst, and all 9 answers were correct. That includes the question about software spend in the budget: the correct answer is $26,000, and before `describe` returned sample text values (the `values` field in [The describe tool](#the-describe-tool)) the analyst reported $0 for it.
 
