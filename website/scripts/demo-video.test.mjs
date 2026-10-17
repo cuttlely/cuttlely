@@ -973,19 +973,46 @@ test('the light home page colour tokens and rules apply only to the light theme'
 test('no two light-theme tinted bands sit next to each other on the home page', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
-    const lists = [...css.matchAll(/:root\[data-theme='light'\]\s+:is\(([^)]+)\)/g)]
-        .map((m) => m[1].split(',').map((s) => s.trim()))
-        .filter((list) => list.some((s) => s.startsWith('#')))
+    const order = [...src.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1])
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    // Every :is( list, whatever comes before it (:root, section, a class), split on its top-level commas.
+    const lists = []
+    for (const m of rules.matchAll(/:is\(/g)) {
+        let depth = 1
+        let i = m.index + m[0].length
+        const start = i
+        for (; i < rules.length && depth; i++) depth += rules[i] === '(' ? 1 : rules[i] === ')' ? -1 : 0
+        assert.equal(depth, 0, `unclosed :is( at offset ${m.index}`)
+        const parts = []
+        let level = 0
+        let part = ''
+        for (const ch of rules.slice(start, i - 1)) {
+            if (ch === ',' && level === 0) {
+                parts.push(part.trim())
+                part = ''
+                continue
+            }
+            level += ch === '(' ? 1 : ch === ')' ? -1 : 0
+            part += ch
+        }
+        parts.push(part.trim())
+        if (parts.some((s) => s.includes('#'))) lists.push(parts)
+    }
     for (const list of lists)
         assert.ok(
             list.every((s) => /^#[\w-]+$/.test(s)),
-            `band list mixes section ids with other selectors: ${list.join(', ')}`
+            `band list has a selector other than a section id: ${list.join(', ')}`
         )
     const ids = lists.map((list) => list.map((s) => s.slice(1)).sort())
     assert.ok(ids.length >= 3, 'band, wash and border selector lists')
     for (const list of ids) assert.deepEqual(list, ids[0], 'every band selector list names the same sections')
+    // A section id anywhere else in the stylesheet is a band this test did not parse.
+    for (const id of order) {
+        const uses = rules.match(new RegExp(`#${id}(?![\\w-])`, 'g'))?.length || 0
+        const parsed = ids.filter((list) => list.includes(id)).length
+        assert.equal(uses, parsed, `#${id} is used outside an :is() band list`)
+    }
     const banded = new Set(ids.flat())
-    const order = [...src.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1])
     for (const id of banded) assert.ok(order.includes(id), id)
     for (let i = 1; i < order.length; i++) {
         assert.ok(!(banded.has(order[i - 1]) && banded.has(order[i])), `${order[i - 1]} and ${order[i]} are both tinted`)
