@@ -262,14 +262,15 @@ The run card shows each call as its own chip. In the picture below, a scripted s
 The selection is checked by Postgres, on the server, for every query and every `show more`, before the statement runs. The model's text is not trusted to stay inside the list.
 
 1. Only `SELECT`, `WITH`, `VALUES` and `TABLE` statements run. Anything else is refused with `This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.`
-2. In the same transaction, Cuttlely creates a temporary view over the statement. Postgres parses it and resolves every name exactly as it would run it.
-3. Cuttlely reads that view's stored query tree. It names every relation, function and operator the statement uses, including those inside a `WITH`, a subquery, a system catalog such as `pg_class`, and `information_schema`.
-4. The query is refused when:
+2. Cuttlely looks for risky domains in the database, from the catalog alone and before the statement is parsed. If there are any, every query is refused (see below). The result is kept for one minute per database.
+3. In the same transaction, Cuttlely creates a temporary view over the statement. Postgres parses it and resolves every name exactly as it would run it. Until step 6 the transaction can write: what runs then is the parse, the temporary view and the catalog reads below.
+4. Cuttlely reads that view's stored query tree. It names every relation, function and operator the statement uses, including those inside a `WITH`, a subquery, a system catalog such as `pg_class`, and `information_schema`.
+5. The query is refused when:
     - it reads a relation that is not ticked;
     - it calls a function or operator that is not built in (outside `pg_catalog`);
     - it calls a built-in that can reach other data, report on objects outside the selection, act on other sessions, or change how names resolve: `query_to_xml` and the other `*_to_xml` functions, `ts_stat`, `set_config`, `pg_input_is_valid` and `pg_input_error_info`, `obj_description`, `col_description` and `shobj_description`, the `pg_stat_get_*` statistics, `pg_relation_size` and the other size functions, `pg_get_*` definitions, `has_*_privilege`, `*_is_visible`, `to_reg*`, `pg_terminate_backend` and `pg_cancel_backend`, large-object and file functions, and `dblink`;
-    - it uses a type whose input, output, receive or send function is outside `pg_catalog` (an extension type such as `citext`), an object-identifier type such as `regclass`, or a domain whose `CHECK` calls a function the statement itself could not call. The check follows a domain's base type, an array's element, a composite type's columns and a range's subtype, because each of those runs when a value of the outer type is read or checked.
-5. The temporary view is dropped, the transaction turns read only, and the statement runs. Nothing is ever committed.
+    - it uses a type whose input, output, receive or send function is outside `pg_catalog` (an extension type such as `citext`), or an object-identifier type such as `regclass`. The check follows a domain's base type, an array's element, a composite type's columns and a range's subtype.
+6. The temporary view is dropped, the transaction turns read only, and the statement runs. The transaction always ends with a rollback, so the temporary view and anything else that transaction changed is undone. A sequence advanced by `nextval` is the exception, which is one reason a domain check that calls it counts as risky.
 
 A refusal is an expected result, like a syntax error, and the analyst can quote it:
 
@@ -279,14 +280,19 @@ A ticked view is the gate. Its own definition is not expanded, so `account_balan
 
 Why not a separate login or `search_path`: a `search_path` does not stop a schema-qualified name, and a login with grants on only the ticked relations would need Cuttlely to create roles in your database, which a read-only credential usually cannot do. The check above needs only what the credential already has, plus the right to create a temporary view.
 
-A literal of a composite, array or range type (`'(1,2)'::store_pair`) is converted while Postgres parses the statement, so a domain inside it runs its `CHECK` before step 3. When any domain in the database has a `CHECK` that calls a function the statement could not call, that parse runs inside a savepoint. If it fails, the transaction rolls back to the savepoint and the analyst gets `it failed while Cuttlely checked it against the table selection. This database has domain checks that call other functions, so the database error is not shown.` instead of the database's text. A syntax error, an unknown column, table or function, an ambiguous name, and a type mismatch raised by the parser itself, with no function in its context, are still shown, so the analyst can fix a typo.
+**Risky domains.** A literal of a composite, array or range type (`'{5}'::quiet_ref[]`) runs its element's input while Postgres parses the statement, and a domain element runs its `CHECK` then, in step 3, before Cuttlely can see the query tree. So a database with a risky domain refuses every query while a selection is set, whatever the statement, with the same text and without parsing it:
+
+> Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: public.quiet_ref. Queries are refused while a table selection is set. Change those CHECK constraints to built-in functions that are not volatile, or clear the selection on the PostgreSQL MCP node.
+
+A domain is risky when its `CHECK` calls a volatile function (such as `nextval` or `random`), a function or operator outside `pg_catalog`, a built-in from the deny list above, or uses an object-identifier type or a type whose input or output is outside `pg_catalog`. Domains are checked in every schema the database has, not only the ticked relations, because any of them can be named in a literal. A domain whose `CHECK` uses only built-in, non-volatile functions and operators, such as `CHECK (VALUE >= 0)`, is fine. To fix a risky domain, rewrite its `CHECK` with built-in functions that are not volatile (`ALTER DOMAIN ... DROP CONSTRAINT`, then `ADD CONSTRAINT`), move the rule into the application or a trigger on the tables that use it, or clear the selection on the node. A fix shows up within a minute.
 
 The check is tested against Postgres 14, 15, 16, 17 and 18.
 
 Limits of the check:
 
 -   The login needs `TEMP` on the database, which Postgres grants to every login by default. A read replica (hot standby) cannot create a temporary view, so with a selection set every query there is refused with `Cuttlely could not check this query against the table selection: this database login cannot create a temporary view (a read replica, or no TEMP privilege). Queries are refused while a selection is set.` Point the credential at the primary, or clear the selection.
--   Functions, operators and types from extensions installed outside `pg_catalog`, such as `similarity()` from `pg_trgm` or a `citext` or PostGIS column, are refused while a selection is set, including when a query only reads a column of that type. So is a column whose domain `CHECK` calls a user function. Expose such a column through a ticked view that casts it to a built-in type.
+-   Functions, operators and types from extensions installed outside `pg_catalog`, such as `similarity()` from `pg_trgm` or a `citext` or PostGIS column, are refused while a selection is set, including when a query only reads a column of that type. Expose such a column through a ticked view that casts it to a built-in type.
+-   One risky domain anywhere in the database stops every scoped query there, including queries that never touch it.
 -   A view you tick runs with its owner's rights, as Postgres always runs views. Whatever its definition reads, the analyst can read through it.
 
 ### Add your own routing in the instructions

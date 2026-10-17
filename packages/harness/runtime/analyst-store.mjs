@@ -1782,7 +1782,14 @@ async function queryUrlPostgres(
         async (client, runner) => {
             if (scoped) {
                 const selected = await resolveRelations(runner, relations)
-                await checkStatementScope(client, runner, replay?.plan?.statement || statement, selected, isRowQuery)
+                await checkStatementScope(
+                    client,
+                    runner,
+                    replay?.plan?.statement || statement,
+                    selected,
+                    isRowQuery,
+                    urlStoreKey(postgresUrl)
+                )
                 await client.query('SET LOCAL transaction_read_only = on')
             }
             if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)

@@ -7,12 +7,12 @@ import { after, before, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import {
-    SCOPE_MASKED,
     SCOPE_NONE_LEFT,
     SCOPE_ONLY_SELECT,
     ambiguousRelations,
     deniedFunction,
     describeRefusal,
+    resetRiskyDomainCacheForTests,
     findRelation,
     parseRelationSelection,
     relationLine,
@@ -194,6 +194,7 @@ describe('analyst relations: bakery database', () => {
     const password = randomBytes(18).toString('base64url')
     let admin = null
     let url = ''
+    let citext = false
 
     before(async () => {
         const client = new Client(adminConfig())
@@ -224,6 +225,14 @@ describe('analyst relations: bakery database', () => {
         await owner.query(`GRANT USAGE ON SCHEMA sales TO "${reader}"`)
         await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA sales, public TO "${reader}"`)
         await owner.query(`CREATE TABLE public.not_readable (id integer)`)
+        // A domain with a built-in, non-volatile check is not risky, so the database keeps answering.
+        await owner.query(`CREATE DOMAIN public.safe_qty AS integer CHECK (VALUE >= 0)`)
+        try {
+            await owner.query('CREATE EXTENSION IF NOT EXISTS citext')
+            citext = true
+        } catch {
+            citext = false
+        }
         await owner.end()
         url = urlFor(reader, password, dbName)
     })
@@ -419,6 +428,23 @@ describe('analyst relations: bakery database', () => {
         await refusal(queryAnalystUrl(url, `SELECT to_regclass('payroll_notes')`, options), /to_regclass is not allowed|type regclass/)
     })
 
+    it('refuses a type whose input or output function is outside pg_catalog, and runs a domain with a built-in check', async (t) => {
+        if (skipped(t)) return
+        const options = { relations: SELECTION }
+        const result = await queryAnalystUrl(
+            url,
+            'SELECT 3::safe_qty AS qty, name::text, ARRAY[id], ROW(id, name) FROM stores ORDER BY id',
+            options
+        )
+        assert.equal(result.rows.length, 2)
+        assert.equal(result.rows[0].qty, 3)
+        if (!citext) {
+            t.skip('the citext extension is not available on this server')
+            return
+        }
+        await refusal(queryAnalystUrl(url, "SELECT 'Riverside'::citext", options), /type citext is not built in/)
+    })
+
     it('rejects a call cleanly when its backend is terminated mid-query', async (t) => {
         if (skipped(t)) return
         const running = queryAnalystUrl(url, 'SELECT pg_sleep(10) AS slept', { statementTimeoutMs: 20000 })
@@ -497,16 +523,11 @@ describe('analyst relations: bakery database', () => {
     })
 })
 
-describe('analyst relations: domain checks and types', () => {
+// A database whose domains could run code while a statement is parsed refuses every scoped query up front.
+function riskyDatabase(label, setupSql) {
     const suffix = randomBytes(4).toString('hex')
-    const dbName = `bakery_types_${suffix}`
-    const reader = `bakery_types_reader_${suffix}`
+    const state = { admin: null, url: '', dbName: `bakery_${label}_${suffix}`, reader: `bakery_${label}_reader_${suffix}` }
     const password = randomBytes(18).toString('base64url')
-    let admin = null
-    let url = ''
-    let citext = false
-    const options = { relations: ['public.stores'] }
-
     before(async () => {
         const client = new Client(adminConfig())
         try {
@@ -517,106 +538,123 @@ describe('analyst relations: domain checks and types', () => {
                 throw new Error(`CUTTLELY_TEST_PG_REQUIRED is set and Postgres is not reachable: ${error.message}`)
             return
         }
-        admin = client
-        await admin.query(`CREATE DATABASE "${dbName}"`)
-        await admin.query(`CREATE ROLE "${reader}" LOGIN PASSWORD '${password}'`)
-        const owner = new Client(adminConfig(dbName))
+        state.admin = client
+        await client.query(`CREATE DATABASE "${state.dbName}"`)
+        await client.query(`CREATE ROLE "${state.reader}" LOGIN PASSWORD '${password}'`)
+        const owner = new Client(adminConfig(state.dbName))
         await owner.connect()
         await owner.query(`
             CREATE TABLE public.stores (id integer PRIMARY KEY, name text NOT NULL);
             INSERT INTO public.stores VALUES (1, 'Riverside'), (2, 'Old Town');
             CREATE TABLE public.payroll_notes (note text);
             INSERT INTO public.payroll_notes VALUES ('Made-up payroll note');
-            -- The check raises with a row from a table that is not selected in its message.
-            CREATE FUNCTION public.leak_check(v integer) RETURNS boolean LANGUAGE plpgsql AS $f$
-                BEGIN RAISE EXCEPTION 'leak: %', (SELECT note FROM public.payroll_notes LIMIT 1); END $f$;
-            CREATE DOMAIN public.store_ref AS integer CHECK (public.leak_check(VALUE));
-            CREATE DOMAIN public.outer_ref AS public.store_ref;
-            CREATE TYPE public.store_pair AS (a integer, b public.store_ref);
-            CREATE DOMAIN public.builtin_leak AS text CHECK (length(query_to_xml('SELECT 1', true, true, '')::text) > 0);
-            CREATE DOMAIN public.safe_qty AS integer CHECK (VALUE >= 0);
+            ${setupSql}
         `)
-        try {
-            await owner.query('CREATE EXTENSION IF NOT EXISTS citext')
-            citext = true
-        } catch {
-            citext = false
-        }
-        await owner.query(`GRANT USAGE ON SCHEMA public TO "${reader}"`)
-        await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${reader}"`)
+        await owner.query(`GRANT USAGE ON SCHEMA public TO "${state.reader}"`)
+        await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${state.reader}"`)
+        await owner.query(`GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO "${state.reader}"`)
         await owner.end()
-        url = urlFor(reader, password, dbName)
+        state.url = urlFor(state.reader, password, state.dbName)
+        resetRiskyDomainCacheForTests()
     })
-
     after(async () => {
-        if (!admin) return
-        await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
-        await admin.query(`DROP ROLE IF EXISTS "${reader}"`).catch(() => {})
-        await admin.end().catch(() => {})
+        if (!state.admin) return
+        await state.admin.query(`DROP DATABASE IF EXISTS "${state.dbName}" WITH (FORCE)`).catch(() => {})
+        await state.admin.query(`DROP ROLE IF EXISTS "${state.reader}"`).catch(() => {})
+        await state.admin.end().catch(() => {})
     })
-
-    const skipped = (t) => {
-        if (admin) return false
+    state.skipped = (t) => {
+        if (state.admin) return false
         t.skip('local postgres admin is not reachable')
         return true
     }
-
-    const noLeak = async (sql, pattern) => {
-        await assert.rejects(queryAnalystUrl(url, sql, options), (error) => {
+    state.sequence = async (name) => {
+        const owner = new Client(adminConfig(state.dbName))
+        await owner.connect()
+        try {
+            const row = (await owner.query(`SELECT last_value::int8 AS value, is_called FROM public.${name}`)).rows[0]
+            return `${row.value}:${row.is_called}`
+        } finally {
+            await owner.end()
+        }
+    }
+    state.refusedText = async (sql) => {
+        let text = ''
+        await assert.rejects(queryAnalystUrl(state.url, sql, { relations: ['public.stores'] }), (error) => {
             assert.equal(error.cuttlelyOutcome, 'expected', error.message)
             assert.equal(error.message.includes('payroll note'), false, `${sql} leaked: ${error.message}`)
-            assert.match(error.message, pattern, sql)
+            text = error.message
             return true
         })
+        return text
     }
+    return state
+}
 
-    it('refuses a cast to a domain whose check calls a user function, directly or through another domain or an array', async (t) => {
-        if (skipped(t)) return
-        const domain = /domain store_ref checks its values with public\.leak_check, which is not built in/
-        await noLeak('SELECT 1::store_ref', domain)
-        await noLeak('SELECT 1::outer_ref', domain)
-        await noLeak('SELECT ARRAY[1]::store_ref[]', domain)
-        await noLeak('SELECT CAST(id AS store_ref) FROM stores', domain)
-        await noLeak('SELECT ROW(1, 2)::store_pair', domain)
+describe('analyst relations: risky domain checks', () => {
+    const db = riskyDatabase(
+        'domains',
+        `
+        CREATE SEQUENCE public.bump_seq;
+        CREATE SEQUENCE public.builtin_seq;
+        -- Raises with a row from a table that is not selected, for any value above 0.
+        CREATE FUNCTION public.quiet_check(v integer) RETURNS boolean LANGUAGE plpgsql AS $f$
+            BEGIN IF v > 0 THEN RAISE EXCEPTION 'leak: %', (SELECT note FROM public.payroll_notes LIMIT 1); END IF; RETURN true; END $f$;
+        CREATE DOMAIN public.quiet_ref AS integer CHECK (public.quiet_check(VALUE));
+        -- Advances a sequence, which a rollback does not undo.
+        CREATE FUNCTION public.bump_check(v integer) RETURNS boolean LANGUAGE sql AS $f$ SELECT nextval('public.bump_seq') > 0 $f$;
+        CREATE DOMAIN public.bump_ref AS integer CHECK (public.bump_check(VALUE));
+        CREATE DOMAIN public.builtin_bump AS integer CHECK (nextval('public.builtin_seq') > 0);
+        CREATE DOMAIN public.oid_ref AS text CHECK (VALUE::regclass IS NOT NULL);
+        CREATE DOMAIN public.safe_qty AS integer CHECK (VALUE >= 0);
+    `
+    )
+    const expected =
+        /this database has domains whose CHECK could run other code or change data while a query is checked: public\.builtin_bump, public\.bump_ref, public\.oid_ref, public\.quiet_ref\. Queries are refused while a table selection is set\./
+
+    it('refuses every query, naming the risky domains and not the safe one', async (t) => {
+        if (db.skipped(t)) return
+        const text = await db.refusedText('SELECT name FROM stores')
+        assert.match(text, expected)
+        assert.equal(text.includes('safe_qty'), false)
     })
 
-    it('does not show the database error when a literal runs such a check while it is parsed', async (t) => {
-        if (skipped(t)) return
-        await noLeak("SELECT '(1,2)'::store_pair", new RegExp(SCOPE_MASKED.slice(0, 60).replace(/[.()]/g, '\\$&')))
-        await noLeak("SELECT '{1}'::store_ref[]", /database error is not shown/)
-        await refusal(queryAnalystUrl(url, 'SELECT nme FROM stores', options), /column "nme" does not exist/)
+    it('answers a passing and a failing check value with the same text', async (t) => {
+        if (db.skipped(t)) return
+        const zero = await db.refusedText("SELECT '{0}'::quiet_ref[]")
+        const five = await db.refusedText("SELECT '{5}'::quiet_ref[]")
+        assert.equal(zero, five)
+        assert.match(five, expected)
+        assert.equal(await db.refusedText('SELECT 5::quiet_ref'), five)
+        assert.equal(await db.refusedText("SELECT pg_input_is_valid('5', 'quiet_ref')"), five)
     })
 
-    it('refuses type-input probes and a domain whose check calls a denied built-in', async (t) => {
-        if (skipped(t)) return
-        // Postgres 16 added both functions. Before that the call fails as an unknown function.
-        const version = Number((await admin.query('SHOW server_version_num')).rows[0].server_version_num)
-        const probe = (name) => (version >= 160000 ? new RegExp(`${name} is not allowed`) : /does not exist/)
-        await noLeak("SELECT pg_input_is_valid('1', 'store_ref')", probe('pg_input_is_valid'))
-        await noLeak("SELECT * FROM pg_input_error_info('1', 'store_ref')", probe('pg_input_error_info'))
-        await noLeak(
-            "SELECT 'x'::builtin_leak",
-            /domain builtin_leak checks its values with something refused here\. query_to_xml is not allowed/
-        )
-    })
-
-    it('refuses a type whose input or output function is outside pg_catalog', async (t) => {
-        if (skipped(t)) return
-        if (!citext) {
-            t.skip('the citext extension is not available on this server')
-            return
+    it('does not run a domain check that calls nextval, through a user function or directly', async (t) => {
+        if (db.skipped(t)) return
+        const before = [await db.sequence('bump_seq'), await db.sequence('builtin_seq')]
+        resetRiskyDomainCacheForTests()
+        for (const sql of ["SELECT '{1}'::bump_ref[]", 'SELECT 1::bump_ref', "SELECT '{1}'::builtin_bump[]", 'SELECT 1::builtin_bump']) {
+            assert.match(await db.refusedText(sql), expected)
         }
-        await noLeak("SELECT 'Riverside'::citext", /type citext is not built in/)
+        assert.deepEqual([await db.sequence('bump_seq'), await db.sequence('builtin_seq')], before)
     })
+})
 
-    it('still runs domains with built-in checks and ordinary types', async (t) => {
-        if (skipped(t)) return
-        const result = await queryAnalystUrl(
-            url,
-            'SELECT 3::safe_qty AS qty, name::text, ARRAY[id], ROW(id, name) FROM stores ORDER BY id',
-            options
-        )
-        assert.equal(result.rows.length, 2)
-        assert.equal(result.rows[0].qty, 3)
+describe('analyst relations: a built-in volatile domain check alone', () => {
+    const db = riskyDatabase(
+        'nextval',
+        `
+        CREATE SEQUENCE public.only_seq;
+        CREATE DOMAIN public.next_ref AS integer CHECK (nextval('public.only_seq') > 0);
+    `
+    )
+
+    it('counts a domain whose check calls built-in nextval as risky, and leaves the sequence alone', async (t) => {
+        if (db.skipped(t)) return
+        const before = await db.sequence('only_seq')
+        const text = await db.refusedText("SELECT '{1}'::next_ref[]")
+        assert.match(text, /could run other code or change data while a query is checked: public\.next_ref\./)
+        assert.equal(await db.refusedText('SELECT name FROM stores'), text)
+        assert.equal(await db.sequence('only_seq'), before)
     })
 })

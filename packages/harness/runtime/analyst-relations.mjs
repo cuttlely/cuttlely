@@ -17,8 +17,11 @@ export const SCOPE_ONLY_SELECT =
     'This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.'
 export const SCOPE_UNCHECKABLE =
     'Cuttlely could not check this query against the table selection: this database login cannot create a temporary view (a read replica, or no TEMP privilege). Queries are refused while a selection is set.'
-export const SCOPE_MASKED =
-    'Cuttlely refused this query: it failed while Cuttlely checked it against the table selection. This database has domain checks that call other functions, so the database error is not shown. Check the SQL and the types it uses.'
+export function scopeRiskyDomains(names) {
+    return `Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: ${refusedList(
+        names
+    )}. Queries are refused while a table selection is set. Change those CHECK constraints to built-in functions that are not volatile, or clear the selection on the PostgreSQL MCP node.`
+}
 export const SCOPE_NONE_LEFT = 'None of the selected tables or views exist any more. Update the selection on the PostgreSQL MCP node.'
 
 const SCOPE_VIEW = 'cuttlely_scope_check'
@@ -362,28 +365,20 @@ function refusedList(names) {
     return names.length > REFUSED_LIST ? `${shown}, and ${names.length - REFUSED_LIST} more` : shown
 }
 
-// Raised by the parser itself, not from inside a function: an error raised in a function always carries the
-// function in its context (where).
-const PARSER_ERRORS = new Set(['42601', '42703', '42P01', '42883', '42702', '42725', '42804', '42P18', '42846'])
-
-function parserError(error) {
-    return PARSER_ERRORS.has(String(error?.code || '')) && !error?.where
-}
-
 function scopeUncheckable(error) {
     const code = String(error?.code || '')
     return code === '25006' || (code === '42501' && /temporary/i.test(String(error?.message || '')))
 }
 
 // Runs inside a read-write transaction that the caller rolls back. The caller turns it read only afterwards.
-export async function checkStatementScope(client, runner, statement, relations, isRowQuery) {
+export async function checkStatementScope(client, runner, statement, relations, isRowQuery, cacheKey = '') {
     if (!relations.length) throw new ScopeRefusal(SCOPE_NONE_LEFT)
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
-    // Parsing a literal of a composite, array or range type runs the element's input, and a domain element runs
-    // its CHECK then, before the query tree exists. When a domain check could reach other data, the parse runs in
-    // a savepoint and a failure is reported without the database's text.
-    const risky = await riskyDomains(runner)
-    await client.query('SAVEPOINT cuttlely_scope')
+    // A literal of a composite, array or range type runs its element's input while Postgres parses, and a domain
+    // element runs its CHECK then, before the query tree exists and while this transaction can still write. So the
+    // decision about domains comes first, from the catalog alone, and does not depend on the statement.
+    const risky = await riskyDomains(runner, cacheKey)
+    if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
     try {
         // A named statement is sent with the extended protocol, which refuses a second command.
         await client.query({
@@ -391,9 +386,7 @@ export async function checkStatementScope(client, runner, statement, relations, 
             text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
         })
     } catch (error) {
-        await client.query('ROLLBACK TO SAVEPOINT cuttlely_scope').catch(() => {})
         if (scopeUncheckable(error)) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-        if (risky && !parserError(error)) throw new ScopeRefusal(SCOPE_MASKED)
         throw error
     } finally {
         await client.query(`DEALLOCATE ${SCOPE_STATEMENT_NAME}`).catch(() => {})
@@ -481,39 +474,76 @@ SELECT ty.oid::int8 AS oid, format_type(ty.oid, NULL) AS name, ty.typname AS typ
                AND pn.nspname <> 'pg_catalog') AS foreign_io
 FROM t JOIN pg_type ty ON ty.oid = t.oid JOIN pg_namespace tn ON tn.oid = ty.typnamespace`
 
-const ALL_DOMAIN_CHECKS_SQL = `SELECT c.conbin::text AS tree, EXISTS (
-    SELECT 1 FROM pg_depend d JOIN pg_proc p ON p.oid = d.refobjid JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE d.classid = 'pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_proc'::regclass
-      AND n.nspname <> 'pg_catalog') AS foreign_function
-FROM pg_constraint c WHERE c.contypid <> 0 AND c.conbin IS NOT NULL`
+const ALL_DOMAIN_CHECKS_SQL = `SELECT c.contypid::int8 AS domain_oid,
+       quote_ident(n.nspname) || '.' || quote_ident(t.typname) AS domain, c.conbin::text AS tree,
+       ARRAY(SELECT d.refobjid::int8 FROM pg_depend d
+             WHERE d.classid = 'pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_proc'::regclass) AS depends
+FROM pg_constraint c JOIN pg_type t ON t.oid = c.contypid JOIN pg_namespace n ON n.oid = t.typnamespace
+WHERE c.contypid <> 0 AND c.conbin IS NOT NULL`
 
-// True when any domain check in the database calls a function or operator the statement itself could not call.
-async function riskyDomains(runner) {
-    for (const check of await runner.all(ALL_DOMAIN_CHECKS_SQL)) {
-        if (check.foreign_function) return true
-        const tree = treeObjectIds(check.tree)
-        try {
-            await refuseRoutines(runner, tree.functions, tree.operators)
-        } catch {
-            return true
-        }
-    }
-    return false
+const ROUTINES_SQL = `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?::oid[])`
+
+const OPERATORS_SQL = `SELECT o.oid::int8 AS oid, n.nspname AS schema, o.oprcode::oid::int8 AS code
+FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = ANY(?::oid[])`
+
+export const RISKY_DOMAIN_TTL_MS = 60 * 1000
+const riskyDomainCache = new Map()
+
+export function resetRiskyDomainCacheForTests() {
+    riskyDomainCache.clear()
 }
 
-const DOMAIN_CHECKS_SQL = `SELECT format_type(c.contypid, NULL) AS domain, c.conbin::text AS tree
-FROM pg_constraint c WHERE c.contypid = ANY(?::oid[]) AND c.conbin IS NOT NULL`
+// Domains whose CHECK calls a volatile function, a function outside pg_catalog or a denied built-in, through an
+// operator too, or uses an object-identifier type or a type with input or output outside pg_catalog. Any one of
+// them could run while the statement is parsed. The answer depends only on the catalog, so every statement in the
+// database gets the same answer in the same time. It is kept for a minute per database.
+async function riskyDomains(runner, cacheKey = '') {
+    const now = Date.now()
+    const cached = cacheKey ? riskyDomainCache.get(cacheKey) : null
+    if (cached && cached.expires > now) return cached.names
+    const checks = await runner.all(ALL_DOMAIN_CHECKS_SQL)
+    const trees = checks.map((check) => ({ check, ids: treeObjectIds(check.tree) }))
+    const operatorIds = new Set(trees.flatMap(({ ids }) => [...ids.operators]))
+    const operators = operatorIds.size ? await runner.all(OPERATORS_SQL, [[...operatorIds]]) : []
+    const operatorById = new Map(operators.map((row) => [Number(row.oid), row]))
+    const functionIds = new Set()
+    for (const { check, ids } of trees) {
+        for (const id of ids.functions) functionIds.add(id)
+        for (const id of check.depends || []) functionIds.add(Number(id))
+        for (const id of ids.operators) if (Number(operatorById.get(id)?.code) > 0) functionIds.add(Number(operatorById.get(id).code))
+    }
+    const routines = functionIds.size ? await runner.all(ROUTINES_SQL, [[...functionIds]]) : []
+    const routineById = new Map(routines.map((row) => [Number(row.oid), row]))
+    const typeIds = new Set(trees.flatMap(({ ids }) => [...ids.types]))
+    const badTypes = new Set()
+    if (typeIds.size) {
+        for (const type of await runner.all(TYPE_CLOSURE_SQL, [[...typeIds]])) {
+            const denied = type.schema === 'pg_catalog' && DENIED_TYPES.has(type.typname)
+            if (denied || (type.foreign_io || []).length) badTypes.add(Number(type.oid))
+        }
+    }
+    const badRoutine = (row) => !row || row.schema !== 'pg_catalog' || row.volatility === 'v' || deniedFunction(row.name)
+    const names = new Set()
+    for (const { check, ids } of trees) {
+        const called = [...ids.functions, ...(check.depends || []).map(Number)]
+        for (const id of ids.operators) {
+            const operator = operatorById.get(id)
+            if (!operator || operator.schema !== 'pg_catalog') called.push(-1)
+            else if (Number(operator.code) > 0) called.push(Number(operator.code))
+        }
+        const risky =
+            called.some((id) => (id === -1 ? true : badRoutine(routineById.get(id)))) || [...ids.types].some((id) => badTypes.has(id))
+        if (risky) names.add(check.domain)
+    }
+    const list = [...names].sort()
+    if (cacheKey) riskyDomainCache.set(cacheKey, { names: list, expires: now + RISKY_DOMAIN_TTL_MS })
+    return list
+}
 
-const DOMAIN_FUNCTIONS_SQL = `SELECT DISTINCT format_type(c.contypid, NULL) AS domain, n.nspname || '.' || p.proname AS name
-FROM pg_constraint c
-JOIN pg_depend d ON d.classid = 'pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_proc'::regclass
-JOIN pg_proc p ON p.oid = d.refobjid JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE c.contypid = ANY(?::oid[]) AND n.nspname <> 'pg_catalog'`
-
-// A type whose input, output, receive or send function is outside pg_catalog, an object-identifier type, or a
-// domain whose CHECK calls a function that would be refused in the statement itself. A domain check runs when a
-// value is cast to the domain, which the statement's own function ids do not show.
-async function refuseTypes(runner, typeSet, depth = 0) {
+// A type whose input, output, receive or send function is outside pg_catalog, or an object-identifier type.
+// Domains with a risky CHECK never get this far: riskyDomains refuses every statement in that database.
+async function refuseTypes(runner, typeSet) {
     const ids = [...typeSet]
     if (!ids.length) return
     const types = await runner.all(TYPE_CLOSURE_SQL, [ids])
@@ -527,31 +557,4 @@ async function refuseTypes(runner, typeSet, depth = 0) {
     }
     const foreignIo = types.filter((type) => (type.foreign_io || []).length).map((type) => type.name)
     if (foreignIo.length) throw new ScopeRefusal(`Cuttlely refused this query: type ${refusedList(foreignIo)} ${NOT_BUILT_IN}`)
-    const domains = types.filter((type) => type.typtype === 'd').map((type) => Number(type.oid))
-    if (!domains.length) return
-    const foreign = await runner.all(DOMAIN_FUNCTIONS_SQL, [domains])
-    if (foreign.length) {
-        const domainNames = refusedList([...new Set(foreign.map((row) => row.domain))])
-        const functionNames = refusedList([...new Set(foreign.map((row) => row.name))])
-        throw new ScopeRefusal(
-            `Cuttlely refused this query: domain ${domainNames} checks its values with ${functionNames}, which ${NOT_BUILT_IN}`
-        )
-    }
-    const nested = new Set()
-    for (const check of await runner.all(DOMAIN_CHECKS_SQL, [domains])) {
-        const tree = treeObjectIds(check.tree)
-        try {
-            await refuseRoutines(runner, tree.functions, tree.operators)
-        } catch (error) {
-            const reason = String(error.message).replace(/^Cuttlely refused this query: /, '')
-            throw new ScopeRefusal(
-                `Cuttlely refused this query: domain ${check.domain} checks its values with something refused here. ${reason}`
-            )
-        }
-        for (const id of tree.types) if (!ids.includes(id)) nested.add(id)
-    }
-    if (!nested.size) return
-    if (depth >= 4)
-        throw new ScopeRefusal('Cuttlely refused this query: its domain types nest too deeply to check against the table selection.')
-    await refuseTypes(runner, nested, depth + 1)
 }
