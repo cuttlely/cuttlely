@@ -130,6 +130,7 @@
     font-weight: 800;
     color: var(--sl-color-white);
     margin: 0 0 0.75rem;
+    text-wrap: balance;
 }
 .cl-home p {
     color: var(--sl-color-gray-2);
@@ -633,6 +634,14 @@
 .cl-case-toggle:focus-visible {
     outline: 3px solid var(--sl-color-text-accent);
     outline-offset: 3px;
+}
+/* Keeps the longer label, "Hide how the agent team worked it out", on one line at a 390px viewport. */
+@media (max-width: 30rem) {
+    .cl-case-toggle {
+        gap: 0.45rem;
+        padding-inline: 0.9rem;
+        font-size: 0.9375rem;
+    }
 }
 .cl-case-chevron {
     flex: none;
