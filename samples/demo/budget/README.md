@@ -8,24 +8,32 @@ It is the second database in the two-analyst [real-model check](../../../docs/ho
 
 ```bash
 createdb budget
-psql -d budget -f samples/demo/budget/budget-postgres.sql
+psql -v ON_ERROR_STOP=1 -d budget -f samples/demo/budget/budget-postgres.sql
 ```
 
 ## Run the check
 
-The check calls the OpenAI chat API, so set `OPENAI_API_KEY` and use it only on made-up data like this.
+Run `pnpm install` first. The check calls the OpenAI chat API, so set `OPENAI_API_KEY` and use it only on made-up data like this.
 
 ```bash
 createdb bakery
-psql -d bakery -f samples/demo/bakery/bakery-postgres.sql
+psql -v ON_ERROR_STOP=1 -d bakery -f samples/demo/bakery/bakery-postgres.sql
 CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery \
 CUTTLELY_BUDGET_URL=postgresql://127.0.0.1:5432/budget \
     node scripts/analyst-real-model-check.mjs two-analyst
 ```
 
-A URL without a login uses `PGUSER` and `PGPASSWORD` from the environment. `bakery` instead of `two-analyst` runs the single-analyst check on the bakery database alone.
+A URL without a login uses `PGUSER` and `PGPASSWORD` from the environment. `bakery` instead of `two-analyst` runs the single-analyst check on the bakery database alone. It asks five questions:
 
-The script asks nine questions. The routing prompt picks the analyst for each, as Harness Prime does, and the script checks the answer for the expected figure. It prints JSON with each answer, the SQL the analyst ran, seconds per question and prompt tokens, and exits 1 when a check fails.
+| Question                                                          | Expected                               |
+| ----------------------------------------------------------------- | -------------------------------------- |
+| Which month had the highest total sales, and how much?            | June, $49,557.50                       |
+| What are the top 3 products by revenue?                           | Sourdough Loaf, Seeded Rye, Lemon Tart |
+| Which wholesale account owes us the most right now, and how much? | Hilltop Deli, $600.12                  |
+| Which store had the most revenue in the most recent week?         | Old Town, $5,976.50                    |
+| How many staff work at each store?                                | Says the data does not have it         |
+
+In `two-analyst` mode the script asks nine questions. The routing prompt picks the analyst for each, as Harness Prime does, and the script checks the answer for the expected figure. It prints JSON with each answer, the SQL the analyst ran, seconds per question and prompt tokens, and exits 1 when a check fails.
 
 | Question                                                               | Analyst | Expected                               |
 | ---------------------------------------------------------------------- | ------- | -------------------------------------- |

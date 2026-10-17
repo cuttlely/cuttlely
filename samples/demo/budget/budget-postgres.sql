@@ -1,6 +1,8 @@
 -- Budget demo database for PostgreSQL. Everything here is made up: the company, its departments, vendors and numbers.
 -- It is the second database in the two-analyst real-model check in docs/how-to/analyst.md.
--- Load it into an empty database: psql -d budget -f samples/demo/budget/budget-postgres.sql
+-- Load it into an empty database: psql -v ON_ERROR_STOP=1 -d budget -f samples/demo/budget/budget-postgres.sql
+
+BEGIN;
 
 CREATE TABLE departments (
     id integer PRIMARY KEY,
@@ -79,3 +81,5 @@ INSERT INTO headcount_plan (department_id, fiscal_year, planned_heads) VALUES
     (2, 2026, 25),
     (3, 2026, 12),
     (4, 2026, 5);
+
+COMMIT;
