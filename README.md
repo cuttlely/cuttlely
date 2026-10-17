@@ -21,8 +21,8 @@ Cuttlely is an open-source visual graph editor for building and orchestrating AI
 
 ## A/B test every change before it goes live
 
-<span id="test-every-change-before-it-goes-live"></span>
-<span id="ship-changes-safely-draft-compare-publish-roll-back"></span>
+<a id="test-every-change-before-it-goes-live"></a>
+<a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
 Every edit saves to a draft while Live keeps serving your app. Compare, in the Publish dialog, asks real questions on Live and on the draft and marks each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes. Test with up to 100 question-and-answer pairs, with more on the roadmap.
 
@@ -161,7 +161,7 @@ Workflows that run step by step and can start from a chat message, a form, a web
 
 ## Your first 10 minutes
 
-<span id="chat-with-a-team-in-minutes"></span>
+<a id="chat-with-a-team-in-minutes"></a>
 
 New to agents? You do not need to write code. Describe a team with **Build with AI** and a first version lands on the canvas with starter questions. Ask them in the test chat, and the run card shows which specialists did the work. When it answers well, the chatflow that calls the team gives you a link to share and an embed for your website, so other people can chat with it too.
 

@@ -21,9 +21,9 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 
 ## 公開前に、すべての変更を A/B テスト
 
-<span id="ab-test-every-change-before-it-goes-live"></span>
-<span id="test-every-change-before-it-goes-live"></span>
-<span id="ship-changes-safely-draft-compare-publish-roll-back"></span>
+<a id="ab-test-every-change-before-it-goes-live"></a>
+<a id="test-every-change-before-it-goes-live"></a>
+<a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
 編集はすべて下書きに保存され、その間も Live はアプリへの応答を続けます。Publish ダイアログの Compare は、実際の質問を Live と下書きの両方に投げ、公開する前にそれぞれの答えに Same、Changed、Error のいずれかの印を付けます。passing test set（合格が必要なテストセット）をオンにすると、Publish は下書きが合格するまで待ちます。テストには最大 100 組の質問と回答のペアを使えます。さらに増やすことはロードマップにあります。
 
@@ -64,11 +64,11 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 
 ## 作れるもの
 
-<span id="what-you-can-build"></span>
+<a id="what-you-can-build"></a>
 
 ### アプリを動かすエージェントチーム
 
-<span id="agent-teams-that-power-your-apps"></span>
+<a id="agent-teams-that-power-your-apps"></a>
 
 アプリに、単一のプロンプトではなくチームを。エージェントチームとは、リーダー役のエージェントとスペシャリストたちの集まりです。Cuttlely では、エージェントチームを harness（ハーネス）と呼びます。リーダーの Harness Prime は質問を読み、いくつかの部分に分け、それぞれを適切なスペシャリストに送り、一つの答えを書きます。スペシャリストはそれぞれ、自分のモデル、ツール、プレイブック、データを持てます。チャットフローはチーム全体を名前で呼び出すので、アプリ、共有リンク、ウェブサイトの埋め込みからチームに届きます。アプリは API でチームに質問を送り、調べ上げた一つの答え、グラフ、またはアクションを受け取ります。[ハーネスのガイド](./docs/how-to/harnesses.md)
 
@@ -78,7 +78,7 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 
 ## 下書き、テスト、バージョン履歴
 
-<span id="drafts-tests-and-version-history"></span>
+<a id="drafts-tests-and-version-history"></a>
 
 -   **下書きは Live に影響しません。** チャットフロー、エージェントフロー、ハーネス、パイプラインでは、キャンバスは下書きに保存します。API、埋め込み、共有リンク、スケジュール、Webhook、ハーネスの外部実行ルート、パイプラインのスケジュール実行は、公開するまで Live を提供し続けます。キャンバスのテストチャットは下書きを実行します。ハーネスのキャンバスチャットと Try it も同じです。パイプラインの **Preview** は下書きを実行し、ストアには書き込みません。
 -   **公開する前に比較。** 最近の質問を Live と下書きの両方で実行し、それぞれの答えに Same、Changed、Error の印を付けます。
@@ -99,11 +99,11 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 
 ## チームを使う
 
-<span id="use-your-team"></span>
+<a id="use-your-team"></a>
 
 ### アプリからチームを使う
 
-<span id="use-a-team-from-your-app"></span>
+<a id="use-a-team-from-your-app"></a>
 
 **Harness** カードを一枚置いたチャットフローの後ろにチームを置いて公開し、**API Keys** でキーを発行します。アプリが質問を送ると、チームの答えが返ってきます。以下は、`baker` と `orders` という二つのスペシャリストを持つ小さなパン屋のチームへの、実際の呼び出しです。
 
@@ -135,7 +135,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 ### 小さなコンテキストで、大きな答え
 
-<span id="small-context-big-answers"></span>
+<a id="small-context-big-answers"></a>
 
 長いチャット、大きなテーブル、長いルールブックがあっても、プロンプトが長くなるとは限りません。各エージェントは自分の仕事に必要なものだけを見て、どの実行も使ったトークンを示します。
 
@@ -149,7 +149,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 ### チームが使うツール
 
-<span id="tools-your-teams-use"></span>
+<a id="tools-your-teams-use"></a>
 
 #### ナレッジパイプライン（ETL）：自分のデータからの答え
 
@@ -176,8 +176,8 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 ## 最初の 10 分
 
-<span id="your-first-10-minutes"></span>
-<span id="chat-with-a-team-in-minutes"></span>
+<a id="your-first-10-minutes"></a>
+<a id="chat-with-a-team-in-minutes"></a>
 
 エージェントは初めてですか？コードを書く必要はありません。**Build with AI** でチームを説明すると、最初のバージョンがスターター質問付きでキャンバスに置かれます。テストチャットでその質問をすると、Run カードにどのスペシャリストが作業したかが出ます。うまく答えるようになったら、チームを呼び出すチャットフローから共有用のリンクとウェブサイト用の埋め込みが手に入るので、ほかの人もチャットできます。
 
@@ -221,7 +221,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 ## ガイド
 
-<span id="guides"></span>
+<a id="guides"></a>
 
 -   [Docker](./docs/how-to/docker.md)。SQLite を使い、一つのコンテナで Cuttlely をインストールして動かします。`npx cuttlely` も同じイメージを起動します。
 -   [ソースからビルドして開発サーバーを動かす](./docs/how-to/from-source.md)。Cuttlely を自分でビルドして動かし、ライブリロードでコードを変更します。
@@ -247,19 +247,19 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 ## 既存のフローを持ち込む
 
-<span id="bring-your-existing-flows"></span>
+<a id="bring-your-existing-flows"></a>
 
 ほかのツールで作ったフローがありますか？**Chatflows** の **Import** メニューには **Import Flowise JSON** があり、Flowise のチャットフローまたはエージェントフローのエクスポートをチェックして適切なキャンバスで開く、短いウィザードが開きます。**Import Langflow JSON** はシンプルな Langflow のチャットを読み込みます。何が引き継がれ、何がまだサポートされていないかは [既存のフローを持ち込む](./docs/bring-your-flows.md) にあります。
 
 ## コントリビュート
 
-<span id="contributing"></span>
+<a id="contributing"></a>
 
 [CONTRIBUTING.md](./CONTRIBUTING.md) と [ソースからビルドして開発サーバーを動かす](./docs/how-to/from-source.md) を参照してください。プルリクエストの前に、Node 24 で `pnpm verify` を実行してください。セキュリティの報告は [SECURITY.md](./SECURITY.md) へ。モジュールの境界マップは [ARCHITECTURE.md](./ARCHITECTURE.md) にあります。
 
 ## 概要とクレジット
 
-<span id="about-and-credits"></span>
+<a id="about-and-credits"></a>
 
 Cuttlely は Apache 2.0 のオープンソースです。各リリースでの変更は [変更履歴](./CHANGELOG.md) に、どのバージョンに修正が提供されるかは [リリースとサポート](./docs/releases.md) にあります。ライセンス本文は [LICENSE.md](./LICENSE.md)、帰属表示は [NOTICE](./NOTICE) にあります。
 
@@ -267,6 +267,6 @@ Cuttlely は、Flowise、Nous Research の Hermes、React Flow をはじめと�
 
 ## お問い合わせ
 
-<span id="contact"></span>
+<a id="contact"></a>
 
 質問、パートナーシップ、取材のご依頼は [info@cuttlely.com](mailto:info@cuttlely.com) へ。バグや機能のアイデアは [issues](https://github.com/cuttlely/cuttlely/issues) へ、脆弱性は [SECURITY.md](./SECURITY.md) の手順でお知らせください。

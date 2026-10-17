@@ -21,9 +21,9 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 ## Live에 반영하기 전에 모든 변경을 A/B 테스트
 
-<span id="ab-test-every-change-before-it-goes-live"></span>
-<span id="test-every-change-before-it-goes-live"></span>
-<span id="ship-changes-safely-draft-compare-publish-roll-back"></span>
+<a id="ab-test-every-change-before-it-goes-live"></a>
+<a id="test-every-change-before-it-goes-live"></a>
+<a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
 모든 편집은 초안에 저장되고, 그동안 Live는 계속 앱에 응답합니다. Publish 대화 상자의 Compare는 실제 질문을 Live와 초안에 모두 던지고, 게시하기 전에 각 답변을 Same, Changed, Error 중 하나로 표시합니다. passing test set(통과해야 하는 테스트 세트)을 켜면 Publish는 초안이 통과할 때까지 기다립니다. 최대 100개의 질문과 답변 쌍으로 테스트할 수 있으며, 더 늘리는 것은 로드맵에 있습니다.
 
@@ -64,11 +64,11 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 ## 만들 수 있는 것
 
-<span id="what-you-can-build"></span>
+<a id="what-you-can-build"></a>
 
 ### 앱을 움직이는 에이전트 팀
 
-<span id="agent-teams-that-power-your-apps"></span>
+<a id="agent-teams-that-power-your-apps"></a>
 
 앱에 프롬프트 하나 대신 팀을 붙여 주세요. 에이전트 팀은 리더 에이전트와 스페셜리스트들로 이루어집니다. Cuttlely에서는 에이전트 팀을 harness(하네스)라고 부릅니다. 리더인 Harness Prime은 질문을 읽고, 여러 부분으로 나누고, 각 부분을 알맞은 스페셜리스트에게 보낸 뒤, 하나의 답변을 작성합니다. 스페셜리스트마다 자신의 모델, 도구, 플레이북, 데이터를 가질 수 있습니다. 챗플로우가 팀 전체를 이름으로 호출하므로, 앱, 공유 링크, 웹사이트 임베드에서 팀에 닿을 수 있습니다. 앱은 API로 팀에 질문을 보내고, 충분히 조사한 하나의 답변, 차트 또는 조치를 돌려받습니다. [하네스 가이드](./docs/how-to/harnesses.md)
 
@@ -78,7 +78,7 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 ## 초안, 테스트, 버전 기록
 
-<span id="drafts-tests-and-version-history"></span>
+<a id="drafts-tests-and-version-history"></a>
 
 -   **초안은 Live에 영향을 주지 않습니다.** 챗플로우, 에이전트플로우, 하네스, 파이프라인에서 캔버스는 초안에 저장합니다. API, 임베드, 공유 링크, 스케줄, 웹훅, 하네스의 외부 실행 라우트, 파이프라인의 예약 실행은 게시하기 전까지 계속 Live를 제공합니다. 캔버스의 테스트 채팅은 초안을 실행하며, 하네스 캔버스 채팅과 Try it도 마찬가지입니다. 파이프라인의 **Preview**는 초안을 실행하고 저장소에는 쓰지 않습니다.
 -   **게시하기 전에 비교하세요.** 최근 질문을 Live와 초안에서 모두 실행하고, 각 답변에 Same, Changed, Error 표시를 붙입니다.
@@ -99,11 +99,11 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 ## 팀 사용하기
 
-<span id="use-your-team"></span>
+<a id="use-your-team"></a>
 
 ### 앱에서 팀 사용하기
 
-<span id="use-a-team-from-your-app"></span>
+<a id="use-a-team-from-your-app"></a>
 
 **Harness** 카드 하나로 된 챗플로우 뒤에 팀을 두고 게시한 다음, **API Keys**에서 키를 발급하세요. 앱이 질문을 보내면 팀의 답변이 돌아옵니다. 다음은 `baker`와 `orders`라는 두 스페셜리스트가 있는 작은 빵집 팀을 실제로 호출한 예입니다.
 
@@ -135,7 +135,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 ### 작은 컨텍스트, 큰 답변
 
-<span id="small-context-big-answers"></span>
+<a id="small-context-big-answers"></a>
 
 긴 채팅, 큰 테이블, 긴 규칙집이 있다고 해서 프롬프트가 길어져야 하는 것은 아닙니다. 각 에이전트는 자기 일에 필요한 것만 보고, 모든 실행은 사용한 토큰을 보여 줍니다.
 
@@ -149,7 +149,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 ### 팀이 사용하는 도구
 
-<span id="tools-your-teams-use"></span>
+<a id="tools-your-teams-use"></a>
 
 #### 지식 파이프라인(ETL): 여러분의 데이터에서 나오는 답변
 
@@ -176,8 +176,8 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 ## 처음 10분
 
-<span id="your-first-10-minutes"></span>
-<span id="chat-with-a-team-in-minutes"></span>
+<a id="your-first-10-minutes"></a>
+<a id="chat-with-a-team-in-minutes"></a>
 
 에이전트가 처음이신가요? 코드를 작성할 필요가 없습니다. **Build with AI**로 팀을 설명하면 첫 버전이 스타터 질문과 함께 캔버스에 올라옵니다. 테스트 채팅에서 그 질문을 하면 Run 카드에 어떤 스페셜리스트가 작업했는지 나옵니다. 답변이 만족스러우면, 팀을 호출하는 챗플로우에서 공유 링크와 웹사이트용 임베드를 받을 수 있으므로 다른 사람도 대화할 수 있습니다.
 
@@ -221,7 +221,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 ## 가이드
 
-<span id="guides"></span>
+<a id="guides"></a>
 
 -   [Docker](./docs/how-to/docker.md). SQLite를 사용해 컨테이너 하나로 Cuttlely를 설치하고 실행합니다. `npx cuttlely`도 같은 이미지를 시작합니다.
 -   [소스에서 빌드하고 개발 서버 실행하기](./docs/how-to/from-source.md). Cuttlely를 직접 빌드해 실행하고, 라이브 리로드로 코드를 바꿉니다.
@@ -247,19 +247,19 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 ## 기존 플로우 가져오기
 
-<span id="bring-your-existing-flows"></span>
+<a id="bring-your-existing-flows"></a>
 
 다른 도구로 만든 플로우가 있나요? **Chatflows**의 **Import** 메뉴에는 **Import Flowise JSON**이 있어, Flowise 챗플로우나 에이전트플로우 내보내기 파일을 검사한 뒤 알맞은 캔버스에서 열어 주는 짧은 마법사가 열립니다. **Import Langflow JSON**은 간단한 Langflow 채팅을 불러옵니다. 무엇이 그대로 옮겨지고 무엇이 아직 지원되지 않는지는 [기존 플로우 가져오기](./docs/bring-your-flows.md)에 있습니다.
 
 ## 기여하기
 
-<span id="contributing"></span>
+<a id="contributing"></a>
 
 [CONTRIBUTING.md](./CONTRIBUTING.md)와 [소스에서 빌드하고 개발 서버 실행하기](./docs/how-to/from-source.md)를 참고하세요. 풀 리퀘스트 전에 Node 24에서 `pnpm verify`를 실행하세요. 보안 신고는 [SECURITY.md](./SECURITY.md)로 보내 주세요. 모듈 경계 지도는 [ARCHITECTURE.md](./ARCHITECTURE.md)에 있습니다.
 
 ## 소개 및 크레딧
 
-<span id="about-and-credits"></span>
+<a id="about-and-credits"></a>
 
 Cuttlely는 Apache 2.0 라이선스의 오픈소스입니다. 릴리스마다 바뀐 내용은 [변경 기록](./CHANGELOG.md)에, 어떤 버전이 수정을 받는지는 [릴리스와 지원](./docs/releases.md)에 있습니다. 라이선스 전문은 [LICENSE.md](./LICENSE.md)에, 저작자 표시는 [NOTICE](./NOTICE)에 있습니다.
 
@@ -267,6 +267,6 @@ Cuttlely는 Flowise, Nous Research의 Hermes, React Flow를 비롯한 오픈소�
 
 ## 연락처
 
-<span id="contact"></span>
+<a id="contact"></a>
 
 질문, 파트너십, 언론 문의: [info@cuttlely.com](mailto:info@cuttlely.com). 버그와 기능 아이디어는 [issues](https://github.com/cuttlely/cuttlely/issues)에, 취약점은 [SECURITY.md](./SECURITY.md)를 통해 알려 주세요.

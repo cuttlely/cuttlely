@@ -30,7 +30,8 @@ const body = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8').split('\n'
 const codeBlocks = (text) => text.match(/^ *```[\s\S]*?^ *```/gm) ?? []
 const prose = (text) => text.replace(/^ *```[\s\S]*?^ *```/gm, '')
 const targets = (text) => [...prose(text).matchAll(/\]\(([^)\s]+)\)|\b(?:src|srcset|href)="([^"]+)"/g)].map((match) => match[1] ?? match[2])
-const spanIds = (text) => new Set([...text.matchAll(/<span id="([^"]+)"><\/span>/g)].map((match) => match[1]))
+// GitHub drops id from a <span>, so an in-page anchor has to be an <a id>.
+const anchorIds = (text) => new Set([...text.matchAll(/<a id="([^"]+)"><\/a>/g)].map((match) => match[1]))
 
 const english = body('README.md')
 
@@ -53,7 +54,7 @@ for (const file of TRANSLATIONS) {
 
     test(`${file} has an anchor for every in-page link`, () => {
         const text = body(file)
-        const ids = spanIds(text)
+        const ids = anchorIds(text)
         const missing = targets(text).filter((target) => target.startsWith('#') && !ids.has(target.slice(1)))
         assert.deepEqual(missing, [])
     })
