@@ -60,7 +60,7 @@ A harness saved before the handle-id repair still has the old edge ids in stored
 
 Each specialist **Chat Model** input can stay empty. The specialist uses Harness Prime's model. An orange triangle on the card is the outdated-node notice when the saved version is behind the current Harness Specialist or Harness Prime. It is not a missing chat model. A harness made from the template today shows no triangle. One saved from an older template or an older Cuttlely shows it until you select **Sync Nodes** and then save. Saving without **Sync Nodes** leaves it.
 
-![The chief-of-staff harness canvas in the dark theme, with the PostgreSQL MCP card in view. Available Actions has QUERY selected with its description below, and Connect Credential reads Auto mode: isolated analyst store, no credential needed.](../images/analyst/postgres-mcp-query.png)
+![The chief-of-staff harness canvas in the dark theme, with the PostgreSQL MCP card in view. Available Actions has QUERY selected with its description below, Connect Credential reads Auto mode: isolated analyst store, no credential needed, and Tables and views says isolated analyst storage has nothing to pick.](../images/analyst/postgres-mcp-query.png)
 
 **Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) and **Try it** run the draft when one exists, and Live otherwise. They do not build the canvas as a chatflow. External callers use `POST /api/v1/harnesses/chief-of-staff/runs`, which stays on Live until you publish. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. An analyst query chip also shows how many rows that query returned, and a short preview of them. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
 
@@ -377,7 +377,7 @@ With the default query timeout, 15 seconds is the limit for every analyst statem
 
 In **Try it** on a harness whose analyst uses the workspace analyst file, a recursive count with no end stops at 15 seconds. The answer quotes the timeout sentence. The analyst row in the picture finished in 16 seconds, and the server kept answering the whole time:
 
-![Try it on the chief-of-staff harness. The prompt asks the analyst to run a recursive count with no end. The Run card says Harness Prime sent work to analyst, the analyst row is done on OpenAI gpt-5.6-luna with 1 tool, and the answer is The analyst database query failed: canceling statement due to statement timeout.](../images/analyst/statement-timeout-sqlite.png)
+![Try it on the chief-of-staff harness. The prompt asks the analyst to run a recursive count with no end. The Run card says Harness Prime sent work to analyst, the analyst row is done on OpenAI gpt-5.6-luna with 1 tool, and the answer is canceling statement due to statement timeout.](../images/analyst/statement-timeout-sqlite.png)
 
 ### Temporary tables
 
@@ -395,7 +395,7 @@ In **Try it** on a SQLite auto store, one turn creates `tmp_targets`, fills it, 
 
 The next turn in the same chat runs `SELECT * FROM tmp_targets;` and gets `no such table: tmp_targets`:
 
-![The next run in the same Try it chat. The prompt is SELECT * FROM tmp_targets. The analyst row is done with 1 tool, and the answer is The analyst query failed: no such table: tmp_targets.](../images/analyst/temp-table-next-turn.png)
+![The next run in the same Try it chat. The prompt is SELECT * FROM tmp_targets. The analyst row is done with 1 tool, and the answer is The query failed with no such table: tmp_targets.](../images/analyst/temp-table-next-turn.png)
 
 ## Other SQL tools
 
@@ -406,7 +406,7 @@ Cuttlely can list and limit the tables the analyst reaches only through its own 
 
 The rule goes by names and fields. A server that runs SQL under a name that says neither is not caught, so connect databases through PostgreSQL MCP.
 
-![Try it on bakery-other-sql. The prompt asks how many sourdough orders the bakery had and to use the execute_sql tool. The analyst row is done with no tool chip, and the answer is The analyst was unable to access the execute_sql tool, so the number of sourdough orders is unavailable.](../images/analyst/sql-refused.png)
+![Try it on bakery-other-sql. The prompt asks how many sourdough orders the bakery had and to use the execute_sql tool. The analyst row is done with no tool chip, and the answer is The execute_sql tool is not available in this session.](../images/analyst/sql-refused.png)
 
 ## Which setting wins
 
@@ -432,7 +432,7 @@ Refresh **Available Actions** on the PostgreSQL MCP node. The list says **No Ava
 
 The fix is a separate database. Set `CUTTLELY_POSTGRES_URL` to it, or select a Postgres URL credential. Do not paste the application database. On Render, the Blueprint does not set that variable. [Analyst database](./render.md#analyst-database). If that host requires TLS, put `sslmode` on the URL yourself. Cuttlely does not add it.
 
-![The PostgreSQL MCP card in the dark theme. Connect Credential says no credential is saved for this node yet. Available Actions is No Available Actions. The note under it reads: Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.](../images/analyst/available-actions-create-roles.png)
+![The PostgreSQL MCP card in the dark theme. Connect Credential says no credential is saved for this node yet. Available Actions is No Available Actions. The note under it reads: Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login. Below it, Tables and views reads Isolated analyst storage: the analyst keeps its own tables here, so there is nothing to pick.](../images/analyst/available-actions-create-roles.png)
 
 Two other stops use the same fallback, a separate URL, and do not use the application login:
 

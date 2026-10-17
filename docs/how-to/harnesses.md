@@ -96,7 +96,7 @@ The template stores no action on PostgreSQL MCP. Until you pick one, the analyst
 
 With `CUTTLELY_ANALYST=auto` the description under the field starts with `Run one SQL statement in the isolated analyst store`, and **Connect Credential** reads `Auto mode: isolated analyst store, no credential needed`. Other cases are in [Analyst mode](./analyst.md).
 
-![The PostgreSQL MCP node in the dark theme, with QUERY selected under Available Actions. Connect Credential reads Auto mode: isolated analyst store, no credential needed, and the QUERY description is below the field.](../images/harnesses/postgres-mcp-query.png)
+![The PostgreSQL MCP node in the dark theme, with QUERY selected under Available Actions. Connect Credential reads Auto mode: isolated analyst store, no credential needed, and the QUERY description is below the field. Tables and views says isolated analyst storage has nothing to pick.](../images/harnesses/postgres-mcp-query.png)
 
 ## Give a specialist playbooks
 
@@ -201,7 +201,7 @@ The team is saved right away as a new harness, named after its title, and opens 
 
 6. Open the chat. Three starter questions are waiting, written as things you would ask the team. Select one. The run card shows which specialists Harness Prime sent work to. See [Read the run card](#read-the-run-card).
 
-![The canvas chat on Trip-Planning-Harness after a starter question, in the dark theme. The answer is a day-by-day plan for seven days in Italy through Florence and Venice to Milan on day 7, then an estimated budget in euros for accommodation, meals, transportation and activities.](../images/harnesses/build-with-ai-chat.png)
+![The canvas chat on Trip-Planning-Harness after a starter question, in the dark theme. The answer is a day-by-day plan for seven days in Italy, from Rome through Florence to Venice, with day 7 for departure, then three travel tips.](../images/harnesses/build-with-ai-chat.png)
 
 When a tool needs a credential you have not added, the message at the bottom names it, for example `Tavily API needs Tavily API`. Add that credential on the **Credentials** page, pick it on the card, and save the harness. The message stays until you close it.
 
@@ -251,7 +251,7 @@ A chatflow runs a harness with the **Harness** node. A chatflow whose only node 
 3. Under **Harness**, select `chief-of-staff`.
 4. Save the chatflow under any name, then open its chat.
 
-![The Add Nodes panel on a new chatflow canvas in the dark theme, with Harness in the search box. One result, Harness: Attach a named harness as a tool.](../images/harnesses/chatflow-add-harness-node.png)
+![The Add Nodes panel on a new chatflow canvas in the dark theme, with Harness in the search box. One result under Harness: Attach a named harness as a tool. The agent calls it when its system message routes a task to tool:harness. A chat whose only node is this harness runs that roster for the message.](../images/harnesses/chatflow-add-harness-node.png)
 
 ![A chatflow named Chief of staff chat in the dark theme, with one Harness node set to chief-of-staff and Return Direct on. The chat panel shows the Run card for chief-of-staff, Harness Prime sent work to researcher, and an answer that quotes the sample note: the researcher reads it from an in-memory store, and Local Hash Embeddings built the vectors, with no provider key.](../images/harnesses/chatflow-harness-chat.png)
 
