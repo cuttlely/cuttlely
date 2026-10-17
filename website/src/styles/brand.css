@@ -44,7 +44,7 @@
     --sl-color-hairline-light: #232a55;
     --sl-color-hairline: #1b2148;
     --cuttlely-fill: #a78bfa;
-    --cuttlely-fill-hover: #8b5cf6;
+    --cuttlely-fill-hover: #9470f7;
     --cuttlely-fill-label: #0a0d1e;
     --cuttlely-gradient-text: var(--cuttlely-gradient-wordmark-dark);
     --cuttlely-surface: #121636;
@@ -103,10 +103,15 @@ h1#_top {
 }
 
 /* Links and focus */
-.sl-markdown-content a:not(.sl-link-button):hover {
+/* Filled buttons and video chips keep their own label colour on hover. */
+.sl-markdown-content a:not(.sl-link-button, .cl-button, .cl-tile-play):hover {
     color: var(--cuttlely-fill-hover);
 }
-:root:not([data-theme='light']) .sl-markdown-content a:not(.sl-link-button):hover {
+:root:not([data-theme='light']) .sl-markdown-content a:not(.sl-link-button, .cl-button, .cl-tile-play):hover {
+    color: #c4b5fd;
+}
+/* The accent (#a78bfa) is 4.47:1 on the dark inline-code chip; this violet is 6.58:1. */
+:root:not([data-theme='light']) a code {
     color: #c4b5fd;
 }
 :focus-visible {

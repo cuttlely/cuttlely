@@ -30,6 +30,7 @@ const TryTheDemo = ({ show }) => {
     const { setError } = useError()
     const { hasPermission } = useAuth()
     const canViewKeys = hasPermission('credentials:view')
+    const canCreateKeys = hasPermission('credentials:create')
     const [dismissed, setDismissed] = useState(() => localStorage.getItem(TRY_DEMO_KEY) === '1')
     const [status, setStatus] = useState(null)
     const [keys, setKeys] = useState([])
@@ -76,6 +77,7 @@ const TryTheDemo = ({ show }) => {
     const made = demos[MAIN] || null
     const quickstart = demos[QUICKSTART] || null
     const needsKey = (id) => !busy && !demos[id] && !picked
+    const keyHint = canCreateKeys ? t('demo.needsKey') : t('demo.needsKeyAskAdmin')
 
     const start = async (id) => {
         if (demos[id]) return openDemo(navigate, demos[id].id)
@@ -129,7 +131,7 @@ const TryTheDemo = ({ show }) => {
                         ))}
                     </TextField>
                 )}
-                {(!made || !quickstart) && (
+                {canCreateKeys && (!made || !quickstart) && (
                     <Button
                         variant={keys.length ? 'text' : 'outlined'}
                         onClick={() => setListOpen(true)}
@@ -139,7 +141,7 @@ const TryTheDemo = ({ show }) => {
                         {keys.length ? 'Add another key' : 'Add a model key'}
                     </Button>
                 )}
-                <Tooltip title={needsKey(MAIN) ? t('demo.needsKey') : ''} placement='top'>
+                <Tooltip title={needsKey(MAIN) ? keyHint : ''} placement='top'>
                     <Box component='span' tabIndex={needsKey(MAIN) ? 0 : undefined} sx={{ display: 'inline-flex', borderRadius: 1 }}>
                         <StyledPermissionButton
                             permissionId={'chatflows:create'}
@@ -153,7 +155,7 @@ const TryTheDemo = ({ show }) => {
                         </StyledPermissionButton>
                     </Box>
                 </Tooltip>
-                <Tooltip title={needsKey(QUICKSTART) ? t('demo.needsKey') : ''} placement='top'>
+                <Tooltip title={needsKey(QUICKSTART) ? keyHint : ''} placement='top'>
                     <Box component='span' tabIndex={needsKey(QUICKSTART) ? 0 : undefined} sx={{ display: 'inline-flex', borderRadius: 1 }}>
                         <PermissionButton
                             permissionId={'chatflows:create'}

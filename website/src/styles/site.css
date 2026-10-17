@@ -130,6 +130,7 @@
     font-weight: 800;
     color: var(--sl-color-white);
     margin: 0 0 0.75rem;
+    text-wrap: balance;
 }
 .cl-home p {
     color: var(--sl-color-gray-2);
@@ -634,6 +635,14 @@
     outline: 3px solid var(--sl-color-text-accent);
     outline-offset: 3px;
 }
+/* Keeps the longer label, "Hide how the agent team worked it out", on one line at a 390px viewport. */
+@media (max-width: 30rem) {
+    .cl-case-toggle {
+        gap: 0.45rem;
+        padding-inline: 0.9rem;
+        font-size: 0.9375rem;
+    }
+}
 .cl-case-chevron {
     flex: none;
     width: 0.55rem;
@@ -946,12 +955,17 @@
 }
 .cl-tile-play:hover,
 .cl-tile-play:focus-visible {
-    background: var(--cuttlely-violet-fill);
+    background: var(--cuttlely-violet);
     color: #ffffff;
 }
 .cl-tile-play-length {
     font-weight: 400;
     opacity: 0.8;
+}
+/* At 0.8 the length is 4.34:1 on the violet hover fill; full white is 5.89:1. */
+.cl-tile-play:hover .cl-tile-play-length,
+.cl-tile-play:focus-visible .cl-tile-play-length {
+    opacity: 1;
 }
 .cl-video-dialog {
     width: min(64rem, 94vw);
