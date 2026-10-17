@@ -80,7 +80,7 @@ describe('verify timing table', () => {
 })
 
 describe('verify retryOnSignal', () => {
-    const step = { name: 'eval-routes', retryOnSignal: true, command: 'node', args: ['x'], env: {} }
+    const step = { name: 'fake-step', retryOnSignal: true, command: 'node', args: ['x'], env: {} }
     function runner(results) {
         const calls = []
         const run = (...args) => {
