@@ -19,6 +19,7 @@ const {
     compileTryProfile,
     discardTryProfile,
     hermesToolsetsFor,
+    mcpValidatorPath,
     modelConfigured,
     readProfileEnv,
     CHIEF_TOOLSETS,
@@ -5709,7 +5710,8 @@ const withCustomMcpAllowLists = (values, fn) => {
         'CUSTOM_MCP_SECURITY_CHECK',
         'CUSTOM_MCP_ALLOWED_COMMANDS',
         'CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS',
-        'CUSTOM_MCP_ALLOWED_ENV_VARS'
+        'CUSTOM_MCP_ALLOWED_ENV_VARS',
+        'CUTTLELY_MCP_VALIDATOR_PATH'
     ]
     const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
     for (const key of keys) {
@@ -5725,6 +5727,8 @@ const withCustomMcpAllowLists = (values, fn) => {
         }
     }
 }
+
+const componentsBuilt = fs.existsSync(mcpValidatorPath())
 
 await expectCase('raw MCP server extras pass the Custom MCP checks', async () => {
     const record = (config) => ({
@@ -5752,24 +5756,76 @@ await expectCase('raw MCP server extras pass the Custom MCP checks', async () =>
         env: withCustomMcpAllowLists(allowed, () => yamlFor({ ...config, env: { NODE_OPTIONS: '--require /tmp/x.js' } })),
         checksOff: withCustomMcpAllowLists({ CUSTOM_MCP_SECURITY_CHECK: 'false' }, () => yamlFor(config))
     }
-    check(
-        'raw MCP server extras pass the Custom MCP checks',
+    const refused =
         !cases.noAllowList.yaml.includes('keep-extra') &&
-            !cases.noAllowList.sets.includes('extra-tools') &&
-            cases.allowed.yaml.includes('keep-extra') &&
-            cases.allowed.sets.includes('extra-tools') &&
-            !cases.injected.includes('keep-extra') &&
-            !cases.withCwd.includes('keep-extra') &&
-            !cases.env.includes('keep-extra') &&
-            cases.checksOff.includes('keep-extra'),
-        JSON.stringify({
-            noAllowList: cases.noAllowList.yaml.includes('keep-extra'),
-            allowed: cases.allowed.yaml.includes('keep-extra'),
-            injected: cases.injected.includes('keep-extra'),
-            withCwd: cases.withCwd.includes('keep-extra'),
-            env: cases.env.includes('keep-extra'),
-            checksOff: cases.checksOff.includes('keep-extra')
-        })
+        !cases.noAllowList.sets.includes('extra-tools') &&
+        !cases.injected.includes('keep-extra') &&
+        !cases.withCwd.includes('keep-extra') &&
+        !cases.env.includes('keep-extra') &&
+        cases.checksOff.includes('keep-extra')
+    const detail = JSON.stringify({
+        noAllowList: cases.noAllowList.yaml.includes('keep-extra'),
+        allowed: cases.allowed.yaml.includes('keep-extra'),
+        injected: cases.injected.includes('keep-extra'),
+        withCwd: cases.withCwd.includes('keep-extra'),
+        env: cases.env.includes('keep-extra'),
+        checksOff: cases.checksOff.includes('keep-extra')
+    })
+    if (componentsBuilt) {
+        check(
+            'raw MCP server extras pass the Custom MCP checks',
+            refused && cases.allowed.yaml.includes('keep-extra') && cases.allowed.sets.includes('extra-tools'),
+            detail
+        )
+    } else {
+        console.log('skip an allowed raw MCP server is kept (components not built); the refusals are still checked')
+        check('raw MCP server extras pass the Custom MCP checks', refused, detail)
+    }
+})
+
+await expectCase('raw MCP server extras are refused when the components package is not built', async () => {
+    const warnings = []
+    const warn = console.warn
+    console.warn = (...args) => warnings.push(args.join(' '))
+    let yaml = ''
+    let sets = []
+    try {
+        withCustomMcpAllowLists(
+            {
+                CUSTOM_MCP_ALLOWED_COMMANDS: 'keep-extra',
+                CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: '/srv/mcp/extra.mjs',
+                CUTTLELY_MCP_VALIDATOR_PATH: path.join(dataDir, 'no-components', 'core.js')
+            },
+            () => {
+                const record = {
+                    name: 'maMcpUnbuilt',
+                    chatflowId: 'canvas-mcp-unbuilt',
+                    chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+                    specialists: [
+                        {
+                            name: 'operator',
+                            instructions: 'Use the servers.',
+                            modules: [],
+                            mcpServers: [{ serverName: 'extra-tools', config: { command: 'keep-extra', args: ['/srv/mcp/extra.mjs'] } }]
+                        }
+                    ]
+                }
+                compileProfile(saveHarness(record, { overwrite: true }))
+                yaml = profilesFor('maMcpUnbuilt')
+                    .map((profile) => profile.yaml)
+                    .join('\n')
+                sets = hermesToolsetsFor(record.specialists[0])
+            }
+        )
+    } finally {
+        console.warn = warn
+    }
+    check(
+        'raw MCP server extras are refused when the components package is not built',
+        !yaml.includes('keep-extra') &&
+            !sets.includes('extra-tools') &&
+            warnings.some((line) => line.includes('extra-tools') && line.includes('components package is not built')),
+        JSON.stringify({ inYaml: yaml.includes('keep-extra'), sets, warnings })
     )
 })
 
@@ -5804,9 +5860,10 @@ await expectCase('typed MCP server extras stay raw', async () => {
     const yaml = profilesFor('maMcpExtra')
         .map((profile) => profile.yaml)
         .join('\n')
+    if (!componentsBuilt) console.log('skip the typed MCP server extra is written raw (components not built)')
     check(
         'typed MCP server extras stay raw',
-        yaml.includes('keep-extra') && !yaml.includes('do-not-launch') && yaml.includes('mcp-bridge.mjs'),
+        (!componentsBuilt || yaml.includes('keep-extra')) && !yaml.includes('do-not-launch') && yaml.includes('mcp-bridge.mjs'),
         yaml.includes('do-not-launch') ? 'custom MCP was written raw' : 'typed extra or bridge missing'
     )
 })

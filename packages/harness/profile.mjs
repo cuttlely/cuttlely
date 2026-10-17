@@ -338,23 +338,25 @@ function parseServerConfig(mcp) {
 
 // A raw server on a specialist record passes the same checks as a Custom MCP node (the CUSTOM_MCP_* allow-lists).
 // Those checks live in the built components package; without it the server is refused, not launched unchecked.
+// CUTTLELY_MCP_VALIDATOR_PATH points at another build of that module (a test, or a checkout built elsewhere).
+export const COMPONENTS_NOT_BUILT = 'the components package is not built, so the Custom MCP checks cannot run'
+
+export function mcpValidatorPath() {
+    return (
+        process.env.CUTTLELY_MCP_VALIDATOR_PATH ||
+        path.join(repoRoot(), 'packages', 'components', 'dist', 'nodes', 'tools', 'MCP', 'core.js')
+    )
+}
+
 export function rawServerProblem(config) {
     if (process.env.CUSTOM_MCP_SECURITY_CHECK === 'false') return ''
     let validate
     try {
-        validate = require(path.join(
-            repoRoot(),
-            'packages',
-            'components',
-            'dist',
-            'nodes',
-            'tools',
-            'MCP',
-            'core.js'
-        )).validateMCPServerConfig
+        validate = require(mcpValidatorPath()).validateMCPServerConfig
     } catch {
-        return 'the components package is not built, so the Custom MCP checks cannot run'
+        return COMPONENTS_NOT_BUILT
     }
+    if (typeof validate !== 'function') return COMPONENTS_NOT_BUILT
     try {
         validate(config)
         return ''
