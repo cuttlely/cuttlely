@@ -40,6 +40,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
 -   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. Owners and roles with `credentials:view` still see their keys.
 
+### Security
+
+-   Text parsing that code scanning reported as slow regular expressions now runs in linear time: the chat widget's host and link base, ETL number, JSON and whitespace handling, quota error detection and collection names, and in harnesses the analyst statement fingerprint, keyword connection strings, upload stubs, pin lines, closing source lines, numbered task lists and arithmetic questions. Answers are unchanged, with two exceptions: a closing source at the end of a line that ends with a carriage return is now found, and the first-run owner email is refused when a domain label is empty (`rosa@bakery..example`, `rosa@bakery.example.`).
+
 ## [1.2.0] - 2026-10-15
 
 ### Added
