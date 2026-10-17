@@ -271,7 +271,7 @@ The token panels add `tokens.input` and `tokens.output` from model spans, and on
 
 A harness run started from a chatflow is a child of that `chatflow.prediction`, so the run panels count it under both names. The per-flow panels leave out a harness API run, because it has no `flow.id`.
 
-The prediction counters count the prediction routes. `agentflow_prediction_*` counts Multi Agents canvases only. An agentflow and a chatflow both count as `chatflow_prediction_*`. A harness API run is not counted.
+The prediction counters count the prediction routes. `agentflow_prediction_*` counts legacy (V1) agentflows, which are Multi Agents and Sequential Agents canvases. An agentflow (V2) and a chatflow both count as `chatflow_prediction_*`. A harness API run is not counted.
 
 An error response (4xx or 5xx) has no `route` label in `http_request_duration_ms`. In **HTTP duration p95 by route** it is a series with no route name, and in **HTTP 5xx per second by route** most rows show only the code. The histogram also stops at 500 ms, so a p95 above that shows as 500 ms. Use the run duration panels for run latency. With `METRICS_PROVIDER=open_telemetry`, the collector's Prometheus exporter can publish different metric names, and the last row may stay empty.
 

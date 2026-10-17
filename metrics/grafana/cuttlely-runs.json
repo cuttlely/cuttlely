@@ -2129,7 +2129,7 @@
             "type": "timeseries",
             "id": 37,
             "title": "Predictions per second",
-            "description": "Prediction counters from GET /api/v1/metrics, by status (success or failure). agentflow_prediction_* counts Multi Agents canvases only: an agentflow and a chatflow both count as chatflow_prediction_*. A harness API run is not counted. Internal is the app's own chat; external is the prediction API.",
+            "description": "Prediction counters from GET /api/v1/metrics, by status (success or failure). agentflow_prediction_* counts legacy (V1) agentflows, which are Multi Agents and Sequential Agents canvases. An agentflow (V2) and a chatflow both count as chatflow_prediction_*. A harness API run is not counted. Internal is the app's own chat; external is the prediction API.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "${prometheus}"
