@@ -11,7 +11,7 @@ The examples use a made-up bakery, Crumb & Co.
 3. Turn on **Make Public**. Only a public chatflow opens for people who are not signed in.
 4. Select **Copy Link**, or **Open New Tab** to try it. The link is `https://<your Cuttlely>/chatbot/<chatflow id>`.
 
-![The shared link for the Crumb & Co. chatflow in light mode. The header shows the Cuttlely mark, the title Crumb & Co. and Ready. The question Do you have anything gluten-free? is answered with a gluten-free almond flour bread and gluten-free muffins. Copy, thumbs up and thumbs down sit under the answer. The input says Ask about breads or hours, and the footer says Built with Cuttlely.](../images/share-and-embed/share-light.png)
+![The shared link for the Crumb & Co. chatflow in light mode. The header shows the Cuttlely mark, the title Crumb & Co. and Ready. The question Do you have anything gluten-free? is answered Yes. A gluten-free buckwheat loaf is baked on Fridays. Copy, thumbs up and thumbs down sit under the answer. The input says Ask about breads or hours, and the footer says Built with Cuttlely.](../images/share-and-embed/share-light.png)
 
 Before the first question, the chat shows the welcome message and the chatflow's starter prompts.
 
@@ -105,7 +105,7 @@ mount(document.querySelector('#chat'), {
 
 `flowId` is the chatflow or agentflow id. `mode` is `bubble` (the default) or `page`. `theme` is `auto`, `light` or `dark`. `mount` returns a controller with `open()`, `close()`, `reset()` and `destroy()`. The script tag's `window.cuttlelyChat.mount` takes the same options. The package file for a script tag is `@cuttlely/chat/chat.js`; set `data-api-host` when that file is not loaded from your Cuttlely server.
 
-![A plain bakery web page, Crumb & Co. Bakery, with the chat open in the bottom right corner. The question Do you have anything gluten-free? is answered with a gluten-free almond flour bread and a gluten-free banana bread. The round button under the panel closes it.](../images/share-and-embed/embed-bubble.png)
+![A plain bakery web page, Crumb & Co. Bakery, with the chat open in the bottom right corner. The question Do you have anything gluten-free? is answered Yes. A gluten-free buckwheat loaf is baked on Fridays. The round button under the panel closes it.](../images/share-and-embed/embed-bubble.png)
 
 ### Allowed domains
 
@@ -117,7 +117,7 @@ A chart a harness makes is a file saved with the chat. The share link and an emb
 
 With no **Allowed Domains** set, chart files on another site follow your server's `CORS_ORIGINS` setting, as before. To show charts in an embed, add your site to **Allowed Domains**.
 
-![The Crumb & Co. Bakery page on another site, with the chat open in the bottom right corner. The answer describes total weekly sales of croissant loaves across all weeks in the dataset, above a bar chart titled Weekly Sales of Croissant Loaves with one bar per week.](../images/share-and-embed/embed-chart.png)
+![The Crumb & Co. Bakery page on another site, with the chat open in the bottom right corner. The answer is a table, Croissants baked this week, with loaves per day from Monday 42 to Saturday 88, above a bar chart with the same title and one bar per day.](../images/share-and-embed/embed-chart.png)
 
 ## Troubleshooting
 

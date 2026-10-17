@@ -212,7 +212,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 3. リンクを開いてアカウントを作ります。パスワードは 8 文字以上で、小文字、大文字、数字、記号をそれぞれ含める必要があります。サインインした状態で **Chatflows** が開きます。
 4. デモを試します。**Chatflows** に **Try the demo** カードが表示されています。**Add a model key** を選び、**OpenAI API** を選んで名前を付け、キーを貼り付けて **Add** を選びます。キーは暗号化して保存されます。次に **Try the demo** を選ぶと、用意されたカスタマーケアチームがチャットを開いた状態で開きます。最初のスターター質問（エスプレッソマシンの配送遅れについての苦情）を選びます。Run カードには、Harness Prime がカスタマーとオペレーションのスペシャリストに作業を送り、続いてポリシースペシャリストに送る様子が表示され、答えには判断、顧客への返信、アクション、根拠が書かれています。データはすべて架空のものです。各ステップと、同じカードにあるパン屋のクイックスタートは [Try the demo](./docs/how-to/try-the-demo.md) で説明しています。
 
-    ![最初のスターター質問のあとのカスタマーケアチームのチャット。Run カードには、Harness Prime が customer、operations、policy の順に作業を送り、どれも done になったことが表示されています。判断では、遅れは Larkfield Home の責任とされ、送料の返金、2026-10-08 に届く Express での再発送、リコール、ストアクレジット、Customer Care Lead からの電話が示されています。](./docs/images/try-the-demo/customer-care-run.png)
+    ![最初のスターター質問のあとのカスタマーケアチームのチャット。Run カードには、Harness Prime が customer、operations、policy の順に作業を送り、どれも done になったことが表示されています。判断では、遅れは Larkfield Home の責任とされ、$9.95 の送料の返金、2026-10-08 に届く Express での再発送、リコール、$55.80 のストアクレジット、Customer Care Lead からの電話が示されています。](./docs/images/try-the-demo/customer-care-run.png)
 
 5. 自分のチームを作ります。**Harness · Agent Team** を開き、**New agent team** を選び、続いて **Build with AI**（きらめきのボタン）を選びます。**Chat model that builds** には、あなたのモデルとキーがすでに選ばれています。例を一つ選んで **Build** を選び、チャットを開いてスターター質問を選びます。
 6. 次回からは、[http://localhost:43117/signin](http://localhost:43117/signin) で **Sign in** からサインインします。

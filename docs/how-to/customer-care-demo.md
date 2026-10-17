@@ -15,7 +15,7 @@ Everything here is in the repository under `samples/demo/customer-care`, and the
 
 Each specialist is a **Harness Specialist** card with **Code execution** on, so it answers by running Python with `execute_code`. It runs in the agent runtime with its own working directory, `workspaces/customer-care-demo--<name>` under the data directory (`CUTTLELY_DATA_DIR`). Try the demo puts each specialist's files there: every `.sql` file becomes a SQLite database of the same name, and the other files are copied. Each specialist's instructions and tools point only at its own folder, so operations has no customer tiers to go on and customer has no scans: each one reports what its own system shows.
 
-![Customer care demo run for Maya Okafor's late espresso machine order. Harness Prime sent work to customer, operations, then policy. The policy step is open, and the decision refunds the $9.95 shipping, reships by 2026-10-08 and gives a $55.80 store credit.](../images/try-the-demo/customer-care-policy.png)
+![Customer care demo run for Maya Okafor's late espresso machine order. The customer, operations and policy steps are done, and the policy step is open. The decision refunds the $9.95 shipping, reships by Express arriving 2026-10-08, recalls the held parcel and gives a $55.80 store credit.](../images/try-the-demo/customer-care-policy.png)
 
 ## Give each specialist one call that does the job
 
@@ -67,7 +67,7 @@ The percentages, the $75 cap, the $100 cap for a Premier repeat and the goodwill
 
 Harness Prime's instructions ask for four bold parts, **Decision**, **Reply to the customer**, **Actions** and **Evidence**, and say how to use the policy result: every step for every customer, plus the one line for the customer's tier and whether the customer specialist found another late delivery in the 120 days before, with that line's amounts exactly. They also say to use only facts, dates and amounts the specialists gave.
 
-![The reply letter to Maya with the $9.95 shipping refund, reship from Reno and $55.80 store credit, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy.](../images/try-the-demo/customer-care-answer.png)
+![The answer for Maya under the open policy step. The decision and the reply give a $9.95 shipping refund, an Express reship from Reno arriving 2026-10-08, a recall of the held parcel, a $55.80 store credit and a call from the Customer Care Lead, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy.](../images/try-the-demo/customer-care-answer.png)
 
 ## Build one on your own data
 
