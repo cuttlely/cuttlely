@@ -1,30 +1,7 @@
 # CodeQL settings for the hermes-patches entry in .github/workflows/codeql.yml.
-# codeql-config.yml leaves hermes/ out. This config scans back in only the files Cuttlely's patches touch
-# (hermes/patches/*.patch), so local changes to the agent runtime are still analyzed.
-# Python analysis reads the .py files; the manifests and lockfile stay listed so the list matches the patches.
-# scripts/codeql-config.test.mjs fails when a patched file is missing here or a listed file is no longer patched.
+# codeql-config.yml leaves hermes/ out. The hermes-patches entry copies the files Cuttlely's patches touch
+# (listed in hermes-patched-files.txt) into their own source root and analyzes only that copy, so local changes
+# to the agent runtime are still scanned. The copy keeps repository-relative paths, so alerts point at the real files.
+# The list is not under `paths`: the Python extractor walks each `paths` entry as a directory and fails on a file.
+# scripts/codeql-config.test.mjs fails when a patched file is missing from the list or a listed file is no longer patched.
 name: 'Cuttlely CodeQL config: hermes patches'
-paths:
-    - 'hermes/agent/coding_context.py'
-    - 'hermes/agent/models_dev.py'
-    - 'hermes/gateway/platforms/api_server.py'
-    - 'hermes/hermes_cli/kanban_db_workspace.py'
-    - 'hermes/hermes_cli/_subprocess_compat.py'
-    - 'hermes/hermes_cli/worktree_gc.py'
-    - 'hermes/hermes_cli/worktree_ops.py'
-    - 'hermes/package.json'
-    - 'hermes/pyproject.toml'
-    - 'hermes/run_agent.py'
-    - 'hermes/tests-js/package.json'
-    - 'hermes/tests/tools/test_cuttlely_mcp_retry.py'
-    - 'hermes/tools/async_delegation_recovery_hints.py'
-    - 'hermes/tools/delegate_tool.py'
-    - 'hermes/tools/delegate_tool_toolsets.py'
-    - 'hermes/toolsets.py'
-    - 'hermes/tools/mcp_tool_cuttlely.py'
-    - 'hermes/tools/mcp_tool_discovery.py'
-    - 'hermes/tools/mcp_tool_handlers.py'
-    - 'hermes/tools/mcp_tool.py'
-    - 'hermes/tools/subagent_worktree.py'
-    - 'hermes/tui_gateway/methods_complete_helpers.py'
-    - 'hermes/uv.lock'
