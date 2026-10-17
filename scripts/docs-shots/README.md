@@ -74,7 +74,17 @@ node scripts/docs-shots/reshoot-harnesses-analyst.mjs
 
 This reshoots `docs/images/harnesses/` and `docs/images/analyst/`. The harness list is taken before Build with AI adds teams. The sqlite terminal figure prints the workspace database filename the server created. When `OPENAI_API_KEY` is unset, `model-stand-in.mjs` answers chat completions on `127.0.0.1` and the server is pointed at it with `OPENAI_BASE_URL`.
 
-`bakery-mcp.mjs` is the local MCP server for the SQL-refusal picture. It speaks stdio and does not open a database.
+`bakery-mcp.mjs` is the local MCP server for the SQL-refusal picture.
+
+## Analyst table picker
+
+```bash
+pnpm build
+bash scripts/setup-hermes.sh
+PGPASSWORD=... node scripts/docs-shots/capture-analyst-picker.mjs
+```
+
+This takes `docs/images/analyst/postgres-mcp-table-picker.png` (dark, a canvas frame) and `docs/images/analyst/try-it-describe-trace.png` (light). It needs a local Postgres admin login (`CUTTLELY_TEST_PG_HOST`, `CUTTLELY_TEST_PG_PORT`, `CUTTLELY_TEST_PG_USER`, and `PGPASSWORD`). It loads `samples/demo/bakery/bakery-postgres.sql` into a new database with a read-only login, saves that as a Postgres URL credential, and builds a one-analyst harness whose PostgreSQL MCP node ticks six relations. Without `OPENAI_API_KEY`, `model-stand-in.mjs` answers: for the unpaid invoices question it calls describe, then query. The database and the login are dropped at the end. The question asks for a count, so no amount appears in a picture. It speaks stdio and does not open a database.
 
 The server uses a new data directory under `/tmp/docs-shots`. Sample names are the bakery ones already in the guides. Canvas frames are dark and the rest light (see Theme), violet accent, zoom 100%.
 

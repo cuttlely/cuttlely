@@ -111,7 +111,7 @@ export const CheckboxList = ({ name, nodeData, value, onSelect, disabled = false
                             Tick all{filter ? ' shown' : ''}
                         </Button>
                     </Stack>
-                    <Box sx={{ maxHeight: 320, overflowY: 'auto', pr: 0.5 }} role='group' aria-label='Tables and views'>
+                    <Box sx={{ maxHeight: 400, overflowY: 'auto', pr: 0.5 }} role='group' aria-label='Tables and views'>
                         {missing.map((item) => row({ name: item, label: item }, true, true))}
                         {shown.map((option) => row(option, names.includes(option.name)))}
                     </Box>
