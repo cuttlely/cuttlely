@@ -448,6 +448,14 @@ function runCommand(command, args, env) {
     })
 }
 
+// A step with retryOnSignal runs once more when its process was killed by a signal. A non-zero exit is not retried.
+export function runStepCommand(step, run = runCommand) {
+    const result = run(step.command, step.args, step.env)
+    if (!step.retryOnSignal || !result.signal) return result
+    console.log(`${step.name} was killed by ${result.signal}; running it once more`)
+    return run(step.command, step.args, step.env)
+}
+
 function runStep(step) {
     const started = Date.now()
     console.log(`\n==> ${step.name}`)
@@ -478,11 +486,7 @@ function runStep(step) {
         console.log(`<== ${step.name} ${status} ${formatDuration(durationMs)}`)
         return { name: step.name, status, durationMs }
     }
-    let result = runCommand(step.command, step.args, step.env)
-    if (step.retryOnSignal && result.signal) {
-        console.log(`${step.name} was killed by ${result.signal}; running it once more`)
-        result = runCommand(step.command, step.args, step.env)
-    }
+    const result = runStepCommand(step)
     const durationMs = Date.now() - started
     const status = result.status === 0 ? 'pass' : 'fail'
     if (result.error) console.error(result.error.message)
