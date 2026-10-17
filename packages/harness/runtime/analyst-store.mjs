@@ -1878,7 +1878,7 @@ export function analystUrlToolSpec(rowCap, relations = null) {
 export function analystDescribeToolSpec() {
     return {
         description:
-            'Describe one table or view from the query tool list: columns with types and comments, primary key, relationships to other listed relations, and the definition of a view.',
+            'Describe one table or view from the query tool list: columns with types and comments, primary key, relationships to other listed relations, the definition of a view, and sample values of short text columns. Text filters are case-sensitive, so match those values as written.',
         schema: {
             type: 'object',
             properties: { name: { type: 'string', description: 'A name from the query tool list, such as public.daily_sales' } },

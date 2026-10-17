@@ -776,6 +776,76 @@ describe('analyst relations: risky domain checks', () => {
     })
 })
 
+describe('analyst relations: describe sample values on a made-up household budget', () => {
+    const db = riskyDatabase(
+        'budget',
+        `
+        CREATE TYPE public.spend_kind AS ENUM ('Fixed', 'Variable');
+        CREATE TABLE public.categories (id integer PRIMARY KEY, name text NOT NULL);
+        INSERT INTO public.categories VALUES (1, 'Hidden Category A'), (2, 'Hidden Category B');
+        CREATE TABLE public.budget_lines (
+            id integer PRIMARY KEY, category text, kind public.spend_kind, payee varchar(40), code character(3),
+            note text, amount numeric(8, 2)
+        );
+        INSERT INTO public.budget_lines
+        SELECT n,
+               (ARRAY['Groceries', 'Rent', '  Utilities ', 'Utilities'])[1 + n % 4],
+               (ARRAY['Fixed', 'Variable'])[1 + n % 2]::public.spend_kind,
+               'Payee ' || n,
+               (ARRAY['GRO', 'RNT'])[1 + n % 2],
+               'A long made-up note that is well past the forty character sample limit ' || (n % 2),
+               n * 1.25
+        FROM generate_series(1, 30) AS n;
+        CREATE VIEW public.monthly_spend AS
+            SELECT c.name AS category_name, b.category, sum(b.amount) AS total
+            FROM public.budget_lines b JOIN public.categories c ON c.id = 1 + b.id % 2 GROUP BY 1, 2;
+    `
+    )
+
+    it('returns capped, whitespace-collapsed samples for short low-cardinality text columns only', async (t) => {
+        if (db.skipped(t)) return
+        const lines = await describeAnalystUrlRelation(db.url, { name: 'budget_lines' }, ['public.budget_lines'])
+        assert.deepEqual(lines.values, {
+            category: ['Groceries', 'Rent', 'Utilities'],
+            kind: ['Fixed', 'Variable'],
+            code: ['GRO', 'RNT']
+        })
+        assert.equal('payee' in lines.values, false, 'thirty distinct payees is not low cardinality')
+        assert.equal('note' in lines.values, false, 'a long value leaves the column out')
+        assert.equal('amount' in lines.values, false, 'numbers are not sampled')
+        assert.equal(JSON.stringify(lines).includes('Hidden Category'), false)
+    })
+
+    it('never samples a relation that is not ticked', async (t) => {
+        if (db.skipped(t)) return
+        await refusal(describeAnalystUrlRelation(db.url, { name: 'categories' }, ['public.budget_lines']), /not one of the selected/)
+        const lines = await describeAnalystUrlRelation(db.url, { name: 'public.budget_lines' }, [
+            'public.budget_lines',
+            'public.monthly_spend'
+        ])
+        assert.equal(JSON.stringify(lines).includes('Hidden Category'), false, 'a ticked view next to it adds no values')
+    })
+
+    it('samples the output of a ticked view the way the query tool could read it', async (t) => {
+        if (db.skipped(t)) return
+        const view = await describeAnalystUrlRelation(db.url, { name: 'monthly_spend' }, ['public.monthly_spend'])
+        assert.deepEqual(view.values.category_name, ['Hidden Category A', 'Hidden Category B'])
+        const rows = await queryAnalystUrl(db.url, 'SELECT DISTINCT category_name FROM monthly_spend ORDER BY 1', {
+            relations: ['public.monthly_spend']
+        })
+        assert.deepEqual(
+            rows.rows.map((row) => row.category_name),
+            view.values.category_name
+        )
+    })
+
+    it('samples a short name column on a small table', async (t) => {
+        if (db.skipped(t)) return
+        const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
+        assert.deepEqual(stores.values, { name: ['Old Town', 'Riverside'] })
+    })
+})
+
 describe('analyst relations: a built-in volatile domain check alone', () => {
     const db = riskyDatabase(
         'nextval',
