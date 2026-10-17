@@ -109,6 +109,8 @@ export interface INodeParams {
     // Input names whose values this dropdown depends on. Changing one reloads the list and clears the selection.
     refreshOn?: string[]
     freeSolo?: boolean
+    // An asyncMultiOptions input shown as a list with one checkbox per option instead of a dropdown.
+    checkboxList?: boolean
     loadPreviousNodes?: boolean
     array?: Array<INodeParams>
     show?: INodeDisplay

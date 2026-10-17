@@ -86,6 +86,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'harness-draft-usage.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-postgres.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-store.test.mjs'),
+            path.join(ROOT, 'scripts', 'analyst-relations.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-supervisor.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-start-wait.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-git-config.test.mjs'),

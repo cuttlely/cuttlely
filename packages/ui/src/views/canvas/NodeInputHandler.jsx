@@ -44,6 +44,7 @@ import Autocomplete, { autocompleteClasses } from '@mui/material/Autocomplete'
 import { Dropdown } from '@/ui-component/dropdown/Dropdown'
 import { MultiDropdown } from '@/ui-component/dropdown/MultiDropdown'
 import { AsyncDropdown } from '@/ui-component/dropdown/AsyncDropdown'
+import { CheckboxList } from '@/ui-component/checkbox/CheckboxList'
 import { Input } from '@/ui-component/input/Input'
 import { RichInput } from '@/ui-component/input/RichInput'
 import { DataGrid } from '@/ui-component/grid/DataGrid'
@@ -1385,7 +1386,32 @@ const NodeInputHandler = ({
                                 />
                             </div>
                         )}
-                        {(inputParam.type === 'asyncOptions' || inputParam.type === 'asyncMultiOptions') && (
+                        {inputParam.type === 'asyncMultiOptions' && inputParam.checkboxList && (
+                            <div
+                                key={`${reloadTimestamp}_${data.id}_${data.credential || ''}`}
+                                style={{ display: 'flex', alignItems: 'flex-start' }}
+                            >
+                                <CheckboxList
+                                    disabled={disabled}
+                                    name={inputParam.name}
+                                    nodeData={data}
+                                    value={data.inputs[inputParam.name] ?? ''}
+                                    onSelect={(newValue) => handleDataChange({ inputParam, newValue })}
+                                />
+                                {inputParam.refresh && (
+                                    <IconButton
+                                        title='Refresh'
+                                        color='primary'
+                                        size='small'
+                                        sx={{ mt: 1 }}
+                                        onClick={() => setReloadTimestamp(Date.now().toString())}
+                                    >
+                                        <IconRefresh />
+                                    </IconButton>
+                                )}
+                            </div>
+                        )}
+                        {(inputParam.type === 'asyncOptions' || (inputParam.type === 'asyncMultiOptions' && !inputParam.checkboxList)) && (
                             <>
                                 {data.inputParams.length === 1 && <div style={{ marginTop: 10 }} />}
                                 <div

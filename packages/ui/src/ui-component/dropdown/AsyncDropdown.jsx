@@ -29,7 +29,7 @@ const StyledPopper = styled(Popper)({
     }
 })
 
-const fetchList = async ({ name, nodeData, previousNodes, currentNode }) => {
+export const fetchList = async ({ name, nodeData, previousNodes, currentNode }) => {
     const selectedParam = nodeData.inputParams.find((param) => param.name === name)
     const loadMethod = selectedParam?.loadMethod
 

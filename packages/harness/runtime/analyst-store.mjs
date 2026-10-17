@@ -28,6 +28,17 @@ import {
 } from './analyst-page.mjs'
 import { encryptionKeyConflict, encryptionKeyOverwrite } from '../../../scripts/setting-alias.cjs'
 import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
+import {
+    SCOPE_NONE_LEFT,
+    checkStatementScope,
+    describeRefusal,
+    describeRelation,
+    findRelation,
+    listRelations,
+    parseRelationSelection,
+    relationToolNote,
+    resolveRelations
+} from './analyst-relations.mjs'
 
 // Repo root. This module lives in packages/harness/runtime/.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -1729,8 +1740,10 @@ function urlSecrets(postgresUrl) {
     return secrets
 }
 
-async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS, env = process.env) {
-    const ms = analystStatementTimeoutMs(timeoutMs, env)
+// One transaction holds the settings and the work, so a transaction-pooling proxy such as PgBouncer cannot run
+// them on different server sessions. Nothing is ever committed.
+async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, readOnly = true } = {}) {
+    const ms = analystStatementTimeoutMs(timeoutMs ?? ANALYST_STATEMENT_TIMEOUT_MS, env)
     const client = new Client({
         connectionString: postgresUrl,
         application_name: 'cuttlely-analyst',
@@ -1738,13 +1751,9 @@ async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANAL
     })
     try {
         await client.connect()
-        // One read-only transaction holds the settings and the statement, so a transaction-pooling proxy such as
-        // PgBouncer cannot run them on different server sessions. Nothing is ever committed.
-        await client.query('BEGIN TRANSACTION READ ONLY')
+        await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')
         await client.query(`SET LOCAL statement_timeout = ${ms}`)
-        const runner = postgresRunner(client, { transaction: true })
-        if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
-        return await runPostgresStatement(client, statement, replay?.paging, runner)
+        return await fn(client, postgresRunner(client, { transaction: true }))
     } catch (error) {
         const outcome = analystErrorOutcome(error)
         throw new AnalystToolError(scrub(error, urlSecrets(postgresUrl)).message, outcome)
@@ -1754,9 +1763,36 @@ async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANAL
     }
 }
 
+// With a table selection, the scope check needs a temporary view, so the transaction starts read-write and turns
+// read only before the statement. Without one it is read only from the start, as before.
+async function queryUrlPostgres(
+    postgresUrl,
+    statement,
+    replay,
+    timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS,
+    env = process.env,
+    relations = []
+) {
+    const scoped = relations.length > 0
+    return withUrlClient(
+        postgresUrl,
+        async (client, runner) => {
+            if (scoped) {
+                const selected = await resolveRelations(runner, relations)
+                await checkStatementScope(client, runner, replay?.plan?.statement || statement, selected, isRowQuery)
+                await client.query('SET LOCAL transaction_read_only = on')
+            }
+            if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
+            return await runPostgresStatement(client, statement, replay?.paging, runner)
+        },
+        { timeoutMs, env, readOnly: !scoped }
+    )
+}
+
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     const input = sqlOrInput && typeof sqlOrInput === 'object' && !Array.isArray(sqlOrInput) ? sqlOrInput : { sql: sqlOrInput }
     const env = options.env || process.env
+    const relations = parseRelationSelection(options.relations)
     const pagingBase = {
         scope: callScope(options),
         now: nowOf(options),
@@ -1767,7 +1803,7 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     const cursor = clean(input.cursor)
     if (cursor) {
         const replay = replayCursor(cursor, input, pagingBase)
-        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, options.env || process.env)
+        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations)
     }
     sweepCursors(pagingBase.now)
     const statement = oneSqlStatement(analystSqlText(input))
@@ -1779,18 +1815,60 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
             paging: { ...pagingBase, statement, page: 1, previousOffset: 0, lastKey: null, cursor: '' }
         },
         options.statementTimeoutMs,
-        options.env || process.env
+        env,
+        relations
     )
 }
 
-export function analystUrlToolSpec(rowCap) {
+// Every table, view and materialized view the login can read, views first, for the node's picker.
+export async function listAnalystUrlRelations(postgresUrl, options = {}) {
+    return withUrlClient(postgresUrl, (_client, runner) => listRelations(runner), options)
+}
+
+// The selected relations that still exist, with kind, column count and comment.
+export async function analystUrlRelations(postgresUrl, names, options = {}) {
+    return withUrlClient(postgresUrl, (_client, runner) => resolveRelations(runner, names), options)
+}
+
+export async function describeAnalystUrlRelation(postgresUrl, input, names, options = {}) {
+    const requested =
+        typeof input === 'string'
+            ? input
+            : ['name', 'relation', 'table', 'view'].map((key) => input?.[key]).find((value) => typeof value === 'string')
+    return withUrlClient(
+        postgresUrl,
+        async (_client, runner) => {
+            const relations = await resolveRelations(runner, names)
+            const relation = findRelation(relations, requested)
+            if (!relation)
+                throw new AnalystToolError(relations.length ? describeRefusal(relations, requested) : SCOPE_NONE_LEFT, 'expected')
+            return describeRelation(runner, relation, relations)
+        },
+        options
+    )
+}
+
+export function analystUrlToolSpec(rowCap, relations = null) {
     const base = analystToolSpec('postgres', rowCap)
+    const note = Array.isArray(relations) ? relationToolNote(relations) : ''
     return {
         ...base,
         description: `Run a read-only SQL query (PostgreSQL). It cannot create or change tables. ${base.description.replace(
             /^Run one SQL statement in the isolated analyst store \(PostgreSQL\)\. /,
             ''
-        )}`
+        )}${note}`
+    }
+}
+
+export function analystDescribeToolSpec() {
+    return {
+        description:
+            'Describe one table or view from the query tool list: columns with types and comments, primary key, relationships to other listed relations, and the definition of a view.',
+        schema: {
+            type: 'object',
+            properties: { name: { type: 'string', description: 'A name from the query tool list, such as public.daily_sales' } },
+            required: ['name']
+        }
     }
 }
 
