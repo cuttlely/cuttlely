@@ -742,7 +742,12 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
         return getRun(run.id)
     }
     const spec = version.spec
-    updateRun(run.id, { status: 'running', startedAt: run.startedAt || new Date().toISOString(), error: null })
+    updateRun(run.id, {
+        status: 'running',
+        startedAt: run.startedAt || new Date().toISOString(),
+        pipelineName: pipeline.name,
+        error: null
+    })
     state.event(
         'info',
         null,

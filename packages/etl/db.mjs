@@ -219,6 +219,19 @@ const MIGRATIONS = [
             handle.exec('CREATE INDEX IF NOT EXISTS pipelines_workspace ON pipelines (workspace_id)')
             handle.exec(WORKSPACE_TRIGGERS)
         }
+    },
+    {
+        version: 4,
+        name: 'the pipeline name each run wrote under',
+        up(handle) {
+            // A Local Vector Store with a blank collection writes to a collection named after the pipeline, so a
+            // delete after the pipeline's name changed has to know every name a run used.
+            const has = handle
+                .prepare('PRAGMA table_info(runs)')
+                .all()
+                .some((row) => row.name === 'pipeline_name')
+            if (!has) handle.exec('ALTER TABLE runs ADD COLUMN pipeline_name TEXT')
+        }
     }
 ]
 

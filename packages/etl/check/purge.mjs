@@ -369,3 +369,29 @@ function pineFlow(file, ns) {
         JSON.stringify({ before, after: pine.rows.size, result })
     )
 }
+
+// A blank collection follows the pipeline's name. After the name changes and the pipeline runs again, delete clears the
+// collection under the old name as well as the new one.
+{
+    api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
+    const file = csv('purge-renamed', 4)
+    const first = await runPipeline('purge-renamed', 'Purge renamed old', flowFor(file, ''))
+    const second = await runPipeline('purge-renamed', 'Purge renamed new', flowFor(file, ''))
+    const oldStore = LocalVectorStore.open('Purge renamed old')
+    const newStore = LocalVectorStore.open('Purge renamed new')
+    const before = { old: oldStore.count(), new: newStore.count() }
+    const result = await api.deletePipeline('purge-renamed')
+    const after = { old: oldStore.count(), new: newStore.count() }
+    check(
+        'purge 12: deleting a pipeline with a blank collection clears the collection of every name it ran under',
+        first.status === 'succeeded' &&
+            second.status === 'succeeded' &&
+            before.old === 4 &&
+            before.new === 4 &&
+            after.old === 0 &&
+            after.new === 0 &&
+            result.stores.length === 2 &&
+            result.errors.length === 0,
+        JSON.stringify({ before, after, result })
+    )
+}

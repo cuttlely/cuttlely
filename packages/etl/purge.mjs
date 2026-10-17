@@ -31,26 +31,28 @@ function parkedCount(pipelineId) {
 // that moves the pipeline to a new store leaves the old store's vectors in place, so an earlier store can still hold
 // them. Chunk ids are content hashes, so the current ids also match what an earlier store kept for unchanged content.
 // `current` marks the store the newest run wrote to: the provider id map (vector_ids) holds that store's ids.
+// Each run also records the pipeline name it ran under, since a blank Local Vector Store collection follows the name.
 function targetSpecs(pipeline) {
     // Only runs that began executing can have written; a queued run the delete cancelled never did.
     const started = stmt(
-        'SELECT version, MAX(started_at) AS last FROM runs WHERE pipeline_id = ? AND started_at IS NOT NULL GROUP BY version ORDER BY last DESC'
+        'SELECT version, pipeline_name, MAX(started_at) AS last FROM runs WHERE pipeline_id = ? AND started_at IS NOT NULL GROUP BY version, pipeline_name ORDER BY last DESC'
     ).all(pipeline.id)
-    const versions = []
-    if (pipeline.servedVersion) versions.push(pipeline.servedVersion)
-    for (const row of started) if (!versions.includes(row.version)) versions.push(row.version)
-    const newest = started[0]?.version ?? pipeline.servedVersion
-    const currentSpec = newest ? getVersion(pipeline.id, newest)?.spec : null
-    const currentKey = currentSpec?.store ? storeFingerprint(currentSpec.store, pipeline.name) : null
+    const ran = started.map((row) => ({ version: row.version, name: row.pipeline_name || pipeline.name }))
+    const served = pipeline.servedVersion
+    const servedName = ran.find((use) => use.version === served)?.name ?? pipeline.name
+    const uses = served ? [{ version: served, name: servedName }, ...ran] : ran
+    const newest = ran[0] ?? uses[0]
+    const currentSpec = newest ? getVersion(pipeline.id, newest.version)?.spec : null
+    const currentKey = currentSpec?.store ? storeFingerprint(currentSpec.store, newest.name) : null
     const seen = new Set()
     const targets = []
-    for (const version of versions) {
+    for (const { version, name } of uses) {
         const spec = getVersion(pipeline.id, version)?.spec
         if (!spec?.store) continue
-        const key = storeFingerprint(spec.store, pipeline.name)
+        const key = storeFingerprint(spec.store, name)
         if (seen.has(key)) continue
         seen.add(key)
-        targets.push({ spec, current: key === currentKey })
+        targets.push({ spec, pipelineName: name, current: key === currentKey })
     }
     return targets
 }
@@ -110,7 +112,7 @@ async function purge(pipeline, ctx) {
                 // Deleting by id needs no embeddings; some stores only want the object at init.
             }
             entry.store = await openStore(spec.store, {
-                pipelineName: pipeline.name,
+                pipelineName: target.pipelineName,
                 pipelineId,
                 embeddings,
                 ctx,
