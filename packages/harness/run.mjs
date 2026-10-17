@@ -1022,7 +1022,7 @@ export function parseAnalystChoice(content, analysts, input) {
     return (chosen.length ? chosen : analysts || []).map((specialist) => ({ specialist, task: String(input || '') }))
 }
 
-async function chooseAnalysts(context, input, history, analysts) {
+export async function chooseAnalysts(context, input, history, analysts) {
     const system = [
         `You choose the analyst for a database request in the "${context.name}" harness.`,
         ROUTE_CHOOSE_ANALYST,
@@ -1069,7 +1069,7 @@ function capabilityNote(specialist) {
     return tools.length ? ` Tools: ${tools.join(', ')}.` : ''
 }
 
-function routerLine(specialist, analystCount) {
+export function routerLine(specialist, analystCount) {
     const tables = analystCount > 1 ? analystTablesNote(specialist) : ''
     return `- ${specialist.name}: ${specialistSummary(specialist, 'No instructions.')}${capabilityNote(specialist)}${tables}`
 }

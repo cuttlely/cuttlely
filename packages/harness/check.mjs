@@ -9239,6 +9239,36 @@ check(
         JSON.stringify({ budgetPaged, bakeryPaged, owner })
     )
     dropAnalystCapture({ harness: 'two-analysts', chatId: 'two-page' })
+    const { chooseAnalysts, routerLine } = await import('./run.mjs')
+    const roster = getHarness('two-analysts')
+    const [bakeryAnalyst, budgetAnalyst] = roster.specialists.filter((specialist) => specialist.name !== 'notes')
+    const directContext = {
+        name: 'two-analysts',
+        roster,
+        limit: 30000,
+        moduleOptions: { componentNodes: {}, loadNode: twoNodes, nodeCache: new Map() }
+    }
+    choice = '{"analysts":["bakery"]}'
+    const callsBeforeDirect = twoCalls.length
+    const direct = await chooseAnalysts(directContext, 'Count the rows in monthly_sales.', [], [bakeryAnalyst, budgetAnalyst])
+    choice = '{"analysts":["notes"]}'
+    const directAll = await chooseAnalysts(directContext, 'Count the rows in every table.', [], [bakeryAnalyst, budgetAnalyst])
+    const directSystem = String(twoCalls[callsBeforeDirect]?.messages[0]?.content || '')
+    check(
+        'chooseAnalysts and routerLine can be called directly',
+        direct.map((step) => step.specialist.name).join(',') === 'bakery' &&
+            direct[0].task === 'Count the rows in monthly_sales.' &&
+            directAll.map((step) => step.specialist.name).join(',') === 'bakery,budget' &&
+            directSystem.includes(routerLine(budgetAnalyst, 2)) &&
+            routerLine(budgetAnalyst, 2) ===
+                '- budget: Household budget lines and monthly spending. Tools: PostgreSQL MCP. Tables: public.budget_lines.' &&
+            routerLine(budgetAnalyst, 1) === '- budget: Household budget lines and monthly spending. Tools: PostgreSQL MCP.',
+        JSON.stringify({
+            direct: direct.map((step) => step.specialist.name),
+            directAll: directAll.map((step) => step.specialist.name),
+            directSystem
+        })
+    )
 }
 const capCalls = []
 const capNodes = async (nodeName) => {

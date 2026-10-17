@@ -1389,6 +1389,47 @@ describe('analyst page request matcher', () => {
         assert.equal(analystPageRequest('page 0'), null)
         assert.equal(analystPageRequest('page 100001'), null)
     })
+
+    it('strips trailing punctuation the same way the old pattern did', () => {
+        const old = (text) => {
+            const value = String(text || '')
+                .trim()
+                .replace(/[.!?]+$/u, '')
+                .trim()
+            if (/^show more$/i.test(value) || /^next page$/i.test(value)) return { kind: 'next' }
+            const page = value.match(/^page\s+(\d+)$/i)
+            if (!page) return null
+            const n = Number(page[1])
+            if (!Number.isInteger(n) || n < 1 || n > 100000) return null
+            return { kind: 'page', page: n }
+        }
+        for (const text of [
+            'show more?!.',
+            'show more. !',
+            'show more ...',
+            'next page.?',
+            'page 3...',
+            '...',
+            '!show more',
+            'show more!x',
+            '',
+            '  \t\n',
+            'page\t7!',
+            null
+        ]) {
+            assert.deepEqual(analystPageRequest(text), old(text), JSON.stringify(text))
+        }
+    })
+
+    it('stays linear on a long run of punctuation that does not end the text', () => {
+        const hostile = `show more${'!'.repeat(200000)}x`
+        const started = process.hrtime.bigint()
+        assert.equal(analystPageRequest(hostile), null)
+        assert.equal(analystPageRequest(`${'.'.repeat(200000)} page 2`), null)
+        assert.deepEqual(analystPageRequest(`show more${'?'.repeat(200000)}`), { kind: 'next' })
+        const ms = Number(process.hrtime.bigint() - started) / 1e6
+        assert.ok(ms < 500, `took ${ms}ms`)
+    })
 })
 
 describe('analyst page cursors', () => {

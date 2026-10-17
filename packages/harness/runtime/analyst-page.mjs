@@ -35,11 +35,15 @@ export function rowPageSummary({ start, end, total, page, pages, more, hidePageN
     return `${range} (page ${page}, last page)`
 }
 
+// Scans from the end instead of matching /[.!?]+$/, which backtracks on a long run of punctuation.
+function withoutTrailingPunctuation(text) {
+    let end = text.length
+    while (end > 0 && (text[end - 1] === '.' || text[end - 1] === '!' || text[end - 1] === '?')) end -= 1
+    return text.slice(0, end)
+}
+
 export function analystPageRequest(text) {
-    const value = String(text || '')
-        .trim()
-        .replace(/[.!?]+$/u, '')
-        .trim()
+    const value = withoutTrailingPunctuation(String(text || '').trim()).trim()
     if (/^show more$/i.test(value) || /^next page$/i.test(value)) return { kind: 'next' }
     const page = value.match(/^page\s+(\d+)$/i)
     if (!page) return null
