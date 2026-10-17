@@ -12907,6 +12907,95 @@ await (async () => {
     )
 })()
 
+// Slow-regex inputs from code scanning. Each must keep its old answer and finish in linear time.
+await (async () => {
+    const { closingLines, isMultiStepDataTask } = await import('./run.mjs')
+    const { analystCaptureId } = await import('./analyst-capture.mjs')
+    const { parseAnalystTarget } = await import('./runtime/analyst-postgres.mjs')
+    const { parseUploadStubs } = await import('./uploads.mjs')
+    const { appendTurn, readMemory } = await import('./session.mjs')
+    const timed = (fn) => {
+        const started = performance.now()
+        const value = fn()
+        return { value, ms: performance.now() - started }
+    }
+    const fast = (...runs) => runs.every((run) => run.ms < 500)
+
+    const semis = timed(() => analystCaptureId({ seq: 1, sql: 'select 1' + ';'.repeat(100000) + 'x' }))
+    check(
+        'an analyst statement fingerprint ignores trailing semicolons and is linear on a long run of them',
+        analystCaptureId({ seq: 1, sql: 'select  1 ; ;; ' }) === analystCaptureId({ seq: 1, sql: 'select 1' }) &&
+            analystCaptureId({ seq: 1, sql: 'select 1;x' }) !== analystCaptureId({ seq: 1, sql: 'select 1' }) &&
+            semis.value.startsWith('1:') &&
+            fast(semis),
+        String(semis.ms)
+    )
+
+    const marks = timed(() => normalizeArithmeticQuestion('1 plus 2' + '!'.repeat(100000) + 'x'))
+    check(
+        'arithmetic questions lose trailing punctuation, and a long run of it in the middle is linear',
+        normalizeArithmeticQuestion('What is 17 times 3?!？') === '17 * 3' &&
+            normalizeArithmeticQuestion('17 times 3.。') === '17 * 3' &&
+            marks.value === null &&
+            fast(marks),
+        String(marks.ms)
+    )
+
+    const tail = timed(() => closingLines('Done' + '!\tsource:!'.repeat(30000) + '\r'))
+    check(
+        'a closing source at the end of the last sentence is found, also on a CRLF line, and a long line is linear',
+        closingLines('Two rows match. Sources: orders, customers').join() === 'Sources: orders, customers' &&
+            closingLines('Two rows match. Sources: orders\r').join() === 'Sources: orders' &&
+            closingLines('Two rows match.').length === 0 &&
+            fast(tail),
+        String(tail.ms)
+    )
+
+    const steps = timed(() => isMultiStepDataTask('row' + '\n'.repeat(200000) + 'x'))
+    const carriage = timed(() => isMultiStepDataTask('row' + '\r'.repeat(200000) + 'x'))
+    check(
+        'a numbered list of table steps is a multi-step data task, and a long run of newlines is linear',
+        isMultiStepDataTask('Do this:\n\n  1. create the table\n  2. fill it') === true &&
+            isMultiStepDataTask('1) list each row') === true &&
+            isMultiStepDataTask('show one row') === false &&
+            steps.value === false &&
+            carriage.value === false &&
+            fast(steps, carriage),
+        `${steps.ms} ${carriage.ms}`
+    )
+
+    const words = timed(() => parseAnalystTarget('A'.repeat(100000)))
+    const keywords = parseAnalystTarget("host=db.example port=5433 dbname=Shop user=reader password='p w'")
+    check(
+        'a keyword connection string still parses, and a long word with no = is linear',
+        keywords?.host === 'db.example' &&
+            keywords.port === '5433' &&
+            keywords.database === 'shop' &&
+            keywords.password === 'p w' &&
+            words.value === null &&
+            fast(words),
+        JSON.stringify({ keywords, ms: words.ms })
+    )
+
+    const dashes = timed(() => parseUploadStubs(`<file ${'-'.repeat(100000)}>x</file>`))
+    const stub = parseUploadStubs("<file name='a.csv' path='/u/a.csv' rows='3'>body</file>")[0]
+    check(
+        'upload stubs keep their attributes, and a long attribute run with no = is linear',
+        stub?.name === 'a.csv' && stub.path === '/u/a.csv' && stub.rows === '3' && dashes.value.length === 1 && fast(dashes),
+        JSON.stringify({ stub, ms: dashes.ms })
+    )
+
+    const pinHarness = 'regex-pins'
+    const pinRun = timed(() => appendTurn(pinHarness, 'chat-1', 'pin:' + '\t'.repeat(100000) + '\r', 'ok'))
+    appendTurn(pinHarness, 'chat-1', 'pin:  rye only  \nhello', 'pin: oven at 220C')
+    const pins = readMemory(pinHarness, 'chat-1').pins
+    check(
+        'pin lines are kept trimmed, and a long run of tabs after pin: is linear',
+        pins.includes('rye only') && pins.includes('oven at 220C') && fast(pinRun),
+        JSON.stringify({ pins, ms: pinRun.ms })
+    )
+})()
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)
