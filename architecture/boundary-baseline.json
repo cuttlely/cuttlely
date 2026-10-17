@@ -199,6 +199,11 @@
             "reason": "the API-key test drives the inherited controller and router it covers"
         },
         {
+            "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
+            "to": "packages/server/src/routes/verify/index.ts",
+            "reason": "the test mounts the inherited verify router to check the API-key routes"
+        },
+        {
             "from": "packages/server/src/controllers/demo/index.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
