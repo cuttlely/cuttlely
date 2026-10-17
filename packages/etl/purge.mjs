@@ -31,13 +31,18 @@ function parkedCount(pipelineId) {
 // that moves the pipeline to a new store leaves the old store's vectors in place, so an earlier store can still hold
 // them. Chunk ids are content hashes, so the current ids also match what an earlier store kept for unchanged content.
 // `current` marks the store the newest run wrote to: the provider id map (vector_ids) holds that store's ids.
-// Each run also records the pipeline name it ran under, since a blank Local Vector Store collection follows the name.
+// run_names holds every pipeline name each run ran under, since a blank Local Vector Store collection follows the name.
 function targetSpecs(pipeline) {
     // Only runs that began executing can have written; a queued run the delete cancelled never did.
+    // A run from before run_names has no name; it ran under the current name as far as ETL can tell. When one run used
+    // several names, the current name sorts first among them.
     const started = stmt(
-        'SELECT version, pipeline_name, MAX(started_at) AS last FROM runs WHERE pipeline_id = ? AND started_at IS NOT NULL GROUP BY version, pipeline_name ORDER BY last DESC'
-    ).all(pipeline.id)
-    const ran = started.map((row) => ({ version: row.version, name: row.pipeline_name || pipeline.name }))
+        `SELECT r.version AS version, n.name AS name, MAX(r.started_at) AS last FROM runs r
+         LEFT JOIN run_names n ON n.run_id = r.id
+         WHERE r.pipeline_id = ? AND r.started_at IS NOT NULL
+         GROUP BY r.version, n.name ORDER BY last DESC, (COALESCE(n.name, ?) = ?) DESC`
+    ).all(pipeline.id, pipeline.name, pipeline.name)
+    const ran = started.map((row) => ({ version: row.version, name: row.name || pipeline.name }))
     const served = pipeline.servedVersion
     const servedName = ran.find((use) => use.version === served)?.name ?? pipeline.name
     const uses = served ? [{ version: served, name: servedName }, ...ran] : ran

@@ -222,15 +222,16 @@ const MIGRATIONS = [
     },
     {
         version: 4,
-        name: 'the pipeline name each run wrote under',
+        name: 'the pipeline names each run wrote under',
         up(handle) {
-            // A Local Vector Store with a blank collection writes to a collection named after the pipeline, so a
-            // delete after the pipeline's name changed has to know every name a run used.
-            const has = handle
-                .prepare('PRAGMA table_info(runs)')
-                .all()
-                .some((row) => row.name === 'pipeline_name')
-            if (!has) handle.exec('ALTER TABLE runs ADD COLUMN pipeline_name TEXT')
+            // A Local Vector Store with a blank collection writes to a collection named after the pipeline. A run that
+            // is paused, given a new name and resumed writes under both names, so a delete needs every name each run used.
+            handle.exec(`
+                CREATE TABLE IF NOT EXISTS run_names (
+                    run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, workspace_id TEXT, name TEXT NOT NULL,
+                    PRIMARY KEY (run_id, name)) WITHOUT ROWID;
+                CREATE INDEX IF NOT EXISTS run_names_pipeline ON run_names (pipeline_id);
+            `)
         }
     }
 ]

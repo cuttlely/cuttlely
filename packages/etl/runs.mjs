@@ -149,7 +149,6 @@ export function updateRun(id, fields) {
         error: fields.error,
         attempt: fields.attempt,
         started_at: fields.startedAt,
-        pipeline_name: fields.pipelineName,
         finished_at: fields.finishedAt
     }
     const entries = Object.entries(columns).filter(([, value]) => value !== undefined)

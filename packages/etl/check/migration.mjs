@@ -108,6 +108,23 @@ check(
         Number(handle.prepare('PRAGMA user_version').get().user_version) === SCHEMA_VERSION,
     JSON.stringify(second)
 )
+{
+    const runNames = handle.prepare('PRAGMA table_info(run_names)').all()
+    const key = runNames
+        .filter((row) => row.pk > 0)
+        .sort((a, b) => a.pk - b.pk)
+        .map((row) => row.name)
+    check(
+        'v4: the upgrade adds run_names (run_id, pipeline_id, workspace_id, name) keyed by run and name, and runs gains no column',
+        SCHEMA_VERSION >= 4 &&
+            first.applied.includes(4) &&
+            JSON.stringify(runNames.map((row) => row.name)) === JSON.stringify(['run_id', 'pipeline_id', 'workspace_id', 'name']) &&
+            JSON.stringify(key) === JSON.stringify(['run_id', 'name']) &&
+            !columns('runs').includes('pipeline_name') &&
+            Number(handle.prepare('SELECT COUNT(*) AS n FROM run_names').get().n) === 0,
+        JSON.stringify({ runNames, key, applied: first.applied })
+    )
+}
 handle.close()
 
 // A fresh database goes straight to the latest version.
