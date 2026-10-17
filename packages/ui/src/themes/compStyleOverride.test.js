@@ -2,10 +2,14 @@ import componentStyleOverrides, {
     DARK_ALERT,
     DARK_DISABLED_FILL,
     DARK_DISABLED_LABEL,
+    DARK_TOGGLE_LABEL,
+    LIGHT_TOGGLE_LABEL,
     LIGHT_DISABLED_FILL,
     LIGHT_DISABLED_LABEL
 } from './compStyleOverride'
 import themePalette from './palette'
+import { readFileSync } from 'fs'
+import path from 'path'
 
 const luminance = (hex) => {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
@@ -44,7 +48,7 @@ describe('disabled buttons', () => {
 describe('Cuttle Violet primary', () => {
     const LIGHT_MAIN = '#6a3df2'
     const DARK_MAIN = '#a78bfa'
-    const DARK_HOVER = '#8b5cf6'
+    const DARK_HOVER = '#9470f7'
     const INK = '#0a0d1e'
 
     test('light theme: violet text and links on white and the light pages, and white on violet buttons, pass AA', () => {
@@ -60,8 +64,15 @@ describe('Cuttle Violet primary', () => {
             expect(contrast(DARK_MAIN, surface)).toBeGreaterThanOrEqual(4.5)
         }
         expect(contrast(INK, DARK_MAIN)).toBeGreaterThanOrEqual(4.5)
-        expect(contrast(INK, DARK_HOVER)).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(INK, DARK_HOVER)).toBeGreaterThanOrEqual(5)
         expect(contrast('#ffffff', '#352a66')).toBeGreaterThanOrEqual(4.5)
+    })
+
+    test('dark theme: filled violet buttons hover to the theme variable that the Ink check above uses', () => {
+        const scss = readFileSync(path.join(__dirname, '../assets/scss/_themes-vars.module.scss'), 'utf8')
+        expect(scss).toMatch(new RegExp(`^\\$darkPrimaryAccentHover: ${DARK_HOVER};`, 'm'))
+        const dark = componentStyleOverrides({ customization: { isDarkMode: true }, colors: { darkPrimaryAccentHover: DARK_HOVER } })
+        expect(dark.MuiButton.styleOverrides.containedPrimary['&:hover'].backgroundColor).toBe(DARK_HOVER)
     })
 
     test('the palette uses Cuttle Violet on light and the lighter violet with Ink labels on dark', () => {
@@ -122,5 +133,30 @@ describe('dark Alerts', () => {
         expect(root['.MuiAlert-standardError .MuiAlert-icon &']).toEqual({ color: DARK_ALERT.error.icon })
         expect(root['.MuiAlert-standardInfo .MuiAlert-icon &']).toEqual({ color: DARK_ALERT.info.icon })
         expect(root['.MuiAlert-standardWarning .MuiCheckbox-root &']).toEqual({ color: DARK_ALERT.warning.text })
+    })
+})
+
+describe('toggle buttons', () => {
+    const toggleRoot = (isDarkMode) =>
+        componentStyleOverrides({ customization: { isDarkMode }, colors: { primaryMain: '#6a3df2', darkPrimaryAccent: '#a78bfa' } })
+            .MuiToggleButton.styleOverrides.root
+
+    test('dark theme: an unselected label reads at 4.5:1 or better on the dark page and on its hover fill', () => {
+        expect(toggleRoot(true).color).toBe(DARK_TOGGLE_LABEL)
+        for (const surface of ['#191b1f', '#222428', '#23262c']) {
+            expect(contrast(DARK_TOGGLE_LABEL, surface)).toBeGreaterThanOrEqual(4.5)
+        }
+    })
+
+    test('light theme: an unselected label reads at 4.8:1 or better on white and on its hover fill', () => {
+        expect(toggleRoot(false).color).toBe(LIGHT_TOGGLE_LABEL)
+        for (const surface of ['#ffffff', '#f9f9f9', '#f5f5f5']) {
+            expect(contrast(LIGHT_TOGGLE_LABEL, surface)).toBeGreaterThanOrEqual(4.8)
+        }
+    })
+
+    test('keyboard focus draws a violet outline in each theme', () => {
+        expect(toggleRoot(true)['&.Mui-focusVisible'].outline).toBe('2px solid #a78bfa')
+        expect(toggleRoot(false)['&.Mui-focusVisible'].outline).toBe('2px solid #6a3df2')
     })
 })

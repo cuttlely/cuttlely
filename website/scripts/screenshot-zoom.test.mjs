@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import {
     clampPan,
@@ -96,5 +97,12 @@ describe('wrapZoomableImages', () => {
         const html = '<div data-screenshot-zoom><img src="/a.png" alt="Tom &amp; &quot;Jerry&quot;" width="400"></div>'
         const out = wrapZoomableImages(html)
         assert.match(out, /aria-label="Enlarge screenshot: Tom &amp; &quot;Jerry&quot;"/)
+    })
+
+    it('shows the enlarge badge at full opacity on hover and focus', () => {
+        const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+        const rule = css.match(/\.cl-zoom:hover::after,\s*\.cl-zoom:focus-visible::after\s*\{([^}]*)\}/)
+        assert.ok(rule, 'missing .cl-zoom hover and focus badge rule')
+        assert.match(rule[1], /opacity:\s*1;/)
     })
 })

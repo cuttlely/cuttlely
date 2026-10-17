@@ -41,6 +41,20 @@ const darkAlerts = () =>
         ])
     )
 
+// The palette mode stays 'light' in the dark theme, so MUI's unselected ToggleButton label (action.active) is near-black there.
+// Dark theme: #c3c7cf reads about 10.2:1 on the dark page and about 9.2:1 on the hover fill.
+export const DARK_TOGGLE_LABEL = '#c3c7cf'
+// Light theme: MUI's default reads 4.53:1 on the hover fill; #666666 is about 5.7:1 on white and 5.4:1 on that fill.
+export const LIGHT_TOGGLE_LABEL = '#666666'
+
+const toggleButton = (dark, colors) => ({
+    color: dark ? DARK_TOGGLE_LABEL : LIGHT_TOGGLE_LABEL,
+    '&.Mui-focusVisible': {
+        outline: `2px solid ${dark ? colors?.darkPrimaryAccent : colors?.primaryMain}`,
+        outlineOffset: -2
+    }
+})
+
 const disabledButton = (dark) => ({
     '&.Mui-disabled': { color: dark ? DARK_DISABLED_LABEL : LIGHT_DISABLED_LABEL },
     '&.MuiButton-contained.Mui-disabled': { backgroundColor: dark ? DARK_DISABLED_FILL : LIGHT_DISABLED_FILL },
@@ -91,10 +105,15 @@ export default function componentStyleOverrides(theme) {
                     // A disabled label stays readable in both themes (4.5:1 or better on its fill and on the page).
                     ...disabledButton(!!theme?.customization?.isDarkMode)
                 },
-                // Filled violet buttons: Royal on hover in light; on dark the lighter violet steps down to #8b5cf6.
+                // Filled violet buttons: Royal on hover in light; on dark the lighter violet steps down to #9470f7 (Ink label 5.44:1).
                 containedPrimary: theme?.customization?.isDarkMode
                     ? { '&:hover': { backgroundColor: theme.colors?.darkPrimaryAccentHover } }
                     : { '&:hover': { backgroundColor: theme.colors?.primaryDark } }
+            }
+        },
+        MuiToggleButton: {
+            styleOverrides: {
+                root: toggleButton(!!theme?.customization?.isDarkMode, theme.colors)
             }
         },
         MuiSvgIcon: {

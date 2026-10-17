@@ -11,6 +11,7 @@
  */
 import express, { Request, Router } from 'express'
 import request from 'supertest'
+import { builtInPermissionKeys } from './builtInRoles'
 import { setTeamPermissionLookup } from './rbac'
 import { TeamAccess } from './sqlStore'
 
@@ -476,6 +477,27 @@ describe('switched route groups', () => {
         memberships.set('owner|team-b', grant(null, true))
         const owner = { id: 'owner', activeWorkspaceId: 'team-b', permissions: [], isOrganizationAdmin: false }
         expect((await call(statsRouter, owner, { method: 'get', path: '/flow-1', permission: '' })).status).toBe(200)
+    })
+
+    it('POST /credentials refuses a Viewer and allows a Builder', async () => {
+        const probe = { method: 'post' as const, path: '/', permission: 'credentials:create' }
+        const viewerKeys = builtInPermissionKeys('viewer') || []
+        const builderKeys = builtInPermissionKeys('builder') || []
+        expect(viewerKeys).toContain('credentials:view')
+        expect(viewerKeys).not.toContain('credentials:create')
+        expect(builderKeys).toContain('credentials:create')
+
+        memberships.set('viewer|team-a', grant(viewerKeys))
+        const viewer = { id: 'viewer', activeWorkspaceId: 'team-a', permissions: ['credentials:create'], isOrganizationAdmin: false }
+        const denied = await call(credentialsRouter, viewer, probe)
+        expect(denied.status).toBe(403)
+        expect(denied.body).toEqual({ message: 'Forbidden' })
+        expect(hits.n).toBe(0)
+
+        memberships.set('builder|team-a', grant(builderKeys))
+        const builder = { id: 'builder', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
+        expect((await call(credentialsRouter, builder, probe)).status).toBe(200)
+        expect(hits.n).toBe(1)
     })
 
     it('refuses check history for an API key that can run a check and cannot read messages', async () => {
