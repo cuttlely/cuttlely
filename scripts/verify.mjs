@@ -69,6 +69,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'check-static-ui-image.test.mjs'),
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'media-size.test.mjs'),
+            path.join(ROOT, 'scripts', 'readme-translations.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
             path.join(ROOT, 'scripts', 'eval-routes.test.cjs'),
             path.join(ROOT, 'scripts', 'flow-drafts-sqlite-race.test.cjs'),

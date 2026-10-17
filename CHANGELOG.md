@@ -17,6 +17,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The homepage shows the customer care demo right after the hero, then the "Not the obvious answer" case study, then A/B testing, then a new "Made for real teams" section with six cards that link to the roles, sign-in, audit log, server settings, and Docker guides. The light theme uses the logo colours on the home page. The dark theme is unchanged.
 -   The **Watch with sound** video dialog on the homepage opens in the centre of the window.
 -   **Include prompts and tool text** in Server Settings now points at **Prompt and tool text limit** instead of saying the text is cut at 4,000 characters.
+-   The Node CI and Test Docker Build workflows run on pull requests into base branches whose names contain a slash.
 
 ### Removed
 
@@ -24,6 +25,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A publish check whose last answer or grade is cut off by the check's time limit now ends stopped for time instead of done. Before, it could end done and, for a dataset check, store a verdict scored with that cut-off grade as Error. Now no publish gate result is stored for that check, so it cannot unblock Publish, and the next check runs as usual.
 -   **Prompt and tool text limit** lists the 4,000-character default once, as **Default (4,000 characters)**, instead of also offering a separate **4,000 characters** item. A saved value of 4000 shows as that default item.
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
 -   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. The card still offers Add a model key, and owners and roles with `credentials:view` still see their keys.

@@ -1,3 +1,5 @@
+English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.md)
+
 <p align="center">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="./assets/brand/readme/cuttlely-readme-header-dark.png">
@@ -12,8 +14,6 @@
 [![Docker image](https://img.shields.io/badge/ghcr.io-cuttlely%2Fcuttlely-2496ED?logo=docker&logoColor=white)](https://github.com/cuttlely/cuttlely/pkgs/container/cuttlely)
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
-
-English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.md) | [日本語](./i18n/README-JA.md) | [한국어](./i18n/README-KR.md)
 
 **Your applications deserve agents.**
 

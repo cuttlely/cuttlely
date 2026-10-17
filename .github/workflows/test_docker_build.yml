@@ -3,7 +3,7 @@ name: Test Docker Build
 on:
     pull_request:
         branches:
-            - '*'
+            - '**'
         types: [opened, synchronize, reopened, ready_for_review]
     schedule:
         # Daily full run on main (UTC). There are no push-to-main runs.
