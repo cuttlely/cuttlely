@@ -239,49 +239,50 @@ function routeSteps(text) {
     }
 }
 
-const MAYA = `**Decision:** The delay is Larkfield Home's fault. The parcel was held after a warehouse scale check and the carrier never received it. The remedy is a shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a store credit, and a call from the Customer Care Lead.
+// Amounts in MAYA, DANIEL and HELD are what the sample tools in samples/demo/customer-care return for these orders.
+const MAYA = `**Decision:** The delay is Larkfield Home's fault. The parcel was held after a warehouse scale check and the carrier never received it. The remedy is a $9.95 shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a $55.80 store credit, and a call from the Customer Care Lead.
 
-**Reply to the customer:** Maya, a warehouse error kept the parcel from the carrier, so the tracking page never moved. We can send a replacement by Express, arriving Thursday, October 8, or refund the order. We will also add a store credit and the Customer Care Lead will call.
+**Reply to the customer:** Maya, a warehouse error kept the parcel from the carrier, so the tracking page never moved. We can send a replacement by Express, arriving Thursday, October 8, or refund the order. We are refunding the $9.95 shipping, adding a $55.80 store credit, and the Customer Care Lead will call.
 
 **Actions:**
-- Refund the shipping
+- Refund the $9.95 shipping
 - Reship from Reno by Express, arriving 2026-10-08
 - Recall the parcel held at the Columbus warehouse
-- Add the store credit
+- Add a $55.80 store credit
 - Ask the Customer Care Lead to call
 - Open an operations incident for packing wave W-0929-B, which held 5 orders
 
 **Evidence:**
 - customer: Maya Okafor is a Plus customer. Her previous order was late 52 days ago, so this is a second late delivery.
 - operations: the parcel failed the outbound scale check and stayed in the exception cage. The carrier scan is only "Label created".
-- policy: a delay before the carrier's first pickup scan is Larkfield's fault, so the goodwill limit does not apply.
+- policy: a delay before the carrier's first pickup scan is Larkfield's fault. A second late delivery raises Plus to the Premier remedy: 20% of the $279.00 item price is a $55.80 store credit.
 
 Source: Service Recovery Policy, sections 1.2, 2.1, 2.3, 2.5, 3.1, 3.2, 3.3, 3.4.`
 
-const DANIEL = `**Decision:** The delay was the carrier's fault. A road closure for snow held the parcel after pickup. Daniel Reyes is a Standard customer with no other late delivery, so the remedy is a carrier trace, a reship only after 3 business days with no new scan, and a goodwill credit.
+const DANIEL = `**Decision:** The delay was the carrier's fault. A road closure for snow held the parcel after pickup. Daniel Reyes is a Standard customer with no other late delivery, so the remedy is a carrier trace, a reship only after 3 business days with no new scan, and a $10.00 goodwill credit.
 
-**Reply to the customer:** Daniel, the carrier has the duvet set and a snow closure is holding it. We have asked the carrier for a trace. If there is no new scan for 3 business days we will reship it, and a goodwill credit is on the account.
+**Reply to the customer:** Daniel, the carrier has the duvet set and a snow closure is holding it. We have asked the carrier for a trace. If there is no new scan for 3 business days we will reship it, and a $10.00 goodwill credit is on the account.
 
 **Actions:**
 - Ask the carrier for a trace
 - Reship only after 3 business days with no new scan
-- Add the goodwill credit for a Standard customer
+- Add a $10.00 goodwill credit
 
 **Evidence:**
 - customer: Daniel Reyes is a Standard customer with no other late delivery in the last 120 days.
 - operations: the carrier picked the parcel up on time and then recorded a road closure for snow.
-- policy: a delay after the carrier's first scan is the carrier's fault. A Standard customer with no other late delivery receives a trace and a goodwill credit.
+- policy: a delay after the carrier's first scan is the carrier's fault. A Standard customer with no other late delivery receives a trace and a $10.00 goodwill credit, with no shipping refund.
 
-Source: Service Recovery Policy, sections 2.4, 3.1.`
+Source: Service Recovery Policy, sections 2.2, 2.4, 3.1.`
 
-const HELD = `Five orders are held in packing wave W-0929-B.
-- LH-20409, Premier
-- LH-20411, Standard
-- LH-20417, Plus
-- LH-20420, Plus
-- LH-20422, Standard
+const HELD = `Five orders are held in exception cage E-2 at the Columbus warehouse (CMH). Each failed the outbound scale check in packing wave W-0929-B on 2026-09-29.
+- LH-20409, Priya Natarajan, Premier
+- LH-20411, Tom Lindqvist, Standard
+- LH-20417, Maya Okafor, Plus
+- LH-20420, Grace Whitfield, Plus
+- LH-20423, Lena Fischer, Standard
 
-The Plus and Premier customers in that wave are LH-20409 (Premier), LH-20417 (Plus) and LH-20420 (Plus).`
+The Plus and Premier customers are Priya Natarajan (LH-20409, Premier), Maya Okafor (LH-20417, Plus) and Grace Whitfield (LH-20420, Plus).`
 
 // March 2026 croissant units from samples/demo/bakery/bakery.sql: Riverside 1346, Old Town 1011.
 const MARCH_CROISSANTS = `Riverside sold 335 more croissants than Old Town in March 2026.
@@ -360,7 +361,10 @@ function decide(body) {
     if (/You build a Cuttlely harness/.test(text)) return { content: JSON.stringify(CHART_PLAN) }
     if (/You build a Cuttlely/.test(text)) return { content: JSON.stringify(MATH_PLAN) }
     if (/You route work/.test(text)) return { content: JSON.stringify(routeSteps(text)) }
-    if (/You are Harness Prime/.test(text)) return { content: handoff(text) }
+    if (/You are Harness Prime/.test(text)) {
+        const answer = handoff(text)
+        return { content: answer, keepAmounts: [MAYA, DANIEL, HELD].includes(answer) }
+    }
     if (names.some((name) => name === 'calculator' || name.includes('calculator'))) {
         if (toolResult(messages)) return { content: bakeryAnswer(question) }
         return { toolCalls: [{ name: 'calculator', arguments: { input: calculatorArgs(question) } }] }
@@ -396,7 +400,7 @@ function completion(body, decision) {
         type: 'function',
         function: { name: call.name, arguments: JSON.stringify(call.arguments || {}) }
     }))
-    const content = toolCalls.length ? null : stripMoney(decision.content || '')
+    const content = toolCalls.length ? null : decision.keepAmounts ? decision.content : stripMoney(decision.content || '')
     return {
         id: 'chatcmpl-docs-shot',
         object: 'chat.completion',
