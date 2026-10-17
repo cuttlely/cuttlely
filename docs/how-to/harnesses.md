@@ -234,7 +234,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ## Look at earlier runs
 
-**Runs** on the harness page lists recent runs, newest first. Each row has the start time, where the run came from, the time it took, the tokens, the start of the prompt, and a status: `succeeded`, `completed with errors`, `failed`, `cancelled`, `running`, or `queued`. Runs from **Try it** and the canvas chat are listed as `playground`, and runs started through the API as `api`.
+**Runs** on the harness page lists recent runs, newest first. Each row has the start time, where the run came from, the time it took, the tokens, the start of the prompt, and a status: `succeeded`, `completed with errors`, `failed`, `cancelled`, `running`, or `queued`. Runs from **Try it** and the canvas chat are listed as `playground`, runs started through the API as `api`, and runs from a schedule as `schedule`.
 
 Select a row to open its run card under the list. Select a specialist row in the card to see its task and tool chips.
 
@@ -281,6 +281,27 @@ Then read the `resultUrl` every few seconds until `finished` is `true`:
 ```
 
 The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. A harness that is not ticked on the key answers `403` `This API key may not run harness "payroll".`, whether or not that harness exists, and that refusal is an **Admin** > **Audit log** row. Each key may start 60 runs and read 600 times a minute. The full request and response, and every error, are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
+
+## Run it on a schedule
+
+A harness can run by itself on a cron schedule, for example a morning summary on weekdays. This example uses a made-up harness, `bakery-team`.
+
+1. Open the harness page, `/harnesses/bakery-team`.
+2. Under **Schedule**, set **Cron** to `0 7 * * 1-5` (07:00, Monday to Friday). The fields are minute, hour, day of the month, month, and day of the week.
+3. Pick a **Time zone**, for example `Europe/Paris`. The page starts with your browser's time zone.
+4. Type the **Question for each run**, for example `Summarise yesterday's orders and flag any cake booked for today.`
+5. Select **Add Schedule**.
+
+The card then says who the schedule runs as, when the next run is, and how the last one went. A few more rules:
+
+-   **Owner.** A schedule runs with the permissions of the person who last saved it, in the harness team. At each due time Cuttlely checks that this person can still start a harness run there (organization owner, or `chatflows:create`, `chatflows:update`, or `agentflows:create`). If they cannot, for example after a role change or when the user is disabled, that time is skipped as `refused`, with an **Admin** > **Audit log** row. Save the schedule again as someone who can run it. An API key cannot set a schedule.
+-   **Pause.** The switch at the top right of the card pauses and resumes. A paused schedule shows no next run. Resuming counts the next run from now, so the times missed while paused are not run.
+-   **No overlap.** A due time while the previous scheduled run is still going is skipped as `skipped`. The next due time tries again.
+-   **Run history.** Scheduled runs show under **Runs**, listed as `schedule`, with the same run card, tokens, usage totals and traces as any other run. **Refresh** next to **Runs** loads new ones. A scheduled run uses Live, not the draft.
+-   **Restarts.** Schedules are kept in the harness database in the data folder, so they continue after a restart. A run cut off by the restart is marked failed with `interrupted`. A due time that passed while the server was down runs once when it is back, and the next run is counted from then.
+-   **Time changes.** In a zone with daylight saving time, a wall time that the clocks skip does not run that day, and a wall time that happens twice runs once.
+
+Deleting the harness deletes its schedule. The API calls are in [Schedule a harness](../api.md#schedule-a-harness).
 
 ## Call the harness from a chatflow
 

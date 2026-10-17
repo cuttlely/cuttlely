@@ -213,6 +213,40 @@ When it is done:
 
 The limits count per API key, so two keys do not share one. A refused start is an **Admin** > **Audit log** row of type `harness_run`, and so is every start through this route. Changing a key's harness list is a `harness_access` row.
 
+### Schedule a harness
+
+A harness can also run on a cron schedule that a signed-in person sets on the harness page. The same calls are on the API for a signed-in session. An API key can read a schedule for a harness on its list, and cannot change one, because a schedule runs with its owner's permissions.
+
+| Call                                            | What it does                                       |
+| ----------------------------------------------- | -------------------------------------------------- |
+| `GET /api/v1/harnesses/<name>/schedule`         | The schedule, or `{"schedule":null}`               |
+| `PUT /api/v1/harnesses/<name>/schedule`         | Create or replace it. The caller becomes the owner |
+| `POST /api/v1/harnesses/<name>/schedule/pause`  | Pause it                                           |
+| `POST /api/v1/harnesses/<name>/schedule/resume` | Resume it. The next run is counted from now        |
+| `DELETE /api/v1/harnesses/<name>/schedule`      | Delete it                                          |
+
+`PUT` takes `cron` (five fields), `timezone` (an IANA name such as `Europe/Paris`), `question` (up to 4,000 characters), and optionally `active: false` to save it paused. The response, with made-up data:
+
+```json
+{
+    "schedule": {
+        "harness": "bakery-team",
+        "cron": "0 7 * * 1-5",
+        "timezone": "Europe/Paris",
+        "question": "Summarise yesterday's orders.",
+        "status": "active",
+        "nextRunAt": "2026-10-19T05:00:00.000Z",
+        "lastRunId": null,
+        "lastRunAt": null,
+        "lastResult": null,
+        "lastReason": null,
+        "owner": { "id": "8a7b6c5d-4e3f-4a2b-9c1d-0e1f2a3b4c5d", "name": "Sam Baker", "email": "sam@rosas-bakery.example" }
+    }
+}
+```
+
+Changing a schedule needs the same permissions as starting a run, and an API key gets `403`. A bad cron or time zone is `400` with a `message`. `lastResult` is `running`, a run status such as `succeeded`, or `skipped`, `refused`, or `failed` for a due time that did not start a run, with `lastReason` saying why. Each scheduled run is a run with `source` `schedule`, readable through the run routes above. Saves, pauses, resumes and deletes are limited to 30 a minute per person and are `harness_schedule` audit rows.
+
 ## Stream the answer
 
 Add `"streaming": true` and Cuttlely answers with server-sent events (`Content-Type: text/event-stream`) as the model writes. Each event is two lines and a blank line. The JSON on the `data:` line has an `event` name and its `data`:
