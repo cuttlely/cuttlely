@@ -208,6 +208,9 @@ interface CheckRecord {
     spentTokens: number
     inflight: Set<AbortController>
     stopRequested: boolean
+    // Set by the run timer when it fires at the check deadline. Timers run on the monotonic clock, so it can fire
+    // while Date.now() is still short of the deadline; the time limit must not depend on reading the clock again.
+    timeUp?: boolean
     // Loaded once per check so every side uses the same prices.
     priceBook?: Promise<PriceBook | null>
 }
@@ -892,12 +895,23 @@ export async function startCheck(
     return view(record, record.draftHash)
 }
 
+// The per-run limit, or whatever the check has left. Stop aborts the controller because it is in the in-flight set.
+function armRunTimer(record: CheckRecord, controller: AbortController) {
+    const left = record.startedAt + record.limits.maxSeconds * 1000 - Date.now()
+    const byDeadline = left <= runTimeoutMs()
+    const timeoutMs = Math.max(1, Math.min(runTimeoutMs(), left))
+    const timer = setTimeout(() => {
+        if (byDeadline) record.timeUp = true
+        controller.abort()
+    }, timeoutMs)
+    timer.unref?.()
+    return { timer, timeoutMs }
+}
+
 async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, question: string, baseURL: string): Promise<SideResult> {
-    const deadline = record.startedAt + record.limits.maxSeconds * 1000
     const controller = new AbortController()
     record.inflight.add(controller)
-    const timer = setTimeout(() => controller.abort(), Math.max(1, Math.min(runTimeoutMs(), deadline - Date.now())))
-    timer.unref?.()
+    const { timer } = armRunTimer(record, controller)
     const started = Date.now()
     try {
         const run = replayHooks.run || replayFlow
@@ -930,7 +944,7 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
 
 function budgetLeft(record: CheckRecord): CheckView['stopReason'] {
     if (record.stopRequested) return 'stopped'
-    if (Date.now() >= record.startedAt + record.limits.maxSeconds * 1000) return 'time'
+    if (record.timeUp || Date.now() >= record.startedAt + record.limits.maxSeconds * 1000) return 'time'
     // Every run so far counts, including the Live half of a question whose draft has not run yet.
     const used =
         record.spentTokens +
@@ -947,13 +961,9 @@ function budgetLeft(record: CheckRecord): CheckView['stopReason'] {
 async function attachScores(record: CheckRecord, side: SideResult | null, question: string, expected: string | null, flowData: string) {
     if (!side || !record.evaluators.length) return
     // The same per-run limit as the answer itself: 60 seconds, or whatever the check has left.
-    // Stop aborts this controller because it is in the check's in-flight set.
-    const deadline = record.startedAt + record.limits.maxSeconds * 1000
     const controller = new AbortController()
     record.inflight.add(controller)
-    const timeoutMs = Math.max(1, Math.min(runTimeoutMs(), deadline - Date.now()))
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
-    timer.unref?.()
+    const { timer, timeoutMs } = armRunTimer(record, controller)
     try {
         const graded = await scoreAnswer({
             evaluators: record.evaluators,
@@ -1060,6 +1070,8 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
     }
     try {
         await Promise.all(Array.from({ length: workers }, () => worker()))
+        // The last question can be cut off at the deadline with no question left to claim.
+        if (!record.stopReason && record.timeUp) record.stopReason = 'time'
         if (record.stopReason) {
             record.status = 'stopped'
         } else {
