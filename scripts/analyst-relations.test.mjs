@@ -871,6 +871,72 @@ describe('analyst relations: describe sample values on a made-up household budge
     })
 })
 
+describe('analyst relations: describe and query leave no side effects', () => {
+    const wideColumns = Array.from({ length: 12 }, (_, i) => `c${i + 1}`)
+    const db = riskyDatabase(
+        'effects',
+        `
+        CREATE TABLE public.effect_log (id bigint, note text);
+        CREATE SEQUENCE public.effect_seq;
+        -- Owned by the admin and SECURITY DEFINER, so only the transaction mode, not a privilege, stops the writes.
+        CREATE FUNCTION public.leave_a_mark() RETURNS text LANGUAGE plpgsql VOLATILE SECURITY DEFINER AS $f$
+            BEGIN
+                PERFORM nextval('public.effect_seq');
+                INSERT INTO public.effect_log VALUES (currval('public.effect_seq'), 'marked');
+                RETURN 'marked';
+            END $f$;
+        CREATE VIEW public.marked_stores AS SELECT s.name, public.leave_a_mark() AS mark FROM public.stores s;
+        CREATE TABLE public.wide (${wideColumns.map((name) => `${name} text`).join(', ')});
+        INSERT INTO public.wide VALUES (${wideColumns.map((name) => `'${name} value'`).join(', ')});
+    `
+    )
+
+    const effects = async () => {
+        const owner = new Client(adminConfig(db.dbName))
+        await owner.connect()
+        try {
+            return (await owner.query('SELECT count(*)::int AS n FROM public.effect_log')).rows[0].n
+        } finally {
+            await owner.end()
+        }
+    }
+
+    it('a ticked view whose function inserts and calls nextval changes nothing through describe or query', async (t) => {
+        if (db.skipped(t)) return
+        const relations = ['public.marked_stores']
+        const described = await describeAnalystUrlRelation(db.url, { name: 'marked_stores' }, relations)
+        assert.deepEqual(described.columns, ['name text', 'mark text'])
+        assert.equal(described.values, undefined, 'every sample reads the view, which cannot write, so none is kept')
+        await assert.rejects(queryAnalystUrl(db.url, 'SELECT name, mark FROM marked_stores', { relations }), /read-only transaction/)
+        await assert.rejects(queryAnalystUrl(db.url, 'SELECT name FROM marked_stores', { relations }), /read-only transaction/)
+        assert.equal(await effects(), 0, 'effect_log is still empty')
+        assert.equal(await db.sequence('effect_seq'), '1:false', 'effect_seq was never advanced')
+    })
+
+    it('runs at most 8 scope-check statements on one connection for a table with 12 text columns', async (t) => {
+        if (db.skipped(t)) return
+        const { Client: StoreClient } = createRequire(path.join(ROOT, 'packages', 'components', 'package.json'))('pg')
+        const original = StoreClient.prototype.query
+        const checks = new Map()
+        StoreClient.prototype.query = function (config, ...rest) {
+            if (config && typeof config === 'object' && String(config.name || '').startsWith('cuttlely_scope_check')) {
+                checks.set(this, (checks.get(this) || 0) + 1)
+            }
+            return original.call(this, config, ...rest)
+        }
+        let wide
+        try {
+            wide = await describeAnalystUrlRelation(db.url, { name: 'wide' }, ['public.wide'])
+        } finally {
+            StoreClient.prototype.query = original
+        }
+        assert.equal(wide.columns.length, 12)
+        assert.equal(checks.size, 1, 'describe uses one connection')
+        assert.equal([...checks.values()][0], 8)
+        assert.deepEqual(Object.keys(wide.values), wideColumns.slice(0, 8))
+    })
+})
+
 describe('analyst relations: describe samples on a login without TEMP', () => {
     const db = riskyDatabase(
         'notemp',
