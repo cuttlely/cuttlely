@@ -28,7 +28,7 @@ A smaller bakery team is on the same card as a [quickstart](#the-bakery-quicksta
 
 5. Scroll down for the rest of the answer: the reply to send the customer, the actions for the team, and the evidence from each specialist with the policy sections it rests on.
 
-    ![The reply letter to Maya with the $9.95 shipping refund, reship from Reno and $55.80 store credit, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy.](../images/try-the-demo/customer-care-answer.png)
+    ![The decision and the reply to Maya with the $9.95 shipping refund, an Express reship from Reno arriving 2026-10-08 and a $55.80 store credit, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy.](../images/try-the-demo/customer-care-answer.png)
 
 On a laptop the answer usually arrives in 15 to 20 seconds. If the agent runtime is still starting, the question waits for it, up to a minute (`CUTTLELY_HERMES_START_WAIT_MS`). The wording changes from run to run, but the facts, the amounts and the policy sections come from the specialists' tools.
 

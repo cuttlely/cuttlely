@@ -151,7 +151,7 @@ The response is `{ "dryRun", "count", "skipped", "preview", "truncated", "cursor
 
 Open the dataset. A thumbs-down row shows `needs expected answer` in the **Expected Output** column. Under the question, a row saved from one answer says `From a chat answer on` and the date. A row saved from a rating says `From a thumbs-up rating` or `From a thumbs-down rating`.
 
-![Dataset Counter answers. The rye row says From a chat answer on 10/14/2026 and the expected output is Yes, rye is baked every morning. Why was the sourdough late? and Can I pick up on Monday? each say From a thumbs-down rating, and the expected output is needs expected answer.](../images/evaluations/needs-expected.png)
+![Dataset Counter answers. The rye row says From a chat answer, with the date it was added, and the expected output is Yes, rye is baked every morning. Why was the sourdough late? and Can I pick up on Monday? each say From a thumbs-down rating, and the expected output is needs expected answer.](../images/evaluations/needs-expected.png)
 
 Open the row. The dialog title is **Edit Item in**, the dataset name, and **Dataset**. It says `This row needs an expected answer. The rating is not a correct answer.` When the row still has them, it also shows `Rejected answer:` and `Feedback:`. Type the answer the check should expect in **Anticipated Output**, then select **Save**. The table header for that column is **Expected Output**.
 

@@ -67,7 +67,7 @@ The percentages, the $75 cap, the $100 cap for a Premier repeat and the goodwill
 
 Harness Prime's instructions ask for four bold parts, **Decision**, **Reply to the customer**, **Actions** and **Evidence**, and say how to use the policy result: every step for every customer, plus the one line for the customer's tier and whether the customer specialist found another late delivery in the 120 days before, with that line's amounts exactly. They also say to use only facts, dates and amounts the specialists gave.
 
-![The reply letter to Maya with the $9.95 shipping refund, reship from Reno and $55.80 store credit, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy.](../images/try-the-demo/customer-care-answer.png)
+![The decision and the reply to Maya with the $9.95 shipping refund, an Express reship from Reno arriving 2026-10-08 and a $55.80 store credit, followed by the Actions list and the Evidence from each specialist, citing the Service Recovery Policy.](../images/try-the-demo/customer-care-answer.png)
 
 ## Build one on your own data
 
