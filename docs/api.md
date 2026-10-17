@@ -228,7 +228,7 @@ A harness can also run on a cron schedule that a signed-in person sets on the ha
 | `POST /api/v1/harnesses/<name>/schedule/resume` | Resume it. The next run is counted from now        |
 | `DELETE /api/v1/harnesses/<name>/schedule`      | Delete it                                          |
 
-`PUT` takes `cron` (five fields), `timezone` (an IANA name such as `Europe/Paris`), `question` (up to 4,000 characters), and optionally `active: false` to save it paused. The response, with made-up data:
+`PUT` takes `cron` (five fields), `timezone` (an IANA place name such as `Europe/Paris`, or `UTC`; offsets and abbreviations such as `+02:00` or `CET` are `400`), `question` (up to 4,000 characters), and optionally `active: false` to save it paused. The zone comes back in canonical spelling. The day-of-month and day-of-week rule, and what happens when the clocks change, are in [Run it on a schedule](./how-to/harnesses.md#run-it-on-a-schedule). The response to a signed-in person, with made-up data:
 
 ```json
 {
@@ -248,7 +248,9 @@ A harness can also run on a cron schedule that a signed-in person sets on the ha
 }
 ```
 
-Changing a schedule needs the same permissions as starting a run, and an API key gets `403`. A bad cron or time zone is `400` with a `message`. `lastResult` is `running`, a run status such as `succeeded`, or `skipped`, `refused`, or `failed` for a due time that did not start a run, with `lastReason` saying why. Each scheduled run is a run with `source` `schedule`, readable through the run routes above. Saves, pauses, resumes and deletes are limited to 30 a minute per person and are `harness_schedule` audit rows.
+`question` is shown with secrets such as connection strings and keys hidden, the same way run history stores a question. Sending that shown text back unchanged in a `PUT` keeps the stored question. An API key gets `owner` with `name` only, without `id` or `email`.
+
+Changing a schedule needs the same permissions as starting a run, and an API key gets `403`. A bad cron, a day of the month no chosen month has (such as `30 2`), or a bad time zone is `400` with a `message`. `lastResult` is `starting` while a due time is being started, `running`, a run status such as `succeeded`, or `skipped`, `refused`, or `failed` for a due time that did not start a run, with `lastReason` saying why. Each scheduled run is a run with `source` `schedule`, readable through the run routes above by a signed-in person; an API key reads only the runs it started, so it does not see scheduled runs. Saves, pauses, resumes and deletes are limited to 30 a minute per person, counted in each server process, and are `harness_schedule` audit rows, and so is every run a schedule starts (`run_started`, with the run id).
 
 ## Stream the answer
 

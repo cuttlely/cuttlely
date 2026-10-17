@@ -1,6 +1,6 @@
 # Audit log
 
-**Admin** > **Audit log** (`/audit`) lists sign-in, lockout, invite, reset, role change, user disable, and settings changes, harness runs started with the API (and an API key refused a harness), changes to which harnesses an API key may run, and harness schedule changes, including a scheduled run refused because its owner can no longer run the harness. The organization owner can open it. A role can open it with `audit:view`. An API key cannot.
+**Admin** > **Audit log** (`/audit`) lists sign-in, lockout, invite, reset, role change, user disable, and settings changes, harness runs started with the API (and an API key refused a harness), changes to which harnesses an API key may run, and harness schedule changes, including every run a schedule starts and a scheduled run refused because its owner can no longer run the harness. The organization owner can open it. A role can open it with `audit:view`. An API key cannot.
 
 The list is newest first. Filter by type, or by a user id, and load the next page from the cursor. One cursor orders database rows and settings changes together, so a page does not skip or repeat a row when both happened at the same time.
 
