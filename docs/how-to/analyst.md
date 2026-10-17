@@ -216,7 +216,7 @@ Only these relations can be queried. Each line lists its column names, the first
 - public.stores (table): id, name, address, opened_on — Bakery shops
 ```
 
-The column names are there because models often write SQL before they call describe, whatever the instructions say. A run with a real model guessed column names, failed, and only then described the view. With the names in the line, the first query can be right. A relation with more than 12 columns lists the first 12 and then `…`. Column names that need quotes are listed quoted. Types, column comments, keys and view definitions stay in `describe`.
+The column names are there because models often write SQL before they call describe, whatever the instructions say. A run with a real model guessed column names, failed, and only then described the view. With the names in the line, the first query can be right. A relation with more than 12 columns lists the first 12 and then `…`. Column names that need quotes are listed quoted. A newline in a name or comment is shown as a space. Types, column comments, keys and view definitions stay in `describe`.
 
 A comment longer than 120 characters is cut. Write the comment that tells the analyst when to use the relation, and when not to, as `account_balances` and `top_products` do above. That line is the routing hint the model reads on every question. Say what a relation ranks or totals by: in the same real-model run, a comment that said only "ranked by units sold" was read as a revenue ranking.
 
@@ -282,7 +282,7 @@ When a query fails because a column does not exist or is ambiguous, the error en
 
 > column "revenue" does not exist. Columns of public.top_products: product, units, rank.
 
-That list stops at 60 names. Other errors, such as a syntax error, come back as Postgres wrote them.
+A relation counts when the statement names it, with the schema or without, quoted or not. That list stops at 60 names. Other errors, such as a syntax error, come back as Postgres wrote them.
 
 A ticked view is the gate. Its own definition is not expanded, so `account_balances` can read `invoices` while `invoices` stays unticked and `SELECT * FROM invoices` is refused. Tick views and leave their base tables unticked when the view is all the analyst should see.
 

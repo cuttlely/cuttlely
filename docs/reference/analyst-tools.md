@@ -30,7 +30,7 @@ With a selection set, the description ends with `Only these relations can be que
 - <name> (<kind>): <column>, <column>, ... — <comment, cut at 120 characters>
 ```
 
-Columns are in column order, quoted where Postgres needs it. More than 12 columns list the first 12, then `…`. A relation with no comment has no `—` part. A relation with no columns has `: <comment>` after the kind. Types, column comments, keys and definitions are only in `describe`. When the database does not answer while the tools are listed, each line is the name alone, and the check still applies to every call.
+Columns are in column order, quoted where Postgres needs it. More than 12 columns list the first 12, then `…`. A relation with no comment has no `—` part. A relation with no columns has `: <comment>` after the kind. Any run of whitespace in a name or comment, newlines included, becomes one space, so each relation stays on one line. Types, column comments, keys and definitions are only in `describe`. When the database does not answer while the tools are listed, each line is the name alone, and the check still applies to every call.
 
 ## describe
 
@@ -74,4 +74,4 @@ The built-ins refused while a selection is set are the `query_to_xml`, `table_to
 
 ## Column errors
 
-With a selection set, a Postgres error for an undefined column (`42703`, including a `JOIN ... USING` column one side lacks) or an ambiguous column (`42702`) ends with `Columns of <name>: <columns>.` for each selected relation the statement names, in list order. Each list stops at 60 names, then `…`. A name counts when it appears in the statement as a whole identifier, with or without the schema. The error is still an expected result. Other errors are unchanged.
+With a selection set, a Postgres error for an undefined column (`42703`, including a `JOIN ... USING` column one side lacks) or an ambiguous column (`42702`) ends with `Columns of <name>: <columns>.` for each selected relation the statement names, in list order. Each list stops at 60 names, then `…` with no period. A relation counts when the statement names it the way Postgres would resolve it: a qualified name matches on schema and name (`hr.stores` is not `public.stores`), a bare name matches the relation's name, an unquoted name folds to lower case, a quoted name keeps its case (`"stores"` matches `public.stores`, `"Stores"` does not), and text inside a string literal is not a name. A bare name counts for a selected relation in any schema. The error is still an expected result. Other errors are unchanged.
