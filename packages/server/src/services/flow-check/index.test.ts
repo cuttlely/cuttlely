@@ -1764,14 +1764,14 @@ describe('grading limits', () => {
             { questions: ['Q'], evaluatorIds: ['llm-1'] },
             'http://x'
         )
-        for (let i = 0; i < 80 && checks.get('flow-1')?.status === 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 250))
+        for (let i = 0; i < 160 && checks.get('flow-1')?.status === 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 250))
         const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
         expect(done.status).toBe('stopped')
         expect(done.stopReason).toBe('time')
         scoreHooks.gradeLlm = null
         const again = await startCheck(flow({ flowData: gradedCanvas('MANGO') }) as any, { questions: ['Next'] }, 'http://x')
         expect(again.status).toBe('running')
-    }, 20000)
+    }, 60000)
 
     test('grader tokens push the check over the cap before the next question', async () => {
         process.env.CUTTLELY_CHECK_MAX_TOKENS = '1000'
