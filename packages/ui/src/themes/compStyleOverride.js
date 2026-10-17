@@ -41,6 +41,18 @@ const darkAlerts = () =>
         ])
     )
 
+// The palette mode stays 'light' in the dark theme, so MUI's unselected ToggleButton label (action.active) is near-black there.
+// Dark theme: #c3c7cf reads about 10.2:1 on the dark page and about 9.2:1 on the hover fill.
+export const DARK_TOGGLE_LABEL = '#c3c7cf'
+
+const toggleButton = (dark, colors) => ({
+    ...(dark ? { color: DARK_TOGGLE_LABEL } : {}),
+    '&.Mui-focusVisible': {
+        outline: `2px solid ${dark ? colors?.darkPrimaryAccent : colors?.primaryMain}`,
+        outlineOffset: -2
+    }
+})
+
 const disabledButton = (dark) => ({
     '&.Mui-disabled': { color: dark ? DARK_DISABLED_LABEL : LIGHT_DISABLED_LABEL },
     '&.MuiButton-contained.Mui-disabled': { backgroundColor: dark ? DARK_DISABLED_FILL : LIGHT_DISABLED_FILL },
@@ -95,6 +107,11 @@ export default function componentStyleOverrides(theme) {
                 containedPrimary: theme?.customization?.isDarkMode
                     ? { '&:hover': { backgroundColor: theme.colors?.darkPrimaryAccentHover } }
                     : { '&:hover': { backgroundColor: theme.colors?.primaryDark } }
+            }
+        },
+        MuiToggleButton: {
+            styleOverrides: {
+                root: toggleButton(!!theme?.customization?.isDarkMode, theme.colors)
             }
         },
         MuiSvgIcon: {

@@ -2,6 +2,7 @@ import componentStyleOverrides, {
     DARK_ALERT,
     DARK_DISABLED_FILL,
     DARK_DISABLED_LABEL,
+    DARK_TOGGLE_LABEL,
     LIGHT_DISABLED_FILL,
     LIGHT_DISABLED_LABEL
 } from './compStyleOverride'
@@ -122,5 +123,27 @@ describe('dark Alerts', () => {
         expect(root['.MuiAlert-standardError .MuiAlert-icon &']).toEqual({ color: DARK_ALERT.error.icon })
         expect(root['.MuiAlert-standardInfo .MuiAlert-icon &']).toEqual({ color: DARK_ALERT.info.icon })
         expect(root['.MuiAlert-standardWarning .MuiCheckbox-root &']).toEqual({ color: DARK_ALERT.warning.text })
+    })
+})
+
+describe('toggle buttons', () => {
+    const toggleRoot = (isDarkMode) =>
+        componentStyleOverrides({ customization: { isDarkMode }, colors: { primaryMain: '#6a3df2', darkPrimaryAccent: '#a78bfa' } })
+            .MuiToggleButton.styleOverrides.root
+
+    test('dark theme: an unselected label reads at 4.5:1 or better on the dark page and on its hover fill', () => {
+        expect(toggleRoot(true).color).toBe(DARK_TOGGLE_LABEL)
+        for (const surface of ['#191b1f', '#222428', '#23262c']) {
+            expect(contrast(DARK_TOGGLE_LABEL, surface)).toBeGreaterThanOrEqual(4.5)
+        }
+    })
+
+    test('light theme keeps the MUI label color', () => {
+        expect(toggleRoot(false).color).toBeUndefined()
+    })
+
+    test('keyboard focus draws a violet outline in each theme', () => {
+        expect(toggleRoot(true)['&.Mui-focusVisible'].outline).toBe('2px solid #a78bfa')
+        expect(toggleRoot(false)['&.Mui-focusVisible'].outline).toBe('2px solid #6a3df2')
     })
 })
