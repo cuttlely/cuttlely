@@ -212,7 +212,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 3. 링크를 열고 계정을 만듭니다. 비밀번호는 8자 이상이어야 하며 소문자, 대문자, 숫자, 특수 문자를 하나 이상 포함해야 합니다. 로그인된 상태로 **Chatflows**가 열립니다.
 4. 데모를 사용해 봅니다. **Chatflows**에 **Try the demo** 카드가 보입니다. **Add a model key**를 선택하고, **OpenAI API**를 고른 뒤 이름을 붙이고 키를 붙여 넣은 다음 **Add**를 선택합니다. 키는 암호화되어 저장됩니다. 이어서 **Try the demo**를 선택하면 미리 만들어진 고객 지원 팀이 채팅이 열린 상태로 열립니다. 첫 번째 스타터 질문, 즉 늦게 도착한 에스프레소 머신에 대한 불만을 선택합니다. Run 카드에는 Harness Prime이 고객 스페셜리스트와 운영 스페셜리스트에게 작업을 보낸 다음 정책 스페셜리스트에게 보내는 과정이 나오고, 답변에는 결정, 고객에게 보낼 회신, 조치, 근거가 담깁니다. 모든 데이터는 가상의 것입니다. 각 단계와 같은 카드에 있는 빵집 퀵스타트는 [Try the demo](./docs/how-to/try-the-demo.md)에서 볼 수 있습니다.
 
-    ![첫 번째 스타터 질문 뒤의 고객 지원 팀 채팅. Run 카드에는 Harness Prime이 customer, operations, policy 순으로 작업을 보냈고 모두 done이라고 표시됩니다. 결정에서는 지연이 Larkfield Home의 책임이라고 하며, $9.95 배송비 환불, 2026-10-08에 도착하는 Express 재배송, 리콜, $55.80 스토어 크레딧, Customer Care Lead의 전화를 제시합니다.](./docs/images/try-the-demo/customer-care-run.png)
+    ![첫 번째 스타터 질문 뒤의 고객 지원 팀 채팅. Run 카드에는 Harness Prime이 customer, operations, policy 순으로 작업을 보냈고 모두 done이라고 표시됩니다. 결정에서는 지연이 Larkfield Home의 책임이라고 하며, 배송비 환불, 2026-10-08에 도착하는 Express 재배송, 리콜, 스토어 크레딧, Customer Care Lead의 전화를 제시합니다.](./docs/images/try-the-demo/customer-care-run.png)
 
 5. 나만의 팀을 만듭니다. **Harness · Agent Team**을 열고 **New agent team**을 선택한 다음 **Build with AI**(반짝이 버튼)를 선택합니다. **Chat model that builds**에는 여러분의 모델과 키가 이미 선택되어 있습니다. 예시 하나를 고르고 **Build**를 선택한 뒤, 채팅을 열고 스타터 질문을 선택합니다.
 6. 다음부터는 [http://localhost:43117/signin](http://localhost:43117/signin)에서 **Sign in**으로 로그인합니다.

@@ -88,7 +88,7 @@ A thumbs-down is a reply someone rejected. The question belongs in the test set.
 
 The warning in this dialog is: `Real messages can contain personal data. Check the questions before adding them to a test set.` The preview is the place to do that. Drop a question that should not be stored, by leaving that rating out of a later, narrower window, or by deleting the row after it is saved.
 
-![Add rated answers to test set after See how many. Last days is 7, Limit is blank so it shows the 500 placeholder, and the dataset is Counter answers. The preview says 2 rated answers will be added and 0 already in this test set. The questions are Can I pick up on Monday? and Why was the sourdough late?, each marked needs expected answer. The buttons are Cancel, See how many, and Add Rated Answers.](../images/evaluations/rated-preview.png)
+![Add rated answers to test set after See how many. Last days is 7, Limit is blank so it shows the 500 placeholder, and the dataset is Counter answers. The preview says 2 rated answers will be added and 0 already in this test set. The questions are Why was the sourdough late? and Can I pick up on Monday?, each marked needs expected answer. The buttons are Cancel, See how many, and Add Rated Answers.](../images/evaluations/rated-preview.png)
 
 The dialog says `Negative ratings on this flow. A thumbs-up answer is saved as the expected output. A thumbs-down answer is not. Those rows are marked needs expected answer until you write one.` With **Positive** selected, it still says `Positive ratings on this flow. A thumbs-up answer is saved as the expected output.` The thumbs-down sentences are left out, and each row's expected answer is the reply that was given.
 
@@ -151,7 +151,7 @@ The response is `{ "dryRun", "count", "skipped", "preview", "truncated", "cursor
 
 Open the dataset. A thumbs-down row shows `needs expected answer` in the **Expected Output** column. Under the question, a row saved from one answer says `From a chat answer on` and the date. A row saved from a rating says `From a thumbs-up rating` or `From a thumbs-down rating`.
 
-![Dataset Counter answers. The rye row says From a chat answer with the date it was saved, and the expected output is Yes, rye is baked every morning. Can I pick up on Monday? and Why was the sourdough late? each say From a thumbs-down rating, and the expected output is needs expected answer.](../images/evaluations/needs-expected.png)
+![Dataset Counter answers. The rye row says From a chat answer on 10/14/2026 and the expected output is Yes, rye is baked every morning. Why was the sourdough late? and Can I pick up on Monday? each say From a thumbs-down rating, and the expected output is needs expected answer.](../images/evaluations/needs-expected.png)
 
 Open the row. The dialog title is **Edit Item in**, the dataset name, and **Dataset**. It says `This row needs an expected answer. The rating is not a correct answer.` When the row still has them, it also shows `Rejected answer:` and `Feedback:`. Type the answer the check should expect in **Anticipated Output**, then select **Save**. The table header for that column is **Expected Output**.
 
