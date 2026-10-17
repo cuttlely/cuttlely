@@ -8,6 +8,7 @@ All outputs on this page come from real runs against a local Cuttlely server wit
 -   [Create an API key](#create-an-api-key)
 -   [Ask a chatflow](#ask-a-chatflow)
 -   [Agentflows and harnesses](#agentflows-and-harnesses)
+-   [Run a harness in the background](#run-a-harness-in-the-background)
 -   [Stream the answer](#stream-the-answer)
 -   [Keep the conversation going](#keep-the-conversation-going)
 -   [Send a file with the question](#send-a-file-with-the-question)
@@ -98,7 +99,7 @@ curl -s "$CUTTLELY_URL/api/v1/prediction/$AGENTFLOW_ID" \
 "agentFlowExecutedData": [{"nodeId":"startAgentflow_0","nodeLabel":"Start", ...}, {"nodeId":"llmAgentflow_0", ...}]
 ```
 
-**A harness** (an agent team) is called through a chatflow that holds one **Harness** card set to the harness's name. Build it as in [Call the harness from a chatflow](./how-to/harnesses.md#call-the-harness-from-a-chatflow), bind your key to that chatflow, and call its id. The harness page's own route, `POST /api/v1/harnesses/<name>/runs`, uses a signed-in session and does not take an API key.
+**A harness** (an agent team) is called through a chatflow that holds one **Harness** card set to the harness's name. Build it as in [Call the harness from a chatflow](./how-to/harnesses.md#call-the-harness-from-a-chatflow), bind your key to that chatflow, and call its id. To call the harness by name with an API key instead, and get a run id back at once, see [Run a harness in the background](#run-a-harness-in-the-background).
 
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/prediction/$HARNESS_CHATFLOW_ID" \
@@ -115,6 +116,102 @@ The response has `text`, and also `harness`, `agents` (which specialists ran), `
 "agents": [{"name":"orders","status":"completed","ms":1143,"task":"Can I pick up a gluten-free loaf on Monday?","model":"ChatOpenAI · gpt-4.1-mini","tokens":{"prompt":129,"completion":52,"cached":0}}]
 "timings": {"routeMs":855,"specialistsMs":1145,"handoffMs":787}
 ```
+
+## Run a harness in the background
+
+A long harness turn does not have to hold a request open. Start the run, keep the run id, and ask for its status and answer later. The run is the same as one from the harness page: it uses the published harness, and it shows under **Runs** on the harness page with its run card, tokens and trace.
+
+The responses in this section are examples with made-up data.
+
+### Let the key run the harness
+
+An API key runs no harness until the harness is on that key's list. In **API Keys**, create or edit the key:
+
+1. Under **Permissions**, tick **Create** or **Update** under **CHATFLOWS** to start runs. **View** is ticked with it and lets the key read runs.
+2. Under **Harnesses this key may run**, tick each harness the key may call, for example `bakery-team`.
+3. Save.
+
+The list is checked on every request, so removing a harness stops the key at its next call. The harness has to be in the key's team. The same list also applies to `POST /api/v1/harnesses/<name>/runs` (the call that waits for the answer) and to the run history routes. A signed-in person is checked by role only.
+
+`POST /api/v1/apikey` and `PUT /api/v1/apikey/<id>` take the list as `harnesses`, an array of harness names. Leaving `harnesses` out of an update keeps the list as it is.
+
+### Start a run
+
+`POST /api/v1/harnesses/<name>/runs/async` with `question`. `chatId` is optional: send the same one to continue a conversation, or leave it out for a fresh one each time.
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/harnesses/bakery-team/runs/async" \
+  -H "Authorization: Bearer $CUTTLELY_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"How many rye loaves did we sell last Saturday?"}'
+```
+
+The answer is `202 Accepted`:
+
+```json
+{
+    "runId": "run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f",
+    "harness": "bakery-team",
+    "chatId": "api-3f2e1d0c-9b8a-4765-8432-10fedcba9876",
+    "status": "queued",
+    "statusUrl": "/api/v1/harnesses/bakery-team/runs/run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f",
+    "resultUrl": "/api/v1/harnesses/bakery-team/runs/run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f/result"
+}
+```
+
+### Read the status and the answer
+
+`GET` the `resultUrl` until `finished` is `true`. A few seconds between reads is plenty.
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/harnesses/bakery-team/runs/run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f/result" \
+  -H "Authorization: Bearer $CUTTLELY_API_KEY"
+```
+
+While it runs:
+
+```json
+{ "runId": "run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f", "harness": "bakery-team", "status": "running", "finished": false, "result": null }
+```
+
+When it is done:
+
+```json
+{
+    "runId": "run_7d1c2a4e-5b6f-4c3d-9e8f-0a1b2c3d4e5f",
+    "harness": "bakery-team",
+    "status": "succeeded",
+    "finished": true,
+    "source": "api",
+    "startedAt": "2026-10-17T09:00:00.000Z",
+    "finishedAt": "2026-10-17T09:00:04.120Z",
+    "latencyMs": 4120,
+    "tokens": { "prompt": 812, "completion": 64 },
+    "error": null,
+    "result": {
+        "text": "You sold 38 rye loaves last Saturday.",
+        "agents": [{ "name": "orders", "status": "completed", "ms": 1980 }],
+        "sources": [],
+        "artifacts": [],
+        "report": { "tokens": { "prompt": 812, "completion": 64 } }
+    }
+}
+```
+
+`status` is `queued`, `running`, `succeeded`, `completed_with_errors` (a tool failed and the team still answered), `failed`, or `cancelled`. A failed run has `error` with a `code` and a `message`, for example `busy` when the same `chatId` already has a turn running, `over_budget` when the turn ran past its time budget, or `interrupted` when the server stopped during the run. Image bytes are not kept with the answer; `artifacts` keeps their names. `GET /api/v1/harnesses/<name>/runs/<runId>` returns the run history row with its trace, the same row the harness page shows, without the full answer.
+
+### Errors and limits
+
+| Status | When                                                                         | Body                                                              |
+| ------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 400    | No `question`, or a `chatId` that is not 1 to 128 letters, numbers or `_.:-` | `message` says what to fix                                        |
+| 401    | No key, or a key Cuttlely does not know                                      | `{"error":"Unauthorized Access"}`                                 |
+| 403    | The key lacks the permission                                                 | `{"message":"Forbidden"}`                                         |
+| 403    | The harness is not on the key's list                                         | `{"message":"This API key may not run harness \"bakery-team\"."}` |
+| 404    | No harness or run with that name in the key's team                           | `message` names what was not found                                |
+| 429    | More than 60 starts, or 600 status reads, in a minute for that key           | `{"message":"Too many harness runs. The limit is 60 a minute."}`  |
+
+The limits count per API key, so two keys do not share one. A refused start is an **Admin** > **Audit log** row of type `harness_run`, and so is every start through this route. Changing a key's harness list is a `harness_access` row.
 
 ## Stream the answer
 

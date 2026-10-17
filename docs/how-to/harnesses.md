@@ -230,17 +230,57 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ![Try it after the run. The Run card says Finished, the analyst row is done on OpenAI gpt-5.6-luna with 1 tool, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
 
-**Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise, including the draft's specialists, tools, and models. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish.
+**Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise, including the draft's specialists, tools, and models. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish. [Run it from your app with an API key](#run-it-from-your-app-with-an-api-key) covers the API key setup and the background run.
 
 ## Look at earlier runs
 
-**Runs** on the harness page lists recent runs, newest first. Each row has the start time, where the run came from, the time it took, the tokens, the start of the prompt, and a status: `succeeded`, `completed with errors`, `failed`, `cancelled`, or `running`. Runs from **Try it** and the canvas chat are listed as `playground`.
+**Runs** on the harness page lists recent runs, newest first. Each row has the start time, where the run came from, the time it took, the tokens, the start of the prompt, and a status: `succeeded`, `completed with errors`, `failed`, `cancelled`, `running`, or `queued`. Runs from **Try it** and the canvas chat are listed as `playground`, and runs started through the API as `api`.
 
 Select a row to open its run card under the list. Select a specialist row in the card to see its task and tool chips.
 
 ![The Runs list with three succeeded runs. The selected run is open below the list. Its analyst row is expanded and shows the task Create a tasks table with id, title, and status, and three chips, each mcp__analyst__query · done, the last with 2 rows. The next line reads Harness Prime combined this result into the answer.](../images/harnesses/harness-run-trace.png)
 
 With no runs yet, the list says `No runs yet. Send a prompt above, or call this harness from a chatflow.` A failed run shows its error code and message in red under the card.
+
+## Run it from your app with an API key
+
+An app can start a run with an API key, get a run id back at once, and fetch the answer when the team is done. This example uses a made-up harness, `bakery-team`, and a made-up key name.
+
+1. Open **API Keys** and select **Create Key** (or edit a key).
+2. Name it, for example `Bakery back office`.
+3. Under **Permissions**, tick **Create** under **CHATFLOWS**. **View** is ticked with it.
+4. Under **Harnesses this key may run**, tick `bakery-team`. Nothing is ticked on a new key, and a key with nothing ticked runs no harness.
+5. Select **Add** and copy the key.
+
+Start a run from your server:
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/harnesses/bakery-team/runs/async" \
+  -H "Authorization: Bearer $CUTTLELY_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Which cakes are booked for pickup on Friday?"}'
+```
+
+```json
+{
+    "runId": "run_0b9e6d2c-1a3f-4e5d-8c7b-6a5f4e3d2c1b",
+    "harness": "bakery-team",
+    "status": "queued",
+    "resultUrl": "/api/v1/harnesses/bakery-team/runs/run_0b9e6d2c-1a3f-4e5d-8c7b-6a5f4e3d2c1b/result"
+}
+```
+
+Then read the `resultUrl` every few seconds until `finished` is `true`:
+
+```json
+{
+    "status": "succeeded",
+    "finished": true,
+    "result": { "text": "Two cakes are booked for Friday: a lemon drizzle at 10:00 and a chocolate layer cake at 15:30." }
+}
+```
+
+The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. A harness that is not ticked on the key answers `403` `This API key may not run harness "payroll".`, whether or not that harness exists, and that refusal is an **Admin** > **Audit log** row. Each key may start 60 runs and read 600 times a minute. The full request and response, and every error, are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
 
 ## Call the harness from a chatflow
 
@@ -281,7 +321,7 @@ Sample chatflows that run a harness by name are in `samples/chatflows/`. The har
 
 `POST /api/v1/prediction/:id` on a chatflow that runs a harness returns `text`, `harness`, `agents`, `sources`, and `artifacts`. Streaming (`true` or `"true"`) sends harness events on that response. The event names are `route`, `specialist`, `tool`, `partial`, `handoff`, and `final`.
 
-The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key still goes through a chatflow, and `POST /api/v1/harnesses/:name/runs` stays on Live.
+The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key goes through a chatflow, or calls `POST /api/v1/harnesses/:name/runs` and `POST /api/v1/harnesses/:name/runs/async` when the harness is on that key's list. Both stay on Live.
 
 Chat uploads on `POST /api/v1/prediction/:id` use multipart field `files` with `question`. Turn on file uploads for that chatflow first (**Configuration**, **File Upload**, **Enable Full File Upload**); with them off the file is refused with 403 and not stored. A file over 25 MB is refused. A large file is a path the harness can read. The sample roster is `samples/harnesses/upload.canvas.json`.
 
