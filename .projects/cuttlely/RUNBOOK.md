@@ -16,6 +16,8 @@ pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `p
 -   One concern per pull request, against `main`. Commit messages are one plain sentence describing the user-visible change, then a short body.
 -   **Gate (D27).** A docs-only change runs `pnpm --filter @cuttlely/components build && pnpm verify --fast`. Anything else runs the full `pnpm verify` on the exact head you will merge. If the head moves, run it again.
 -   **Keep up with `main`.** If `main` moved while your pull request was open, merge `origin/main` into your branch and re-run the gate. Do not rewrite a pushed branch and do not force-push.
+-   **Before merge.** CI is green on the exact head, code scanning reports 0 open alerts on `refs/pull/<n>/merge`, an independent review of that head found no failures, and the pull request is marked ready (`gh pr ready <n>`). Record the review in the body under `## Checker record`.
+-   **Releases need a maintainer go.** Do not tag or publish a new version without an explicit go from the maintainer, even when `main` is ready.
 -   **Merge.** Squash-merge, pinned to the head you verified: `gh pr merge <n> --squash --match-head-commit <sha>`.
 -   **Hooks stay on.** Do not use `git push --no-verify`. `CUTTLELY_SKIP_VERIFY=1` and `CUTTLELY_SKIP_HANDOFF_CHECK=1` exist for emergencies and never replace the gate.
 -   **Project notes.** A code change updates `.projects/cuttlely/` in the same pull request. Run the `refresh-project-handoff` skill once before the push.
