@@ -975,11 +975,16 @@ test('no two light-theme tinted bands sit next to each other on the home page', 
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
     const lists = [...css.matchAll(/:root\[data-theme='light'\]\s+:is\(([^)]+)\)/g)]
         .map((m) => m[1].split(',').map((s) => s.trim()))
-        .filter((list) => list.every((s) => s.startsWith('#')))
-        .map((list) => list.map((s) => s.slice(1)).sort())
-    assert.ok(lists.length >= 3, 'band, wash and border selector lists')
-    for (const list of lists) assert.deepEqual(list, lists[0], 'every band selector list names the same sections')
-    const banded = new Set(lists.flat())
+        .filter((list) => list.some((s) => s.startsWith('#')))
+    for (const list of lists)
+        assert.ok(
+            list.every((s) => /^#[\w-]+$/.test(s)),
+            `band list mixes section ids with other selectors: ${list.join(', ')}`
+        )
+    const ids = lists.map((list) => list.map((s) => s.slice(1)).sort())
+    assert.ok(ids.length >= 3, 'band, wash and border selector lists')
+    for (const list of ids) assert.deepEqual(list, ids[0], 'every band selector list names the same sections')
+    const banded = new Set(ids.flat())
     const order = [...src.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1])
     for (const id of banded) assert.ok(order.includes(id), id)
     for (let i = 1; i < order.length; i++) {
