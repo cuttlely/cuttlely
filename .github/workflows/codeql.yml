@@ -15,7 +15,7 @@ concurrency:
 jobs:
     # Uploads are refused while the repository's CodeQL default setup is on; switch it to advanced first.
     # C and C++ are not analyzed: the only C and C++ files are under hermes/, which codeql-config.yml leaves out.
-    # The hermes-patches entry scans the hermes/ files Cuttlely's patches touch, copied into their own source root.
+    # The hermes-patches entry scans only the hermes/ files Cuttlely's patches touch, copied out of a checkout in repo/.
     analyze:
         name: Analyze (${{ matrix.category }})
         runs-on: ubuntu-latest
@@ -37,27 +37,27 @@ jobs:
                       config: ./.github/codeql/codeql-config.yml
                       category: /language:python
                     - language: python
-                      config: ./.github/codeql/codeql-hermes-patches.yml
+                      config: ./repo/.github/codeql/codeql-hermes-patches.yml
                       category: /language:python/hermes-patches
-                      source-root: codeql-hermes-patches
+                      checkout-path: repo
         steps:
             - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
               with:
                   persist-credentials: false
-            - name: Copy the patched hermes files into their own source root
-              if: matrix.source-root
-              env:
-                  SOURCE_ROOT: ${{ matrix.source-root }}
+                  path: ${{ matrix.checkout-path }}
+            # CodeQL extracts from the workspace root, so the patched files are copied there and the checkout sits beside them.
+            - name: Copy the patched hermes files to the workspace root
+              if: matrix.checkout-path
+              working-directory: ${{ matrix.checkout-path }}
               run: |
-                  mkdir "$SOURCE_ROOT"
-                  while read -r file; do cp --parents "$file" "$SOURCE_ROOT/"; done < .github/codeql/hermes-patched-files.txt
-                  find "$SOURCE_ROOT" -type f | sort
+                  while read -r file; do cp --parents "$file" "$GITHUB_WORKSPACE/"; done < .github/codeql/hermes-patched-files.txt
+                  find "$GITHUB_WORKSPACE/hermes" -type f | sort
             - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
               with:
                   languages: ${{ matrix.language }}
                   build-mode: none
                   config-file: ${{ matrix.config }}
-                  source-root: ${{ matrix.source-root }}
             - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
               with:
                   category: ${{ matrix.category }}
+                  checkout_path: ${{ github.workspace }}/${{ matrix.checkout-path }}

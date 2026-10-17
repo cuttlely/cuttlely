@@ -1,7 +1,9 @@
 # CodeQL settings for the hermes-patches entry in .github/workflows/codeql.yml.
-# codeql-config.yml leaves hermes/ out. The hermes-patches entry copies the files Cuttlely's patches touch
-# (listed in hermes-patched-files.txt) into their own source root and analyzes only that copy, so local changes
-# to the agent runtime are still scanned. The copy keeps repository-relative paths, so alerts point at the real files.
-# The list is not under `paths`: the Python extractor walks each `paths` entry as a directory and fails on a file.
+# codeql-config.yml leaves hermes/ out. The hermes-patches entry checks the repository out into repo/ and copies the
+# files Cuttlely's patches touch (listed in hermes-patched-files.txt) to hermes/ at the workspace root, so this config
+# analyzes only those files. The copy keeps repository-relative paths, so alerts point at the real files.
+# The file list is not under `paths`: the Python extractor walks each `paths` entry as a directory and fails on a file.
 # scripts/codeql-config.test.mjs fails when a patched file is missing from the list or a listed file is no longer patched.
 name: 'Cuttlely CodeQL config: hermes patches'
+paths:
+    - 'hermes'

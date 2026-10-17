@@ -35,22 +35,27 @@ test('hermes-patched-files.txt lists exactly the files hermes/patches touch', ()
     for (const file of listed) assert.ok(fs.statSync(path.join(ROOT, file)).isFile(), `${file} is listed but not a file in the tree`)
 })
 
-test('the hermes-patches entry analyzes a copy of the listed files, not paths in its config', () => {
+test('the hermes-patches entry analyzes only a copy of the listed files', () => {
     const config = load('.github/codeql/codeql-hermes-patches.yml')
-    assert.equal(config.paths, undefined, 'the Python extractor fails on a file under paths')
-    assert.equal(config['paths-ignore'], undefined, 'paths-ignore would drop files from the copied source root')
+    assert.deepEqual(config.paths, ['hermes'], 'the Python extractor walks each paths entry as a directory')
+    assert.equal(config['paths-ignore'], undefined)
     const job = load('.github/workflows/codeql.yml').jobs.analyze
     const entry = job.strategy.matrix.include.find((item) => item.category === '/language:python/hermes-patches')
-    assert.equal(entry['source-root'], 'codeql-hermes-patches')
+    assert.equal(entry['checkout-path'], 'repo')
+    const checkout = job.steps.find((step) => step.uses?.startsWith('actions/checkout@'))
+    assert.equal(checkout.with.path, '${{ matrix.checkout-path }}')
     const copy = job.steps.find((step) => step.run?.includes('.github/codeql/hermes-patched-files.txt'))
     assert.ok(copy, 'no step copies .github/codeql/hermes-patched-files.txt')
-    assert.equal(copy.if, 'matrix.source-root')
-    assert.match(copy.run, /cp --parents "\$file" "\$SOURCE_ROOT\/"/)
+    assert.equal(copy.if, 'matrix.checkout-path')
+    assert.equal(copy['working-directory'], '${{ matrix.checkout-path }}')
+    assert.match(copy.run, /cp --parents "\$file" "\$GITHUB_WORKSPACE\/"/)
     const init = job.steps.find((step) => step.uses?.startsWith('github/codeql-action/init@'))
-    assert.equal(init.with['source-root'], '${{ matrix.source-root }}')
+    assert.equal(init.with['source-root'], undefined, 'CodeQL extracts from the workspace root whatever source-root says')
     assert.ok(job.steps.indexOf(copy) < job.steps.indexOf(init), 'the copy must run before CodeQL init')
+    const analyze = job.steps.find((step) => step.uses?.startsWith('github/codeql-action/analyze@'))
+    assert.equal(analyze.with.checkout_path, '${{ github.workspace }}/${{ matrix.checkout-path }}')
     for (const other of job.strategy.matrix.include.filter((item) => item !== entry)) {
-        assert.equal(other['source-root'], undefined, `${other.category} must analyze the whole checkout`)
+        assert.equal(other['checkout-path'], undefined, `${other.category} must analyze a checkout at the workspace root`)
     }
 })
 
@@ -63,7 +68,7 @@ test('the CodeQL workflow runs each config, pins actions to commits, and keeps n
         'actions ./.github/codeql/codeql-config.yml /language:actions',
         'javascript-typescript ./.github/codeql/codeql-config.yml /language:javascript-typescript',
         'python ./.github/codeql/codeql-config.yml /language:python',
-        'python ./.github/codeql/codeql-hermes-patches.yml /language:python/hermes-patches'
+        'python ./repo/.github/codeql/codeql-hermes-patches.yml /language:python/hermes-patches'
     ])
     for (const step of job.steps.filter((step) => step.uses)) {
         assert.match(step.uses, /@[0-9a-f]{40}$/, `${step.uses} is not pinned to a full commit SHA`)
