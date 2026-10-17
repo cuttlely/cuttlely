@@ -1031,7 +1031,15 @@ export async function chooseAnalysts(context, input, history, analysts) {
     ].join('\n')
     const fitted = fitChiefMessages({ system, memory: context.memoryBlock || '', history, user: input, budget: chiefContextTokens() })
     noteTruncated(context, fitted.truncated)
-    const reply = await callModel(context, chiefModel(context.roster), { messages: fitted.messages, json: true, role: 'route' })
+    let reply
+    try {
+        reply = await callModel(context, chiefModel(context.roster), { messages: fitted.messages, json: true, role: 'route' })
+    } catch (error) {
+        // A stopped or out-of-time turn still stops. Any other failure of this extra call sends the task to every analyst.
+        if (context.workSignal?.aborted || context.clientSignal?.aborted || context.budgetSignal?.aborted) throw error
+        console.warn(`[harness] ${context.name} analyst choice failed, sending to every analyst`)
+        return parseAnalystChoice('', analysts, input)
+    }
     return parseAnalystChoice(reply.content, analysts, input)
 }
 

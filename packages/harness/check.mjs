@@ -9145,7 +9145,10 @@ check(
             const plain = plainChatMessages(messages)
             const system = String(plain[0]?.content || '')
             if (system.includes('You route work')) return { content: routerReply }
-            if (system.includes('You choose the analyst')) return { content: choice }
+            if (system.includes('You choose the analyst')) {
+                if (choice === 'THROW') throw new Error('provider refused the choice call')
+                return { content: choice }
+            }
             return { content: String(plain.at(-1)?.content || '') }
         })
     }
@@ -9267,6 +9270,36 @@ check(
             direct: direct.map((step) => step.specialist.name),
             directAll: directAll.map((step) => step.specialist.name),
             directSystem
+        })
+    )
+    choice = 'THROW'
+    const failedChoice = await chooseAnalysts(directContext, 'Count the rows in every table.', [], [bakeryAnalyst, budgetAnalyst])
+    const stopped = new AbortController()
+    stopped.abort()
+    let stoppedError = null
+    try {
+        await chooseAnalysts({ ...directContext, workSignal: stopped.signal }, 'Count rows.', [], [bakeryAnalyst, budgetAnalyst])
+    } catch (error) {
+        stoppedError = error
+    }
+    ran.length = 0
+    routerReply = '{"steps":[]}'
+    const failedRun = await ask('two-4', 'Run SQL on both databases: count the rows in every table.')
+    check(
+        'an analyst choice call that errors sends the task to every analyst, and a stopped turn still stops',
+        failedChoice.map((step) => step.specialist.name).join(',') === 'bakery,budget' &&
+            Boolean(stoppedError) &&
+            ran
+                .map((entry) => entry.who)
+                .sort()
+                .join(',') === 'two-analysts--bakery,two-analysts--budget' &&
+            failedRun.trace?.status === 'completed' &&
+            !String(failedRun.text || '').includes('provider refused'),
+        JSON.stringify({
+            failedChoice: failedChoice.map((step) => step.specialist.name),
+            stoppedError: String(stoppedError),
+            ran,
+            status: failedRun.trace?.status
         })
     )
 }

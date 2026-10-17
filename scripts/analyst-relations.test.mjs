@@ -15,6 +15,7 @@ import {
     deniedFunction,
     describeRefusal,
     resetRiskyDomainCacheForTests,
+    SAMPLE_TIMEOUT_MS,
     findRelation,
     parseRelationSelection,
     relationLine,
@@ -757,6 +758,14 @@ describe('analyst relations: risky domain checks', () => {
         assert.equal(text.includes('safe_qty'), false)
     })
 
+    it('leaves describe values out while a risky domain refuses queries', async (t) => {
+        if (db.skipped(t)) return
+        const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
+        assert.equal(stores.values, undefined)
+        assert.deepEqual(stores.columns, ['id integer not null', 'name text not null'])
+        assert.equal(await db.sequence('bump_seq'), '1:false', 'the sample check did not run a domain check')
+    })
+
     it('answers a passing and a failing check value with the same text', async (t) => {
         if (db.skipped(t)) return
         const zero = await db.refusedText("SELECT '{0}'::quiet_ref[]")
@@ -801,14 +810,19 @@ describe('analyst relations: describe sample values on a made-up household budge
         CREATE VIEW public.monthly_spend AS
             SELECT c.name AS category_name, b.category, sum(b.amount) AS total
             FROM public.budget_lines b JOIN public.categories c ON c.id = 1 + b.id % 2 GROUP BY 1, 2;
+        -- slow_total runs far past the sample timeout. It comes first, so a timeout that dropped the rest would show.
+        CREATE VIEW public.slow_mix AS
+            SELECT (SELECT count(*)::text FROM generate_series(1, 100000) a, generate_series(1, 100000) b) AS slow_total,
+                   category AS fast_category
+            FROM public.budget_lines;
     `
     )
 
-    it('returns capped, whitespace-collapsed samples for short low-cardinality text columns only', async (t) => {
+    it('returns capped samples, exactly as stored, for short low-cardinality text columns only', async (t) => {
         if (db.skipped(t)) return
         const lines = await describeAnalystUrlRelation(db.url, { name: 'budget_lines' }, ['public.budget_lines'])
         assert.deepEqual(lines.values, {
-            category: ['Groceries', 'Rent', 'Utilities'],
+            category: ['  Utilities ', 'Groceries', 'Rent', 'Utilities'],
             kind: ['Fixed', 'Variable'],
             code: ['GRO', 'RNT']
         })
@@ -845,6 +859,32 @@ describe('analyst relations: describe sample values on a made-up household budge
         if (db.skipped(t)) return
         const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
         assert.deepEqual(stores.values, { name: ['Old Town', 'Riverside'] })
+    })
+
+    it('skips only the column whose sample times out', async (t) => {
+        if (db.skipped(t)) return
+        const started = Date.now()
+        const mix = await describeAnalystUrlRelation(db.url, { name: 'slow_mix' }, ['public.slow_mix'])
+        assert.ok(Date.now() - started >= SAMPLE_TIMEOUT_MS - 50, 'the slow column ran into its timeout')
+        assert.deepEqual(mix.values, { fast_category: ['  Utilities ', 'Groceries', 'Rent', 'Utilities'] })
+        assert.deepEqual(mix.columns, ['slow_total text', 'fast_category text'])
+    })
+})
+
+describe('analyst relations: describe samples on a login without TEMP', () => {
+    const db = riskyDatabase(
+        'notemp',
+        `
+        DO $d$ BEGIN EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', current_database()); END $d$;
+    `
+    )
+
+    it('leaves values out, the same way query refuses, and still describes the columns', async (t) => {
+        if (db.skipped(t)) return
+        await refusal(queryAnalystUrl(db.url, 'SELECT name FROM stores', { relations: ['public.stores'] }), /could not check this query/)
+        const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
+        assert.equal(stores.values, undefined)
+        assert.deepEqual(stores.columns, ['id integer not null', 'name text not null'])
     })
 })
 
