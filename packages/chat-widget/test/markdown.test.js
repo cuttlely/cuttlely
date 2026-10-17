@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { escapeHtml, renderMarkdown, safeUrl } from '../src/markdown.js'
+import { escapeHtml, renderMarkdown, safeUrl, trimTrailingSlashes } from '../src/markdown.js'
 
 describe('renderMarkdown safety', () => {
     const vectors = [
@@ -113,5 +113,22 @@ describe('renderMarkdown formatting', () => {
 
     it('shows math source as text', () => {
         assert.equal(renderMarkdown('The area is $$\\pi r^2$$ for a $10 rug.'), '<p>The area is $$\\pi r^2$$ for a $10 rug.</p>')
+    })
+})
+
+describe('trimTrailingSlashes', () => {
+    it('drops only the trailing slashes', () => {
+        assert.equal(trimTrailingSlashes('https://example.com///'), 'https://example.com')
+        assert.equal(trimTrailingSlashes('https://example.com/a/b'), 'https://example.com/a/b')
+        assert.equal(trimTrailingSlashes('///'), '')
+        assert.equal(trimTrailingSlashes(undefined), '')
+    })
+
+    it('stays linear on a long run of slashes that does not end the string', () => {
+        const text = '/'.repeat(200000) + 'x'
+        const started = performance.now()
+        assert.equal(trimTrailingSlashes(text), text)
+        assert.equal(safeUrl('/a', { base: text }), text + '/a')
+        assert.ok(performance.now() - started < 500)
     })
 })

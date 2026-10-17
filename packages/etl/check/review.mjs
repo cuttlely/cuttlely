@@ -773,3 +773,49 @@ const firstN = (n) => new Set(Array.from({ length: n }, (_, i) => i))
         (await nodeInstance('plainText', { componentNodes: { plainText: stub } })) === stub
     )
 }
+
+{
+    // Slow-regex inputs from code scanning: each of these must finish in linear time and keep its old answer.
+    const { NUMBER, trimAsciiSpace } = await import('../schema.mjs')
+    const { classifyError } = await import('../embed.mjs')
+    const { collectionName } = await import('../stores.mjs')
+    const timed = (fn) => {
+        const started = performance.now()
+        const value = fn()
+        return { value, ms: performance.now() - started }
+    }
+    const tabs = timed(() => trimAsciiSpace('a' + '\t'.repeat(200000) + 'b'))
+    check(
+        'trimAsciiSpace keeps inner space, trims both ends, and is linear on a long inner run',
+        trimAsciiSpace(' \t\n\v\f\r x y \r\n') === 'x y' &&
+            trimAsciiSpace('\u00a0x\u00a0') === '\u00a0x\u00a0' &&
+            trimAsciiSpace(' \t ') === '' &&
+            tabs.value.length === 200002 &&
+            tabs.ms < 500,
+        json({ ms: tabs.ms })
+    )
+    const zeros = timed(() => NUMBER.test('0' + '00'.repeat(100000) + 'x'))
+    check(
+        'the number pattern accepts the same numbers and is linear on a long run of digits',
+        ['1', '-1', '+1.', '1.5', '.5', '1e5', '1.5E-3'].every((n) => NUMBER.test(n)) &&
+            ['', '.', '1..2', 'e5', '1e', '--1'].every((n) => !NUMBER.test(n)) &&
+            zeros.value === false &&
+            zeros.ms < 500,
+        json({ ms: zeros.ms })
+    )
+    const quota = timed(() => classifyError(new Error('quota' + ' '.repeat(100000) + 'exceeded' + ' '.repeat(100000))))
+    check(
+        'a quota error asks for a retry on one line only, and a long message is linear',
+        classifyError(new Error('Quota exceeded, retry in 20s')) === 'rate_limit' &&
+            classifyError(new Error('quota\nexceeded retry')) !== 'rate_limit' &&
+            quota.value !== 'rate_limit' &&
+            quota.ms < 500,
+        json({ ms: quota.ms })
+    )
+    const dashes = timed(() => collectionName('a' + '-'.repeat(200000) + 'b'))
+    check(
+        'a collection name loses leading and trailing dashes, and a long dash run is linear',
+        collectionName('--My Docs!--') === 'my-docs' && collectionName('a--b') === 'a--b' && dashes.value.length === 80 && dashes.ms < 500,
+        json({ ms: dashes.ms })
+    )
+}
