@@ -11,10 +11,9 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   `pnpm verify` ends with a timing table of the steps that ran, slowest first, with each step's time and share of the total. It prints on a pass and on a failure, and pass or fail is unchanged.
 -   A media size check (`scripts/media-size.mjs`) fails when a tracked or staged image or video file is over 5 MB and is not listed in `scripts/media-size.allowlist`. The allowlist holds the large website videos already committed. It runs as a `pnpm verify` step, including `--fast` and the pre-push hook, and in the required `lint` CI job.
 -   `CUTTLELY_OTEL_TRACES_CONTENT_MAX` sets how many characters of question, answer, prompt, and tool text each run trace span keeps when `CUTTLELY_OTEL_TRACES_CONTENT` is on. The default stays 4,000, so existing installs see no change. `0` is no limit and sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. It is **Prompt and tool text limit** under **Admin** > **Server Settings** > **Integrations** > **Traces**, with **Default (4,000 characters)**, **No limit**, and **Another limit**. The page refuses anything that is not a positive whole number or `0`. A host value that is not a whole number keeps 4,000, and the server logs one warning about it at startup. [Run traces](./docs/how-to/observability.md#full-question-and-answer-text).
--   A Grafana dashboard for run traces and server metrics, `metrics/grafana/cuttlely-runs.json`. It reads traces from Tempo and `GET /api/v1/metrics` from Prometheus, with rows for runs, latency, tokens and cost, errors, and each flow and harness. [Run traces](./docs/how-to/observability.md).
--   Japanese and Korean READMEs (`README.ja.md`, `README.ko.md`), with a language switcher at the top of every README.
+-   A Grafana dashboard for run traces and server metrics, `metrics/grafana/cuttlely-runs.json`. It reads traces from Tempo and `GET /api/v1/metrics` from Prometheus, with rows for runs, latency, tokens and an estimated cost from input and output price variables, errors, each flow and harness, and the Prometheus server metrics. [Run traces](./docs/how-to/observability.md).
+-   Japanese and Korean READMEs (`README.ja.md`, `README.ko.md`). The English, Japanese, Korean and Chinese READMEs link to each other with an English | 日本語 | 한국어 | 繁體中文 | 简体中文 switcher, and the older `i18n/README-JA.md` and `i18n/README-KR.md` point to the new files.
 -   The benchmark whitepaper is on the website at `/whitepaper/`, as a web page and a PDF.
--   The home page Harnesses section has an Analyst callout: ask a question in plain words and get an answer from your own database, with the analyst seeing only the tables and views you tick.
 
 ### Changed
 
@@ -24,10 +23,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The **Watch with sound** video dialog on the homepage opens in the centre of the window.
 -   **Include prompts and tool text** in Server Settings now points at **Prompt and tool text limit** instead of saying the text is cut at 4,000 characters.
 -   The Node CI and Test Docker Build workflows run on pull requests into base branches whose names contain a slash.
--   **Add a model key** on Try the demo shows only for a role with `credentials:create`, the same as the other credential actions.
+-   **Add a model key** on Try the demo shows only for a role with `credentials:create`, the same as the other credential actions. Without it, the demo buttons say **Ask an admin to add a model key**.
 -   Dark-theme contrast is higher in the app and on the website.
 -   The home page sign-off line has icon links to Cuttlely on LinkedIn, Reddit, X, GitHub, Bluesky, DEV and Mastodon. The page loads no remote scripts for them.
--   Docs: harness, Analyst and Usage screenshots retaken from the current app with made-up bakery data, so they show a real answer.
+-   Docs: the harness and Analyst screenshots that show no model answer are retaken from the current app, so the PostgreSQL MCP card shows **Tables and views**, and the Usage page screenshot no longer cuts off the **Model prices** heading.
+-   The home page Harnesses section has an Analyst callout: ask your Postgres database in plain English, see only the tables and views you tick, and run one analyst per database in a team, with a link to a new real-model check on the bakery demo in the [Analyst guide](./docs/how-to/analyst.md#real-model-check).
 
 ### Removed
 
@@ -38,7 +38,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   A publish check whose last answer or grade is cut off by the check's time limit now ends stopped for time instead of done. Before, it could end done and, for a dataset check, store a verdict scored with that cut-off grade as Error. Now no publish gate result is stored for that check, so it cannot unblock Publish, and the next check runs as usual.
 -   **Prompt and tool text limit** lists the 4,000-character default once, as **Default (4,000 characters)**, instead of also offering a separate **4,000 characters** item. A saved value of 4000 shows as that default item.
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
--   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. The card still offers Add a model key, and owners and roles with `credentials:view` still see their keys.
+-   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. Owners and roles with `credentials:view` still see their keys.
 
 ## [1.2.0] - 2026-10-15
 
