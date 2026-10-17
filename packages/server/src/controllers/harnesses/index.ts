@@ -3,8 +3,7 @@ import { StatusCodes } from 'http-status-codes'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceIdFromReq } from '../../identity/workspaceScope'
 import harnessesService from '../../services/harnesses'
-import { isApiKeyCaller, noteBackgroundRunSettled, noteBackgroundRunStarted, noteHarnessAudit } from '../../services/harnesses/apiAccess'
-import { AppError } from '../../errors/appError'
+import { noteBackgroundRunSettled, noteBackgroundRunStarted, noteHarnessAudit, scheduleOwner } from '../../services/harnesses/apiAccess'
 import { chatImages } from '../../services/harnesses/chatImages'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
@@ -144,15 +143,6 @@ const getSchedule = async (req: Request, res: Response, next: NextFunction) => {
     } catch (error) {
         next(error)
     }
-}
-
-// A schedule runs with its owner's permissions, so only a signed-in person can set or change one.
-function scheduleOwner(req: Request): string {
-    const id = (req.user as { id?: unknown } | undefined)?.id
-    if (isApiKeyCaller(req) || typeof id !== 'string' || !id) {
-        throw new AppError(StatusCodes.FORBIDDEN, 'A schedule runs as a person, so an API key cannot change one. Sign in to set it.')
-    }
-    return id
 }
 
 type ScheduleView = { schedule: { cron?: string; timezone?: string; status?: string } | null }

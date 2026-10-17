@@ -119,6 +119,15 @@ export async function noteHarnessAudit(
     }
 }
 
+/** A schedule runs with its owner's permissions, so only a signed-in person can set or change one. */
+export function scheduleOwner(req: Request): string {
+    const id = callerOf(req).id
+    if (isApiKeyCaller(req) || typeof id !== 'string' || !id) {
+        throw new AppError(StatusCodes.FORBIDDEN, 'A schedule runs as a person, so an API key cannot change one. Sign in to set it.')
+    }
+    return id
+}
+
 /** Key id and name for logs and audit rows. Never the token. */
 export function callerLabel(req: Request): { keyId?: string; via: 'api_key' | 'session' } {
     if (!isApiKeyCaller(req)) return { via: 'session' }
