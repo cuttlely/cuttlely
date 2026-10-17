@@ -82,7 +82,8 @@ async function dispatch(
 export const identityAuthRouter = Router()
 
 /**
- * Extra per-client cap in this process for unsuccessful responses on the local password routes.
+ * Extra per-client cap in this process for unsuccessful responses on the password sign-in routes: the local routes and
+ * the owner's POST /login. The cap is shared, so failures on any of them count toward one limit per client.
  * A request without x-request-from: internal, or while local users mode is off, is answered before this cap and does not count.
  * Client-address rows and email rows in identity_login_failure both survive a restart. This process cap ends with the process.
  * The email is stored only as an HMAC. Successful responses are not counted here.
@@ -161,7 +162,7 @@ identityAuthRouter.get('/callback', (req, res, next) => {
     }
     void dispatch(req, res, next, handleCallback)
 })
-identityAuthRouter.post('/login', (req, res, next) => void dispatch(req, res, next, handleLoginPost))
+identityAuthRouter.post('/login', localAuthRateLimit, (req, res, next) => void dispatch(req, res, next, handleLoginPost))
 const acceptLinkLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,
     // Same live cap as local password sign-in. A saved failure limit applies without a restart.
