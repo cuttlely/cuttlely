@@ -42,10 +42,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Security
 
--   The sign-in (`/api/v1/auth`, `/api/v1/account`), API-key check (`/api/v1/verify`), OAuth credential, custom MCP server and node and credential icon routes are rate limited per client with the UI page-load budget (**Page loads a minute**, `CUTTLELY_UI_PAGE_LIMIT_MAX`, 3000 by default). Each router has its own count. A client over the budget gets 429.
--   A `feedbackType` query value that is not a string or a list of strings is ignored instead of being passed on. `GET /api/v1/stats/:id` no longer answers 500 with the error object for such a value.
+-   The sign-in (`/api/v1/auth`, `/api/v1/account`), API-key check (`/api/v1/verify`), OAuth credential, custom MCP server and node and credential icon routes are rate limited per client with the UI page-load budget (**Page loads a minute**, `CUTTLELY_UI_PAGE_LIMIT_MAX`, 3000 by default). Each router has its own count. A client over the budget gets 429. Node and credential icons are sent with `Cache-Control: public, max-age=86400`, so a browser asks for each one at most once a day.
+-   A `feedbackType` query value that is not a string or a list of strings is ignored instead of being passed on. `GET /api/v1/stats/:id` no longer answers 500 with the error object for such a value. Clearing chat messages (`DELETE /api/v1/chatmessage/:id`) with a `feedbackType` that names no known rating answers 400 instead of clearing every message.
 -   The uploaded-file download refuses a repeated `chatflowId`, `chatId` or `fileName` with 400.
--   An evaluation run puts the chatflow id in the prediction URL encoded as a path segment.
+-   An evaluation run refuses a chatflow id that is not a 36-character id before it posts, and puts the id in the prediction URL encoded as a path segment.
 
 ## [1.2.0] - 2026-10-15
 
