@@ -19,7 +19,7 @@
 
 Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오픈소스 비주얼 그래프 에디터입니다. 에이전트와 도구를 캔버스에 끌어다 놓고 하나의 팀으로 연결하면 몇 분 만에 대화할 수 있고, 이어서 API로 앱에서 호출할 수 있습니다. 여러분이 관리하는 인프라 위에서 실행됩니다.
 
-## 라이브에 반영하기 전에 모든 변경을 A/B 테스트
+## Live에 반영하기 전에 모든 변경을 A/B 테스트
 
 <span id="ab-test-every-change-before-it-goes-live"></span>
 <span id="test-every-change-before-it-goes-live"></span>
@@ -39,7 +39,7 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 ## 목차
 
--   [라이브에 반영하기 전에 모든 변경을 A/B 테스트](#ab-test-every-change-before-it-goes-live)
+-   [Live에 반영하기 전에 모든 변경을 A/B 테스트](#ab-test-every-change-before-it-goes-live)
 -   [만들 수 있는 것](#what-you-can-build)
     -   [앱을 움직이는 에이전트 팀](#agent-teams-that-power-your-apps)
 -   [초안, 테스트, 버전 기록](#drafts-tests-and-version-history)
