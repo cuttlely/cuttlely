@@ -1757,15 +1757,33 @@ describe('grading limits', () => {
 
     test('a grader that never resolves times out and frees the check', async () => {
         process.env.CUTTLELY_CHECK_MAX_SECONDS = '10'
-        scoreHooks.gradeLlm = () => new Promise(() => undefined)
-        replayHooks.run = async () => ({ text: 'ok', metrics: [JSON.stringify({ totalTokens: 4 })] })
-        const started = await startCheck(
-            flow({ flowData: gradedCanvas('MANGO') }) as any,
-            { questions: ['Q'], evaluatorIds: ['llm-1'] },
-            'http://x'
-        )
-        for (let i = 0; i < 160 && checks.get('flow-1')?.status === 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 250))
-        const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        // Timers run on the monotonic clock and the deadline is in Date.now() time, so the grader's timer can fire
+        // while Date.now() is still short of the deadline (millisecond rounding, a wall clock step). Running
+        // Date.now() ahead only while that timer is armed makes it fire early every time.
+        const realNow = Date.now.bind(Date)
+        let skew = 0
+        const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + skew)
+        scoreHooks.gradeLlm = () => {
+            skew = 0
+            return new Promise(() => undefined)
+        }
+        replayHooks.run = async () => {
+            skew = 50
+            return { text: 'ok', metrics: [JSON.stringify({ totalTokens: 4 })] }
+        }
+        let done
+        try {
+            const started = await startCheck(
+                flow({ flowData: gradedCanvas('MANGO') }) as any,
+                { questions: ['Q'], evaluatorIds: ['llm-1'] },
+                'http://x'
+            )
+            for (let i = 0; i < 160 && checks.get('flow-1')?.status === 'running'; i++)
+                await new Promise((resolve) => setTimeout(resolve, 250))
+            done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        } finally {
+            nowSpy.mockRestore()
+        }
         expect(done.status).toBe('stopped')
         expect(done.stopReason).toBe('time')
         scoreHooks.gradeLlm = null
