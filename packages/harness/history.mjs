@@ -9,7 +9,7 @@ const PREVIEW = 240
 const KEEP = 100
 const TRACE_ID = /^[A-Za-z0-9_-]{1,80}$/
 const RUN_ID = /^run_[A-Za-z0-9-]{8,80}$/
-const SOURCES = new Set(['playground', 'api', 'prediction'])
+const SOURCES = new Set(['playground', 'api', 'prediction', 'schedule'])
 // A stored result is the answer an API caller fetches later. Larger answers keep the text and drop the rest.
 const RESULT_JSON_LIMIT = 1024 * 1024
 const OPEN_STATUSES = ['queued', 'running']

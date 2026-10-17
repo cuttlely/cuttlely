@@ -10874,6 +10874,162 @@ await expectCase('a run started in the background keeps the id it returned, its 
     )
 })
 
+await expectCase('a harness schedule fires when due in its time zone, never overlaps, pauses, and survives a restart', async () => {
+    const cron = await import('./cron.mjs')
+    const schedules = await import('./schedule.mjs')
+    const history = await import('./history.mjs')
+    const lock = await import('./lock.mjs')
+    const at = (value) => new Date(value)
+    const next = (expr, zone, from) => cron.nextCronRun(expr, zone, at(from)).toISOString()
+    check(
+        'a weekday 07:00 Paris schedule runs at 05:00 UTC on Monday',
+        next('0 7 * * 1-5', 'Europe/Paris', '2026-10-17T20:00:00Z') === '2026-10-19T05:00:00.000Z'
+    )
+    check(
+        'a wall time the clocks skip does not run that day',
+        next('30 2 * * *', 'Europe/Paris', '2026-03-28T12:00:00Z') === '2026-03-30T00:30:00.000Z'
+    )
+    const first = cron.nextCronRun('30 2 * * *', 'Europe/Paris', at('2026-10-24T12:00:00Z'))
+    check(
+        'a wall time that happens twice runs once',
+        first.toISOString() === '2026-10-25T00:30:00.000Z' &&
+            cron.nextCronRun('30 2 * * *', 'Europe/Paris', first).toISOString() === '2026-10-26T01:30:00.000Z',
+        first.toISOString()
+    )
+    let refusedZone = ''
+    try {
+        schedules.normalizeSchedule({ cron: '0 7 * * *', timezone: 'Mars/Olympus', question: 'q' })
+    } catch (error) {
+        refusedZone = error.code
+    }
+    let refusedCron = ''
+    try {
+        schedules.normalizeSchedule({ cron: '0 25 * * *', timezone: 'UTC', question: 'q' })
+    } catch (error) {
+        refusedCron = error.code
+    }
+    check(
+        'an unknown time zone and an hour of 25 are refused',
+        refusedZone === 'bad_schedule' && refusedCron === 'bad_schedule',
+        `${refusedZone} ${refusedCron}`
+    )
+
+    const question = "Summarise yesterday's bakery orders."
+    const saved = schedules.saveSchedule(
+        'nightly-orders',
+        { cron: '0 7 * * 1-5', timezone: 'Europe/Paris', question },
+        { workspaceId: 'team-1', ownerId: 'user-1', now: at('2026-10-19T04:59:00Z') }
+    )
+    check(
+        'a saved schedule is active with its next run in UTC',
+        saved.status === 'active' && saved.nextRunAt === '2026-10-19T05:00:00.000Z',
+        saved.nextRunAt
+    )
+    const started = []
+    const audits = []
+    let settleLast = null
+    const start = async (schedule, onSettled) => {
+        const run = history.queueHarnessRun({
+            name: schedule.harness,
+            chatId: `schedule-${started.length}`,
+            source: 'schedule',
+            input: schedule.question
+        })
+        started.push({ schedule, run })
+        settleLast = () => {
+            const opened = history.beginHarnessRun({
+                id: run.id,
+                name: schedule.harness,
+                chatId: 'schedule',
+                source: 'schedule',
+                input: schedule.question
+            })
+            history.finishHarnessRun(opened, { result: { text: 'Forty orders.', agents: [], report: {} } })
+            onSettled({ runId: run.id, status: 'finished' })
+        }
+        return { runId: run.id }
+    }
+    const tick = (now, ownerMayRun = async () => true) =>
+        schedules.tickSchedules({ now: () => at(now), start, ownerMayRun, audit: async (...args) => audits.push(args) })
+
+    const early = await tick('2026-10-19T04:59:30Z')
+    check('nothing fires before the due time', early.length === 0 && started.length === 0, JSON.stringify(early))
+    const fired = await tick('2026-10-19T05:00:10Z')
+    const firedRun = history.getRun('nightly-orders', fired[0]?.runId)
+    check(
+        'a schedule firing starts one run with its question, listed as schedule, and moves to the next weekday',
+        fired.length === 1 &&
+            fired[0].result === 'running' &&
+            started.length === 1 &&
+            started[0].schedule.question === question &&
+            started[0].schedule.workspaceId === 'team-1' &&
+            firedRun?.source === 'schedule' &&
+            schedules.getSchedule('nightly-orders').nextRunAt === '2026-10-20T05:00:00.000Z',
+        JSON.stringify({ fired, source: firedRun?.source, next: schedules.getSchedule('nightly-orders').nextRunAt })
+    )
+    const overlap = await tick('2026-10-20T05:00:05Z')
+    check(
+        'a due time while the last run is still open is skipped, so runs never overlap',
+        overlap[0]?.result === 'skipped' && started.length === 1 && schedules.getSchedule('nightly-orders').lastResult === 'skipped',
+        JSON.stringify(overlap)
+    )
+    settleLast()
+    check(
+        'a finished scheduled run is the schedule last result',
+        schedules.getSchedule('nightly-orders').lastResult === 'succeeded',
+        schedules.getSchedule('nightly-orders').lastResult
+    )
+
+    const paused = schedules.setScheduleStatus('nightly-orders', 'paused', { now: at('2026-10-20T06:00:00Z') })
+    const whilePaused = await tick('2026-10-22T05:00:05Z')
+    check(
+        'a paused schedule does not fire and shows no next run',
+        paused.status === 'paused' && paused.nextRunAt === null && whilePaused.length === 0 && started.length === 1,
+        JSON.stringify({ paused, whilePaused })
+    )
+    const resumed = schedules.setScheduleStatus('nightly-orders', 'active', { now: at('2026-10-22T05:00:05Z') })
+    check(
+        'resuming counts the next run from now, not from the missed times',
+        resumed.nextRunAt === '2026-10-23T05:00:00.000Z',
+        resumed.nextRunAt
+    )
+
+    const refused = await tick('2026-10-23T05:00:05Z', async () => false)
+    check(
+        'a schedule whose owner can no longer run the harness is refused and audited',
+        refused[0]?.result === 'refused' && started.length === 1 && audits.length === 1 && audits[0][2]?.action === 'run_refused',
+        JSON.stringify(refused)
+    )
+
+    lock.closeQueueDb()
+    const afterRestart = schedules.getSchedule('nightly-orders')
+    check(
+        'a schedule is still there after the database is reopened',
+        afterRestart?.status === 'active' && afterRestart?.nextRunAt === '2026-10-26T06:00:00.000Z',
+        JSON.stringify(afterRestart)
+    )
+    const caughtUp = await tick('2026-10-30T12:00:00Z')
+    check(
+        'a schedule that came due while the server was down runs once, then counts from now',
+        caughtUp.length === 1 &&
+            caughtUp[0].result === 'running' &&
+            started.length === 2 &&
+            schedules.getSchedule('nightly-orders').nextRunAt === '2026-11-02T06:00:00.000Z',
+        JSON.stringify({ caughtUp, next: schedules.getSchedule('nightly-orders').nextRunAt })
+    )
+    settleLast()
+    check(
+        'deleting a schedule removes it',
+        schedules.deleteSchedule('nightly-orders') && schedules.getSchedule('nightly-orders') === null,
+        'still there'
+    )
+    check(
+        'a harness schedule fires when due in its time zone, never overlaps, pauses, and survives a restart',
+        started.length === 2 && audits.length === 1,
+        'see the rows above'
+    )
+})
+
 await expectCase('a stored question is redacted in full and does not push the trace out of history', async () => {
     const secret = 'postgres://user:s3cret-pass@db.example/warehouse'
     const asked = `${'Please compare the warehouse export. '.repeat(16)}${secret} List every ticket`
