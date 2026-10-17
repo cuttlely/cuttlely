@@ -29,6 +29,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Docs: the harness and Analyst screenshots that show no model answer are retaken from the current app, so the PostgreSQL MCP card shows **Tables and views**, and the Usage page screenshot no longer cuts off the **Model prices** heading.
 -   The home page Harnesses section has an Analyst callout: ask your Postgres database in plain English, see only the tables and views you tick, and run one analyst per database in a team, with a link to a new real-model check on the bakery demo in the [Analyst guide](./docs/how-to/analyst.md#real-model-check).
 
+-   [Releases and support](./docs/releases.md) adds a docs and site sync check list to every release, and a check that each published npm README matches its tag.
+
 ### Removed
 
 -   The eight hidden configuration nodes the server already skipped at load: Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix, and AssemblyAI. They never appeared in the node list. Analytics tracing (Chatflow Configuration > Analytics), Speech to Text, and their credentials are unchanged. On the Credentials page, seven of those credentials now show the generic key icon. The Langfuse credential keeps its icon because the Langfuse prompt node still uses it. A saved chatflow or agentflow that still holds one of these cards runs without it instead of returning 422 or "This chatflow cannot chat yet", in the prediction API, the streaming check, and canvas chat. Import JSON drops these cards with a note and still opens the file. On a saved canvas, such a card now says it was removed and can be deleted, instead of "not installed".
@@ -38,6 +40,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   A publish check whose last answer or grade is cut off by the check's time limit now ends stopped for time instead of done. Before, it could end done and, for a dataset check, store a verdict scored with that cut-off grade as Error. Now no publish gate result is stored for that check, so it cannot unblock Publish, and the next check runs as usual.
 -   **Prompt and tool text limit** lists the 4,000-character default once, as **Default (4,000 characters)**, instead of also offering a separate **4,000 characters** item. A saved value of 4000 shows as that default item.
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
+-   Docs: the in-page links in the Japanese and Korean READMEs work on GitHub. The version examples in the `cuttlely` package README, the Docker guide and the embed guide name 1.3.0. The READMEs describe **Tables and views**, the `describe` tool and several analysts in one harness, and the home page Analyst callout also gives the two-analyst run (9 of 9). The whitepaper says which release it was benchmarked as of.
 -   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. Owners and roles with `credentials:view` still see their keys.
 
 ## [1.2.0] - 2026-10-15
