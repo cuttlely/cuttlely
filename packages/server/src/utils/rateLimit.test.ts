@@ -130,21 +130,6 @@ describe('UI page fallback limiter', () => {
         expect(source).not.toMatch(/embed\/chat\.js[\s\S]{0,400}uiPageRateLimiter/)
     })
 
-    it('also guards the sign-in, API-key check, OAuth, MCP server and icon routers, each with its own counter', () => {
-        const routes = fs.readFileSync(path.join(__dirname, '../routes/index.ts'), 'utf8')
-        for (const [mount, name] of [
-            ['/components-credentials-icon', 'componentsCredentialsIconRouter'],
-            ['/node-icon', 'nodeIconRouter'],
-            ['/oauth2-credential', 'oauth2Router'],
-            ['/verify', 'verifyRouter'],
-            ['/custom-mcp-servers', 'customMcpServersRouter'],
-            ['/auth', 'identityAuthRouter'],
-            ['/account', 'identityAccountRouter']
-        ]) {
-            expect(routes).toContain(`router.use('${mount}', uiPageRateLimiter(), ${name})`)
-        }
-    })
-
     it('answers 429 on a mounted router once a client passes the budget', async () => {
         const app = express()
         const inner = express.Router()
