@@ -161,14 +161,17 @@ function appendInChild(dir: string, marker: string, keep: number): Promise<void>
             child.stderr.on('data', (chunk) => {
                 err += String(chunk)
             })
-            child.on('exit', (code) => {
+            child.on('exit', (code, signal) => {
                 if (code === 0) resolve()
+                else if (signal) reject(new Error(`append killed by ${signal}${err ? `: ${err}` : ''}`))
                 else reject(new Error(err || `append exited ${code}`))
             })
         })
-    // A child can die in the runtime while the suite is already busy. One more try is the same append.
+    // A child can die in the runtime, or be killed by a signal, while the suite is already busy. One more try is the
+    // same append, unless the first child wrote its row before it died.
     return once().catch((error: Error) => {
-        if (!/Fatal error|unreachable code/.test(error.message)) throw error
+        if (!/Fatal error|unreachable code|killed by/.test(error.message)) throw error
+        if (readHistory(dir, 1000).some((entry) => entry.changes?.[0].to === marker)) return
         return once()
     })
 }

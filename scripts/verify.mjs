@@ -71,7 +71,6 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'media-size.test.mjs'),
             path.join(ROOT, 'scripts', 'readme-translations.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
-            path.join(ROOT, 'scripts', 'eval-routes.test.cjs'),
             path.join(ROOT, 'scripts', 'flow-drafts-sqlite-race.test.cjs'),
             path.join(ROOT, 'scripts', 'dataset-row-metadata.test.cjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),
@@ -114,9 +113,19 @@ const STEPS = [
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
+            path.join(ROOT, 'website', 'scripts', 'whitepaper.test.mjs'),
             path.join(ROOT, 'scripts', 'permission-keys.test.mjs'),
             path.join(ROOT, 'packages', 'ui', 'src', 'ui-component', 'markdown', 'math.test.mjs')
         ]
+    },
+    {
+        // Own process, run directly rather than beside the verify-test files: under that load its process was
+        // sometimes killed by a signal with no test failing. A signal exit is retried once; a test failure is not.
+        name: 'eval-routes',
+        fast: true,
+        retryOnSignal: true,
+        command: process.execPath,
+        args: [path.join(ROOT, 'scripts', 'eval-routes.test.cjs')]
     },
     {
         // Own process. This script and harness-draft-usage both stub
@@ -342,7 +351,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, boundaries, typecheck, verify-test, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, eval-routes, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, media-size, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(
@@ -469,7 +478,11 @@ function runStep(step) {
         console.log(`<== ${step.name} ${status} ${formatDuration(durationMs)}`)
         return { name: step.name, status, durationMs }
     }
-    const result = runCommand(step.command, step.args, step.env)
+    let result = runCommand(step.command, step.args, step.env)
+    if (step.retryOnSignal && result.signal) {
+        console.log(`${step.name} was killed by ${result.signal}; running it once more`)
+        result = runCommand(step.command, step.args, step.env)
+    }
     const durationMs = Date.now() - started
     const status = result.status === 0 ? 'pass' : 'fail'
     if (result.error) console.error(result.error.message)
