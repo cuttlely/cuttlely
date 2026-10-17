@@ -11,6 +11,7 @@ import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { dataRoot, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ROUTING_SUMMARY_CHARS, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
+import { parseRelationSelection } from './runtime/analyst-relations.mjs'
 
 const CHIEF_TOOLSETS = ['delegation', 'memory', 'session_search']
 const BLOCKED_UNLESS_ENABLED = ['terminal', 'browser', 'code_execution', 'file', 'web']
@@ -396,11 +397,9 @@ function chiefPrompt(record, options = {}) {
         lines.push('Delegate each piece of work with a task whose goal starts with [specialist:NAME].')
     }
     lines.push('If one specialist fails, answer from the specialists that finished and name the failure.')
-    if (specialists.some((specialist) => (specialist.mcpServers || []).some((mcp) => mcp.nodeName === 'postgreSQLMCP'))) {
-        lines.push(
-            'Any SQL, database, or analyst-addressed request goes to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Do not answer those yourself.'
-        )
-    }
+    const analystCount = specialists.filter((specialist) => hasAnalystTool(specialist)).length
+    if (analystCount === 1) lines.push(CHIEF_ANALYST)
+    if (analystCount > 1) lines.push(CHIEF_ANALYSTS)
     if (record.chief?.instructions) lines.push(`Instructions: ${record.chief.instructions}`)
     lines.push('Specialists:')
     for (const specialist of specialists) {
@@ -410,7 +409,8 @@ function chiefPrompt(record, options = {}) {
         ].filter(Boolean)
         const modelName = describedModel(specialist.model)
         const modelNote = modelName ? ` Model: ${modelName}.` : ''
-        lines.push(`- ${specialist.name}: ${specialistSummary(specialist)} Tools: ${tools.join(', ') || 'none'}.${modelNote}`)
+        const tablesNote = analystCount > 1 ? analystTablesNote(specialist) : ''
+        lines.push(`- ${specialist.name}: ${specialistSummary(specialist)} Tools: ${tools.join(', ') || 'none'}.${tablesNote}${modelNote}`)
         if (!specialist.shell && !specialist.browser && !specialist.codeExecution) {
             lines.push(`  ${specialist.name} does not have shell, browser, or code execution.`)
         }
@@ -493,14 +493,49 @@ function writeProfileSecrets(name, creds, extra = {}) {
     return next.API_SERVER_KEY
 }
 
+export const CHIEF_ANALYST =
+    'Any SQL, database, or analyst-addressed request goes to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Do not answer those yourself.'
+export const CHIEF_ANALYSTS =
+    'Several specialists are analysts, each with its own database. Any SQL, database, or analyst-addressed request goes to the analyst whose summary and tables fit it, and to each of them when several fit. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Do not answer those yourself.'
+
+const SQLITE_ID_NOTE = 'An id column is INTEGER PRIMARY KEY. SERIAL is not a SQLite type.'
+
+// One note for a lone analyst, as before. With several, each analyst has its own connection, so each gets its own line.
 export function routerDialectNote(specialists, env = process.env) {
     const analysts = (specialists || []).filter((specialist) => hasAnalystTool(specialist))
     if (!analysts.length) return ''
-    const { dialect } = analystConnection(analysts, env)
-    if (dialect === 'SQLite') {
-        return 'The analyst database is SQLite. An id column is INTEGER PRIMARY KEY. SERIAL is not a SQLite type.'
+    if (analysts.length === 1) {
+        const { dialect } = analystConnection(analysts, env)
+        return dialect === 'SQLite' ? `The analyst database is SQLite. ${SQLITE_ID_NOTE}` : `The analyst database is ${dialect}.`
     }
-    return `The analyst database is ${dialect}.`
+    return analysts
+        .map((analyst) => {
+            const { dialect } = analystConnection(analyst, env)
+            return `The ${analyst.name} analyst database is ${dialect}.${dialect === 'SQLite' ? ` ${SQLITE_ID_NOTE}` : ''}`
+        })
+        .join('\n')
+}
+
+export const ANALYST_TABLES_LISTED = 12
+
+// The ticked tables and views on an analyst's PostgreSQL MCP bindings, as the node saved them.
+export function analystRelationNames(specialist) {
+    const names = []
+    for (const binding of [...(specialist?.modules || []), ...(specialist?.mcpServers || [])]) {
+        if (binding?.nodeName !== 'postgreSQLMCP') continue
+        for (const name of parseRelationSelection(binding.inputs?.analystRelations)) if (!names.includes(name)) names.push(name)
+    }
+    return names
+}
+
+// Router text for an analyst when a harness has several: its ticked relations, so the router can tell them apart.
+export function analystTablesNote(specialist) {
+    if (!hasAnalystTool(specialist)) return ''
+    const names = analystRelationNames(specialist)
+    if (!names.length) return ''
+    const shown = names.slice(0, ANALYST_TABLES_LISTED).join(', ')
+    const more = names.length > ANALYST_TABLES_LISTED ? `, and ${names.length - ANALYST_TABLES_LISTED} more` : ''
+    return ` Tables: ${shown}${more}.`
 }
 
 // The analyst's database comes from its PostgreSQL MCP node, the way the node connects: a selected PostgresUrl
@@ -539,6 +574,11 @@ export const SPECIALIST_REPAIR_ONCE =
     'Run every step in this task before you answer. One SQL statement per tool call. Do not stop to ask whether to continue. If a statement fails with an SQL error, such as an unknown column or a syntax error, read the error, fix that statement and run it once more. If the fixed statement fails too, or the tool refused the statement, stop and return that error.'
 export const ANALYST_TOOL_REQUIRED =
     'Every SQL statement or database question goes through the query tool, including a statement you expect to be refused or to fail. Never predict, simulate, or paraphrase a database result or error. If the tool refuses or errors, quote that text exactly.'
+// Text comparison is case-sensitive, so a filter on 'east' finds nothing in a column of 'East' and looks like a real zero.
+export const ANALYST_EMPTY_FILTER =
+    'If a query that filters on a text value returns no rows, check the distinct values of that column or retry with ILIKE before you report zero or none.'
+export const ANALYST_EMPTY_FILTER_SQLITE =
+    'If a query that filters on a text value returns no rows, check the distinct values of that column or retry with LIKE before you report zero or none.'
 export const ANALYST_RESULT_SHAPE =
     'When a tool result includes rows, show those rows as a table or a list, capped at the rows the tool returned. If the result includes a page line that starts with "rows ", or a summary that starts with "returned ", put that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. Describe a change in plain words, such as "Dropped table", "Created table", or "Inserted 3 rows".'
 
@@ -594,6 +634,7 @@ export function specialistSoul(specialist, env = process.env) {
         }
         lines.push(connection.readOnly ? SPECIALIST_REPAIR_ONCE : SPECIALIST_RUN_ALL_STEPS)
         lines.push(ANALYST_TOOL_REQUIRED)
+        lines.push(dialect === 'SQLite' ? ANALYST_EMPTY_FILTER_SQLITE : ANALYST_EMPTY_FILTER)
         lines.push(ANALYST_RESULT_SHAPE)
     }
     if ((specialist.playbooks || []).length) lines.push(SPECIALIST_PLAYBOOKS, ...playbookLines(specialist.playbooks))

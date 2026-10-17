@@ -43,6 +43,7 @@ import {
     discardTryProfile,
     noteLiveTry,
     tryProfileName,
+    analystTablesNote,
     hasAnalystTool,
     needsAgentLoop,
     routerDialectNote,
@@ -893,6 +894,16 @@ export const ROUTE_IMAGES =
 
 export const ROUTE_ANALYST =
     'Any SQL, database, or analyst-addressed request must go to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. An empty steps list is only for a request that is not a database task. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst. Do not answer it yourself.'
+export const ROUTE_ANALYSTS =
+    'Several specialists are analysts, each with its own database. Any SQL, database, or analyst-addressed request must go to the analyst whose summary and tables fit it. When several fit, send a step to each of them. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. An empty steps list is only for a request that is not a database task. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst that returned it. Do not answer it yourself.'
+export const ROUTE_CHOOSE_ANALYST =
+    'This request is a database task and no analyst was chosen for it. Choose the analyst whose summary and tables fit the request. Choose more than one only when the request needs data from more than one. Reply with JSON only: {"analysts":["NAME"]}.'
+
+export function routeAnalystNote(specialists) {
+    const count = (specialists || []).filter((specialist) => hasAnalystTool(specialist)).length
+    if (!count) return ''
+    return count === 1 ? ROUTE_ANALYST : ROUTE_ANALYSTS
+}
 
 export const HANDOFF_GROUNDING =
     'State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with "rows ", or a summary that starts with "returned ", keep that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. A database change is plain words such as "Dropped table", "Created table", or "Inserted 3 rows".'
@@ -949,27 +960,87 @@ export function isAnalystDataTask(text, options) {
 }
 
 export const ANALYST_PAGE_NONE = "There's nothing to page yet. Ask your question again and I'll show the first page."
+export const ANALYST_PAGE_OWNER_GONE =
+    "The analyst that returned that result is no longer on this team. Ask your question again and I'll show the first page."
+
+function rosterAnalysts(specialists) {
+    return (specialists || []).filter((specialist) => hasAnalystTool(specialist))
+}
 
 // A bare paging phrase is not a specialist task unless this chat still has a live cursor.
 // Expiry is known only while the capture still has that cursor and it is past the TTL.
+// The cursor belongs to the analyst that returned it. A lone analyst also takes a cursor whose owner was renamed.
 export function applyAnalystPageRoute(input, steps, specialists, cursor) {
     const request = analystPageRequest(input)
     const list = Array.isArray(steps) ? steps : []
     if (!request) return { steps: list, reply: '' }
     if (cursor?.expired) return { steps: [], reply: ANALYST_CURSOR_ERRORS.expired }
     if (!cursor?.token) return { steps: [], reply: ANALYST_PAGE_NONE }
-    const analyst = (specialists || []).find((specialist) => hasAnalystTool(specialist))
-    if (!analyst) return { steps: list, reply: '' }
-    return { steps: [{ specialist: analyst, task: analystPageTask(cursor.token, request), paging: true }], reply: '' }
+    const analysts = rosterAnalysts(specialists)
+    if (!analysts.length) return { steps: list, reply: '' }
+    const owner = analysts.find((specialist) => specialist.name === cursor.specialist) || (analysts.length === 1 ? analysts[0] : null)
+    if (!owner) return { steps: [], reply: ANALYST_PAGE_OWNER_GONE }
+    return { steps: [{ specialist: owner, task: analystPageTask(cursor.token, request), paging: true }], reply: '' }
 }
 
-// The router can return no steps and Prime then invents a database answer. A data task with an analyst on the roster goes to that analyst.
+// The router can return no steps and Prime then invents a database answer. A data task with one analyst on the
+// roster goes to that analyst. With several, analystsToChoose names them and the router picks among them.
 export function forceAnalystRoute(input, steps, specialists) {
     const list = Array.isArray(steps) ? [...steps] : []
     if (list.length) return list
-    const analyst = (specialists || []).find((specialist) => hasAnalystTool(specialist))
-    if (!analyst || !isAnalystDataTask(input)) return list
-    return [{ specialist: analyst, task: String(input || '') }]
+    const analysts = rosterAnalysts(specialists)
+    if (analysts.length !== 1 || !isAnalystDataTask(input)) return list
+    return [{ specialist: analysts[0], task: String(input || '') }]
+}
+
+export function analystsToChoose(input, steps, specialists) {
+    if (Array.isArray(steps) && steps.length) return []
+    const analysts = rosterAnalysts(specialists)
+    if (analysts.length < 2 || !isAnalystDataTask(input)) return []
+    return analysts
+}
+
+// The names the choice call returned that are analysts on this roster. Anything else, or nothing, is every analyst.
+export function parseAnalystChoice(content, analysts, input) {
+    let parsed = null
+    try {
+        parsed = JSON.parse(String(content || ''))
+    } catch {
+        parsed = null
+    }
+    const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.analysts) ? parsed.analysts : []
+    const byName = new Map((analysts || []).map((specialist) => [specialist.name.toLowerCase(), specialist]))
+    const chosen = []
+    for (const item of list) {
+        const specialist = byName.get(
+            String(typeof item === 'string' ? item : item?.name || item?.specialist || '')
+                .trim()
+                .toLowerCase()
+        )
+        if (specialist && !chosen.includes(specialist)) chosen.push(specialist)
+    }
+    return (chosen.length ? chosen : analysts || []).map((specialist) => ({ specialist, task: String(input || '') }))
+}
+
+export async function chooseAnalysts(context, input, history, analysts) {
+    const system = [
+        `You choose the analyst for a database request in the "${context.name}" harness.`,
+        ROUTE_CHOOSE_ANALYST,
+        'Analysts:',
+        ...analysts.map((specialist) => routerLine(specialist, analysts.length))
+    ].join('\n')
+    const fitted = fitChiefMessages({ system, memory: context.memoryBlock || '', history, user: input, budget: chiefContextTokens() })
+    noteTruncated(context, fitted.truncated)
+    let reply
+    try {
+        reply = await callModel(context, chiefModel(context.roster), { messages: fitted.messages, json: true, role: 'route' })
+    } catch (error) {
+        // A stopped or out-of-time turn still stops. Any other failure of this extra call sends the task to every analyst.
+        if (context.workSignal?.aborted || context.clientSignal?.aborted || context.budgetSignal?.aborted) throw error
+        console.warn(`[harness] ${context.name} analyst choice failed, sending to every analyst`)
+        return parseAnalystChoice('', analysts, input)
+    }
+    return parseAnalystChoice(reply.content, analysts, input)
 }
 
 const SQL_VERB = /\b(drop|create|insert|update|delete|select|alter)\b/gi
@@ -1006,6 +1077,11 @@ function capabilityNote(specialist) {
     return tools.length ? ` Tools: ${tools.join(', ')}.` : ''
 }
 
+export function routerLine(specialist, analystCount) {
+    const tables = analystCount > 1 ? analystTablesNote(specialist) : ''
+    return `- ${specialist.name}: ${specialistSummary(specialist, 'No instructions.')}${capabilityNote(specialist)}${tables}`
+}
+
 function finishUnpaged(context, reply, started) {
     context.routeSteps = []
     context.directReply = reply
@@ -1030,17 +1106,16 @@ async function routeSteps(context, input, history) {
     const blocked = applyAnalystPageRoute(input, [], specialists, cursor)
     if (blocked.reply) return finishUnpaged(context, blocked.reply, started)
     emit(context, 'route', { phase: 'start' })
+    const analystCount = rosterAnalysts(specialists).length
     const system = [
         `You route work for the "${context.name}" harness.`,
         context.roster.chief?.instructions ? `Harness Prime instructions: ${context.roster.chief.instructions}` : '',
         'Specialists:',
-        ...specialists.map(
-            (specialist) => `- ${specialist.name}: ${specialistSummary(specialist, 'No instructions.')}${capabilityNote(specialist)}`
-        ),
+        ...specialists.map((specialist) => routerLine(specialist, analystCount)),
         'Pick every specialist the request needs. Steps run at the same time, so write each task so it stands on its own.',
         ROUTE_AFTER,
         routerDialectNote(specialists),
-        specialists.some((specialist) => hasAnalystTool(specialist)) ? ROUTE_ANALYST : '',
+        routeAnalystNote(specialists),
         ROUTE_WHOLE_TASK,
         ROUTE_FOLLOW_UP,
         context.images?.length ? ROUTE_IMAGES : '',
@@ -1056,12 +1131,10 @@ async function routeSteps(context, input, history) {
         role: 'route',
         onDelta: (text) => emit(context, 'partial', { phase: 'route', text })
     })
-    const pageRoute = applyAnalystPageRoute(
-        input,
-        forceAnalystRoute(input, parseSteps(reply.content, specialists, input), specialists),
-        specialists,
-        cursor
-    )
+    let parsedSteps = forceAnalystRoute(input, parseSteps(reply.content, specialists, input), specialists)
+    const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
+    if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
+    const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
     if (pageRoute.reply) return finishUnpaged(context, pageRoute.reply, started)
     const steps = pageRoute.steps
     if (steps.length === 1 && !steps[0].paging) steps[0].task = expandSingleSpecialistTask(input, steps[0].task)

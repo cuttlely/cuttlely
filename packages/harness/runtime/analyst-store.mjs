@@ -38,7 +38,8 @@ import {
     listRelations,
     parseRelationSelection,
     relationToolNote,
-    resolveRelations
+    resolveRelations,
+    sampleRelationValues
 } from './analyst-relations.mjs'
 
 // Repo root. This module lives in packages/harness/runtime/.
@@ -1850,16 +1851,24 @@ export async function describeAnalystUrlRelation(postgresUrl, input, names, opti
         typeof input === 'string'
             ? input
             : ['name', 'relation', 'table', 'view'].map((key) => input?.[key]).find((value) => typeof value === 'string')
+    // Read-write only so the sample checks can create their temporary view. Nothing before them writes, the samples
+    // run read only, and the transaction always rolls back.
     return withUrlClient(
         postgresUrl,
-        async (_client, runner) => {
+        async (client, runner) => {
             const relations = await resolveRelations(runner, names)
             const relation = findRelation(relations, requested)
             if (!relation)
                 throw new AnalystToolError(relations.length ? describeRefusal(relations, requested) : SCOPE_NONE_LEFT, 'expected')
-            return describeRelation(runner, relation, relations)
+            const body = await describeRelation(runner, relation, relations)
+            const values = await sampleRelationValues(client, runner, relation, relations, {
+                isRowQuery,
+                cacheKey: urlStoreKey(postgresUrl)
+            })
+            if (values) body.values = values
+            return body
         },
-        options
+        { ...options, readOnly: false }
     )
 }
 
@@ -1878,7 +1887,7 @@ export function analystUrlToolSpec(rowCap, relations = null) {
 export function analystDescribeToolSpec() {
     return {
         description:
-            'Describe one table or view from the query tool list: columns with types and comments, primary key, relationships to other listed relations, and the definition of a view.',
+            'Describe one table or view from the query tool list: columns with types and comments, primary key, relationships to other listed relations, the definition of a view, and sample values of short text columns. Text filters are case-sensitive, so match those values as written.',
         schema: {
             type: 'object',
             properties: { name: { type: 'string', description: 'A name from the query tool list, such as public.daily_sales' } },
