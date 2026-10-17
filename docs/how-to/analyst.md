@@ -343,6 +343,22 @@ CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-sche
 
 A URL without a login uses `PGUSER` and `PGPASSWORD` from the environment.
 
+### Real-model check
+
+On 2026-10-17 the analyst answered five questions on the bakery database with `gpt-4.1` at temperature 0, on `main` with the column names in the selection lines. Six of the 20 relations were ticked: `monthly_sales`, `top_products`, `account_balances`, `weekly_store_revenue`, `wholesale_accounts` and `stores`.
+
+| Question                               | Answer                                                         |
+| -------------------------------------- | -------------------------------------------------------------- |
+| Best month                             | June 2026, $49,557.50                                          |
+| Top 3 products by revenue              | Sourdough Loaf $52,380, Seeded Rye $45,360, Lemon Tart $35,049 |
+| Wholesale account that owes the most   | Hilltop Deli, $600.12                                          |
+| Top store in the latest week           | Old Town, $5,976.50                                            |
+| Staff per store, with staff not ticked | Declined cleanly                                               |
+
+All four data questions were answered on the first query, and each answer matched the same question asked with direct SQL. The first prompt was about 650 tokens. All prompts for one question came to about 1.4k tokens, against 2k to 3k before the selection lines listed column names. This is one small, made-up database and one model; it is not a benchmark.
+
+On 2026-10-17, a second run with `gpt-4.1` used two analysts in one harness, with the routing that [Several analysts in one harness](#several-analysts-in-one-harness) describes: one on the made-up bakery database and one on a made-up household budget database. Harness Prime sent all 9 questions to the right analyst, and all 9 answers were correct. That includes the question about software spend in the budget, which returned $0 before that change.
+
 ## Several analysts in one harness
 
 A harness can have more than one analyst specialist, each with its own **PostgreSQL MCP** node and database. For example, one analyst on the made-up bakery database and one on a made-up household budget database. Give each a **Routing summary** that says what its database holds, and tick its tables and views, because those are what Harness Prime reads when it picks one.
