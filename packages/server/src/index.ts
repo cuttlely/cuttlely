@@ -423,6 +423,7 @@ export async function start(): Promise<void> {
         await harnessesService.backfillHarnessWorkspaces().catch((error) => {
             logger.warn(`[harness] workspace backfill failed: ${error instanceof Error ? error.message : error}`)
         })
+        await harnessesService.closeInterruptedRuns()
     }
     server.listen(port, host, () => {
         logger.info(`⚡️ [server]: Cuttlely Server is listening at ${host ? 'http://' + host : ''}:${port}`)

@@ -156,7 +156,7 @@ const getAllApiKeys = async (user: ApiKeyActor, page: number = -1, limit: number
 }
 
 const presentApiKeyRow = (key: ApiKey & { chatFlows?: unknown }) => {
-    const presented: Record<string, unknown> = { ...key }
+    const presented: Record<string, unknown> = { ...key, harnesses: Array.isArray(key.harnesses) ? key.harnesses : [] }
     delete presented.apiKey
     delete presented.apiSecret
     return presented
@@ -213,7 +213,7 @@ const getApiKeyById = async (apiKeyId: string) => {
     }
 }
 
-const createApiKey = async (user: ApiKeyActor, keyName: string, permissions: string[]) => {
+const createApiKey = async (user: ApiKeyActor, keyName: string, permissions: string[], harnesses: string[] = []) => {
     // Validate permissions before creating the key
     validatePermissions(user, permissions, 'create')
 
@@ -226,6 +226,7 @@ const createApiKey = async (user: ApiKeyActor, keyName: string, permissions: str
     newKey.apiSecret = apiSecret
     newKey.keyName = keyName
     newKey.permissions = permissions
+    newKey.harnesses = harnesses
     newKey.workspaceId = user.activeWorkspaceId
     const key = appServer.AppDataSource.getRepository(ApiKey).create(newKey)
     await appServer.AppDataSource.getRepository(ApiKey).save(key)
@@ -236,7 +237,8 @@ const createApiKey = async (user: ApiKeyActor, keyName: string, permissions: str
 }
 
 // Update api key
-const updateApiKey = async (user: ApiKeyActor, id: string, keyName: string, permissions: string[]) => {
+// harnesses left undefined keeps the stored list.
+const updateApiKey = async (user: ApiKeyActor, id: string, keyName: string, permissions: string[], harnesses?: string[]) => {
     // Validate permissions before updating the key
     validatePermissions(user, permissions, 'update')
 
@@ -250,6 +252,7 @@ const updateApiKey = async (user: ApiKeyActor, id: string, keyName: string, perm
     }
     currentKey.keyName = keyName
     currentKey.permissions = permissions
+    if (harnesses !== undefined) currentKey.harnesses = harnesses
     await appServer.AppDataSource.getRepository(ApiKey).save(currentKey)
     return await getAllApiKeys(user)
 }

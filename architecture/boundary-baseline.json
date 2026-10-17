@@ -637,6 +637,36 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/services/harnesses/apiAccess.ts",
+            "to": "packages/server/src/database/entities/ApiKey.ts",
+            "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
+        },
+        {
+            "from": "packages/server/src/services/harnesses/apiAccess.ts",
+            "to": "packages/server/src/DataSource.ts",
+            "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
+        },
+        {
+            "from": "packages/server/src/services/harnesses/apiAccess.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
+        },
+        {
+            "from": "packages/server/src/services/harnesses/apiAccess.ts",
+            "to": "packages/server/src/errors/utils.ts",
+            "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
+        },
+        {
+            "from": "packages/server/src/services/harnesses/apiAccess.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
+        },
+        {
+            "from": "packages/server/src/services/harnesses/apiAccess.ts",
+            "to": "packages/server/src/utils/rateLimit.ts",
+            "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
+        },
+        {
             "from": "packages/server/src/services/harnesses/index.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."

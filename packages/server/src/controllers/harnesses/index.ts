@@ -3,6 +3,7 @@ import { StatusCodes } from 'http-status-codes'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceIdFromReq } from '../../identity/workspaceScope'
 import harnessesService from '../../services/harnesses'
+import { noteBackgroundRunSettled, noteBackgroundRunStarted } from '../../services/harnesses/apiAccess'
 import { chatImages } from '../../services/harnesses/chatImages'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
@@ -110,6 +111,32 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
     }
 }
 
+// Answers 202 with the run id. The run itself keeps going after the response.
+const startBackgroundRun = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const workspaceId = activeWorkspace(req)
+        const started = await harnessesService.startBackgroundRun(req.params.name, req.body || {}, {
+            workspaceId,
+            source: 'api',
+            onSettled: (outcome) => noteBackgroundRunSettled(req.params.name, outcome)
+        })
+        await noteBackgroundRunStarted(req, started, workspaceId)
+        const base = `/api/v1/harnesses/${encodeURIComponent(started.harness)}/runs/${started.runId}`
+        return res.status(StatusCodes.ACCEPTED).json({ ...started, statusUrl: base, resultUrl: `${base}/result` })
+    } catch (error) {
+        next(error)
+    }
+}
+
+const getRunResult = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        res.setHeader('Cache-Control', 'no-store')
+        return res.json(await harnessesService.getRunResult(req.params.name, req.params.runId, activeWorkspace(req)))
+    } catch (error) {
+        next(error)
+    }
+}
+
 export default {
     listHarnesses,
     getHarness,
@@ -117,5 +144,7 @@ export default {
     deleteHarness,
     listRuns,
     getRun,
-    createRun
+    createRun,
+    startBackgroundRun,
+    getRunResult
 }

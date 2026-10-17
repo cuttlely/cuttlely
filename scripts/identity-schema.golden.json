@@ -57,6 +57,13 @@
                     "nullable": false,
                     "default": "'[]'",
                     "pk": 0
+                },
+                {
+                    "name": "harnesses",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
                 }
             ],
             "foreignKeys": [
@@ -3671,6 +3678,12 @@
                     "type": "jsonb",
                     "nullable": false,
                     "default": "'[]'"
+                },
+                {
+                    "name": "harnesses",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
                 }
             ],
             "foreignKeys": [
@@ -6947,6 +6960,14 @@
                     "default": "json_array()",
                     "extra": "",
                     "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "harnesses",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
                 }
             ],
             "foreignKeys": [
@@ -11080,6 +11101,14 @@
                     "default": "json_array()",
                     "extra": "DEFAULT_GENERATED",
                     "collation": null
+                },
+                {
+                    "name": "harnesses",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [

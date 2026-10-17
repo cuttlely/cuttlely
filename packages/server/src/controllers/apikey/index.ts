@@ -3,6 +3,8 @@ import { StatusCodes } from 'http-status-codes'
 import { LoggedInUser } from '../../identity/types'
 import { AppError } from '../../errors/appError'
 import apikeyService from '../../services/apikey'
+import harnessesService from '../../services/harnesses'
+import { noteHarnessAudit, parseHarnessAllowlist } from '../../services/harnesses/apiAccess'
 import { getPageAndLimitParams } from '../../utils/pagination'
 
 function actor(user: LoggedInUser | undefined) {
@@ -20,6 +22,31 @@ function actor(user: LoggedInUser | undefined) {
         activeOrganizationCustomerId: user.activeOrganizationCustomerId ?? undefined,
         activeWorkspaceId: user.activeWorkspaceId
     }
+}
+
+// Names in the request body, checked against the caller's team. A harness in another team is refused like a missing one.
+async function requestedHarnesses(body: Record<string, unknown>, workspaceId: string): Promise<string[] | undefined> {
+    if (!('harnesses' in body)) return undefined
+    const names = parseHarnessAllowlist(body.harnesses)
+    if (!names.length) return names
+    const known = new Set((await harnessesService.listHarnesses(workspaceId)).map((row: { name: string }) => row.name))
+    const missing = names.find((name) => !known.has(name))
+    if (missing) throw new AppError(StatusCodes.BAD_REQUEST, `Harness ${missing} was not found in this team.`)
+    return names
+}
+
+function sameList(a: string[], b: string[]): boolean {
+    return a.length === b.length && a.every((name) => b.includes(name))
+}
+
+async function noteAccessChange(req: Request, keyId: string, keyName: string, before: string[], after: string[]) {
+    if (sameList(before, after)) return
+    await noteHarnessAudit(req, 'harness_access', 'API key harness access changed', {
+        keyId,
+        keyName: String(keyName).slice(0, 100),
+        harnesses: after,
+        previous: before
+    })
 }
 
 // Get api keys
@@ -55,7 +82,13 @@ const createApiKey = async (req: Request, res: Response, next: NextFunction) => 
             )
         }
         const user = actor(req.user)
-        const apiResponse = await apikeyService.createApiKey(user, req.body.keyName, req.body.permissions)
+        const harnesses = (await requestedHarnesses(req.body, user.activeWorkspaceId)) || []
+        const apiResponse = await apikeyService.createApiKey(user, req.body.keyName, req.body.permissions, harnesses)
+        if (harnesses.length) {
+            const rows = (Array.isArray(apiResponse) ? apiResponse : []) as Array<{ id?: string; apiKey?: string }>
+            const created = rows.find((row) => typeof row.apiKey === 'string' && row.apiKey)
+            await noteAccessChange(req, created?.id || '', req.body.keyName, [], harnesses)
+        }
         return res.json(apiResponse)
     } catch (error) {
         next(error)
@@ -83,7 +116,12 @@ const updateApiKey = async (req: Request, res: Response, next: NextFunction) => 
             )
         }
         const user = actor(req.user)
-        const apiResponse = await apikeyService.updateApiKey(user, req.params.id, req.body.keyName, req.body.permissions)
+        const harnesses = await requestedHarnesses(req.body, user.activeWorkspaceId)
+        const before = harnesses === undefined ? undefined : await apikeyService.getApiKeyById(req.params.id)
+        const apiResponse = await apikeyService.updateApiKey(user, req.params.id, req.body.keyName, req.body.permissions, harnesses)
+        if (harnesses !== undefined && before && before.workspaceId === user.activeWorkspaceId) {
+            await noteAccessChange(req, req.params.id, req.body.keyName, Array.isArray(before.harnesses) ? before.harnesses : [], harnesses)
+        }
         return res.json(apiResponse)
     } catch (error) {
         next(error)

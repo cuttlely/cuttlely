@@ -364,6 +364,8 @@ const startRun = async (
         workspaceId?: string | null
         // Publish check. The try profile is still used. History, the session and captured analyst rows are not.
         replay?: boolean
+        // An id already returned to the caller. The run history row uses it.
+        runId?: string
     } = {}
 ) => {
     const prepared = await assertRunRequest(name, body, opts.workspaceId)
@@ -409,6 +411,7 @@ const startRun = async (
             signal: opts.signal,
             record: opts.record,
             replay: opts.replay === true,
+            runId: opts.runId,
             onRecorded: (row: Record<string, unknown>) => {
                 recorded = row
             }
@@ -446,6 +449,84 @@ const startRun = async (
         const wrapped = httpHarnessError(error) as AppError & { harnessRun?: unknown }
         wrapped.harnessRun = recorded
         throw wrapped
+    }
+}
+
+// Starts a run in the background and returns its id at once. The caller polls the run and then its result.
+// The run goes through startRun, so tracing, token totals, and run history match a run that waits.
+const startBackgroundRun = async (
+    name: string,
+    body: Record<string, unknown>,
+    opts: { workspaceId: string; source?: 'api'; onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void }
+) => {
+    const prepared = await assertRunRequest(name, body, opts.workspaceId)
+    const chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `api-${randomUUID()}`
+    const history = await loadHarness('history.mjs')
+    const source = opts.source || 'api'
+    const queued = history.queueHarnessRun({ name: prepared.harness.name, chatId, source, input: prepared.question })
+    if (!queued?.id) throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The run could not be recorded.')
+    const runId: string = queued.id
+    void startRun(name, { ...body, question: prepared.question, chatId }, { source, workspaceId: opts.workspaceId, runId })
+        .then((outcome) => {
+            try {
+                history.saveRunResult(prepared.harness.name, runId, outcome.payload)
+            } catch (error) {
+                logger.warn(`[harness] ${name} result for ${runId} was not saved: ${getErrorMessage(error)}`)
+            }
+            opts.onSettled?.({ runId, status: 'finished' })
+        })
+        .catch((error) => {
+            try {
+                history.failQueuedRun(prepared.harness.name, runId, error)
+            } catch (historyError) {
+                logger.warn(`[harness] ${name} run ${runId} was not marked failed: ${getErrorMessage(historyError)}`)
+            }
+            logger.warn(`[harness] ${name} background run ${runId} failed: ${getErrorMessage(error)}`)
+            opts.onSettled?.({ runId, status: 'failed', error })
+        })
+    return { runId, harness: prepared.harness.name as string, chatId, status: 'queued' as const }
+}
+
+const FINISHED = new Set(['succeeded', 'completed_with_errors', 'failed', 'cancelled'])
+
+const getRunResult = async (name: string, runId: string, workspaceId?: string | null) => {
+    const run = await getRun(name, runId, workspaceId)
+    const history = await loadHarness('history.mjs')
+    const finished = FINISHED.has(run.status)
+    return {
+        runId: run.id,
+        harness: run.harness,
+        status: run.status,
+        finished,
+        source: run.source,
+        chatId: run.chatId,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        latencyMs: run.latencyMs,
+        tokens: run.tokens,
+        error: run.error,
+        result: finished ? history.getRunResult(name, runId) : null
+    }
+}
+
+// A run left queued or running when the last process stopped can never finish. Inline and off runs belong to this
+// process, so every open row is closed. External workers keep their rows until the lock time has passed.
+const closeInterruptedRuns = async () => {
+    try {
+        const history = await loadHarness('history.mjs')
+        const lock = await loadHarness('lock.mjs')
+        const external =
+            String(process.env.CUTTLELY_HARNESS_QUEUE || '')
+                .trim()
+                .toLowerCase() === 'external'
+        const ttl = external ? Number(lock.lockTtlMs()) : 0
+        if (external && !ttl) return 0
+        const closed = history.interruptOpenRuns({ before: external ? Date.now() - (ttl + 15000) : Date.now() })
+        if (closed) logger.info(`[harness] closed ${closed} run(s) left open by an earlier process`)
+        return closed
+    } catch (error) {
+        logger.warn(`[harness] open runs were not closed: ${getErrorMessage(error)}`)
+        return 0
     }
 }
 
@@ -514,6 +595,9 @@ export default {
     getRun,
     assertRunRequest,
     startRun,
+    startBackgroundRun,
+    getRunResult,
+    closeInterruptedRuns,
     startCanvasRun,
     replayCheck,
     chatImages
