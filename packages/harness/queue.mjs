@@ -44,6 +44,7 @@ function jobPayload(args) {
         source: args.source || 'prediction',
         // An id the caller already returned, so the run history row is the one it polls.
         runId: typeof args.runId === 'string' && /^run_[A-Za-z0-9-]{8,80}$/.test(args.runId) ? args.runId : null,
+        apiKeyId: typeof args.apiKeyId === 'string' && args.apiKeyId ? args.apiKeyId.slice(0, 128) : null,
         traceId: args.traceId || flow.executionId || null,
         // A worker in another process needs the images too. They are already within the count and size limits.
         images: promptImages(args.images)
@@ -308,6 +309,7 @@ export async function executeJob(job) {
             images: job.payload.images,
             source: local?.source || job.payload.source,
             runId: local?.runId || job.payload.runId || undefined,
+            apiKeyId: local?.apiKeyId || job.payload.apiKeyId || undefined,
             traceId: local?.traceId || job.payload.traceId,
             onRecorded: (row) => {
                 const id = savedRunId(row)

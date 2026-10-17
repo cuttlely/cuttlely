@@ -22,6 +22,20 @@ jest.mock('../../controllers/harnesses', () => ({
 
 jest.mock('../../identity/production', () => ({ applicationSql: () => ({}) }))
 
+const storedKeys: Array<{ id: string; workspaceId: string; harnesses: string[] | null }> = []
+const savedKeys: string[] = []
+jest.mock('../../DataSource', () => ({
+    getDataSource: () => ({
+        getRepository: () => ({
+            findBy: async ({ workspaceId }: { workspaceId: string }) => storedKeys.filter((key) => key.workspaceId === workspaceId),
+            save: async (key: { id: string }) => {
+                savedKeys.push(key.id)
+                return key
+            }
+        })
+    })
+}))
+
 jest.mock('../../identity/auditLog', () => ({
     safeRecordAudit: async (_sql: unknown, event: (typeof audits)[number]) => {
         audits.push(event)
@@ -29,7 +43,17 @@ jest.mock('../../identity/auditLog', () => ({
 }))
 
 import harnessesRouter from '../../routes/harnesses'
-import { harnessAllowlist, harnessRunRateLimit, parseHarnessAllowlist, setHarnessKeyLookup } from './apiAccess'
+import {
+    assertCallerMayGrant,
+    harnessAllowlist,
+    harnessRunRateLimit,
+    parseHarnessAllowlist,
+    referencedHarnessNames,
+    refuseUnlistedHarnessCards,
+    removeHarnessFromKeyLists,
+    safeHarnessName,
+    setHarnessKeyLookup
+} from './apiAccess'
 
 const RUN_PERMISSIONS = ['chatflows:view', 'chatflows:create']
 
@@ -40,7 +64,7 @@ const TOKENS: Record<string, { id: string; workspaceId: string; permissions: str
     'view-only-key': { id: 'key-view', workspaceId: 'team-a', permissions: ['chatflows:view'] }
 }
 
-function app(sessionUser?: object) {
+function gate(sessionUser?: object) {
     const dataSource = {
         getRepository: (entity: { name: string }) => ({
             findOne: async ({ where }: { where: { id: string } }) =>
@@ -63,6 +87,11 @@ function app(sessionUser?: object) {
             attachIdentitySession: async () => (sessionUser ? { ...sessionUser } : null)
         })
     )
+    return server
+}
+
+function app(sessionUser?: object) {
+    const server = gate(sessionUser)
     server.use('/api/v1/harnesses', harnessesRouter)
     return server
 }
@@ -147,6 +176,26 @@ describe('harness API runs with an API key', () => {
         expect((await start('bakery-key')).status).toBe(403)
     })
 
+    it('checks the list on reading, saving, and deleting a harness by name', async () => {
+        const auth = { Authorization: 'Bearer bakery-key' }
+        expect((await request(app()).get('/api/v1/harnesses/payroll').set(auth)).status).toBe(403)
+        expect((await request(app()).delete('/api/v1/harnesses/payroll').set(auth)).status).toBe(403)
+        expect((await request(app()).post('/api/v1/harnesses').set(auth).send({ name: 'payroll' })).status).toBe(403)
+        expect((await request(app()).post('/api/v1/harnesses').set(auth).send({ name: '../etc' })).body).toEqual({
+            message: 'This API key may not run harness "<invalid>".'
+        })
+        expect(handled).toEqual([])
+        expect((await request(app()).get('/api/v1/harnesses/bakery').set(auth)).status).toBe(200)
+        expect((await request(app()).post('/api/v1/harnesses').set(auth).send({ name: 'bakery' })).status).toBe(200)
+        expect(handled).toEqual(['getHarness bakery', 'saveHarness '])
+    })
+
+    it('records an invalid name as <invalid> in the refusal audit row', async () => {
+        const res = await start('bakery-key', 'not%20a%20name')
+        expect(res.status).toBe(403)
+        expect(audits[0]?.detail).toMatchObject({ harness: '<invalid>', outcome: 'refused' })
+    })
+
     it('refuses a key whose stored row moved to another team', async () => {
         keys.set('key-bakery', { id: 'key-bakery', workspaceId: 'team-b', harnesses: ['bakery'] })
         expect((await start('bakery-key')).status).toBe(403)
@@ -187,6 +236,82 @@ describe('harness run rate limits', () => {
     })
 })
 
+describe('a canvas save from an API key', () => {
+    const flow = (name: string) => JSON.stringify({ nodes: [{ data: { name: 'harness', inputs: { harnessName: name } } }], edges: [] })
+
+    function saveApp() {
+        const server = gate()
+        server.post('/api/v1/chatflows', refuseUnlistedHarnessCards(), (_req, res) => res.json({ saved: true }))
+        return server
+    }
+
+    beforeAll(() => setHarnessKeyLookup(async (id) => keys.get(id)))
+    afterAll(() => setHarnessKeyLookup(null))
+    beforeEach(() => {
+        keys.clear()
+        keys.set('key-bakery', { id: 'key-bakery', workspaceId: 'team-a', harnesses: ['bakery'] })
+    })
+
+    it('refuses a Harness card that names a harness off the key list, and saves one on it', async () => {
+        const auth = { Authorization: 'Bearer bakery-key' }
+        const refused = await request(saveApp())
+            .post('/api/v1/chatflows')
+            .set(auth)
+            .send({ name: 'x', flowData: flow('payroll') })
+        expect(refused.status).toBe(403)
+        expect(refused.body).toEqual({ message: 'This API key may not save a Harness card for "payroll".' })
+        const saved = await request(saveApp())
+            .post('/api/v1/chatflows')
+            .set(auth)
+            .send({ name: 'x', flowData: flow('bakery') })
+        expect(saved.status).toBe(200)
+        const plain = await request(saveApp()).post('/api/v1/chatflows').set(auth).send({ name: 'x', flowData: '{"nodes":[]}' })
+        expect(plain.status).toBe(200)
+    })
+
+    it('reads the names from a canvas', () => {
+        expect(referencedHarnessNames(flow('bakery'))).toEqual(['bakery'])
+        expect(referencedHarnessNames('not json "harness"')).toEqual([])
+        expect(referencedHarnessNames(undefined)).toEqual([])
+    })
+})
+
+describe('granting harnesses to a key', () => {
+    beforeAll(() => setHarnessKeyLookup(async (id) => keys.get(id)))
+    afterAll(() => setHarnessKeyLookup(null))
+
+    it('lets a key grant only harnesses it already holds, and leaves a person to the role check', async () => {
+        keys.set('key-bakery', { id: 'key-bakery', workspaceId: 'team-a', harnesses: ['bakery'] })
+        const viaKey = { user: { apiKeyId: 'key-bakery', activeWorkspaceId: 'team-a' } } as unknown as Request
+        await expect(assertCallerMayGrant(viaKey, ['bakery'])).resolves.toBeUndefined()
+        await expect(assertCallerMayGrant(viaKey, ['bakery', 'payroll'])).rejects.toMatchObject({ statusCode: 403 })
+        const person = { user: { id: 'user-1', activeWorkspaceId: 'team-a' } } as unknown as Request
+        await expect(assertCallerMayGrant(person, ['payroll'])).resolves.toBeUndefined()
+    })
+
+    it('records only a valid harness name', () => {
+        expect(safeHarnessName('bakery')).toBe('bakery')
+        expect(safeHarnessName('../etc\nforged')).toBe('<invalid>')
+        expect(safeHarnessName(42)).toBe('<invalid>')
+    })
+})
+
+describe('deleting a harness', () => {
+    it('removes its name from every key list in that team and leaves other keys alone', async () => {
+        storedKeys.splice(
+            0,
+            storedKeys.length,
+            { id: 'k1', workspaceId: 'team-a', harnesses: ['bakery', 'payroll'] },
+            { id: 'k2', workspaceId: 'team-a', harnesses: ['payroll'] },
+            { id: 'k3', workspaceId: 'team-b', harnesses: ['bakery'] }
+        )
+        savedKeys.length = 0
+        expect(await removeHarnessFromKeyLists('team-a', 'bakery')).toBe(1)
+        expect(savedKeys).toEqual(['k1'])
+        expect(storedKeys.map((key) => key.harnesses)).toEqual([['payroll'], ['payroll'], ['bakery']])
+    })
+})
+
 describe('harness allowlist values', () => {
     it('keeps harness names only, once each', () => {
         expect(harnessAllowlist('["bakery","bakery","not a name",3,"field-team"]')).toEqual(['bakery', 'field-team'])
@@ -197,6 +322,11 @@ describe('harness allowlist values', () => {
     it('refuses a body that is not a list of names', () => {
         expect(parseHarnessAllowlist(undefined)).toEqual([])
         expect(() => parseHarnessAllowlist('bakery')).toThrow('harnesses must be an array of harness names.')
+        try {
+            parseHarnessAllowlist({ bakery: true })
+        } catch (error) {
+            expect((error as { statusCode?: number }).statusCode).toBe(400)
+        }
         expect(() => parseHarnessAllowlist(['../etc'])).toThrow('"../etc" is not a harness name.')
         expect(() => parseHarnessAllowlist(Array.from({ length: 201 }, (_, i) => `h${i}`))).toThrow('at most 200 harnesses')
     })
