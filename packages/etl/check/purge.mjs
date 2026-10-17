@@ -374,13 +374,13 @@ function pineFlow(file, ns) {
 // collection under the old name as well as the new one.
 {
     api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
-    const file = csv('purge-renamed', 4)
-    const first = await runPipeline('purge-renamed', 'Purge renamed old', flowFor(file, ''))
-    const second = await runPipeline('purge-renamed', 'Purge renamed new', flowFor(file, ''))
-    const oldStore = LocalVectorStore.open('Purge renamed old')
-    const newStore = LocalVectorStore.open('Purge renamed new')
+    const file = csv('purge-new-name', 4)
+    const first = await runPipeline('purge-new-name', 'Purge name before', flowFor(file, ''))
+    const second = await runPipeline('purge-new-name', 'Purge name after', flowFor(file, ''))
+    const oldStore = LocalVectorStore.open('Purge name before')
+    const newStore = LocalVectorStore.open('Purge name after')
     const before = { old: oldStore.count(), new: newStore.count() }
-    const result = await api.deletePipeline('purge-renamed')
+    const result = await api.deletePipeline('purge-new-name')
     const after = { old: oldStore.count(), new: newStore.count() }
     check(
         'purge 12: deleting a pipeline with a blank collection clears the collection of every name it ran under',
