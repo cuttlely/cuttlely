@@ -36,12 +36,20 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Deleting an ETL pipeline whose Local Vector Store has a blank Collection field now removes its vectors from the collection of every name the pipeline ran under. Before, a pipeline whose name changed and that ran again left the vectors in the collection under its old name. Each run records the pipeline name it ran under (ETL schema version 4).
--   A raw MCP server listed in a specialist record's `mcpServers` now passes the same checks as a Custom MCP node (`CUSTOM_MCP_ALLOWED_COMMANDS`, `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS`, `CUSTOM_MCP_ALLOWED_ENV_VARS`, no `cwd`, no shell characters, no code-running flags) before the agent runtime starts it. One that fails is left out of the profile with a warning in the server log. `CUSTOM_MCP_SECURITY_CHECK=false` turns the checks off, as it does for the node.
+-   Deleting an ETL pipeline whose Local Vector Store has a blank Collection field now removes its vectors from the collection of every name the pipeline ran under. Before, a pipeline whose name changed and that ran again left the vectors in the collection under its old name. A paused run resumed after the name changed now writes every chunk to the new collection, instead of splitting them across both and failing the store count check.
 -   A publish check whose last answer or grade is cut off by the check's time limit now ends stopped for time instead of done. Before, it could end done and, for a dataset check, store a verdict scored with that cut-off grade as Error. Now no publish gate result is stored for that check, so it cannot unblock Publish, and the next check runs as usual.
 -   **Prompt and tool text limit** lists the 4,000-character default once, as **Default (4,000 characters)**, instead of also offering a separate **4,000 characters** item. A saved value of 4000 shows as that default item.
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
 -   Try the demo no longer asks for the saved credential list when the role lacks `credentials:view`, so a role with only `chatflows:view` sees no 403 in the browser console. Owners and roles with `credentials:view` still see their keys.
+
+### Security
+
+-   A raw MCP server listed in a specialist record's `mcpServers` now passes the same checks as a Custom MCP node (`CUSTOM_MCP_ALLOWED_COMMANDS`, `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS`, `CUSTOM_MCP_ALLOWED_ENV_VARS`, no `cwd`, no shell characters, no code-running flags) before the agent runtime starts it. One that fails is left out of the profile with a warning in the server log. `CUSTOM_MCP_SECURITY_CHECK=false` turns the checks off, as it does for the node.
+
+### Upgrade notes / breaking changes
+
+-   **Raw MCP servers on specialist records.** A raw entry in a specialist's `mcpServers` (one that is not an MCP node connected on the canvas) now starts only if its command is in `CUSTOM_MCP_ALLOWED_COMMANDS` and its script path is in `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS`. Both are empty by default, so every such server is refused until you set them. A refused server is left out of the harness, and the server log has a warning that names it. If `packages/components` is not built, every raw server is refused. Before you upgrade, set those allow-lists (and `CUSTOM_MCP_ALLOWED_ENV_VARS` for any `env` the server passes), or set `CUSTOM_MCP_SECURITY_CHECK=false` to keep the old behavior.
+-   **Database changes.** At startup the ETL database moves to schema version 4 and gains a `run_names` table, which records the pipeline name each run ran under. Runs from before the upgrade have no names, so deleting a pipeline uses its current name for them. Vectors written under an older name before the upgrade are not removed by that delete.
 
 ## [1.2.0] - 2026-10-15
 
