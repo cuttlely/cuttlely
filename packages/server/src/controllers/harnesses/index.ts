@@ -145,7 +145,7 @@ const getSchedule = async (req: Request, res: Response, next: NextFunction) => {
     }
 }
 
-type ScheduleView = { schedule: { cron?: string; timezone?: string; status?: string } | null }
+type ScheduleView = { schedule: Record<string, unknown> | null }
 
 async function noteScheduleChange(req: Request, action: string, summary: string, view: ScheduleView | { deleted: boolean }) {
     const schedule = 'schedule' in view ? view.schedule : null

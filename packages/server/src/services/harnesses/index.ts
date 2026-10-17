@@ -556,7 +556,7 @@ async function scheduleIn(name: string, workspaceId: string) {
     return schedule && schedule.workspaceId === workspaceId ? schedule : null
 }
 
-async function presentSchedule(schedule: Record<string, any> | null) {
+async function presentSchedule(schedule: Record<string, any> | null): Promise<{ schedule: Record<string, unknown> | null }> {
     if (!schedule) return { schedule: null }
     const { workspaceId: _workspaceId, ownerId, ...rest } = schedule
     // A run cut off by a restart never reported back to the schedule. The run history row has its outcome.
