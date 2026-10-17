@@ -741,76 +741,66 @@
 }
 .cl-callout {
     grid-column: 1 / -1;
-    display: grid;
-    gap: 2rem;
-    align-items: center;
-    padding: 1.5rem;
+    padding: 1.75rem 1.5rem;
     border-radius: 1rem;
     border: 1px solid var(--cuttlely-border);
     background: var(--cuttlely-surface-2);
 }
 @media (min-width: 60rem) {
     .cl-callout {
-        grid-template-columns: minmax(0, 1fr) 18rem;
-        gap: 3rem;
-        padding: 2rem 2.5rem;
+        padding: 2.25rem 2.5rem;
     }
 }
-.cl-callout-copy h3 {
-    margin: 0 0 0.75rem;
-    font-size: var(--sl-text-2xl);
+.cl-callout h3 {
+    margin: 0 0 0.5rem;
+    font-size: var(--sl-text-3xl);
     font-weight: 800;
-    line-height: 1.2;
+    line-height: 1.15;
     color: var(--sl-color-white);
 }
-.cl-callout-copy > p:not(.cl-kicker, .cl-note) {
-    margin: 0 0 1.25rem;
+.cl-callout-lead {
+    margin: 0 0 1.5rem;
+    font-size: var(--sl-text-lg);
     color: var(--sl-color-gray-2);
-    line-height: 1.6;
 }
-.cl-callout-copy .cl-note {
-    margin: 0 0 1rem;
-}
-.cl-callout-shot {
-    width: 100%;
-    max-width: 18rem;
-    justify-self: center;
-}
-.cl-stats {
+.cl-callout-points {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1.5rem;
     display: grid;
     gap: 1rem;
-    margin: 0 0 1rem;
 }
-@media (min-width: 40rem) {
-    .cl-stats {
+@media (min-width: 48rem) {
+    .cl-callout-points {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
-.cl-stats > div {
-    padding: 1rem 1.1rem;
+.cl-callout-points li {
+    margin: 0;
+    padding: 1.1rem 1.25rem;
     border-radius: 0.75rem;
     border: 1px solid var(--cuttlely-border);
     background: var(--cuttlely-surface);
-}
-.cl-stats dt {
-    font-size: var(--sl-text-xs);
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--sl-color-gray-3);
-}
-.cl-stats dd {
-    margin: 0.35rem 0 0;
     font-size: var(--sl-text-sm);
-    line-height: 1.5;
+    line-height: 1.6;
     color: var(--sl-color-gray-2);
 }
-.cl-stat-value {
+.cl-callout-points strong {
     display: block;
-    margin-bottom: 0.15rem;
-    font-size: var(--sl-text-3xl);
-    font-weight: 800;
-    line-height: 1.1;
+    margin-bottom: 0.25rem;
+    font-family: var(--cuttlely-font-display);
+    font-size: var(--sl-text-lg);
+    color: var(--sl-color-white);
+}
+.cl-callout-proof {
+    margin: 0 0 1rem;
+    padding-left: 1rem;
+    border-left: 3px solid var(--sl-color-text-accent);
+    font-size: var(--sl-text-sm);
+    line-height: 1.6;
+    color: var(--sl-color-gray-2);
+}
+.cl-callout-proof .cl-pair-label {
     color: var(--sl-color-text-accent);
 }
 .cl-testing-shot {
@@ -1275,7 +1265,7 @@
     height: 3px;
     background: var(--cuttlely-gradient-mark);
 }
-:root[data-theme='light'] .cl-stats > div {
+:root[data-theme='light'] .cl-callout-points li {
     border-color: var(--cuttlely-card-border);
     background: var(--cuttlely-surface-2);
 }

@@ -8,7 +8,6 @@ import ZoomableImage from '../components/ZoomableImage.astro'
 import laptop from '../assets/cuttlely-mascot-laptop-512.webp'
 import careAnswer from '../content/docs/docs/images/try-the-demo/customer-care-answer.png'
 import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
-import analystPicker from '../content/docs/docs/images/analyst/postgres-mcp-table-picker.png'
 import publishCheck from '../content/docs/docs/images/versioning/publish-check-results.png'
 import serverSettings from '../content/docs/docs/images/server-settings/server-settings-all.png'
 import Focus from '../components/Focus.astro'
@@ -133,6 +132,25 @@ const teamFeatures = [
         text: 'Docker, Render or from source, with SQLite, Postgres, MySQL or MariaDB.',
         href: '/docs/how-to/docker/',
         icon: 'server'
+    }
+] as const
+
+const analystPoints = [
+    {
+        title: 'Safe by design',
+        text: 'It sees and can query only the tables and views you tick, over a read-only connection. Anything else is refused before it runs.'
+    },
+    {
+        title: 'Lean and low-cost',
+        text: 'The prompt carries only the names and columns of what you ticked, never your whole schema. Details of a table are fetched when a question needs them, and materialized views are listed first.'
+    },
+    {
+        title: 'One Analyst per database',
+        text: 'Put a sales, a budget and a CRM Analyst in one team, each with its own database. Harness Prime sends each question to the right one.'
+    },
+    {
+        title: 'Yours to shape, no code',
+        text: 'Write routing and lookup rules in its instructions, and add tools beside it, such as Jira or your own MCP server.'
     }
 ] as const
 
@@ -414,38 +432,25 @@ const installs = [
                     sizes="(min-width: 68rem) 560px, 100vw"
                 />
             </figure>
-            <aside id="the-analyst-sees-only-what-you-tick" class="cl-callout" aria-labelledby="analyst-callout-title">
-                <div class="cl-callout-copy">
-                    <p class="cl-kicker">The Analyst node</p>
-                    <h3 id="analyst-callout-title" class="cl-display">It sees only the tables you tick</h3>
-                    <p>
-                        Tick the tables and views the Analyst may use. It gets their names and column names, and fetches the details of one only when a question
-                        needs them. It answers from a small prompt, and every query stays limited to those tables.
-                    </p>
-                    <dl class="cl-stats">
-                        <div>
-                            <dt>Prompt tokens, about</dt>
-                            <dd><span class="cl-stat-value cl-display">643</span> versus about 2,562 with the whole schema pasted in</dd>
-                        </div>
-                        <div>
-                            <dt>Real-model test, gpt-4.1</dt>
-                            <dd><span class="cl-stat-value cl-display">5 of 5</span> questions answered correctly, each data question on its first query</dd>
-                        </div>
-                    </dl>
-                    <p class="cl-note">
-                        Measured on the made-up bakery demo database: 20 tables and views, 6 ticked. Token counts come from
-                        <a href={`${REPO_URL}/blob/main/scripts/analyst-schema-tokens.mjs`}><code>scripts/analyst-schema-tokens.mjs</code></a>.
-                    </p>
-                    <a class="cl-link-arrow" href="/docs/how-to/analyst/#pick-the-tables-and-views-the-analyst-sees">Analyst guide <Icon name="right-arrow" /></a>
-                </div>
-                <figure class="cl-shot cl-callout-shot">
-                    <ZoomableImage
-                        src={analystPicker}
-                        alt="The Tables and views field on the PostgreSQL MCP card, from the bakery demo. public.monthly_sales, public.top_products and public.account_balances are ticked, public.open_orders and public.product_margins are not. The line under the list reads 6 of 20 ticked. Queries that read anything else are refused."
-                        widths={[320, 529]}
-                        sizes="(min-width: 60rem) 18rem, 80vw"
-                    />
-                </figure>
+            <aside id="ask-your-database-in-plain-english" class="cl-callout" aria-labelledby="analyst-callout-title">
+                <p class="cl-kicker">The Analyst</p>
+                <h3 id="analyst-callout-title" class="cl-display">Ask your database in plain English</h3>
+                <p class="cl-callout-lead">Get answers backed by real queries against your own Postgres data, not guesses.</p>
+                <ul class="cl-callout-points">
+                    {
+                        analystPoints.map((point) => (
+                            <li>
+                                <strong>{point.title}</strong> {point.text}
+                            </li>
+                        ))
+                    }
+                </ul>
+                <p class="cl-callout-proof">
+                    <span class="cl-pair-label">Bakery demo</span>
+                    On the made-up bakery database, it used about a quarter of the prompt tokens of pasting in the whole schema, and answered 5 of 5 questions
+                    correctly in a real-model test, each data question on its first query.
+                </p>
+                <a class="cl-link-arrow" href="/docs/how-to/analyst/">Analyst guide <Icon name="right-arrow" /></a>
             </aside>
         </section>
 
