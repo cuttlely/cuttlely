@@ -196,19 +196,28 @@ function clip(text, limit) {
     return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`
 }
 
+// A name or comment can hold a newline. Each relation stays on one line of the tool description.
+function oneLine(text) {
+    return String(text || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
 export function columnList(relation, limit = LINE_COLUMNS) {
-    const names = relation.columnNames || []
+    const names = (relation.columnNames || []).map(oneLine)
     return names.length > limit ? `${names.slice(0, limit).join(', ')}, …` : names.join(', ')
 }
 
 // One short line per relation: name, kind, its first column names, and the comment when there is one.
 // Models tend to write SQL before calling describe, so the names they need most are already in the line.
 export function relationLine(relation) {
-    if (!relation.kind) return relation.name
+    const name = oneLine(relation.name)
+    if (!relation.kind) return name
     const columns = columnList(relation)
-    const head = columns ? `${relation.name} (${relation.kind}): ${columns}` : `${relation.name} (${relation.kind})`
-    if (!relation.comment) return head
-    return `${head}${columns ? ' — ' : ': '}${clip(relation.comment, COMMENT_CHARS)}`
+    const head = columns ? `${name} (${relation.kind}): ${columns}` : `${name} (${relation.kind})`
+    const comment = oneLine(relation.comment)
+    if (!comment) return head
+    return `${head}${columns ? ' — ' : ': '}${clip(comment, COMMENT_CHARS)}`
 }
 
 export function relationToolNote(relations) {
@@ -222,22 +231,35 @@ export function relationToolNote(relations) {
 // 42703 undefined column (also a JOIN ... USING column a side lacks), 42702 ambiguous column.
 const COLUMN_ERRORS = new Set(['42703', '42702'])
 
-function mentions(statement, relation) {
-    const local = nameParts(relation.name)?.[1]
-    if (!local) return false
-    const quoted = relation.name.endsWith('"')
-    if (quoted) return statement.includes(`"${local.replace(/"/g, '""')}"`)
-    const escaped = local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return new RegExp(`(^|[^A-Za-z0-9_$"])${escaped}($|[^A-Za-z0-9_$"])`, 'i').test(statement)
+// Each name in the statement, as [schema, name] or [name], folded as Postgres folds it. String literals are skipped.
+const STATEMENT_NAMES = new RegExp(`'(?:[^']|'')*'|(${IDENT})(?:\\s*\\.\\s*(${IDENT}))?`, 'g')
+
+function statementNames(statement) {
+    const names = []
+    for (const match of statement.matchAll(STATEMENT_NAMES)) {
+        if (!match[1]) continue
+        names.push(match[2] ? [unquote(match[1]), unquote(match[2])] : [unquote(match[1])])
+    }
+    return names
+}
+
+// A qualified name matches on schema and name. A bare name matches the relation's own name.
+function mentions(names, relation) {
+    const parts = nameParts(relation.name)
+    if (!parts) return false
+    return names.some((name) => (name.length === 2 ? name[0] === parts[0] && name[1] === parts[1] : name[0] === parts[1]))
 }
 
 // After a guessed column fails, the columns of each selected relation the statement names, so the retry can be right.
 export function columnErrorHint(error, statement, relations) {
     if (!COLUMN_ERRORS.has(String(error?.code || ''))) return ''
-    const text = String(statement || '')
+    const names = statementNames(String(statement || ''))
     return relations
-        .filter((relation) => relation.columnNames?.length && mentions(text, relation))
-        .map((relation) => ` Columns of ${relation.name}: ${columnList(relation, ERROR_COLUMNS)}.`)
+        .filter((relation) => relation.columnNames?.length && mentions(names, relation))
+        .map((relation) => {
+            const list = columnList(relation, ERROR_COLUMNS)
+            return ` Columns of ${oneLine(relation.name)}: ${list}${list.endsWith('…') ? '' : '.'}`
+        })
         .join('')
 }
 
