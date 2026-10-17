@@ -973,12 +973,13 @@ test('the light home page colour tokens and rules apply only to the light theme'
 test('no two light-theme tinted bands sit next to each other on the home page', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
-    const banded = new Set(
-        css
-            .match(/:root\[data-theme='light'\]\s+:is\(([^)]+)\) \{/)[1]
-            .split(', ')
-            .map((s) => s.replace('#', ''))
-    )
+    const lists = [...css.matchAll(/:root\[data-theme='light'\]\s+:is\(([^)]+)\)/g)]
+        .map((m) => m[1].split(',').map((s) => s.trim()))
+        .filter((list) => list.every((s) => s.startsWith('#')))
+        .map((list) => list.map((s) => s.slice(1)).sort())
+    assert.ok(lists.length >= 3, 'band, wash and border selector lists')
+    for (const list of lists) assert.deepEqual(list, lists[0], 'every band selector list names the same sections')
+    const banded = new Set(lists.flat())
     const order = [...src.matchAll(/<section id="([^"]+)"/g)].map((m) => m[1])
     for (const id of banded) assert.ok(order.includes(id), id)
     for (let i = 1; i < order.length; i++) {
