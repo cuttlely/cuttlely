@@ -1231,6 +1231,11 @@
             "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
         },
         {
+            "from": "packages/ui/src/ui-component/input/Input.test.js",
+            "to": "packages/ui/src/ui-component/input/Input.jsx",
+            "reason": "The character counter test renders the inherited Input field it covers."
+        },
+        {
             "from": "packages/ui/src/utils/usePrompt.test.js",
             "to": "packages/ui/src/utils/usePrompt.js"
         },
