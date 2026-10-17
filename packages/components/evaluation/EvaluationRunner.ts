@@ -141,7 +141,11 @@ export class EvaluationRunner {
                 postData.overrideConfig = { sessionId: data.sessionId }
             }
             try {
-                let response = await axios.post(`${this.baseURL}/api/v1/prediction/${chatflowId}`, postData, axiosConfig)
+                let response = await axios.post(
+                    `${this.baseURL}/api/v1/prediction/${encodeURIComponent(chatflowId)}`,
+                    postData,
+                    axiosConfig
+                )
                 let agentFlowMetrics: any[] = []
                 if (response?.data?.agentFlowExecutedData) {
                     for (let i = 0; i < response.data.agentFlowExecutedData.length; i++) {
