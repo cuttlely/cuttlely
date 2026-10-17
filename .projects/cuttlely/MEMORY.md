@@ -85,6 +85,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   **A sample with raw canvas JSON** lacks `inputParams`, `inputAnchors` and `outputAnchors`. The canvas fills them on load (`normalizeCanvasFlow.js`) and the Templates API fills them before preview.
 -   **Two cards dropped on the same point** can look like "needs exactly one chief". Fix drop placement; do not loosen the chief check.
 -   **MUI dropdowns:** `<OutlinedInput select>` rendered a blank box; use `<Select input={<OutlinedInput />}>`.
+-   **A deadline timer and `Date.now()` do not agree.** Timers run on the monotonic clock, so a timer armed for `deadline - Date.now()` can fire while `Date.now()` is still short of the deadline. The publish check records the time limit when its run timer fires at the deadline (`timeUp` in `packages/server/src/services/flow-check/index.ts`) instead of reading the clock again.
 -   **Runner images do not always have `rg`.** Source-scan checks use a pure Node file walk.
 -   **A workflow run with no steps** is a runner or account problem, not a lint or build result. A draft pull request's green check may be lint only; read the job list.
 -   **When `main` and a branch both add to `DECISIONS.md`,** an automatic merge can keep both copies. After resolving a notes conflict, check for a repeated heading or number.
