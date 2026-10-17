@@ -183,6 +183,18 @@ Those same steps can be sent as an OpenTelemetry trace: the run, the route, each
 
 Each chip is the tool name and `done`, `retried`, or `failed`. A specialist's tools are offered to it directly, so the first chip is the tool itself, such as `mcp__analyst__query`, not a `tool_search` and `tool_call` lookup first. A failed chip is red. Hold the pointer over a `retried` chip for the reason. An analyst query chip that returned rows also says how many, such as `mcp__analyst__query · done · 100 rows`. Select it to open a short preview of those rows, never more than the configured row cap (at most 1000). The table starts closed. It shows the first few rows and columns, with long values cut short. When the preview is shorter than a finished page with no page line, the caption says the answer can show fewer rows than the query returned. When the result has a page line and the question asks for the rows, the caption says the rest of these rows are in the answer in this chat. A count or a total does not. It says to say `show more` only when another page exists. Select the chip again to close it. The preview is saved with the run trace. It is only rows that query already returned. Harness Prime gets a short handoff, and the answer can show only the top rows. A database result that stopped at the row cap ends with a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The cap is 100 rows unless you change it, and never more than 1000. Say `show more` for the next page. See [Query preview on the run card](./analyst.md#query-preview-on-the-run-card).
 
+### How long a turn should take
+
+A turn where Harness Prime sends work to more than one specialist aims for these times on fast models, measured as the run card's wall time:
+
+| Measure      | Target               |
+| ------------ | -------------------- |
+| p50 (median) | at most 15 seconds   |
+| p95          | at most 30 seconds   |
+| Turn budget  | 45 seconds, enforced |
+
+The p50 and p95 figures are targets, not limits, and they are still provisional. A slow provider can go over them. The turn budget always applies: a specialist still running when the budget runs out fails, and Harness Prime answers from the others. `CUTTLELY_HARNESS_TURN_BUDGET_MS` changes the budget from its 45-second default. To watch these figures on real traffic, use the **Harness run duration p95 by harness** and **Run duration p50 / p95** panels in the [Grafana dashboard](./observability.md#panels).
+
 ## Build a team with AI
 
 Describe the team in plain words and **Build with AI** puts it on a new harness: Harness Prime, one specialist for each role, and the tools each specialist needs. Every part and every connection is checked before the team lands. You need a chat model credential first. See [Save an OpenAI key as a credential](#save-an-openai-key-as-a-credential).
