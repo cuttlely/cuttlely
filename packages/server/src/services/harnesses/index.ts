@@ -584,28 +584,43 @@ async function scheduleIn(name: string, workspaceId: string) {
     return schedule && schedule.workspaceId === workspaceId ? schedule : null
 }
 
-async function presentSchedule(schedule: Record<string, any> | null): Promise<{ schedule: Record<string, unknown> | null }> {
+// The question is shown redacted, the same way run history stores it. An API key sees the owner's name only.
+async function presentSchedule(
+    schedule: Record<string, any> | null,
+    view: { apiKeyCaller?: boolean } = {}
+): Promise<{ schedule: Record<string, unknown> | null }> {
     if (!schedule) return { schedule: null }
     const { workspaceId: _workspaceId, ownerId, ...rest } = schedule
+    const trace = await loadHarness('trace.mjs')
+    rest.question = trace.redactSecrets(String(rest.question || ''))
     // A run cut off by a restart never reported back to the schedule. The run history row has its outcome.
     if (rest.lastResult === 'running' && rest.lastRunId) {
         const history = await loadHarness('history.mjs')
         const status = history.getRun(rest.harness, rest.lastRunId)?.status
         if (status && status !== 'running' && status !== 'queued') rest.lastResult = status
     }
-    return { schedule: { ...rest, owner: await ownerSummary(ownerId) } }
+    const owner = await ownerSummary(ownerId)
+    return { schedule: { ...rest, owner: view.apiKeyCaller ? { name: owner.name } : owner } }
 }
 
-const getHarnessSchedule = async (name: string, workspaceId?: string | null) => {
+const getHarnessSchedule = async (name: string, workspaceId?: string | null, view: { apiKeyCaller?: boolean } = {}) => {
     const harness = await requireHarness(name, workspaceId)
-    return presentSchedule(await scheduleIn(harness.name, workspaceOf(workspaceId)))
+    return presentSchedule(await scheduleIn(harness.name, workspaceOf(workspaceId)), view)
 }
 
 const saveHarnessSchedule = async (name: string, body: Record<string, unknown>, opts: { workspaceId?: string | null; ownerId: string }) => {
     const harness = await requireHarness(name, opts.workspaceId)
     const schedules = await loadHarness('schedule.mjs')
+    // The page shows the question redacted. Saving that text back unchanged keeps the stored question.
+    const stored = await scheduleIn(harness.name, workspaceOf(opts.workspaceId))
+    const input = { ...(body || {}) }
+    if (stored && typeof input.question === 'string') {
+        const trace = await loadHarness('trace.mjs')
+        const shown = trace.redactSecrets(String(stored.question || ''))
+        if (shown !== stored.question && input.question.trim() === shown.trim()) input.question = stored.question
+    }
     try {
-        const saved = schedules.saveSchedule(harness.name, body || {}, {
+        const saved = schedules.saveSchedule(harness.name, input, {
             workspaceId: workspaceOf(opts.workspaceId),
             ownerId: opts.ownerId
         })

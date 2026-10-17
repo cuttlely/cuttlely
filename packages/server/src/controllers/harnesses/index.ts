@@ -6,9 +6,11 @@ import harnessesService from '../../services/harnesses'
 import {
     callerApiKeyId,
     callerKeyHarnesses,
+    isApiKeyCaller,
     noteBackgroundRunSettled,
     noteBackgroundRunStarted,
     noteHarnessAudit,
+    safeHarnessName,
     scheduleOwner
 } from '../../services/harnesses/apiAccess'
 import { trackBackgroundRun } from '../../settings/runs'
@@ -157,7 +159,9 @@ const getRunResult = async (req: Request, res: Response, next: NextFunction) => 
 
 const getSchedule = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.getHarnessSchedule(req.params.name, activeWorkspace(req)))
+        return res.json(
+            await harnessesService.getHarnessSchedule(req.params.name, activeWorkspace(req), { apiKeyCaller: isApiKeyCaller(req) })
+        )
     } catch (error) {
         next(error)
     }
@@ -168,7 +172,7 @@ type ScheduleView = { schedule: Record<string, unknown> | null }
 async function noteScheduleChange(req: Request, action: string, summary: string, view: ScheduleView | { deleted: boolean }) {
     const schedule = 'schedule' in view ? view.schedule : null
     await noteHarnessAudit(req, 'harness_schedule', summary, {
-        harness: String(req.params.name || '').slice(0, 64),
+        harness: safeHarnessName(req.params.name),
         action,
         ...(schedule ? { cron: schedule.cron, timezone: schedule.timezone, status: schedule.status } : {})
     })

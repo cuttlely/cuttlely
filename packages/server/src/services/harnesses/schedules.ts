@@ -2,6 +2,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { safeRecordAudit } from '../../identity/auditLog'
 import { resolveTeamAccess } from '../../identity/rbac'
 import logger from '../../utils/logger'
+import { isDraining, isShuttingDown, trackBackgroundRun } from '../../settings/runs'
 import { orgIdForWorkspace } from '../etl'
 import harnessesService, { loadHarness } from '.'
 
@@ -44,14 +45,16 @@ async function auditSchedule(schedule: StoredSchedule, summary: string, detail: 
 }
 
 // The run goes through startBackgroundRun, the same path as an API run, so history, traces, and usage match.
+// A server that is restarting or shutting down starts nothing; the due time stays due for the next tick.
 export async function tickHarnessSchedules() {
+    if (isDraining() || isShuttingDown()) return []
     const schedules = await loadHarness('schedule.mjs')
     return schedules.tickSchedules({
         start: (schedule: StoredSchedule, onSettled: (outcome: { runId: string; status: string }) => void) =>
             harnessesService.startBackgroundRun(
                 schedule.harness,
                 { question: schedule.question },
-                { workspaceId: schedule.workspaceId, source: 'schedule', onSettled }
+                { workspaceId: schedule.workspaceId, source: 'schedule', apiKeyId: null, track: trackBackgroundRun, onSettled }
             ),
         ownerMayRun: (schedule: StoredSchedule) => ownerMayRun(schedule.ownerId, schedule.workspaceId),
         audit: auditSchedule,

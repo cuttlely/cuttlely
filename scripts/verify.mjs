@@ -128,12 +128,18 @@ const STEPS = [
         args: [path.join(ROOT, 'scripts', 'eval-routes.test.cjs')]
     },
     {
-        // Own process. This script and harness-draft-usage both stub
-        // packages/server/src/services/harnesses/harness, and node --test runs those files together.
+        // Own step. This script and harness-draft-usage both stub packages/server/src/services/harnesses/harness,
+        // and node --test runs the files of one list together. The schedule tick test needs the real harness
+        // modules, so the two files here run one after the other.
         name: 'harness-queue-trace',
         fast: true,
         command: process.execPath,
-        args: [path.join(ROOT, 'scripts', 'harness-queue-trace.test.mjs')]
+        args: [
+            '--test',
+            '--test-concurrency=1',
+            path.join(ROOT, 'scripts', 'harness-queue-trace.test.mjs'),
+            path.join(ROOT, 'scripts', 'harness-schedule-tick.test.mjs')
+        ]
     },
     {
         // Every link in docs/, the README quickstart, CHANGELOG, SECURITY and CREDITS resolves for the website.

@@ -5,12 +5,16 @@ import { TeamAccess } from '../../identity/sqlStore'
 
 const saved: Array<{ name: string; body: unknown; ownerId: string }> = []
 const statusChanges: string[] = []
+const scheduleReads: unknown[] = []
 
 jest.mock('.', () => ({
     __esModule: true,
     loadHarness: jest.fn(),
     default: {
-        getHarnessSchedule: async () => ({ schedule: null }),
+        getHarnessSchedule: async (...args: unknown[]) => {
+            scheduleReads.push(args[2])
+            return { schedule: null }
+        },
         saveHarnessSchedule: async (name: string, body: unknown, opts: { ownerId: string }) => {
             saved.push({ name, body, ownerId: opts.ownerId })
             return { schedule: { harness: name, cron: '0 7 * * 1-5', timezone: 'Europe/Paris', status: 'active' } }
@@ -59,6 +63,7 @@ describe('harness schedules', () => {
     beforeEach(() => {
         saved.length = 0
         statusChanges.length = 0
+        scheduleReads.length = 0
         access.clear()
         setTeamPermissionLookup({
             accessFor: async (userId, workspaceId) => access.get(`${userId}|${workspaceId}`) || { owner: false, permissions: null }
@@ -99,6 +104,13 @@ describe('harness schedules', () => {
     it('lets an API key read the schedule only for a harness on its list', async () => {
         expect((await request(app(apiKey)).get('/api/v1/harnesses/bakery/schedule')).status).toBe(200)
         expect((await request(app(apiKey)).get('/api/v1/harnesses/payroll/schedule')).status).toBe(403)
+    })
+
+    it('asks for the API key view of a schedule, without the owner email or id, only for an API key', async () => {
+        await request(app(apiKey)).get('/api/v1/harnesses/bakery/schedule')
+        access.set('user-1|team-a', { owner: false, permissions: ['chatflows:view'] })
+        await request(app(person)).get('/api/v1/harnesses/bakery/schedule')
+        expect(scheduleReads).toEqual([{ apiKeyCaller: true }, { apiKeyCaller: false }])
     })
 
     it('runs a schedule only while its owner can still run harnesses in that team', async () => {
