@@ -3,13 +3,12 @@ import PropTypes from 'prop-types'
 import { Box, Button, Checkbox, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 
-import { fetchList } from '@/ui-component/dropdown/AsyncDropdown'
 import { filterChoices, missingNames, savedValue, selectedNames, selectionSummary, splitOptions, toggleName } from '@/utils/checkboxList'
 
 const FILTER_FROM = 8
 
 // An asyncMultiOptions input with one checkbox per option, for lists that are read rather than searched.
-export const CheckboxList = ({ name, nodeData, value, onSelect, disabled = false }) => {
+export const CheckboxList = ({ loadOptions, value, onSelect, disabled = false }) => {
     const theme = useTheme()
     const [options, setOptions] = useState([])
     const [loading, setLoading] = useState(true)
@@ -19,7 +18,7 @@ export const CheckboxList = ({ name, nodeData, value, onSelect, disabled = false
     useEffect(() => {
         let cancelled = false
         ;(async () => {
-            const response = await fetchList({ name, nodeData })
+            const response = await loadOptions()
             if (cancelled) return
             setOptions(Array.isArray(response) ? response : [])
             setLoading(false)
@@ -125,8 +124,7 @@ export const CheckboxList = ({ name, nodeData, value, onSelect, disabled = false
 }
 
 CheckboxList.propTypes = {
-    name: PropTypes.string,
-    nodeData: PropTypes.object,
+    loadOptions: PropTypes.func,
     value: PropTypes.oneOfType([PropTypes.string, PropTypes.array]),
     onSelect: PropTypes.func,
     disabled: PropTypes.bool

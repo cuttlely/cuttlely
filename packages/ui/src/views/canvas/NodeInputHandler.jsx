@@ -43,7 +43,7 @@ import Autocomplete, { autocompleteClasses } from '@mui/material/Autocomplete'
 // project import
 import { Dropdown } from '@/ui-component/dropdown/Dropdown'
 import { MultiDropdown } from '@/ui-component/dropdown/MultiDropdown'
-import { AsyncDropdown } from '@/ui-component/dropdown/AsyncDropdown'
+import { AsyncDropdown, fetchList } from '@/ui-component/dropdown/AsyncDropdown'
 import { CheckboxList } from '@/ui-component/checkbox/CheckboxList'
 import { Input } from '@/ui-component/input/Input'
 import { RichInput } from '@/ui-component/input/RichInput'
@@ -1393,8 +1393,7 @@ const NodeInputHandler = ({
                             >
                                 <CheckboxList
                                     disabled={disabled}
-                                    name={inputParam.name}
-                                    nodeData={data}
+                                    loadOptions={() => fetchList({ name: inputParam.name, nodeData: data })}
                                     value={data.inputs[inputParam.name] ?? ''}
                                     onSelect={(newValue) => handleDataChange({ inputParam, newValue })}
                                 />
