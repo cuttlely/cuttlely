@@ -21,7 +21,7 @@ chief-of-staff 裡的分析員先保持關閉，直到你把 `CUTTLELY_ANALYST` 
 
 流程的每個版本都會保留，變更只有在你決定時才會送到使用它的人面前。對話流和 agentflow 的畫布預設儲存為**草稿**，而 API、嵌入和分享連結繼續執行 **Live** 版本。在你 **Publish** 對話流或 agentflow 之前，Cuttlely 可以把幾個最近的真實問題在 Live 和你的草稿上各問一次，並排顯示回答。**Version history** 顯示改了什麼、誰改的，一鍵就能還原舊版本或讓 Live 回到先前的版本。擁有者還可以在自己的 GitHub 儲存庫保留一份副本：在瀏覽器建立第一個帳號後會提示一次，之後隨時可在 **Admin**、**Version History** 設定；也可以用它把流程從 Dev 伺服器移到 Prod 伺服器，每台伺服器各自保管自己的憑證。歷史保存在你的伺服器上，是資料旁邊的一個 Git 儲存庫。憑證只以名稱記錄，提示詞裡看起來像密鑰的文字不會寫進歷史。步驟見[版本歷史](#版本歷史)。
 
-[English](../README.md) | 繁體中文 | [简体中文](./README-ZH.md) | [日本語](./README-JA.md) | [한국어](./README-KR.md)
+[English](../README.md) | [日本語](../README.ja.md) | [한국어](../README.ko.md) | 繁體中文 | [简体中文](./README-ZH.md)
 
 英文 README 是原文。內容不一致時，以英文版為準。
 
