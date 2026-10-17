@@ -193,7 +193,7 @@ A turn where Harness Prime sends work to more than one specialist aims for these
 | p95          | at most 30 seconds   |
 | Turn budget  | 45 seconds, enforced |
 
-The p50 and p95 figures are targets, not limits, and they are still provisional. A slow provider can go over them. The turn budget always applies: a specialist still running when the budget runs out fails, and Harness Prime answers from the others. `CUTTLELY_HARNESS_TURN_BUDGET_MS` changes the budget from its 45-second default. To watch these figures on real traffic, use the **Harness run duration p95 by harness** and **Run duration p50 / p95** panels in the [Grafana dashboard](./observability.md#panels).
+The p50 and p95 figures are targets, not limits, and they are still provisional. A slow provider can go over them. The turn budget always applies: a specialist still running when the budget runs out fails, and the turn returns the finished specialists' answers as they are, without a Harness Prime handoff. If none finished, the answer says the turn ran out of time. `CUTTLELY_HARNESS_TURN_BUDGET_MS` changes the budget from its 45-second default. `0` turns it off. To watch these figures on real traffic, use the **Harness run duration p95 by harness** and **Run duration p50 / p95** panels in the [Grafana dashboard](./observability.md#panels). Those panels count every harness run, not only turns with more than one specialist, and they have data only with [turn traces on](./observability.md#turn-traces-on).
 
 ## Build a team with AI
 
