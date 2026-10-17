@@ -12,7 +12,7 @@ node scripts/docs-shots/capture.mjs
 
 The script starts a fresh server on an empty data directory, signs in with the local owner account, and takes the pictures with Playwright at browser zoom 100%.
 
-Set `DOCS_SHOT_USE_EXTERNAL=1` and `OPENAI_API_KEY` to answer with that key. With the variable unset, a loopback stand-in (`stub-model.mjs`) answers so the pictures stay on made-up bakery and customer-care text. Its customer-care answers for Maya, Daniel and the held orders carry the amounts, names and orders the sample tools in `samples/demo/customer-care` return. Its other answers have `$` amounts removed. The key is read from the environment only. The script never prints it, and no picture shows a key, a token or a masked prefix.
+Set `DOCS_SHOT_USE_EXTERNAL=1` and `OPENAI_API_KEY` to answer with that key. With the variable unset, a loopback stand-in (`stub-model.mjs`) answers so the pictures stay on made-up bakery and customer-care text. Its customer-care decisions state the sample policy's amounts, and the March croissant answer draws a bar chart. The key is read from the environment only. The script never prints it, and no picture shows a key, a token or a masked prefix.
 
 Amounts are masked in `money.mjs` before each picture, and `money.test.mjs` (run by `pnpm verify`) covers it. `try-the-demo/try-the-demo-key.png`, a crop of the Try the demo card, is not masked. It only gets the Estimated cost check and the money check, and fails on either.
 
@@ -20,7 +20,7 @@ Amounts are masked in `money.mjs` before each picture, and `money.test.mjs` (run
 -   `try-the-demo/customer-care-*` frames keep every other `$` amount, such as the shipping refund and the store credit. Answer text such as `estimated $279.00 value` is left as written.
 -   Every other frame also has, in any text that holds a `$` amount, the word `estimated` with the amount after it and every other `$` amount removed. It fails if a `$` figure or a number with two decimals is still shown.
 
-Before the policy, carrier, held-orders and croissant pictures, the script waits 3 seconds, then until the page text has not changed across five one-second checks in a row and the page shows no Running, Answering or Waiting for the first token. It then checks the answer: `Service Recovery Policy` after Maya Okafor's question for policy, `road closure for snow` after Daniel Reyes's question for carrier, `LH-20409` after the held-orders question for held, and `Riverside sold 335 more` anywhere in the chat for croissant. The frame fails without being saved if the chat is still changing after 240 seconds, if the question or the text is missing, or if the held-orders chat cannot be scrolled to its question.
+Before the policy, carrier, held-orders and croissant pictures, the script waits 3 seconds, then until the page text has not changed across five one-second checks in a row and the page shows no Running, Answering or Waiting for the first token. It then checks the answer: `Larkfield` after Maya Okafor's question for policy, `road closure for snow` after Daniel Reyes's question for carrier, `LH-20409` after the held-orders question for held, and `Riverside sold 335 more` anywhere in the chat for croissant. The frame fails without being saved if the chat is still changing after 240 seconds, if the question or the text is missing, or if the held-orders chat cannot be scrolled to its question.
 
 `DOCS_SHOTS=canvas,share,api,demo,demo-chart,card` limits the set. `demo-chart` reshoots only the bakery March croissant answer. `all` is the default.
 

@@ -119,11 +119,17 @@ function orderId(text) {
 
 function chartCode(text) {
     const folder = imageFolder(text)
+    const march = marchCroissantQuestion(text)
     const croissants = /croissant/i.test(text)
-    const title = croissants ? 'Croissants baked this week' : 'Sourdough and rye loaves'
-    const labels = croissants ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] : ['Sourdough', 'Rye']
-    const values = croissants ? [42, 55, 48, 63, 71, 88] : [120, 75]
-    const file = croissants ? 'croissants.png' : 'loaves.png'
+    const title = march ? 'Croissants sold in March 2026' : croissants ? 'Croissants baked this week' : 'Sourdough and rye loaves'
+    const labels = march
+        ? ['Riverside', 'Old Town']
+        : croissants
+        ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        : ['Sourdough', 'Rye']
+    const values = march ? [1346, 1011] : croissants ? [42, 55, 48, 63, 71, 88] : [120, 75]
+    const file = march ? 'march-croissants.png' : croissants ? 'croissants.png' : 'loaves.png'
+    const unit = march ? 'Units sold' : 'Loaves'
     return `
 import os
 from PIL import Image, ImageDraw, ImageFont
@@ -142,7 +148,7 @@ width, height = 920, top + len(labels) * (bar_h + gap) + 36
 img = Image.new('RGB', (width, height), 'white')
 draw = ImageDraw.Draw(img)
 draw.text((24, 20), title, fill='#1f2937', font=big)
-draw.text((24, 50), 'Loaves', fill='#6b7280', font=small)
+draw.text((24, 50), ${JSON.stringify(unit)}, fill='#6b7280', font=small)
 peak = max(values) or 1
 span = width - left - right
 for i, (label, value) in enumerate(zip(labels, values)):
@@ -183,6 +189,7 @@ function specialistCode(text) {
         )})\nfrom fulfillment import investigate\nprint(investigate(${JSON.stringify(order)}))`
     }
     if (marchCroissantQuestion(task) || marchCroissantQuestion(text)) {
+        if (imageFolder(text)) return chartCode(text)
         return [
             'print("Riverside sold 335 more croissants than Old Town in March 2026.")',
             'print("Shop Units")',
@@ -239,23 +246,22 @@ function routeSteps(text) {
     }
 }
 
-// Amounts in MAYA, DANIEL and HELD are what the sample tools in samples/demo/customer-care return for these orders.
 const MAYA = `**Decision:** The delay is Larkfield Home's fault. The parcel was held after a warehouse scale check and the carrier never received it. The remedy is a $9.95 shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a $55.80 store credit, and a call from the Customer Care Lead.
 
-**Reply to the customer:** Maya, a warehouse error kept the parcel from the carrier, so the tracking page never moved. We can send a replacement by Express, arriving Thursday, October 8, or refund the order. We are refunding the $9.95 shipping, adding a $55.80 store credit, and the Customer Care Lead will call.
+**Reply to the customer:** Maya, a warehouse error kept the parcel from the carrier, so the tracking page never moved. We can send a replacement by Express, arriving Thursday, October 8, or refund the order. We will also refund the $9.95 shipping, add a $55.80 store credit, and the Customer Care Lead will call.
 
 **Actions:**
 - Refund the $9.95 shipping
 - Reship from Reno by Express, arriving 2026-10-08
 - Recall the parcel held at the Columbus warehouse
-- Add a $55.80 store credit
+- Add a $55.80 store credit: 20% of the $279.00 item price, the Premier remedy for a repeat late delivery
 - Ask the Customer Care Lead to call
 - Open an operations incident for packing wave W-0929-B, which held 5 orders
 
 **Evidence:**
 - customer: Maya Okafor is a Plus customer. Her previous order was late 52 days ago, so this is a second late delivery.
 - operations: the parcel failed the outbound scale check and stayed in the exception cage. The carrier scan is only "Label created".
-- policy: a delay before the carrier's first pickup scan is Larkfield's fault. A second late delivery raises Plus to the Premier remedy: 20% of the $279.00 item price is a $55.80 store credit.
+- policy: a delay before the carrier's first pickup scan is Larkfield's fault, so the goodwill limit does not apply.
 
 Source: Service Recovery Policy, sections 1.2, 2.1, 2.3, 2.5, 3.1, 3.2, 3.3, 3.4.`
 
@@ -266,16 +272,16 @@ const DANIEL = `**Decision:** The delay was the carrier's fault. A road closure 
 **Actions:**
 - Ask the carrier for a trace
 - Reship only after 3 business days with no new scan
-- Add a $10.00 goodwill credit
+- Add the $10.00 goodwill credit for a Standard customer
 
 **Evidence:**
 - customer: Daniel Reyes is a Standard customer with no other late delivery in the last 120 days.
 - operations: the carrier picked the parcel up on time and then recorded a road closure for snow.
-- policy: a delay after the carrier's first scan is the carrier's fault. A Standard customer with no other late delivery receives a trace and a $10.00 goodwill credit, with no shipping refund.
+- policy: a delay after the carrier's first scan is the carrier's fault. A Standard customer with no other late delivery receives a trace and a goodwill credit.
 
-Source: Service Recovery Policy, sections 2.2, 2.4, 3.1.`
+Source: Service Recovery Policy, sections 2.4, 3.1.`
 
-const HELD = `Five orders are held in exception cage E-2 at the Columbus warehouse (CMH). Each failed the outbound scale check in packing wave W-0929-B on 2026-09-29.
+const HELD = `Five orders are held in exception cage E-2 at the Columbus warehouse (CMH) after failed outbound scale checks on 2026-09-29, all in packing wave W-0929-B.
 - LH-20409, Priya Natarajan, Premier
 - LH-20411, Tom Lindqvist, Standard
 - LH-20417, Maya Okafor, Plus
@@ -285,12 +291,7 @@ const HELD = `Five orders are held in exception cage E-2 at the Columbus warehou
 The Plus and Premier customers are Priya Natarajan (LH-20409, Premier), Maya Okafor (LH-20417, Plus) and Grace Whitfield (LH-20420, Plus).`
 
 // March 2026 croissant units from samples/demo/bakery/bakery.sql: Riverside 1346, Old Town 1011.
-const MARCH_CROISSANTS = `Riverside sold 335 more croissants than Old Town in March 2026.
-
-| Shop | Units |
-| --- | --- |
-| Riverside | 1346 |
-| Old Town | 1011 |`
+const MARCH_CROISSANTS = `In March 2026, Riverside sold 1,346 croissants and Old Town sold 1,011. Riverside sold 335 more croissants than Old Town.`
 
 const WEEK_LOAVES = `Croissants baked this week:
 
@@ -361,10 +362,7 @@ function decide(body) {
     if (/You build a Cuttlely harness/.test(text)) return { content: JSON.stringify(CHART_PLAN) }
     if (/You build a Cuttlely/.test(text)) return { content: JSON.stringify(MATH_PLAN) }
     if (/You route work/.test(text)) return { content: JSON.stringify(routeSteps(text)) }
-    if (/You are Harness Prime/.test(text)) {
-        const answer = handoff(text)
-        return { content: answer, keepAmounts: [MAYA, DANIEL, HELD].includes(answer) }
-    }
+    if (/You are Harness Prime/.test(text)) return { content: handoff(text) }
     if (names.some((name) => name === 'calculator' || name.includes('calculator'))) {
         if (toolResult(messages)) return { content: bakeryAnswer(question) }
         return { toolCalls: [{ name: 'calculator', arguments: { input: calculatorArgs(question) } }] }
@@ -400,7 +398,8 @@ function completion(body, decision) {
         type: 'function',
         function: { name: call.name, arguments: JSON.stringify(call.arguments || {}) }
     }))
-    const content = toolCalls.length ? null : decision.keepAmounts ? decision.content : stripMoney(decision.content || '')
+    const keepAmounts = decision.content === MAYA || decision.content === DANIEL
+    const content = toolCalls.length ? null : keepAmounts ? decision.content : stripMoney(decision.content || '')
     return {
         id: 'chatcmpl-docs-shot',
         object: 'chat.completion',

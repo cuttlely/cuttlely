@@ -663,16 +663,13 @@ async function main() {
             await shoot(page, 'try-the-demo/customer-care-open.png')
             await page.getByRole('button', { name: /Maya Okafor/ }).click()
             await page.getByText('Decision', { exact: false }).waitFor({ timeout: 240000 })
-            await settle(page, 'try-the-demo/customer-care-policy.png', {
-                after: 'Maya Okafor wrote in',
-                expected: 'Service Recovery Policy'
-            })
-            await page.waitForTimeout(800)
+            await settle(page, 'try-the-demo/customer-care-policy.png', { after: 'Maya Okafor wrote in on 6 Oct', expected: 'Larkfield' })
             const remedy = page.getByText('name the remedy steps')
             for (let i = 0; i < 3 && !(await remedy.isVisible().catch(() => false)); i += 1) {
                 await page.getByText('policy', { exact: true }).click()
                 await page.waitForTimeout(400)
             }
+            await scrollChat(page, 'Hi there! How can I help?')
             await shoot(page, 'try-the-demo/customer-care-policy.png')
             await scrollChat(page, 'Harness Prime sent work')
             await shoot(page, 'try-the-demo/customer-care-run.png')
@@ -697,9 +694,11 @@ async function main() {
             await askExpanded(page, `${heldQuestion}, and which of those customers are Plus or Premier?`)
             await settle(page, 'try-the-demo/customer-care-held.png', { after: heldQuestion, expected: 'LH-20409' })
             await page.waitForTimeout(800)
+            await page.setViewportSize({ width: 1440, height: 800 })
             if (!(await scrollChat(page, heldQuestion))) {
                 throw new Error(`try-the-demo/customer-care-held.png: could not scroll to "${heldQuestion}"`)
             }
+            await scrollChat(page, 'Harness Prime sent work to operations, then customer')
             await shoot(page, 'try-the-demo/customer-care-held.png', { height: 800 })
         }
 

@@ -658,7 +658,7 @@ async function main() {
             const usageHeading = await usageTitle.boundingBox()
             const usageTable = await page.getByRole('table', { name: 'Usage by flow' }).boundingBox()
             const pricesTop = (await page.locator('#model-prices').boundingBox())?.y ?? Infinity
-            const usageBottom = Math.min(usageTable.y + usageTable.height + 32, pricesTop - 4)
+            const usageBottom = Math.min(usageTable.y + usageTable.height + 48, pricesTop - 4)
             const usageNote = [
                 await usageTitle.innerText(),
                 await page.getByText(/UTC\./).first().innerText(),
@@ -670,7 +670,7 @@ async function main() {
                     x: Math.max(0, Math.floor(usageHeading.x - 28)),
                     y: Math.max(0, Math.floor(usageHeading.y - 20)),
                     width: 2080,
-                    height: Math.ceil(usageBottom - usageHeading.y + 20)
+                    height: Math.ceil(usageBottom - Math.max(0, Math.floor(usageHeading.y - 20)))
                 },
                 pad: [2080, 1506],
                 note: usageNote
