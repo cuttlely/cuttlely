@@ -91,7 +91,7 @@ The React tabs give a component that loads the same script. **Show Embed Chat Co
 npm install @cuttlely/chat
 ```
 
-The package version follows the server release. To match a 1.2.0 server, pin it with `npm install @cuttlely/chat@1.2.0`.
+The package version follows the server release. To match your server, pin the same version, for example `npm install @cuttlely/chat@1.3.0` for a 1.3.0 server.
 
 ```js
 import { mount } from '@cuttlely/chat'
