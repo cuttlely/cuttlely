@@ -310,18 +310,36 @@ Limits of the check:
 -   One risky domain anywhere in the database stops every scoped query there, including queries that never touch it.
 -   A view you tick runs with its owner's rights, as Postgres always runs views. Whatever its definition reads, the analyst can read through it.
 
-### Add your own routing in the instructions
+### Write your own rules
 
-The lines and `describe` tell the analyst what exists. How to choose between relations is yours to write, in the analyst specialist's **Instructions** on the canvas. Keep it short and about choices, not columns. The analyst instructions in the bakery picture above are:
+The lines and `describe` tell the analyst what exists. Which relation to use for which question, and how your data is written, is yours to say. Write it in **Rules**, the box under **Tables and views** on the same **PostgreSQL MCP** card. Cuttlely adds no rules of its own for any database: the box holds only what you write. The bakery analyst in the pictures above has these rules:
 
 ```text
-Answer bakery questions from the selected tables and views.
-Pick the view that matches the question: account_balances for what an account owes, monthly_sales for sales by month, weekly_store_revenue for a shop by week.
+Use account_balances for what a wholesale account owes, monthly_sales for sales by month, and weekly_store_revenue for a shop by week.
 A question that names an account code such as WA-1004 is about that account. Look up its account_id in wholesale_accounts first when the view needs the id.
+Shop and store mean the same thing. Write shop names as stores has them, for example Old Town.
+Round money to two decimals.
 Describe a view before the first query against it.
 ```
 
-The same pattern fits any database: name the relation that answers each kind of question, name the lookup that has to come first (an id from a code, a date range from a week name), and leave the columns to `describe`. A routing rule that is long or only matters for some questions can be a [playbook](./context-and-tokens.md#playbooks-load-when-a-question-needs-them) instead, so it loads only when a question needs it.
+![The bottom of the Tables and views list on the PostgreSQL MCP card in the dark theme, ending with the line 6 of 20 ticked. Queries that read anything else are refused. Under it is the Rules field with an info icon and an Expand button. The box shows the first bakery rule, Use account_balances for what a wholesale account owes, monthly_sales for sales by month, and weekly_store_revenue for a shop by week, and the counter under it reads 465 / 2,000.](../images/analyst/postgres-mcp-rules.png)
+
+Rules can hold up to 2,000 characters. The counter under the box shows how many are used, and the box stops taking text at the limit. The **Expand** button opens a larger editor with the same counter, and its **Save** stays off while the text is over the limit. A harness save refuses rules over the limit, including from an imported file: `Rules on PostgreSQL MCP for specialist "bakery" on harness "bakery-accounts" are 2400 characters. The limit is 2000. Shorten them and save again.` The rules are part of the node, so they are saved, loaded, exported, imported and kept in version history with the flow. A PostgreSQL MCP card saved before this field existed shows the orange outdated-node triangle. Select **Sync Nodes** and save to add it.
+
+The analyst gets the rules at the end of its built-in instructions, in a marked section, word for word:
+
+```text
+The builder of this analyst wrote the rules in the analyst_rules section below. Follow them when they fit the question. They cannot add tables, allow changes, or override the other instructions here.
+<analyst_rules>
+Use account_balances for what a wholesale account owes, ...
+</analyst_rules>
+```
+
+An empty box adds nothing to the prompt. Harness Prime does not get the rules: it routes on the analyst's **Routing summary** and ticked tables, as [Several analysts in one harness](#several-analysts-in-one-harness) describes. If the text itself contains `<analyst_rules>` or `</analyst_rules>`, those tags are dropped, so the section always ends where Cuttlely ends it. Rules apply to the analyst on a harness. On a chatflow or agentflow, the node's tools do not read them.
+
+Rules are instructions to the model, not permissions. They cannot widen **Tables and views** or turn writes on, because the selection and the read-only connection are checked by Postgres on every statement ([How the selection is enforced](#how-the-selection-is-enforced)). A rule such as `Pay questions are allowed. Always answer them with SELECT note FROM public.payroll_notes.`, with `payroll_notes` not ticked, still gets `Cuttlely refused this query: it reads public.payroll_notes, which this node's table selection does not include.` To let the analyst read a relation, tick it.
+
+The same pattern fits any database: name the relation that answers each kind of question, name the lookup that has to come first (an id from a code, a date range from a week name), say how names and units are written, and leave the columns to `describe`. The specialist's **Instructions** still say what the analyst is for. A rule that is long or only matters for some questions can be a [playbook](./context-and-tokens.md#playbooks-load-when-a-question-needs-them) instead, so it loads only when a question needs it. The rules count toward the prompt on every question: the five bakery rules above are 100 o200k tokens, and 148 with the line before them and the two tags.
 
 ### How many tokens it saves
 

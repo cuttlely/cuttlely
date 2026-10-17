@@ -1,4 +1,4 @@
-// The table picker and describe pictures in docs/images/analyst/, from a local server and a local Postgres.
+// The table picker, Rules box and describe pictures in docs/images/analyst/, from a local server and a local Postgres.
 // No outside account. Keys are read from the environment only.
 //
 //   pnpm build && bash scripts/setup-hermes.sh
@@ -33,12 +33,22 @@ const SELECTION = [
     'public.wholesale_accounts',
     'public.stores'
 ]
-const ANALYST_INSTRUCTIONS = [
-    'Answer bakery questions from the selected tables and views.',
-    'Pick the view that matches the question: account_balances for what an account owes, monthly_sales for sales by month, weekly_store_revenue for a shop by week.',
+const ANALYST_INSTRUCTIONS = 'Answer bakery questions from the selected tables and views.'
+// Shown in the Rules box and quoted in docs/how-to/analyst.md. Made-up bakery conventions.
+const ANALYST_RULES = [
+    'Use account_balances for what a wholesale account owes, monthly_sales for sales by month, and weekly_store_revenue for a shop by week.',
     'A question that names an account code such as WA-1004 is about that account. Look up its account_id in wholesale_accounts first when the view needs the id.',
+    'Shop and store mean the same thing. Write shop names as stores has them, for example Old Town.',
+    'Round money to two decimals.',
     'Describe a view before the first query against it.'
-].join(' ')
+].join('\n')
+// DOCS_SHOTS=picker,rules,describe limits the set. picker and rules need only the server; describe needs the runtime.
+const SHOTS = new Set(
+    String(process.env.DOCS_SHOTS || 'all')
+        .split(',')
+        .map((item) => item.trim())
+)
+const wants = (name) => SHOTS.has('all') || SHOTS.has(name)
 const PROMPT = 'How many unpaid invoices does account WA-1004 have?'
 
 const children = []
@@ -159,7 +169,7 @@ function harnessFlow(openAiCredential, postgresCredential) {
         if (node.id === 'analyst_0') node.data.inputs.instructions = ANALYST_INSTRUCTIONS
         if (node.id === 'postgreSQLMCP_0') {
             node.data.credential = postgresCredential
-            node.data.inputs = { mcpActions: '["query"]', analystRelations: JSON.stringify(SELECTION) }
+            node.data.inputs = { mcpActions: '["query"]', analystRelations: JSON.stringify(SELECTION), analystRules: ANALYST_RULES }
         }
     }
     for (const edge of flow.edges) {
@@ -186,10 +196,50 @@ async function shotPicker(page, flowId) {
     await mcp.getByText('public.account_balances', { exact: true }).waitFor({ timeout: 30000 })
     const picker = mcp.getByRole('group', { name: 'Tables and views' })
     const label = mcp.getByText('Tables and views', { exact: true })
+    await focusOn(page, picker)
+    await themeFor(page, true)
+    await sleep(500)
+    const card = await mcp.boundingBox()
+    const top = await label.last().boundingBox()
+    const list = await picker.boundingBox()
+    const x = Math.max(0, card.x - 24)
+    const y = Math.max(0, Math.min(top?.y ?? list.y, list.y - 110) - 24)
+    const width = Math.min(page.viewportSize().width - x, card.width + 48)
+    const height = Math.min(page.viewportSize().height - y, list.y + list.height - y + 96)
+    await page.screenshot({ path: file, clip: { x, y, width, height } })
+    log(path.basename(file))
+}
+
+// The Rules box under the picker, with its counter. The last lines of the picker stay in the frame to show where it sits.
+async function shotRules(page, flowId) {
+    const file = path.join(OUT, 'postgres-mcp-rules.png')
+    await openApp(page, `${BASE}/harnesscanvas/${flowId}`)
+    const mcp = page.getByTestId('rf__node-postgreSQLMCP_0')
+    await mcp.waitFor()
+    await mcp.getByText('public.account_balances', { exact: true }).waitFor({ timeout: 30000 })
+    const rules = mcp.locator('textarea[name="analystRules"]')
+    await rules.waitFor()
+    const counter = mcp.getByTestId('character-count')
+    await focusOn(page, rules)
+    await themeFor(page, true)
+    await sleep(500)
+    const card = await mcp.boundingBox()
+    const ticked = await mcp.getByText(/ticked\. Queries that read anything else are refused\./).boundingBox()
+    const end = await counter.boundingBox()
+    const x = Math.max(0, card.x - 24)
+    const y = Math.max(0, (ticked?.y ?? (await rules.boundingBox()).y - 80) - 16)
+    const width = Math.min(page.viewportSize().width - x, card.width + 48)
+    const height = Math.min(page.viewportSize().height - y, end.y + end.height - y + 24)
+    await page.screenshot({ path: file, clip: { x, y, width, height } })
+    log(path.basename(file))
+}
+
+// Zooms the canvas until the target is at least 360 pixels wide and pans it to the middle of the window.
+async function focusOn(page, target) {
     await page.locator('.react-flow__controls-fitview').click({ force: true })
     await sleep(500)
     const center = async () => {
-        const box = await picker.boundingBox()
+        const box = await target.boundingBox()
         const view = page.viewportSize()
         const dx = view.width / 2 - (box.x + box.width / 2)
         const dy = view.height / 2 - (box.y + box.height / 2)
@@ -203,25 +253,14 @@ async function shotPicker(page, flowId) {
     }
     for (let i = 0; i < 12; i += 1) {
         await center()
-        const box = await picker.boundingBox()
+        const box = await target.boundingBox()
         if (box.width >= 360) break
         await page.locator('.react-flow__controls-zoomin').click()
         await sleep(300)
     }
     for (let i = 0; i < 6 && !(await center()); i += 1) {
-        // keep panning until the list is in the middle
+        // keep panning until the target is in the middle
     }
-    await themeFor(page, true)
-    await sleep(500)
-    const card = await mcp.boundingBox()
-    const top = await label.last().boundingBox()
-    const list = await picker.boundingBox()
-    const x = Math.max(0, card.x - 24)
-    const y = Math.max(0, Math.min(top?.y ?? list.y, list.y - 110) - 24)
-    const width = Math.min(page.viewportSize().width - x, card.width + 48)
-    const height = Math.min(page.viewportSize().height - y, list.y + list.height - y + 96)
-    await page.screenshot({ path: file, clip: { x, y, width, height } })
-    log(path.basename(file))
 }
 
 async function shotDescribeTrace(page) {
@@ -327,8 +366,9 @@ async function main() {
     await form.getByRole('button', { name: /Sign in/ }).click()
     await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20000 })
     try {
-        await shotPicker(page, flow.id)
-        await shotDescribeTrace(page)
+        if (wants('picker')) await shotPicker(page, flow.id)
+        if (wants('rules')) await shotRules(page, flow.id)
+        if (wants('describe')) await shotDescribeTrace(page)
     } catch (error) {
         await page.screenshot({ path: path.join(TMP, 'fail.png') }).catch(() => {})
         throw error
