@@ -5,28 +5,13 @@ import { Alert, Autocomplete, Button, FormControlLabel, Paper, Stack, Switch, Te
 
 import harnessesApi from '@/api/harnesses'
 import { StyledPermissionButton } from '@/ui-component/button/RBACButtons'
+import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import { useAuth } from '@/hooks/useAuth'
+import useConfirm from '@/hooks/useConfirm'
 import { formatListDateTime } from '@/utils/formatDate'
+import { browserTimeZone, ownerLabel, timeZoneOptions } from './scheduleOptions'
 
 const RUN_PERMISSION = 'chatflows:create,chatflows:update,agentflows:create'
-
-export function timeZoneOptions() {
-    const zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []
-    return [...new Set(['UTC', ...zones])]
-}
-
-export function browserTimeZone() {
-    try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-    } catch {
-        return 'UTC'
-    }
-}
-
-export function ownerLabel(owner) {
-    if (!owner) return 'unknown'
-    return owner.name || owner.email || 'a removed user'
-}
 
 function errorText(error, fallback) {
     const data = error?.response?.data
@@ -37,6 +22,7 @@ function errorText(error, fallback) {
 
 const HarnessSchedule = ({ name, onChanged }) => {
     const { hasPermission } = useAuth()
+    const { confirm } = useConfirm()
     const canRun = hasPermission(RUN_PERMISSION)
     const zones = useMemo(() => timeZoneOptions(), [])
     const [schedule, setSchedule] = useState(null)
@@ -99,8 +85,16 @@ const HarnessSchedule = ({ name, onChanged }) => {
             () => (schedule?.status === 'active' ? harnessesApi.pauseSchedule(name) : harnessesApi.resumeSchedule(name)),
             'The schedule did not change.'
         )
-    const remove = () =>
-        act(() => harnessesApi.deleteSchedule(name).then(() => ({ data: { schedule: null } })), 'The schedule was not deleted.')
+    const remove = async () => {
+        const confirmed = await confirm({
+            title: 'Delete schedule',
+            description: `Delete the schedule for ${name}? It stops running. Its past runs stay under Runs.`,
+            confirmButtonName: 'Delete schedule',
+            cancelButtonName: 'Cancel'
+        })
+        if (!confirmed) return
+        await act(() => harnessesApi.deleteSchedule(name).then(() => ({ data: { schedule: null } })), 'The schedule was not deleted.')
+    }
 
     return (
         <Paper variant='outlined' sx={{ p: 2, borderRadius: 2 }}>
@@ -161,7 +155,7 @@ const HarnessSchedule = ({ name, onChanged }) => {
                             fullWidth
                             disabled={busy || !canRun}
                         />
-                        <Stack direction='row' sx={{ gap: 1, flexWrap: 'wrap' }}>
+                        <Stack direction='row' alignItems='center' sx={{ gap: 1, flexWrap: 'wrap' }}>
                             <StyledPermissionButton
                                 permissionId={RUN_PERMISSION}
                                 variant='contained'
@@ -182,11 +176,17 @@ const HarnessSchedule = ({ name, onChanged }) => {
                                     Delete schedule
                                 </Button>
                             )}
+                            {canRun && (
+                                <Typography variant='body2' color='text.secondary'>
+                                    Saving makes you the owner, so the schedule runs with your permissions.
+                                </Typography>
+                            )}
                         </Stack>
                     </>
                 )}
                 {error && <Alert severity='error'>{error}</Alert>}
             </Stack>
+            <ConfirmDialog />
         </Paper>
     )
 }
