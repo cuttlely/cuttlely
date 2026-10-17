@@ -6,7 +6,11 @@ import type { Server } from 'http'
 import { NextFunction, Request, Response } from 'express'
 import { runtimeNumber } from './runtime'
 
-const RUN_PATHS = [/^\/api\/v1\/prediction(\/|$)/, /^\/api\/v1\/internal-prediction(\/|$)/, /^\/api\/v1\/harnesses\/[^/]+\/runs\/?$/]
+const RUN_PATHS = [
+    /^\/api\/v1\/prediction(\/|$)/,
+    /^\/api\/v1\/internal-prediction(\/|$)/,
+    /^\/api\/v1\/harnesses\/[^/]+\/runs(\/async)?\/?$/
+]
 export const DEFAULT_WAIT_MS = 45000
 /** How long a shutdown lets requests and streams finish: inside a host's usual 30-second grace period. */
 export const DEFAULT_DRAIN_TIMEOUT_MS = 25000
@@ -15,6 +19,7 @@ const SHUTDOWN_MESSAGE = 'Cuttlely is restarting. Try again in a minute.'
 const SHUTDOWN_CODE = 'UNAVAILABLE'
 
 let inProgress = 0
+let backgroundRuns = 0
 let draining = false
 let shuttingDown = false
 const openRuns = new Set<Response>()
@@ -84,6 +89,29 @@ export function trackRuns(req: Request, res: Response, next: NextFunction): void
     next()
 }
 
+/**
+ * A run that keeps going after its request has answered, such as a harness run started with POST .../runs/async.
+ * It counts as in progress until it settles, so Restart and shutdown wait for it like an open request.
+ */
+export function trackBackgroundRun<T>(run: Promise<T>): Promise<T> {
+    inProgress += 1
+    backgroundRuns += 1
+    const settle = () => {
+        inProgress = Math.max(0, inProgress - 1)
+        backgroundRuns = Math.max(0, backgroundRuns - 1)
+    }
+    return run.then(
+        (value) => {
+            settle()
+            return value
+        },
+        (error) => {
+            settle()
+            throw error
+        }
+    )
+}
+
 /** Stops new runs and waits for the ones in progress, up to limitMs. Resolves with how many were still running. */
 export async function drainRuns(limitMs: number, pollMs = 250): Promise<number> {
     draining = true
@@ -129,7 +157,7 @@ export interface ShutdownDrainResult {
 
 /**
  * Graceful shutdown: new requests get 503 with Retry-After (the health check too), the server stops accepting
- * connections, and requests and streams already running may finish for up to limitMs. Runs still open after that
+ * connections, and requests, streams, and background runs already running may finish for up to limitMs. Runs still open after that
  * end with a 503 or an error event, their model calls are aborted through the client abort signal, and the
  * remaining connections are closed. Resolves when the server is closed.
  */
@@ -146,7 +174,7 @@ export async function shutdownDrain(server: Server | undefined, limitMs: number,
               })
           )
     const until = Date.now() + limitMs
-    while (!closed && Date.now() < until) {
+    while ((!closed || backgroundRuns > 0) && Date.now() < until) {
         // Keep-alive connections that finished their request would hold the server open: close them as they go idle.
         server?.closeIdleConnections?.()
         await sleep(pollMs)
@@ -169,6 +197,7 @@ export async function shutdownDrain(server: Server | undefined, limitMs: number,
 /** Tests only. */
 export function resetRuns(): void {
     inProgress = 0
+    backgroundRuns = 0
     draining = false
     shuttingDown = false
     openRuns.clear()

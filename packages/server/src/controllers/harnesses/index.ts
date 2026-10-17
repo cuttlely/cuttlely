@@ -3,7 +3,15 @@ import { StatusCodes } from 'http-status-codes'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceIdFromReq } from '../../identity/workspaceScope'
 import harnessesService from '../../services/harnesses'
-import { noteBackgroundRunSettled, noteBackgroundRunStarted, noteHarnessAudit, scheduleOwner } from '../../services/harnesses/apiAccess'
+import {
+    callerApiKeyId,
+    callerKeyHarnesses,
+    noteBackgroundRunSettled,
+    noteBackgroundRunStarted,
+    noteHarnessAudit,
+    scheduleOwner
+} from '../../services/harnesses/apiAccess'
+import { trackBackgroundRun } from '../../settings/runs'
 import { chatImages } from '../../services/harnesses/chatImages'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
@@ -15,7 +23,9 @@ function activeWorkspace(req: Request): string {
 
 const listHarnesses = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.listHarnesses(activeWorkspace(req)))
+        const rows = await harnessesService.listHarnesses(activeWorkspace(req))
+        const allowed = await callerKeyHarnesses(req)
+        return res.json(allowed === null ? rows : rows.filter((row: { name: string }) => allowed.includes(row.name)))
     } catch (error) {
         next(error)
     }
@@ -47,7 +57,7 @@ const deleteHarness = async (req: Request, res: Response, next: NextFunction) =>
 
 const listRuns = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.listRuns(req.params.name, activeWorkspace(req)))
+        return res.json(await harnessesService.listRuns(req.params.name, activeWorkspace(req), { apiKeyId: callerApiKeyId(req) }))
     } catch (error) {
         next(error)
     }
@@ -55,7 +65,9 @@ const listRuns = async (req: Request, res: Response, next: NextFunction) => {
 
 const getRun = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.getRun(req.params.name, req.params.runId, activeWorkspace(req)))
+        return res.json(
+            await harnessesService.getRun(req.params.name, req.params.runId, activeWorkspace(req), { apiKeyId: callerApiKeyId(req) })
+        )
     } catch (error) {
         next(error)
     }
@@ -68,17 +80,18 @@ function writeSse(res: Response, event: string, data: unknown) {
 
 const createRun = async (req: Request, res: Response, next: NextFunction) => {
     const source = req.get('x-request-from') === 'internal' ? 'playground' : 'api'
+    const apiKeyId = callerApiKeyId(req)
     let workspaceId = ''
     try {
         workspaceId = activeWorkspace(req)
-        await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId)
+        await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId, { apiKeyId })
     } catch (error) {
         next(error)
         return
     }
     if (!isStreamingRequest(req)) {
         try {
-            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, { source, workspaceId })
+            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, { source, workspaceId, apiKeyId })
             return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
         } catch (error) {
             next(error)
@@ -96,6 +109,7 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
         const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
             source,
             workspaceId,
+            apiKeyId,
             signal,
             onEvent: (event) => writeSse(res, `harness.${event.type}`, event)
         })
@@ -118,6 +132,8 @@ const startBackgroundRun = async (req: Request, res: Response, next: NextFunctio
         const started = await harnessesService.startBackgroundRun(req.params.name, req.body || {}, {
             workspaceId,
             source: 'api',
+            apiKeyId: callerApiKeyId(req),
+            track: trackBackgroundRun,
             onSettled: (outcome) => noteBackgroundRunSettled(req.params.name, outcome)
         })
         await noteBackgroundRunStarted(req, started, workspaceId)
@@ -131,7 +147,9 @@ const startBackgroundRun = async (req: Request, res: Response, next: NextFunctio
 const getRunResult = async (req: Request, res: Response, next: NextFunction) => {
     try {
         res.setHeader('Cache-Control', 'no-store')
-        return res.json(await harnessesService.getRunResult(req.params.name, req.params.runId, activeWorkspace(req)))
+        return res.json(
+            await harnessesService.getRunResult(req.params.name, req.params.runId, activeWorkspace(req), { apiKeyId: callerApiKeyId(req) })
+        )
     } catch (error) {
         next(error)
     }

@@ -48,6 +48,20 @@ function ensure(db) {
     if (!columns.some((column) => column.name === 'trace_json')) {
         db.exec('ALTER TABLE run_history ADD COLUMN trace_json TEXT')
     }
+    // The API key that started the run. Null is a signed-in person or a flow prediction.
+    if (!columns.some((column) => column.name === 'api_key_id')) {
+        db.exec('ALTER TABLE run_history ADD COLUMN api_key_id TEXT')
+    }
+}
+
+function keyIdOf(value) {
+    return typeof value === 'string' && value ? value.slice(0, 128) : null
+}
+
+// undefined or null reads every row. A string reads only the rows that key started.
+function keyFilter(apiKeyId) {
+    if (apiKeyId === undefined || apiKeyId === null) return { sql: '', args: [] }
+    return { sql: ' AND api_key_id = ?', args: [String(apiKeyId)] }
 }
 
 export function previewText(value, limit = PREVIEW) {
@@ -211,22 +225,22 @@ export function newRunId() {
 }
 
 // A run the caller already holds an id for. The row says queued until the runner opens it.
-export function queueHarnessRun({ id, name, chatId, source, input } = {}) {
+export function queueHarnessRun({ id, name, chatId, source, input, apiKeyId } = {}) {
     const harnessName = harnessNameOf(name)
     if (!harnessName) return null
     const runId = safeRunId(id) || newRunId()
     immediate((db) => {
         ensure(db)
         db.prepare(
-            `INSERT INTO run_history (id, harness_name, chat_id, status, source, started_at, input_preview)
-             VALUES (?, ?, ?, 'queued', ?, ?, ?)`
-        ).run(runId, harnessName, chatId ? String(chatId) : '', sourceOf(source), Date.now(), previewText(input))
+            `INSERT INTO run_history (id, harness_name, chat_id, status, source, started_at, input_preview, api_key_id)
+             VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)`
+        ).run(runId, harnessName, chatId ? String(chatId) : '', sourceOf(source), Date.now(), previewText(input), keyIdOf(apiKeyId))
         prune(db, harnessName)
     })
     return getRun(harnessName, runId)
 }
 
-export function beginHarnessRun({ id, name, chatId, source, startedAt, input, traceId } = {}) {
+export function beginHarnessRun({ id, name, chatId, source, startedAt, input, traceId, apiKeyId } = {}) {
     const harnessName = harnessNameOf(name)
     if (!harnessName) return null
     const given = safeRunId(id)
@@ -234,23 +248,39 @@ export function beginHarnessRun({ id, name, chatId, source, startedAt, input, tr
     const started = Number.isFinite(startedAt) ? startedAt : Date.now()
     immediate((db) => {
         ensure(db)
-        // A queued row keeps its queue time, so latency counts the wait as well.
+        // A queued row keeps its queue time, so latency counts the wait as well. A row a restart marked interrupted
+        // while its job still waited for an external worker is opened again.
         const queued = given
-            ? db.prepare(`SELECT 1 AS ok FROM run_history WHERE id = ? AND harness_name = ? AND status = 'queued'`).get(given, harnessName)
+            ? db
+                  .prepare(
+                      `SELECT 1 AS ok FROM run_history
+                       WHERE id = ? AND harness_name = ? AND (status = 'queued' OR (status = 'failed' AND error_code = 'interrupted'))`
+                  )
+                  .get(given, harnessName)
             : null
         if (queued) {
-            db.prepare(`UPDATE run_history SET status = 'running', trace_id = COALESCE(?, trace_id) WHERE id = ? AND harness_name = ?`).run(
-                safeTraceId(traceId),
-                given,
-                harnessName
-            )
+            db.prepare(
+                `UPDATE run_history
+                 SET status = 'running', finished_at = NULL, latency_ms = NULL, error_code = NULL, error_message = NULL,
+                     trace_id = COALESCE(?, trace_id)
+                 WHERE id = ? AND harness_name = ?`
+            ).run(safeTraceId(traceId), given, harnessName)
             return
         }
         db.prepare(
             `INSERT INTO run_history (
-                id, harness_name, chat_id, status, source, started_at, input_preview, trace_id
-             ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?)`
-        ).run(runId, harnessName, chatId ? String(chatId) : '', sourceOf(source), started, previewText(input), safeTraceId(traceId))
+                id, harness_name, chat_id, status, source, started_at, input_preview, trace_id, api_key_id
+             ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?)`
+        ).run(
+            runId,
+            harnessName,
+            chatId ? String(chatId) : '',
+            sourceOf(source),
+            started,
+            previewText(input),
+            safeTraceId(traceId),
+            keyIdOf(apiKeyId)
+        )
         prune(db, harnessName)
     })
     return getRun(harnessName, runId)
@@ -394,25 +424,39 @@ export function finishHarnessRun(pending, { result, error, finishedAt, traceId }
     return getRun(pending.harness, pending.id)
 }
 
-export function listRuns(name, { limit = 50 } = {}) {
+export function listRuns(name, { limit = 50, apiKeyId } = {}) {
     const harnessName = harnessNameOf(name)
     if (!harnessName) return []
     const cap = Number.isFinite(limit) ? Math.min(100, Math.max(1, Math.floor(limit))) : 50
     const db = database()
     ensure(db)
+    const filter = keyFilter(apiKeyId)
     return db
-        .prepare('SELECT * FROM run_history WHERE harness_name = ? ORDER BY started_at DESC, id DESC LIMIT ?')
-        .all(harnessName, cap)
+        .prepare(`SELECT * FROM run_history WHERE harness_name = ?${filter.sql} ORDER BY started_at DESC, id DESC LIMIT ?`)
+        .all(harnessName, ...filter.args, cap)
         .map(toPublic)
 }
 
-export function getRun(name, id) {
+export function getRun(name, id, { apiKeyId } = {}) {
     const harnessName = harnessNameOf(name)
     if (!harnessName || !safeRunId(id)) return null
     const db = database()
     ensure(db)
-    const row = db.prepare('SELECT * FROM run_history WHERE id = ? AND harness_name = ?').get(id, harnessName)
+    const filter = keyFilter(apiKeyId)
+    const row = db.prepare(`SELECT * FROM run_history WHERE id = ? AND harness_name = ?${filter.sql}`).get(id, harnessName, ...filter.args)
     return row ? toPublic(row) : null
+}
+
+// True when a run in this chat was started by someone else: another key, or a person when apiKeyId is null.
+export function chatBelongsToOtherCaller(name, chatId, apiKeyId) {
+    const harnessName = harnessNameOf(name)
+    if (!harnessName || typeof chatId !== 'string' || !chatId) return false
+    const db = database()
+    ensure(db)
+    const row = db
+        .prepare(`SELECT 1 AS other FROM run_history WHERE harness_name = ? AND chat_id = ? AND COALESCE(api_key_id, '') <> ? LIMIT 1`)
+        .get(harnessName, chatId, keyIdOf(apiKeyId) || '')
+    return Boolean(row)
 }
 
 export function attachTrace(name, id, traceId) {

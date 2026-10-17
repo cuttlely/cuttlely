@@ -32,6 +32,7 @@ import {
     ChatType,
     IChatMessage,
     IExecuteFlowParams,
+    IApiKeyAccess,
     IFlowConfig,
     IComponentNodes,
     IVariable,
@@ -74,6 +75,8 @@ import { coerceMultipartPredictionBody } from './multipartPredictionBody'
 import { assertPredictionUploadsAllowed } from './uploadPermissions'
 import { setServerUploadOverride } from './replaceInputsWithConfig'
 import { validateFlowAPIKey } from './validateKey'
+import { apiKeyNodeOptions } from './apiKeyAccess'
+import apikeyService from '../services/apikey'
 import { bindRequestSession } from './sessionOwnership'
 import logger from './logger'
 import { utilAddChatMessage } from './addChatMesage'
@@ -390,7 +393,8 @@ export const executeFlow = async ({
     subscriptionId,
     productId,
     sessionToken,
-    replay
+    replay,
+    apiKeyAccess
 }: IExecuteFlowParams) => {
     // Ensure incomingInput has all required properties with default values
     incomingInput = {
@@ -602,7 +606,8 @@ export const executeFlow = async ({
             workspaceId,
             subscriptionId,
             productId,
-            replay
+            replay,
+            apiKeyAccess
         })
     }
 
@@ -709,7 +714,8 @@ export const executeFlow = async ({
                 subscriptionId,
                 updateStorageUsage,
                 checkStorage,
-                cuttlelyReplay: replay === true
+                cuttlelyReplay: replay === true,
+                apiKeyAccess
             })
 
             const setVariableNodesOutput = getSetVariableNodesOutput(reactFlowNodes)
@@ -915,6 +921,7 @@ export const executeFlow = async ({
                     baseURL,
                     // Read by additionalCallbacks: a replay is not sent to tracing providers set in the environment.
                     ...(replay && { cuttlelyReplay: true }),
+                    ...apiKeyNodeOptions(apiKeyAccess),
                     tokenUsageCallback: chatflowTokenUsage
                 }
 
@@ -1287,7 +1294,11 @@ export const utilBuildChatflow = async (
 
         await checkPredictions(orgId, subscriptionId, appServer.usageCacheManager)
 
+        // A Harness card on a flow called with its own key runs only the harnesses on that key's list.
+        const apiKeyAccess = !isInternal ? await flowApiKeyAccess(chatflow.apikeyid, workspaceId) : undefined
+
         const executeData: IExecuteFlowParams = {
+            ...(apiKeyAccess ? { apiKeyAccess } : {}),
             incomingInput, // Use the defensively created incomingInput variable
             chatflow,
             chatId,
@@ -1399,3 +1410,10 @@ const incrementFailedMetricCounter = (metricsProvider: IMetricsProvider, isInter
 }
 
 export { shouldAutoPlayTTS, generateTTSForResponseStream }
+
+async function flowApiKeyAccess(apiKeyId: string | null | undefined, workspaceId: string): Promise<IApiKeyAccess | undefined> {
+    if (!apiKeyId) return undefined
+    const key = await apikeyService.getApiKeyById(apiKeyId)
+    const stored = key && key.workspaceId === workspaceId && Array.isArray(key.harnesses) ? key.harnesses : []
+    return { apiKeyId, harnesses: stored.filter((name): name is string => typeof name === 'string') }
+}

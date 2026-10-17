@@ -1,11 +1,17 @@
 import express from 'express'
 import flowDraftsController from '../../controllers/flow-drafts'
 import { requireAnyPermission } from '../../identity/rbac'
+import { refuseUnlistedHarnessCards } from '../../services/harnesses/apiAccess'
 
 const router = express.Router()
 
 router.get('/:chatflowId', requireAnyPermission('chatflows:view,agentflows:view'), flowDraftsController.getDraft)
-router.put('/:chatflowId', requireAnyPermission('chatflows:update,agentflows:update'), flowDraftsController.saveDraft)
+router.put(
+    '/:chatflowId',
+    requireAnyPermission('chatflows:update,agentflows:update'),
+    refuseUnlistedHarnessCards(),
+    flowDraftsController.saveDraft
+)
 router.delete('/:chatflowId', requireAnyPermission('chatflows:update,agentflows:update'), flowDraftsController.discardDraft)
 router.post('/:chatflowId/publish', requireAnyPermission('chatflows:update,agentflows:update'), flowDraftsController.publishDraft)
 router.post('/:chatflowId/rollback', requireAnyPermission('chatflows:update,agentflows:update'), flowDraftsController.rollbackLive)

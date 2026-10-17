@@ -366,6 +366,16 @@
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
         {
+            "from": "packages/server/src/routes/internal-predictions/auth.test.ts",
+            "to": "packages/server/src/routes/internal-predictions/index.ts",
+            "reason": "The gate test mounts the real internal-prediction router behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/internal-predictions/auth.test.ts",
+            "to": "packages/server/src/utils/constants.ts",
+            "reason": "The gate test reads the real API key block list"
+        },
+        {
             "from": "packages/server/src/routes/oauth2/refresh.test.ts",
             "to": "packages/components/src/index.ts"
         },
@@ -709,6 +719,11 @@
         {
             "from": "packages/server/src/startup/databaseHealth.test.ts",
             "to": "packages/server/src/controllers/ping/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/apiKeyAccess.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The harness key options helper only takes the IApiKeyAccess type from the shared server interface"
         },
         {
             "from": "packages/server/src/utils/authorizeFeedback.test.ts",

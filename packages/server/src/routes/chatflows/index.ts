@@ -1,12 +1,14 @@
 import express from 'express'
 import chatflowsController from '../../controllers/chatflows'
 import { requireAnyPermission } from '../../identity/rbac'
+import { refuseUnlistedHarnessCards } from '../../services/harnesses/apiAccess'
 const router = express.Router()
 
 // CREATE
 router.post(
     '/',
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create,agentflows:update'),
+    refuseUnlistedHarnessCards(),
     chatflowsController.saveChatflow
 )
 
@@ -27,6 +29,7 @@ router.get(['/apikey/', '/apikey/:apikey'], chatflowsController.getChatflowByApi
 router.put(
     ['/', '/:id'],
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create,agentflows:update'),
+    refuseUnlistedHarnessCards(),
     chatflowsController.updateChatflow
 )
 

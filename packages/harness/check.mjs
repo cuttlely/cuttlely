@@ -11030,6 +11030,77 @@ await expectCase('a harness schedule fires when due in its time zone, never over
     )
 })
 
+await expectCase("an API key reads only its own runs and cannot continue another caller's chat", async () => {
+    const history = await import('./history.mjs')
+    const mine = history.queueHarnessRun({ name: 'keyed', chatId: 'api-a', source: 'api', input: 'q', apiKeyId: 'key-a' })
+    const theirs = history.queueHarnessRun({ name: 'keyed', chatId: 'api-b', source: 'api', input: 'q', apiKeyId: 'key-b' })
+    const person = history.beginHarnessRun({ name: 'keyed', chatId: 'playground-1', source: 'playground', input: 'q' })
+    const listed = history.listRuns('keyed', { apiKeyId: 'key-a' }).map((row) => row.id)
+    check('a key lists only the runs it started', listed.length === 1 && listed[0] === mine.id, listed.join(','))
+    check('a person lists every run', history.listRuns('keyed').length === 3, String(history.listRuns('keyed').length))
+    check(
+        'a key cannot read a run another key started',
+        history.getRun('keyed', theirs.id, { apiKeyId: 'key-a' }) === null &&
+            history.getRun('keyed', mine.id, { apiKeyId: 'key-a' })?.id === mine.id,
+        'leaked'
+    )
+    check(
+        'a chat another key started belongs to another caller',
+        history.chatBelongsToOtherCaller('keyed', 'api-b', 'key-a') && !history.chatBelongsToOtherCaller('keyed', 'api-a', 'key-a'),
+        'ownership'
+    )
+    check(
+        'a person cannot continue a key chat, and a key cannot continue a person chat',
+        history.chatBelongsToOtherCaller('keyed', 'api-a', null) && history.chatBelongsToOtherCaller('keyed', 'playground-1', 'key-a'),
+        'ownership'
+    )
+    check('a new chat belongs to no one yet', !history.chatBelongsToOtherCaller('keyed', 'api-new', 'key-a'), 'new chat')
+    history.finishHarnessRun(person, { result: { text: 'done', agents: [] } })
+    history.interruptOpenRuns({ before: Date.now() + 1 })
+    const reopened = history.beginHarnessRun({ id: mine.id, name: 'keyed', chatId: 'api-a', source: 'api', input: 'q', apiKeyId: 'key-a' })
+    check(
+        'a worker that picks up a run a restart marked interrupted opens that row again',
+        reopened?.id === mine.id && reopened?.status === 'running' && reopened?.error === null,
+        `${reopened?.status} ${JSON.stringify(reopened?.error)}`
+    )
+    const run = await import('./run.mjs')
+    let refused = null
+    try {
+        run.assertHarnessKeyAccess('payroll', { apiKeyId: 'key-a', apiKeyHarnesses: ['bakery'] })
+    } catch (error) {
+        refused = error
+    }
+    let allowed = true
+    try {
+        run.assertHarnessKeyAccess('bakery', { apiKeyId: 'key-a', apiKeyHarnesses: ['bakery'] })
+        run.assertHarnessKeyAccess('payroll', { workspaceId: 'team-1' })
+    } catch {
+        allowed = false
+    }
+    check(
+        'a flow run under an API key runs only harnesses on that key list',
+        refused?.code === 'key_not_allowed' && allowed,
+        refused?.message || 'not refused'
+    )
+    const queue = await import('./queue.mjs')
+    const job = queue.enqueueHarnessJob({
+        name: 'keyed',
+        chatId: 'api-c',
+        input: 'q',
+        runId: mine.id,
+        apiKeyId: 'key-a',
+        flowOptions: { workspaceId: 'team-1' }
+    })
+    const claimed = queue.claimJob()
+    check('a queued job carries the API key id to the worker', claimed?.payload?.apiKeyId === 'key-a', JSON.stringify(claimed?.payload))
+    queue.finishJob(job.id, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'check' })
+    check(
+        "an API key reads only its own runs and cannot continue another caller's chat",
+        listed.length === 1 && refused?.code === 'key_not_allowed' && claimed?.payload?.apiKeyId === 'key-a',
+        'see the rows above'
+    )
+})
+
 await expectCase('a stored question is redacted in full and does not push the trace out of history', async () => {
     const secret = 'postgres://user:s3cret-pass@db.example/warehouse'
     const asked = `${'Please compare the warehouse export. '.repeat(16)}${secret} List every ticket`

@@ -15,6 +15,7 @@ import {
     resetRuns,
     runsInProgress,
     shutdownDrain,
+    trackBackgroundRun,
     trackRuns,
     waitLimitMs
 } from './runs'
@@ -37,8 +38,35 @@ describe('runs in progress', () => {
         expect(isRunRequest('POST', '/api/v1/prediction/abc')).toBe(true)
         expect(isRunRequest('POST', '/api/v1/internal-prediction/abc')).toBe(true)
         expect(isRunRequest('POST', '/api/v1/harnesses/bakery/runs')).toBe(true)
+        expect(isRunRequest('POST', '/api/v1/harnesses/bakery/runs/async')).toBe(true)
         expect(isRunRequest('GET', '/api/v1/harnesses/bakery/runs')).toBe(false)
         expect(isRunRequest('POST', '/api/v1/server-settings')).toBe(false)
+    })
+
+    it('counts a background run until it settles, and a restart waits for it', async () => {
+        let finish: (value: string) => void = () => undefined
+        const run = trackBackgroundRun(new Promise<string>((resolve) => (finish = resolve)))
+        expect(runsInProgress()).toBe(1)
+        const drained = drainRuns(5000, 20)
+        await new Promise((r) => setTimeout(r, 60))
+        expect(runsInProgress()).toBe(1)
+        finish('made-up answer')
+        expect(await run).toBe('made-up answer')
+        expect(await drained).toBe(0)
+        const failed = trackBackgroundRun(Promise.reject(new Error('made-up failure')))
+        await expect(failed).rejects.toThrow('made-up failure')
+        expect(runsInProgress()).toBe(0)
+    })
+
+    it('a shutdown waits for a background run, up to the drain time', async () => {
+        let finish: () => void = () => undefined
+        void trackBackgroundRun(new Promise<void>((resolve) => (finish = resolve)))
+        const started = Date.now()
+        const done = shutdownDrain(undefined, 2000, 20)
+        setTimeout(() => finish(), 150)
+        await done
+        expect(Date.now() - started).toBeGreaterThanOrEqual(120)
+        expect(runsInProgress()).toBe(0)
     })
 
     it('counts a run while it is open, waits for it, and turns new runs away meanwhile', async () => {
