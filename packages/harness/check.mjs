@@ -1408,6 +1408,130 @@ check(
         ROUTE_ANALYST.includes('analyst database'),
     JSON.stringify({ forced: forced.map((step) => step.specialist.name), left: leftAlone.length })
 )
+{
+    // Two analysts on one roster: a made-up bakery database and a made-up household budget database.
+    const { ROUTE_ANALYSTS, ROUTE_CHOOSE_ANALYST, ANALYST_PAGE_OWNER_GONE, analystsToChoose, parseAnalystChoice, routeAnalystNote } =
+        await import('./run.mjs')
+    const { CHIEF_ANALYST, CHIEF_ANALYSTS, ANALYST_EMPTY_FILTER, ANALYST_EMPTY_FILTER_SQLITE, analystTablesNote, chiefInstructions } =
+        await import('./profile.mjs')
+    const bakery = {
+        name: 'bakery',
+        summary: 'Shop sales, products and stores for the bakery.',
+        mcpServers: [
+            {
+                nodeName: 'postgreSQLMCP',
+                credential: 'bakery-url',
+                inputs: { analystRelations: '["public.monthly_sales","public.stores"]' }
+            }
+        ]
+    }
+    const budget = {
+        name: 'budget',
+        summary: 'Household budget lines and monthly spending.',
+        mcpServers: [{ nodeName: 'postgreSQLMCP', inputs: { analystRelations: ['public.budget_lines', 'public.categories'] } }]
+    }
+    const roster = [notesSpecialist, bakery, budget]
+    const budgetAsk = 'How much did the budget database say we spent on groceries in March? Query the rows.'
+    const choose = analystsToChoose(budgetAsk, [], roster)
+    check(
+        'with two analysts an empty-router data task is not forced onto the first analyst',
+        forceAnalystRoute(budgetAsk, [], roster).length === 0 &&
+            choose.map((specialist) => specialist.name).join(',') === 'bakery,budget' &&
+            analystsToChoose(budgetAsk, [{ specialist: budget, task: 'keep' }], roster).length === 0 &&
+            analystsToChoose('What time is it?', [], roster).length === 0 &&
+            analystsToChoose(budgetAsk, [], [notesSpecialist, analystSpecialist]).length === 0 &&
+            forceAnalystRoute(budgetAsk, [], [notesSpecialist, analystSpecialist])[0]?.specialist === analystSpecialist,
+        JSON.stringify(choose.map((specialist) => specialist.name))
+    )
+    const pickBudget = parseAnalystChoice('{"analysts":["Budget"]}', choose, budgetAsk)
+    const pickBoth = parseAnalystChoice('{"analysts":["bakery","budget","bakery"]}', choose, budgetAsk)
+    const pickNotes = parseAnalystChoice('{"analysts":["notes"]}', choose, budgetAsk)
+    const pickGarbage = parseAnalystChoice('budget, I think', choose, budgetAsk)
+    const pickEmpty = parseAnalystChoice('{"analysts":[]}', choose, budgetAsk)
+    const names = (steps) => steps.map((step) => step.specialist.name).join(',')
+    check(
+        'the analyst choice keeps the named analysts and sends an unusable answer to every analyst',
+        names(pickBudget) === 'budget' &&
+            pickBudget[0].task === budgetAsk &&
+            names(pickBoth) === 'bakery,budget' &&
+            names(pickNotes) === 'bakery,budget' &&
+            names(pickGarbage) === 'bakery,budget' &&
+            names(pickEmpty) === 'bakery,budget' &&
+            ROUTE_CHOOSE_ANALYST.includes('{"analysts":["NAME"]}'),
+        JSON.stringify({ pickBudget: names(pickBudget), pickNotes: names(pickNotes), pickGarbage: names(pickGarbage) })
+    )
+    const budgetPage = applyAnalystPageRoute('show more', [{ specialist: bakery, task: 'show more' }], roster, {
+        token: 'budget-cursor',
+        specialist: 'budget'
+    })
+    const bakeryPage = applyAnalystPageRoute('next page', [], roster, { token: 'bakery-cursor', specialist: 'bakery' })
+    const gonePage = applyAnalystPageRoute('show more', [], roster, { token: 'old-cursor', specialist: 'pantry' })
+    const renamedLone = applyAnalystPageRoute('show more', [], [notesSpecialist, analystSpecialist], {
+        token: 'lone-cursor',
+        specialist: 'old-analyst-name'
+    })
+    check(
+        'paging goes to the analyst that owns the cursor, and an owner that left the team is a direct reply',
+        budgetPage.steps.length === 1 &&
+            budgetPage.steps[0].specialist === budget &&
+            budgetPage.steps[0].task.includes('cursor budget-cursor') &&
+            bakeryPage.steps[0]?.specialist === bakery &&
+            gonePage.steps.length === 0 &&
+            gonePage.reply === ANALYST_PAGE_OWNER_GONE &&
+            renamedLone.steps[0]?.specialist === analystSpecialist,
+        JSON.stringify({ budget: budgetPage.steps[0]?.specialist?.name, bakery: bakeryPage.steps[0]?.specialist?.name, gone: gonePage })
+    )
+    const twoDialects = routerDialectNote(roster, { DATABASE_TYPE: 'sqlite' })
+    check(
+        'the router gets one dialect note per analyst when there are several, and the old note for one',
+        twoDialects ===
+            'The bakery analyst database is PostgreSQL.\nThe budget analyst database is SQLite. An id column is INTEGER PRIMARY KEY. SERIAL is not a SQLite type.' &&
+            routerDialectNote([notesSpecialist, budget], { DATABASE_TYPE: 'sqlite' }).startsWith('The analyst database is SQLite.'),
+        twoDialects
+    )
+    const loneChief = chiefInstructions({ name: 'two-analyst-chief-one', specialists: [notesSpecialist, bakery] })
+    const twoChief = chiefInstructions({ name: 'two-analyst-chief-two', specialists: roster })
+    check(
+        'plural analyst wording and table names appear only when a harness has several analysts',
+        routeAnalystNote([notesSpecialist, bakery]) === ROUTE_ANALYST &&
+            routeAnalystNote(roster) === ROUTE_ANALYSTS &&
+            routeAnalystNote([notesSpecialist]) === '' &&
+            ROUTE_ANALYSTS.includes('send a step to each of them') &&
+            ROUTE_ANALYSTS.includes('Never answer those directly') &&
+            loneChief.includes(CHIEF_ANALYST) &&
+            !loneChief.includes(CHIEF_ANALYSTS) &&
+            !loneChief.includes('Tables:') &&
+            twoChief.includes(CHIEF_ANALYSTS) &&
+            !twoChief.includes(CHIEF_ANALYST) &&
+            twoChief.includes(
+                '- bakery: Shop sales, products and stores for the bakery. Tools: postgreSQLMCP. Tables: public.monthly_sales, public.stores.'
+            ) &&
+            twoChief.includes('Tables: public.budget_lines, public.categories.') &&
+            analystTablesNote(notesSpecialist) === '' &&
+            analystTablesNote({ name: 'open', mcpServers: [{ nodeName: 'postgreSQLMCP' }] }) === '',
+        twoChief
+    )
+    const manyTables = analystTablesNote({
+        name: 'wide',
+        mcpServers: [{ nodeName: 'postgreSQLMCP', inputs: { analystRelations: Array.from({ length: 15 }, (_, i) => `public.t${i}`) } }]
+    })
+    check(
+        'a long table list on the router line is cut with a count',
+        manyTables.includes('public.t11, and 3 more.') && !manyTables.includes('public.t12'),
+        manyTables
+    )
+    const pgSoul = specialistSoul(bakery, { DATABASE_TYPE: 'sqlite' })
+    const sqliteSoul = specialistSoul(budget, { DATABASE_TYPE: 'sqlite' })
+    check(
+        'an analyst checks distinct values or a case-insensitive match before it reports zero for a text filter',
+        pgSoul.includes(ANALYST_EMPTY_FILTER) &&
+            ANALYST_EMPTY_FILTER.includes('ILIKE') &&
+            sqliteSoul.includes(ANALYST_EMPTY_FILTER_SQLITE) &&
+            !sqliteSoul.includes('ILIKE') &&
+            !specialistSoul(notesSpecialist).includes('distinct values'),
+        JSON.stringify({ pgSoul, sqliteSoul })
+    )
+}
 const writerSpecialist = { name: 'writer', instructions: 'Writes short notes.' }
 const afterSteps = parseSteps(
     JSON.stringify({
@@ -8971,6 +9095,214 @@ check(
         !String(directRun.text || '').includes('in-memory databases'),
     JSON.stringify({ runs: analystRuns, steps: directRun.trace?.route?.steps, text: directRun.text })
 )
+{
+    const { ROUTE_ANALYSTS, ROUTE_CHOOSE_ANALYST } = await import('./run.mjs')
+    saveHarness(
+        {
+            name: 'two-analysts',
+            chief: {
+                instructions: 'Bakery questions go to bakery, budget questions go to budget.',
+                model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } })
+            },
+            specialists: [
+                { name: 'notes', instructions: 'Take notes.', modules: [] },
+                {
+                    name: 'bakery',
+                    summary: 'Bakery shop sales, products and stores.',
+                    instructions: 'Query the bakery database.',
+                    mcpServers: [
+                        {
+                            nodeName: 'postgreSQLMCP',
+                            label: 'PostgreSQL MCP',
+                            category: 'Tools (MCP)',
+                            inputs: { analystRelations: '["public.monthly_sales","public.stores"]' }
+                        }
+                    ]
+                },
+                {
+                    name: 'budget',
+                    summary: 'Household budget lines and monthly spending.',
+                    instructions: 'Query the household budget database.',
+                    mcpServers: [
+                        {
+                            nodeName: 'postgreSQLMCP',
+                            label: 'PostgreSQL MCP',
+                            category: 'Tools (MCP)',
+                            inputs: { analystRelations: '["public.budget_lines"]' }
+                        }
+                    ]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const twoCalls = []
+    let choice = '{"analysts":["budget"]}'
+    let routerReply = '{"steps":[]}'
+    const twoNodes = async (nodeName) => {
+        if (nodeName !== 'scriptedChat') throw new Error(`unexpected ${nodeName}`)
+        return recordingChat(twoCalls, (messages) => {
+            const plain = plainChatMessages(messages)
+            const system = String(plain[0]?.content || '')
+            if (system.includes('You route work')) return { content: routerReply }
+            if (system.includes('You choose the analyst')) {
+                if (choice === 'THROW') throw new Error('provider refused the choice call')
+                return { content: choice }
+            }
+            return { content: String(plain.at(-1)?.content || '') }
+        })
+    }
+    const ran = []
+    const twoFetch = analystHermesFetch((n, body) => {
+        const who = String(body.session_id || '').split(':')[0]
+        ran.push({ who, input: String(body.input || '') })
+        return { output: `${who} answered`, events: [{ event: 'tool.completed', tool: 'mcp__analyst__query' }] }
+    })
+    const ask = (chatId, input) =>
+        runHarness({ name: 'two-analysts', chatId, input, baseUrl: 'http://127.0.0.1:9', fetchImpl: twoFetch, loadNode: twoNodes })
+    const budgetAsk = 'Query the budget_lines table: what did we spend on groceries in March?'
+    const oneRun = await ask('two-1', budgetAsk)
+    const systems = twoCalls.map((call) => String(call.messages[0]?.content || ''))
+    const routeText = systems.find((text) => text.includes('You route work')) || ''
+    const chooseText = systems.find((text) => text.includes('You choose the analyst')) || ''
+    check(
+        'with two analysts an empty router answer asks the router to choose and runs only the chosen analyst',
+        ran.map((entry) => entry.who).join(',') === 'two-analysts--budget' &&
+            ran[0].input.includes(budgetAsk) &&
+            oneRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'budget' &&
+            routeText.includes(ROUTE_ANALYSTS) &&
+            routeText.includes(
+                '- budget: Household budget lines and monthly spending. Tools: PostgreSQL MCP. Tables: public.budget_lines.'
+            ) &&
+            routeText.includes('The bakery analyst database is') &&
+            routeText.includes('The budget analyst database is') &&
+            chooseText.includes(ROUTE_CHOOSE_ANALYST) &&
+            chooseText.includes('- bakery:') &&
+            chooseText.includes('- budget:') &&
+            !chooseText.includes('- notes:') &&
+            String(
+                twoCalls.find((call) => String(call.messages[0]?.content || '').includes('You choose'))?.messages.at(-1)?.content || ''
+            ).includes(budgetAsk),
+        JSON.stringify({ ran, steps: oneRun.trace?.route?.steps, chooseText })
+    )
+    ran.length = 0
+    choice = 'not json'
+    const bothRun = await ask('two-2', 'Run SQL on both databases: count the rows in every table.')
+    check(
+        'an analyst choice that names no analyst sends the data task to every analyst, never just the first',
+        ran
+            .map((entry) => entry.who)
+            .sort()
+            .join(',') === 'two-analysts--bakery,two-analysts--budget' &&
+            bothRun.trace?.route?.steps
+                ?.map((step) => step.specialist)
+                .sort()
+                .join(',') === 'bakery,budget',
+        JSON.stringify({ ran, steps: bothRun.trace?.route?.steps })
+    )
+    ran.length = 0
+    const callsBefore = twoCalls.length
+    const quietRun = await ask('two-3', 'What time is it?')
+    check(
+        'a question that is not a data task makes no analyst choice call',
+        ran.length === 0 &&
+            twoCalls.slice(callsBefore).every((call) => !String(call.messages[0]?.content || '').includes('You choose the analyst')) &&
+            (quietRun.trace?.route?.steps || []).length === 0,
+        JSON.stringify({ ran, steps: quietRun.trace?.route?.steps })
+    )
+    ran.length = 0
+    routerReply = '{"steps":[{"specialist":"bakery","task":"show more"}]}'
+    recordAnalystResult({
+        harness: 'two-analysts',
+        specialist: 'bakery',
+        chatId: 'two-page',
+        result: { cursor: 'bakery-cur' },
+        at: Date.now() - 5
+    })
+    recordAnalystResult({ harness: 'two-analysts', specialist: 'budget', chatId: 'two-page', result: { cursor: 'budget-cur' } })
+    const budgetMore = await ask('two-page', 'show more')
+    const budgetPaged = ran.splice(0)
+    recordAnalystResult({ harness: 'two-analysts', specialist: 'bakery', chatId: 'two-page', result: { cursor: 'bakery-cur-2' } })
+    routerReply = '{"steps":[{"specialist":"budget","task":"next page"}]}'
+    const bakeryMore = await ask('two-page', 'next page')
+    const bakeryPaged = ran.splice(0)
+    const owner = latestAnalystCursor({ harness: 'two-analysts', chatId: 'two-page' })
+    check(
+        'show more pages the analyst that returned the cursor, whatever the router picked',
+        budgetPaged.length === 1 &&
+            budgetPaged[0].who === 'two-analysts--budget' &&
+            budgetPaged[0].input.includes('cursor budget-cur') &&
+            budgetMore.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'budget' &&
+            bakeryPaged.length === 1 &&
+            bakeryPaged[0].who === 'two-analysts--bakery' &&
+            bakeryPaged[0].input.includes('cursor bakery-cur-2') &&
+            bakeryMore.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'bakery' &&
+            owner?.specialist === 'bakery' &&
+            owner?.token === 'bakery-cur-2',
+        JSON.stringify({ budgetPaged, bakeryPaged, owner })
+    )
+    dropAnalystCapture({ harness: 'two-analysts', chatId: 'two-page' })
+    const { chooseAnalysts, routerLine } = await import('./run.mjs')
+    const roster = getHarness('two-analysts')
+    const [bakeryAnalyst, budgetAnalyst] = roster.specialists.filter((specialist) => specialist.name !== 'notes')
+    const directContext = {
+        name: 'two-analysts',
+        roster,
+        limit: 30000,
+        moduleOptions: { componentNodes: {}, loadNode: twoNodes, nodeCache: new Map() }
+    }
+    choice = '{"analysts":["bakery"]}'
+    const callsBeforeDirect = twoCalls.length
+    const direct = await chooseAnalysts(directContext, 'Count the rows in monthly_sales.', [], [bakeryAnalyst, budgetAnalyst])
+    choice = '{"analysts":["notes"]}'
+    const directAll = await chooseAnalysts(directContext, 'Count the rows in every table.', [], [bakeryAnalyst, budgetAnalyst])
+    const directSystem = String(twoCalls[callsBeforeDirect]?.messages[0]?.content || '')
+    check(
+        'chooseAnalysts and routerLine can be called directly',
+        direct.map((step) => step.specialist.name).join(',') === 'bakery' &&
+            direct[0].task === 'Count the rows in monthly_sales.' &&
+            directAll.map((step) => step.specialist.name).join(',') === 'bakery,budget' &&
+            directSystem.includes(routerLine(budgetAnalyst, 2)) &&
+            routerLine(budgetAnalyst, 2) ===
+                '- budget: Household budget lines and monthly spending. Tools: PostgreSQL MCP. Tables: public.budget_lines.' &&
+            routerLine(budgetAnalyst, 1) === '- budget: Household budget lines and monthly spending. Tools: PostgreSQL MCP.',
+        JSON.stringify({
+            direct: direct.map((step) => step.specialist.name),
+            directAll: directAll.map((step) => step.specialist.name),
+            directSystem
+        })
+    )
+    choice = 'THROW'
+    const failedChoice = await chooseAnalysts(directContext, 'Count the rows in every table.', [], [bakeryAnalyst, budgetAnalyst])
+    const stopped = new AbortController()
+    stopped.abort()
+    let stoppedError = null
+    try {
+        await chooseAnalysts({ ...directContext, workSignal: stopped.signal }, 'Count rows.', [], [bakeryAnalyst, budgetAnalyst])
+    } catch (error) {
+        stoppedError = error
+    }
+    ran.length = 0
+    routerReply = '{"steps":[]}'
+    const failedRun = await ask('two-4', 'Run SQL on both databases: count the rows in every table.')
+    check(
+        'an analyst choice call that errors sends the task to every analyst, and a stopped turn still stops',
+        failedChoice.map((step) => step.specialist.name).join(',') === 'bakery,budget' &&
+            Boolean(stoppedError) &&
+            ran
+                .map((entry) => entry.who)
+                .sort()
+                .join(',') === 'two-analysts--bakery,two-analysts--budget' &&
+            failedRun.trace?.status === 'completed' &&
+            !String(failedRun.text || '').includes('provider refused'),
+        JSON.stringify({
+            failedChoice: failedChoice.map((step) => step.specialist.name),
+            stoppedError: String(stoppedError),
+            ran,
+            status: failedRun.trace?.status
+        })
+    )
+}
 const capCalls = []
 const capNodes = async (nodeName) => {
     if (nodeName !== 'scriptedChat') throw new Error(`unexpected ${nodeName}`)

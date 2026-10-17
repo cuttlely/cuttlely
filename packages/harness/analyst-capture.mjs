@@ -69,6 +69,7 @@ export function recordAnalystResult({ harness, specialist, chatId = '', result, 
     if (pending.length > 200) pending.splice(0, pending.length - 200)
 }
 
+// specialist is the analyst that returned the cursor, so "show more" pages that analyst when a harness has several.
 export function latestAnalystCursor({ harness, chatId, now = Date.now(), ttlMs = ANALYST_PAGE_TTL_MS } = {}) {
     const name = String(harness || '')
     const chat = String(chatId || '')
@@ -83,8 +84,8 @@ export function latestAnalystCursor({ harness, chatId, now = Date.now(), ttlMs =
         // The store drops the cursor when it expires. The capture still has the time,
         // so a later "show more" can say so without asking the analyst to guess.
         const age = now - Number(item.at || 0)
-        if (Number.isFinite(ttl) && ttl >= 0 && age >= ttl) return { expired: true, summary }
-        return { token, summary }
+        if (Number.isFinite(ttl) && ttl >= 0 && age >= ttl) return { expired: true, summary, specialist: item.specialist }
+        return { token, summary, specialist: item.specialist }
     }
     return null
 }

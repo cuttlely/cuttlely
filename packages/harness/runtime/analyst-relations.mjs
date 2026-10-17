@@ -26,6 +26,9 @@ export const SCOPE_NONE_LEFT = 'None of the selected tables or views exist any m
 
 const SCOPE_VIEW = 'cuttlely_scope_check'
 const SCOPE_STATEMENT_NAME = 'cuttlely_scope_check'
+// The pg client remembers each statement name it prepared, so a second check on one connection (describe samples
+// several columns) needs a name of its own.
+let scopeStatementSeq = 0
 const COMMENT_CHARS = 120
 const DEFINITION_CHARS = 4000
 const REFUSED_LIST = 12
@@ -316,9 +319,72 @@ export function describeRefusal(relations, requested) {
     } is not one of the selected tables or views. Choose one of: ${shown}${more}.`
 }
 
+// text, character(n), character varying(n) and enum columns are the ones a filter compares as written.
 const COLUMNS_SQL = `SELECT quote_ident(a.attname) AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS not_null,
-       col_description(a.attrelid, a.attnum) AS comment
-FROM pg_attribute a WHERE a.attrelid = ?::oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`
+       col_description(a.attrelid, a.attnum) AS comment,
+       (t.oid IN ('text'::regtype, 'bpchar'::regtype, 'varchar'::regtype) OR t.typtype = 'e') AS textual
+FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid
+WHERE a.attrelid = ?::oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`
+
+// Sample values for short, low-cardinality text columns, so a filter can match their case and spelling.
+// A column is sampled from its first SAMPLE_SCAN_ROWS non-null rows. More than SAMPLE_VALUES distinct values, or a
+// value longer than SAMPLE_VALUE_CHARS, leaves the column out. Values are returned as the text cast gives them, with
+// whitespace kept. Each sample has its own savepoint and short timeout, so one that fails or times out skips only
+// that column.
+export const SAMPLE_VALUES = 10
+export const SAMPLE_VALUE_CHARS = 40
+export const SAMPLE_COLUMNS = 8
+export const SAMPLE_SCAN_ROWS = 1000
+export const SAMPLE_TIMEOUT_MS = 1000
+const SAMPLED_KINDS = new Set(['table', 'view', 'materialized view'])
+
+function sampleStatement(relation, column) {
+    return `SELECT DISTINCT v::pg_catalog.text AS v FROM (SELECT ${column.name} AS v FROM ${relation.name} WHERE ${
+        column.name
+    } IS NOT NULL LIMIT ${SAMPLE_SCAN_ROWS}) s ORDER BY 1 LIMIT ${SAMPLE_VALUES + 1}`
+}
+
+async function inSavepoint(client, name, fn) {
+    await client.query(`SAVEPOINT ${name}`)
+    try {
+        const result = await fn()
+        await client.query(`RELEASE SAVEPOINT ${name}`)
+        return { ok: true, result }
+    } catch {
+        await client.query(`ROLLBACK TO SAVEPOINT ${name}`).catch(() => {})
+        return { ok: false }
+    }
+}
+
+// A sample is a query, so it passes the same checks a query does: the risky-domain check and the temporary-view
+// check on its own statement (D87, D88). A column whose statement does not pass is not sampled. Call this last in
+// a read-write transaction: the checks need a temporary view, then the transaction turns read only for the samples
+// and keeps the shorter timeout.
+export async function sampleRelationValues(client, runner, relation, relations, { isRowQuery, cacheKey = '' }) {
+    if (!SAMPLED_KINDS.has(relation.kind) || !relations.length) return null
+    const candidates = (await runner.all(COLUMNS_SQL, [relation.oid])).filter((column) => column.textual).slice(0, SAMPLE_COLUMNS)
+    const checked = []
+    for (const column of candidates) {
+        const statement = sampleStatement(relation, column)
+        const check = await inSavepoint(client, 'cuttlely_sample_check', () =>
+            checkStatementScope(client, runner, statement, relations, isRowQuery, cacheKey)
+        )
+        if (check.ok) checked.push({ column, statement })
+    }
+    if (!checked.length) return null
+    await client.query('SET LOCAL transaction_read_only = on')
+    await client.query(`SET LOCAL statement_timeout = ${SAMPLE_TIMEOUT_MS}`)
+    const values = {}
+    for (const { column, statement } of checked) {
+        const sample = await inSavepoint(client, 'cuttlely_sample', () => client.query(statement))
+        if (!sample.ok) continue
+        const list = (sample.result.rows || []).map((row) => String(row.v ?? ''))
+        if (!list.length || list.length > SAMPLE_VALUES) continue
+        if (list.some((value) => value.length > SAMPLE_VALUE_CHARS)) continue
+        values[column.name] = list.sort()
+    }
+    return Object.keys(values).length ? values : null
+}
 
 const PRIMARY_KEY_SQL = `SELECT quote_ident(a.attname) AS name
 FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
@@ -464,17 +530,19 @@ export async function checkStatementScope(client, runner, statement, relations, 
     // decision about domains comes first, from the catalog alone, and does not depend on the statement.
     const risky = await riskyDomains(runner, cacheKey)
     if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
+    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
+    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
     try {
         // A named statement is sent with the extended protocol, which refuses a second command.
         await client.query({
-            name: SCOPE_STATEMENT_NAME,
+            name: statementName,
             text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
         })
     } catch (error) {
         if (scopeUncheckable(error)) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
         throw error
     } finally {
-        await client.query(`DEALLOCATE ${SCOPE_STATEMENT_NAME}`).catch(() => {})
+        await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
     }
     const rule = await runner.get(
         `SELECT r.ev_class::int8 AS view, r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`

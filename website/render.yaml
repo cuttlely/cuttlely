@@ -19,6 +19,7 @@ services:
           paths:
               - website/**
               - docs/**
+              - assets/whitepaper/**
               - README.md
               - CHANGELOG.md
               - SECURITY.md

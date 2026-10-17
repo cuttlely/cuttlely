@@ -60,7 +60,7 @@ A harness saved before the handle-id repair still has the old edge ids in stored
 
 Each specialist **Chat Model** input can stay empty. The specialist uses Harness Prime's model. An orange triangle on the card is the outdated-node notice when the saved version is behind the current Harness Specialist or Harness Prime. It is not a missing chat model. A harness made from the template today shows no triangle. One saved from an older template or an older Cuttlely shows it until you select **Sync Nodes** and then save. Saving without **Sync Nodes** leaves it.
 
-![The chief-of-staff harness canvas in the dark theme, with the PostgreSQL MCP card in view. Available Actions has QUERY selected with its description below, and Connect Credential reads Auto mode: isolated analyst store, no credential needed.](../images/analyst/postgres-mcp-query.png)
+![The chief-of-staff harness canvas in the dark theme, with the PostgreSQL MCP card in view. Available Actions has QUERY selected with its description below, Connect Credential reads Auto mode: isolated analyst store, no credential needed, and Tables and views says isolated analyst storage has nothing to pick.](../images/analyst/postgres-mcp-query.png)
 
 **Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) and **Try it** run the draft when one exists, and Live otherwise. They do not build the canvas as a chatflow. External callers use `POST /api/v1/harnesses/chief-of-staff/runs`, which stays on Live until you publish. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. An analyst query chip also shows how many rows that query returned, and a short preview of them. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
 
@@ -232,6 +232,7 @@ With at least one relation ticked, the node also offers **describe**. It is not 
 | `primaryKey`    | The primary key columns of a table                                                                         |
 | `relationships` | Foreign keys between ticked relations, which ticked relations a view reads, and which ticked views read it |
 | `definition`    | The definition of a view or materialized view, cut at 4,000 characters                                     |
+| `values`        | Up to 10 sample values for each short text column with few distinct values                                 |
 
 `describe` for `account_balances` with the six relations above:
 
@@ -249,9 +250,15 @@ With at least one relation ticked, the node also offers **describe**. It is not 
         "balance_due numeric"
     ],
     "definition": "SELECT a.id AS account_id, a.account_code, ... FROM wholesale_accounts a LEFT JOIN invoices i ON i.account_id = a.id GROUP BY a.id;",
-    "relationships": ["reads public.wholesale_accounts"]
+    "relationships": ["reads public.wholesale_accounts"],
+    "values": {
+        "account_code": ["WA-1001", "WA-1002", "WA-1003", "WA-1004", "WA-1005"],
+        "name": ["Corner Cup Cafe", "Green Basket Grocers", "Hilltop Deli", "Lantern Bookshop Cafe", "Morning Tram Kiosk"]
+    }
 }
 ```
+
+Text comparison in Postgres is case-sensitive, so `WHERE name = 'hilltop deli'` finds no rows, and an empty result looks the same as a real zero. `values` lets the analyst write the value as it is stored. A column is sampled when its type is `text`, `character varying`, `character` or an enum, and the relation is a table, view or materialized view. Cuttlely reads the distinct values among that column's first 1,000 non-null rows. More than 10 distinct values, or a value longer than 40 characters, leaves the column out. Values are returned exactly as stored, including leading, trailing and repeated spaces, so `'  Utilities '` and `'Utilities'` are two values. A `character(n)` value is shown without the trailing pad, which a `character(n)` comparison ignores. At most 8 columns per relation are sampled. Each sample runs in its own savepoint and stops after one second, so a sample that fails or times out leaves out only that column. Values come only from the relation being described, which is always a ticked one. A sample is a query, so it passes the same checks a query does first: with a risky domain in the database, or a login that cannot create a temporary view, `describe` still returns the columns and leaves `values` out. For a ticked view, those are the view's own output rows, the same rows a query could read. A value that first appears after those 1,000 rows is not sampled, so the analyst instructions also say to check the distinct values of a column, or use `ILIKE`, before reporting zero rows for a text filter.
 
 `invoices` is not ticked, so it is not named under `relationships`, although the view definition reads it. A name that is not ticked is refused: `payroll_notes is not one of the selected tables or views. Choose one of: public.monthly_sales, ...`. A bare name that two ticked relations share in different schemas is refused as ambiguous: `stores is ambiguous: it matches sales.stores, public.stores. Call describe again with the schema-qualified name.` Column names that need quotes come back quoted, such as `"Unit Price" numeric(8,2)`.
 
@@ -323,11 +330,11 @@ The same pattern fits any database: name the relation that answers each kind of 
 | Prompt part                                                        | Tokens |
 | ------------------------------------------------------------------ | -----: |
 | Whole schema in the instructions, plus the query tool              |  2,562 |
-| Six relations ticked: the query tool with six lines, plus describe |    643 |
-| All 20 relations ticked                                            |  1,004 |
-| One `describe` result, `account_balances`                          |    172 |
+| Six relations ticked: the query tool with six lines, plus describe |    663 |
+| All 20 relations ticked                                            |  1,024 |
+| One `describe` result, `account_balances`, with its sample values  |    231 |
 
-The schema part alone goes from 2,235 tokens to 235. The six lines cost 76 tokens more than the earlier format, which gave a column count instead of names (567 in total), and that includes the longer `top_products` comment. They save a failed query and a retry when the model writes SQL before it describes. A `describe` result is a tool result, so it costs tokens only in the turn that calls it. The bakery database is small; the whole-schema figure grows with every column and comment, and the picker's grows by one line per ticked relation, with at most 12 column names in a line.
+The schema part alone goes from 2,235 tokens to 235. The six lines cost 76 tokens more than the earlier format, which gave a column count instead of names (567 in total), and that includes the longer `top_products` comment. The describe tool's note about sample values adds 20 more. They save a failed query and a retry when the model writes SQL before it describes. A `describe` result is a tool result, so it costs tokens only in the turn that calls it. The bakery database is small; the whole-schema figure grows with every column and comment, and the picker's grows by one line per ticked relation, with at most 12 column names in a line.
 
 ```bash
 psql -d bakery -f samples/demo/bakery/bakery-postgres.sql
@@ -349,6 +356,19 @@ On 2026-10-17 the analyst answered five questions on the bakery database with `g
 | Staff per store, with staff not ticked | Declined cleanly                                               |
 
 All four data questions were answered on the first query, and each answer matched the same question asked with direct SQL. The first prompt was about 650 tokens. All prompts for one question came to about 1.4k tokens, against 2k to 3k before the selection lines listed column names. This is one small, made-up database and one model; it is not a benchmark.
+
+## Several analysts in one harness
+
+A harness can have more than one analyst specialist, each with its own **PostgreSQL MCP** node and database. For example, one analyst on the made-up bakery database and one on a made-up household budget database. Give each a **Routing summary** that says what its database holds, and tick its tables and views, because those are what Harness Prime reads when it picks one.
+
+With one analyst, nothing below changes. With two or more:
+
+-   **Routing.** Harness Prime is told that several specialists are analysts, each with its own database. It sends a database question to the analyst whose summary and tables fit, and to each of them when several fit. It never answers a database question itself. Each analyst's line in the routing prompt ends with its ticked tables and views, such as `Tables: public.budget_lines, public.categories.`, at most 12 names and then a count.
+-   **Dialect.** The routing prompt has one line per analyst, such as `The bakery analyst database is PostgreSQL.`, because one analyst can be on a Postgres URL and another on isolated SQLite storage.
+-   **A routing answer with no steps.** Models sometimes answer a database question with no steps. With one analyst, the question goes to that analyst, as before. With several, Harness Prime makes one more short call that only chooses among the analysts, and the question goes to the ones it names. If that call names none of them, does not return JSON, or fails, the question goes to every analyst. A stopped turn, or one out of time, still stops. It is never sent to the first analyst by default. That call is part of the route step, and its tokens count toward the route.
+-   **Paging.** `show more`, `next page` and `page N` go to the analyst that returned the capped result, whatever the routing call picked. If two analysts both returned capped results in the same chat, paging continues the most recent one. If that analyst is no longer on the team, the reply is `The analyst that returned that result is no longer on this team. Ask your question again and I'll show the first page.`
+
+The analysts do not share a database or a cursor. To combine numbers from both, ask for each and let Harness Prime write the answer from the two results.
 
 ## Safety
 
@@ -454,7 +474,7 @@ Refresh **Available Actions** on the PostgreSQL MCP node. The list says **No Ava
 
 The fix is a separate database. Set `CUTTLELY_POSTGRES_URL` to it, or select a Postgres URL credential. Do not paste the application database. On Render, the Blueprint does not set that variable. [Analyst database](./render.md#analyst-database). If that host requires TLS, put `sslmode` on the URL yourself. Cuttlely does not add it.
 
-![The PostgreSQL MCP card in the dark theme. Connect Credential says no credential is saved for this node yet. Available Actions is No Available Actions. The note under it reads: Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.](../images/analyst/available-actions-create-roles.png)
+![The PostgreSQL MCP card in the dark theme. Connect Credential says no credential is saved for this node yet. Available Actions is No Available Actions. The note under it reads: Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login. Below it, Tables and views reads Isolated analyst storage: the analyst keeps its own tables here, so there is nothing to pick.](../images/analyst/available-actions-create-roles.png)
 
 Two other stops use the same fallback, a separate URL, and do not use the application login:
 

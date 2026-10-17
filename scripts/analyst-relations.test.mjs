@@ -15,6 +15,7 @@ import {
     deniedFunction,
     describeRefusal,
     resetRiskyDomainCacheForTests,
+    SAMPLE_TIMEOUT_MS,
     findRelation,
     parseRelationSelection,
     relationLine,
@@ -580,6 +581,8 @@ describe('analyst relations: bakery database', () => {
     it('rejects a call cleanly when its backend is terminated mid-query', async (t) => {
         if (skipped(t)) return
         const running = queryAnalystUrl(url, 'SELECT pg_sleep(10) AS slept', { statementTimeoutMs: 20000 })
+        // The kill can land during the first poll, before assert.rejects attaches its handler.
+        running.catch(() => {})
         for (let i = 0; i < 50; i += 1) {
             await new Promise((resolve) => setTimeout(resolve, 100))
             const killed = await admin.query(
@@ -755,6 +758,14 @@ describe('analyst relations: risky domain checks', () => {
         assert.equal(text.includes('safe_qty'), false)
     })
 
+    it('leaves describe values out while a risky domain refuses queries', async (t) => {
+        if (db.skipped(t)) return
+        const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
+        assert.equal(stores.values, undefined)
+        assert.deepEqual(stores.columns, ['id integer not null', 'name text not null'])
+        assert.equal(await db.sequence('bump_seq'), '1:false', 'the sample check did not run a domain check')
+    })
+
     it('answers a passing and a failing check value with the same text', async (t) => {
         if (db.skipped(t)) return
         const zero = await db.refusedText("SELECT '{0}'::quiet_ref[]")
@@ -773,6 +784,173 @@ describe('analyst relations: risky domain checks', () => {
             assert.match(await db.refusedText(sql), expected)
         }
         assert.deepEqual([await db.sequence('bump_seq'), await db.sequence('builtin_seq')], before)
+    })
+})
+
+describe('analyst relations: describe sample values on a made-up household budget', () => {
+    const db = riskyDatabase(
+        'budget',
+        `
+        CREATE TYPE public.spend_kind AS ENUM ('Fixed', 'Variable');
+        CREATE TABLE public.categories (id integer PRIMARY KEY, name text NOT NULL);
+        INSERT INTO public.categories VALUES (1, 'Hidden Category A'), (2, 'Hidden Category B');
+        CREATE TABLE public.budget_lines (
+            id integer PRIMARY KEY, category text, kind public.spend_kind, payee varchar(40), code character(3),
+            note text, amount numeric(8, 2)
+        );
+        INSERT INTO public.budget_lines
+        SELECT n,
+               (ARRAY['Groceries', 'Rent', '  Utilities ', 'Utilities'])[1 + n % 4],
+               (ARRAY['Fixed', 'Variable'])[1 + n % 2]::public.spend_kind,
+               'Payee ' || n,
+               (ARRAY['GRO', 'RNT'])[1 + n % 2],
+               'A long made-up note that is well past the forty character sample limit ' || (n % 2),
+               n * 1.25
+        FROM generate_series(1, 30) AS n;
+        CREATE VIEW public.monthly_spend AS
+            SELECT c.name AS category_name, b.category, sum(b.amount) AS total
+            FROM public.budget_lines b JOIN public.categories c ON c.id = 1 + b.id % 2 GROUP BY 1, 2;
+        -- slow_total runs far past the sample timeout. It comes first, so a timeout that dropped the rest would show.
+        CREATE VIEW public.slow_mix AS
+            SELECT (SELECT count(*)::text FROM generate_series(1, 100000) a, generate_series(1, 100000) b) AS slow_total,
+                   category AS fast_category
+            FROM public.budget_lines;
+    `
+    )
+
+    it('returns capped samples, exactly as stored, for short low-cardinality text columns only', async (t) => {
+        if (db.skipped(t)) return
+        const lines = await describeAnalystUrlRelation(db.url, { name: 'budget_lines' }, ['public.budget_lines'])
+        assert.deepEqual(lines.values, {
+            category: ['  Utilities ', 'Groceries', 'Rent', 'Utilities'],
+            kind: ['Fixed', 'Variable'],
+            code: ['GRO', 'RNT']
+        })
+        assert.equal('payee' in lines.values, false, 'thirty distinct payees is not low cardinality')
+        assert.equal('note' in lines.values, false, 'a long value leaves the column out')
+        assert.equal('amount' in lines.values, false, 'numbers are not sampled')
+        assert.equal(JSON.stringify(lines).includes('Hidden Category'), false)
+    })
+
+    it('never samples a relation that is not ticked', async (t) => {
+        if (db.skipped(t)) return
+        await refusal(describeAnalystUrlRelation(db.url, { name: 'categories' }, ['public.budget_lines']), /not one of the selected/)
+        const lines = await describeAnalystUrlRelation(db.url, { name: 'public.budget_lines' }, [
+            'public.budget_lines',
+            'public.monthly_spend'
+        ])
+        assert.equal(JSON.stringify(lines).includes('Hidden Category'), false, 'a ticked view next to it adds no values')
+    })
+
+    it('samples the output of a ticked view the way the query tool could read it', async (t) => {
+        if (db.skipped(t)) return
+        const view = await describeAnalystUrlRelation(db.url, { name: 'monthly_spend' }, ['public.monthly_spend'])
+        assert.deepEqual(view.values.category_name, ['Hidden Category A', 'Hidden Category B'])
+        const rows = await queryAnalystUrl(db.url, 'SELECT DISTINCT category_name FROM monthly_spend ORDER BY 1', {
+            relations: ['public.monthly_spend']
+        })
+        assert.deepEqual(
+            rows.rows.map((row) => row.category_name),
+            view.values.category_name
+        )
+    })
+
+    it('samples a short name column on a small table', async (t) => {
+        if (db.skipped(t)) return
+        const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
+        assert.deepEqual(stores.values, { name: ['Old Town', 'Riverside'] })
+    })
+
+    it('skips only the column whose sample times out', async (t) => {
+        if (db.skipped(t)) return
+        const started = Date.now()
+        const mix = await describeAnalystUrlRelation(db.url, { name: 'slow_mix' }, ['public.slow_mix'])
+        assert.ok(Date.now() - started >= SAMPLE_TIMEOUT_MS - 50, 'the slow column ran into its timeout')
+        assert.deepEqual(mix.values, { fast_category: ['  Utilities ', 'Groceries', 'Rent', 'Utilities'] })
+        assert.deepEqual(mix.columns, ['slow_total text', 'fast_category text'])
+    })
+})
+
+describe('analyst relations: describe and query leave no side effects', () => {
+    const wideColumns = Array.from({ length: 12 }, (_, i) => `c${i + 1}`)
+    const db = riskyDatabase(
+        'effects',
+        `
+        CREATE TABLE public.effect_log (id bigint, note text);
+        CREATE SEQUENCE public.effect_seq;
+        -- Owned by the admin and SECURITY DEFINER, so only the transaction mode, not a privilege, stops the writes.
+        CREATE FUNCTION public.leave_a_mark() RETURNS text LANGUAGE plpgsql VOLATILE SECURITY DEFINER AS $f$
+            BEGIN
+                PERFORM nextval('public.effect_seq');
+                INSERT INTO public.effect_log VALUES (currval('public.effect_seq'), 'marked');
+                RETURN 'marked';
+            END $f$;
+        CREATE VIEW public.marked_stores AS SELECT s.name, public.leave_a_mark() AS mark FROM public.stores s;
+        CREATE TABLE public.wide (${wideColumns.map((name) => `${name} text`).join(', ')});
+        INSERT INTO public.wide VALUES (${wideColumns.map((name) => `'${name} value'`).join(', ')});
+    `
+    )
+
+    const effects = async () => {
+        const owner = new Client(adminConfig(db.dbName))
+        await owner.connect()
+        try {
+            return (await owner.query('SELECT count(*)::int AS n FROM public.effect_log')).rows[0].n
+        } finally {
+            await owner.end()
+        }
+    }
+
+    it('a ticked view whose function inserts and calls nextval changes nothing through describe or query', async (t) => {
+        if (db.skipped(t)) return
+        const relations = ['public.marked_stores']
+        const described = await describeAnalystUrlRelation(db.url, { name: 'marked_stores' }, relations)
+        assert.deepEqual(described.columns, ['name text', 'mark text'])
+        assert.equal(described.values, undefined, 'every sample reads the view, which cannot write, so none is kept')
+        await assert.rejects(queryAnalystUrl(db.url, 'SELECT name, mark FROM marked_stores', { relations }), /read-only transaction/)
+        await assert.rejects(queryAnalystUrl(db.url, 'SELECT name FROM marked_stores', { relations }), /read-only transaction/)
+        assert.equal(await effects(), 0, 'effect_log is still empty')
+        assert.equal(await db.sequence('effect_seq'), '1:false', 'effect_seq was never advanced')
+    })
+
+    it('runs at most 8 scope-check statements on one connection for a table with 12 text columns', async (t) => {
+        if (db.skipped(t)) return
+        const { Client: StoreClient } = createRequire(path.join(ROOT, 'packages', 'components', 'package.json'))('pg')
+        const original = StoreClient.prototype.query
+        const checks = new Map()
+        StoreClient.prototype.query = function (config, ...rest) {
+            if (config && typeof config === 'object' && String(config.name || '').startsWith('cuttlely_scope_check')) {
+                checks.set(this, (checks.get(this) || 0) + 1)
+            }
+            return original.call(this, config, ...rest)
+        }
+        let wide
+        try {
+            wide = await describeAnalystUrlRelation(db.url, { name: 'wide' }, ['public.wide'])
+        } finally {
+            StoreClient.prototype.query = original
+        }
+        assert.equal(wide.columns.length, 12)
+        assert.equal(checks.size, 1, 'describe uses one connection')
+        assert.equal([...checks.values()][0], 8)
+        assert.deepEqual(Object.keys(wide.values), wideColumns.slice(0, 8))
+    })
+})
+
+describe('analyst relations: describe samples on a login without TEMP', () => {
+    const db = riskyDatabase(
+        'notemp',
+        `
+        DO $d$ BEGIN EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', current_database()); END $d$;
+    `
+    )
+
+    it('leaves values out, the same way query refuses, and still describes the columns', async (t) => {
+        if (db.skipped(t)) return
+        await refusal(queryAnalystUrl(db.url, 'SELECT name FROM stores', { relations: ['public.stores'] }), /could not check this query/)
+        const stores = await describeAnalystUrlRelation(db.url, { name: 'stores' }, ['public.stores'])
+        assert.equal(stores.values, undefined)
+        assert.deepEqual(stores.columns, ['id integer not null', 'name text not null'])
     })
 })
 

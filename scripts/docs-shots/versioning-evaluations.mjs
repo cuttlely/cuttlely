@@ -1482,6 +1482,10 @@ async function main() {
         }
         await shot(prodPage, 'docs/images/versioning/promote-review.png')
         const run = prodPage.getByRole('button', { name: 'Run check' })
+        await run
+            .first()
+            .waitFor({ timeout: 30000 })
+            .catch(() => {})
         if (await run.count()) {
             await run.click()
             await see(prodPage, 'answered', 180000)

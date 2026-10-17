@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
-import { jestMaxWorkers, nodeLoadBudgetJestArgs, timingTable, unitJestArgs } from './verify.mjs'
+import { jestMaxWorkers, nodeLoadBudgetJestArgs, runStepCommand, timingTable, unitJestArgs } from './verify.mjs'
 
 const KEY = 'CUTTLELY_VERIFY_JEST_WORKERS'
 const previous = process.env[KEY]
@@ -72,5 +76,61 @@ describe('verify timing table', () => {
     it('prints nothing when no step ran', () => {
         assert.deepEqual(timingTable([{ name: 'lint', status: 'skip', durationMs: null }]), [])
         assert.deepEqual(timingTable([]), [])
+    })
+})
+
+describe('verify retryOnSignal', () => {
+    const step = { name: 'fake-step', retryOnSignal: true, command: 'node', args: ['x'], env: {} }
+    function runner(results) {
+        const calls = []
+        const run = (...args) => {
+            calls.push(args)
+            return results[calls.length - 1]
+        }
+        return { run, calls }
+    }
+
+    it('runs a step once more when its process was killed by a signal', () => {
+        const { run, calls } = runner([
+            { status: null, signal: 'SIGKILL' },
+            { status: 0, signal: null }
+        ])
+        assert.deepEqual(runStepCommand(step, run), { status: 0, signal: null })
+        assert.equal(calls.length, 2)
+        assert.deepEqual(calls[1], ['node', ['x'], {}])
+    })
+
+    it('reports the second run when it is killed again, without a third try', () => {
+        const { run, calls } = runner([
+            { status: null, signal: 'SIGKILL' },
+            { status: null, signal: 'SIGSEGV' }
+        ])
+        assert.equal(runStepCommand(step, run).signal, 'SIGSEGV')
+        assert.equal(calls.length, 2)
+    })
+
+    it('does not retry a non-zero exit', () => {
+        const { run, calls } = runner([{ status: 1, signal: null }])
+        assert.equal(runStepCommand(step, run).status, 1)
+        assert.equal(calls.length, 1)
+    })
+
+    it('does not retry a signal on a step without retryOnSignal', () => {
+        const { run, calls } = runner([{ status: null, signal: 'SIGKILL' }])
+        assert.equal(runStepCommand({ ...step, retryOnSignal: false }, run).signal, 'SIGKILL')
+        assert.equal(calls.length, 1)
+    })
+
+    it('retries a real process that kills itself on the first run', () => {
+        const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'verify-signal-')), 'ran')
+        const code = `const fs = require('fs'); if (!fs.existsSync(process.argv[1])) { fs.writeFileSync(process.argv[1], ''); process.kill(process.pid, 'SIGKILL') }`
+        const run = (command, args) => spawnSync(command, args, { stdio: 'ignore' })
+        const result = runStepCommand(
+            { name: 'self-kill', retryOnSignal: true, command: process.execPath, args: ['-e', code, marker] },
+            run
+        )
+        assert.equal(result.signal, null)
+        assert.equal(result.status, 0)
+        assert.ok(fs.existsSync(marker))
     })
 })
