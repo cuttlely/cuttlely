@@ -4,7 +4,7 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
 import { DataSource } from 'typeorm'
-import { Workspace } from '../../database/entities/identity'
+import { User, Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceId } from '../../identity/workspaceScope'
@@ -263,6 +263,12 @@ const deleteHarness = async (name: string, workspaceId?: string | null) => {
     await requireHarness(name, workspaceId)
     const store = await loadHarness('store.mjs')
     store.deleteHarness(name)
+    try {
+        const schedules = await loadHarness('schedule.mjs')
+        schedules.deleteSchedule(name)
+    } catch (error) {
+        logger.warn(`[harness] ${name} schedule was not removed: ${getErrorMessage(error)}`)
+    }
     return { name, deleted: true }
 }
 
@@ -280,7 +286,7 @@ function httpHarnessError(error: unknown) {
     const message = getErrorMessage(error)
     if (code === 'not_found') return new AppError(StatusCodes.NOT_FOUND, message)
     if (code === 'name_clash') return new AppError(StatusCodes.CONFLICT, message)
-    if (code === 'bad_name' || code === 'bad_session') return new AppError(StatusCodes.BAD_REQUEST, message)
+    if (code === 'bad_name' || code === 'bad_session' || code === 'bad_schedule') return new AppError(StatusCodes.BAD_REQUEST, message)
     if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
     if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
@@ -401,7 +407,7 @@ const startRun = async (
             name,
             chatId: prepared.chatId,
             input: prepared.question,
-            source: opts.source === 'playground' || opts.source === 'api' ? opts.source : 'api',
+            source: opts.source === 'playground' || opts.source === 'api' || opts.source === 'schedule' ? opts.source : 'api',
             componentNodes: runtime?.componentNodes,
             flowOptions,
             onEvent: (event: { type: string }) => {
@@ -457,12 +463,16 @@ const startRun = async (
 const startBackgroundRun = async (
     name: string,
     body: Record<string, unknown>,
-    opts: { workspaceId: string; source?: 'api'; onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void }
+    opts: {
+        workspaceId: string
+        source?: 'api' | 'schedule'
+        onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
+    }
 ) => {
     const prepared = await assertRunRequest(name, body, opts.workspaceId)
-    const chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `api-${randomUUID()}`
-    const history = await loadHarness('history.mjs')
     const source = opts.source || 'api'
+    const chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
+    const history = await loadHarness('history.mjs')
     const queued = history.queueHarnessRun({ name: prepared.harness.name, chatId, source, input: prepared.question })
     if (!queued?.id) throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The run could not be recorded.')
     const runId: string = queued.id
@@ -528,6 +538,76 @@ const closeInterruptedRuns = async () => {
         logger.warn(`[harness] open runs were not closed: ${getErrorMessage(error)}`)
         return 0
     }
+}
+
+async function ownerSummary(ownerId: string) {
+    try {
+        const user = await getRunningExpressApp().AppDataSource.getRepository(User).findOneBy({ id: ownerId })
+        return { id: ownerId, name: user?.name || null, email: user?.email || null }
+    } catch {
+        return { id: ownerId, name: null, email: null }
+    }
+}
+
+// A schedule stored for the same name in another team is not this team's schedule.
+async function scheduleIn(name: string, workspaceId: string) {
+    const schedules = await loadHarness('schedule.mjs')
+    const schedule = schedules.getSchedule(name)
+    return schedule && schedule.workspaceId === workspaceId ? schedule : null
+}
+
+async function presentSchedule(schedule: Record<string, any> | null) {
+    if (!schedule) return { schedule: null }
+    const { workspaceId: _workspaceId, ownerId, ...rest } = schedule
+    // A run cut off by a restart never reported back to the schedule. The run history row has its outcome.
+    if (rest.lastResult === 'running' && rest.lastRunId) {
+        const history = await loadHarness('history.mjs')
+        const status = history.getRun(rest.harness, rest.lastRunId)?.status
+        if (status && status !== 'running' && status !== 'queued') rest.lastResult = status
+    }
+    return { schedule: { ...rest, owner: await ownerSummary(ownerId) } }
+}
+
+const getHarnessSchedule = async (name: string, workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
+    return presentSchedule(await scheduleIn(harness.name, workspaceOf(workspaceId)))
+}
+
+const saveHarnessSchedule = async (name: string, body: Record<string, unknown>, opts: { workspaceId?: string | null; ownerId: string }) => {
+    const harness = await requireHarness(name, opts.workspaceId)
+    const schedules = await loadHarness('schedule.mjs')
+    try {
+        const saved = schedules.saveSchedule(harness.name, body || {}, {
+            workspaceId: workspaceOf(opts.workspaceId),
+            ownerId: opts.ownerId
+        })
+        return presentSchedule(saved)
+    } catch (error) {
+        throw httpHarnessError(error)
+    }
+}
+
+const setHarnessScheduleStatus = async (name: string, status: 'active' | 'paused', workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
+    if (!(await scheduleIn(harness.name, workspaceOf(workspaceId)))) {
+        throw new AppError(StatusCodes.NOT_FOUND, `Harness ${harness.name} has no schedule.`)
+    }
+    const schedules = await loadHarness('schedule.mjs')
+    try {
+        return presentSchedule(schedules.setScheduleStatus(harness.name, status))
+    } catch (error) {
+        throw httpHarnessError(error)
+    }
+}
+
+const deleteHarnessSchedule = async (name: string, workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
+    if (!(await scheduleIn(harness.name, workspaceOf(workspaceId)))) {
+        throw new AppError(StatusCodes.NOT_FOUND, `Harness ${harness.name} has no schedule.`)
+    }
+    const schedules = await loadHarness('schedule.mjs')
+    schedules.deleteSchedule(harness.name)
+    return { harness: harness.name, deleted: true }
 }
 
 // Canvas chat and Try it. The draft canvas when one exists, otherwise the Live canvas. The saved harness and its
@@ -598,6 +678,10 @@ export default {
     startBackgroundRun,
     getRunResult,
     closeInterruptedRuns,
+    getHarnessSchedule,
+    saveHarnessSchedule,
+    setHarnessScheduleStatus,
+    deleteHarnessSchedule,
     startCanvasRun,
     replayCheck,
     chatImages

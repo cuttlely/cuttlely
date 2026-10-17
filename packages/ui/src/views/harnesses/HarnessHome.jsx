@@ -14,6 +14,7 @@ import { formatListDateTime } from '@/utils/formatDate'
 import HarnessRunTrace, { questionFromInputPreview, tryItTraceQuestion } from '@/views/chatmessage/HarnessRunTrace'
 import { harnessCanvasRunPath, harnessRunPath } from '@/utils/harnessCanvasChat'
 import { emptyTrace, failTrace, reduceHarnessEvent } from '../../../../../packages/harness/trace.mjs'
+import HarnessSchedule from './HarnessSchedule'
 
 const STATUS_COLOR = {
     succeeded: 'success',
@@ -242,8 +243,14 @@ const HarnessHome = () => {
                         )}
                     </Stack>
                 </Paper>
+                <HarnessSchedule name={name} />
                 <Stack sx={{ gap: 1.5 }}>
-                    <Typography variant='h4'>Runs</Typography>
+                    <Stack direction='row' justifyContent='space-between' alignItems='center'>
+                        <Typography variant='h4'>Runs</Typography>
+                        <Button variant='text' onClick={reloadRuns} disabled={runsApi.loading}>
+                            Refresh
+                        </Button>
+                    </Stack>
                     {runsApi.error ? (
                         <Typography color='error'>Could not load runs.</Typography>
                     ) : runs.length === 0 ? (

@@ -14,6 +14,8 @@ export const HARNESS_ALLOWLIST_MAX = 200
 export const HARNESS_RUN_START_LIMIT = 60
 /** Status and result reads per minute, on the same key. */
 export const HARNESS_RUN_READ_LIMIT = 600
+/** Schedule saves, pauses, resumes, and deletes per minute per person. */
+export const HARNESS_SCHEDULE_WRITE_LIMIT = 30
 const RATE_WINDOW_MS = 60 * 1000
 
 interface Caller {
@@ -197,8 +199,11 @@ export function harnessRateKey(req: Request): string {
     return `ip:${rateLimitClientKey(req)}`
 }
 
-export function harnessRunRateLimit(kind: 'start' | 'read', max?: number): RequestHandler {
-    const limit = max ?? (kind === 'start' ? HARNESS_RUN_START_LIMIT : HARNESS_RUN_READ_LIMIT)
+const RATE_LIMITS = { start: HARNESS_RUN_START_LIMIT, read: HARNESS_RUN_READ_LIMIT, schedule: HARNESS_SCHEDULE_WRITE_LIMIT }
+const RATE_NOUNS = { start: 'harness runs', read: 'harness status reads', schedule: 'harness schedule changes' }
+
+export function harnessRunRateLimit(kind: 'start' | 'read' | 'schedule', max?: number): RequestHandler {
+    const limit = max ?? RATE_LIMITS[kind]
     return rateLimit({
         windowMs: RATE_WINDOW_MS,
         max: limit,
@@ -208,7 +213,7 @@ export function harnessRunRateLimit(kind: 'start' | 'read', max?: number): Reque
         handler: (req, res) => {
             logger.warn(`[harness] ${kind} rate limit reached for ${harnessRateKey(req).split(':')[0]} on ${String(req.params.name || '')}`)
             res.status(StatusCodes.TOO_MANY_REQUESTS).json({
-                message: `Too many harness ${kind === 'start' ? 'runs' : 'status reads'}. The limit is ${limit} a minute.`
+                message: `Too many ${RATE_NOUNS[kind]}. The limit is ${limit} a minute.`
             })
         }
     })

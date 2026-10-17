@@ -25,6 +25,7 @@ import { ScheduleBeat } from './schedule/ScheduleBeat'
 import { RedisEventSubscriber } from './queue/RedisEventSubscriber'
 import { initWebhookListenerRegistry } from './services/webhook-listener'
 import harnessesService from './services/harnesses'
+import { startHarnessScheduler } from './services/harnesses/schedules'
 import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
@@ -440,6 +441,7 @@ export async function start(): Promise<void> {
         harnessesService.startHarnessRuntime()
         harnessesService.warmHarnesses()
         etlService.resumeEtlRuns()
+        startHarnessScheduler()
         flowVersionsService.startGithubSync()
         const keepWarmMinutes = Number(process.env.CUTTLELY_HERMES_KEEP_WARM_MINUTES)
         if (keepWarmMinutes > 0) setInterval(() => harnessesService.warmHarnesses(), keepWarmMinutes * 60000).unref()

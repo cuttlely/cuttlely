@@ -3,7 +3,8 @@ import { StatusCodes } from 'http-status-codes'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceIdFromReq } from '../../identity/workspaceScope'
 import harnessesService from '../../services/harnesses'
-import { noteBackgroundRunSettled, noteBackgroundRunStarted } from '../../services/harnesses/apiAccess'
+import { isApiKeyCaller, noteBackgroundRunSettled, noteBackgroundRunStarted, noteHarnessAudit } from '../../services/harnesses/apiAccess'
+import { AppError } from '../../errors/appError'
 import { chatImages } from '../../services/harnesses/chatImages'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
@@ -137,6 +138,81 @@ const getRunResult = async (req: Request, res: Response, next: NextFunction) => 
     }
 }
 
+const getSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        return res.json(await harnessesService.getHarnessSchedule(req.params.name, activeWorkspace(req)))
+    } catch (error) {
+        next(error)
+    }
+}
+
+// A schedule runs with its owner's permissions, so only a signed-in person can set or change one.
+function scheduleOwner(req: Request): string {
+    const id = (req.user as { id?: unknown } | undefined)?.id
+    if (isApiKeyCaller(req) || typeof id !== 'string' || !id) {
+        throw new AppError(StatusCodes.FORBIDDEN, 'A schedule runs as a person, so an API key cannot change one. Sign in to set it.')
+    }
+    return id
+}
+
+type ScheduleView = { schedule: { cron?: string; timezone?: string; status?: string } | null }
+
+async function noteScheduleChange(req: Request, action: string, summary: string, view: ScheduleView | { deleted: boolean }) {
+    const schedule = 'schedule' in view ? view.schedule : null
+    await noteHarnessAudit(req, 'harness_schedule', summary, {
+        harness: String(req.params.name || '').slice(0, 64),
+        action,
+        ...(schedule ? { cron: schedule.cron, timezone: schedule.timezone, status: schedule.status } : {})
+    })
+}
+
+const saveSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const ownerId = scheduleOwner(req)
+        const saved = await harnessesService.saveHarnessSchedule(req.params.name, req.body || {}, {
+            workspaceId: activeWorkspace(req),
+            ownerId
+        })
+        await noteScheduleChange(req, 'saved', 'Harness schedule saved', saved)
+        return res.json(saved)
+    } catch (error) {
+        next(error)
+    }
+}
+
+const pauseSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        scheduleOwner(req)
+        const saved = await harnessesService.setHarnessScheduleStatus(req.params.name, 'paused', activeWorkspace(req))
+        await noteScheduleChange(req, 'paused', 'Harness schedule paused', saved)
+        return res.json(saved)
+    } catch (error) {
+        next(error)
+    }
+}
+
+const resumeSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        scheduleOwner(req)
+        const saved = await harnessesService.setHarnessScheduleStatus(req.params.name, 'active', activeWorkspace(req))
+        await noteScheduleChange(req, 'resumed', 'Harness schedule resumed', saved)
+        return res.json(saved)
+    } catch (error) {
+        next(error)
+    }
+}
+
+const deleteSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        scheduleOwner(req)
+        const removed = await harnessesService.deleteHarnessSchedule(req.params.name, activeWorkspace(req))
+        await noteScheduleChange(req, 'deleted', 'Harness schedule deleted', removed)
+        return res.json(removed)
+    } catch (error) {
+        next(error)
+    }
+}
+
 export default {
     listHarnesses,
     getHarness,
@@ -146,5 +222,10 @@ export default {
     getRun,
     createRun,
     startBackgroundRun,
-    getRunResult
+    getRunResult,
+    getSchedule,
+    saveSchedule,
+    pauseSchedule,
+    resumeSchedule,
+    deleteSchedule
 }
