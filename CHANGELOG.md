@@ -11,6 +11,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   `pnpm verify` ends with a timing table of the steps that ran, slowest first, with each step's time and share of the total. It prints on a pass and on a failure, and pass or fail is unchanged.
 -   A media size check (`scripts/media-size.mjs`) fails when a tracked or staged image or video file is over 5 MB and is not listed in `scripts/media-size.allowlist`. The allowlist holds the large website videos already committed. It runs as a `pnpm verify` step, including `--fast` and the pre-push hook, and in the required `lint` CI job.
 -   `CUTTLELY_OTEL_TRACES_CONTENT_MAX` sets how many characters of question, answer, prompt, and tool text each run trace span keeps when `CUTTLELY_OTEL_TRACES_CONTENT` is on. The default stays 4,000, so existing installs see no change. `0` is no limit and sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. It is **Prompt and tool text limit** under **Admin** > **Server Settings** > **Integrations** > **Traces**, with **Default (4,000 characters)**, **No limit**, and **Another limit**. The page refuses anything that is not a positive whole number or `0`. A host value that is not a whole number keeps 4,000, and the server logs one warning about it at startup. [Run traces](./docs/how-to/observability.md#full-question-and-answer-text).
+-   A Grafana dashboard for run traces and server metrics, `metrics/grafana/cuttlely-runs.json`. It reads traces from Tempo and `GET /api/v1/metrics` from Prometheus, with rows for runs, latency, tokens and cost, errors, and each flow and harness. [Run traces](./docs/how-to/observability.md).
+-   Japanese and Korean READMEs (`README.ja.md`, `README.ko.md`), with a language switcher at the top of every README.
+-   The benchmark whitepaper is on the website at `/whitepaper/`, as a web page and a PDF.
+-   The home page Harnesses section has an Analyst callout: ask a question in plain words and get an answer from your own database, with the analyst seeing only the tables and views you tick.
 
 ### Changed
 
@@ -20,6 +24,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The **Watch with sound** video dialog on the homepage opens in the centre of the window.
 -   **Include prompts and tool text** in Server Settings now points at **Prompt and tool text limit** instead of saying the text is cut at 4,000 characters.
 -   The Node CI and Test Docker Build workflows run on pull requests into base branches whose names contain a slash.
+-   **Add a model key** on Try the demo shows only for a role with `credentials:create`, the same as the other credential actions.
+-   Dark-theme contrast is higher in the app and on the website.
+-   The home page sign-off line has icon links to Cuttlely on LinkedIn, Reddit, X, GitHub, Bluesky, DEV and Mastodon. The page loads no remote scripts for them.
+-   Docs: harness, Analyst and Usage screenshots retaken from the current app with made-up bakery data, so they show a real answer.
 
 ### Removed
 
