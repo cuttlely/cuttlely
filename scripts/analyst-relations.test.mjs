@@ -580,6 +580,8 @@ describe('analyst relations: bakery database', () => {
     it('rejects a call cleanly when its backend is terminated mid-query', async (t) => {
         if (skipped(t)) return
         const running = queryAnalystUrl(url, 'SELECT pg_sleep(10) AS slept', { statementTimeoutMs: 20000 })
+        // The kill can land during the first poll, before assert.rejects attaches its handler.
+        running.catch(() => {})
         for (let i = 0; i < 50; i += 1) {
             await new Promise((resolve) => setTimeout(resolve, 100))
             const killed = await admin.query(
