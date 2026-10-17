@@ -41,7 +41,7 @@ A setting or route that will be removed is marked **Deprecated** in the changelo
 
 | Version                       | Gets fixes         |
 | ----------------------------- | ------------------ |
-| Latest minor (today: `1.2.x`) | Yes                |
+| Latest minor (today: `1.3.x`) | Yes                |
 | Older minors and majors       | No. Upgrade first. |
 
 Fixes, including security fixes, ship as a patch release of the latest minor. An older minor does not get a backport. Upgrading within a major is meant to be safe: read the changelog's upgrade notes and back up first, as [Upgrading Cuttlely](./upgrading.md) describes. Every full `pnpm verify` checks that data from an older release opens on the current code.
@@ -60,14 +60,15 @@ You need Node 24, pnpm, Docker and the GitHub CLI signed in (`gh auth status`). 
 
 1. Make sure `CHANGELOG.md` lists everything under `## [Unreleased]`, or under `## [X.Y.Z] - Unreleased` for a planned version.
 2. Review the model list, `packages/components/models.json`, against each provider's current models and prices, and merge any update first. See [Updating the model list](./reference/model-list.md).
-3. Check out `main`, pull, and run a dry run. It changes nothing and prints every check, every command and the release notes:
+3. Check the docs, the site and the npm READMEs against the product, and merge any fix first, because the npm packages carry the READMEs as they are at the tag. [Docs and site sync](#docs-and-site-sync) is the check list.
+4. Check out `main`, pull, and run a dry run. It changes nothing and prints every check, every command and the release notes:
 
     ```bash
     pnpm release --dry-run            # version from "## [X.Y.Z] - Unreleased"
     pnpm release minor --dry-run      # or major, patch, or an exact X.Y.Z
     ```
 
-4. Run it for real:
+5. Run it for real:
 
     ```bash
     pnpm release                          # draft: nothing public
@@ -99,6 +100,27 @@ Two flags go further, and neither is ever the default:
 A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --push --publish` after a draft run.
 
 The release commit is pushed straight to `main`. When `main` requires pull requests, the maintainer who cuts releases needs to be allowed to bypass that rule.
+
+## Docs and site sync
+
+Do this for every release, before the tag. The release bumps the version files, not the docs.
+
+-   **Version pins.** Search for the previous version (for 1.3.0, `rg -n '1\.2\.0'`) and update every example that pins it: `packages/cli/README.md`, `docs/how-to/docker.md`, `docs/how-to/share-and-embed.md`, and the "today" row in [Which versions get fixes](#which-versions-get-fixes). Leave lines that record what an older release did. A figure measured on an older build says which build it was measured on.
+-   **Features.** Each headline item in the changelog section is described in `README.md`, the guide it belongs to, and the website home page where that section covers it, with the same names as the UI.
+-   **Translations.** `README.ja.md` and `README.ko.md` carry the same change. `node --test scripts/readme-translations.test.mjs` checks that their links, images and code blocks match `README.md`, and that every in-page link has an `<a id>` anchor. It does not check the prose.
+-   **Figures.** A number on the site or in a README matches the guide that records it, and links to it.
+-   **Live site.** After the site deploys, open the home page and the pages that changed, and check that their links answer.
+
+After `pnpm release X.Y.Z --npm`, check that each published README matches the tag:
+
+```bash
+dir=$(mktemp -d)
+npm pack cuttlely@X.Y.Z @cuttlely/chat@X.Y.Z --pack-destination "$dir"
+tar -xzOf "$dir/cuttlely-X.Y.Z.tgz" package/README.md | diff - <(git show vX.Y.Z:packages/cli/README.md)
+tar -xzOf "$dir/cuttlely-chat-X.Y.Z.tgz" package/README.md | diff - <(git show vX.Y.Z:packages/chat-widget/README.md)
+```
+
+No output means they match. A difference means the package was not packed from the tag. A README that matches the tag but is out of date was missed by the check list above, and is fixed in the next release.
 
 ## Publish the npm packages
 
