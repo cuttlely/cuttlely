@@ -133,6 +133,11 @@
             "to": "packages/components/src/utils.ts"
         },
         {
+            "from": "packages/components/src/evaluationRunner.test.ts",
+            "to": "packages/components/evaluation/EvaluationRunner.ts",
+            "reason": "the test drives the inherited evaluation runner's chatflow id check"
+        },
+        {
             "from": "packages/components/src/oauthRefresh.test.ts",
             "to": "packages/components/src/httpSecurity.ts"
         },
@@ -183,6 +188,11 @@
         {
             "from": "packages/server/src/commands/settings.ts",
             "to": "packages/server/src/commands/base.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/chat-messages/removeAll.test.ts",
+            "to": "packages/server/src/controllers/chat-messages/index.ts",
+            "reason": "the test drives the inherited clear-messages handler it covers"
         },
         {
             "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
@@ -251,6 +261,16 @@
         {
             "from": "packages/server/src/controllers/internal-predictions/index.test.ts",
             "to": "packages/server/src/services/predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/nodes/iconCache.test.ts",
+            "to": "packages/server/src/controllers/components-credentials/index.ts",
+            "reason": "the test checks the cache header on the inherited credential icon handler"
+        },
+        {
+            "from": "packages/server/src/controllers/nodes/iconCache.test.ts",
+            "to": "packages/server/src/controllers/nodes/index.ts",
+            "reason": "the test checks the cache header on the inherited node icon handler"
         },
         {
             "from": "packages/server/src/controllers/ping/index.test.ts",
@@ -364,6 +384,11 @@
         {
             "from": "packages/server/src/middlewares/errors/index.test.ts",
             "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/routes/index.rateLimit.test.ts",
+            "to": "packages/server/src/routes/index.ts",
+            "reason": "the test mounts the inherited API router to check each guarded prefix's limiter"
         },
         {
             "from": "packages/server/src/routes/oauth2/refresh.test.ts",
