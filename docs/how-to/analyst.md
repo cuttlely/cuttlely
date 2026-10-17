@@ -309,8 +309,10 @@ The schema part alone goes from 2,222 tokens to 160. A `describe` result is a to
 
 ```bash
 psql -d bakery -f samples/demo/bakery/bakery-postgres.sql
-CUTTLELY_BAKERY_URL=postgresql://user:password@127.0.0.1:5432/bakery node scripts/analyst-schema-tokens.mjs
+CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-schema-tokens.mjs
 ```
+
+A URL without a login uses `PGUSER` and `PGPASSWORD` from the environment.
 
 ## Safety
 

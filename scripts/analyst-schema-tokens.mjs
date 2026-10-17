@@ -2,7 +2,9 @@
 // Prompt size for the analyst on the bakery demo database, before and after the table picker.
 //
 //   psql -d bakery -f samples/demo/bakery/bakery-postgres.sql
-//   CUTTLELY_BAKERY_URL=postgresql://user:password@127.0.0.1:5432/bakery node scripts/analyst-schema-tokens.mjs
+//   CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-schema-tokens.mjs
+//
+// A URL without a login uses PGUSER and PGPASSWORD from the environment.
 //
 // Before: the whole database written into the specialist's instructions, plus the query tool.
 // After: the query tool with one line per selected relation, plus the describe tool. Tokens are counted with the
