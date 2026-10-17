@@ -6,8 +6,10 @@ import path from 'path'
 import fs from 'fs'
 import logger from './logger'
 import { harnessEndingNodeStreams } from './streaming'
+import { apiKeyNodeOptions } from './apiKeyAccess'
 import { v4 as uuidv4 } from 'uuid'
 import {
+    IApiKeyAccess,
     IChatFlow,
     IComponentCredentials,
     IComponentNodes,
@@ -522,6 +524,7 @@ type BuildFlowParams = {
     checkStorage?: (orgId: string, subscriptionId: string, usageCacheManager: any) => Promise<any>
     /** Publish-check replay: node init must not export model or tool spans. */
     cuttlelyReplay?: boolean
+    apiKeyAccess?: IApiKeyAccess
 }
 
 /**
@@ -559,7 +562,8 @@ export const buildFlow = async ({
     usageCacheManager,
     updateStorageUsage,
     checkStorage,
-    cuttlelyReplay
+    cuttlelyReplay,
+    apiKeyAccess
 }: BuildFlowParams) => {
     const flowNodes = cloneDeep(reactFlowNodes)
 
@@ -679,6 +683,7 @@ export const buildFlow = async ({
                         checkStorage,
                         // A Harness tool closes over this object. The ending-node path does not use it.
                         recordTokenUsage: recordCompletedRun,
+                        ...apiKeyNodeOptions(apiKeyAccess),
                         ...(cuttlelyReplay ? { cuttlelyReplay: true } : {})
                     })
                 let outputResult = isUpsert

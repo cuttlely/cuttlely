@@ -28,6 +28,7 @@ import {
     INodeData,
     IReactFlowObject,
     IExecuteFlowParams,
+    IApiKeyAccess,
     IFlowConfig,
     IAgentflowExecutedData,
     ExecutionState,
@@ -42,6 +43,7 @@ import {
     INodeDirectedGraph,
     StartInputType
 } from '../Interface'
+import { apiKeyNodeOptions } from './apiKeyAccess'
 import {
     RUNTIME_MESSAGES_LENGTH_VAR_PREFIX,
     CHAT_HISTORY_VAR_PREFIX,
@@ -185,6 +187,7 @@ interface IExecuteNodeParams {
     subscriptionId: string
     productId: string
     replay?: boolean
+    apiKeyAccess?: IApiKeyAccess
 }
 
 interface IExecuteAgentFlowParams extends Omit<IExecuteFlowParams, 'incomingInput'> {
@@ -1113,7 +1116,8 @@ const executeNode = async ({
     workspaceId,
     subscriptionId,
     productId,
-    replay
+    replay,
+    apiKeyAccess
 }: IExecuteNodeParams): Promise<{
     result: any
     shouldStop?: boolean
@@ -1333,7 +1337,8 @@ const executeNode = async ({
             evaluationRunId,
             replay,
             // A harness tool on this canvas records against the agentflow. The tool closes over these params.
-            recordTokenUsage: recordCompletedRun
+            recordTokenUsage: recordCompletedRun,
+            ...apiKeyNodeOptions(apiKeyAccess)
         }
 
         // Execute node. tracedNode is a no-op check when run traces are off.
@@ -1417,7 +1422,8 @@ const executeNode = async ({
                             workspaceId,
                             subscriptionId,
                             productId,
-                            replay
+                            replay,
+                            apiKeyAccess
                         })
 
                         // Store the result
@@ -1814,7 +1820,8 @@ const runAgentFlow = async ({
     subscriptionId,
     productId,
     sessionToken,
-    replay
+    replay,
+    apiKeyAccess
 }: IExecuteAgentFlowParams) => {
     logger.debug('\n🚀 Starting flow execution')
 
@@ -2346,7 +2353,8 @@ const runAgentFlow = async ({
                 workspaceId,
                 subscriptionId,
                 productId,
-                replay
+                replay,
+                apiKeyAccess
             })
 
             if (executionResult.agentFlowExecutedData) {

@@ -259,7 +259,9 @@ const FLOW_OPTION_KEYS = [
     'componentNodes',
     'usageCacheManager',
     'updateStorageUsage',
-    'checkStorage'
+    'checkStorage',
+    'apiKeyId',
+    'apiKeyHarnesses'
 ] as const
 
 function pickFlowOptions(options: ICommonObject): HarnessFlowOptions {

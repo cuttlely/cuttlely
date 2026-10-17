@@ -484,6 +484,13 @@ export interface IExecuteFlowParams extends IPredictionQueueAppServer {
     chatType?: ChatType
     /** Server-issued proof that this caller may continue `chatId`. Not a client session string. */
     sessionToken?: string
+    /** The flow's own API key on the prediction API, and the harnesses it may run. Unset for a signed-in chat. */
+    apiKeyAccess?: IApiKeyAccess
+}
+
+export interface IApiKeyAccess {
+    apiKeyId: string
+    harnesses: string[]
 }
 
 export interface INodeOverrides {

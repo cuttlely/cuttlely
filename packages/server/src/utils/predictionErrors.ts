@@ -122,6 +122,7 @@ export const toPredictionError = (error: unknown): AppError => {
         return rateLimited
     }
     const message = getErrorMessage(error)
+    if ((error as { code?: unknown })?.code === 'key_not_allowed') return new AppError(StatusCodes.FORBIDDEN, message)
     if (isHarnessError(error, message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }

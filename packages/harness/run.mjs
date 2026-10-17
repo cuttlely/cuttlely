@@ -65,7 +65,7 @@ import {
 import { prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, releaseTurn } from './lock.mjs'
 import { appendTurn, readPromptContext, sessionKey } from './session.mjs'
-import { beginHarnessRun, finishHarnessRun, listRuns, safeTraceId } from './history.mjs'
+import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
@@ -83,6 +83,7 @@ export function configureHarnessRuntime({ contextFor } = {}) {
 // Before a run row is opened. A harness with no team is not in the caller's team.
 // Both empty is an offline run with no team on either side.
 export function assertHarnessWorkspace(name, flowOptions, record) {
+    assertHarnessKeyAccess(record?.name || name, flowOptions)
     let harness = record
     if (!harness) {
         try {
@@ -96,6 +97,16 @@ export function assertHarnessWorkspace(name, flowOptions, record) {
     const owner = typeof harness.workspaceId === 'string' ? harness.workspaceId : ''
     if (caller !== owner) {
         throw new HarnessError('wrong_workspace', `Harness "${harness.name || name}" belongs to another workspace.`)
+    }
+}
+
+// A flow run under an API key (the flow's own key on the prediction API) runs only harnesses on that key's list.
+export function assertHarnessKeyAccess(name, flowOptions) {
+    const keyId = flowOptions?.apiKeyId
+    if (typeof keyId !== 'string' || !keyId) return
+    const allowed = Array.isArray(flowOptions?.apiKeyHarnesses) ? flowOptions.apiKeyHarnesses : []
+    if (!allowed.includes(name)) {
+        throw new HarnessError('key_not_allowed', `This API key may not run harness "${name}".`)
     }
 }
 
@@ -138,6 +149,7 @@ function rememberRun(args, started, pending, result, error) {
         } else {
             const opened = beginHarnessRun({
                 id: args?.runId,
+                apiKeyId: args?.apiKeyId,
                 name: args?.name,
                 chatId: args?.chatId,
                 source: args?.source,
@@ -185,6 +197,7 @@ export async function runHarness(args = {}) {
         try {
             pending = beginHarnessRun({
                 id: args.runId,
+                apiKeyId: args.apiKeyId,
                 name: args.name,
                 chatId: args.chatId,
                 source: args.source,
