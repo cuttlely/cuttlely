@@ -260,9 +260,60 @@ export function describeRefusal(relations, requested) {
     } is not one of the selected tables or views. Choose one of: ${shown}${more}.`
 }
 
+// text, character(n), character varying(n) and enum columns are the ones a filter compares as written.
 const COLUMNS_SQL = `SELECT quote_ident(a.attname) AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS not_null,
-       col_description(a.attrelid, a.attnum) AS comment
-FROM pg_attribute a WHERE a.attrelid = ?::oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`
+       col_description(a.attrelid, a.attnum) AS comment,
+       (t.oid IN ('text'::regtype, 'bpchar'::regtype, 'varchar'::regtype) OR t.typtype = 'e') AS textual
+FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid
+WHERE a.attrelid = ?::oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`
+
+// Sample values for short, low-cardinality text columns, so a filter can match their case and spelling.
+// A column is sampled from its first SAMPLE_SCAN_ROWS non-null rows. More than SAMPLE_VALUES distinct values, or a
+// value longer than SAMPLE_VALUE_CHARS, leaves the column out. Each sample has its own short timeout.
+export const SAMPLE_VALUES = 10
+export const SAMPLE_VALUE_CHARS = 40
+export const SAMPLE_COLUMNS = 8
+export const SAMPLE_SCAN_ROWS = 1000
+const SAMPLE_TIMEOUT_MS = 1000
+const SAMPLED_KINDS = new Set(['table', 'view', 'materialized view'])
+
+function sampleText(value) {
+    return String(value ?? '')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+async function sampleValues(runner, relation, columns) {
+    if (!SAMPLED_KINDS.has(relation.kind)) return null
+    const candidates = columns.filter((column) => column.textual).slice(0, SAMPLE_COLUMNS)
+    if (!candidates.length) return null
+    await runner.all(`SET LOCAL statement_timeout = ${SAMPLE_TIMEOUT_MS}`)
+    const values = {}
+    for (const column of candidates) {
+        let rows
+        try {
+            rows = await runner.all(
+                `SELECT DISTINCT v::text AS v FROM (SELECT ${column.name} AS v FROM ${relation.name} WHERE ${
+                    column.name
+                } IS NOT NULL LIMIT ${SAMPLE_SCAN_ROWS}) s ORDER BY 1 LIMIT ${SAMPLE_VALUES + 1}`
+            )
+        } catch {
+            continue
+        }
+        if (!rows.length || rows.length > SAMPLE_VALUES) continue
+        const list = []
+        for (const row of rows) {
+            const text = sampleText(row.v)
+            if (text.length > SAMPLE_VALUE_CHARS) {
+                list.length = 0
+                break
+            }
+            if (text && !list.includes(text)) list.push(text)
+        }
+        if (list.length) values[column.name] = list.sort()
+    }
+    return Object.keys(values).length ? values : null
+}
 
 const PRIMARY_KEY_SQL = `SELECT quote_ident(a.attname) AS name
 FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
@@ -329,6 +380,9 @@ export async function describeRelation(runner, relation, relations) {
         if (reader) relationships.push(`read by ${reader.name}`)
     }
     if (relationships.length) body.relationships = relationships
+    // Last, because sampling lowers the statement timeout for the rest of this transaction.
+    const values = await sampleValues(runner, relation, columns)
+    if (values) body.values = values
     return body
 }
 
