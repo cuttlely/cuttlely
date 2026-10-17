@@ -280,7 +280,7 @@ Then read the `resultUrl` every few seconds until `finished` is `true`:
 }
 ```
 
-The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. A harness that is not ticked on the key answers `403` `This API key may not run harness "payroll".`, whether or not that harness exists, and that refusal is an **Admin** > **Audit log** row. Each key may start 60 runs and read 600 times a minute. The full request and response, and every error, are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
+The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. A harness that is not ticked on the key answers `403` `This API key may not run harness "payroll".`, whether or not that harness exists, and that refusal is an **Admin** > **Audit log** row. Each key may start 60 runs and read 600 times a minute, counted in each server process. The key sees only the runs it started. The full request and response, and every error, are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
 
 ## Call the harness from a chatflow
 
@@ -294,6 +294,8 @@ A chatflow runs a harness with the **Harness** node. A chatflow whose only node 
 ![The Add Nodes panel on a new chatflow canvas in the dark theme, with Harness in the search box. One result under Harness: Attach a named harness as a tool. The agent calls it when its system message routes a task to tool:harness. A chat whose only node is this harness runs that roster for the message.](../images/harnesses/chatflow-add-harness-node.png)
 
 ![A chatflow named Chief of staff chat in the dark theme, with one Harness node set to chief-of-staff and Return Direct on. The chat panel shows the Run card for chief-of-staff, Harness Prime sent work to researcher, and an answer that quotes the sample note: the researcher reads it from an in-memory store, and Local Hash Embeddings built the vectors, with no provider key.](../images/harnesses/chatflow-harness-chat.png)
+
+When an app calls this chatflow with an API key bound to it, that key also needs `chief-of-staff` under **Harnesses this key may run**; otherwise the call answers `403`. An API key cannot save a chatflow whose **Harness** card names a harness off its own list.
 
 **Return Direct** is on by default and sends the harness reply to the chat as it is. To use the team as one tool of a chatflow agent, connect the **Harness** node to the agent's tools instead. The agent calls it when its system message routes a task to `tool:harness`. Turn **Return Direct** off only when the agent has to rework the reply. Each pass is another model call.
 
@@ -321,7 +323,7 @@ Sample chatflows that run a harness by name are in `samples/chatflows/`. The har
 
 `POST /api/v1/prediction/:id` on a chatflow that runs a harness returns `text`, `harness`, `agents`, `sources`, and `artifacts`. Streaming (`true` or `"true"`) sends harness events on that response. The event names are `route`, `specialist`, `tool`, `partial`, `handoff`, and `final`.
 
-The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key goes through a chatflow, or calls `POST /api/v1/harnesses/:name/runs` and `POST /api/v1/harnesses/:name/runs/async` when the harness is on that key's list. Both stay on Live.
+The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key goes through a chatflow bound to that key, or calls `POST /api/v1/harnesses/:name/runs` and `POST /api/v1/harnesses/:name/runs/async` when the harness is on that key's list. Both stay on Live.
 
 Chat uploads on `POST /api/v1/prediction/:id` use multipart field `files` with `question`. Turn on file uploads for that chatflow first (**Configuration**, **File Upload**, **Enable Full File Upload**); with them off the file is refused with 403 and not stored. A file over 25 MB is refused. A large file is a path the harness can read. The sample roster is `samples/harnesses/upload.canvas.json`.
 

@@ -99,7 +99,7 @@ curl -s "$CUTTLELY_URL/api/v1/prediction/$AGENTFLOW_ID" \
 "agentFlowExecutedData": [{"nodeId":"startAgentflow_0","nodeLabel":"Start", ...}, {"nodeId":"llmAgentflow_0", ...}]
 ```
 
-**A harness** (an agent team) is called through a chatflow that holds one **Harness** card set to the harness's name. Build it as in [Call the harness from a chatflow](./how-to/harnesses.md#call-the-harness-from-a-chatflow), bind your key to that chatflow, and call its id. To call the harness by name with an API key instead, and get a run id back at once, see [Run a harness in the background](#run-a-harness-in-the-background).
+**A harness** (an agent team) is called through a chatflow that holds one **Harness** card set to the harness's name. Build it as in [Call the harness from a chatflow](./how-to/harnesses.md#call-the-harness-from-a-chatflow), bind your key to that chatflow, tick the harness under **Harnesses this key may run** on that key, and call its id. A Harness card naming a harness that is not on the flow key's list answers `403`. To call the harness by name with an API key instead, and get a run id back at once, see [Run a harness in the background](#run-a-harness-in-the-background).
 
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/prediction/$HARNESS_CHATFLOW_ID" \
@@ -131,9 +131,11 @@ An API key runs no harness until the harness is on that key's list. In **API Key
 2. Under **Harnesses this key may run**, tick each harness the key may call, for example `bakery-team`.
 3. Save.
 
-The list is checked on every request, so removing a harness stops the key at its next call. The harness has to be in the key's team. The same list also applies to `POST /api/v1/harnesses/<name>/runs` (the call that waits for the answer) and to the run history routes. A signed-in person is checked by role only.
+The list is checked on every request, so removing a harness stops the key at its next call. The harness has to be in the key's team. The same list also applies to `POST /api/v1/harnesses/<name>/runs` (the call that waits for the answer), to the run history routes, to `GET`, `POST` and `DELETE` of a harness by name, and to a Harness card on a chatflow or agentflow called with its own key. `GET /api/v1/harnesses` lists only the harnesses on the key's list. A signed-in person is checked by role only.
 
-`POST /api/v1/apikey` and `PUT /api/v1/apikey/<id>` take the list as `harnesses`, an array of harness names. Leaving `harnesses` out of an update keeps the list as it is.
+A key sees only the runs it started: the run list, a run, and a result return the key's own runs, and another caller's run is `404`. A `chatId` that already has runs from another key, or from a person, is refused with `403`, so one caller cannot continue another's conversation.
+
+`POST /api/v1/apikey` and `PUT /api/v1/apikey/<id>` take the list as `harnesses`, an array of harness names. Leaving `harnesses` out of an update keeps the list as it is. A name whose harness was deleted is dropped from the list. When the caller is itself an API key, it may only grant harnesses on its own list.
 
 ### Start a run
 
@@ -202,16 +204,17 @@ When it is done:
 
 ### Errors and limits
 
-| Status | When                                                                         | Body                                                              |
-| ------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 400    | No `question`, or a `chatId` that is not 1 to 128 letters, numbers or `_.:-` | `message` says what to fix                                        |
-| 401    | No key, or a key Cuttlely does not know                                      | `{"error":"Unauthorized Access"}`                                 |
-| 403    | The key lacks the permission                                                 | `{"message":"Forbidden"}`                                         |
-| 403    | The harness is not on the key's list                                         | `{"message":"This API key may not run harness \"bakery-team\"."}` |
-| 404    | No harness or run with that name in the key's team                           | `message` names what was not found                                |
-| 429    | More than 60 starts, or 600 status reads, in a minute for that key           | `{"message":"Too many harness runs. The limit is 60 a minute."}`  |
+| Status | When                                                                         | Body                                                                     |
+| ------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 400    | No `question`, or a `chatId` that is not 1 to 128 letters, numbers or `_.:-` | `message` says what to fix                                               |
+| 403    | The `chatId` already has runs from another key or a person                   | `{"message":"That chatId belongs to another caller. Use a new chatId."}` |
+| 401    | No key, or a key Cuttlely does not know                                      | `{"error":"Unauthorized Access"}`                                        |
+| 403    | The key lacks the permission                                                 | `{"message":"Forbidden"}`                                                |
+| 403    | The harness is not on the key's list                                         | `{"message":"This API key may not run harness \"bakery-team\"."}`        |
+| 404    | No harness or run with that name in the key's team                           | `message` names what was not found                                       |
+| 429    | More than 60 starts, or 600 reads, in a minute for that key                  | `{"message":"Too many harness runs. The limit is 60 a minute."}`         |
 
-The limits count per API key, so two keys do not share one. A refused start is an **Admin** > **Audit log** row of type `harness_run`, and so is every start through this route. Changing a key's harness list is a `harness_access` row.
+Starts are `POST .../runs` and `POST .../runs/async` together. Reads are the run list, a run, and a result. The limits count per API key, so two keys do not share one. Each server process keeps its own count, so with several processes behind one address a key can reach the limit once per process. A restart or shutdown waits for a background run, up to its usual wait. At the next start, a run still open that began more than the turn lock time plus 15 seconds earlier is marked `interrupted`. A refused start is an **Admin** > **Audit log** row of type `harness_run`, and so is every start through this route. Changing a key's harness list is a `harness_access` row.
 
 ## Stream the answer
 
