@@ -30,6 +30,7 @@ const TryTheDemo = ({ show }) => {
     const { setError } = useError()
     const { hasPermission } = useAuth()
     const canViewKeys = hasPermission('credentials:view')
+    const canCreateKeys = hasPermission('credentials:create')
     const [dismissed, setDismissed] = useState(() => localStorage.getItem(TRY_DEMO_KEY) === '1')
     const [status, setStatus] = useState(null)
     const [keys, setKeys] = useState([])
@@ -129,7 +130,7 @@ const TryTheDemo = ({ show }) => {
                         ))}
                     </TextField>
                 )}
-                {(!made || !quickstart) && (
+                {canCreateKeys && (!made || !quickstart) && (
                     <Button
                         variant={keys.length ? 'text' : 'outlined'}
                         onClick={() => setListOpen(true)}
