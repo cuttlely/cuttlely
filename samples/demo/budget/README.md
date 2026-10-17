@@ -23,26 +23,26 @@ CUTTLELY_BUDGET_URL=postgresql://127.0.0.1:5432/budget \
     node scripts/analyst-real-model-check.mjs two-analyst
 ```
 
-A URL without a login uses `PGUSER` and `PGPASSWORD` from the environment. `bakery` instead of `two-analyst` runs the single-analyst check on the bakery database alone. It asks five questions:
+A URL without a login uses `PGUSER` and `PGPASSWORD` from the environment. `bakery` instead of `two-analyst` runs the single-analyst check on the bakery database alone. It asks five questions. A question that asks how much needs the figure. A question that only asks which store or department needs the name, and any dollar amount in that answer must be one of the listed figures.
 
-| Question                                                          | Expected                               |
-| ----------------------------------------------------------------- | -------------------------------------- |
-| Which month had the highest total sales, and how much?            | June, $49,557.50                       |
-| What are the top 3 products by revenue?                           | Sourdough Loaf, Seeded Rye, Lemon Tart |
-| Which wholesale account owes us the most right now, and how much? | Hilltop Deli, $600.12                  |
-| Which store had the most revenue in the most recent week?         | Old Town, $5,976.50                    |
-| How many staff work at each store?                                | Says the data does not have it         |
+| Question                                                          | Expected                                  |
+| ----------------------------------------------------------------- | ----------------------------------------- |
+| Which month had the highest total sales, and how much?            | June, $49,557.50                          |
+| What are the top 3 products by revenue?                           | Sourdough Loaf, Seeded Rye, Lemon Tart    |
+| Which wholesale account owes us the most right now, and how much? | Hilltop Deli, $600.12                     |
+| Which store had the most revenue in the most recent week?         | Old Town (an amount, if given: $5,976.50) |
+| How many staff work at each store?                                | Says the data does not have it            |
 
-In `two-analyst` mode the script asks nine questions. The routing prompt picks the analyst for each, as Harness Prime does, and the script checks the answer for the expected figure. It prints JSON with each answer, the SQL the analyst ran, seconds per question and prompt tokens, and exits 1 when a check fails.
+In `two-analyst` mode the script asks nine questions. The routing prompt picks the analyst for each, as Harness Prime does, and the script checks the answer for the expected name or figure. It prints JSON with each answer, the SQL the analyst ran, seconds per question and prompt tokens, and exits 1 when a check fails.
 
-| Question                                                               | Analyst | Expected                               |
-| ---------------------------------------------------------------------- | ------- | -------------------------------------- |
-| What are the top 3 products by revenue?                                | Bakery  | Sourdough Loaf, Seeded Rye, Lemon Tart |
-| Which wholesale account owes us the most right now, and how much?      | Bakery  | Hilltop Deli, $600.12                  |
-| Which store had the most revenue in the most recent week?              | Bakery  | Old Town, $5,976.50                    |
-| Which department has used the largest share of its 2026 budget so far? | Budget  | Engineering                            |
-| Which vendor have we paid the most, and how much?                      | Budget  | SkyCloud, $215,000                     |
-| What is the total planned budget for fiscal 2026?                      | Budget  | $625,000                               |
-| How much did we spend on software this year?                           | Budget  | $26,000                                |
-| Analyst: what were total sales in June 2026?                           | Bakery  | $49,557.50                             |
-| Analyst: list the tables you can see.                                  | Both    | Each lists its tables                  |
+| Question                                                               | Analyst | Expected                                                                            |
+| ---------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------- |
+| What are the top 3 products by revenue?                                | Bakery  | Sourdough Loaf, Seeded Rye, Lemon Tart                                              |
+| Which wholesale account owes us the most right now, and how much?      | Bakery  | Hilltop Deli, $600.12                                                               |
+| Which store had the most revenue in the most recent week?              | Bakery  | Old Town (an amount, if given: $5,976.50)                                           |
+| Which department has used the largest share of its 2026 budget so far? | Budget  | Engineering (an amount, if given: $260,000 planned, $237,000 spent or $23,000 left) |
+| Which vendor have we paid the most, and how much?                      | Budget  | SkyCloud, $215,000                                                                  |
+| What is the total planned budget for fiscal 2026?                      | Budget  | $625,000                                                                            |
+| How much did we spend on software this year?                           | Budget  | $26,000                                                                             |
+| Analyst: what were total sales in June 2026?                           | Bakery  | $49,557.50                                                                          |
+| Analyst: list the tables you can see.                                  | Both    | Each lists its tables                                                               |

@@ -359,7 +359,7 @@ All four data questions were answered on the first query, and each answer matche
 
 On 2026-10-17, a second run with `gpt-4.1` used two analysts in one harness, with the routing that [Several analysts in one harness](#several-analysts-in-one-harness) describes: one on the made-up bakery database and one on a made-up household budget database. Harness Prime sent all 9 questions to the right analyst, and all 9 answers were correct. That includes the question about software spend in the budget, which returned $0 before that change.
 
-To run both checks yourself, load the made-up bakery and budget databases from `samples/demo/bakery/bakery-postgres.sql` and `samples/demo/budget/budget-postgres.sql` and run `scripts/analyst-real-model-check.mjs`. Run `pnpm install` first. It calls the OpenAI chat API with `OPENAI_API_KEY`, so use it only on made-up data. `samples/demo/budget/README.md` lists the nine questions and the expected answers.
+To run both checks yourself, load the made-up bakery and budget databases from `samples/demo/bakery/bakery-postgres.sql` and `samples/demo/budget/budget-postgres.sql` and run `scripts/analyst-real-model-check.mjs`. Run `pnpm install` first. It calls the OpenAI chat API with `OPENAI_API_KEY`, so use it only on made-up data. `OPENAI_BASE_URL` points the script at another OpenAI-compatible endpoint, which receives the key. `samples/demo/budget/README.md` lists the nine questions and the expected answers.
 
 ```bash
 CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-real-model-check.mjs bakery
