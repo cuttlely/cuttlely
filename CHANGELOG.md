@@ -27,6 +27,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Deleting an ETL pipeline whose Local Vector Store has a blank Collection field now removes its vectors from the collection of every name the pipeline ran under. Before, a pipeline that was renamed and run again left the vectors in the collection under its old name. Each run records the pipeline name it ran under (ETL schema version 4).
+-   A raw MCP server listed in a specialist record's `mcpServers` now passes the same checks as a Custom MCP node (`CUSTOM_MCP_ALLOWED_COMMANDS`, `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS`, `CUSTOM_MCP_ALLOWED_ENV_VARS`, no `cwd`, no shell characters, no code-running flags) before the agent runtime starts it. One that fails is left out of the profile with a warning in the server log. `CUSTOM_MCP_SECURITY_CHECK=false` turns the checks off, as it does for the node.
 -   A publish check whose last answer or grade is cut off by the check's time limit now ends stopped for time instead of done. Before, it could end done and, for a dataset check, store a verdict scored with that cut-off grade as Error. Now no publish gate result is stored for that check, so it cannot unblock Publish, and the next check runs as usual.
 -   **Prompt and tool text limit** lists the 4,000-character default once, as **Default (4,000 characters)**, instead of also offering a separate **4,000 characters** item. A saved value of 4000 shows as that default item.
 -   Docs: the Docker commands that create the first account or run `pnpm settings` name the `cuttlely` Compose service, and the first-account command sets `CUTTLELY_LOCAL_ADMIN=true`, which the command needs to create a user. The translated READMEs have the same fix.
