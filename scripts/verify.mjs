@@ -108,6 +108,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'docs-shots', 'money.test.mjs'),
             path.join(ROOT, 'examples', 'web-app', 'server.test.mjs'),
             path.join(ROOT, 'scripts', 'otel-collector-example.test.mjs'),
+            path.join(ROOT, 'scripts', 'grafana-dashboard.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
