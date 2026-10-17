@@ -118,6 +118,7 @@ export class EvaluationRunner {
     }
 
     async evaluateChatflow(chatflowId: string, apiKey: string, data: any, returnData: any) {
+        if (!/^[0-9a-f-]{36}$/i.test(chatflowId)) throw new Error('Invalid chatflow id')
         for (let i = 0; i < data.dataset.rows.length; i++) {
             const item = data.dataset.rows[i]
             const uuid = uuidv4()
