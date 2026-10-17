@@ -64,6 +64,28 @@ export function routingSummaryText(value) {
         .slice(0, ROUTING_SUMMARY_CHARS)
 }
 
+// The Rules box on a PostgreSQL MCP node: the builder's own instructions for that analyst. The node's maxLength
+// is the same number, so the canvas counter and this check agree.
+export const ANALYST_RULES_MAX_CHARS = 2000
+
+export function analystRulesText(value) {
+    if (typeof value !== 'string') return ''
+    return value.replace(/\r\n?/g, '\n').trim()
+}
+
+function assertAnalystRules(record, specialist) {
+    for (const binding of [...specialist.modules, ...specialist.mcpServers]) {
+        if (binding?.nodeName !== 'postgreSQLMCP') continue
+        const length = analystRulesText(binding.inputs?.analystRules).length
+        if (length <= ANALYST_RULES_MAX_CHARS) continue
+        const label = binding.label || 'PostgreSQL MCP'
+        throw new HarnessError(
+            'bad_roster',
+            `Rules on ${label} for specialist "${specialist.name}" on harness "${record.name}" are ${length} characters. The limit is ${ANALYST_RULES_MAX_CHARS}. Shorten them and save again.`
+        )
+    }
+}
+
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 // Draft tries compile into profiles/try<8-32 hex>. A harness name that does not fit beside its specialist
 // compiles into profiles/tryx<16 hex>. Neither shape is a savable harness name.
@@ -133,6 +155,7 @@ export function saveHarness(record, { overwrite = false } = {}) {
         specialist.codeExecution = Boolean(specialist.codeExecution)
         specialist.modules = specialist.modules || []
         specialist.mcpServers = specialist.mcpServers || []
+        assertAnalystRules(record, specialist)
         const summary = routingSummaryText(specialist.summary)
         if (summary) specialist.summary = summary
         else delete specialist.summary

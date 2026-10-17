@@ -12,6 +12,7 @@ import { useTheme } from '@mui/material/styles'
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import { PermissionLoadingButton } from '@/ui-component/button/RBACButtons'
 import { CodeEditor } from '@/ui-component/editor/CodeEditor'
+import { CharacterCount } from '@/ui-component/input/Input'
 
 // Store
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
@@ -36,6 +37,8 @@ const ExpandTextDialog = ({ show, dialogProps, onCancel, onInputHintDialogClicke
     const [codeExecutedResult, setCodeExecutedResult] = useState('')
 
     const executeCustomFunctionNodeApi = useApi(nodesApi.executeCustomFunctionNode)
+    const maxLength = inputParam?.type === 'string' && inputParam?.maxLength > 0 ? inputParam.maxLength : 0
+    const overLimit = maxLength > 0 && typeof inputValue === 'string' && inputValue.length > maxLength
 
     useEffect(() => {
         if (dialogProps.value) {
@@ -143,6 +146,7 @@ const ExpandTextDialog = ({ show, dialogProps, onCancel, onInputHintDialogClicke
                                     onValueChange={(code) => setInputValue(code)}
                                 />
                             </PerfectScrollbar>
+                            {maxLength ? <CharacterCount value={inputValue} maxLength={maxLength} /> : null}
                         </div>
                     )}
                 </div>
@@ -189,7 +193,11 @@ const ExpandTextDialog = ({ show, dialogProps, onCancel, onInputHintDialogClicke
             </DialogContent>
             <DialogActions>
                 <Button onClick={onCancel}>{dialogProps.cancelButtonName}</Button>
-                <StyledButton disabled={dialogProps.disabled} variant='contained' onClick={() => onConfirm(inputValue, inputParam.name)}>
+                <StyledButton
+                    disabled={dialogProps.disabled || overLimit}
+                    variant='contained'
+                    onClick={() => onConfirm(inputValue, inputParam.name)}
+                >
                     {dialogProps.confirmButtonName}
                 </StyledButton>
             </DialogActions>

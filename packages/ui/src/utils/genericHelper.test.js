@@ -223,4 +223,36 @@ describe('export of a node that is not installed', () => {
         expect(out.nodes[0].data.inputs.samplePackApi_CREDENTIAL_ID).toBe('cred-1')
         expect(out.nodes[0].data.inputs.note).toBe('keep me')
     })
+
+    it('exports the Rules text and its cap on a PostgreSQL MCP node, so an import gets both back', () => {
+        const rules = 'Use monthly_sales for sales by month.\nWrite shop names as stores has them, for example Old Town.'
+        const flow = {
+            nodes: [
+                {
+                    id: 'postgreSQLMCP_0',
+                    data: {
+                        id: 'postgreSQLMCP_0',
+                        label: 'PostgreSQL MCP',
+                        version: 1.3,
+                        name: 'postgreSQLMCP',
+                        type: 'PostgreSQL MCP Tool',
+                        baseClasses: ['Tool'],
+                        inputParams: [
+                            { name: 'analystRelations', type: 'asyncMultiOptions' },
+                            { name: 'analystRules', type: 'string', rows: 6, maxLength: 2000 }
+                        ],
+                        inputAnchors: [],
+                        inputs: { analystRelations: '["public.monthly_sales"]', analystRules: rules },
+                        outputAnchors: [],
+                        outputs: {},
+                        selected: false
+                    }
+                }
+            ],
+            edges: []
+        }
+        const out = JSON.parse(JSON.stringify(generateExportFlowData(JSON.parse(JSON.stringify(flow)), ['postgreSQLMCP'])))
+        expect(out.nodes[0].data.inputs.analystRules).toBe(rules)
+        expect(out.nodes[0].data.inputParams.find((param) => param.name === 'analystRules').maxLength).toBe(2000)
+    })
 })
