@@ -56,6 +56,7 @@ await writeFile(
     path.join(stubDir, 'history.mjs'),
     `export function listRuns() { return [] }
 export function getRun() { return null }
+export function chatBelongsToOtherCaller() { return false }
 `
 )
 await writeFile(

@@ -47,6 +47,9 @@ await writeFile(
     `export function listRuns() {
   return ${JSON.stringify(newerRuns)}
 }
+export function chatBelongsToOtherCaller() {
+  return false
+}
 `
 )
 await writeFile(
