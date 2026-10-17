@@ -264,4 +264,4 @@ CREATE MATERIALIZED VIEW top_products AS
 SELECT p.name AS product, sum(w.units) AS units, rank() OVER (ORDER BY sum(w.units) DESC) AS rank
 FROM weekly_sales w JOIN products p ON p.id = w.product_id
 GROUP BY p.name;
-COMMENT ON MATERIALIZED VIEW top_products IS 'Products ranked by units sold this year';
+COMMENT ON MATERIALIZED VIEW top_products IS 'Products ranked by units sold, not revenue, over all shops and weeks. For revenue use monthly_sales.';
