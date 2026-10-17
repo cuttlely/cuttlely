@@ -7,9 +7,12 @@ import { after, before, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import {
+    SCOPE_MASKED,
     SCOPE_NONE_LEFT,
     SCOPE_ONLY_SELECT,
+    ambiguousRelations,
     deniedFunction,
+    describeRefusal,
     findRelation,
     parseRelationSelection,
     relationLine,
@@ -110,7 +113,53 @@ describe('analyst relations: pure helpers', () => {
         for (const name of ['query_to_xml', 'table_to_xml', 'set_config', 'lo_get', 'pg_read_file', 'dblink_exec', 'ts_stat']) {
             assert.equal(deniedFunction(name), true, name)
         }
-        for (const name of ['count', 'sum', 'date_trunc', 'coalesce', 'lower']) assert.equal(deniedFunction(name), false, name)
+        for (const name of ['count', 'sum', 'date_trunc', 'coalesce', 'lower', 'pg_typeof', 'pg_column_size']) {
+            assert.equal(deniedFunction(name), false, name)
+        }
+    })
+
+    it('denies type-input probes, metadata about other objects, and acting on other sessions', () => {
+        const denied = [
+            'pg_input_is_valid',
+            'pg_input_error_info',
+            'obj_description',
+            'col_description',
+            'shobj_description',
+            'pg_stat_get_live_tuples',
+            'pg_stat_get_activity',
+            'pg_relation_size',
+            'pg_total_relation_size',
+            'pg_table_size',
+            'pg_indexes_size',
+            'pg_relation_filepath',
+            'pg_get_indexdef',
+            'has_table_privilege',
+            'pg_table_is_visible',
+            'to_regclass',
+            'pg_terminate_backend',
+            'pg_cancel_backend'
+        ]
+        for (const name of denied) assert.equal(deniedFunction(name), true, name)
+    })
+
+    it('collects type ids, including lists, wrapped lines and enum fields that name no type', () => {
+        const tree =
+            '{CONST :consttype 23 :consttypmod -1} {VAR :vartype\n1043} {RTE :coltypes (o 25 1700)} :jointype 0 :row_typeid 2249 x\\ :consttype\\ 9'
+        assert.deepEqual(
+            [...treeObjectIds(tree).types].sort((a, b) => a - b),
+            [23, 25, 1043, 1700, 2249]
+        )
+    })
+
+    it('says a bare describe name is ambiguous when two schemas have it', () => {
+        const two = [...sample, { name: 'sales.stores', kind: 'view', oid: 9, columns: 2, comment: '' }]
+        assert.deepEqual(ambiguousRelations(two, 'stores'), ['public.stores', 'sales.stores'])
+        assert.deepEqual(ambiguousRelations(two, 'public.stores'), [])
+        assert.equal(findRelation(two, 'stores'), null)
+        assert.match(
+            describeRefusal(two, 'stores'),
+            /stores is ambiguous: it matches public\.stores, sales\.stores\. Call describe again with the schema-qualified name\./
+        )
     })
 })
 
@@ -150,8 +199,10 @@ describe('analyst relations: bakery database', () => {
         const client = new Client(adminConfig())
         try {
             await client.connect()
-        } catch {
+        } catch (error) {
             await client.end().catch(() => {})
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1')
+                throw new Error(`CUTTLELY_TEST_PG_REQUIRED is set and Postgres is not reachable: ${error.message}`)
             return
         }
         admin = client
@@ -166,6 +217,12 @@ describe('analyst relations: bakery database', () => {
         await owner.query(`CREATE FUNCTION public.note_count() RETURNS bigint LANGUAGE sql AS 'SELECT count(*) FROM payroll_notes'`)
         await owner.query(`CREATE FUNCTION public.bakery_eq(integer, integer) RETURNS boolean LANGUAGE sql AS 'SELECT $1 = $2'`)
         await owner.query(`CREATE OPERATOR public.=== (LEFTARG = integer, RIGHTARG = integer, FUNCTION = public.bakery_eq)`)
+        // A second schema with a relation of the same name, and names describe has to quote.
+        await owner.query(`CREATE SCHEMA sales`)
+        await owner.query(`CREATE VIEW sales.stores AS SELECT id, name FROM public.stores`)
+        await owner.query(`CREATE TABLE public."Price List" (id integer PRIMARY KEY, "Unit Price" numeric(8, 2), "select" text)`)
+        await owner.query(`GRANT USAGE ON SCHEMA sales TO "${reader}"`)
+        await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA sales, public TO "${reader}"`)
         await owner.query(`CREATE TABLE public.not_readable (id integer)`)
         await owner.end()
         url = urlFor(reader, password, dbName)
@@ -188,10 +245,14 @@ describe('analyst relations: bakery database', () => {
         if (skipped(t)) return
         const relations = await listAnalystUrlRelations(url)
         const kinds = relations.map((relation) => relation.kind)
+        const rank = { 'materialized view': 0, view: 1, table: 2 }
+        assert.deepEqual(
+            kinds.map((kind) => rank[kind]),
+            [...kinds.map((kind) => rank[kind])].sort((a, b) => a - b),
+            'materialized views first, then views, then tables'
+        )
         assert.deepEqual(kinds.slice(0, 2), ['materialized view', 'materialized view'])
-        assert.deepEqual(kinds.slice(2, 6), ['view', 'view', 'view', 'view'])
-        assert.ok(kinds.slice(6).every((kind) => kind === 'table'))
-        assert.equal(kinds.lastIndexOf('view') < kinds.indexOf('table'), true)
+        assert.equal(kinds.filter((kind) => kind === 'view').length, 5)
         const balances = relations.find((relation) => relation.name === 'public.account_balances')
         assert.equal(balances.columns, 6)
         assert.match(balances.comment, /account_code first/)
@@ -317,6 +378,64 @@ describe('analyst relations: bakery database', () => {
         await refusal(describeAnalystUrlRelation(url, { name: 'pg_class' }, SELECTION), /not one of the selected/)
     })
 
+    it('asks for the schema when a bare describe name is ambiguous, and quotes column names', async (t) => {
+        if (skipped(t)) return
+        const both = [...SELECTION, 'sales.stores', 'public."Price List"']
+        await refusal(
+            describeAnalystUrlRelation(url, { name: 'stores' }, both),
+            /stores is ambiguous: it matches sales\.stores, public\.stores\. Call describe again with the schema-qualified name\./
+        )
+        assert.equal((await describeAnalystUrlRelation(url, { name: 'sales.stores' }, both)).name, 'sales.stores')
+        const odd = await describeAnalystUrlRelation(url, { name: 'Price List' }, both)
+        assert.equal(odd.name, 'public."Price List"')
+        assert.deepEqual(odd.columns, ['id integer not null', '"Unit Price" numeric(8,2)', '"select" text'])
+    })
+
+    it('refuses metadata about other relations, object-id types, and acting on other sessions', async (t) => {
+        if (skipped(t)) return
+        const options = { relations: SELECTION }
+        const notAllowed = /is not allowed while a table selection is set/
+        const local = new Client(adminConfig(dbName))
+        await local.connect()
+        const oid = (await local.query(`SELECT 'payroll_notes'::regclass::oid::int8 AS oid`)).rows[0].oid
+        await local.end()
+        for (const sql of [
+            `SELECT obj_description(${oid})`,
+            `SELECT col_description(${oid}, 1)`,
+            `SELECT shobj_description(1, 'pg_database')`,
+            `SELECT pg_stat_get_live_tuples(${oid})`,
+            `SELECT * FROM pg_stat_get_activity(NULL)`,
+            `SELECT pg_relation_size(${oid})`,
+            `SELECT pg_total_relation_size(${oid})`,
+            `SELECT pg_table_size(${oid})`,
+            `SELECT pg_indexes_size(${oid})`,
+            `SELECT has_table_privilege('payroll_notes', 'SELECT')`,
+            `SELECT pg_terminate_backend(pg_backend_pid())`,
+            `SELECT pg_cancel_backend(pg_backend_pid())`
+        ]) {
+            await refusal(queryAnalystUrl(url, sql, options), notAllowed)
+        }
+        await refusal(queryAnalystUrl(url, `SELECT ${oid}::regclass`, options), /type regclass is not allowed/)
+        await refusal(queryAnalystUrl(url, `SELECT to_regclass('payroll_notes')`, options), /to_regclass is not allowed|type regclass/)
+    })
+
+    it('rejects a call cleanly when its backend is terminated mid-query', async (t) => {
+        if (skipped(t)) return
+        const running = queryAnalystUrl(url, 'SELECT pg_sleep(10) AS slept', { statementTimeoutMs: 20000 })
+        for (let i = 0; i < 50; i += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 100))
+            const killed = await admin.query(
+                "SELECT pg_terminate_backend(pid) AS ok FROM pg_stat_activity WHERE datname = $1 AND query LIKE '%pg_sleep(10)%' AND pid <> pg_backend_pid()",
+                [dbName]
+            )
+            if (killed.rows.length) break
+        }
+        await assert.rejects(running, (error) => {
+            assert.equal(error.cuttlelyOutcome, 'transport', error.message)
+            return true
+        })
+    })
+
     it('keeps the prompt to one line per selected relation, far below the whole schema', async (t) => {
         if (skipped(t)) return
         const everything = await listAnalystUrlRelations(url)
@@ -375,5 +494,129 @@ describe('analyst relations: bakery database', () => {
             if (previous === undefined) delete process.env.CUTTLELY_POSTGRES_URL
             else process.env.CUTTLELY_POSTGRES_URL = previous
         }
+    })
+})
+
+describe('analyst relations: domain checks and types', () => {
+    const suffix = randomBytes(4).toString('hex')
+    const dbName = `bakery_types_${suffix}`
+    const reader = `bakery_types_reader_${suffix}`
+    const password = randomBytes(18).toString('base64url')
+    let admin = null
+    let url = ''
+    let citext = false
+    const options = { relations: ['public.stores'] }
+
+    before(async () => {
+        const client = new Client(adminConfig())
+        try {
+            await client.connect()
+        } catch (error) {
+            await client.end().catch(() => {})
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1')
+                throw new Error(`CUTTLELY_TEST_PG_REQUIRED is set and Postgres is not reachable: ${error.message}`)
+            return
+        }
+        admin = client
+        await admin.query(`CREATE DATABASE "${dbName}"`)
+        await admin.query(`CREATE ROLE "${reader}" LOGIN PASSWORD '${password}'`)
+        const owner = new Client(adminConfig(dbName))
+        await owner.connect()
+        await owner.query(`
+            CREATE TABLE public.stores (id integer PRIMARY KEY, name text NOT NULL);
+            INSERT INTO public.stores VALUES (1, 'Riverside'), (2, 'Old Town');
+            CREATE TABLE public.payroll_notes (note text);
+            INSERT INTO public.payroll_notes VALUES ('Made-up payroll note');
+            -- The check raises with a row from a table that is not selected in its message.
+            CREATE FUNCTION public.leak_check(v integer) RETURNS boolean LANGUAGE plpgsql AS $f$
+                BEGIN RAISE EXCEPTION 'leak: %', (SELECT note FROM public.payroll_notes LIMIT 1); END $f$;
+            CREATE DOMAIN public.store_ref AS integer CHECK (public.leak_check(VALUE));
+            CREATE DOMAIN public.outer_ref AS public.store_ref;
+            CREATE TYPE public.store_pair AS (a integer, b public.store_ref);
+            CREATE DOMAIN public.builtin_leak AS text CHECK (length(query_to_xml('SELECT 1', true, true, '')::text) > 0);
+            CREATE DOMAIN public.safe_qty AS integer CHECK (VALUE >= 0);
+        `)
+        try {
+            await owner.query('CREATE EXTENSION IF NOT EXISTS citext')
+            citext = true
+        } catch {
+            citext = false
+        }
+        await owner.query(`GRANT USAGE ON SCHEMA public TO "${reader}"`)
+        await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${reader}"`)
+        await owner.end()
+        url = urlFor(reader, password, dbName)
+    })
+
+    after(async () => {
+        if (!admin) return
+        await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
+        await admin.query(`DROP ROLE IF EXISTS "${reader}"`).catch(() => {})
+        await admin.end().catch(() => {})
+    })
+
+    const skipped = (t) => {
+        if (admin) return false
+        t.skip('local postgres admin is not reachable')
+        return true
+    }
+
+    const noLeak = async (sql, pattern) => {
+        await assert.rejects(queryAnalystUrl(url, sql, options), (error) => {
+            assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+            assert.equal(error.message.includes('payroll note'), false, `${sql} leaked: ${error.message}`)
+            assert.match(error.message, pattern, sql)
+            return true
+        })
+    }
+
+    it('refuses a cast to a domain whose check calls a user function, directly or through another domain or an array', async (t) => {
+        if (skipped(t)) return
+        const domain = /domain store_ref checks its values with public\.leak_check, which is not built in/
+        await noLeak('SELECT 1::store_ref', domain)
+        await noLeak('SELECT 1::outer_ref', domain)
+        await noLeak('SELECT ARRAY[1]::store_ref[]', domain)
+        await noLeak('SELECT CAST(id AS store_ref) FROM stores', domain)
+        await noLeak('SELECT ROW(1, 2)::store_pair', domain)
+    })
+
+    it('does not show the database error when a literal runs such a check while it is parsed', async (t) => {
+        if (skipped(t)) return
+        await noLeak("SELECT '(1,2)'::store_pair", new RegExp(SCOPE_MASKED.slice(0, 60).replace(/[.()]/g, '\\$&')))
+        await noLeak("SELECT '{1}'::store_ref[]", /database error is not shown/)
+        await refusal(queryAnalystUrl(url, 'SELECT nme FROM stores', options), /column "nme" does not exist/)
+    })
+
+    it('refuses type-input probes and a domain whose check calls a denied built-in', async (t) => {
+        if (skipped(t)) return
+        // Postgres 16 added both functions. Before that the call fails as an unknown function.
+        const version = Number((await admin.query('SHOW server_version_num')).rows[0].server_version_num)
+        const probe = (name) => (version >= 160000 ? new RegExp(`${name} is not allowed`) : /does not exist/)
+        await noLeak("SELECT pg_input_is_valid('1', 'store_ref')", probe('pg_input_is_valid'))
+        await noLeak("SELECT * FROM pg_input_error_info('1', 'store_ref')", probe('pg_input_error_info'))
+        await noLeak(
+            "SELECT 'x'::builtin_leak",
+            /domain builtin_leak checks its values with something refused here\. query_to_xml is not allowed/
+        )
+    })
+
+    it('refuses a type whose input or output function is outside pg_catalog', async (t) => {
+        if (skipped(t)) return
+        if (!citext) {
+            t.skip('the citext extension is not available on this server')
+            return
+        }
+        await noLeak("SELECT 'Riverside'::citext", /type citext is not built in/)
+    })
+
+    it('still runs domains with built-in checks and ordinary types', async (t) => {
+        if (skipped(t)) return
+        const result = await queryAnalystUrl(
+            url,
+            'SELECT 3::safe_qty AS qty, name::text, ARRAY[id], ROW(id, name) FROM stores ORDER BY id',
+            options
+        )
+        assert.equal(result.rows.length, 2)
+        assert.equal(result.rows[0].qty, 3)
     })
 })

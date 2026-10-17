@@ -1749,6 +1749,9 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
         application_name: 'cuttlely-analyst',
         connectionTimeoutMillis: 10000
     })
+    // A backend that ends mid-call (pg_terminate_backend, a restart) emits 'error' on the client. Unhandled, that
+    // event would take down the server; the pending query already rejects with the same error.
+    client.on('error', () => {})
     try {
         await client.connect()
         await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')

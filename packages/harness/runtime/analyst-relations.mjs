@@ -17,6 +17,8 @@ export const SCOPE_ONLY_SELECT =
     'This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.'
 export const SCOPE_UNCHECKABLE =
     'Cuttlely could not check this query against the table selection: this database login cannot create a temporary view (a read replica, or no TEMP privilege). Queries are refused while a selection is set.'
+export const SCOPE_MASKED =
+    'Cuttlely refused this query: it failed while Cuttlely checked it against the table selection. This database has domain checks that call other functions, so the database error is not shown. Check the SQL and the types it uses.'
 export const SCOPE_NONE_LEFT = 'None of the selected tables or views exist any more. Update the selection on the PostgreSQL MCP node.'
 
 const SCOPE_VIEW = 'cuttlely_scope_check'
@@ -25,8 +27,10 @@ const COMMENT_CHARS = 120
 const DEFINITION_CHARS = 4000
 const REFUSED_LIST = 12
 
-// Built-ins in pg_catalog that run SQL passed as text, read a relation passed by name or id, read files or
-// large objects, or change settings mid-statement (a later helper query could then resolve names elsewhere).
+// Built-ins in pg_catalog that run SQL passed as text, read a relation passed by name or id, run a type's input
+// function from a type name, read files or large objects, report on objects outside the selection (comments,
+// sizes, statistics, definitions, privileges, visibility), act on other sessions, or change settings mid-statement
+// (a later helper query could then resolve names elsewhere).
 const DENIED_FUNCTIONS = new Set([
     'query_to_xml',
     'query_to_xmlschema',
@@ -48,16 +52,56 @@ const DENIED_FUNCTIONS = new Set([
     'loread',
     'set_config',
     'pg_sequence_last_value',
-    'pg_get_viewdef',
-    'pg_get_ruledef',
-    'pg_get_functiondef',
-    'pg_get_triggerdef'
+    'pg_input_is_valid',
+    'pg_input_error_info',
+    'obj_description',
+    'col_description',
+    'shobj_description',
+    'pg_relation_size',
+    'pg_total_relation_size',
+    'pg_table_size',
+    'pg_indexes_size',
+    'pg_database_size',
+    'pg_tablespace_size',
+    'pg_relation_filenode',
+    'pg_relation_filepath',
+    'pg_filenode_relation',
+    'pg_partition_tree',
+    'pg_partition_ancestors',
+    'pg_partition_root',
+    'pg_relation_is_updatable',
+    'pg_column_is_updatable',
+    'pg_describe_object',
+    'pg_identify_object',
+    'pg_identify_object_as_address',
+    'pg_terminate_backend',
+    'pg_cancel_backend'
 ])
-const DENIED_PREFIXES = ['lo_', 'pg_read_', 'pg_ls_', 'pg_stat_file', 'dblink']
+const DENIED_PREFIXES = ['lo_', 'pg_read_', 'pg_ls_', 'pg_stat_file', 'pg_stat_get_', 'pg_get_', 'dblink', 'has_', 'to_reg']
+const DENIED_SUFFIXES = ['_is_visible']
+
+// Object-identifier types turn an id into a name, or a name into an id, for any object.
+const DENIED_TYPES = new Set([
+    'regclass',
+    'regproc',
+    'regprocedure',
+    'regoper',
+    'regoperator',
+    'regtype',
+    'regconfig',
+    'regdictionary',
+    'regnamespace',
+    'regrole',
+    'regcollation'
+])
 
 export function deniedFunction(name) {
     const value = String(name || '').toLowerCase()
-    return DENIED_FUNCTIONS.has(value) || DENIED_PREFIXES.some((prefix) => value.startsWith(prefix))
+    return (
+        DENIED_FUNCTIONS.has(value) ||
+        DENIED_PREFIXES.some((prefix) => value.startsWith(prefix)) ||
+        DENIED_SUFFIXES.some((suffix) => value.endsWith(suffix))
+    )
 }
 
 class ScopeRefusal extends Error {
@@ -177,12 +221,34 @@ export function findRelation(relations, requested) {
     if (exact) return exact
     const wanted = nameParts(text)
     if (wanted) return relations.find((relation) => String(nameParts(relation.name)) === String(wanted)) || null
-    const bare = text.startsWith('"') ? unquote(text) : text.toLowerCase()
-    const matches = relations.filter((relation) => nameParts(relation.name)?.[1] === bare)
+    const matches = bareMatches(relations, text)
     return matches.length === 1 ? matches[0] : null
 }
 
+// A quoted name matches exactly. An unquoted one matches a relation with exactly that name (such as Price List,
+// which cannot be written unquoted), then folds to lower case as Postgres does.
+function bareMatches(relations, text) {
+    const local = (relation) => nameParts(relation.name)?.[1]
+    if (text.startsWith('"')) return relations.filter((relation) => local(relation) === unquote(text))
+    const exact = relations.filter((relation) => local(relation) === text)
+    return exact.length ? exact : relations.filter((relation) => local(relation) === text.toLowerCase())
+}
+
+// A bare name that more than one selected relation has, in different schemas.
+export function ambiguousRelations(relations, requested) {
+    const text = String(requested || '').trim()
+    if (!text || nameParts(text)) return []
+    const matches = bareMatches(relations, text)
+    return matches.length > 1 ? matches.map((relation) => relation.name) : []
+}
+
 export function describeRefusal(relations, requested) {
+    const ambiguous = ambiguousRelations(relations, requested)
+    if (ambiguous.length) {
+        return `${String(requested).slice(0, 200)} is ambiguous: it matches ${ambiguous.join(
+            ', '
+        )}. Call describe again with the schema-qualified name.`
+    }
     const names = relations.map((relation) => relation.name)
     const shown = names.slice(0, REFUSED_LIST).join(', ')
     const more = names.length > REFUSED_LIST ? `, and ${names.length - REFUSED_LIST} more` : ''
@@ -191,19 +257,19 @@ export function describeRefusal(relations, requested) {
     } is not one of the selected tables or views. Choose one of: ${shown}${more}.`
 }
 
-const COLUMNS_SQL = `SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS not_null,
+const COLUMNS_SQL = `SELECT quote_ident(a.attname) AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS not_null,
        col_description(a.attrelid, a.attnum) AS comment
 FROM pg_attribute a WHERE a.attrelid = ?::oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`
 
-const PRIMARY_KEY_SQL = `SELECT a.attname AS name
+const PRIMARY_KEY_SQL = `SELECT quote_ident(a.attname) AS name
 FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
 WHERE c.conrelid = ?::oid AND c.contype = 'p' ORDER BY k.ord`
 
 const FOREIGN_KEYS_SQL = `SELECT c.oid::int8 AS id, c.conrelid::int8 AS from_oid, c.confrelid::int8 AS to_oid,
-  ARRAY(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+  ARRAY(SELECT quote_ident(a.attname) FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
         JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum ORDER BY k.ord) AS from_columns,
-  ARRAY(SELECT a.attname::text FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+  ARRAY(SELECT quote_ident(a.attname) FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
         JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum ORDER BY k.ord) AS to_columns
 FROM pg_constraint c WHERE c.contype = 'f' AND (c.conrelid = ?::oid OR c.confrelid = ?::oid) ORDER BY c.conname`
 
@@ -263,29 +329,45 @@ export async function describeRelation(runner, relation, relations) {
     return body
 }
 
-// Object ids from a stored rule tree. String values in the tree escape their spaces, so text in the statement
-// (an alias such as "x :relid 1") cannot add an id; constants are stored as bytes.
+// Object ids from a stored query tree. String values in the tree escape their spaces, so text in the statement
+// (an alias such as "x :relid 1") cannot add an id; constants are stored as bytes. A field name ending in type,
+// typeid or typid holds a type id (consttype, resulttype, vartype, funcresulttype, row_typeid, ...); a list of
+// them ends in types (coltypes). Small enum fields such as jointype match too and name no type.
 export function treeObjectIds(tree) {
     const text = String(tree || '')
     const relations = new Set()
     const functions = new Set()
     const operators = new Set()
+    const types = new Set()
     const add = (set, value) => {
         const n = Number(value)
         if (Number.isInteger(n) && n > 0) set.add(n)
     }
-    for (const match of text.matchAll(/(?:^|[\s{(]):relid (\d+)/g)) add(relations, match[1])
-    for (const match of text.matchAll(/(?:^|[\s{(]):(?:funcid|aggfnoid|winfnoid|opfuncid) (\d+)/g)) add(functions, match[1])
-    for (const match of text.matchAll(/(?:^|[\s{(]):(?:opno|sortop|eqop) (\d+)/g)) add(operators, match[1])
-    for (const match of text.matchAll(/(?:^|[\s{(]):opnos \(o ([\d ]+)\)/g)) {
-        for (const id of match[1].trim().split(/\s+/)) add(operators, id)
+    const addList = (set, list) => {
+        for (const id of list.trim().split(/\s+/)) add(set, id)
     }
-    return { relations, functions, operators }
+    const field = (names) => new RegExp(`(?:^|[\\s{(]):(?:${names})\\s+(\\d+)`, 'g')
+    const list = (names) => new RegExp(`(?:^|[\\s{(]):(?:${names})\\s+\\(o\\s+([\\d\\s]+)\\)`, 'g')
+    for (const match of text.matchAll(field('relid'))) add(relations, match[1])
+    for (const match of text.matchAll(field('funcid|aggfnoid|winfnoid|opfuncid'))) add(functions, match[1])
+    for (const match of text.matchAll(field('opno|sortop|eqop'))) add(operators, match[1])
+    for (const match of text.matchAll(list('opnos'))) addList(operators, match[1])
+    for (const match of text.matchAll(/(?:^|[\s{(]):[A-Za-z_]*(?:type|typeid|typid)\s+(\d+)/gi)) add(types, match[1])
+    for (const match of text.matchAll(/(?:^|[\s{(]):[A-Za-z_]*types\s+\(o\s+([\d\s]+)\)/gi)) addList(types, match[1])
+    return { relations, functions, operators, types }
 }
 
 function refusedList(names) {
     const shown = names.slice(0, REFUSED_LIST).join(', ')
     return names.length > REFUSED_LIST ? `${shown}, and ${names.length - REFUSED_LIST} more` : shown
+}
+
+// Raised by the parser itself, not from inside a function: an error raised in a function always carries the
+// function in its context (where).
+const PARSER_ERRORS = new Set(['42601', '42703', '42P01', '42883', '42702', '42725', '42804', '42P18', '42846'])
+
+function parserError(error) {
+    return PARSER_ERRORS.has(String(error?.code || '')) && !error?.where
 }
 
 function scopeUncheckable(error) {
@@ -297,6 +379,11 @@ function scopeUncheckable(error) {
 export async function checkStatementScope(client, runner, statement, relations, isRowQuery) {
     if (!relations.length) throw new ScopeRefusal(SCOPE_NONE_LEFT)
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
+    // Parsing a literal of a composite, array or range type runs the element's input, and a domain element runs
+    // its CHECK then, before the query tree exists. When a domain check could reach other data, the parse runs in
+    // a savepoint and a failure is reported without the database's text.
+    const risky = await riskyDomains(runner)
+    await client.query('SAVEPOINT cuttlely_scope')
     try {
         // A named statement is sent with the extended protocol, which refuses a second command.
         await client.query({
@@ -304,7 +391,9 @@ export async function checkStatementScope(client, runner, statement, relations, 
             text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
         })
     } catch (error) {
+        await client.query('ROLLBACK TO SAVEPOINT cuttlely_scope').catch(() => {})
         if (scopeUncheckable(error)) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
+        if (risky && !parserError(error)) throw new ScopeRefusal(SCOPE_MASKED)
         throw error
     } finally {
         await client.query(`DEALLOCATE ${SCOPE_STATEMENT_NAME}`).catch(() => {})
@@ -336,43 +425,133 @@ export async function checkStatementScope(client, runner, statement, relations, 
             )}, which this node's table selection does not include. Selected: ${refusedList(relations.map((relation) => relation.name))}.`
         )
     }
-    const operatorIds = [...ids.operators]
+    await refuseRoutines(runner, ids.functions, ids.operators)
+    await refuseTypes(runner, ids.types)
+}
+
+const NOT_BUILT_IN = 'is not built in. With a table selection set, only built-in functions, operators and types run.'
+
+// Functions and operators outside pg_catalog, and denied built-ins.
+async function refuseRoutines(runner, functionSet, operatorSet) {
+    const functionIds = new Set(functionSet)
+    const operatorIds = [...operatorSet]
     if (operatorIds.length) {
         const rows = await runner.all(
             'SELECT o.oprname AS name, n.nspname AS schema, o.oprcode::oid::int8 AS code FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = ANY(?::oid[])',
             [operatorIds]
         )
         const foreign = rows.filter((row) => row.schema !== 'pg_catalog').map((row) => `${row.schema}.${row.name}`)
-        if (foreign.length) {
-            throw new ScopeRefusal(
-                `Cuttlely refused this query: operator ${refusedList(
-                    foreign
-                )} is not built in. With a table selection set, only built-in functions and operators run.`
-            )
-        }
-        for (const row of rows) if (Number(row.code) > 0) ids.functions.add(Number(row.code))
+        if (foreign.length) throw new ScopeRefusal(`Cuttlely refused this query: operator ${refusedList(foreign)} ${NOT_BUILT_IN}`)
+        for (const row of rows) if (Number(row.code) > 0) functionIds.add(Number(row.code))
     }
-    const functionIds = [...ids.functions]
-    if (functionIds.length) {
-        const rows = await runner.all(
-            'SELECT p.proname AS name, n.nspname AS schema FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?::oid[])',
-            [functionIds]
+    if (!functionIds.size) return
+    const rows = await runner.all(
+        'SELECT p.proname AS name, n.nspname AS schema FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?::oid[])',
+        [[...functionIds]]
+    )
+    const foreign = rows.filter((row) => row.schema !== 'pg_catalog').map((row) => `${row.schema}.${row.name}`)
+    if (foreign.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(foreign)} ${NOT_BUILT_IN}`)
+    const denied = rows.filter((row) => deniedFunction(row.name)).map((row) => row.name)
+    if (denied.length) {
+        throw new ScopeRefusal(
+            `Cuttlely refused this query: ${refusedList([
+                ...new Set(denied)
+            ])} is not allowed while a table selection is set. It can reach data outside the selected tables and views, or change how names resolve.`
         )
-        const foreign = rows.filter((row) => row.schema !== 'pg_catalog').map((row) => `${row.schema}.${row.name}`)
-        if (foreign.length) {
-            throw new ScopeRefusal(
-                `Cuttlely refused this query: function ${refusedList(
-                    foreign
-                )} is not built in. With a table selection set, only built-in functions and operators run.`
-            )
-        }
-        const denied = rows.filter((row) => deniedFunction(row.name)).map((row) => row.name)
-        if (denied.length) {
-            throw new ScopeRefusal(
-                `Cuttlely refused this query: ${refusedList([
-                    ...new Set(denied)
-                ])} is not allowed while a table selection is set. It can reach data outside the selected tables and views, or change how names resolve.`
-            )
+    }
+}
+
+// Every type the statement names, with the base type of a domain, the element of an array, the columns of a
+// composite type and the subtype of a range, since each of those runs when the outer type is read or checked.
+const TYPE_CLOSURE_SQL = `WITH RECURSIVE t(oid) AS (
+    SELECT DISTINCT x FROM unnest(?::oid[]) AS x
+    UNION
+    SELECT n.x FROM t JOIN pg_type ty ON ty.oid = t.oid
+    CROSS JOIN LATERAL (
+        SELECT ty.typbasetype AS x
+        UNION ALL SELECT ty.typelem
+        UNION ALL SELECT a.atttypid FROM pg_attribute a WHERE a.attrelid = ty.typrelid AND a.attnum > 0 AND NOT a.attisdropped
+        UNION ALL SELECT r.rngsubtype FROM pg_range r WHERE r.rngtypid = ty.oid
+    ) n WHERE n.x <> 0
+)
+SELECT ty.oid::int8 AS oid, format_type(ty.oid, NULL) AS name, ty.typname AS typname, ty.typtype AS typtype,
+       tn.nspname AS schema,
+       ARRAY(SELECT pn.nspname || '.' || p.proname FROM pg_proc p JOIN pg_namespace pn ON pn.oid = p.pronamespace
+             WHERE p.oid IN (ty.typinput, ty.typoutput, ty.typreceive, ty.typsend, ty.typmodin, ty.typmodout)
+               AND pn.nspname <> 'pg_catalog') AS foreign_io
+FROM t JOIN pg_type ty ON ty.oid = t.oid JOIN pg_namespace tn ON tn.oid = ty.typnamespace`
+
+const ALL_DOMAIN_CHECKS_SQL = `SELECT c.conbin::text AS tree, EXISTS (
+    SELECT 1 FROM pg_depend d JOIN pg_proc p ON p.oid = d.refobjid JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE d.classid = 'pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_proc'::regclass
+      AND n.nspname <> 'pg_catalog') AS foreign_function
+FROM pg_constraint c WHERE c.contypid <> 0 AND c.conbin IS NOT NULL`
+
+// True when any domain check in the database calls a function or operator the statement itself could not call.
+async function riskyDomains(runner) {
+    for (const check of await runner.all(ALL_DOMAIN_CHECKS_SQL)) {
+        if (check.foreign_function) return true
+        const tree = treeObjectIds(check.tree)
+        try {
+            await refuseRoutines(runner, tree.functions, tree.operators)
+        } catch {
+            return true
         }
     }
+    return false
+}
+
+const DOMAIN_CHECKS_SQL = `SELECT format_type(c.contypid, NULL) AS domain, c.conbin::text AS tree
+FROM pg_constraint c WHERE c.contypid = ANY(?::oid[]) AND c.conbin IS NOT NULL`
+
+const DOMAIN_FUNCTIONS_SQL = `SELECT DISTINCT format_type(c.contypid, NULL) AS domain, n.nspname || '.' || p.proname AS name
+FROM pg_constraint c
+JOIN pg_depend d ON d.classid = 'pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_proc'::regclass
+JOIN pg_proc p ON p.oid = d.refobjid JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE c.contypid = ANY(?::oid[]) AND n.nspname <> 'pg_catalog'`
+
+// A type whose input, output, receive or send function is outside pg_catalog, an object-identifier type, or a
+// domain whose CHECK calls a function that would be refused in the statement itself. A domain check runs when a
+// value is cast to the domain, which the statement's own function ids do not show.
+async function refuseTypes(runner, typeSet, depth = 0) {
+    const ids = [...typeSet]
+    if (!ids.length) return
+    const types = await runner.all(TYPE_CLOSURE_SQL, [ids])
+    const oidTypes = types.filter((type) => type.schema === 'pg_catalog' && DENIED_TYPES.has(type.typname)).map((type) => type.name)
+    if (oidTypes.length) {
+        throw new ScopeRefusal(
+            `Cuttlely refused this query: type ${refusedList([
+                ...new Set(oidTypes)
+            ])} is not allowed while a table selection is set. It turns object ids into names for objects outside the selection.`
+        )
+    }
+    const foreignIo = types.filter((type) => (type.foreign_io || []).length).map((type) => type.name)
+    if (foreignIo.length) throw new ScopeRefusal(`Cuttlely refused this query: type ${refusedList(foreignIo)} ${NOT_BUILT_IN}`)
+    const domains = types.filter((type) => type.typtype === 'd').map((type) => Number(type.oid))
+    if (!domains.length) return
+    const foreign = await runner.all(DOMAIN_FUNCTIONS_SQL, [domains])
+    if (foreign.length) {
+        const domainNames = refusedList([...new Set(foreign.map((row) => row.domain))])
+        const functionNames = refusedList([...new Set(foreign.map((row) => row.name))])
+        throw new ScopeRefusal(
+            `Cuttlely refused this query: domain ${domainNames} checks its values with ${functionNames}, which ${NOT_BUILT_IN}`
+        )
+    }
+    const nested = new Set()
+    for (const check of await runner.all(DOMAIN_CHECKS_SQL, [domains])) {
+        const tree = treeObjectIds(check.tree)
+        try {
+            await refuseRoutines(runner, tree.functions, tree.operators)
+        } catch (error) {
+            const reason = String(error.message).replace(/^Cuttlely refused this query: /, '')
+            throw new ScopeRefusal(
+                `Cuttlely refused this query: domain ${check.domain} checks its values with something refused here. ${reason}`
+            )
+        }
+        for (const id of tree.types) if (!ids.includes(id)) nested.add(id)
+    }
+    if (!nested.size) return
+    if (depth >= 4)
+        throw new ScopeRefusal('Cuttlely refused this query: its domain types nest too deeply to check against the table selection.')
+    await refuseTypes(runner, nested, depth + 1)
 }
