@@ -2112,6 +2112,10 @@ check(
         validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?'))?.input === '17 * 3',
     JSON.stringify(validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?')))
 )
+check(
+    'validArgs does not run a schema pattern on input longer than 1000 characters',
+    validArgs(patterned, '1+'.repeat(501)) == null && validArgs(patterned, `${'1+'.repeat(499)}1`)?.input?.length === 999
+)
 function silentFetch() {
     const calls = []
     const fetchImpl = async (url) => {
