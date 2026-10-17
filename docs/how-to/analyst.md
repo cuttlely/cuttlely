@@ -187,7 +187,7 @@ The row cap itself is the **Row cap** rule under [Safety](#safety). The default 
 
 ## Pick the tables and views the analyst sees
 
-A database description pasted into the specialist's instructions travels with every prompt, whatever the question. The table picker replaces it. You tick the tables and views the analyst may use. The analyst gets one short line for each, reads the columns of one when it needs them, and cannot query anything else.
+A database description pasted into the specialist's instructions travels with every prompt, whatever the question. The table picker replaces it. You tick the tables and views the analyst may use. The analyst gets one short line for each with its column names, reads the column types and keys of one when it needs them, and cannot query anything else.
 
 This works on a database the node connects to by URL: a Postgres URL credential on the node, or `CUTTLELY_POSTGRES_URL`. Isolated analyst storage (`CUTTLELY_ANALYST=auto`) holds only the analyst's own tables, so the field says **Isolated analyst storage** and there is nothing to pick. The examples below use the made-up bakery database in `samples/demo/bakery/bakery-postgres.sql`.
 
@@ -204,19 +204,21 @@ Save the harness. The selection is stored on the node as the list of names. A Po
 
 ### What the model sees
 
-The query tool's description ends with one line per ticked relation and nothing about its columns. For the six bakery relations in the picture:
+The query tool's description ends with one line per ticked relation: the name, the kind, its column names, and the comment. For the six bakery relations in the picture:
 
 ```text
-Only these relations can be queried. Call describe with a name for its columns, keys and definition before writing SQL against it.
-- public.monthly_sales (materialized view, 6 columns): Shop sales per month, shop and product. Refreshed nightly.
-- public.top_products (materialized view, 3 columns): Products ranked by units sold this year
-- public.account_balances (view, 6 columns): What each wholesale account owes. Look up account_id by account_code first.
-- public.weekly_store_revenue (view, 4 columns): Shop revenue per week. Use for shop sales questions.
-- public.wholesale_accounts (table, 5 columns): Cafes and grocers that buy wholesale
-- public.stores (table, 4 columns): Bakery shops
+Only these relations can be queried. Each line lists its column names, the first 12 when there are more. Call describe with a name for column types and comments, keys, the full column list and a view definition.
+- public.monthly_sales (materialized view): month, store, product, category, units, revenue — Shop sales per month, shop and product. Refreshed nightly.
+- public.top_products (materialized view): product, units, rank — Products ranked by units sold, not revenue, over all shops and weeks. For revenue use monthly_sales.
+- public.account_balances (view): account_id, account_code, name, credit_limit, unpaid_invoices, balance_due — What each wholesale account owes. Look up account_id by account_code first.
+- public.weekly_store_revenue (view): week_start, store, units, revenue — Shop revenue per week. Use for shop sales questions.
+- public.wholesale_accounts (table): id, account_code, name, city, credit_limit — Cafes and grocers that buy wholesale
+- public.stores (table): id, name, address, opened_on — Bakery shops
 ```
 
-A comment longer than 120 characters is cut. Write the comment that tells the analyst when to use the relation, as `account_balances` does above. That line is the routing hint the model reads on every question.
+The column names are there because models often write SQL before they call describe, whatever the instructions say. A run with a real model guessed column names, failed, and only then described the view. With the names in the line, the first query can be right. A relation with more than 12 columns lists the first 12 and then `…`. Column names that need quotes are listed quoted. Types, column comments, keys and view definitions stay in `describe`.
+
+A comment longer than 120 characters is cut. Write the comment that tells the analyst when to use the relation, and when not to, as `account_balances` and `top_products` do above. That line is the routing hint the model reads on every question. Say what a relation ranks or totals by: in the same real-model run, a comment that said only "ranked by units sold" was read as a revenue ranking.
 
 ### The describe tool
 
@@ -276,6 +278,12 @@ A refusal is an expected result, like a syntax error, and the analyst can quote 
 
 > Cuttlely refused this query: it reads public.payroll_notes, which this node's table selection does not include. Selected: public.monthly_sales, public.top_products, public.account_balances, public.weekly_store_revenue, public.wholesale_accounts, public.stores.
 
+When a query fails because a column does not exist or is ambiguous, the error ends with the columns of each ticked relation the statement names, so the next try can use the right name:
+
+> column "revenue" does not exist. Columns of public.top_products: product, units, rank.
+
+That list stops at 60 names. Other errors, such as a syntax error, come back as Postgres wrote them.
+
 A ticked view is the gate. Its own definition is not expanded, so `account_balances` can read `invoices` while `invoices` stays unticked and `SELECT * FROM invoices` is refused. Tick views and leave their base tables unticked when the view is all the analyst should see.
 
 Why not a separate login or `search_path`: a `search_path` does not stop a schema-qualified name, and a login with grants on only the ticked relations would need Cuttlely to create roles in your database, which a read-only credential usually cannot do. The check above needs only what the credential already has, plus the right to create a temporary view.
@@ -314,12 +322,12 @@ The same pattern fits any database: name the relation that answers each kind of 
 
 | Prompt part                                                        | Tokens |
 | ------------------------------------------------------------------ | -----: |
-| Whole schema in the instructions, plus the query tool              |  2,549 |
-| Six relations ticked: the query tool with six lines, plus describe |    567 |
-| All 20 relations ticked                                            |    805 |
+| Whole schema in the instructions, plus the query tool              |  2,562 |
+| Six relations ticked: the query tool with six lines, plus describe |    643 |
+| All 20 relations ticked                                            |  1,004 |
 | One `describe` result, `account_balances`                          |    172 |
 
-The schema part alone goes from 2,222 tokens to 160. A `describe` result is a tool result, so it costs tokens only in the turn that calls it. The bakery database is small; the whole-schema figure grows with every column and comment, and the picker's grows by one line per ticked relation.
+The schema part alone goes from 2,235 tokens to 235. The six lines cost 76 tokens more than the earlier format, which gave a column count instead of names (567 in total), and that includes the longer `top_products` comment. They save a failed query and a retry when the model writes SQL before it describes. A `describe` result is a tool result, so it costs tokens only in the turn that calls it. The bakery database is small; the whole-schema figure grows with every column and comment, and the picker's grows by one line per ticked relation, with at most 12 column names in a line.
 
 ```bash
 psql -d bakery -f samples/demo/bakery/bakery-postgres.sql
