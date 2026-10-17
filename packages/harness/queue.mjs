@@ -42,6 +42,8 @@ function jobPayload(args) {
         // The worker must not read the team off the harness file. A missing caller stays null and the job is refused.
         workspaceId: typeof flow.workspaceId === 'string' && flow.workspaceId ? flow.workspaceId : null,
         source: args.source || 'prediction',
+        // An id the caller already returned, so the run history row is the one it polls.
+        runId: typeof args.runId === 'string' && /^run_[A-Za-z0-9-]{8,80}$/.test(args.runId) ? args.runId : null,
         traceId: args.traceId || flow.executionId || null,
         // A worker in another process needs the images too. They are already within the count and size limits.
         images: promptImages(args.images)
@@ -305,6 +307,7 @@ export async function executeJob(job) {
             input: job.payload.input,
             images: job.payload.images,
             source: local?.source || job.payload.source,
+            runId: local?.runId || job.payload.runId || undefined,
             traceId: local?.traceId || job.payload.traceId,
             onRecorded: (row) => {
                 const id = savedRunId(row)

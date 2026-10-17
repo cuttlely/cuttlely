@@ -137,6 +137,7 @@ function rememberRun(args, started, pending, result, error) {
             recorded = finishHarnessRun(pending, { result, error, traceId: traceIdFrom(args) }) || pending
         } else {
             const opened = beginHarnessRun({
+                id: args?.runId,
                 name: args?.name,
                 chatId: args?.chatId,
                 source: args?.source,
@@ -183,6 +184,7 @@ export async function runHarness(args = {}) {
     if (!replay) {
         try {
             pending = beginHarnessRun({
+                id: args.runId,
                 name: args.name,
                 chatId: args.chatId,
                 source: args.source,

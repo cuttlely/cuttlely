@@ -10798,6 +10798,82 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     )
 })
 
+await expectCase('a run started in the background keeps the id it returned, its result, and closes when the server stopped', async () => {
+    const history = await import('./history.mjs')
+    const queued = history.queueHarnessRun({ name: 'background', chatId: 'api-1', source: 'api', input: 'How many loaves?' })
+    check(
+        'a background run is queued under the id the caller holds',
+        queued?.status === 'queued' && /^run_/.test(queued?.id || ''),
+        queued?.status
+    )
+    const opened = history.beginHarnessRun({ id: queued.id, name: 'background', chatId: 'api-1', source: 'api', input: 'How many loaves?' })
+    check('the runner opens the queued row instead of a new one', opened?.id === queued.id && opened?.status === 'running', opened?.status)
+    check(
+        'the queued row is the only row for that run',
+        history.listRuns('background').length === 1,
+        String(history.listRuns('background').length)
+    )
+    const done = history.finishHarnessRun(opened, {
+        result: { text: 'Forty-two loaves.', agents: [], report: { tokens: { prompt: 9, completion: 3 } } }
+    })
+    history.saveRunResult('background', queued.id, {
+        text: 'Forty-two loaves.',
+        agents: [{ name: 'baker', status: 'completed' }],
+        artifacts: [{ name: 'chart.png', base64: 'AAAA' }],
+        report: { tokens: { prompt: 9, completion: 3 } }
+    })
+    const stored = history.getRunResult('background', queued.id)
+    check(
+        'the full answer is stored for that run and image bytes are not',
+        done?.status === 'succeeded' && stored?.text === 'Forty-two loaves.' && stored?.artifacts?.[0]?.base64 === undefined,
+        JSON.stringify(stored)
+    )
+    check('a result is not read through another harness name', history.getRunResult('other-harness', queued.id) === null, 'leaked')
+    const refused = history.queueHarnessRun({ name: 'background', chatId: 'api-2', source: 'api', input: 'busy' })
+    history.failQueuedRun(
+        'background',
+        refused.id,
+        Object.assign(new Error('This chat already has a harness turn in progress.'), { code: 'busy' })
+    )
+    const refusedRow = history.getRun('background', refused.id)
+    check(
+        'a queued run that never started is failed with its code',
+        refusedRow?.status === 'failed' && refusedRow?.error?.code === 'busy',
+        refusedRow?.status
+    )
+    const stranded = history.queueHarnessRun({ name: 'background', chatId: 'api-3', source: 'api', input: 'stranded' })
+    const strandedRunning = history.beginHarnessRun({ name: 'background', chatId: 'api-4', source: 'api', input: 'mid-turn' })
+    const closed = history.interruptOpenRuns({ before: Date.now() + 1 })
+    const afterSweep = [history.getRun('background', stranded.id), history.getRun('background', strandedRunning.id)]
+    check(
+        'a restart closes runs left queued or running, and leaves finished runs alone',
+        closed >= 2 &&
+            afterSweep.every((row) => row?.status === 'failed' && row?.error?.code === 'interrupted') &&
+            history.getRun('background', queued.id)?.status === 'succeeded',
+        `${closed} ${afterSweep.map((row) => row?.status).join(',')}`
+    )
+    const queue = await import('./queue.mjs')
+    const job = queue.enqueueHarnessJob({
+        name: 'background',
+        chatId: 'api-5',
+        input: 'q',
+        runId: queued.id,
+        flowOptions: { workspaceId: 'team-1' }
+    })
+    const claimed = queue.claimJob()
+    check(
+        'a queued job carries the run id to the worker',
+        claimed?.id === job.id && claimed?.payload?.runId === queued.id,
+        JSON.stringify(claimed?.payload)
+    )
+    queue.finishJob(job.id, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'check' })
+    check(
+        'a run started in the background keeps the id it returned, its result, and closes when the server stopped',
+        Boolean(stored) && refusedRow?.status === 'failed' && claimed?.payload?.runId === queued.id,
+        'see the rows above'
+    )
+})
+
 await expectCase('a stored question is redacted in full and does not push the trace out of history', async () => {
     const secret = 'postgres://user:s3cret-pass@db.example/warehouse'
     const asked = `${'Please compare the warehouse export. '.repeat(16)}${secret} List every ticket`
