@@ -2258,3 +2258,30 @@ test('the dialog video prefetches on pointerenter, focus or pointerdown and does
     assert.equal(video.preload, 'auto')
     assert.deepEqual(calls, ['load'])
 })
+
+test('the Watch with sound chip and its length read at 5:1 or better on the hover fill', () => {
+    const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+    const brand = readFileSync(new URL('../src/styles/brand.css', import.meta.url), 'utf8')
+    const rule = (selector) => {
+        const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/,\s*/g, ',\\s*')
+        const found = css.match(new RegExp(`\\n${escaped} \\{([^}]*)\\}`))
+        assert.ok(found, `${selector} has a rule`)
+        return found[1]
+    }
+    const hover = rule('.cl-tile-play:hover,\n.cl-tile-play:focus-visible')
+    const token = hover.match(/background: var\((--[\w-]+)\);/)[1]
+    const fill = brand.match(new RegExp(`:root \\{[^}]*${token}: (#[0-9a-f]{6});`))[1]
+    const label = hover.match(/color: (#[0-9a-f]{6});/)[1]
+    const lengthOpacity = Number(
+        rule('.cl-tile-play:hover .cl-tile-play-length,\n.cl-tile-play:focus-visible .cl-tile-play-length').match(/opacity: ([\d.]+);/)[1]
+    )
+    const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+    const blend = (top, bottom, alpha) => top.map((c, i) => c * alpha + bottom[i] * (1 - alpha))
+    const lum = (c) => {
+        const [r, g, b] = c.map((v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    const contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05)
+    assert.ok(contrast(rgb(label), rgb(fill)) >= 5, 'chip label on the hover fill')
+    assert.ok(contrast(blend(rgb(label), rgb(fill), lengthOpacity), rgb(fill)) >= 5, 'length on the hover fill')
+})
