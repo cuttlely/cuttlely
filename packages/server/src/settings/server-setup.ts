@@ -12,7 +12,8 @@ import { setupSessionHash } from './setup-session'
 
 export const SETUP_BY = 'setup link'
 export const SIGNIN_SECTION = 'signin'
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// Domain labels cannot hold a dot, so each dot has one place to match and a long input stays linear.
+const EMAIL = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/
 
 export interface SetupUsers {
     countUsers(): Promise<number>
@@ -100,7 +101,7 @@ export async function createOwnerFromSetup(
     const password = typeof input.password === 'string' ? input.password : ''
     const errors: { key: string; message: string }[] = []
     if (!name || name.length > 100) errors.push({ key: 'name', message: 'Enter your name.' })
-    if (!EMAIL.test(email) || email.length > 254) errors.push({ key: 'email', message: 'Enter an email address.' })
+    if (email.length > 254 || !EMAIL.test(email)) errors.push({ key: 'email', message: 'Enter an email address.' })
     const weak = password ? passwordErrors(password) : ['Choose a password.']
     if (weak.length) errors.push({ key: 'password', message: weak[0] })
     if (errors.length) throw new SettingsError(400, 'INVALID', 'Check the highlighted fields.', errors)

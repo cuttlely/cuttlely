@@ -189,6 +189,16 @@ describe('use a password for now', () => {
         expect(JSON.stringify(res.body)).not.toContain('short')
     })
 
+    it('refuses an email with an empty domain label, and a long run of dots, without creating the owner', async () => {
+        const agent = await opened()
+        for (const email of ['rosa@bakery..example', 'rosa@.bakery.example', 'rosa@bakery.example.', `!@!.${'.'.repeat(240)}`]) {
+            const res = await agent.post('/api/v1/server-setup/owner').set(INTERNAL).send({ name: 'Rosa', email, password: GOOD_PASSWORD })
+            expect(res.status).toBe(400)
+            expect(res.body.errors.map((error: { key: string }) => error.key)).toEqual(['email'])
+        }
+        expect(created).toEqual([])
+    })
+
     it('creates the owner, turns the password sign-in on, and the link dies', async () => {
         const agent = await opened()
         const res = await agent
