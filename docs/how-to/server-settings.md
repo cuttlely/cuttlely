@@ -116,6 +116,8 @@ The question count default cannot be above the question cap. The rating scan mus
 | **Ratings scanned**          | `CUTTLELY_RATING_SCAN_CAP`       | 1000          | at least the import cap, and at most 20000 |
 | **Page loads a minute**      | `CUTTLELY_UI_PAGE_LIMIT_MAX`     | 3000          | 100 to 50000                               |
 
+**Page loads a minute** is also the per-client budget for sign-in, API-key check, OAuth, MCP server, and icon requests. Each of those routes keeps its own count, so loading the canvas icons does not use up sign-in. The node and credential icon routes add three times the number of loaded nodes or credentials to the budget, because the node palette asks for every icon at once. Behind a reverse proxy, set `TRUST_PROXY` (check `/api/v1/ip`), or every client shares one counter and sign-in can be blocked for all.
+
 The routes are in the [Server settings API](../reference/server-settings-api.md). Publish check behaviour is in [History settings](../reference/versioning-settings.md#publish-check-limits).
 
 ## Invite and reset

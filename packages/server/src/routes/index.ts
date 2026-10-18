@@ -82,8 +82,17 @@ import {
     identityAuditRouter
 } from '../identity'
 import { closedRouter, denyClosedFeature } from '../identity/ossPlatform'
+import { uiIconRateLimiter, uiPageRateLimiter } from '../utils/rateLimit'
+import { getRunningExpressApp } from '../utils/getRunningExpressApp'
 
 const router = express.Router()
+
+// The routers below that take uiPageRateLimiter() sign people in, check an API key, read icon files without a
+// session, or call out to an OAuth provider or MCP server. Each call is its own per-client counter with the page-load
+// budget, so people behind one shared address are not locked out. The two icon routers add room for the whole loaded
+// catalog, because the node palette and the credential dialogs request every icon at once.
+const loadedNodeCount = () => Object.keys(getRunningExpressApp().nodesPool.componentNodes).length
+const loadedCredentialCount = () => Object.keys(getRunningExpressApp().nodesPool.componentCredentials).length
 
 // Runs in progress are counted so Restart can let them finish (settings/runs.ts).
 router.use(trackRuns)
@@ -102,7 +111,7 @@ router.use('/chatflows-streaming', chatflowsStreamingRouter)
 router.use('/chatmessage', chatMessageRouter)
 router.use('/chatflows-uploads', chatflowsUploadsRouter)
 router.use('/components-credentials', componentsCredentialsRouter)
-router.use('/components-credentials-icon', componentsCredentialsIconRouter)
+router.use('/components-credentials-icon', uiIconRateLimiter(loadedCredentialCount), componentsCredentialsIconRouter)
 router.use('/credentials', credentialsRouter)
 router.use('/datasets', denyClosedFeature('feat:datasets'), datasetRouter)
 router.use('/document-store', documentStoreRouter)
@@ -120,10 +129,10 @@ router.use('/load-prompt', loadPromptRouter)
 router.use('/marketplaces', marketplacesRouter)
 router.use('/node-config', nodeConfigRouter)
 router.use('/node-custom-function', nodeCustomFunctionRouter)
-router.use('/node-icon', nodeIconRouter)
+router.use('/node-icon', uiIconRateLimiter(loadedNodeCount), nodeIconRouter)
 router.use('/node-load-method', nodeLoadMethodRouter)
 router.use('/nodes', nodesRouter)
-router.use('/oauth2-credential', oauth2Router)
+router.use('/oauth2-credential', uiPageRateLimiter(), oauth2Router)
 router.use('/openai-assistants', openaiAssistantsRouter)
 router.use('/openai-assistants-file', openaiAssistantsFileRouter)
 router.use('/openai-assistants-vector-store', openaiAssistantsVectorStoreRouter)
@@ -138,7 +147,7 @@ router.use('/model-prices', modelPricesRouter)
 router.use('/tools', toolsRouter)
 router.use('/variables', variablesRouter)
 router.use('/vector', vectorRouter)
-router.use('/verify', verifyRouter)
+router.use('/verify', uiPageRateLimiter(), verifyRouter)
 router.use('/webhook', webhookRouter)
 router.use('/webhook-listener', webhookListenerRouter)
 router.use('/version', versionRouter)
@@ -153,14 +162,14 @@ router.use('/validation', validationRouter)
 router.use('/agentflowv2-generator', agentflowv2GeneratorRouter)
 router.use('/builder', builderRouter)
 router.use('/text-to-speech', textToSpeechRouter)
-router.use('/custom-mcp-servers', customMcpServersRouter)
+router.use('/custom-mcp-servers', uiPageRateLimiter(), customMcpServersRouter)
 router.use('/mcp-server', mcpServerRouter)
 router.use('/mcp', mcpEndpointRouter)
 
 // Teams, users, and roles are the identity directory. Auth and account do not
 // fall through to a commercial router. Export and import answer 404.
-router.use('/auth', identityAuthRouter)
-router.use('/account', identityAccountRouter)
+router.use('/auth', uiPageRateLimiter(), identityAuthRouter)
+router.use('/account', uiPageRateLimiter(), identityAccountRouter)
 router.use('/user', identityUserRouter)
 router.use('/users', identityUsersRouter)
 router.use('/role', identityRoleRouter)

@@ -13,9 +13,11 @@ const streamUploadedFile = async (req: Request, res: Response, next: NextFunctio
         if (!req.query.chatflowId || !req.query.chatId || !req.query.fileName) {
             return res.status(500).send(`Invalid file path`)
         }
-        const chatflowId = req.query.chatflowId as string
-        const chatId = req.query.chatId as string
-        const fileName = req.query.fileName as string
+        // A repeated parameter arrives as an array, which would pass the checks below as its joined text.
+        const { chatflowId, chatId, fileName } = req.query
+        if (typeof chatflowId !== 'string' || typeof chatId !== 'string' || typeof fileName !== 'string') {
+            return res.status(400).send(`Invalid file path`)
+        }
         const download = req.query.download === 'true' // Check if download parameter is set
 
         // Validate input formats to prevent path traversal attacks
