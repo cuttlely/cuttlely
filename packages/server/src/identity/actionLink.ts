@@ -19,6 +19,7 @@ import { connect as tlsConnect } from 'tls'
 import { accountLinkSnapshot, effectiveAccountEnv } from '../settings/accountLinks'
 import { safeRecordAudit } from './auditLog'
 import { workosConfigured } from './constants'
+import { utcDbTime } from './dbTime'
 import { DirectoryActor, DirectoryError, QueryFn, Sql, createEmailUser } from './directory'
 import { hashPassword, hashSessionToken, passwordErrors, randomToken } from './password'
 import { LoginRateLimit, LoginLimiter } from './rateLimit'
@@ -219,21 +220,8 @@ export function linkClock(value: unknown, dialect?: Sql['type']): number {
     return Number.isNaN(parsed) ? 0 : parsed
 }
 
-/**
- * A datetime the driver can store. Postgres takes a Date. MySQL and MariaDB reject an ISO
- * string that ends in Z when the session is strict, so they get UTC `YYYY-MM-DD HH:MM:SS`.
- * SQLite keeps the ISO text the tests and the text column already use.
- */
 export function linkDbTime(dialect: Sql['type'], ms: number): Date | string {
-    if (dialect === 'postgres') return new Date(ms)
-    if (dialect === 'mysql' || dialect === 'mariadb') {
-        const date = new Date(ms)
-        const pad = (value: number) => String(value).padStart(2, '0')
-        return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(
-            date.getUTCMinutes()
-        )}:${pad(date.getUTCSeconds())}`
-    }
-    return new Date(ms).toISOString()
+    return utcDbTime(dialect, ms)
 }
 
 function dbTime(sql: Sql, ms: number): Date | string {
@@ -533,7 +521,8 @@ function blockReason(target: TargetRow | null, purpose: LinkPurpose = 'reset', a
 }
 
 function resetBlock(actor: DirectoryActor, target: TargetRow, purpose: LinkPurpose = 'reset'): Block | null {
-    const blocked = blockReason(target, purpose)
+    // Only an owner can grant the owner role, so only an owner may send a new link for a pending owner invite.
+    const blocked = blockReason(target, purpose, purpose === 'invite' && Boolean(actor.owner))
     if (blocked) return blocked
     if (actor.owner) return null
     const held = new Set(actor.permissions || [])

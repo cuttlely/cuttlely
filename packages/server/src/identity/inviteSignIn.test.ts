@@ -12,12 +12,27 @@
  * CUTTLELY_TEST_PG_REQUIRED=1 fails instead of skipping.
  */
 
+let mockDataSource: unknown
+jest.mock('../DataSource', () => ({ getDataSource: () => mockDataSource }))
+
 import { randomUUID } from 'crypto'
+import express from 'express'
+import request from 'supertest'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { INVITE_NEEDS_AUTHKIT, LinkDeps, acceptLocalPassword, inviteAccount, resetLocalLink } from './actionLink'
-import { DirectoryActor, Sql, deleteOrganizationUser, deleteWorkspaceUser, setUserDisabled, sqlFromDataSource } from './directory'
+import {
+    DirectoryActor,
+    Sql,
+    deleteOrganizationUser,
+    deleteWorkspaceUser,
+    setUserDisabled,
+    sqlFromDataSource,
+    updateOrganizationUser
+} from './directory'
+import { identityAuthRouter } from './http'
 import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
+import { requirePermission, setTeamPermissionLookup } from './rbac'
 import { addIdentityActionLinks } from './schemaMigration'
 import { SqlIdentityStore } from './sqlStore'
 import { LinkResult, WorkosIdentity } from './types'
@@ -44,6 +59,7 @@ const AUTHKIT_ENV = { WORKOS_API_KEY: 'sk_test_example', WORKOS_CLIENT_ID: 'clie
 const owner: DirectoryActor = { id: OWNER, organizationId: ORG, workspaceId: TEAM, owner: true, permissions: [] }
 
 interface Backend {
+    dataSource: DataSource
     sql: Sql
     store: SqlIdentityStore
     rows(statement: string, params?: unknown[]): Promise<Record<string, unknown>[]>
@@ -85,7 +101,7 @@ function seed(dialect: 'sqlite' | 'postgres'): string {
         );
         INSERT INTO organization (id, name) VALUES ('${ORG}', 'Harbor Bakery');
         INSERT INTO "user" (id, name, email, status, credential) VALUES ('${OWNER}', 'Rosa Diaz', 'rosa@example.com', 'active', NULL);
-        INSERT INTO role (id, "organizationId", name, permissions) VALUES ('${MEMBER_ROLE}', NULL, 'member', '[]');
+        INSERT INTO role (id, "organizationId", name, permissions) VALUES ('${MEMBER_ROLE}', NULL, 'member', '["chatflows:view"]');
         INSERT INTO role (id, "organizationId", name, permissions) VALUES ('${OWNER_ROLE_ID}', '${ORG}', 'owner', '[]');
         INSERT INTO workspace (id, name, "organizationId") VALUES ('${TEAM}', 'Front Counter', '${ORG}');
         INSERT INTO workspace (id, name, "organizationId") VALUES ('${TEAM_2}', 'Kitchen', '${ORG}');
@@ -95,8 +111,12 @@ function seed(dialect: 'sqlite' | 'postgres'): string {
     `
 }
 
-function fakeDataSource(type: 'sqlite' | 'postgres', makeRunner: () => QueryRunner): DataSource {
-    return { options: { type }, createQueryRunner: makeRunner } as unknown as DataSource
+function fakeDataSource(
+    type: 'sqlite' | 'postgres',
+    makeRunner: () => QueryRunner,
+    pool: (statement: string, params?: unknown[]) => Promise<Record<string, unknown>[]>
+): DataSource {
+    return { options: { type }, createQueryRunner: makeRunner, query: pool } as unknown as DataSource
 }
 
 async function sqliteBackend(): Promise<Backend> {
@@ -116,8 +136,9 @@ async function sqliteBackend(): Promise<Backend> {
             query: run
         } as unknown as QueryRunner)
     await addIdentityActionLinks(runner())
-    const dataSource = fakeDataSource('sqlite', runner)
+    const dataSource = fakeDataSource('sqlite', runner, run)
     return {
+        dataSource,
         sql: sqlFromDataSource(dataSource),
         store: new SqlIdentityStore(dataSource),
         rows: run,
@@ -181,9 +202,10 @@ async function postgresBackend(): Promise<Backend> {
     await setup.connect()
     await addIdentityActionLinks(setup)
     await setup.release()
-    const dataSource = fakeDataSource('postgres', runner)
+    const dataSource = fakeDataSource('postgres', runner, async (statement, params = []) => (await pool.query(statement, params)).rows)
     const sql = sqlFromDataSource(dataSource)
     return {
+        dataSource,
         sql,
         store: new SqlIdentityStore(dataSource),
         rows: (statement, params = []) => sql.query(statement, params),
@@ -234,11 +256,62 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
     let db: Backend
 
     beforeEach(async () => {
-        if (enabled) db = await open()
+        if (!enabled) return
+        db = await open()
+        mockDataSource = db.dataSource
+        setTeamPermissionLookup(null)
     })
     afterEach(async () => {
         if (enabled) await db.close()
     })
+
+    async function gateStatus(userId: string): Promise<number> {
+        let status = 200
+        let done: () => void = () => undefined
+        const res = {
+            status(code: number) {
+                status = code
+                return this
+            },
+            json() {
+                done()
+                return this
+            },
+            send() {
+                done()
+                return this
+            },
+            end() {
+                done()
+                return this
+            },
+            headersSent: false
+        }
+        await new Promise<void>((resolve) => {
+            done = resolve
+            const req = { user: { id: userId, activeWorkspaceId: TEAM, activeOrganizationId: ORG } }
+            requirePermission('chatflows:view')(req as never, res as never, () => resolve())
+        })
+        return status
+    }
+
+    async function withEnv<T>(extra: NodeJS.ProcessEnv, run: () => Promise<T>): Promise<T> {
+        const saved = { ...process.env }
+        for (const key of ['WORKOS_API_KEY', 'WORKOS_CLIENT_ID', 'CUTTLELY_LOCAL_USERS', 'INVITE_DELIVERY']) delete process.env[key]
+        Object.assign(process.env, extra)
+        try {
+            return await run()
+        } finally {
+            process.env = saved
+        }
+    }
+
+    function authApp() {
+        const app = express()
+        app.use(express.json())
+        app.use('/api/v1/auth', identityAuthRouter)
+        return request(app)
+    }
 
     async function invite(email: string, name = 'Ada Lovelace', workspaceId = TEAM): Promise<{ id: string; token: string }> {
         const created = await inviteAccount(
@@ -280,6 +353,11 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(await user(ada.id)).toEqual({ status: 'invited', externalId: null })
         expect(await db.store.localAccountOpen(ada.id)).toBe(false)
         expect(await db.store.findUserByExternalId('wos-ada')).toBeNull()
+        expect(await gateStatus(ada.id)).toBe(403)
+        expect(await signIn('ada@example.com', ada.token)).toMatchObject({ ok: true })
+        expect(await gateStatus(ada.id)).toBe(200)
+        await db.rows(`UPDATE "user" SET status = ?, "externalId" = NULL WHERE id = ?`, ['invited', ada.id])
+        await db.rows(`UPDATE identity_action_link SET "usedAt" = NULL, "consumeId" = NULL WHERE "userId" = ?`, [ada.id])
         const links = await db.rows(`SELECT "usedAt" AS "usedAt" FROM identity_action_link WHERE "userId" = ?`, [ada.id])
         expect(links).toEqual([{ usedAt: null }])
     })
@@ -426,5 +504,94 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect((await user(created.id)).status).toBe('active')
         expect(await db.store.localAccountOpen(created.id)).toBe(true)
         expect(await accept()).toMatchObject({ type: 'json', status: 400, body: { message: 'This link is not valid.' } })
+    })
+    maybe('the real accept route with AuthKit on answers 400, not 404, and does not use the invite', async () => {
+        const ada = await invite('ada@example.com')
+        const response = await withEnv(AUTHKIT_ENV, () =>
+            authApp().post('/api/v1/auth/local/accept').send({ token: ada.token, password: GOOD })
+        )
+        expect(response.status).toBe(400)
+        expect(response.body).toEqual({ message: INVITE_NEEDS_AUTHKIT })
+        expect(await user(ada.id)).toEqual({ status: 'invited', externalId: null })
+        const links = await db.rows(`SELECT "usedAt" AS "usedAt" FROM identity_action_link WHERE "userId" = ?`, [ada.id])
+        expect(links).toEqual([{ usedAt: null }])
+        expect(await gateStatus(ada.id)).toBe(403)
+
+        const started = await withEnv(AUTHKIT_ENV, () =>
+            authApp().post('/api/v1/auth/invite/start').set('x-request-from', 'internal').send({ token: ada.token })
+        )
+        expect(started.status).toBe(200)
+        const cookie = String(started.headers['set-cookie'])
+        expect(cookie).toContain('cuttlely-invite=')
+        expect(cookie).toContain('Path=/api/v1/auth/callback')
+        expect(cookie).toContain('HttpOnly')
+    })
+
+    maybe('the real accept route without AuthKit sets the password and activates the invite', async () => {
+        const created = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { name: 'Lin Park', email: 'lin@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE }, link: true },
+            deps(Date.now(), {})
+        )
+        const response = await withEnv({}, () =>
+            authApp()
+                .post('/api/v1/auth/local/accept')
+                .send({ token: tokenOf(created.link), password: GOOD })
+        )
+        expect(response.status).toBe(200)
+        expect(response.body).toEqual({ message: 'Password saved.' })
+        expect((await user(created.id)).status).toBe('active')
+        expect(await gateStatus(created.id)).toBe(200)
+    })
+
+    maybe(
+        'saving a pending user as invited keeps them pending, re-opens a disabled invite without activating it, and is refused for anyone else',
+        async () => {
+            const ada = await invite('ada@example.com')
+            expect(await updateOrganizationUser(db.sql, owner, { userId: ada.id, organizationId: ORG, status: 'invited' })).toEqual({
+                id: ada.id
+            })
+            expect(await user(ada.id)).toEqual({ status: 'invited', externalId: null })
+            await setUserDisabled(db.sql, owner, ada.id, true)
+            expect(await updateOrganizationUser(db.sql, owner, { userId: ada.id, organizationId: ORG, status: 'invited' })).toEqual({
+                id: ada.id
+            })
+            expect(await db.rows(`SELECT status FROM organization_user WHERE "userId" = ?`, [ada.id])).toEqual([{ status: 'active' }])
+            expect(await user(ada.id)).toEqual({ status: 'invited', externalId: null })
+            expect(await signIn('ada@example.com', ada.token)).toEqual({ ok: false, reason: 'invite-invalid' })
+            const fresh = tokenOf((await resetLocalLink(db.sql, owner, ada.id, {}, deps())).link)
+            await expect(
+                updateOrganizationUser(db.sql, owner, { userId: OWNER, organizationId: ORG, status: 'invited' })
+            ).rejects.toMatchObject({
+                status: 400
+            })
+            expect(await signIn('ada@example.com', fresh)).toMatchObject({ ok: true })
+            await expect(
+                updateOrganizationUser(db.sql, owner, { userId: ada.id, organizationId: ORG, status: 'invited' })
+            ).rejects.toMatchObject({
+                status: 400
+            })
+            expect((await user(ada.id)).status).toBe('active')
+        }
+    )
+
+    maybe('an owner can send a new link for a pending owner invite; anyone else cannot', async () => {
+        const created = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { name: 'Pat Moreno', email: 'pat@example.com' }, workspace: { id: TEAM }, role: { id: OWNER_ROLE_ID } },
+            deps()
+        )
+        const manager: DirectoryActor = {
+            id: randomUUID(),
+            organizationId: ORG,
+            workspaceId: TEAM,
+            owner: false,
+            permissions: ['users:manage']
+        }
+        await expect(resetLocalLink(db.sql, manager, created.id, {}, deps())).rejects.toMatchObject({ status: 403 })
+        const fresh = tokenOf((await resetLocalLink(db.sql, owner, created.id, {}, deps())).link)
+        expect(await signIn('pat@example.com', fresh)).toMatchObject({ ok: true, user: { id: created.id, status: 'active' } })
     })
 })

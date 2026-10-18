@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { builtInPermissionJson, builtInPermissionKeys, builtInRoleName, isReservedRoleName, permissionsLowered } from './builtInRoles'
 import { DEFAULT_WORKSPACE, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
+import { utcDbTime } from './dbTime'
 import { likeEscapeClause } from './likeEscape'
 import { isCatalogPermission } from './permissionsCatalog'
 import { safeRecordAudit } from './auditLog'
@@ -163,13 +164,14 @@ export async function revokeInviteLinks(
     query: QueryFn,
     sql: Sql,
     userId: string,
-    scope: { workspaceId: string } | { organizationId: string }
+    scope: { workspaceId: string } | { organizationId: string },
+    now = Date.now()
 ): Promise<void> {
     const where = 'workspaceId' in scope ? `${q(sql, 'workspaceId')} = ?` : `${q(sql, 'organizationId')} = ?`
     await query(
-        `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = CURRENT_TIMESTAMP, ${q(sql, 'consumeId')} = ?
+        `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
          WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'usedAt')} IS NULL AND ${where}`,
-        ['revoked', userId, 'invite', 'workspaceId' in scope ? scope.workspaceId : scope.organizationId]
+        [utcDbTime(sql.type, now), 'revoked', userId, 'invite', 'workspaceId' in scope ? scope.workspaceId : scope.organizationId]
     )
 }
 
@@ -601,7 +603,14 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
     const requested = text(record.status).trim().toLowerCase()
     sameOrg(actor, organizationId)
     if (!userId) throw new DirectoryError(400, 'User is required')
-    const status = requested === 'active' ? 'active' : requested === 'inactive' || requested === 'disable' ? 'disable' : ''
+    const status =
+        requested === 'active'
+            ? 'active'
+            : requested === 'inactive' || requested === 'disable'
+            ? 'disable'
+            : requested === 'invited'
+            ? 'invited'
+            : ''
     if (!status) throw new DirectoryError(400, 'Status must be active or inactive')
     return sql.transaction(async (query) => {
         await assertSharedActiveTeam(query, sql, actor, userId)
@@ -612,6 +621,19 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
             [organizationId, userId]
         )
         if (!still.length) throw new DirectoryError(404, 'User not found')
+        if (status === 'invited') {
+            // Keeps a pending user pending and enabled. It never sets anyone to invited and never activates the user.
+            const current = await query(`SELECT ${q(sql, 'status')} AS status FROM ${q(sql, 'user')} WHERE ${q(sql, 'id')} = ?`, [userId])
+            if (text(cell(current[0] || {}, 'status')).toLowerCase() !== 'invited') {
+                throw new DirectoryError(400, 'Status must be active or inactive')
+            }
+            await query(
+                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                ['active', organizationId, userId]
+            )
+            return { id: userId }
+        }
         if (status === 'disable') {
             const kept = await refuseLastOwnerDisable(query, sql, organizationId, userId)
             if (kept === 'last') throw new DirectoryError(409, 'The last owner cannot be removed')

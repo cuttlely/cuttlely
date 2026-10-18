@@ -35,3 +35,20 @@ export function utcEpoch(value: unknown): number {
     const parsed = Date.parse(text)
     return Number.isNaN(parsed) ? 0 : parsed
 }
+
+/**
+ * A datetime the driver can store. Postgres takes a Date. MySQL and MariaDB reject an ISO
+ * string that ends in Z when the session is strict, so they get UTC `YYYY-MM-DD HH:MM:SS`.
+ * SQLite keeps the ISO text the tests and the text column already use.
+ */
+export function utcDbTime(dialect: 'sqlite' | 'postgres' | 'mysql' | 'mariadb', ms: number): Date | string {
+    if (dialect === 'postgres') return new Date(ms)
+    if (dialect === 'mysql' || dialect === 'mariadb') {
+        const date = new Date(ms)
+        const pad = (value: number) => String(value).padStart(2, '0')
+        return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(
+            date.getUTCMinutes()
+        )}:${pad(date.getUTCSeconds())}`
+    }
+    return new Date(ms).toISOString()
+}
