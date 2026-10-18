@@ -2265,14 +2265,17 @@ const patterned = {
     required: ['input']
 }
 check(
-    'validArgs accepts the normalized expression when the raw question fails',
-    validArgs(patterned, 'What is 17 times 3?') == null &&
-        validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?'))?.input === '17 * 3',
+    'validArgs leaves plain text for a schema with a pattern to the model, and still takes a JSON object',
+    validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?')) == null &&
+        validArgs(patterned, '{"input":"17 * 3"}')?.input === '17 * 3',
     JSON.stringify(validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?')))
 )
+const backtrackingStarted = Date.now()
+const backtracking = validArgs({ type: 'object', properties: { input: { type: 'string', pattern: '^(a+)+$' } } }, `${'a'.repeat(40)}!`)
 check(
-    'validArgs does not run a schema pattern on input longer than 1000 characters',
-    validArgs(patterned, '1+'.repeat(501)) == null && validArgs(patterned, `${'1+'.repeat(499)}1`)?.input?.length === 999
+    'validArgs never compiles a schema pattern, so a backtracking pattern returns at once',
+    backtracking == null && Date.now() - backtrackingStarted < 50,
+    `${Date.now() - backtrackingStarted} ms`
 )
 function silentFetch() {
     const calls = []
@@ -2475,7 +2478,11 @@ const pattern = await runHarness({
         patternCalls
     )
 })
-check('input that matches the schema pattern skips the model', pattern.text === '51' && patternCalls.length === 0, pattern.text)
+check(
+    'a schema with a pattern gets its arguments from the model, since the pattern is never compiled',
+    pattern.text === '51' && patternCalls.length === 1 && pattern.agents[0].fill === 'model',
+    `${pattern.text} calls ${patternCalls.length} fill ${pattern.agents[0].fill}`
+)
 
 const plainCalls = []
 const plainSeen = []

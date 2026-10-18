@@ -29,15 +29,9 @@ export function validArgs(schema, text) {
     const property = properties[keys[0]]
     const args = { [keys[0]]: trimmed }
     if (Array.isArray(property.enum)) return property.enum.includes(trimmed) ? args : null
-    if (typeof property.pattern === 'string') {
-        // The pattern comes from a tool schema; a long input bounds how long a slow pattern can run.
-        if (trimmed.length > 1000) return null
-        try {
-            return new RegExp(property.pattern).test(trimmed) ? args : null
-        } catch {
-            return null
-        }
-    }
+    // A schema pattern can come from any MCP server, and a backtracking pattern can stall this process on short
+    // input, so it is never compiled here. The model fills the arguments instead.
+    if (property.pattern != null) return null
     // Input with no words (an expression, an id, a number) leaves the model nothing to interpret.
     return trimmed && !/\p{L}/u.test(trimmed) ? args : null
 }
