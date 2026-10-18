@@ -380,7 +380,7 @@ describe('Prediction access: /prediction checks the flow key before multer', () 
         expect(handlers[3]).toBe(predictionsController.createPrediction)
     })
 
-    it('14: default mode is unchanged - hasFlowAccess and authorizeAttachmentUpload still accept a session; keyOnly does not', async () => {
+    it('14: hasFlowAccess accepts a session by default and keyOnly does not; authorizeAttachmentUpload takes a session only with x-request-from: internal', async () => {
         const flow = mockDb.chatflows.get(K)
         const req = (headers: Record<string, string> = {}, user?: object) => ({ headers, user, body: {} } as unknown as Request)
         expect(await hasFlowAccess(req({}, { activeWorkspaceId: WS }), flow)).toBe(true)
@@ -397,7 +397,17 @@ describe('Prediction access: /prediction checks the flow key before multer', () 
         )
         attachments.use(errorHandlerMiddleware)
         const chat = '55555555-5555-4555-8555-555555555555'
-        expect((await request(attachments).post(`/attachments/${K}/${chat}`).set('x-test-session-workspace', WS)).body).toEqual({ id: K })
+        expect(
+            (
+                await request(attachments)
+                    .post(`/attachments/${K}/${chat}`)
+                    .set('x-test-session-workspace', WS)
+                    .set('x-request-from', 'internal')
+            ).body
+        ).toEqual({ id: K })
+        // A session without the header (a cross-site form) is not enough on a key-protected flow; a keyless flow still opens.
+        expect((await request(attachments).post(`/attachments/${K}/${chat}`).set('x-test-session-workspace', WS)).status).toBe(401)
+        expect((await request(attachments).post(`/attachments/${F}/${chat}`).set('x-test-session-workspace', WS)).body).toEqual({ id: F })
         expect((await request(attachments).post(`/attachments/${K}/${chat}`)).status).toBe(401)
     })
 
