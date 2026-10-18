@@ -30,6 +30,8 @@ export function validArgs(schema, text) {
     const args = { [keys[0]]: trimmed }
     if (Array.isArray(property.enum)) return property.enum.includes(trimmed) ? args : null
     if (typeof property.pattern === 'string') {
+        // The pattern comes from a tool schema; a long input bounds how long a slow pattern can run.
+        if (trimmed.length > 1000) return null
         try {
             return new RegExp(property.pattern).test(trimmed) ? args : null
         } catch {
@@ -74,15 +76,19 @@ const WORD_NUMBERS = {
 const NUMBER_ONES = 'one|two|three|four|five|six|seven|eight|nine'
 const NUMBER_TENS = 'twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety'
 
+// `value` without a trailing run of `chars`, scanned from the end so a long run stays linear.
+function trimTrailing(value, chars) {
+    let end = value.length
+    while (end > 0 && chars.includes(value[end - 1])) end -= 1
+    return value.slice(0, end)
+}
+
 // validArgs rejects any letter, so "What is 17 times 3?" would otherwise wait on a model fill.
 // Returns an expression, or null when the question is not plain arithmetic.
 export function normalizeArithmeticQuestion(text) {
     let value = String(text ?? '').trim()
     if (!value) return null
-    value = value
-        .replace(/[?？!！]+$/g, '')
-        .replace(/[.。]+$/g, '')
-        .trim()
+    value = trimTrailing(trimTrailing(value, '?？!！'), '.。').trim()
     const prefix = /^(?:please\s+)?(?:what(?:'s|’s|\s+is|s\b)|how\s+much\s+is|calculate|compute|evaluate)\s+/i
     for (let i = 0; i < 3 && prefix.test(value); i += 1) value = value.replace(prefix, '').trim()
     value = value.replace(/\s+please$/i, '').trim()

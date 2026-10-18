@@ -77,6 +77,11 @@ jest.mock('../../utils/fileRepository', () => ({
     containsBase64File: (flow: any) => flow.flowData.includes(';base64,'),
     updateFlowDataWithFilePaths: (...args: any[]) => (updateFlowDataWithFilePaths as any)(...args)
 }))
+// The real check loads the ESM harness package; harnessRules.http.test.ts runs it in a child process.
+const assertHarnessDraftLimits = jest.fn(async (_name: string, _flowData: string) => undefined)
+jest.mock('./harnessLimits', () => ({
+    assertHarnessDraftLimits: (...args: any[]) => (assertHarnessDraftLimits as any)(...args)
+}))
 
 import {
     canvasHash,
@@ -290,6 +295,21 @@ describe('an existing harness', () => {
         })
         expect(existing.flowData).toBe(live)
         expect(rows).toEqual([])
+    })
+
+    test('a draft save runs the harness record limits before anything is stored', async () => {
+        assertHarnessDraftLimits.mockClear()
+        assertHarnessDraftLimits.mockRejectedValueOnce(Object.assign(new Error('Rules are too long.'), { statusCode: 400 }))
+        await expect(saveDraft(harness(), canvas('Too long'), context)).rejects.toMatchObject({ statusCode: 400 })
+        expect(rows).toEqual([])
+        await saveDraft(harness(), canvas('Draft instructions'), context)
+        expect(assertHarnessDraftLimits.mock.calls).toEqual([
+            ['bakery-team', canvas('Too long')],
+            ['bakery-team', canvas('Draft instructions')]
+        ])
+        chats[0].type = 'AGENTFLOW'
+        await saveDraft(flow({ type: 'AGENTFLOW' }), canvas('Agentflow'), context)
+        expect(assertHarnessDraftLimits).toHaveBeenCalledTimes(2)
     })
 
     test('the first edit stores a draft and leaves Live untouched', async () => {

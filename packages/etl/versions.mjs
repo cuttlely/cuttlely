@@ -159,6 +159,7 @@ export function deletePipeline(id) {
         stmt('DELETE FROM records WHERE pipeline_id = ?').run(id)
         stmt('DELETE FROM sources WHERE pipeline_id = ?').run(id)
         stmt('DELETE FROM run_events WHERE run_id IN (SELECT id FROM runs WHERE pipeline_id = ?)').run(id)
+        stmt('DELETE FROM run_names WHERE pipeline_id = ?').run(id)
         stmt('DELETE FROM runs WHERE pipeline_id = ?').run(id)
         stmt('DELETE FROM pipeline_versions WHERE pipeline_id = ?').run(id)
         stmt('DELETE FROM pipelines WHERE id = ?').run(id)

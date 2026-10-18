@@ -8,7 +8,7 @@ export const customGet = (obj: any, path: string) => {
         for (let part of parts) {
             if (part.includes('[') && part.includes(']')) {
                 const [name, indexPart] = part.split('[')
-                const index = parseInt(indexPart.replace(']', ''))
+                const index = parseInt(indexPart.replace(/\]/g, ''))
 
                 result = result[name]
                 if (Array.isArray(result)) {

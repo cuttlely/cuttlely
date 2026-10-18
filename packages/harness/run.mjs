@@ -915,7 +915,27 @@ export const HANDOFF_KEEP_CLOSING =
 // a closing line from the last lines of a completed result that the answer dropped is put back at the end.
 const CLOSING_LINE = /^(sources?|citations?|references?|data sources?)\s*:\s*\S/i
 const CLOSING_LINE_WINDOW = 3
-const CLOSING_TAIL = /[.!?)]\s+((?:sources?|citations?|references?|data sources?)\s*:\s*\S.*)$/i
+// No `$`: a failed match cannot rescan the rest of the line. closingTail supplies the end check instead.
+const CLOSING_TAIL = /[.!?)]\s+((?:sources?|citations?|references?|data sources?)\s*:\s*\S.*)/i
+const isSpace = (ch) => /\s/.test(ch)
+
+// The source has to run to the end of the line, as `.*$` required. `.` stops at a lone \r, U+2028 or U+2029, so a
+// match can only start in the short stretch before the last of them: spaces, an optional colon, spaces, the keyword,
+// spaces and the punctuation. The match is taken from there and must end where the line ends.
+function closingTail(line) {
+    let from = Math.max(line.lastIndexOf('\r'), line.lastIndexOf('\u2028'), line.lastIndexOf('\u2029'))
+    if (from >= 0) {
+        while (from > 0 && isSpace(line[from - 1])) from -= 1
+        if (line[from - 1] === ':') from -= 1
+        while (from > 0 && isSpace(line[from - 1])) from -= 1
+        for (let letters = 0; letters < 16 && from > 0 && /[a-z ]/i.test(line[from - 1]); letters += 1) from -= 1
+        while (from > 0 && isSpace(line[from - 1])) from -= 1
+        from = Math.max(from - 1, 0)
+    }
+    const rest = from > 0 ? line.slice(from) : line
+    const match = CLOSING_TAIL.exec(rest)
+    return match && match.index + match[0].length === rest.length ? match[1].trim() : null
+}
 
 export function closingLines(text) {
     const lines = String(text || '')
@@ -925,8 +945,8 @@ export function closingLines(text) {
     const found = lines.slice(-CLOSING_LINE_WINDOW).filter((line) => CLOSING_LINE.test(line))
     if (found.length || !lines.length) return found
     // A specialist sometimes puts the source at the end of its last sentence instead of on its own line.
-    const tail = CLOSING_TAIL.exec(lines.at(-1))
-    return tail ? [tail[1].trim()] : []
+    const tail = closingTail(lines.at(-1))
+    return tail ? [tail] : []
 }
 
 export function keepClosingLines(answer, results) {
@@ -1050,7 +1070,8 @@ export function isMultiStepDataTask(text) {
     const verbs = value.match(SQL_VERB) || []
     if (verbs.length >= 2) return true
     if (/\bthen\b/i.test(value) && verbs.length >= 1) return true
-    if (/(?:^|\n)\s*\d+[.)]\s+/.test(value) && /\b(table|insert|select|row)\b/i.test(value)) return true
+    // A numbered step starts the text or follows \n, after any whitespace that is not \n (NBSP and \r included).
+    if (/(?:^|\n)[^\S\n]*\d+[.)]\s/.test(value) && /\b(table|insert|select|row)\b/i.test(value)) return true
     return false
 }
 

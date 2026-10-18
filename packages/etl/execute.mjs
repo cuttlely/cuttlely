@@ -4,7 +4,7 @@ import { EtlError, errorMessage } from './errors.mjs'
 import { embeddingFingerprint, LOCAL_STORE, stableStringify, storeFingerprint } from './graph.mjs'
 import { compareSegments } from './ignore.mjs'
 import { createEmbeddings, Embedder, retrying } from './embed.mjs'
-import { addEvent, DEFAULT_SETTINGS, getRun, MIN_READS_FOR_RATIO, updateRun } from './runs.mjs'
+import { addEvent, DEFAULT_SETTINGS, emptyCounters, emptySteps, getRun, MIN_READS_FOR_RATIO, updateRun } from './runs.mjs'
 import { fault, isCrash } from './faults.mjs'
 import { classifyStoreError, storeErrorStatus } from './store-errors.mjs'
 import { Ledger, summaryOf } from './ledger.mjs'
@@ -730,6 +730,29 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
     const version = getVersion(run.pipelineId, run.version)
     if (!pipeline || !version) throw new EtlError('not_found', 'The pipeline or its version was deleted.', 404)
     const problems = version.problems?.problems || []
+    // A blank Local Vector Store collection follows the pipeline's name. A run resumed under a name whose target differs
+    // from one it already wrote under would split its vectors and fail the store count, so it starts over in the new
+    // target, the same way a new run does when the target changed. run_names keeps the old names for a delete.
+    if (run.checkpoint && version.spec?.store) {
+        const target = storeFingerprint(version.spec.store, pipeline.name)
+        const earlier = stmt('SELECT name FROM run_names WHERE run_id = ?')
+            .all(run.id)
+            .map((row) => row.name)
+        if (earlier.some((name) => storeFingerprint(version.spec.store, name) !== target)) {
+            tx(() => {
+                stmt('DELETE FROM records WHERE pipeline_id = ?').run(pipeline.id)
+                stmt('DELETE FROM sources WHERE pipeline_id = ?').run(pipeline.id)
+            })
+            updateRun(run.id, { checkpoint: null, counters: emptyCounters(), steps: emptySteps() })
+            addEvent(
+                run.id,
+                'info',
+                'store',
+                "The pipeline's name, and so its collection, changed since this run started; every chunk is written to the new one."
+            )
+            run = getRun(run.id)
+        }
+    }
     const state = new RunState(run)
     const settings = run.settings
     const fail = (error) => {
@@ -743,6 +766,12 @@ export async function executeRun(runId, { ctx = {}, control = { stopRequested: n
     }
     const spec = version.spec
     updateRun(run.id, { status: 'running', startedAt: run.startedAt || new Date().toISOString(), error: null })
+    stmt('INSERT OR IGNORE INTO run_names (run_id, pipeline_id, workspace_id, name) VALUES (?, ?, ?, ?)').run(
+        run.id,
+        pipeline.id,
+        pipeline.workspaceId || null,
+        pipeline.name
+    )
     state.event(
         'info',
         null,

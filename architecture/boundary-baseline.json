@@ -133,6 +133,11 @@
             "to": "packages/components/src/utils.ts"
         },
         {
+            "from": "packages/components/src/evaluationRunner.test.ts",
+            "to": "packages/components/evaluation/EvaluationRunner.ts",
+            "reason": "the test drives the inherited evaluation runner's chatflow id check"
+        },
+        {
             "from": "packages/components/src/oauthRefresh.test.ts",
             "to": "packages/components/src/httpSecurity.ts"
         },
@@ -185,8 +190,28 @@
             "to": "packages/server/src/commands/base.ts"
         },
         {
+            "from": "packages/server/src/controllers/chat-messages/removeAll.test.ts",
+            "to": "packages/server/src/controllers/chat-messages/index.ts",
+            "reason": "the test drives the inherited clear-messages handler it covers"
+        },
+        {
+            "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
+            "to": "packages/server/src/controllers/apikey/index.ts",
+            "reason": "the API-key test drives the inherited controller and router it covers"
+        },
+        {
             "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
             "to": "packages/server/src/controllers/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
+            "to": "packages/server/src/routes/chatflows/index.ts",
+            "reason": "the API-key test drives the inherited controller and router it covers"
+        },
+        {
+            "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
+            "to": "packages/server/src/routes/verify/index.ts",
+            "reason": "the test mounts the inherited verify router to check the API-key routes"
         },
         {
             "from": "packages/server/src/controllers/demo/index.ts",
@@ -251,6 +276,16 @@
         {
             "from": "packages/server/src/controllers/internal-predictions/index.test.ts",
             "to": "packages/server/src/services/predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/nodes/iconCache.test.ts",
+            "to": "packages/server/src/controllers/components-credentials/index.ts",
+            "reason": "the test checks the cache header on the inherited credential icon handler"
+        },
+        {
+            "from": "packages/server/src/controllers/nodes/iconCache.test.ts",
+            "to": "packages/server/src/controllers/nodes/index.ts",
+            "reason": "the test checks the cache header on the inherited node icon handler"
         },
         {
             "from": "packages/server/src/controllers/ping/index.test.ts",
@@ -364,6 +399,21 @@
         {
             "from": "packages/server/src/middlewares/errors/index.test.ts",
             "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/routes/index.iconLimit.test.ts",
+            "to": "packages/server/src/routes/index.ts",
+            "reason": "the test mounts the inherited API router at the lowest page budget to check the icon routers' catalog-sized limit"
+        },
+        {
+            "from": "packages/server/src/routes/index.iconLimit.test.ts",
+            "to": "packages/server/src/utils/rateLimit.ts",
+            "reason": "the test mounts the inherited API router at the lowest page budget to check the icon routers' catalog-sized limit"
+        },
+        {
+            "from": "packages/server/src/routes/index.rateLimit.test.ts",
+            "to": "packages/server/src/routes/index.ts",
+            "reason": "the test mounts the inherited API router to check each guarded prefix's limiter"
         },
         {
             "from": "packages/server/src/routes/oauth2/refresh.test.ts",
@@ -577,6 +627,16 @@
             "from": "packages/server/src/services/flow-check/score.ts",
             "to": "packages/server/src/utils/getRunningExpressApp.ts",
             "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-drafts/harnessLimits.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "A harness draft save refuses Rules over the cap as a 400, the same AppError the draft service throws."
+        },
+        {
+            "from": "packages/server/src/services/flow-drafts/harnessLimits.ts",
+            "to": "packages/server/src/errors/utils.ts",
+            "reason": "The 400 carries the harness store refusal text, read with the shared error message helper."
         },
         {
             "from": "packages/server/src/services/flow-drafts/index.ts",
@@ -859,6 +919,21 @@
         {
             "from": "packages/server/src/utils/domainValidation.test.ts",
             "to": "packages/server/src/utils/domainValidation.ts"
+        },
+        {
+            "from": "packages/server/src/utils/feedbackTypeFilters.test.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "the test uses the rating values from the inherited Interface"
+        },
+        {
+            "from": "packages/server/src/utils/feedbackTypeFilters.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "the rating values the filter returns are defined in the inherited Interface"
+        },
+        {
+            "from": "packages/server/src/utils/fileLinkSignature.test.ts",
+            "to": "packages/server/src/controllers/get-upload-file/index.ts",
+            "reason": "the file link test drives the inherited file handler it covers"
         },
         {
             "from": "packages/server/src/utils/fileLinkSignature.test.ts",
@@ -1185,6 +1260,11 @@
             "to": "packages/ui/src/utils/useNotifier.js"
         },
         {
+            "from": "packages/ui/src/ui-component/dialog/ExpandTextDialog.test.js",
+            "to": "packages/ui/src/ui-component/dialog/ExpandTextDialog.jsx",
+            "reason": "The Save-over-the-cap test renders the inherited Expand editor it covers."
+        },
+        {
             "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "to": "packages/ui/src/store/actions.js"
         },
@@ -1229,6 +1309,11 @@
         {
             "from": "packages/ui/src/ui-component/flow/WhichFlow.jsx",
             "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/input/Input.test.js",
+            "to": "packages/ui/src/ui-component/input/Input.jsx",
+            "reason": "The character counter test renders the inherited Input field it covers."
         },
         {
             "from": "packages/ui/src/utils/usePrompt.test.js",
@@ -1462,6 +1547,16 @@
         }
     ],
     "r4Edges": [
+        {
+            "from": "packages/server/src/controllers/chat-messages/index.ts",
+            "to": "packages/server/src/utils/feedbackTypeFilters.ts",
+            "reason": "the inherited chat message routes parse feedbackType with the shared filter"
+        },
+        {
+            "from": "packages/server/src/controllers/stats/index.ts",
+            "to": "packages/server/src/utils/feedbackTypeFilters.ts",
+            "reason": "the inherited stats route parses feedbackType with the shared filter"
+        },
         {
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",

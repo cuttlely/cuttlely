@@ -18,7 +18,7 @@ const checkPathForFiles = (target) => {
     checkUploadAccess(resolved, WS)
     return resolved
 }
-const { repoFiles } = await import('../sources.mjs')
+const { gitSyncArgs, repoFiles } = await import('../sources.mjs')
 const { repoRoot, dataRoot } = await import('@cuttlely/harness/paths.mjs')
 const { nodeInstance, initNode } = await import('../nodes.mjs')
 
@@ -771,5 +771,90 @@ const firstN = (n) => new Set(Array.from({ length: n }, (_, i) => i))
     check(
         'an offline node stub with no filePath is used as given',
         (await nodeInstance('plainText', { componentNodes: { plainText: stub } })) === stub
+    )
+}
+
+{
+    // Code Repository: a branch or URL that starts with `-` must not reach git as an option (--upload-pack runs a command).
+    const { execFileSync } = await import('node:child_process')
+    const hostile = '--upload-pack=touch pwned'
+    const refused = outcome(() => gitSyncArgs({ dir: 'd', url: 'https://example.com/r.git', branch: hostile, existing: true }))
+    const refusedClone = outcome(() => gitSyncArgs({ dir: 'd', url: 'https://example.com/r.git', branch: hostile, existing: false }))
+    check(
+        'a Code Repository branch that starts with - is refused before git runs',
+        !refused.ok && refused.code === 'bad_source' && !refusedClone.ok && refusedClone.code === 'bad_source',
+        json({ refused, refusedClone })
+    )
+    const clone = gitSyncArgs({ dir: 'd', url: 'https://example.com/r.git', branch: 'main', existing: false })
+    const fetch = gitSyncArgs({ dir: 'd', url: 'https://example.com/r.git', branch: '', existing: true })
+    check(
+        'git clone and fetch end options with -- before the URL, folder and branch',
+        clone.indexOf('--') === clone.length - 3 &&
+            clone.at(-2) === 'https://example.com/r.git' &&
+            fetch.at(-2) === '--' &&
+            fetch.at(-1) === 'HEAD',
+        json({ clone, fetch })
+    )
+    const G = path.join(R, 'git-args')
+    fs.rmSync(G, { recursive: true, force: true })
+    fs.mkdirSync(G, { recursive: true })
+    const git = (args, cwd = G) => execFileSync('git', args, { cwd, stdio: 'pipe', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
+    git(['init', '-q', '-b', 'main', 'src'])
+    git(['-c', 'user.name=check', '-c', 'user.email=check@example.com', 'commit', '-q', '--allow-empty', '-m', 'one'], path.join(G, 'src'))
+    const dest = path.join(G, 'dest')
+    const source = `file://${path.join(G, 'src')}`
+    let synced = true
+    try {
+        git(gitSyncArgs({ dir: dest, url: source, branch: 'main', existing: false }))
+        git(gitSyncArgs({ dir: dest, url: source, branch: 'main', existing: true }))
+    } catch (error) {
+        synced = String(error.stderr || error.message)
+    }
+    check('git clone and fetch still work with --', synced === true && fs.existsSync(path.join(dest, '.git')), String(synced))
+}
+
+{
+    // Slow-regex inputs from code scanning: each of these must finish in linear time and keep its old answer.
+    const { NUMBER, trimAsciiSpace } = await import('../schema.mjs')
+    const { classifyError } = await import('../embed.mjs')
+    const { collectionName } = await import('../stores.mjs')
+    const timed = (fn) => {
+        const started = performance.now()
+        const value = fn()
+        return { value, ms: performance.now() - started }
+    }
+    const tabs = timed(() => trimAsciiSpace('a' + '\t'.repeat(200000) + 'b'))
+    check(
+        'trimAsciiSpace keeps inner space, trims both ends, and is linear on a long inner run',
+        trimAsciiSpace(' \t\n\v\f\r x y \r\n') === 'x y' &&
+            trimAsciiSpace('\u00a0x\u00a0') === '\u00a0x\u00a0' &&
+            trimAsciiSpace(' \t ') === '' &&
+            tabs.value.length === 200002 &&
+            tabs.ms < 500,
+        json({ ms: tabs.ms })
+    )
+    const zeros = timed(() => NUMBER.test('0' + '00'.repeat(100000) + 'x'))
+    check(
+        'the number pattern accepts the same numbers and is linear on a long run of digits',
+        ['1', '-1', '+1.', '1.5', '.5', '1e5', '1.5E-3'].every((n) => NUMBER.test(n)) &&
+            ['', '.', '1..2', 'e5', '1e', '--1'].every((n) => !NUMBER.test(n)) &&
+            zeros.value === false &&
+            zeros.ms < 500,
+        json({ ms: zeros.ms })
+    )
+    const quota = timed(() => classifyError(new Error('quota' + ' '.repeat(100000) + 'exceeded' + ' '.repeat(100000))))
+    check(
+        'a quota error asks for a retry on one line only, and a long message is linear',
+        classifyError(new Error('Quota exceeded, retry in 20s')) === 'rate_limit' &&
+            classifyError(new Error('quota\nexceeded retry')) !== 'rate_limit' &&
+            quota.value !== 'rate_limit' &&
+            quota.ms < 500,
+        json({ ms: quota.ms })
+    )
+    const dashes = timed(() => collectionName('a' + '-'.repeat(200000) + 'b'))
+    check(
+        'a collection name loses leading and trailing dashes, and a long dash run is linear',
+        collectionName('--My Docs!--') === 'my-docs' && collectionName('a--b') === 'a--b' && dashes.value.length === 80 && dashes.ms < 500,
+        json({ ms: dashes.ms })
     )
 }
