@@ -55,6 +55,12 @@ curl -s "$CUTTLELY_URL/api/v1/prediction/$FLOW_ID" \
 { "statusCode": 401, "success": false, "message": "Unauthorized", "stack": {} }
 ```
 
+To check a key without asking a flow, send it in the same header to `GET /api/v1/verify/apikey`. `GET /api/v1/chatflows/apikey` lists the flows the key can call. Both read the key only from `Authorization: Bearer`. The older form with the key in the URL path (`/api/v1/verify/apikey/<key>`, `/api/v1/chatflows/apikey/<key>`) answers 400 and does not check the key, because proxies, browser history and access logs keep URLs.
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/verify/apikey" -H "Authorization: Bearer $CUTTLELY_API_KEY"
+```
+
 ## Ask a chatflow
 
 `POST /api/v1/prediction/<flow id>` with a JSON body. `question` is the only required field.
@@ -214,7 +220,7 @@ When it is done:
 | 404    | No harness or run with that name in the key's team                           | `message` names what was not found                                       |
 | 429    | More than 60 starts, or 600 reads, in a minute for that key                  | `{"message":"Too many harness runs. The limit is 60 a minute."}`         |
 
-Starts are `POST .../runs` and `POST .../runs/async` together. Reads are the run list, a run, and a result. The limits count per API key, so two keys do not share one. Each server process keeps its own count, so with several processes behind one address a key can reach the limit once per process. A restart or shutdown waits for a background run, up to its usual wait. At the next start, a run still open that began more than the turn lock time plus 15 seconds earlier is marked `interrupted`. A refused start is an **Admin** > **Audit log** row of type `harness_run`, and so is every start through this route. Changing a key's harness list is a `harness_access` row.
+Starts are `POST .../runs` and `POST .../runs/async` together. Reads are the run list, a run, and a result. The limits count per API key, so two keys do not share one. Each server process keeps its own count, so with several processes behind one address a key can reach the limit once per process. A restart or shutdown waits for a background run, up to its usual wait. At the next start, a run still open that began more than the turn lock time plus 15 seconds earlier is marked `interrupted`. Every start through `POST .../runs/async` is an **Admin** > **Audit log** row of type `harness_run`. A start on either run route that an API key is refused because the harness is not on its list is a `harness_run` row too; a refusal for a missing permission or the rate limit is not. Changing a key's harness list is a `harness_access` row.
 
 ### Schedule a harness
 
@@ -250,7 +256,26 @@ A harness can also run on a cron schedule that a signed-in person sets on the ha
 
 `question` is shown with secrets such as connection strings and keys hidden, the same way run history stores a question. Sending that shown text back unchanged in a `PUT` keeps the stored question. An API key gets `owner` with `name` only, without `id` or `email`.
 
-Changing a schedule needs the same permissions as starting a run, and an API key gets `403`. A bad cron, a day of the month no chosen month has (such as `30 2`), or a bad time zone is `400` with a `message`. `lastResult` is `starting` while a due time is being started (shown as `failed` once it has been starting for more than a minute), `running`, a run status such as `succeeded`, or `skipped`, `refused`, or `failed` for a due time that did not start a run, with `lastReason` saying why. Each scheduled run is a run with `source` `schedule`, readable through the run routes above by a signed-in person; an API key reads only the runs it started, so it does not see scheduled runs. Saves, pauses, resumes and deletes are limited to 30 a minute per person, counted in each server process, and are `harness_schedule` audit rows, and so is every run a schedule starts (`run_started`, with the run id).
+Changing a schedule needs the same permissions as starting a run, and an API key gets `403`. A bad cron, a day of the month no chosen month has when the day-of-week field starts with `*` (such as `0 9 30 2 *`), or a bad time zone is `400` with a `message`. `lastResult` is `starting` while a due time is being started (shown as `failed` once it has been starting for more than a minute), `running`, a run status such as `succeeded`, or `skipped`, `refused`, or `failed` for a due time that did not start a run, with `lastReason` saying why. Each scheduled run is a run with `source` `schedule`, readable through the run routes above by a signed-in person; an API key reads only the runs it started, so it does not see scheduled runs. Saves, pauses, resumes and deletes are limited to 30 a minute per person, counted in each server process, and are `harness_schedule` audit rows, and so is every run a schedule starts (`run_started`, with the run id).
+
+### Delete a harness
+
+`DELETE /api/v1/harnesses/<name>` needs `chatflows:delete` or `agentflows:delete`, and with an API key the harness on the key's list. It removes things in a fixed order, and stops at the first step that fails:
+
+1. The harness name is removed from every API key's harness list in its team, in one transaction.
+2. Its schedule is removed.
+3. The harness itself is deleted.
+
+If step 1 fails, the answer is `500` `Harness "bakery-team" was not deleted, because it could not be removed from API key lists. Try again.`, and nothing has changed. If step 2 fails, the answer is `500` `Harness "bakery-team" was not deleted, because its schedule could not be removed. Try again.` The harness and its schedule are still there, but no key lists the harness any more, so tick it again on any key that should keep running it. Either way the harness is kept, so a new harness created later with the same name never inherits the old key grants or the old owner's schedule. Runs already in run history stay.
+
+### How the API reads a path
+
+Before it decides whether a route is public, or refused to an API key, the server reads the path the way its routes do: decoded, in lower case (ASCII letters only), and with repeated slashes collapsed. So `/api/v1/Internal-Prediction`, `/api/v1//internal-prediction` and `/api/v1/%69nternal-prediction` are refused to an API key exactly like `/api/v1/internal-prediction`, and `/api/v1/Ping` is public like `/api/v1/ping`. An encoded slash (`%2F`) is not decoded, so it does not split a path segment and cannot reach a different route. `DENYLIST_URLS` entries are compared the same way, with spaces around each entry ignored. The schedule write routes (`PUT`, `DELETE`, `.../pause`, `.../resume`) refuse an API key in the route itself, so a path spelled in another case is refused too.
+
+### Known limits
+
+-   **A flow with no API key.** A chatflow or agentflow with **No Authorization** runs every harness its Harness cards and Agent harness tools name, in its team, for anyone who has its id. No key list applies to it. A key's list only limits what that key may save into such a flow, not who may call it. Bind a key to any flow that names a harness you do not want public.
+-   **Credentials that hold another key.** Execute Flow, Chatflow Tool and Agent as Tool call `POST /api/v1/prediction/<flow id>` with the API key stored in their credential (the Chatflow API and Agentflow API credentials). The flow they call runs its Harness cards under its own bound key's list. So anyone who can use a credential holding a key's token, a person or another key, can run that key's flow and that key's harnesses through such a node; the list does not follow the credential. Keep keys that list harnesses out of shared credentials.
 
 ## Stream the answer
 
@@ -515,6 +540,10 @@ Too many questions at once. Please wait a minute and try again.
 ```
 
 When the model provider (OpenAI, Anthropic and so on) keeps answering 429, Cuttlely tries the call up to 3 times within about 20 seconds, then answers `429` with `Retry-After`: the provider's own wait when it sent one, otherwise 30 seconds. A streamed answer ends with an `error` event carrying `"status":429`, `"code":"RATE_LIMITED"` and `"retryAfter"` in seconds. A provider account that is out of credit is not a rate limit and still fails with 500.
+
+The server also limits a few routes per client address, whatever the flow says: sign-in (`/api/v1/auth`, `/api/v1/account`), the API-key check (`/api/v1/verify`), OAuth credentials, custom MCP servers, and node and credential icons. Each of those routes keeps its own count, and the budget is **Page loads a minute** in Server settings (3000 by default; the icon routes get more, see [Server settings](./how-to/server-settings.md)). Over it, the route answers 429 with the plain text `Too many requests, please try again later.` Behind a reverse proxy, set `TRUST_PROXY`, or every client shares one count.
+
+Query values are checked for their type. A `feedbackType` that is not a string or a list of strings is ignored. Clearing a flow's messages (`DELETE /api/v1/chatmessage/<flow id>`) with a `feedbackType` that names no known rating answers 400 and clears nothing. The file download (`/api/v1/get-upload-file`) answers 400 when `chatflowId`, `chatId` or `fileName` is sent more than once. An evaluation run refuses a flow id that is not 1 to 64 letters, digits, `_` or `-` before it calls the flow.
 
 Wait for `Retry-After` seconds before trying again. The flow's limit counts by client address, so all requests from your server share one limit: set it for your whole site's traffic, and rate-limit visitors on your own server.
 

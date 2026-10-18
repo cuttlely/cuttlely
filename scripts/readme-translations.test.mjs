@@ -30,7 +30,8 @@ const body = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8').split('\n'
 const codeBlocks = (text) => text.match(/^ *```[\s\S]*?^ *```/gm) ?? []
 const prose = (text) => text.replace(/^ *```[\s\S]*?^ *```/gm, '')
 const targets = (text) => [...prose(text).matchAll(/\]\(([^)\s]+)\)|\b(?:src|srcset|href)="([^"]+)"/g)].map((match) => match[1] ?? match[2])
-const spanIds = (text) => new Set([...text.matchAll(/<span id="([^"]+)"><\/span>/g)].map((match) => match[1]))
+// GitHub keeps id on a <span> too, but renders its own heading anchors as <a id>, so in-page anchors use that form.
+const anchorIds = (text) => new Set([...text.matchAll(/<a id="([^"]+)"><\/a>/g)].map((match) => match[1]))
 
 const english = body('README.md')
 
@@ -50,10 +51,12 @@ for (const file of TRANSLATIONS) {
     test(`${file} keeps the link targets and image paths of README.md`, () => {
         assert.deepEqual(targets(body(file)), targets(english))
     })
+}
 
+for (const file of [...TRANSLATIONS, 'i18n/README-TW.md', 'i18n/README-ZH.md']) {
     test(`${file} has an anchor for every in-page link`, () => {
         const text = body(file)
-        const ids = spanIds(text)
+        const ids = anchorIds(text)
         const missing = targets(text).filter((target) => target.startsWith('#') && !ids.has(target.slice(1)))
         assert.deepEqual(missing, [])
     })

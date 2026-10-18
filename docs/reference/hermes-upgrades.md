@@ -116,7 +116,7 @@ Why: `hermes/` is a pinned copy of one upstream commit (`hermes/UPSTREAM_COMMIT`
 
 C and C++ are not in the CodeQL matrix, because the only C and C++ files are under `hermes/native`.
 
-The workflow uploads results only while the repository's CodeQL default setup is off. Default setup does not read a config file, so the exclusion applies only once a maintainer switches code scanning to the advanced setup in the repository's code security settings.
+Code scanning uses this advanced setup, and the repository's CodeQL default setup is off. Keep it off: default setup does not read a config file, so turning it back on would scan `hermes/` again and stop this workflow's uploads.
 
 ## What pnpm verify checks
 

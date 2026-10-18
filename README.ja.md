@@ -19,11 +19,40 @@
 
 Cuttlely は、AI エージェントを構築し、オーケストレーションするためのオープンソースのビジュアルグラフエディターです。エージェントとツールをキャンバスにドラッグしてチームとしてつなげば、数分でチャットでき、そのまま API を通じてアプリから呼び出せます。動作するのは、あなたが管理するインフラの上です。
 
+## 目次
+
+-   [チームが苦情を解決するところを見る](#watch-a-team-resolve-a-complaint)
+-   [公開前に、すべての変更を A/B テスト](#ab-test-every-change-before-it-goes-live)
+    -   [下書き、テスト、バージョン履歴](#drafts-tests-and-version-history)
+-   [実際のチームのために](#made-for-real-teams)
+-   [アプリを動かすエージェントチーム](#agent-teams-that-power-your-apps)
+-   [アプリからチームを使う](#use-a-team-from-your-app)
+-   [小さなコンテキストで、大きな答え](#small-context-big-answers)
+-   [チームが使うツール](#tools-your-teams-use)
+-   [最初の 10 分](#your-first-10-minutes)
+-   [ガイド](#guides)
+-   [既存のフローを持ち込む](#bring-your-existing-flows)
+-   [コントリビュート](#contributing)
+-   [概要とクレジット](#about-and-credits)
+-   [お問い合わせ](#contact)
+
+## チームが苦情を解決するところを見る
+
+<a id="watch-a-team-resolve-a-complaint"></a>
+
+<p align="center">
+<a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo のカスタマーケアチームの実行を、ナレーション付きで見られます（78 秒、字幕あり）。タイトルカードには、ロゴの横で手を振る Cuttlely のマスコットと、Your applications deserve agents という一文が映っています。" width="880"></a>
+<br>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4">ナレーション付きの実行を見る（78 秒、音声あり）</a>
+</p>
+
+ある顧客が、注文の遅れについて問い合わせてきます。カスタマースペシャリストがアカウントを読み、オペレーションスペシャリストが荷物が倉庫から一度も出ていないことを突き止め、オペレーションの作業が終わるとポリシースペシャリストが文書化されたポリシーを確認します。それぞれが自分のデータとツールを持っています。Harness Prime が判断、返信、アクションを、根拠とともに書きます。[Try the demo](./docs/how-to/try-the-demo.md) を使うと、このチームがあなた自身のモデルキーで開きます。
+
 ## 公開前に、すべての変更を A/B テスト
 
-<span id="ab-test-every-change-before-it-goes-live"></span>
-<span id="test-every-change-before-it-goes-live"></span>
-<span id="ship-changes-safely-draft-compare-publish-roll-back"></span>
+<a id="ab-test-every-change-before-it-goes-live"></a>
+<a id="test-every-change-before-it-goes-live"></a>
+<a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
 編集はすべて下書きに保存され、その間も Live はアプリへの応答を続けます。Publish ダイアログの Compare は、実際の質問を Live と下書きの両方に投げ、公開する前にそれぞれの答えに Same、Changed、Error のいずれかの印を付けます。passing test set（合格が必要なテストセット）をオンにすると、Publish は下書きが合格するまで待ちます。テストには最大 100 組の質問と回答のペアを使えます。さらに増やすことはロードマップにあります。
 
@@ -37,48 +66,9 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 
 手順は [Compare で変更を A/B テストする](./docs/how-to/ab-testing.md) で説明しています。そのほかに何ができるかは [下書き、テスト、バージョン履歴](#drafts-tests-and-version-history) にあります。
 
-## 目次
+### 下書き、テスト、バージョン履歴
 
--   [公開前に、すべての変更を A/B テスト](#ab-test-every-change-before-it-goes-live)
--   [作れるもの](#what-you-can-build)
-    -   [アプリを動かすエージェントチーム](#agent-teams-that-power-your-apps)
--   [下書き、テスト、バージョン履歴](#drafts-tests-and-version-history)
--   [チームを使う](#use-your-team)
-    -   [アプリからチームを使う](#use-a-team-from-your-app)
-    -   [小さなコンテキストで、大きな答え](#small-context-big-answers)
-    -   [チームが使うツール](#tools-your-teams-use)
--   [最初の 10 分](#your-first-10-minutes)
--   [ガイド](#guides)
--   [既存のフローを持ち込む](#bring-your-existing-flows)
--   [コントリビュート](#contributing)
--   [概要とクレジット](#about-and-credits)
--   [お問い合わせ](#contact)
-
-<p align="center">
-<a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo のカスタマーケアチームの実行を、ナレーション付きで見られます（78 秒、字幕あり）。タイトルカードには、ロゴの横で手を振る Cuttlely のマスコットと、Your applications deserve agents という一文が映っています。" width="880"></a>
-<br>
-<a href="https://cuttlely.com/media/customer-care-demo.mp4">ナレーション付きの実行を見る（78 秒、音声あり）</a>
-</p>
-
-ある顧客が、注文の遅れについて問い合わせてきます。カスタマースペシャリストがアカウントを読み、オペレーションスペシャリストが荷物が倉庫から一度も出ていないことを突き止め、オペレーションの作業が終わるとポリシースペシャリストが文書化されたポリシーを確認します。それぞれが自分のデータとツールを持っています。Harness Prime が判断、返信、アクションを、根拠とともに書きます。[Try the demo](./docs/how-to/try-the-demo.md) を使うと、このチームがあなた自身のモデルキーで開きます。
-
-## 作れるもの
-
-<span id="what-you-can-build"></span>
-
-### アプリを動かすエージェントチーム
-
-<span id="agent-teams-that-power-your-apps"></span>
-
-アプリに、単一のプロンプトではなくチームを。エージェントチームとは、リーダー役のエージェントとスペシャリストたちの集まりです。Cuttlely では、エージェントチームを harness（ハーネス）と呼びます。リーダーの Harness Prime は質問を読み、いくつかの部分に分け、それぞれを適切なスペシャリストに送り、一つの答えを書きます。スペシャリストはそれぞれ、自分のモデル、ツール、プレイブック、データを持てます。チャットフローはチーム全体を名前で呼び出すので、アプリ、共有リンク、ウェブサイトの埋め込みからチームに届きます。アプリは API でチームに質問を送り、調べ上げた一つの答え、グラフ、またはアクションを受け取ります。[ハーネスのガイド](./docs/how-to/harnesses.md)
-
--   **アナリスト**（The Analyst）は、専用のデータベースを持つスペシャリストです。テーブルを作り、行を追加し、それについての質問に実際の数字で答えます。Cuttlely 自身のテーブルは決して読みません。長い結果はページに分けて返ります。`CUTTLELY_ANALYST=auto` でオンにします。[アナリストのガイド](./docs/how-to/analyst.md)
-
-![データベースについて質問したあとのキャンバスチャット（ダークテーマ）。Run カードには Harness Prime sent work to analyst とあり、analyst の行には done、OpenAI gpt-5.6-luna、3 tools と表示されています。答えはタイトルとステータスの表で、draft agenda が open、send invites が open です。](./docs/images/harnesses/canvas-chat-analyst.png)
-
-## 下書き、テスト、バージョン履歴
-
-<span id="drafts-tests-and-version-history"></span>
+<a id="drafts-tests-and-version-history"></a>
 
 -   **下書きは Live に影響しません。** チャットフロー、エージェントフロー、ハーネス、パイプラインでは、キャンバスは下書きに保存します。API、埋め込み、共有リンク、スケジュール、Webhook、ハーネスの外部実行ルート、パイプラインのスケジュール実行は、公開するまで Live を提供し続けます。キャンバスのテストチャットは下書きを実行します。ハーネスのキャンバスチャットと Try it も同じです。パイプラインの **Preview** は下書きを実行し、ストアには書き込みません。
 -   **公開する前に比較。** 最近の質問を Live と下書きの両方で実行し、それぞれの答えに Same、Changed、Error の印を付けます。
@@ -97,15 +87,33 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 
 [バージョン履歴のガイド](./docs/how-to/versioning.md) · [公開する前に最近の質問をチェックする](./docs/how-to/versioning.md#check-recent-questions-before-you-publish) · [フローを Dev から Prod へ移す](./docs/how-to/versioning.md#move-a-flow-from-dev-to-prod)
 
-## チームを使う
+## 実際のチームのために
 
-<span id="use-your-team"></span>
+<a id="made-for-real-teams"></a>
 
-### アプリからチームを使う
+ロール、チームごとの分離、サインイン、監査ログを、あなたが運用するサーバーで。
 
-<span id="use-a-team-from-your-app"></span>
+-   [ロールと権限](./docs/how-to/roles-and-permissions.md)。チーム、組み込みのロール、各ページとルートの権限キー。
+-   [サインイン](./docs/how-to/sign-in.md)。最初のアカウントを作ります。チームは AuthKit なしで、ローカルユーザー（`CUTTLELY_LOCAL_USERS`）でサインインできます。AuthKit はあとからオンにでき、確認済みのメールアドレスが既存のローカルユーザーにひも付きます。
+-   [AuthKit なしのユーザー](./docs/how-to/users-without-authkit.md)。ローカルユーザー、招待とリセットのリンク、組み込みの Owner、Admin、Builder、Viewer のロール、セッション。
+-   [監査ログ](./docs/how-to/audit-log.md)。サインイン、ロックアウト、招待、リセット、ロールの変更、ユーザーの無効化、設定の変更。
+-   [サーバー設定](./docs/how-to/server-settings.md)。サインイン、データベース、ストレージなどを **Admin** から変更します。実行時の設定は再起動なしで適用されます。対象は Testing and Limits、セキュリティの上限、招待とリセットの有効期限、SMTP のホスト、ポート、secure フラグ、ユーザー、`SENDER_EMAIL`、招待の送り方、設定履歴の上限、`CUTTLELY_AUDIT_RETENTION_DAYS` です。環境変数だけで設定する値（シークレット、`PORT`、データフォルダー、SMTP のパスワードなど）は、Set か Not set だけが表示されます。一覧は [起動オプション](./docs/reference/startup-options.md) にあります。
 
-**Harness** カードを一枚置いたチャットフローの後ろにチームを置いて公開し、**API Keys** でキーを発行します。アプリが質問を送ると、チームの答えが返ってきます。以下は、`baker` と `orders` という二つのスペシャリストを持つ小さなパン屋のチームへの、実際の呼び出しです。
+## アプリを動かすエージェントチーム
+
+<a id="agent-teams-that-power-your-apps"></a>
+
+アプリに、単一のプロンプトではなくチームを。エージェントチームとは、リーダー役のエージェントとスペシャリストたちの集まりです。Cuttlely では、エージェントチームを harness（ハーネス）と呼びます。リーダーの Harness Prime は質問を読み、いくつかの部分に分け、それぞれを適切なスペシャリストに送り、一つの答えを書きます。スペシャリストはそれぞれ、自分のモデル、ツール、プレイブック、データを持てます。チャットフローはチーム全体を名前で呼び出すので、アプリ、共有リンク、ウェブサイトの埋め込みからチームに届きます。アプリは API でチームに質問を送り、調べ上げた一つの答え、グラフ、またはアクションを受け取ります。[ハーネスのガイド](./docs/how-to/harnesses.md)
+
+-   **アナリスト**（The Analyst）は、専用のデータベースを持つスペシャリストです。テーブルを作り、行を追加し、それについての質問に実際の数字で答えます。Cuttlely 自身のテーブルは決して読みません。長い結果はページに分けて返ります。1 つのハーネスに複数のアナリストを置くこともでき、それぞれが自分のデータベースを持ちます。Harness Prime は質問ごとに、合うアナリストに送ります。`CUTTLELY_ANALYST=auto` でオンにします。[アナリストのガイド](./docs/how-to/analyst.md)
+
+![データベースについて質問したあとのキャンバスチャット（ダークテーマ）。Run カードには Harness Prime sent work to analyst とあり、analyst の行には done、OpenAI gpt-5.6-luna、3 tools と表示されています。答えはタイトルとステータスの表で、draft agenda が open、send invites が open です。](./docs/images/harnesses/canvas-chat-analyst.png)
+
+## アプリからチームを使う
+
+<a id="use-a-team-from-your-app"></a>
+
+**Harness** カードを一枚置いたチャットフローの後ろにチームを置いて公開し、**API Keys** でキーを発行します。そのキーの **Harnesses this key may run** でハーネスにチェックを入れてください。新しいキーはどのハーネスも実行できず、チェックするまで呼び出しは `403` になります。アプリが質問を送ると、チームの答えが返ってきます。以下は、`baker` と `orders` という二つのスペシャリストを持つ小さなパン屋のチームへの、実際の呼び出しです。
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
@@ -131,53 +139,54 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 }
 ```
 
-Harness Prime が質問を分けました。`baker` が注文の値段を出し、`orders` が受け取りの日を確認しています。完全なレスポンスには、トークン、時間、ソース、チームが作った画像も含まれます。そのほかは [API ガイド](./docs/api.md) にあります。API キー、ストリーミング、会話のメモリー、ファイルのアップロード、エラー、そしてキーを自分のサーバーに置いたままにできる、実行可能なサンプルのウェブアプリです。リファレンス：[ハーネスの Prediction API](./docs/how-to/harnesses.md#prediction-api) と [チャットフローからハーネスを呼び出す](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow)。
+Harness Prime が質問を分けました。`baker` が注文の値段を出し、`orders` が受け取りの日を確認しています。完全なレスポンスには、トークン、時間、ソース、チームが作った画像も含まれます。そのほかは [API ガイド](./docs/api.md) にあります。API キー、ストリーミング、会話のメモリー、ファイルのアップロード、エラー、そしてキーを自分のサーバーに置いたままにできる、実行可能なサンプルのウェブアプリです。時間のかかるターンは、同じキーで `POST /api/v1/harnesses/<name>/runs/async` からバックグラウンドで開始し、答えを後で取得できます。ハーネスは cron のスケジュールで実行することもできます：[API キーでアプリから実行する](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key)、[スケジュールで実行する](./docs/how-to/harnesses.md#run-it-on-a-schedule)。リファレンス：[ハーネスの Prediction API](./docs/how-to/harnesses.md#prediction-api) と [チャットフローからハーネスを呼び出す](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow)。
 
-### 小さなコンテキストで、大きな答え
+## 小さなコンテキストで、大きな答え
 
-<span id="small-context-big-answers"></span>
+<a id="small-context-big-answers"></a>
 
 長いチャット、大きなテーブル、長いルールブックがあっても、プロンプトが長くなるとは限りません。各エージェントは自分の仕事に必要なものだけを見て、どの実行も使ったトークンを示します。
 
 -   **スペシャリストには、それぞれの仕事を。** よくあるやり方では、すべてのエージェントにチャット全体を渡します。Harness Prime は各スペシャリストに、それだけで完結するタスクを、直近のやり取りの短い要約とともに書きます。
 -   **データはデータベースに置いたまま。** よくあるやり方では、クエリの結果をプロンプトに貼り付けます。アナリストが返すのは 1 ページ分の行です。「もっと見せて」と頼めば次のページが出ます。前のページは次のプロンプトに入りません。
+-   **チェックしたテーブルだけ。** よくあるやり方では、データベースのスキーマ全体をプロンプトに貼り付けます。URL で接続したデータベースでは、PostgreSQL MCP ノードの **Tables and views** でテーブルやビューにチェックを入れると、アナリストのプロンプトにはそれぞれについて列名付きの 1 行だけが入ります。`describe` ツールは、アナリストが必要なときに、1 つのテーブルの列、キー、テキスト値のサンプルを返します。架空のベーカリーのデモデータベースでは、6 つのリレーションにチェックを入れると 663 トークン、スキーマ全体では 2,562 トークンです。リストの下の **Rules** ボックスには、どのビューがどの質問に答えるかなど、そのアナリスト向けの独自の指示を 2,000 文字まで書けます。Rules はモデルへの指示であり、チェックしたテーブルを広げたり書き込みを許可したりはできません。[独自のルールを書く](./docs/how-to/analyst.md#write-your-own-rules)。
 -   **ルールは必要なときに読み込みます。** よくあるやり方では、すべての指示を一つの巨大なシステムプロンプトに入れます。長いルールはプレイブックに入れます。スペシャリストは、質問に必要なときにだけそれを開きます。
 -   **短い引き継ぎ。** よくあるやり方では、最終的な答えを書くプロンプトに文書全体を貼り付けます。Harness Prime が読むのは、各スペシャリストの答えのうち上限を設けた一部分で、ソースの名前と短い抜粋が付きます。文書はレスポンスでアプリに返ります。
 -   **すべてのトークンが見えます。** Run カードには、入力と出力のトークン、モデルが報告する場合はキャッシュされたトークン、各ステップにかかった時間が出ます。API のレスポンスにも同じ数字が入ります。Publish のチェックでは、Live と下書きを、それぞれが使ったトークンと時間とともに並べて表示します。
 
 [Cuttlely がコンテキストを小さく保つ仕組み](./docs/how-to/context-and-tokens.md)
 
-### チームが使うツール
+## チームが使うツール
 
-<span id="tools-your-teams-use"></span>
+<a id="tools-your-teams-use"></a>
 
-#### ナレッジパイプライン（ETL）：自分のデータからの答え
+### ナレッジパイプライン（ETL）：自分のデータからの答え
 
 ファイル、CSV、コードリポジトリを読み込み、クリーニングして分割し、埋め込みを作って検索用に保存します。実行のたびに埋め込むのは変わった部分だけで、スケジュールで動かすこともでき、ローカルの埋め込みならプロバイダーのキーは要りません。チームとチャットフローは **ETL Retriever** で結果を検索します。[ETL のガイド](./docs/how-to/etl.md)
 
 ![実行後の Outdoor Catalog。Run カードには succeeded とあり、33 embedded、0 errors です。](./docs/images/etl/etl-run-done.png)
 
-#### チャットフロー：そのまま出せる一つのアシスタント
+### チャットフロー：そのまま出せる一つのアシスタント
 
 チャットモデル、答えるエージェントまたはチェーン、メモリー、ツールを一つのキャンバスに。チャットフローにはそれぞれ Prediction API、ウェブサイト用の埋め込み、共有できるリンクが付きます。**Harness** カードを置いたチャットフローなら、それらの後ろにチーム全体を置けます。[キャンバスのガイド](./docs/how-to/canvas.md)
 
 ![最初に保存したあとの同じチャットフロー（ダークテーマ）。ヘッダーには Draft, not live yet とあります。右側でテストチャットが開いていて、What is 18 times 24? に電卓のチップ付きで 18 times 24 is 432 と答えています。](./docs/images/canvas/build-with-ai-chat.png)
 
-#### エージェントフロー：ステップごとに進むワークフロー
+### エージェントフロー：ステップごとに進むワークフロー
 
 ステップごとに実行され、チャットメッセージ、フォーム、Webhook、スケジュールから始められるワークフローです。カードを選ぶと、サイドパネルに設定が開きます。[キャンバスのガイド](./docs/how-to/canvas.md#workflows)
 
 ![ダークテーマの Bakery greeting ワークフロー。Start が Reply につながっています。Reply カードが選ばれていて、その Message フィールド（Welcome to the bakery! Ask me about today's bread.）が、キャンバスの右側にドッキングしたサイドパネルに表示されています。](./docs/images/canvas/canvas-workflow-panel.png)
 
-#### どこにでも組み込み済み
+### どこにでも組み込み済み
 
 -   **すべてのキャンバスに Build with AI。** チーム、アシスタント、パイプライン、ワークフローを言葉で説明すると、最初のバージョンがキャンバスに置かれます。すべての部品と接続は、その前にチェックされます。組み立てに使うモデルは、あなた自身の資格情報の一つです。[チームを作る](./docs/how-to/harnesses.md#build-a-team-with-ai)、[チャットフローを作る](./docs/how-to/canvas.md#build-a-chatflow-with-ai)、[パイプラインを作る](./docs/how-to/etl.md#build-a-pipeline-with-ai)
 -   **エージェントランタイムを同梱。** スペシャリストは、Cuttlely に同梱されて一緒に起動するエージェントランタイムで、同じサーバー上で動きます。追加でインストールしたりホストしたりするものはありません。[ハーネスのガイド](./docs/how-to/harnesses.md#agent-runtime-health)
 
 ## 最初の 10 分
 
-<span id="your-first-10-minutes"></span>
-<span id="chat-with-a-team-in-minutes"></span>
+<a id="your-first-10-minutes"></a>
+<a id="chat-with-a-team-in-minutes"></a>
 
 エージェントは初めてですか？コードを書く必要はありません。**Build with AI** でチームを説明すると、最初のバージョンがスターター質問付きでキャンバスに置かれます。テストチャットでその質問をすると、Run カードにどのスペシャリストが作業したかが出ます。うまく答えるようになったら、チームを呼び出すチャットフローから共有用のリンクとウェブサイト用の埋め込みが手に入るので、ほかの人もチャットできます。
 
@@ -221,13 +230,10 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 ## ガイド
 
-<span id="guides"></span>
+<a id="guides"></a>
 
 -   [Docker](./docs/how-to/docker.md)。SQLite を使い、一つのコンテナで Cuttlely をインストールして動かします。`npx cuttlely` も同じイメージを起動します。
 -   [ソースからビルドして開発サーバーを動かす](./docs/how-to/from-source.md)。Cuttlely を自分でビルドして動かし、ライブリロードでコードを変更します。
--   [サインイン](./docs/how-to/sign-in.md)。最初のアカウントを作ります。チームは AuthKit なしで、ローカルユーザー（`CUTTLELY_LOCAL_USERS`）でサインインできます。AuthKit はあとからオンにでき、確認済みのメールアドレスが既存のローカルユーザーにひも付きます。
--   [AuthKit なしのユーザー](./docs/how-to/users-without-authkit.md)。ローカルユーザー、招待とリセットのリンク、組み込みの Owner、Admin、Builder、Viewer のロール、セッション。
--   [監査ログ](./docs/how-to/audit-log.md)。サインイン、ロックアウト、招待、リセット、ロールの変更、ユーザーの無効化、設定の変更。
 -   [ハーネス](./docs/how-to/harnesses.md)。エージェントチームを作り、試し、チャットフローから呼び出します。
 -   [コンテキストとトークン](./docs/how-to/context-and-tokens.md)。チームが各プロンプトを目の前の仕事だけに絞る仕組みと、実行が使ったトークンを確認できる場所。
 -   [アナリストモード](./docs/how-to/analyst.md)。スペシャリストに専用のデータベースを持たせます。
@@ -237,29 +243,27 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 -   [評価](./docs/how-to/evaluations.md)。テストセットを作り、答えを採点し、合格するまで Publish を待たせます。
 -   [実際の答えをテストにする](./docs/how-to/tests-from-answers.md)。評価の付いた答えを一つ、またはある期間の答えをまとめて、テストセットの行として保存します。
 -   [答えが変わったらビルドを失敗させる](./docs/how-to/ci-gate.md)。`cuttlely check` でパイプラインから Publish のチェックを実行します。
--   [ロールと権限](./docs/how-to/roles-and-permissions.md)。チーム、組み込みのロール、各ページとルートの権限キー。
 -   [チャットを共有・埋め込みする](./docs/how-to/share-and-embed.md)。公開リンクやウェブサイト上のチャットを、あなたの Cuttlely サーバーから提供します。
 -   [自分のウェブアプリで API を使う](./docs/api.md)。自分のサイトやアプリからフローを呼び出します。実行可能なサンプル付きです。
 -   [Render](./docs/how-to/render.md)。Postgres を使ったホスト型のインストール。
--   [サーバー設定](./docs/how-to/server-settings.md)。サインイン、データベース、ストレージなどを **Admin** から変更します。実行時の設定は再起動なしで適用されます。対象は Testing and Limits、セキュリティの上限、招待とリセットの有効期限、SMTP のホスト、ポート、secure フラグ、ユーザー、`SENDER_EMAIL`、招待の送り方、設定履歴の上限、`CUTTLELY_AUDIT_RETENTION_DAYS` です。環境変数だけで設定する値（シークレット、`PORT`、データフォルダー、SMTP のパスワードなど）は、Set か Not set だけが表示されます。一覧は [起動オプション](./docs/reference/startup-options.md) にあります。
 
 ソースからの実行や API リファレンスを含む完全なドキュメントは [docs/README.md](./docs/README.md) にあります。
 
 ## 既存のフローを持ち込む
 
-<span id="bring-your-existing-flows"></span>
+<a id="bring-your-existing-flows"></a>
 
 ほかのツールで作ったフローがありますか？**Chatflows** の **Import** メニューには **Import Flowise JSON** があり、Flowise のチャットフローまたはエージェントフローのエクスポートをチェックして適切なキャンバスで開く、短いウィザードが開きます。**Import Langflow JSON** はシンプルな Langflow のチャットを読み込みます。何が引き継がれ、何がまだサポートされていないかは [既存のフローを持ち込む](./docs/bring-your-flows.md) にあります。
 
 ## コントリビュート
 
-<span id="contributing"></span>
+<a id="contributing"></a>
 
 [CONTRIBUTING.md](./CONTRIBUTING.md) と [ソースからビルドして開発サーバーを動かす](./docs/how-to/from-source.md) を参照してください。プルリクエストの前に、Node 24 で `pnpm verify` を実行してください。セキュリティの報告は [SECURITY.md](./SECURITY.md) へ。モジュールの境界マップは [ARCHITECTURE.md](./ARCHITECTURE.md) にあります。
 
 ## 概要とクレジット
 
-<span id="about-and-credits"></span>
+<a id="about-and-credits"></a>
 
 Cuttlely は Apache 2.0 のオープンソースです。各リリースでの変更は [変更履歴](./CHANGELOG.md) に、どのバージョンに修正が提供されるかは [リリースとサポート](./docs/releases.md) にあります。ライセンス本文は [LICENSE.md](./LICENSE.md)、帰属表示は [NOTICE](./NOTICE) にあります。
 
@@ -267,6 +271,6 @@ Cuttlely は、Flowise、Nous Research の Hermes、React Flow をはじめと�
 
 ## お問い合わせ
 
-<span id="contact"></span>
+<a id="contact"></a>
 
 質問、パートナーシップ、取材のご依頼は [info@cuttlely.com](mailto:info@cuttlely.com) へ。バグや機能のアイデアは [issues](https://github.com/cuttlely/cuttlely/issues) へ、脆弱性は [SECURITY.md](./SECURITY.md) の手順でお知らせください。

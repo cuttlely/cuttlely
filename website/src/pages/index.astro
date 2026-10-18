@@ -150,7 +150,7 @@ const analystPoints = [
     },
     {
         title: 'Yours to shape, no code',
-        text: "Write lookup rules in the Analyst's instructions and routing rules in Harness Prime's, and add tools beside it, such as Jira or your own MCP server."
+        text: "Write lookup rules in the Analyst's Rules box and routing rules in Harness Prime's instructions, and add tools beside it, such as Jira or your own MCP server."
     }
 ] as const
 
@@ -448,7 +448,9 @@ const installs = [
                 <p class="cl-callout-proof">
                     <span class="cl-pair-label">Bakery demo</span>
                     On the made-up bakery database, it used about a quarter of the prompt tokens of pasting in the whole schema, and answered 5 of 5 questions
-                    correctly in a <a href="/docs/how-to/analyst/#real-model-check">real-model test</a>, each data question on its first query.
+                    correctly in a <a href="/docs/how-to/analyst/#real-model-check">real-model test</a>. With
+                    <a href="/docs/how-to/analyst/#several-analysts-in-one-harness">two analysts in one harness</a>, 9 of 9 questions went to the right
+                    analyst and came back correct.
                 </p>
                 <a class="cl-link-arrow" href="/docs/how-to/analyst/">Analyst guide <Icon name="right-arrow" /></a>
             </aside>
@@ -461,6 +463,10 @@ const installs = [
                 <p class="cl-lead">
                     Your app sends the team a question through the API and gets back one researched answer, a chart or an action. Here is a real call to a small bakery team
                     with two specialists, <code>baker</code> and <code>orders</code>.
+                </p>
+                <p class="cl-note">
+                    Put the team behind a chatflow with one Harness card, publish it, and bind a key from <strong>API Keys</strong>. On that key, tick the harness under
+                    <strong>Harnesses this key may run</strong>: every key, including keys made before upgrading to 1.3.0, starts with an empty list, so the call answers <code>403</code> until the harness is ticked.
                 </p>
             </div>
             <div class="cl-code-pair">

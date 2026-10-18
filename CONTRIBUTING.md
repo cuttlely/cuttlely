@@ -242,7 +242,7 @@ Branch names in this repository are short and descriptive (`feature/…`, `bugfi
 
 Cuttlely uses [semantic versioning](https://semver.org/). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
--   **In your pull request.** If the change is something users see, add a line under `## [Unreleased]` in [CHANGELOG.md](./CHANGELOG.md). Anything people must change when they upgrade also goes under **Upgrade notes / breaking changes**. Do not bump version numbers yourself.
+-   **In your pull request.** If the change is something users see, add a line to [CHANGELOG.md](./CHANGELOG.md): under the planned `## [X.Y.Z] - Unreleased` section when there is one, otherwise under `## [Unreleased]`. Never put lines in both, because `pnpm release` refuses that. Anything people must change when they upgrade also goes under **Upgrade notes / breaking changes**. Do not bump version numbers yourself.
 -   **Cutting a release.** A maintainer runs `pnpm release` from a clean, up-to-date `main` on their own machine. It runs the full `pnpm verify`, sets the version, dates the changelog entry, tags the release, builds the Docker image and drafts the GitHub release. Pushing the image and publishing the release are separate flags (`--push`, `--publish`), and `pnpm release --dry-run` shows the whole plan without changing anything. [Cutting a release](./docs/releases.md#cutting-a-release) has the steps.
 -   **Upgrades are tested.** The full `pnpm verify` starts the current server on data written by an older release and checks that flows, versions, credentials and harnesses survive. See [Upgrading Cuttlely](./docs/upgrading.md#how-upgrades-are-tested).
 

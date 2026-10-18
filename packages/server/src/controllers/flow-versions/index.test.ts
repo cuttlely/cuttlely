@@ -487,8 +487,12 @@ describe('restoring a harness version with Rules over the cap', () => {
         drafts.getDraftStatus.mockResolvedValue({ mode: 'draft', lastPublished: null })
         const next = jest.fn()
         await controller.restoreVersion(request(), response(), next)
-        expect(next.mock.calls[0][0].message).toMatch(/^This version matches Live, so Live is unchanged\. It cannot be restored\. /)
+        expect(next.mock.calls[0][0]).toMatchObject({
+            statusCode: 400,
+            message: `This version matches Live, so the draft is unchanged. It cannot be restored. ${PROBLEM} Restore another version, or shorten those rules on the canvas and save.`
+        })
         expect(drafts.saveDraft).not.toHaveBeenCalled()
+        expect(limitChecks).toEqual(['bakery-accounts:restoreDraft:matches-live'])
     })
 })
 

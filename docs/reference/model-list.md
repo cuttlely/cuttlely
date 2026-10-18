@@ -75,7 +75,7 @@ An organization owner can set a different input and output price for one model, 
     ```
 
 4. Start Cuttlely from source as in [From source](../how-to/from-source.md), with `MODEL_LIST_CONFIG_JSON` set to the edited file, for example `export MODEL_LIST_CONFIG_JSON=$PWD/packages/components/models.json` before the start command. A file path is read on every list, so the running server picks up further edits without a restart. Open http://localhost:43117, open a chatflow, add the node, and open its Model Name dropdown: the new label is listed.
-5. Add a line under `## [Unreleased]` in `CHANGELOG.md` (**Added** or **Changed**), and run `pnpm verify` before the pull request. `scripts/model-list.test.mjs` checks that the file has the right shape.
+5. Add a line to `CHANGELOG.md` (**Added** or **Changed**), under the planned `## [X.Y.Z] - Unreleased` section when there is one, otherwise under `## [Unreleased]`, and run `pnpm verify` before the pull request. `scripts/model-list.test.mjs` checks that the file has the right shape.
 
 Once the pull request is merged, running servers pick the model up at their next daily refresh. A server that must see it sooner can be restarted.
 

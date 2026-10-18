@@ -250,10 +250,11 @@ export function uiPageLimitMax(): number {
 }
 
 /**
- * Limiter for the UI index fallback, and for the sign-in, API-key check, OAuth, MCP server,
- * and icon routers mounted in routes/index.ts (one counter each). Success responses carry no
- * rate-limit headers, so a page load still looks like the uncounted handler. The key is the
- * same client address the prediction limiter uses.
+ * Limiter for the UI index fallback, and for the sign-in, API-key check, OAuth, and MCP server
+ * routers mounted in routes/index.ts (one counter each), all on the page budget. The icon routers
+ * use uiIconRateLimiter, which passes a larger max. Success responses carry no rate-limit headers,
+ * so a page load still looks like the uncounted handler. The key is the same client address the
+ * prediction limiter uses.
  */
 export function uiPageRateLimiter(max?: number | (() => number)) {
     return rateLimit({

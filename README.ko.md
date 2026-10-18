@@ -19,11 +19,40 @@
 
 Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오픈소스 비주얼 그래프 에디터입니다. 에이전트와 도구를 캔버스에 끌어다 놓고 하나의 팀으로 연결하면 몇 분 만에 대화할 수 있고, 이어서 API로 앱에서 호출할 수 있습니다. 여러분이 관리하는 인프라 위에서 실행됩니다.
 
+## 목차
+
+-   [팀이 불만을 해결하는 모습 보기](#watch-a-team-resolve-a-complaint)
+-   [Live에 반영하기 전에 모든 변경을 A/B 테스트](#ab-test-every-change-before-it-goes-live)
+    -   [초안, 테스트, 버전 기록](#drafts-tests-and-version-history)
+-   [실제 팀을 위해](#made-for-real-teams)
+-   [앱을 움직이는 에이전트 팀](#agent-teams-that-power-your-apps)
+-   [앱에서 팀 사용하기](#use-a-team-from-your-app)
+-   [작은 컨텍스트, 큰 답변](#small-context-big-answers)
+-   [팀이 사용하는 도구](#tools-your-teams-use)
+-   [처음 10분](#your-first-10-minutes)
+-   [가이드](#guides)
+-   [기존 플로우 가져오기](#bring-your-existing-flows)
+-   [기여하기](#contributing)
+-   [소개 및 크레딧](#about-and-credits)
+-   [연락처](#contact)
+
+## 팀이 불만을 해결하는 모습 보기
+
+<a id="watch-a-team-resolve-a-complaint"></a>
+
+<p align="center">
+<a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo에 있는 고객 지원 팀의 실행을 내레이션과 함께 봅니다(78초, 자막 포함). 타이틀 카드에는 로고 옆에서 손을 흔드는 Cuttlely 마스코트와 Your applications deserve agents라는 문구가 나옵니다." width="880"></a>
+<br>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4">내레이션이 있는 실행 보기(78초, 소리 있음)</a>
+</p>
+
+한 고객이 늦어진 주문에 대해 문의합니다. 고객 스페셜리스트가 계정을 읽고, 운영 스페셜리스트가 소포가 창고를 한 번도 떠나지 않았다는 사실을 찾아내며, 운영 쪽 작업이 끝나면 정책 스페셜리스트가 문서로 된 정책을 확인합니다. 각자 자신의 데이터와 도구를 가지고 있습니다. Harness Prime이 결정, 회신, 조치를 근거와 함께 작성합니다. [Try the demo](./docs/how-to/try-the-demo.md)를 사용하면 이 팀이 여러분의 모델 키로 열립니다.
+
 ## Live에 반영하기 전에 모든 변경을 A/B 테스트
 
-<span id="ab-test-every-change-before-it-goes-live"></span>
-<span id="test-every-change-before-it-goes-live"></span>
-<span id="ship-changes-safely-draft-compare-publish-roll-back"></span>
+<a id="ab-test-every-change-before-it-goes-live"></a>
+<a id="test-every-change-before-it-goes-live"></a>
+<a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
 모든 편집은 초안에 저장되고, 그동안 Live는 계속 앱에 응답합니다. Publish 대화 상자의 Compare는 실제 질문을 Live와 초안에 모두 던지고, 게시하기 전에 각 답변을 Same, Changed, Error 중 하나로 표시합니다. passing test set(통과해야 하는 테스트 세트)을 켜면 Publish는 초안이 통과할 때까지 기다립니다. 최대 100개의 질문과 답변 쌍으로 테스트할 수 있으며, 더 늘리는 것은 로드맵에 있습니다.
 
@@ -37,48 +66,9 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 자세한 과정은 [Compare로 변경을 A/B 테스트하기](./docs/how-to/ab-testing.md)에서 설명합니다. 그 밖에 다루는 내용은 [초안, 테스트, 버전 기록](#drafts-tests-and-version-history)에 정리되어 있습니다.
 
-## 목차
+### 초안, 테스트, 버전 기록
 
--   [Live에 반영하기 전에 모든 변경을 A/B 테스트](#ab-test-every-change-before-it-goes-live)
--   [만들 수 있는 것](#what-you-can-build)
-    -   [앱을 움직이는 에이전트 팀](#agent-teams-that-power-your-apps)
--   [초안, 테스트, 버전 기록](#drafts-tests-and-version-history)
--   [팀 사용하기](#use-your-team)
-    -   [앱에서 팀 사용하기](#use-a-team-from-your-app)
-    -   [작은 컨텍스트, 큰 답변](#small-context-big-answers)
-    -   [팀이 사용하는 도구](#tools-your-teams-use)
--   [처음 10분](#your-first-10-minutes)
--   [가이드](#guides)
--   [기존 플로우 가져오기](#bring-your-existing-flows)
--   [기여하기](#contributing)
--   [소개 및 크레딧](#about-and-credits)
--   [연락처](#contact)
-
-<p align="center">
-<a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo에 있는 고객 지원 팀의 실행을 내레이션과 함께 봅니다(78초, 자막 포함). 타이틀 카드에는 로고 옆에서 손을 흔드는 Cuttlely 마스코트와 Your applications deserve agents라는 문구가 나옵니다." width="880"></a>
-<br>
-<a href="https://cuttlely.com/media/customer-care-demo.mp4">내레이션이 있는 실행 보기(78초, 소리 있음)</a>
-</p>
-
-한 고객이 늦어진 주문에 대해 문의합니다. 고객 스페셜리스트가 계정을 읽고, 운영 스페셜리스트가 소포가 창고를 한 번도 떠나지 않았다는 사실을 찾아내며, 운영 쪽 작업이 끝나면 정책 스페셜리스트가 문서로 된 정책을 확인합니다. 각자 자신의 데이터와 도구를 가지고 있습니다. Harness Prime이 결정, 회신, 조치를 근거와 함께 작성합니다. [Try the demo](./docs/how-to/try-the-demo.md)를 사용하면 이 팀이 여러분의 모델 키로 열립니다.
-
-## 만들 수 있는 것
-
-<span id="what-you-can-build"></span>
-
-### 앱을 움직이는 에이전트 팀
-
-<span id="agent-teams-that-power-your-apps"></span>
-
-앱에 프롬프트 하나 대신 팀을 붙여 주세요. 에이전트 팀은 리더 에이전트와 스페셜리스트들로 이루어집니다. Cuttlely에서는 에이전트 팀을 harness(하네스)라고 부릅니다. 리더인 Harness Prime은 질문을 읽고, 여러 부분으로 나누고, 각 부분을 알맞은 스페셜리스트에게 보낸 뒤, 하나의 답변을 작성합니다. 스페셜리스트마다 자신의 모델, 도구, 플레이북, 데이터를 가질 수 있습니다. 챗플로우가 팀 전체를 이름으로 호출하므로, 앱, 공유 링크, 웹사이트 임베드에서 팀에 닿을 수 있습니다. 앱은 API로 팀에 질문을 보내고, 충분히 조사한 하나의 답변, 차트 또는 조치를 돌려받습니다. [하네스 가이드](./docs/how-to/harnesses.md)
-
--   **애널리스트**(The Analyst)는 전용 데이터베이스를 가진 스페셜리스트입니다. 테이블을 만들고, 행을 추가하고, 그에 대한 질문에 실제 숫자로 답합니다. Cuttlely 자체의 테이블은 절대 읽지 않습니다. 긴 결과는 페이지 단위로 돌아옵니다. `CUTTLELY_ANALYST=auto`로 켭니다. [애널리스트 가이드](./docs/how-to/analyst.md)
-
-![데이터베이스에 대해 질문한 뒤의 캔버스 채팅(다크 테마). Run 카드에는 Harness Prime sent work to analyst라고 표시되고, analyst 행에는 done, OpenAI gpt-5.6-luna, 3 tools가 보입니다. 답변은 제목과 상태로 된 표이며, draft agenda는 open, send invites는 open입니다.](./docs/images/harnesses/canvas-chat-analyst.png)
-
-## 초안, 테스트, 버전 기록
-
-<span id="drafts-tests-and-version-history"></span>
+<a id="drafts-tests-and-version-history"></a>
 
 -   **초안은 Live에 영향을 주지 않습니다.** 챗플로우, 에이전트플로우, 하네스, 파이프라인에서 캔버스는 초안에 저장합니다. API, 임베드, 공유 링크, 스케줄, 웹훅, 하네스의 외부 실행 라우트, 파이프라인의 예약 실행은 게시하기 전까지 계속 Live를 제공합니다. 캔버스의 테스트 채팅은 초안을 실행하며, 하네스 캔버스 채팅과 Try it도 마찬가지입니다. 파이프라인의 **Preview**는 초안을 실행하고 저장소에는 쓰지 않습니다.
 -   **게시하기 전에 비교하세요.** 최근 질문을 Live와 초안에서 모두 실행하고, 각 답변에 Same, Changed, Error 표시를 붙입니다.
@@ -97,15 +87,33 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 [버전 기록 가이드](./docs/how-to/versioning.md) · [게시하기 전에 최근 질문 검사하기](./docs/how-to/versioning.md#check-recent-questions-before-you-publish) · [플로우를 Dev에서 Prod로 옮기기](./docs/how-to/versioning.md#move-a-flow-from-dev-to-prod)
 
-## 팀 사용하기
+## 실제 팀을 위해
 
-<span id="use-your-team"></span>
+<a id="made-for-real-teams"></a>
 
-### 앱에서 팀 사용하기
+역할, 팀별 분리, 로그인, 감사 로그를 여러분이 운영하는 서버에서.
 
-<span id="use-a-team-from-your-app"></span>
+-   [역할과 권한](./docs/how-to/roles-and-permissions.md). 팀, 기본 제공 역할, 각 페이지와 라우트의 권한 키.
+-   [로그인](./docs/how-to/sign-in.md). 첫 계정을 만듭니다. 팀은 AuthKit 없이 로컬 사용자(`CUTTLELY_LOCAL_USERS`)로 로그인할 수 있습니다. AuthKit은 나중에 켤 수 있으며, 인증된 이메일이 기존 로컬 사용자와 연결됩니다.
+-   [AuthKit 없이 사용자 관리하기](./docs/how-to/users-without-authkit.md). 로컬 사용자, 초대 및 재설정 링크, 기본 제공되는 Owner, Admin, Builder, Viewer 역할, 세션.
+-   [감사 로그](./docs/how-to/audit-log.md). 로그인, 잠금, 초대, 재설정, 역할 변경, 사용자 비활성화, 설정 변경.
+-   [서버 설정](./docs/how-to/server-settings.md). 로그인, 데이터베이스, 스토리지 등을 **Admin**에서 바꿉니다. 런타임 설정은 재시작 없이 적용됩니다. Testing and Limits, 보안 한도, 초대 및 재설정 만료, SMTP 호스트, 포트, secure 플래그, 사용자, `SENDER_EMAIL`, 초대 전달 방식, 설정 기록 상한, `CUTTLELY_AUDIT_RETENTION_DAYS`가 여기에 해당합니다. 비밀 값, `PORT`, 데이터 폴더, SMTP 비밀번호처럼 환경 변수로만 정하는 값은 Set 또는 Not set만 표시됩니다. 목록은 [시작 옵션](./docs/reference/startup-options.md)에 있습니다.
 
-**Harness** 카드 하나로 된 챗플로우 뒤에 팀을 두고 게시한 다음, **API Keys**에서 키를 발급하세요. 앱이 질문을 보내면 팀의 답변이 돌아옵니다. 다음은 `baker`와 `orders`라는 두 스페셜리스트가 있는 작은 빵집 팀을 실제로 호출한 예입니다.
+## 앱을 움직이는 에이전트 팀
+
+<a id="agent-teams-that-power-your-apps"></a>
+
+앱에 프롬프트 하나 대신 팀을 붙여 주세요. 에이전트 팀은 리더 에이전트와 스페셜리스트들로 이루어집니다. Cuttlely에서는 에이전트 팀을 harness(하네스)라고 부릅니다. 리더인 Harness Prime은 질문을 읽고, 여러 부분으로 나누고, 각 부분을 알맞은 스페셜리스트에게 보낸 뒤, 하나의 답변을 작성합니다. 스페셜리스트마다 자신의 모델, 도구, 플레이북, 데이터를 가질 수 있습니다. 챗플로우가 팀 전체를 이름으로 호출하므로, 앱, 공유 링크, 웹사이트 임베드에서 팀에 닿을 수 있습니다. 앱은 API로 팀에 질문을 보내고, 충분히 조사한 하나의 답변, 차트 또는 조치를 돌려받습니다. [하네스 가이드](./docs/how-to/harnesses.md)
+
+-   **애널리스트**(The Analyst)는 전용 데이터베이스를 가진 스페셜리스트입니다. 테이블을 만들고, 행을 추가하고, 그에 대한 질문에 실제 숫자로 답합니다. Cuttlely 자체의 테이블은 절대 읽지 않습니다. 긴 결과는 페이지 단위로 돌아옵니다. 하네스 하나에 애널리스트를 여럿 둘 수도 있으며, 각자 자신의 데이터베이스를 가집니다. Harness Prime은 질문마다 알맞은 애널리스트에게 보냅니다. `CUTTLELY_ANALYST=auto`로 켭니다. [애널리스트 가이드](./docs/how-to/analyst.md)
+
+![데이터베이스에 대해 질문한 뒤의 캔버스 채팅(다크 테마). Run 카드에는 Harness Prime sent work to analyst라고 표시되고, analyst 행에는 done, OpenAI gpt-5.6-luna, 3 tools가 보입니다. 답변은 제목과 상태로 된 표이며, draft agenda는 open, send invites는 open입니다.](./docs/images/harnesses/canvas-chat-analyst.png)
+
+## 앱에서 팀 사용하기
+
+<a id="use-a-team-from-your-app"></a>
+
+**Harness** 카드 하나로 된 챗플로우 뒤에 팀을 두고 게시한 다음, **API Keys**에서 키를 발급하세요. 그 키의 **Harnesses this key may run**에서 하네스를 체크하세요. 새 키는 어떤 하네스도 실행하지 못하며, 체크하기 전까지 호출은 `403`이 됩니다. 앱이 질문을 보내면 팀의 답변이 돌아옵니다. 다음은 `baker`와 `orders`라는 두 스페셜리스트가 있는 작은 빵집 팀을 실제로 호출한 예입니다.
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
@@ -131,53 +139,54 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 }
 ```
 
-Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산했고 `orders`는 픽업 요일을 확인했습니다. 전체 응답에는 토큰, 소요 시간, 출처, 팀이 만든 이미지도 들어 있습니다. 나머지는 [API 가이드](./docs/api.md)에서 다룹니다. API 키, 스트리밍, 대화 메모리, 파일 업로드, 오류, 그리고 키를 여러분의 서버에만 두는 실행 가능한 예제 웹 앱이 있습니다. 참고: [하네스용 Prediction API](./docs/how-to/harnesses.md#prediction-api), [챗플로우에서 하네스 호출하기](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
+Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산했고 `orders`는 픽업 요일을 확인했습니다. 전체 응답에는 토큰, 소요 시간, 출처, 팀이 만든 이미지도 들어 있습니다. 나머지는 [API 가이드](./docs/api.md)에서 다룹니다. API 키, 스트리밍, 대화 메모리, 파일 업로드, 오류, 그리고 키를 여러분의 서버에만 두는 실행 가능한 예제 웹 앱이 있습니다. 오래 걸리는 턴은 같은 키로 `POST /api/v1/harnesses/<name>/runs/async`에서 백그라운드로 시작하고 답변은 나중에 가져올 수 있으며, 하네스를 cron 일정으로 실행할 수도 있습니다: [API 키로 앱에서 실행하기](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [일정으로 실행하기](./docs/how-to/harnesses.md#run-it-on-a-schedule). 참고: [하네스용 Prediction API](./docs/how-to/harnesses.md#prediction-api), [챗플로우에서 하네스 호출하기](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
-### 작은 컨텍스트, 큰 답변
+## 작은 컨텍스트, 큰 답변
 
-<span id="small-context-big-answers"></span>
+<a id="small-context-big-answers"></a>
 
 긴 채팅, 큰 테이블, 긴 규칙집이 있다고 해서 프롬프트가 길어져야 하는 것은 아닙니다. 각 에이전트는 자기 일에 필요한 것만 보고, 모든 실행은 사용한 토큰을 보여 줍니다.
 
 -   **스페셜리스트마다 자기 일을 맡깁니다.** 흔한 방식은 모든 에이전트에게 채팅 전체를 넘깁니다. Harness Prime은 스페셜리스트마다 그것만으로 완결되는 작업을 최근 대화의 짧은 요약과 함께 작성해 줍니다.
 -   **데이터는 데이터베이스에 둡니다.** 흔한 방식은 쿼리 결과를 프롬프트에 붙여 넣습니다. 애널리스트는 한 페이지 분량의 행만 돌려줍니다. "더 보여 줘"라고 하면 다음 페이지가 나옵니다. 앞선 페이지는 다음 프롬프트에 들어가지 않습니다.
+-   **체크한 테이블만.** 흔한 방식은 데이터베이스 스키마 전체를 프롬프트에 붙여 넣습니다. URL로 연결한 데이터베이스에서 PostgreSQL MCP 노드의 **Tables and views**에서 테이블과 뷰를 체크하면, 애널리스트의 프롬프트에는 각각에 대해 열 이름이 담긴 한 줄만 들어갑니다. `describe` 도구는 애널리스트가 필요할 때 테이블 하나의 열, 키, 텍스트 값 샘플을 돌려줍니다. 가상의 베이커리 데모 데이터베이스에서 릴레이션 6개를 체크하면 663토큰, 스키마 전체는 2,562토큰입니다. 목록 아래 **Rules** 상자에는 어떤 뷰가 어떤 질문에 답하는지 같은, 그 애널리스트를 위한 지시를 2,000자까지 쓸 수 있습니다. Rules는 모델에 대한 지시일 뿐, 체크한 테이블을 넓히거나 쓰기를 허용하지 못합니다. [직접 규칙 쓰기](./docs/how-to/analyst.md#write-your-own-rules).
 -   **규칙은 필요할 때 불러옵니다.** 흔한 방식은 모든 지시를 거대한 시스템 프롬프트 하나에 넣습니다. 긴 규칙은 플레이북에 넣습니다. 스페셜리스트는 질문에 필요할 때만 그것을 엽니다.
 -   **짧은 인계.** 흔한 방식은 최종 답변을 쓰는 프롬프트에 문서 전체를 붙여 넣습니다. Harness Prime은 각 스페셜리스트 답변 중 상한이 정해진 일부만 읽으며, 출처 이름과 짧은 발췌가 함께 붙습니다. 문서는 응답에 담겨 앱으로 돌아갑니다.
 -   **모든 토큰이 보입니다.** Run 카드에는 입력 토큰과 출력 토큰, 모델이 보고하는 경우 캐시된 토큰, 각 단계에 걸린 시간이 나옵니다. API 응답에도 같은 숫자가 담깁니다. Publish 검사는 Live와 초안을 각각 사용한 토큰과 시간과 함께 나란히 보여 줍니다.
 
 [Cuttlely가 컨텍스트를 작게 유지하는 방법](./docs/how-to/context-and-tokens.md)
 
-### 팀이 사용하는 도구
+## 팀이 사용하는 도구
 
-<span id="tools-your-teams-use"></span>
+<a id="tools-your-teams-use"></a>
 
-#### 지식 파이프라인(ETL): 여러분의 데이터에서 나오는 답변
+### 지식 파이프라인(ETL): 여러분의 데이터에서 나오는 답변
 
 파일, CSV, 코드 저장소를 불러와 정리하고 나눈 뒤, 임베딩을 만들어 검색용으로 저장합니다. 실행할 때마다 바뀐 부분만 임베딩하고, 스케줄로 실행할 수 있으며, 로컬 임베딩을 쓰면 제공자 키가 없어도 됩니다. 팀과 챗플로우는 **ETL Retriever**로 결과를 검색합니다. [ETL 가이드](./docs/how-to/etl.md)
 
 ![실행을 마친 Outdoor Catalog. Run 카드에는 succeeded라고 표시되고, 33 embedded, 0 errors입니다.](./docs/images/etl/etl-run-done.png)
 
-#### 챗플로우: 바로 내놓을 수 있는 어시스턴트 하나
+### 챗플로우: 바로 내놓을 수 있는 어시스턴트 하나
 
 채팅 모델, 답변하는 에이전트나 체인, 메모리, 도구를 하나의 캔버스에 담습니다. 챗플로우마다 Prediction API, 웹사이트용 임베드, 공유 가능한 링크가 생기며, **Harness** 카드가 있는 챗플로우는 그 뒤에 팀 전체를 둡니다. [캔버스 가이드](./docs/how-to/canvas.md)
 
 ![처음 저장한 뒤의 같은 챗플로우(다크 테마). 헤더에는 Draft, not live yet이라고 표시됩니다. 오른쪽에 테스트 채팅이 열려 있고, What is 18 times 24?에 계산기 칩과 함께 18 times 24 is 432라고 답합니다.](./docs/images/canvas/build-with-ai-chat.png)
 
-#### 에이전트플로우: 단계별 워크플로
+### 에이전트플로우: 단계별 워크플로
 
 단계별로 실행되며 채팅 메시지, 폼, 웹훅, 스케줄로 시작할 수 있는 워크플로입니다. 카드를 선택하면 사이드 패널에 설정이 열립니다. [캔버스 가이드](./docs/how-to/canvas.md#workflows)
 
 ![다크 테마의 Bakery greeting 워크플로. Start가 Reply에 연결되어 있습니다. Reply 카드가 선택되어 있고, Welcome to the bakery! Ask me about today's bread.라고 적힌 Message 필드가 캔버스 오른쪽에 고정된 사이드 패널에 보입니다.](./docs/images/canvas/canvas-workflow-panel.png)
 
-#### 어디에나 기본 탑재
+### 어디에나 기본 탑재
 
 -   **모든 캔버스에 Build with AI.** 팀, 어시스턴트, 파이프라인, 워크플로를 설명하면 첫 버전이 캔버스에 올라옵니다. 모든 부품과 연결은 그 전에 검사됩니다. 만드는 데 쓰는 모델은 여러분의 자격 증명 중 하나입니다. [팀 만들기](./docs/how-to/harnesses.md#build-a-team-with-ai), [챗플로우 만들기](./docs/how-to/canvas.md#build-a-chatflow-with-ai), [파이프라인 만들기](./docs/how-to/etl.md#build-a-pipeline-with-ai)
 -   **에이전트 런타임 기본 포함.** 스페셜리스트는 Cuttlely와 함께 제공되고 함께 시작되는 에이전트 런타임에서, 같은 서버 위에서 실행됩니다. 따로 설치하거나 호스팅할 것이 없습니다. [하네스 가이드](./docs/how-to/harnesses.md#agent-runtime-health)
 
 ## 처음 10분
 
-<span id="your-first-10-minutes"></span>
-<span id="chat-with-a-team-in-minutes"></span>
+<a id="your-first-10-minutes"></a>
+<a id="chat-with-a-team-in-minutes"></a>
 
 에이전트가 처음이신가요? 코드를 작성할 필요가 없습니다. **Build with AI**로 팀을 설명하면 첫 버전이 스타터 질문과 함께 캔버스에 올라옵니다. 테스트 채팅에서 그 질문을 하면 Run 카드에 어떤 스페셜리스트가 작업했는지 나옵니다. 답변이 만족스러우면, 팀을 호출하는 챗플로우에서 공유 링크와 웹사이트용 임베드를 받을 수 있으므로 다른 사람도 대화할 수 있습니다.
 
@@ -221,13 +230,10 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 ## 가이드
 
-<span id="guides"></span>
+<a id="guides"></a>
 
 -   [Docker](./docs/how-to/docker.md). SQLite를 사용해 컨테이너 하나로 Cuttlely를 설치하고 실행합니다. `npx cuttlely`도 같은 이미지를 시작합니다.
 -   [소스에서 빌드하고 개발 서버 실행하기](./docs/how-to/from-source.md). Cuttlely를 직접 빌드해 실행하고, 라이브 리로드로 코드를 바꿉니다.
--   [로그인](./docs/how-to/sign-in.md). 첫 계정을 만듭니다. 팀은 AuthKit 없이 로컬 사용자(`CUTTLELY_LOCAL_USERS`)로 로그인할 수 있습니다. AuthKit은 나중에 켤 수 있으며, 인증된 이메일이 기존 로컬 사용자와 연결됩니다.
--   [AuthKit 없이 사용자 관리하기](./docs/how-to/users-without-authkit.md). 로컬 사용자, 초대 및 재설정 링크, 기본 제공되는 Owner, Admin, Builder, Viewer 역할, 세션.
--   [감사 로그](./docs/how-to/audit-log.md). 로그인, 잠금, 초대, 재설정, 역할 변경, 사용자 비활성화, 설정 변경.
 -   [하네스](./docs/how-to/harnesses.md). 에이전트 팀을 만들고, 사용해 보고, 챗플로우에서 호출합니다.
 -   [컨텍스트와 토큰](./docs/how-to/context-and-tokens.md). 팀이 각 프롬프트를 눈앞의 일로만 한정하는 방법과, 실행이 사용한 토큰을 보여 주는 위치.
 -   [애널리스트 모드](./docs/how-to/analyst.md). 스페셜리스트에게 전용 데이터베이스를 줍니다.
@@ -237,29 +243,27 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 -   [평가](./docs/how-to/evaluations.md). 테스트 세트를 만들고, 답변을 채점하고, 통과할 때까지 Publish를 기다리게 합니다.
 -   [실제 답변을 테스트로 만들기](./docs/how-to/tests-from-answers.md). 평가가 달린 답변 하나, 또는 특정 기간의 답변들을 테스트 세트의 행으로 저장합니다.
 -   [답변이 바뀌면 빌드 실패시키기](./docs/how-to/ci-gate.md). `cuttlely check`로 파이프라인에서 Publish 검사를 실행합니다.
--   [역할과 권한](./docs/how-to/roles-and-permissions.md). 팀, 기본 제공 역할, 각 페이지와 라우트의 권한 키.
 -   [채팅 공유 및 임베드](./docs/how-to/share-and-embed.md). 공개 링크나 웹사이트의 채팅을 여러분의 Cuttlely 서버에서 제공합니다.
 -   [여러분의 웹 앱에서 API 사용하기](./docs/api.md). 여러분의 사이트나 앱에서 플로우를 호출합니다. 실행 가능한 예제가 포함되어 있습니다.
 -   [Render](./docs/how-to/render.md). Postgres를 사용하는 호스팅 설치.
--   [서버 설정](./docs/how-to/server-settings.md). 로그인, 데이터베이스, 스토리지 등을 **Admin**에서 바꿉니다. 런타임 설정은 재시작 없이 적용됩니다. Testing and Limits, 보안 한도, 초대 및 재설정 만료, SMTP 호스트, 포트, secure 플래그, 사용자, `SENDER_EMAIL`, 초대 전달 방식, 설정 기록 상한, `CUTTLELY_AUDIT_RETENTION_DAYS`가 여기에 해당합니다. 비밀 값, `PORT`, 데이터 폴더, SMTP 비밀번호처럼 환경 변수로만 정하는 값은 Set 또는 Not set만 표시됩니다. 목록은 [시작 옵션](./docs/reference/startup-options.md)에 있습니다.
 
 소스에서 실행하는 방법과 API 레퍼런스를 포함한 전체 문서는 [docs/README.md](./docs/README.md)에 있습니다.
 
 ## 기존 플로우 가져오기
 
-<span id="bring-your-existing-flows"></span>
+<a id="bring-your-existing-flows"></a>
 
 다른 도구로 만든 플로우가 있나요? **Chatflows**의 **Import** 메뉴에는 **Import Flowise JSON**이 있어, Flowise 챗플로우나 에이전트플로우 내보내기 파일을 검사한 뒤 알맞은 캔버스에서 열어 주는 짧은 마법사가 열립니다. **Import Langflow JSON**은 간단한 Langflow 채팅을 불러옵니다. 무엇이 그대로 옮겨지고 무엇이 아직 지원되지 않는지는 [기존 플로우 가져오기](./docs/bring-your-flows.md)에 있습니다.
 
 ## 기여하기
 
-<span id="contributing"></span>
+<a id="contributing"></a>
 
 [CONTRIBUTING.md](./CONTRIBUTING.md)와 [소스에서 빌드하고 개발 서버 실행하기](./docs/how-to/from-source.md)를 참고하세요. 풀 리퀘스트 전에 Node 24에서 `pnpm verify`를 실행하세요. 보안 신고는 [SECURITY.md](./SECURITY.md)로 보내 주세요. 모듈 경계 지도는 [ARCHITECTURE.md](./ARCHITECTURE.md)에 있습니다.
 
 ## 소개 및 크레딧
 
-<span id="about-and-credits"></span>
+<a id="about-and-credits"></a>
 
 Cuttlely는 Apache 2.0 라이선스의 오픈소스입니다. 릴리스마다 바뀐 내용은 [변경 기록](./CHANGELOG.md)에, 어떤 버전이 수정을 받는지는 [릴리스와 지원](./docs/releases.md)에 있습니다. 라이선스 전문은 [LICENSE.md](./LICENSE.md)에, 저작자 표시는 [NOTICE](./NOTICE)에 있습니다.
 
@@ -267,6 +271,6 @@ Cuttlely는 Flowise, Nous Research의 Hermes, React Flow를 비롯한 오픈소�
 
 ## 연락처
 
-<span id="contact"></span>
+<a id="contact"></a>
 
 질문, 파트너십, 언론 문의: [info@cuttlely.com](mailto:info@cuttlely.com). 버그와 기능 아이디어는 [issues](https://github.com/cuttlely/cuttlely/issues)에, 취약점은 [SECURITY.md](./SECURITY.md)를 통해 알려 주세요.
