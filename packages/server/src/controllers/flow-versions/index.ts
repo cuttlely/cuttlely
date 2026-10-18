@@ -134,7 +134,12 @@ async function matchesLive(flow: ChatFlow, sha: string, version: any): Promise<b
 
 // A harness version that a save would refuse for its Rules is refused before anything changes, and the
 // refusal names what to do instead of asking to shorten a version that cannot be edited.
-async function assertRestorable(flow: ChatFlow, version: any, kind: LiveRecord['kind'], unchanged: () => Promise<boolean>) {
+async function assertRestorable(
+    flow: ChatFlow,
+    version: any,
+    kind: LiveRecord['kind'] | 'restoreDraft',
+    unchanged: () => Promise<boolean>
+) {
     if ((version.type || flow.type) !== 'HARNESS') return
     await assertHarnessDraftLimits(version.name || flow.name || '', version.flowData, kind, await unchanged())
 }
@@ -244,7 +249,7 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
                 'This version is a different kind of flow, so it cannot become the draft. Use Roll back Live instead.'
             )
         }
-        await assertRestorable(flow, version, 'restore', () => matchesLive(flow, sha, version))
+        await assertRestorable(flow, version, 'restoreDraft', () => matchesLive(flow, sha, version))
         const status = redactDraftStatus(
             await flowDraftsService.saveDraft(flow, version.flowData, {
                 userId: req.user?.id || null,

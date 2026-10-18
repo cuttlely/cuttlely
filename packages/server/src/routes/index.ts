@@ -87,10 +87,11 @@ import { getRunningExpressApp } from '../utils/getRunningExpressApp'
 
 const router = express.Router()
 
-// The routers below that take uiPageRateLimiter() sign people in, check an API key, read icon files without a
-// session, or call out to an OAuth provider or MCP server. Each call is its own per-client counter with the page-load
-// budget, so people behind one shared address are not locked out. The two icon routers add room for the whole loaded
-// catalog, because the node palette and the credential dialogs request every icon at once.
+// The routers below that take uiPageRateLimiter() sign people in, check an API key, or call out to an OAuth provider
+// or MCP server. Each call is its own per-client counter with the page-load budget, so people behind one shared address
+// are not locked out. The two icon routers read icon files without a session and take uiIconRateLimiter() instead: the
+// page-load budget plus three times the loaded nodes or credentials, because the node palette and the credential
+// dialogs request every icon at once.
 const loadedNodeCount = () => Object.keys(getRunningExpressApp().nodesPool.componentNodes).length
 const loadedCredentialCount = () => Object.keys(getRunningExpressApp().nodesPool.componentCredentials).length
 
