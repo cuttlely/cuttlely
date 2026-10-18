@@ -59,16 +59,17 @@ Releases are cut from a maintainer machine with `pnpm release`. GitHub Actions d
 You need Node 24, pnpm, Docker and the GitHub CLI signed in (`gh auth status`). To push the image, also sign Docker in to the registry, for example `gh auth token | docker login ghcr.io -u <your GitHub user> --password-stdin` with a token that has the `write:packages` scope (`gh auth refresh -s write:packages`).
 
 1. Make sure `CHANGELOG.md` lists everything under `## [Unreleased]`, or under `## [X.Y.Z] - Unreleased` for a planned version.
-2. Review the model list, `packages/components/models.json`, against each provider's current models and prices, and merge any update first. See [Updating the model list](./reference/model-list.md).
-3. Check the docs, the site and the npm READMEs against the product, and merge any fix first, because the npm packages carry the READMEs as they are at the tag. [Docs and site sync](#docs-and-site-sync) is the check list.
-4. Check out `main`, pull, and run a dry run. It changes nothing and prints every check, every command and the release notes:
+1. Remove draft notes from that section: an intro line that says the notes are a draft, a TODO heading, or a placeholder for work that did not land. `pnpm release` copies the section body into the GitHub release as it is, so the section has to start with real entries under **Added**, **Changed**, **Fixed** and the other groups.
+1. Review the model list, `packages/components/models.json`, against each provider's current models and prices, and merge any update first. See [Updating the model list](./reference/model-list.md).
+1. Check the docs, the site and the npm READMEs against the product, and merge any fix first, because the npm packages carry the READMEs as they are at the tag. [Docs and site sync](#docs-and-site-sync) is the check list.
+1. Check out `main`, pull, and run a dry run. It changes nothing and prints every check, every command and the release notes:
 
     ```bash
     pnpm release --dry-run            # version from "## [X.Y.Z] - Unreleased"
     pnpm release minor --dry-run      # or major, patch, or an exact X.Y.Z
     ```
 
-5. Run it for real:
+1. Run it for real:
 
     ```bash
     pnpm release                          # draft: nothing public
