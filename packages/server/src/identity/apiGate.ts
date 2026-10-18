@@ -29,6 +29,8 @@ export interface ApiKeyCheck {
 
 export interface ApiV1AuthDeps {
     whitelistURLs: string[]
+    // Entries of whitelistURLs that are public only for GET and HEAD.
+    readOnlyWhitelistURLs?: string[]
     apiKeyBlacklistURLs: string[]
     // True when this install must have a valid license before an API key is accepted.
     licenseRequired: () => boolean
@@ -51,16 +53,24 @@ function collapseSlashes(path: string): string {
     return path.replace(/\/{2,}/g, '/')
 }
 
-// An entry ending in '/' also matches that path without the slash: Express routes '/apikey/' for both.
-const listed = (path: string, urls: string[]) =>
-    urls.some((url) => {
-        const entry = normalizeApiPath(url)
-        return (entry.endsWith('/') && path === entry.slice(0, -1)) || path.startsWith(entry)
-    })
+// The public list without the entries named in DENYLIST_URLS (comma-separated), compared in the same form.
+export function withoutDenylisted(whitelistURLs: string[], denylist: string | undefined): string[] {
+    const denied = new Set(
+        (denylist ?? '')
+            .split(',')
+            .map((url) => url.trim())
+            .filter(Boolean)
+            .map(normalizeApiPath)
+    )
+    return whitelistURLs.filter((url) => !denied.has(normalizeApiPath(url)))
+}
 
 // The /api/v1 sign-in gate. A path on the public list proceeds. A session proceeds for a read,
 // and for a write only with x-request-from: internal. Anything else needs a valid API key.
 export function apiV1Auth(deps: ApiV1AuthDeps) {
+    const whitelistURLs = deps.whitelistURLs.map(normalizeApiPath)
+    const readOnlyWhitelistURLs = new Set((deps.readOnlyWhitelistURLs ?? []).map(normalizeApiPath))
+    const apiKeyBlacklistURLs = deps.apiKeyBlacklistURLs.map(normalizeApiPath)
     return async (req: Request, res: Response, next: NextFunction) => {
         const collapsed = collapseSlashes(req.path)
         const path = normalizeApiPath(req.path)
@@ -77,7 +87,13 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             req.user = identityUser as unknown as LoggedInUser
             ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
         }
-        const isWhitelisted = listed(path, deps.whitelistURLs)
+        // An entry ending in '/' also matches that path without the slash: Express routes '/apikey/' for both.
+        const readRequest = req.method === 'GET' || req.method === 'HEAD'
+        const isWhitelisted = whitelistURLs.some(
+            (url) =>
+                (readRequest || !readOnlyWhitelistURLs.has(url)) &&
+                ((url.endsWith('/') && path === url.slice(0, -1)) || path.startsWith(url))
+        )
         const identitySession = (req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity
         if (isWhitelisted) {
             next()
@@ -95,7 +111,7 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
         }
-        if (listed(path, deps.apiKeyBlacklistURLs)) {
+        if (apiKeyBlacklistURLs.some((url) => path.startsWith(url))) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
         }

@@ -471,6 +471,21 @@
             "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
         },
         {
+            "from": "packages/server/src/routes/index.apiGate.test.ts",
+            "to": "packages/server/src/routes/index.ts",
+            "reason": "The API gate test mounts the real API router and the shipped public and refused lists"
+        },
+        {
+            "from": "packages/server/src/routes/index.apiGate.test.ts",
+            "to": "packages/server/src/utils/constants.ts",
+            "reason": "The API gate test mounts the real API router and the shipped public and refused lists"
+        },
+        {
+            "from": "packages/server/src/routes/index.apiGate.test.ts",
+            "to": "packages/server/src/utils/XSS.ts",
+            "reason": "The test runs the real URL decoding that sits in front of the API router in production"
+        },
+        {
             "from": "packages/server/src/routes/index.iconLimit.test.ts",
             "to": "packages/server/src/routes/index.ts",
             "reason": "the test mounts the inherited API router at the lowest page budget to check the icon routers' catalog-sized limit"
@@ -879,7 +894,7 @@
         {
             "from": "packages/server/src/settings/runs.test.ts",
             "to": "packages/server/src/utils/XSS.ts",
-            "reason": "The drain test decodes the path with the real sanitizeMiddleware, as the server does before routing"
+            "reason": "The test runs the real URL decoding that sits in front of the API router in production"
         },
         {
             "from": "packages/server/src/startup/databaseHealth.test.ts",
