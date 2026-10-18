@@ -4,6 +4,7 @@ import { spawnSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import type { LimitAction } from './harnessLimits'
 
 const SERVER = path.resolve(__dirname, '../../..')
 const MODULE = path.join(__dirname, 'harnessLimits.ts')
@@ -15,12 +16,12 @@ export interface ChildRefusal {
 }
 
 // Null when the check passes, otherwise the error the module threw.
-export function harnessLimitsInChild(name: string, flowData: string, action?: 'save' | 'restore'): ChildRefusal | null {
+export function harnessLimitsInChild(name: string, flowData: string, action?: LimitAction, matchesLive = false): ChildRefusal | null {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-limits-child-'))
     const script = [
         `const { assertHarnessDraftLimits } = require(${JSON.stringify(MODULE)})`,
         `const canvas = require('fs').readFileSync(0, 'utf8')`,
-        `assertHarnessDraftLimits(process.env.NAME, canvas, process.env.ACTION || undefined).then(`,
+        `assertHarnessDraftLimits(process.env.NAME, canvas, process.env.ACTION || undefined, process.env.MATCHES_LIVE === '1').then(`,
         `    () => process.stdout.write('null'),`,
         `    (error) => process.stdout.write(JSON.stringify({ status: error.statusCode, message: error.message, errorClass: error.constructor.name }))`,
         `)`
@@ -29,7 +30,14 @@ export function harnessLimitsInChild(name: string, flowData: string, action?: 's
         const result = spawnSync(process.execPath, ['-r', 'ts-node/register/transpile-only', '-e', script], {
             cwd: SERVER,
             input: flowData,
-            env: { PATH: process.env.PATH, HOME: process.env.HOME, CUTTLELY_DATA_DIR: dataDir, NAME: name, ACTION: action || '' },
+            env: {
+                PATH: process.env.PATH,
+                HOME: process.env.HOME,
+                CUTTLELY_DATA_DIR: dataDir,
+                NAME: name,
+                ACTION: action || '',
+                MATCHES_LIVE: matchesLive ? '1' : ''
+            },
             encoding: 'utf8'
         })
         if (result.status !== 0) throw new Error(result.stderr || `limit check exited ${result.status}`)

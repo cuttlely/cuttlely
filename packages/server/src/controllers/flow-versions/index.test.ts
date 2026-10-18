@@ -38,9 +38,9 @@ jest.mock('../../services/flow-drafts/harnessLimits', () => {
     const { harnessLimitsInChild } = jest.requireActual('../../services/flow-drafts/harnessLimitsInChild')
     const { AppError } = jest.requireActual('../../errors/appError')
     return {
-        assertHarnessDraftLimits: async (name: string, flowData: string, action?: 'save' | 'restore') => {
-            limitChecks.push(`${name}:${action}`)
-            const refusal = harnessLimitsInChild(name, flowData, action)
+        assertHarnessDraftLimits: async (name: string, flowData: string, action?: string, matchesLive?: boolean) => {
+            limitChecks.push(`${name}:${action}${matchesLive ? ':matches-live' : ''}`)
+            const refusal = harnessLimitsInChild(name, flowData, action, matchesLive)
             if (refusal) throw new AppError(refusal.status, refusal.message)
         }
     }
@@ -415,6 +415,79 @@ describe('restoring a harness version with Rules over the cap', () => {
         await controller.restoreVersion(request(), response(), next)
         expect(next).not.toHaveBeenCalled()
         expect(updateChatflow).toHaveBeenCalled()
+    })
+
+    const PROBLEM = 'Rules on Bakery DB for specialist "bakery" on harness "bakery-accounts" are 2001 characters. The limit is 2000.'
+
+    it('Roll back Live is refused before Live changes, with its own words', async () => {
+        versions.getVersion.mockResolvedValue(harnessVersion('r'.repeat(2001)))
+        await expect(
+            putVersionLive(request(), HARNESS as any, 'abcdef1', { kind: 'rollback', verb: 'Rolled back Live to' })
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: `Live cannot be rolled back to this version. ${PROBLEM} Roll back to another version, or shorten those rules on the canvas and save.`
+        })
+        expect(updateChatflow).not.toHaveBeenCalled()
+        expect(limitChecks).toEqual(['bakery-accounts:rollback'])
+    })
+
+    it('Promote is refused before Live changes, with its own words', async () => {
+        versions.getVersion.mockResolvedValue(harnessVersion('r'.repeat(2001)))
+        await expect(
+            putVersionLive(request(), HARNESS as any, 'abcdef1', {
+                kind: 'promote',
+                verb: 'Promoted from Dev',
+                title: 'x',
+                promotedFrom: 'abcdef1'
+            })
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: `This version cannot be promoted. ${PROBLEM} Shorten those rules on the canvas where this version was made, publish it there, and promote again.`
+        })
+        expect(updateChatflow).not.toHaveBeenCalled()
+    })
+
+    it('a version that already matches Live says Live is unchanged before refusing', async () => {
+        versions.diffVersion.mockResolvedValue({ ...EMPTY_DIFF })
+        versions.getVersion.mockResolvedValue(harnessVersion('r'.repeat(2001)))
+        drafts.getDraftStatus.mockResolvedValue({ mode: 'live', lastPublished: null })
+        const next = jest.fn()
+        await controller.restoreVersion(request(), response(), next)
+        expect(next.mock.calls[0][0]).toMatchObject({
+            statusCode: 400,
+            message: `This version matches Live, so Live is unchanged. It cannot be restored. ${PROBLEM} Restore another version, or shorten those rules on the canvas and save.`
+        })
+        await expect(
+            putVersionLive(request(), HARNESS as any, 'abcdef1', { kind: 'rollback', verb: 'Rolled back Live to' })
+        ).rejects.toMatchObject({
+            message: `This version matches Live, so Live is unchanged. Live cannot be rolled back to it. ${PROBLEM} Roll back to another version, or shorten those rules on the canvas and save.`
+        })
+        await expect(
+            putVersionLive(request(), HARNESS as any, 'abcdef1', {
+                kind: 'promote',
+                verb: 'Promoted from Dev',
+                title: 'x',
+                promotedFrom: 'abcdef1'
+            })
+        ).rejects.toMatchObject({
+            message: `This version matches Live, so Live is unchanged. It cannot be promoted. ${PROBLEM} Shorten those rules on the canvas where this version was made, publish it there, and promote again.`
+        })
+        expect(updateChatflow).not.toHaveBeenCalled()
+        expect(limitChecks).toEqual([
+            'bakery-accounts:restore:matches-live',
+            'bakery-accounts:rollback:matches-live',
+            'bakery-accounts:promote:matches-live'
+        ])
+    })
+
+    it('a draft restore of a version that matches Live says so too, and the draft is not changed', async () => {
+        versions.diffVersion.mockResolvedValue({ ...EMPTY_DIFF })
+        versions.getVersion.mockResolvedValue(harnessVersion('r'.repeat(2001)))
+        drafts.getDraftStatus.mockResolvedValue({ mode: 'draft', lastPublished: null })
+        const next = jest.fn()
+        await controller.restoreVersion(request(), response(), next)
+        expect(next.mock.calls[0][0].message).toMatch(/^This version matches Live, so Live is unchanged\. It cannot be restored\. /)
+        expect(drafts.saveDraft).not.toHaveBeenCalled()
     })
 })
 

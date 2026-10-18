@@ -19,17 +19,45 @@ async function loadSync() {
     throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'Harness draft save could not find the harness engine.')
 }
 
+export type LimitAction = 'save' | 'restore' | 'rollback' | 'promote'
+
+// Restore, Roll back and Promote cannot shorten the version they put back, so their refusal says what to do instead.
+const PUT_BACK: Record<Exclude<LimitAction, 'save'>, { lead: string; matched: string; instead: string }> = {
+    restore: {
+        lead: 'This version cannot be restored.',
+        matched: 'It cannot be restored.',
+        instead: 'Restore another version, or shorten those rules on the canvas and save.'
+    },
+    rollback: {
+        lead: 'Live cannot be rolled back to this version.',
+        matched: 'Live cannot be rolled back to it.',
+        instead: 'Roll back to another version, or shorten those rules on the canvas and save.'
+    },
+    promote: {
+        lead: 'This version cannot be promoted.',
+        matched: 'It cannot be promoted.',
+        instead: 'Shorten those rules on the canvas where this version was made, publish it there, and promote again.'
+    }
+}
+
 // The harness record limits (assertRosterLimits) on a draft canvas, so a draft cannot hold what Publish would refuse.
-// A restore cannot shorten the version it puts back, so its refusal says what the user can do instead.
-export async function assertHarnessDraftLimits(name: string, flowData: string, action: 'save' | 'restore' = 'save'): Promise<void> {
+// matchesLive: the version is already Live, so the refusal says first that Live is unchanged.
+export async function assertHarnessDraftLimits(
+    name: string,
+    flowData: string,
+    action: LimitAction = 'save',
+    matchesLive = false
+): Promise<void> {
     const sync = await loadSync()
     try {
         sync.assertFlowLimits({ name, flowData })
     } catch (error: any) {
-        const message =
-            action === 'restore' && error?.problem
-                ? `This version cannot be restored. ${error.problem} Restore another version, or shorten those rules on the canvas and save.`
-                : getErrorMessage(error)
+        const words = action !== 'save' && error?.problem ? PUT_BACK[action] : null
+        const message = !words
+            ? getErrorMessage(error)
+            : matchesLive
+            ? `This version matches Live, so Live is unchanged. ${words.matched} ${error.problem} ${words.instead}`
+            : `${words.lead} ${error.problem} ${words.instead}`
         throw new AppError(StatusCodes.BAD_REQUEST, message)
     }
 }
