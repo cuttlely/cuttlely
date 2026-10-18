@@ -54,6 +54,12 @@ curl -s "$CUTTLELY_URL/api/v1/prediction/$FLOW_ID" \
 { "statusCode": 401, "success": false, "message": "Unauthorized", "stack": {} }
 ```
 
+To check a key without asking a flow, send it in the same header to `GET /api/v1/verify/apikey`. `GET /api/v1/chatflows/apikey` lists the flows the key can call. Both read the key only from `Authorization: Bearer`. The older form with the key in the URL path (`/api/v1/verify/apikey/<key>`, `/api/v1/chatflows/apikey/<key>`) answers 400 and does not check the key, because proxies, browser history and access logs keep URLs.
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/verify/apikey" -H "Authorization: Bearer $CUTTLELY_API_KEY"
+```
+
 ## Ask a chatflow
 
 `POST /api/v1/prediction/<flow id>` with a JSON body. `question` is the only required field.
@@ -379,6 +385,10 @@ Too many questions at once. Please wait a minute and try again.
 ```
 
 When the model provider (OpenAI, Anthropic and so on) keeps answering 429, Cuttlely tries the call up to 3 times within about 20 seconds, then answers `429` with `Retry-After`: the provider's own wait when it sent one, otherwise 30 seconds. A streamed answer ends with an `error` event carrying `"status":429`, `"code":"RATE_LIMITED"` and `"retryAfter"` in seconds. A provider account that is out of credit is not a rate limit and still fails with 500.
+
+The server also limits a few routes per client address, whatever the flow says: sign-in (`/api/v1/auth`, `/api/v1/account`), the API-key check (`/api/v1/verify`), OAuth credentials, custom MCP servers, and node and credential icons. Each of those routes keeps its own count, and the budget is **Page loads a minute** in Server settings (3000 by default; the icon routes get more, see [Server settings](./how-to/server-settings.md)). Over it, the route answers 429 with the plain text `Too many requests, please try again later.` Behind a reverse proxy, set `TRUST_PROXY`, or every client shares one count.
+
+Query values are checked for their type. A `feedbackType` that is not a string or a list of strings is ignored. Clearing a flow's messages (`DELETE /api/v1/chatmessage/<flow id>`) with a `feedbackType` that names no known rating answers 400 and clears nothing. The file download (`/api/v1/get-upload-file`) answers 400 when `chatflowId`, `chatId` or `fileName` is sent more than once. An evaluation run refuses a flow id that is not 1 to 64 letters, digits, `_` or `-` before it calls the flow.
 
 Wait for `Retry-After` seconds before trying again. The flow's limit counts by client address, so all requests from your server share one limit: set it for your whole site's traffic, and rate-limit visitors on your own server.
 
