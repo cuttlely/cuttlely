@@ -578,14 +578,26 @@ const getRunResult = async (name: string, runId: string, workspaceId?: string | 
 // A run left queued or running when its process stopped can never finish. Another process, an external worker, or a
 // second server on the same data, may still own a newer row, so in every queue mode only rows that started before the
 // turn lock time (plus 15 seconds) are closed. A lock time of 0 never expires, and then nothing is closed.
-const closeInterruptedRuns = async () => {
+// A row that began shortly before this start is left at first, and nothing else would ever close it in inline mode,
+// so a second pass runs once the lock time (plus 15 seconds) has passed and closes rows that began before this start.
+const closeInterruptedRuns = async (opts: { schedule?: (run: () => void, delayMs: number) => void } = {}): Promise<number> => {
+    const processStart = Date.now()
     try {
         const history = await loadHarness('history.mjs')
         const lock = await loadHarness('lock.mjs')
         const ttl = Number(lock.lockTtlMs())
         if (!Number.isFinite(ttl) || ttl <= 0) return 0
-        const closed = history.interruptOpenRuns({ before: Date.now() - (ttl + 15000) })
+        const closed = history.interruptOpenRuns({ before: processStart - (ttl + 15000) })
         if (closed) logger.info(`[harness] closed ${closed} run(s) left open by an earlier process`)
+        const schedule = opts.schedule ?? ((run: () => void, delayMs: number) => setTimeout(run, delayMs).unref())
+        schedule(() => {
+            try {
+                const late = history.interruptOpenRuns({ before: processStart })
+                if (late) logger.info(`[harness] closed ${late} run(s) an earlier process left open just before this start`)
+            } catch (error) {
+                logger.warn(`[harness] open runs were not closed: ${getErrorMessage(error)}`)
+            }
+        }, ttl + 15000)
         return closed
     } catch (error) {
         logger.warn(`[harness] open runs were not closed: ${getErrorMessage(error)}`)
