@@ -13,7 +13,10 @@ import {
     UI_PAGE_LIMIT_WINDOW_MS,
     rateLimitClientKey,
     uiAssetMiddleware,
-    uiPageRateLimiter
+    uiIconLimitMax,
+    uiIconRateLimiter,
+    uiPageRateLimiter,
+    UI_ICON_CATALOG_LOADS
 } from './rateLimit'
 
 jest.setTimeout(30_000)
@@ -128,6 +131,20 @@ describe('UI page fallback limiter', () => {
         expect(limiter).toMatch(/express\.static\(directory, \{ index: false, redirect: false \}\)/)
         expect(limiter).toMatch(/req\.path === '\/' \|\| req\.path === '\/index\.html'/)
         expect(source).not.toMatch(/embed\/chat\.js[\s\S]{0,400}uiPageRateLimiter/)
+    })
+
+    it('gives an icon router the page budget plus room for the loaded catalog', async () => {
+        expect(uiIconLimitMax(289)).toBe(3000 + UI_ICON_CATALOG_LOADS * 289)
+        expect(uiIconLimitMax(Number.NaN)).toBe(3000)
+        expect(uiIconLimitMax(-5)).toBe(3000)
+        const app = express()
+        app.use(
+            uiIconRateLimiter(() => {
+                throw new Error('no pool yet')
+            }),
+            (_req, res) => res.send('icon')
+        )
+        expect((await hangGuard(request(app).get('/x'))).status).toBe(200)
     })
 
     it('answers 429 on a mounted router once a client passes the budget', async () => {

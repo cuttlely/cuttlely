@@ -6,7 +6,7 @@ import request from 'supertest'
 
 jest.mock('../utils/rateLimit', () => {
     const actual = jest.requireActual('../utils/rateLimit')
-    return { ...actual, uiPageRateLimiter: () => actual.uiPageRateLimiter(2) }
+    return { ...actual, uiPageRateLimiter: () => actual.uiPageRateLimiter(2), uiIconRateLimiter: () => actual.uiPageRateLimiter(2) }
 })
 
 import apiRouter from './index'

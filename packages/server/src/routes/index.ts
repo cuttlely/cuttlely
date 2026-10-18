@@ -82,13 +82,17 @@ import {
     identityAuditRouter
 } from '../identity'
 import { closedRouter, denyClosedFeature } from '../identity/ossPlatform'
-import { uiPageRateLimiter } from '../utils/rateLimit'
+import { uiIconRateLimiter, uiPageRateLimiter } from '../utils/rateLimit'
+import { getRunningExpressApp } from '../utils/getRunningExpressApp'
 
 const router = express.Router()
 
 // The routers below that take uiPageRateLimiter() sign people in, check an API key, read icon files without a
 // session, or call out to an OAuth provider or MCP server. Each call is its own per-client counter with the page-load
-// budget, so people behind one shared address are not locked out.
+// budget, so people behind one shared address are not locked out. The two icon routers add room for the whole loaded
+// catalog, because the node palette and the credential dialogs request every icon at once.
+const loadedNodeCount = () => Object.keys(getRunningExpressApp().nodesPool.componentNodes).length
+const loadedCredentialCount = () => Object.keys(getRunningExpressApp().nodesPool.componentCredentials).length
 
 // Runs in progress are counted so Restart can let them finish (settings/runs.ts).
 router.use(trackRuns)
@@ -107,7 +111,7 @@ router.use('/chatflows-streaming', chatflowsStreamingRouter)
 router.use('/chatmessage', chatMessageRouter)
 router.use('/chatflows-uploads', chatflowsUploadsRouter)
 router.use('/components-credentials', componentsCredentialsRouter)
-router.use('/components-credentials-icon', uiPageRateLimiter(), componentsCredentialsIconRouter)
+router.use('/components-credentials-icon', uiIconRateLimiter(loadedCredentialCount), componentsCredentialsIconRouter)
 router.use('/credentials', credentialsRouter)
 router.use('/datasets', denyClosedFeature('feat:datasets'), datasetRouter)
 router.use('/document-store', documentStoreRouter)
@@ -125,7 +129,7 @@ router.use('/load-prompt', loadPromptRouter)
 router.use('/marketplaces', marketplacesRouter)
 router.use('/node-config', nodeConfigRouter)
 router.use('/node-custom-function', nodeCustomFunctionRouter)
-router.use('/node-icon', uiPageRateLimiter(), nodeIconRouter)
+router.use('/node-icon', uiIconRateLimiter(loadedNodeCount), nodeIconRouter)
 router.use('/node-load-method', nodeLoadMethodRouter)
 router.use('/nodes', nodesRouter)
 router.use('/oauth2-credential', uiPageRateLimiter(), oauth2Router)
