@@ -13,6 +13,7 @@
             "packages/server/src/controllers/harnesses/**",
             "packages/server/src/routes/harnesses/**",
             "packages/server/src/routes/index.rateLimit.test.ts",
+            "packages/server/src/routes/index.iconLimit.test.ts",
             "packages/components/nodes/harness/**",
             "packages/ui/src/views/harnesses/**",
             "packages/ui/src/views/chatmessage/Harness*",
