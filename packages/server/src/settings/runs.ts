@@ -6,7 +6,8 @@ import type { Server } from 'http'
 import { NextFunction, Request, Response } from 'express'
 import { runtimeNumber } from './runtime'
 
-const RUN_PATHS = [/^\/api\/v1\/prediction(\/|$)/, /^\/api\/v1\/internal-prediction(\/|$)/, /^\/api\/v1\/harnesses\/[^/]+\/runs\/?$/]
+const HARNESS_RUN_PATH = /^\/api\/v1\/harnesses\/[^/]+\/runs\/?$/i
+const RUN_PATHS = [/^\/api\/v1\/prediction(\/|$)/i, /^\/api\/v1\/internal-prediction(\/|$)/i, HARNESS_RUN_PATH]
 export const DEFAULT_WAIT_MS = 45000
 /** How long a shutdown lets requests and streams finish: inside a host's usual 30-second grace period. */
 export const DEFAULT_DRAIN_TIMEOUT_MS = 25000
@@ -17,10 +18,16 @@ const SHUTDOWN_CODE = 'UNAVAILABLE'
 let inProgress = 0
 let draining = false
 let shuttingDown = false
-const openRuns = new Set<Response>()
+// Each open run, and whether it is a harness run (its stream error event carries { message }).
+const openRuns = new Map<Response, boolean>()
 
 export function isRunRequest(method: string, path: string): boolean {
-    return method === 'POST' && RUN_PATHS.some((pattern) => pattern.test(path))
+    const collapsed = path.replace(/\/{2,}/g, '/')
+    return method === 'POST' && RUN_PATHS.some((pattern) => pattern.test(collapsed))
+}
+
+function isHarnessRun(path: string): boolean {
+    return HARNESS_RUN_PATH.test(path.replace(/\/{2,}/g, '/'))
 }
 
 export function runsInProgress(): number {
@@ -63,7 +70,8 @@ export function refuseWhileShuttingDown(_req: Request, res: Response, next: Next
 
 /** Express middleware: counts run requests, and turns new ones away while a restart waits. */
 export function trackRuns(req: Request, res: Response, next: NextFunction): void {
-    const path = (req.originalUrl || req.url || '').split('?')[0]
+    // req.originalUrl is the raw URL. Express routes on req.url, which sanitizeMiddleware has already decoded.
+    const path = `${req.baseUrl || ''}${req.path || ''}`
     if (!isRunRequest(req.method, path)) return next()
     if (draining) {
         res.setHeader('Retry-After', '30')
@@ -71,7 +79,7 @@ export function trackRuns(req: Request, res: Response, next: NextFunction): void
         return
     }
     inProgress += 1
-    openRuns.add(res)
+    openRuns.set(res, isHarnessRun(path))
     let done = false
     const finish = () => {
         if (done) return
@@ -99,7 +107,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * UNAVAILABLE) and ends; a run that has not answered yet gets 503 with Retry-After. The socket is then closed, so a
  * late write from the run goes nowhere.
  */
-function endRun(res: Response): void {
+function endRun(res: Response, harness: boolean): void {
     if (res.writableEnded) return
     try {
         if (!res.headersSent) {
@@ -107,7 +115,6 @@ function endRun(res: Response): void {
             res.setHeader('Connection', 'close')
             res.status(503).json({ statusCode: 503, success: false, message: SHUTDOWN_MESSAGE, code: SHUTDOWN_CODE })
         } else {
-            const harness = /^\/api\/v1\/harnesses\//.test(res.req?.originalUrl || '')
             if (String(res.getHeader('Content-Type') || '').includes('text/event-stream')) {
                 const data = harness ? { message: SHUTDOWN_MESSAGE } : SHUTDOWN_MESSAGE
                 res.write(`message:\ndata:${JSON.stringify({ event: 'error', data, status: 503, code: SHUTDOWN_CODE })}\n\n`)
@@ -154,7 +161,7 @@ export async function shutdownDrain(server: Server | undefined, limitMs: number,
     const endedRuns = openRuns.size
     const closedInTime = closed
     if (!closed) {
-        for (const res of Array.from(openRuns)) endRun(res)
+        for (const [res, harness] of Array.from(openRuns)) endRun(res, harness)
         // Loaded here so the commands that read drainTimeoutMs do not load the model libraries.
         const { abortClientRequests } = await import('../utils/clientAbort')
         abortClientRequests(new Error('Cuttlely is shutting down'))
