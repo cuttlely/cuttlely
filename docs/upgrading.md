@@ -131,8 +131,10 @@ From 1.3.0 an invited person joins only through their own one-time invite link. 
 
 Check the people who had not joined yet when you upgraded:
 
--   **Listed as `invited`.** They are pending and have no usable link. Make one with `POST /api/v1/users/:id/reset-link` from their team and send it to them.
+-   **Listed as `invited`.** They are pending. An invite link they already have still works until it expires. Otherwise make a new one with `POST /api/v1/users/:id/reset-link` from their team and send it to them.
 -   **Added with Add User before 1.3.0 and never signed in.** Those were stored as `active`, so they are not pending and can still join by email match. To make them use a link, remove them and add them again. The new invite shows the link.
+
+An invite link issued before the upgrade keeps working until it expires (at most 168 hours). Without AuthKit it still sets a password. With AuthKit on, open it and select **Accept invite with WorkOS**; it can no longer set a password.
 
 The full rules are in [Invite people](./how-to/sign-in.md#invite-people) and [Security](../SECURITY.md#invites).
 

@@ -169,7 +169,7 @@ An invite link:
 -   works only for the person it was made for, signed in with that email;
 -   stops working when a newer link is made for that person, when they are disabled, and when they are removed from the team or the organization. Adding them back does not bring the old link back.
 
-With WorkOS on, the link cannot be used to set a password instead: the password route refuses an invite token and leaves it unused. A link that fails any of these shows `This invite link is not valid. Ask for a new invite.` To make a new link for someone who is still pending, call `POST /api/v1/users/:id/reset-link` from their team. For a pending invite it returns a new invite link and the older one stops working. Turning a disabled pending invite back on does not make them active: they still need a new link.
+With WorkOS on, the link cannot be used to set a password instead: the password route refuses an invite token and leaves it unused. A link that fails any of these shows `This invite link is not valid. Ask for a new invite.` To make a new link for someone who is still pending, call `POST /api/v1/users/:id/reset-link` from their team. For a pending invite it returns a new invite link and the older one stops working. On the Users page, editing a pending person offers **Invited (pending)** or **Inactive**. Turning a disabled pending invite back on with **Invited (pending)** does not make them active: they still need a new link.
 
 Field names and status codes are in [One-time links](../reference/auth-api.md#one-time-links).
 

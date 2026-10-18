@@ -212,9 +212,9 @@ Invite links last 72 hours (`INVITE_TOKEN_EXPIRY_IN_HOURS`, 1 to 168). Reset lin
 
 `POST /api/v1/auth/invite/start`
 
-Public. No session. Answers 404 unless AuthKit is configured, and 401 `{ "message": "Unauthorized" }` without `x-request-from: internal`. Send `{ "token" }` in the JSON body. A missing token, or one longer than 256 characters, is 400 `{ "message": "This invite link is not valid. Ask for a new invite." }`. Otherwise the answer is 200 `{ "url": "/api/v1/auth/login" }` with an httpOnly, `SameSite=Lax` cookie `cuttlely-invite` that holds the token for 15 minutes. Starting does not use the token and does not say whether it is valid. `/local-accept` calls this route and then opens the URL.
+Public. No session. Answers 404 unless AuthKit is configured, and 401 `{ "message": "Unauthorized" }` without `x-request-from: internal`. Send `{ "token" }` in the JSON body. A missing token, or one longer than 256 characters, is 400 `{ "message": "This invite link is not valid. Ask for a new invite." }`. Otherwise the answer is 200 `{ "url": "/api/v1/auth/login" }` with an httpOnly, `SameSite=Lax` cookie `cuttlely-invite`, scoped to `Path=/api/v1/auth/callback`, that holds the token for 15 minutes. Starting does not use the token and does not say whether it is valid. `/local-accept` calls this route and then opens the URL.
 
-The AuthKit callback reads that cookie, clears it on every outcome, and decides:
+The AuthKit callback reads that cookie, expires it on that same path on every outcome, and decides:
 
 | Signed-in user                                        | Result                                                                                                                   |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
