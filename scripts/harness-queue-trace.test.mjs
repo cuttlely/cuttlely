@@ -110,7 +110,7 @@ describe('harness queue run id on the trace', () => {
         const outcome = await harnesses.startRun(
             'bakery',
             { question: 'How many loaves?', chatId: CHAT },
-            { source: 'api', workspaceId: WORKSPACE }
+            { source: 'api', workspaceId: WORKSPACE, caller: { via: 'session' } }
         )
         assert.equal(rootSpan()?.attributes['run.id'], EXTERNAL)
         assert.equal(outcome.payload.runId, undefined)
@@ -124,7 +124,7 @@ describe('harness queue run id on the trace', () => {
         const outcome = await harnesses.startRun(
             'bakery',
             { question: 'How many loaves?', chatId: CHAT },
-            { source: 'api', workspaceId: WORKSPACE }
+            { source: 'api', workspaceId: WORKSPACE, caller: { via: 'session' } }
         )
         assert.equal(rootSpan()?.attributes['run.id'], INLINE)
         assert.equal(outcome.payload.runId, undefined)
@@ -136,7 +136,12 @@ describe('harness queue run id on the trace', () => {
         process.env.CUTTLELY_HARNESS_STUB_FAIL = '1'
         memory.reset()
         await assert.rejects(
-            () => harnesses.startRun('bakery', { question: 'How many loaves?', chatId: CHAT }, { source: 'api', workspaceId: WORKSPACE }),
+            () =>
+                harnesses.startRun(
+                    'bakery',
+                    { question: 'How many loaves?', chatId: CHAT },
+                    { source: 'api', workspaceId: WORKSPACE, caller: { via: 'session' } }
+                ),
             /oven failed/
         )
         assert.equal(rootSpan()?.attributes['run.id'], EXTERNAL)
@@ -148,7 +153,12 @@ describe('harness queue run id on the trace', () => {
         process.env.CUTTLELY_HARNESS_STUB_FAIL = '1'
         memory.reset()
         await assert.rejects(
-            () => harnesses.startRun('bakery', { question: 'How many loaves?', chatId: CHAT }, { source: 'api', workspaceId: WORKSPACE }),
+            () =>
+                harnesses.startRun(
+                    'bakery',
+                    { question: 'How many loaves?', chatId: CHAT },
+                    { source: 'api', workspaceId: WORKSPACE, caller: { via: 'session' } }
+                ),
             /oven failed/
         )
         assert.equal(rootSpan()?.attributes['run.id'], INLINE)

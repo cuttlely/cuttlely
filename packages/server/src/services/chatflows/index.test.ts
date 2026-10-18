@@ -71,7 +71,7 @@ jest.mock('../../utils/getRunningExpressApp', () => ({
 }))
 jest.mock('../../database/entities/ChatFlow', () => ({
     ChatFlow: class ChatFlow {},
-    EnumChatflowType: { AGENTFLOW: 'AGENTFLOW', CHATFLOW: 'CHATFLOW', MULTIAGENT: 'MULTIAGENT' }
+    EnumChatflowType: { AGENTFLOW: 'AGENTFLOW', CHATFLOW: 'CHATFLOW', MULTIAGENT: 'MULTIAGENT', HARNESS: 'HARNESS' }
 }))
 jest.mock('../../database/entities/ChatMessage', () => ({ ChatMessage: class ChatMessage {} }))
 jest.mock('../../database/entities/ChatMessageFeedback', () => ({ ChatMessageFeedback: class ChatMessageFeedback {} }))
@@ -141,12 +141,13 @@ jest.mock('../flow-versions', () => ({
     }
 }))
 jest.mock('http-status-codes', () => ({
-    StatusCodes: { OK: 200, BAD_REQUEST: 400, UNAUTHORIZED: 401, NOT_FOUND: 404, CONFLICT: 409, INTERNAL_SERVER_ERROR: 500 }
+    StatusCodes: { OK: 200, BAD_REQUEST: 400, UNAUTHORIZED: 401, FORBIDDEN: 403, NOT_FOUND: 404, CONFLICT: 409, INTERNAL_SERVER_ERROR: 500 }
 }))
 
 // ─── Imports (after mocks) ────────────────────────────────────────────────────
 
-import chatflowsService, { liveWriteHooks } from './index'
+import chatflowsService, { liveWriteHooks, validateReferencedHarnesses } from './index'
+import harnessesService from '../../services/harnesses'
 import scheduleService from '../../services/schedule'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import { containsBase64File } from '../../utils/fileRepository'
@@ -1216,5 +1217,141 @@ describe('deleteChatflow', () => {
 
         await expect(chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.AGENTFLOW])).rejects.toThrow()
         expect(calls).toEqual([])
+    })
+})
+
+// ─── Harnesses a canvas names, on every save path ─────────────────────────────
+
+describe('harnesses a saved canvas names', () => {
+    const agentTool = (name: string) =>
+        JSON.stringify({
+            nodes: [
+                {
+                    id: 'agent-0',
+                    data: {
+                        name: 'agentAgentflow',
+                        inputs: { agentTools: [{ agentSelectedTool: 'harness', agentSelectedToolConfig: { harnessName: name } }] }
+                    }
+                }
+            ],
+            edges: []
+        })
+    const keyCaller = { via: 'api_key' as const, apiKeyId: 'key-1', harnesses: ['bakery'] }
+    let assertNameAvailable: jest.SpyInstance
+
+    beforeEach(() => {
+        assertNameAvailable = jest.spyOn(harnessesService, 'assertNameAvailable').mockResolvedValue(undefined)
+    })
+    afterEach(() => assertNameAvailable.mockRestore())
+
+    it('collects a nested Agent harness tool and checks it against the key list and the team', async () => {
+        await expect(validateReferencedHarnesses({ flowData: agentTool('payroll'), workspaceId: 'ws-1' }, keyCaller)).rejects.toMatchObject(
+            {
+                statusCode: 403
+            }
+        )
+        await expect(validateReferencedHarnesses({ flowData: agentTool('payroll'), workspaceId: 'ws-1' }, undefined)).rejects.toMatchObject(
+            {
+                statusCode: 403
+            }
+        )
+        await validateReferencedHarnesses({ flowData: agentTool('bakery'), workspaceId: 'ws-1' }, keyCaller)
+        await validateReferencedHarnesses({ flowData: agentTool('payroll'), workspaceId: 'ws-1' }, { via: 'session' })
+        expect(assertNameAvailable.mock.calls).toEqual([
+            ['bakery', 'ws-1'],
+            ['payroll', 'ws-1']
+        ])
+    })
+
+    it('refuses an import or a Publish, Roll back, or Restore that writes a canvas naming a harness off the key list', async () => {
+        const existingFlow = makeChatflow({ flowData: makePlainFlowData() })
+        await expect(
+            chatflowsService.saveChatflow(
+                makeChatflow({ flowData: agentTool('payroll') }) as any,
+                'org-1',
+                'ws-1',
+                'sub-1',
+                {} as any,
+                undefined,
+                {
+                    caller: keyCaller
+                }
+            )
+        ).rejects.toMatchObject({ statusCode: 403 })
+        await expect(
+            chatflowsService.updateChatflow(
+                { ...existingFlow } as any,
+                { flowData: agentTool('payroll') } as any,
+                'org-1',
+                'ws-1',
+                'sub-1',
+                { caller: keyCaller, expectedFlowData: existingFlow.flowData, versionRecord: { kind: 'publish' } }
+            )
+        ).rejects.toMatchObject({ statusCode: 403 })
+        expect(mockRepo.save).not.toHaveBeenCalled()
+        expect(mockRepo.update).not.toHaveBeenCalled()
+    })
+
+    it('checks the stored canvas when a key unbinds the flow, and leaves an unrelated field alone', async () => {
+        const stored = makeChatflow({ flowData: agentTool('payroll'), apikeyid: 'key-x' })
+        mockRepo.merge.mockImplementation((existing: any, updates: any) => ({ ...existing, ...updates }))
+        await expect(
+            chatflowsService.updateChatflow({ ...stored } as any, { apikeyid: null } as any, 'org-1', 'ws-1', 'sub-1', {
+                caller: keyCaller
+            })
+        ).rejects.toMatchObject({ statusCode: 403 })
+        mockRepo.save.mockResolvedValue({ ...stored, category: 'x' })
+        await chatflowsService.updateChatflow({ ...stored } as any, { category: 'x' } as any, 'org-1', 'ws-1', 'sub-1', {
+            caller: keyCaller
+        })
+        expect(mockRepo.save).toHaveBeenCalledTimes(1)
+    })
+
+    it('refuses a HARNESS canvas whose name is off the key list before any row is written', async () => {
+        await expect(
+            chatflowsService.saveChatflow(
+                makeChatflow({ type: 'HARNESS', name: 'payroll', flowData: makePlainFlowData() }) as any,
+                'org-1',
+                'ws-1',
+                'sub-1',
+                {} as any,
+                undefined,
+                { caller: keyCaller }
+            )
+        ).rejects.toMatchObject({ statusCode: 403 })
+        expect(mockRepo.save).not.toHaveBeenCalled()
+    })
+})
+
+describe('getAllChatflows for an API key', () => {
+    function listChain() {
+        const wheres: Array<[string, unknown?]> = []
+        const chain: any = {
+            orderBy: () => chain,
+            skip: () => chain,
+            take: () => chain,
+            andWhere: (sql: string, params?: unknown) => {
+                wheres.push(params === undefined ? [sql] : [sql, params])
+                return chain
+            },
+            getManyAndCount: async () => [[], 0]
+        }
+        mockRepo.createQueryBuilder.mockReturnValue(chain)
+        return wheres
+    }
+
+    it('leaves HARNESS rows off the key list out of the rows and the total, and a person sees every row', async () => {
+        let wheres = listChain()
+        await chatflowsService.getAllChatflows(undefined, 'ws-1', 1, 10, ['bakery'])
+        expect(wheres).toContainEqual([
+            "(chat_flow.type IS NULL OR chat_flow.type != 'HARNESS' OR chat_flow.name IN (:...harnessScope))",
+            { harnessScope: ['bakery'] }
+        ])
+        wheres = listChain()
+        await chatflowsService.getAllChatflows(undefined, 'ws-1', 1, 10, [])
+        expect(wheres).toContainEqual(["(chat_flow.type IS NULL OR chat_flow.type != 'HARNESS')"])
+        wheres = listChain()
+        await chatflowsService.getAllChatflows(undefined, 'ws-1')
+        expect(wheres.some(([sql]) => sql.includes('HARNESS'))).toBe(false)
     })
 })

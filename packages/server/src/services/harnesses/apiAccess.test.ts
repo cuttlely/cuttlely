@@ -24,15 +24,21 @@ jest.mock('../../identity/production', () => ({ applicationSql: () => ({}) }))
 
 const storedKeys: Array<{ id: string; workspaceId: string; harnesses: string[] | null }> = []
 const savedKeys: string[] = []
+const boundFlows: Array<{ id: string; apikeyid: string; workspaceId: string; flowData: string }> = []
 jest.mock('../../DataSource', () => ({
     getDataSource: () => ({
-        getRepository: () => ({
-            findBy: async ({ workspaceId }: { workspaceId: string }) => storedKeys.filter((key) => key.workspaceId === workspaceId),
-            save: async (key: { id: string }) => {
-                savedKeys.push(key.id)
-                return key
-            }
-        })
+        getRepository: (entity: { name?: string }) =>
+            entity?.name === 'ChatFlow'
+                ? { find: async () => boundFlows }
+                : {
+                      findBy: async ({ workspaceId }: { workspaceId: string }) =>
+                          storedKeys.filter((key) => key.workspaceId === workspaceId),
+                      findOneBy: async ({ id }: { id: string }) => storedKeys.find((key) => key.id === id) ?? null,
+                      save: async (key: { id: string }) => {
+                          savedKeys.push(key.id)
+                          return key
+                      }
+                  }
     })
 }))
 
@@ -49,10 +55,11 @@ import {
     harnessRunRateLimit,
     parseHarnessAllowlist,
     referencedHarnessNames,
-    refuseUnlistedHarnessCards,
+    requireHarnessCanvasAccess,
     removeHarnessFromKeyLists,
     safeHarnessName,
-    setHarnessKeyLookup
+    setHarnessKeyLookup,
+    warnKeysMissingBoundHarnesses
 } from './apiAccess'
 
 const RUN_PERMISSIONS = ['chatflows:view', 'chatflows:create']
@@ -241,7 +248,7 @@ describe('a canvas save from an API key', () => {
 
     function saveApp() {
         const server = gate()
-        server.post('/api/v1/chatflows', refuseUnlistedHarnessCards(), (_req, res) => res.json({ saved: true }))
+        server.post('/api/v1/chatflows', requireHarnessCanvasAccess(), (_req, res) => res.json({ saved: true }))
         return server
     }
 
@@ -259,7 +266,7 @@ describe('a canvas save from an API key', () => {
             .set(auth)
             .send({ name: 'x', flowData: flow('payroll') })
         expect(refused.status).toBe(403)
-        expect(refused.body).toEqual({ message: 'This API key may not save a Harness card for "payroll".' })
+        expect(refused.body).toEqual({ message: 'This API key may not use harness "payroll".' })
         const saved = await request(saveApp())
             .post('/api/v1/chatflows')
             .set(auth)
@@ -269,9 +276,20 @@ describe('a canvas save from an API key', () => {
         expect(plain.status).toBe(200)
     })
 
-    it('reads the names from a canvas', () => {
+    it('reads every harness name from a canvas, including an Agent harness tool', () => {
         expect(referencedHarnessNames(flow('bakery'))).toEqual(['bakery'])
-        expect(referencedHarnessNames('not json "harness"')).toEqual([])
+        const agent = JSON.stringify({
+            nodes: [
+                {
+                    data: {
+                        name: 'agentAgentflow',
+                        inputs: { agentTools: [{ agentSelectedTool: 'harness', agentSelectedToolConfig: { harnessName: 'payroll' } }] }
+                    }
+                }
+            ]
+        })
+        expect(referencedHarnessNames(agent)).toEqual(['payroll'])
+        expect(referencedHarnessNames('not json "harnessName"')).toEqual([])
         expect(referencedHarnessNames(undefined)).toEqual([])
     })
 })
@@ -329,5 +347,33 @@ describe('harness allowlist values', () => {
         }
         expect(() => parseHarnessAllowlist(['../etc'])).toThrow('"../etc" is not a harness name.')
         expect(() => parseHarnessAllowlist(Array.from({ length: 201 }, (_, i) => `h${i}`))).toThrow('at most 200 harnesses')
+    })
+})
+
+describe('the startup check of bound keys', () => {
+    it('names each flow whose Harness card or Agent harness tool is off the bound key list', async () => {
+        storedKeys.splice(
+            0,
+            storedKeys.length,
+            { id: 'k1', workspaceId: 'team-a', harnesses: ['bakery'] },
+            { id: 'k2', workspaceId: 'team-b', harnesses: ['payroll'] }
+        )
+        const card = (name: string) => JSON.stringify({ nodes: [{ data: { name: 'harness', inputs: { harnessName: name } } }] })
+        const tool = (name: string) =>
+            JSON.stringify({ nodes: [{ data: { inputs: { agentTools: [{ agentSelectedToolConfig: { harnessName: name } }] } } }] })
+        boundFlows.splice(
+            0,
+            boundFlows.length,
+            { id: 'f1', apikeyid: 'k1', workspaceId: 'team-a', flowData: card('bakery') },
+            { id: 'f2', apikeyid: 'k1', workspaceId: 'team-a', flowData: tool('payroll') },
+            { id: 'f3', apikeyid: 'k2', workspaceId: 'team-a', flowData: card('payroll') },
+            { id: 'f4', apikeyid: 'gone', workspaceId: 'team-a', flowData: card('bakery') },
+            { id: 'f5', apikeyid: 'k1', workspaceId: 'team-a', flowData: '{"nodes":[]}' }
+        )
+        expect(await warnKeysMissingBoundHarnesses()).toEqual([
+            { chatflowId: 'f2', apiKeyId: 'k1', harness: 'payroll' },
+            { chatflowId: 'f3', apiKeyId: 'k2', harness: 'payroll' },
+            { chatflowId: 'f4', apiKeyId: 'gone', harness: 'bakery' }
+        ])
     })
 })

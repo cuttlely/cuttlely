@@ -81,8 +81,8 @@ describe('harness controller scope for an API key', () => {
     it('starts a background run under the key and counts it as in progress', async () => {
         const res = await request(app(viaKey)).post('/harnesses/bakery/runs/async').send({ question: 'How many loaves?' })
         expect(res.status).toBe(202)
-        const opts = calls[0].args[2] as { apiKeyId?: string; track?: unknown }
-        expect(opts.apiKeyId).toBe('key-bakery')
+        const opts = calls[0].args[2] as { caller?: unknown; track?: unknown }
+        expect(opts.caller).toEqual({ via: 'api_key', apiKeyId: 'key-bakery', harnesses: ['bakery'] })
         expect(typeof opts.track).toBe('function')
     })
 })

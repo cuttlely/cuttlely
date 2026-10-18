@@ -1,6 +1,9 @@
-import type { IApiKeyAccess } from '../Interface'
+import type { IHarnessCaller } from '../Interface'
 
-/** The node options a Harness card reads. Empty when no API key is in play. */
-export function apiKeyNodeOptions(access?: IApiKeyAccess): { apiKeyId?: string; apiKeyHarnesses?: string[] } {
-    return access?.apiKeyId ? { apiKeyId: access.apiKeyId, apiKeyHarnesses: [...access.harnesses] } : {}
+/** The node option a Harness card reads. A missing caller is passed as missing, so the harness engine refuses the run. */
+export function harnessNodeOptions(caller?: IHarnessCaller): { harnessCaller?: IHarnessCaller } {
+    if (!caller) return {}
+    return caller.via === 'api_key'
+        ? { harnessCaller: { via: 'api_key', apiKeyId: caller.apiKeyId, harnesses: [...caller.harnesses] } }
+        : { harnessCaller: { via: caller.via } }
 }

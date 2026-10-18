@@ -94,7 +94,8 @@ test('saves the canvas as a draft with the user, org and subscription', async ()
     expect(drafts.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), '{"nodes":[],"edges":[]}', {
         userId: 'user-1',
         orgId: 'org-1',
-        subscriptionId: 'sub-1'
+        subscriptionId: 'sub-1',
+        caller: { via: 'session' }
     })
 })
 
@@ -507,7 +508,8 @@ describe('the publish check', () => {
             { questions: ['Hi'] },
             'http://cuttlely.test:3000',
             undefined,
-            expect.objectContaining({ closed: expect.any(Function) })
+            expect.objectContaining({ closed: expect.any(Function) }),
+            { via: 'session' }
         )
         expect(res.status).toHaveBeenCalledWith(202)
     })
@@ -660,7 +662,8 @@ describe('the publish check', () => {
             { datasetId: 'ds-1', evaluatorIds: ['ev-1'] },
             'http://cuttlely.test:3000',
             undefined,
-            expect.objectContaining({ closed: expect.any(Function) })
+            expect.objectContaining({ closed: expect.any(Function) }),
+            { via: 'session' }
         )
         expect(res.status).toHaveBeenCalledWith(202)
     })
@@ -701,7 +704,8 @@ describe('the publish check', () => {
             { count: 4 },
             'http://cuttlely.test:3000',
             undefined,
-            expect.objectContaining({ closed: expect.any(Function) })
+            expect.objectContaining({ closed: expect.any(Function) }),
+            { via: 'session' }
         )
     })
 
@@ -794,7 +798,8 @@ describe('the publish check', () => {
             { questionIds: null, count: 4 },
             'http://cuttlely.test:3000',
             undefined,
-            expect.objectContaining({ closed: expect.any(Function) })
+            expect.objectContaining({ closed: expect.any(Function) }),
+            { via: 'api_key', apiKeyId: '', harnesses: [] }
         )
     })
 

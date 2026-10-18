@@ -6,7 +6,7 @@ import { ICommonObject, removeFolderFromStorage } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { In, IsNull, QueryRunner, type DataSource, type EntityManager } from 'typeorm'
 import { validate as isValidUUID } from 'uuid'
-import { ChatflowType, IReactFlowObject, ScheduleInputMode, StartInputType } from '../../Interface'
+import { ChatflowType, IHarnessCaller, IReactFlowObject, ScheduleInputMode, StartInputType } from '../../Interface'
 import { FLOWISE_COUNTER_STATUS, FLOWISE_METRIC_COUNTERS } from '../../Interface.Metrics'
 import { UsageCacheManager } from '../../UsageCacheManager'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
@@ -25,6 +25,7 @@ import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
 import etlService, { orgIdForWorkspace } from '../../services/etl'
 import harnessesService from '../../services/harnesses'
+import { assertCallerMayUseHarnesses, referencedHarnessNames } from '../../services/harnesses/apiAccess'
 import scheduleService from '../../services/schedule'
 import {
     constructGraphs,
@@ -189,7 +190,17 @@ const deleteChatflow = async (
     }
 }
 
-const getAllChatflows = async (type?: ChatflowType, workspaceId?: string, page: number = -1, limit: number = -1) => {
+/**
+ * `harnessScope` is an API key's harness list: HARNESS canvases with another name are left out of the rows and the total.
+ * Undefined is a signed-in person, who sees every row in the team.
+ */
+const getAllChatflows = async (
+    type?: ChatflowType,
+    workspaceId?: string,
+    page: number = -1,
+    limit: number = -1,
+    harnessScope?: string[]
+) => {
     try {
         const appServer = getRunningExpressApp()
 
@@ -216,6 +227,15 @@ const getAllChatflows = async (type?: ChatflowType, workspaceId?: string, page: 
             queryBuilder.andWhere('chat_flow.type = :type', { type: 'ETL' })
         }
         if (workspaceId) queryBuilder.andWhere('chat_flow.workspaceId = :workspaceId', { workspaceId })
+        if (harnessScope) {
+            if (harnessScope.length) {
+                queryBuilder.andWhere("(chat_flow.type IS NULL OR chat_flow.type != 'HARNESS' OR chat_flow.name IN (:...harnessScope))", {
+                    harnessScope
+                })
+            } else {
+                queryBuilder.andWhere("(chat_flow.type IS NULL OR chat_flow.type != 'HARNESS')")
+            }
+        }
         const [data, total] = await queryBuilder.getManyAndCount()
 
         if (page > 0 && limit > 0) {
@@ -384,12 +404,13 @@ const saveChatflow = async (
     usageCacheManager: UsageCacheManager,
     actor?: VersionActor,
     // Promote labels the first version of a flow it creates, and gets the result of that record.
-    record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued'>
+    // `caller` is who saves: a HARNESS canvas, or a canvas that names a harness, is refused without one.
+    record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued' | 'caller'>
 ): Promise<any> => {
     if (typeof newChatFlow.flowData === 'string') newChatFlow.flowData = stampNodePack(newChatFlow.flowData)
     validateChatflowType(newChatFlow.type)
-    await validateHarnessCanvas(newChatFlow)
-    await validateReferencedHarnesses(newChatFlow)
+    await validateHarnessCanvas(newChatFlow, record?.caller)
+    await validateReferencedHarnesses(newChatFlow, record?.caller)
     await validateEtlCanvas(newChatFlow)
     const appServer = getRunningExpressApp()
 
@@ -416,7 +437,7 @@ const saveChatflow = async (
     }
     // A taken harness name is refused before this insert. If the sync still fails, the new row is removed
     // before history or telemetry, so the caller does not keep a canvas for another team's harness.
-    await keepHarnessCanvas(dbResponse, () => deleteChatflowRow(dbResponse.id))
+    await keepHarnessCanvas(dbResponse, record?.caller, () => deleteChatflowRow(dbResponse.id))
     // Queued at the save so history keeps database save order.
     const recorded = flowVersionsService.recordFlowVersion(dbResponse, {
         ...(record?.versionRecord || {}),
@@ -502,6 +523,9 @@ export interface UpdateChatflowOptions {
     onVersionQueued?: (recorded: Promise<string | null>) => void
     // The signed-in user who made this save, for version history. None for API keys and system saves.
     actor?: VersionActor
+    // Who makes this save. A HARNESS canvas, or a canvas that names a harness, is refused without one,
+    // and an API key needs every one of those harnesses on its own list.
+    caller?: IHarnessCaller
     // Publish, and Roll back / Restore when they put a version Live: the conditional write matches this
     // canvas (and the type on the row). A Live update that lands after the check changes zero rows and
     // the save returns 409 instead of overwriting it. Publish writes only flowData. A version put Live
@@ -700,8 +724,11 @@ const updateChatflow = async (
     const previousRow = Object.assign(new ChatFlow(), chatflow)
     const newDbChatflow = appServer.AppDataSource.getRepository(ChatFlow).merge(chatflow, updateChatFlow)
     newDbChatflow.workspaceId = workspaceId // defense-in-depth: use trusted param, not chatflow.workspaceId (merge mutates in-place)
-    await validateHarnessCanvas(newDbChatflow)
-    await validateReferencedHarnesses(newDbChatflow)
+    await validateHarnessCanvas(newDbChatflow, options.caller)
+    // The caller's list applies when the canvas changes or the flow is rebound to another key (or to none), because the
+    // stored cards then run under a different key. Another field alone, such as the category, does not need it.
+    const rebinding = updateChatFlow.apikeyid !== undefined && (updateChatFlow.apikeyid ?? null) !== (previousRow.apikeyid ?? null)
+    await validateReferencedHarnesses(newDbChatflow, options.caller, updateChatFlow.flowData !== undefined || rebinding)
     await validateEtlCanvas(newDbChatflow)
     let dbResponse: ChatFlow
     const typeChanging = (updateChatFlow.type || 'CHATFLOW') !== (storedType || 'CHATFLOW')
@@ -732,7 +759,7 @@ const updateChatflow = async (
         throw error
     }
     // The name was checked before the write. If the sync still fails, this puts the stored row back.
-    await keepHarnessCanvas(dbResponse, async () => {
+    await keepHarnessCanvas(dbResponse, options.caller, async () => {
         await inTransaction(async (manager) => {
             await manager.getRepository(ChatFlow).save(previousRow)
         })
@@ -812,9 +839,9 @@ async function deleteChatflowRow(id: string) {
 }
 
 // Sync after the row is written. A failure removes a new row, or puts an updated row back, before the error returns.
-async function keepHarnessCanvas(chatflow: ChatFlow, undo: () => Promise<void>) {
+async function keepHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined, undo: () => Promise<void>) {
     try {
-        await syncHarnessCanvas(chatflow)
+        await syncHarnessCanvas(chatflow, caller)
     } catch (error) {
         try {
             await undo()
@@ -835,26 +862,25 @@ async function syncEtlCanvas(chatflow: ChatFlow) {
     await etlService.syncPipelineFromFlow(chatflow)
 }
 
-// A chatflow or agentflow node that names a harness. The name has to be in this flow's team.
-async function validateReferencedHarnesses(chatflow: ChatFlow) {
-    if (typeof chatflow.flowData !== 'string' || !chatflow.flowData.includes('"harness"')) return
-    let parsed: { nodes?: Array<{ data?: { name?: string; inputs?: { harnessName?: unknown } } }> }
-    try {
-        parsed = JSON.parse(chatflow.flowData)
-    } catch {
-        return
-    }
-    const names = new Set<string>()
-    for (const node of parsed?.nodes || []) {
-        if (node?.data?.name !== 'harness') continue
-        const name = node.data.inputs?.harnessName
-        if (typeof name === 'string' && name.trim()) names.add(name.trim())
-    }
+// Every harness the canvas names, at any depth: Harness cards, an Agent's harness tool, and any other harnessName.
+// Each has to be in this flow's team. Every save path comes through here (create, Import JSON, update, Publish, Roll back,
+// Restore), so it is also where the caller's list is enforced: an API key needs each name on its own list, and a save
+// with no caller cannot name a harness at all. `checkKeyList: false` is an update that leaves the canvas and its key alone.
+export async function validateReferencedHarnesses(
+    chatflow: Pick<ChatFlow, 'flowData' | 'workspaceId'>,
+    caller: IHarnessCaller | undefined,
+    checkKeyList = true
+) {
+    const names = referencedHarnessNames(chatflow.flowData)
+    if (!names.length) return
+    if (checkKeyList) assertCallerMayUseHarnesses(caller, names)
     for (const name of names) await harnessesService.assertNameAvailable(name, chatflow.workspaceId)
 }
 
-async function validateHarnessCanvas(chatflow: ChatFlow) {
+async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined) {
     if (chatflow.type !== EnumChatflowType.HARNESS) return
+    // Before any insert or update, so a refused key leaves no row behind. The sync checks the same caller again.
+    assertCallerMayUseHarnesses(caller, [chatflow.name])
     // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
     await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
     const engine = await loadHarnessSync()
@@ -871,7 +897,7 @@ async function validateHarnessCanvas(chatflow: ChatFlow) {
     }
 }
 
-export async function syncHarnessCanvas(chatflow: ChatFlow) {
+export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined) {
     if (chatflow.type !== EnumChatflowType.HARNESS) return
     const engine = await loadHarnessSync()
     const appServer = getRunningExpressApp()
@@ -891,6 +917,7 @@ export async function syncHarnessCanvas(chatflow: ChatFlow) {
             chatflowId: chatflow.id,
             flowData: chatflow.flowData,
             workspaceId: chatflow.workspaceId,
+            caller,
             componentNodes,
             flowOptions: {
                 appDataSource: appServer.AppDataSource,
@@ -906,7 +933,9 @@ export async function syncHarnessCanvas(chatflow: ChatFlow) {
         })
     } catch (error) {
         if (error instanceof AppError) throw error
-        if ((error as { code?: string })?.code === 'name_clash') throw new AppError(StatusCodes.CONFLICT, getErrorMessage(error))
+        const code = (error as { code?: string })?.code
+        if (code === 'name_clash') throw new AppError(StatusCodes.CONFLICT, getErrorMessage(error))
+        if (code === 'caller_required' || code === 'key_not_allowed') throw new AppError(StatusCodes.FORBIDDEN, getErrorMessage(error))
         throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
     }
 }

@@ -1,14 +1,15 @@
 import express from 'express'
 import chatflowsController from '../../controllers/chatflows'
 import { requireAnyPermission } from '../../identity/rbac'
-import { refuseUnlistedHarnessCards } from '../../services/harnesses/apiAccess'
+import { requireHarnessCanvasAccess, scopeChatflowListToKey } from '../../services/harnesses/apiAccess'
 const router = express.Router()
 
+// An API key also needs a HARNESS canvas's name, and every harness a sent canvas names, on its own list.
 // CREATE
 router.post(
     '/',
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create,agentflows:update'),
-    refuseUnlistedHarnessCards(),
+    requireHarnessCanvasAccess(),
     chatflowsController.saveChatflow
 )
 
@@ -16,11 +17,13 @@ router.post(
 router.get(
     '/',
     requireAnyPermission('chatflows:view,chatflows:update,agentflows:view,agentflows:update'),
+    scopeChatflowListToKey(),
     chatflowsController.getAllChatflows
 )
 router.get(
     ['/', '/:id'],
     requireAnyPermission('chatflows:view,chatflows:update,chatflows:delete,agentflows:view,agentflows:update,agentflows:delete'),
+    requireHarnessCanvasAccess({ body: false }),
     chatflowsController.getChatflowById
 )
 router.get(['/apikey/', '/apikey/:apikey'], chatflowsController.getChatflowByApiKey)
@@ -29,7 +32,7 @@ router.get(['/apikey/', '/apikey/:apikey'], chatflowsController.getChatflowByApi
 router.put(
     ['/', '/:id'],
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create,agentflows:update'),
-    refuseUnlistedHarnessCards(),
+    requireHarnessCanvasAccess(),
     chatflowsController.updateChatflow
 )
 
@@ -37,6 +40,7 @@ router.put(
 router.delete(
     ['/', '/:id'],
     requireAnyPermission('chatflows:delete,agentflows:delete,assistants:delete'),
+    requireHarnessCanvasAccess({ body: false }),
     chatflowsController.deleteChatflow
 )
 

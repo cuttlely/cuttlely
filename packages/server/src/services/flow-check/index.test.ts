@@ -97,6 +97,8 @@ function repository(entity: { name?: string }) {
                     .sort((a, b) => Number(a.sequenceNo) - Number(b.sequenceNo) || String(a.id).localeCompare(String(b.id)))
         }
     }
+    if (name === 'Workspace') return { ...writes, findOneBy: async ({ id }: { id: string }) => ({ id, organizationId: 'org-1' }) }
+    if (name === 'Organization') return { ...writes, findOneBy: async ({ id }: { id: string }) => ({ id, subscriptionId: 'sub-1' }) }
     if (name === 'Evaluator') {
         return {
             ...writes,
@@ -111,9 +113,12 @@ function repository(entity: { name?: string }) {
 }
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
-        AppDataSource: { getRepository: (entity: { name?: string }) => repository(entity) }
+        AppDataSource: { getRepository: (entity: { name?: string }) => repository(entity) },
+        nodesPool: { componentNodes: {} }
     })
 }))
+const mockExecuteFlow = jest.fn()
+jest.mock('../../utils/buildChatflow', () => ({ executeFlow: (...args: unknown[]) => mockExecuteFlow(...args) }))
 jest.mock('../../database/entities/ChatMessage', () => ({ ChatMessage: class ChatMessage {} }))
 jest.mock('../../database/entities/identity', () => ({ Workspace: class Workspace {}, Organization: class Organization {} }))
 jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map() } }))
@@ -2142,5 +2147,21 @@ describe('hand-picked questions', () => {
             harnessCheckHooks.inWorkspace = null
             harnessReplayHooks.run = null
         }
+    })
+})
+
+describe('a chatflow replay', () => {
+    test('runs each side through executeFlow for the caller that started the check', async () => {
+        replayHooks.run = null
+        mockExecuteFlow.mockImplementation(async ({ chatflow }: { chatflow: { flowData: string } }) => ({
+            text: wordOf(chatflow.flowData)
+        }))
+        const keyCaller = { via: 'api_key' as const, apiKeyId: 'key-1', harnesses: ['bakery'] }
+        const started = await startCheck(flow(), { questions: ['Hi'] }, 'http://127.0.0.1', undefined, undefined, keyCaller)
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.cases[0]).toMatchObject({ live: { error: null }, draft: { error: null } })
+        expect(mockExecuteFlow).toHaveBeenCalledTimes(2)
+        for (const [params] of mockExecuteFlow.mock.calls) expect(params.harnessCaller).toEqual(keyCaller)
     })
 })

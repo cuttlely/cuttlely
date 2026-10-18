@@ -11,6 +11,10 @@ import { onAbort, watchClientDisconnect } from '../../utils/clientAbort'
 import { bindRequestSession } from '../../utils/sessionOwnership'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { isStreamingRequest } from '../../utils/streaming'
+import type { IHarnessCaller } from '../../Interface'
+
+// The API gate refuses an API key on this route, so a Harness card here runs for the signed-in person.
+const SESSION_CALLER: IHarnessCaller = { via: 'session' }
 
 // Send input message and get prediction result (Internal)
 const createInternalPrediction = async (req: Request, res: Response, next: NextFunction) => {
@@ -36,7 +40,7 @@ const createInternalPrediction = async (req: Request, res: Response, next: NextF
             createAndStreamInternalPrediction(req, res, next)
             return
         } else {
-            const apiResponse = await utilBuildChatflow(req, true, undefined, { testDraft: true })
+            const apiResponse = await utilBuildChatflow(req, true, undefined, { testDraft: true, harnessCaller: SESSION_CALLER })
             if (apiResponse) return res.json(apiResponse)
         }
     } catch (error) {
@@ -66,7 +70,7 @@ const createAndStreamInternalPrediction = async (req: Request, res: Response, ne
             await getRunningExpressApp().redisSubscriber.subscribe(chatId)
         }
 
-        const apiResponse = await utilBuildChatflow(req, true, undefined, { testDraft: true })
+        const apiResponse = await utilBuildChatflow(req, true, undefined, { testDraft: true, harnessCaller: SESSION_CALLER })
         sseStreamer.streamMetadataEvent(apiResponse.chatId, apiResponse)
     } catch (error) {
         if (chatId) {
@@ -89,7 +93,7 @@ async function runHarnessCanvasChat(
     const streaming = isStreamingRequest(req)
     const source = 'playground'
     const run = (extra: { signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}) =>
-        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, ...extra })
+        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, caller: SESSION_CALLER, ...extra })
     if (!streaming) {
         const outcome = await run()
         return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })

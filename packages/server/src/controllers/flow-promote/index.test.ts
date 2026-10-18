@@ -192,7 +192,9 @@ describe('behavior check', () => {
                 key: `${FLOW_ID}:promote`,
                 canvas: '{"nodes":[{"id":"dev"}],"edges":[]}',
                 unavailable: null
-            }
+            },
+            undefined,
+            { via: 'session' }
         )
         expect(res.status).toHaveBeenCalledWith(202)
     })

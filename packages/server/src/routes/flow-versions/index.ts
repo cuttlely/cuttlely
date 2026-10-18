@@ -2,6 +2,7 @@ import express from 'express'
 import flowVersionsController from '../../controllers/flow-versions'
 import flowPromoteController from '../../controllers/flow-promote'
 import { requireAnyPermission, requireOwner } from '../../identity/rbac'
+import { requireHarnessCanvasAccess } from '../../services/harnesses/apiAccess'
 
 const router = express.Router()
 
@@ -25,6 +26,12 @@ router.get('/status', requireAnyPermission('chatflows:view,agentflows:view'), fl
 router.get('/:chatflowId', requireAnyPermission('chatflows:view,agentflows:view'), flowVersionsController.listVersions)
 router.get('/:chatflowId/:sha', requireAnyPermission('chatflows:view,agentflows:view'), flowVersionsController.getVersion)
 router.get('/:chatflowId/:sha/diff', requireAnyPermission('chatflows:view,agentflows:view'), flowVersionsController.diffVersion)
-router.post('/:chatflowId/:sha/restore', requireAnyPermission('chatflows:update,agentflows:update'), flowVersionsController.restoreVersion)
+// An API key needs a HARNESS canvas's name on its own list. The version's own name and cards are checked on the save.
+router.post(
+    '/:chatflowId/:sha/restore',
+    requireAnyPermission('chatflows:update,agentflows:update'),
+    requireHarnessCanvasAccess({ idParam: 'chatflowId', body: false }),
+    flowVersionsController.restoreVersion
+)
 
 export default router
