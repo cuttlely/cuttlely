@@ -386,9 +386,49 @@
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
         {
+            "from": "packages/server/src/routes/apiKeyCaseBypass.test.ts",
+            "to": "packages/server/src/routes/internal-predictions/index.ts",
+            "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/apiKeyCaseBypass.test.ts",
+            "to": "packages/server/src/utils/constants.ts",
+            "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
+        },
+        {
             "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
             "to": "packages/server/src/routes/chatflows/index.ts",
             "reason": "The bypass test mounts the real chatflows router behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
+            "to": "packages/server/src/routes/flow-config/index.ts",
+            "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
+            "to": "packages/server/src/routes/mcp-server/index.ts",
+            "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
+            "to": "packages/server/src/utils/constants.ts",
+            "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessNamesForKey.test.ts",
+            "to": "packages/server/src/routes/chatflows/index.ts",
+            "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessNamesForKey.test.ts",
+            "to": "packages/server/src/routes/node-load-methods/index.ts",
+            "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessNamesForKey.test.ts",
+            "to": "packages/server/src/utils/constants.ts",
+            "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
         },
         {
             "from": "packages/server/src/routes/internal-predictions/auth.test.ts",
