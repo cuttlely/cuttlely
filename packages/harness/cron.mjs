@@ -40,9 +40,11 @@ function parseField(expr, min, max, names) {
             start = min
             end = max
         } else if (range.includes('-')) {
-            const [a, b] = range.split('-')
-            start = token(a, names)
-            end = token(b, names)
+            const ends = range.split('-')
+            // "1-2-59" would otherwise run at 1 and 2 and drop the rest.
+            if (ends.length !== 2) throw bad(`Cron range "${part}" is not valid.`)
+            start = token(ends[0], names)
+            end = token(ends[1], names)
         } else {
             start = token(range, names)
             end = stepRaw === undefined ? start : max

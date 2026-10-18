@@ -11501,6 +11501,15 @@ await expectCase('a schedule handles daylight saving, late ticks, impossible dat
         }
     }
     check(
+        'a range with more than two endpoints is refused, and a two-endpoint range still parses',
+        refused('1-2-59 * * * *') === 'bad_schedule' &&
+            refused('0 9 * * mon-tue-fri') === 'bad_schedule' &&
+            refused('0 1-2-3/2 * * *') === 'bad_schedule' &&
+            refused('1-2 * * * *') === '' &&
+            refused('0 9 * * mon-fri') === '',
+        `${refused('1-2-59 * * * *')} ${refused('0 9 * * mon-tue-fri')} ${refused('1-2 * * * *')}`
+    )
+    check(
         '30 February and 31 April are refused up front, 29 February is kept',
         refused('0 9 30 2 *') === 'bad_schedule' && refused('0 9 31 4,6,9,11 *') === 'bad_schedule' && refused('0 9 29 2 *') === '',
         `${refused('0 9 30 2 *')} ${refused('0 9 29 2 *')}`
