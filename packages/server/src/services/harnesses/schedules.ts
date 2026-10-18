@@ -91,6 +91,20 @@ export function startHarnessScheduler(pollMs = HARNESS_SCHEDULE_POLL_MS) {
     tick()
 }
 
+/**
+ * The web server's start: the scheduler runs only when the app started cleanly. A tick on a failed start would claim a
+ * due time and then fail the owner check on the broken data source, so that time would be recorded failed and skipped
+ * instead of staying due until the server is healthy. Returns whether it started.
+ */
+export function startHarnessSchedulerIfReady(initError: unknown, pollMs = HARNESS_SCHEDULE_POLL_MS): boolean {
+    if (initError) {
+        logger.warn('[harness] schedules are not running: the server did not start cleanly. Due times stay due until it does.')
+        return false
+    }
+    startHarnessScheduler(pollMs)
+    return true
+}
+
 export function stopHarnessScheduler() {
     if (timer) clearInterval(timer)
     timer = null

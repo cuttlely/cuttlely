@@ -1,7 +1,7 @@
 // The server's schedule tick, end to end on a real schedule store: the tick claims a due time, checks the owner,
 // starts the run through the harness service's startBackgroundRun, and audits it. A deleted harness starts nothing.
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
@@ -306,6 +306,32 @@ describe('the server schedule tick', () => {
         } finally {
             servicesIndex.harnessDeleteHooks.removeSchedule = realRemoveSchedule
             dataSourceMod.getDataSource = realGetDataSource
+        }
+    })
+
+    it('starts the scheduler only after a clean start, so a failed start claims no due time', async () => {
+        saveDue('broken-team')
+        const before = schedules.getSchedule('broken-team')
+        let called = 0
+        harnesses.startBackgroundRun = async () => {
+            called += 1
+            return { runId: 'run_00000000-0000-4000-8000-000000000002' }
+        }
+        try {
+            assert.equal(ticks.startHarnessSchedulerIfReady(new Error('identity database unavailable'), 60000), false)
+            assert.equal(ticks.harnessSchedulerRunning(), false)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            assert.equal(called, 0)
+            assert.equal(schedules.getSchedule('broken-team').nextRunAt, before.nextRunAt, 'the due time stays due')
+            assert.equal(schedules.getSchedule('broken-team').lastResult, before.lastResult)
+            const source = await readFile(path.join(root, 'packages', 'server', 'src', 'index.ts'), 'utf8')
+            assert.match(source, /startHarnessSchedulerIfReady\(serverApp\?\.initError\)/)
+            assert.doesNotMatch(source, /\bstartHarnessScheduler\(\)/)
+            assert.equal(ticks.startHarnessSchedulerIfReady(undefined, 60000), true)
+            assert.equal(ticks.harnessSchedulerRunning(), true)
+        } finally {
+            ticks.stopHarnessScheduler()
+            schedules.deleteSchedule('broken-team')
         }
     })
 
