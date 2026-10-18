@@ -101,6 +101,9 @@ require.cache[appPath] = {
     exports: { getRunningExpressApp: () => app }
 }
 
+// Harness calls name their caller (D91). These cases act as a signed-in person.
+const SESSION_CALLER = { via: 'session' }
+
 function loadService(rel) {
     const mod = serverRequire(rel)
     return mod.default || mod
@@ -543,8 +546,8 @@ describe('workspace isolation', () => {
             const trace = await harnesses.getRun('OwnTeam', ownRun.id, WS1)
             assert.equal(trace.inputPreview, 'own-team-question')
             await missingHarness(() => harnesses.getRun('OtherTeam', otherRun.id, WS1))
-            await missingHarness(() => harnesses.assertRunRequest('OtherTeam', { question: 'hello' }, WS1))
-            const allowed = await harnesses.assertRunRequest('OwnTeam', { question: 'hello' }, WS1)
+            await missingHarness(() => harnesses.assertRunRequest('OtherTeam', { question: 'hello' }, WS1, SESSION_CALLER))
+            const allowed = await harnesses.assertRunRequest('OwnTeam', { question: 'hello' }, WS1, SESSION_CALLER)
             assert.equal(allowed.harness.name, 'OwnTeam')
 
             await assert.rejects(
@@ -587,7 +590,18 @@ describe('workspace isolation', () => {
                 return { chatId: 'c1', run: { id: 'run_1' }, payload: { text: 'ok' } }
             }
             const controller = loadService('./src/controllers/harnesses/index.ts')
-            const key = { permissions: ['chatflows:create'], activeWorkspaceId: WS1, activeOrganizationId: ORG, isOrganizationAdmin: false }
+            // The key lists both harnesses, so the team check is what refuses the other team's harness.
+            serverRequire('./src/services/harnesses/apiAccess.ts').setHarnessKeyLookup(async () => ({
+                workspaceId: WS1,
+                harnesses: ['OwnTeam', 'OtherTeam']
+            }))
+            const key = {
+                apiKeyId: 'key-1',
+                permissions: ['chatflows:create'],
+                activeWorkspaceId: WS1,
+                activeOrganizationId: ORG,
+                isOrganizationAdmin: false
+            }
             writeHarness(roster('OwnTeam', WS1))
             const owned = await callController(controller.createRun, {
                 params: { name: 'OwnTeam' },
@@ -614,6 +628,7 @@ describe('workspace isolation', () => {
             assert.equal(otherKey.error.statusCode, 404)
             assert.equal(otherKey.res.body, null)
         } finally {
+            serverRequire('./src/services/harnesses/apiAccess.ts').setHarnessKeyLookup(null)
             restoreEnv(previous)
             fs.rmSync(dataDir, { recursive: true, force: true })
         }
@@ -796,7 +811,10 @@ describe('workspace isolation', () => {
             })
         try {
             await assert.rejects(
-                () => chatflows.saveChatflow(harnessFlow('payroll', WS2, 'taken'), ORG, WS2, '', app.usageCacheManager),
+                () =>
+                    chatflows.saveChatflow(harnessFlow('payroll', WS2, 'taken'), ORG, WS2, '', app.usageCacheManager, undefined, {
+                        caller: SESSION_CALLER
+                    }),
                 (error) => {
                     assert.equal(error.statusCode, 409)
                     return true
@@ -806,13 +824,29 @@ describe('workspace isolation', () => {
             assert.equal(await repo.count({ where: { name: 'payroll' } }), 0)
             assert.equal(fs.readFileSync(file, 'utf8'), original)
 
-            const owned = await chatflows.saveChatflow(harnessFlow('payroll', WS1, 'TEAM-A-SAVED'), ORG, WS1, '', app.usageCacheManager)
+            const owned = await chatflows.saveChatflow(
+                harnessFlow('payroll', WS1, 'TEAM-A-SAVED'),
+                ORG,
+                WS1,
+                '',
+                app.usageCacheManager,
+                undefined,
+                { caller: SESSION_CALLER }
+            )
             assert.equal(typeof owned.id, 'string')
             assert.equal(await repo.count(), before + 1)
             assert.equal((await repo.findOneBy({ id: owned.id })).workspaceId, WS1)
             assert.match(fs.readFileSync(file, 'utf8'), /TEAM-A-SAVED/)
 
-            const theirs = await chatflows.saveChatflow(harnessFlow('bakery-b', WS2, 'TEAM-B'), ORG, WS2, '', app.usageCacheManager)
+            const theirs = await chatflows.saveChatflow(
+                harnessFlow('bakery-b', WS2, 'TEAM-B'),
+                ORG,
+                WS2,
+                '',
+                app.usageCacheManager,
+                undefined,
+                { caller: SESSION_CALLER }
+            )
             const stored = await repo.findOneBy({ id: theirs.id })
             const payrollAfterOwn = fs.readFileSync(file, 'utf8')
             await assert.rejects(
@@ -822,7 +856,8 @@ describe('workspace isolation', () => {
                         Object.assign(new ChatFlow(), { name: 'payroll', type: 'HARNESS', flowData: canvas('stolen') }),
                         ORG,
                         WS2,
-                        ''
+                        '',
+                        { caller: SESSION_CALLER }
                     ),
                 (error) => {
                     assert.equal(error.statusCode, 409)
@@ -850,7 +885,7 @@ describe('workspace isolation', () => {
                 })
             const rowsBeforeNode = await repo.count()
             await assert.rejects(
-                () => chatflows.saveChatflow(chatWithNode(WS2), ORG, WS2, '', app.usageCacheManager),
+                () => chatflows.saveChatflow(chatWithNode(WS2), ORG, WS2, '', app.usageCacheManager, undefined, { caller: SESSION_CALLER }),
                 (error) => {
                     assert.equal(error.statusCode, 409)
                     return true
@@ -858,7 +893,9 @@ describe('workspace isolation', () => {
             )
             assert.equal(await repo.count(), rowsBeforeNode)
             assert.equal(fs.readFileSync(file, 'utf8'), payrollAfterOwn)
-            const ownCaller = await chatflows.saveChatflow(chatWithNode(WS1), ORG, WS1, '', app.usageCacheManager)
+            const ownCaller = await chatflows.saveChatflow(chatWithNode(WS1), ORG, WS1, '', app.usageCacheManager, undefined, {
+                caller: SESSION_CALLER
+            })
             assert.equal((await repo.findOneBy({ id: ownCaller.id })).workspaceId, WS1)
         } finally {
             if (previous.data === undefined) delete process.env.CUTTLELY_DATA_DIR
@@ -902,7 +939,9 @@ describe('workspace isolation', () => {
                 flowData: '{}',
                 workspaceId: WS1
             }
-            await missingHarness(() => harnesses.replayCheck(canvas, '{}', { question: 'hello from the other team' }))
+            await missingHarness(() =>
+                harnesses.replayCheck(canvas, '{}', { question: 'hello from the other team' }, { caller: SESSION_CALLER })
+            )
             assert.equal(fs.readFileSync(path.join(harnessDir, 'ReplayTeam.json'), 'utf8'), before)
         } finally {
             restoreEnv(previous)
