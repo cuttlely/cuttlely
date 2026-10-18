@@ -40,7 +40,7 @@ const ANALYST_RULES = [
     'A question that names an account code such as WA-1004 is about that account. Look up its account_id in wholesale_accounts first when the view needs the id.',
     'Shop and store mean the same thing. Write shop names as stores has them, for example Old Town.',
     'Round money to two decimals.',
-    'Describe a view before the first query against it.'
+    'Before your first query on any view, call describe on it. Never query a view you have not described in this conversation.'
 ].join('\n')
 // DOCS_SHOTS=picker,rules,describe limits the set. picker and rules need only the server; describe needs the runtime.
 const SHOTS = new Set(
