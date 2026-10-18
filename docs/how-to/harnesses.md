@@ -242,17 +242,82 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ![Try it after the run. The Run card says Finished, the analyst row is done on OpenAI gpt-5.6-luna with 1 tool, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
 
-**Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise, including the draft's specialists, tools, and models. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish.
+**Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise, including the draft's specialists, tools, and models. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish. [Run it from your app with an API key](#run-it-from-your-app-with-an-api-key) covers the API key setup and the background run.
 
 ## Look at earlier runs
 
-**Runs** on the harness page lists recent runs, newest first. Each row has the start time, where the run came from, the time it took, the tokens, the start of the prompt, and a status: `succeeded`, `completed with errors`, `failed`, `cancelled`, or `running`. Runs from **Try it** and the canvas chat are listed as `playground`.
+**Runs** on the harness page lists recent runs, newest first. Each row has the start time, where the run came from, the time it took, the tokens, the start of the prompt, and a status: `succeeded`, `completed with errors`, `failed`, `cancelled`, `running`, or `queued`. Runs from **Try it** and the canvas chat are listed as `playground`, runs started through the API as `api`, and runs from a schedule as `schedule`.
 
 Select a row to open its run card under the list. Select a specialist row in the card to see its task and tool chips.
 
 ![The Runs list with three succeeded runs. The selected run is open below the list. Its analyst row is expanded and shows the task Create a tasks table with id, title, and status, and three chips, each mcp__analyst__query · done, the last with 2 rows. The next line reads Harness Prime combined this result into the answer.](../images/harnesses/harness-run-trace.png)
 
 With no runs yet, the list says `No runs yet. Send a prompt above, or call this harness from a chatflow.` A failed run shows its error code and message in red under the card.
+
+## Run it from your app with an API key
+
+An app can start a run with an API key, get a run id back at once, and fetch the answer when the team is done. This example uses a made-up harness, `bakery-team`, and a made-up key name.
+
+1. Open **API Keys** and select **Create Key** (or edit a key).
+2. Name it, for example `Bakery back office`.
+3. Under **Permissions**, tick **Create** under **CHATFLOWS**. **View** is ticked with it.
+4. Under **Harnesses this key may run**, tick `bakery-team`. Nothing is ticked on a new key, and a key with nothing ticked runs no harness.
+5. Select **Add** and copy the key.
+
+Start a run from your server:
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/harnesses/bakery-team/runs/async" \
+  -H "Authorization: Bearer $CUTTLELY_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Which cakes are booked for pickup on Friday?"}'
+```
+
+```json
+{
+    "runId": "run_0b9e6d2c-1a3f-4e5d-8c7b-6a5f4e3d2c1b",
+    "harness": "bakery-team",
+    "status": "queued",
+    "resultUrl": "/api/v1/harnesses/bakery-team/runs/run_0b9e6d2c-1a3f-4e5d-8c7b-6a5f4e3d2c1b/result"
+}
+```
+
+Then read the `resultUrl` every few seconds until `finished` is `true`:
+
+```json
+{
+    "status": "succeeded",
+    "finished": true,
+    "result": { "text": "Two cakes are booked for Friday: a lemon drizzle at 10:00 and a chocolate layer cake at 15:30." }
+}
+```
+
+The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. A harness that is not ticked on the key answers `403` `This API key may not run harness "payroll".`, whether or not that harness exists, and that refusal is an **Admin** > **Audit log** row. Each key may start 60 runs and read 600 times a minute, counted in each server process. The key sees only the runs it started. The full request and response, and every error, are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
+
+## Run it on a schedule
+
+A harness can run by itself on a cron schedule, for example a morning summary on weekdays. This example uses a made-up harness, `bakery-team`.
+
+1. Open the harness page, `/harnesses/bakery-team`.
+2. Under **Schedule**, set **Cron** to `0 7 * * 1-5` (07:00, Monday to Friday). The fields are minute, hour, day of the month, month, and day of the week.
+3. Pick a **Time zone**, for example `Europe/Paris`. The page starts with your browser's time zone, and the list always includes it.
+4. Type the **Question for each run**, for example `Summarise yesterday's orders and flag any cake booked for today.`
+5. Select **Add schedule**. The note beside the button says that saving makes you the owner.
+
+The card then says who the schedule runs as, when the next run is, and how the last one went. A few more rules:
+
+-   **Owner.** A schedule runs with the permissions of the person who last saved or resumed it, in the harness team. At each due time Cuttlely checks that this person can still start a harness run there (organization owner, or `chatflows:create`, `chatflows:update`, or `agentflows:create`). If they cannot, for example after a role change or when the user is disabled, that time is skipped as `refused`, with an **Admin** > **Audit log** row. Save or resume the schedule as someone who can run it. An API key cannot set a schedule. Every run a schedule starts is an audit row with its run id.
+-   **Delete.** **Delete schedule** asks before it deletes. The runs it already made stay under **Runs**.
+-   **Pause.** The switch at the top right of the card pauses and resumes. A paused schedule shows no next run. Resuming counts the next run from now, so the times missed while paused are not run, and makes the person who resumes it the owner.
+-   **No overlap.** A due time while the previous scheduled run is still going is skipped as `skipped`. The next due time tries again.
+-   **Run history.** Scheduled runs show under **Runs**, listed as `schedule`, with the same run card, tokens, usage totals and traces as any other run. **Refresh** next to **Runs** loads new ones. A scheduled run uses Live, not the draft.
+-   **Restarts.** Schedules are kept in the harness database in the data folder, so they continue after a restart. While the server restarts or shuts down it starts no scheduled run, including the rest of a tick that was already going; a due time it did not reach stays due. A due time still `starting` after a minute is shown as `failed`, because the server stopped before it started the run. **Restart** in Server settings stops starting scheduled runs as soon as you press it, even when nothing is running. A shutdown, and a Restart that lets runs finish, wait for a scheduled run already going, up to their usual wait, and a run cut off by the restart is marked failed with `interrupted` at a later start. A due time that passed while the server was down runs once when it is back, and the next run is counted from then.
+-   **Several servers.** Servers that share the data folder each check schedules, and each due time is claimed by one of them, so it starts one run.
+-   **Days.** The day-of-month and day-of-week fields follow Vixie cron. A field that starts with `*` (such as `*` or `*/2`) is unrestricted. When one of the two starts with `*`, a day has to match the other one. When both are restricted, a day that matches either one runs: `0 9 1 * 1` runs on the 1st and on every Monday. A day of the month that no chosen month has, such as `30 2` (30 February), is refused when you save.
+-   **Time zone.** Use a place name such as `Europe/Paris`, or `UTC`. An offset such as `+02:00` or `Etc/GMT-2`, and an abbreviation such as `CET`, are refused, because they do not follow the place's clock changes. The zone is saved in the server's canonical spelling.
+-   **Time changes.** In a zone with daylight saving time, when the clocks spring forward over a time a fixed-time schedule names, it runs once at the first minute after the change, as Vixie cron does: `30 2 * * *` in `Europe/Paris` runs at 03:00 on the day the clocks go from 02:00 to 03:00. A fixed-time schedule is one whose minute and hour fields do not start with `*`. A schedule whose minute or hour field starts with `*`, such as `*/15 2 * * *`, keeps to the new clock, so the skipped minutes do not run. If the time right after the change is also on the schedule, it runs once. When the clocks fall back and an hour repeats, each wall time in it runs once, on its first pass, including `*/15`; this is stricter than Vixie cron, which runs a `*` minute or hour schedule again in the repeated hour. A tick that runs late never runs the same wall time twice.
+
+Deleting the harness deletes its schedule. The API calls are in [Schedule a harness](../api.md#schedule-a-harness).
 
 ## Call the harness from a chatflow
 
@@ -266,6 +331,8 @@ A chatflow runs a harness with the **Harness** node. A chatflow whose only node 
 ![The Add Nodes panel on a new chatflow canvas in the dark theme, with Harness in the search box. One result under Harness: Attach a named harness as a tool. The agent calls it when its system message routes a task to tool:harness. A chat whose only node is this harness runs that roster for the message.](../images/harnesses/chatflow-add-harness-node.png)
 
 ![A chatflow named Chief of staff chat in the dark theme, with one Harness node set to chief-of-staff and Return Direct on. The chat panel shows the Run card for chief-of-staff, Harness Prime sent work to researcher, and an answer that quotes the sample note: the researcher reads it from an in-memory store, and Local Hash Embeddings built the vectors, with no provider key.](../images/harnesses/chatflow-harness-chat.png)
+
+When an app calls this chatflow with an API key bound to it, that key also needs `chief-of-staff` under **Harnesses this key may run**; otherwise the call answers `403`. An API key cannot save a chatflow whose **Harness** card names a harness off its own list.
 
 **Return Direct** is on by default and sends the harness reply to the chat as it is. To use the team as one tool of a chatflow agent, connect the **Harness** node to the agent's tools instead. The agent calls it when its system message routes a task to `tool:harness`. Turn **Return Direct** off only when the agent has to rework the reply. Each pass is another model call.
 
@@ -293,7 +360,7 @@ Sample chatflows that run a harness by name are in `samples/chatflows/`. The har
 
 `POST /api/v1/prediction/:id` on a chatflow that runs a harness returns `text`, `harness`, `agents`, `sources`, and `artifacts`. Streaming (`true` or `"true"`) sends harness events on that response. The event names are `route`, `specialist`, `tool`, `partial`, `handoff`, and `final`.
 
-The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key still goes through a chatflow, and `POST /api/v1/harnesses/:name/runs` stays on Live.
+The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key goes through a chatflow bound to that key, or calls `POST /api/v1/harnesses/:name/runs` and `POST /api/v1/harnesses/:name/runs/async` when the harness is on that key's list. Both stay on Live.
 
 Chat uploads on `POST /api/v1/prediction/:id` use multipart field `files` with `question`. Turn on file uploads for that chatflow first (**Configuration**, **File Upload**, **Enable Full File Upload**); with them off the file is refused with 403 and not stored. A file over 25 MB is refused. A large file is a path the harness can read. The sample roster is `samples/harnesses/upload.canvas.json`.
 
