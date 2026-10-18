@@ -113,9 +113,30 @@ export function trackBackgroundRun<T>(run: Promise<T>): Promise<T> {
     )
 }
 
-/** Stops new runs and waits for the ones in progress, up to limitMs. Resolves with how many were still running. */
+const drainListeners = new Set<() => void>()
+
+/** Called once when a drain begins, before it waits, such as the harness scheduler stopping. Returns an unsubscribe. */
+export function onDrainStart(listener: () => void): () => void {
+    drainListeners.add(listener)
+    return () => drainListeners.delete(listener)
+}
+
+/**
+ * Stops new runs and waits for the ones in progress, up to limitMs. Resolves with how many were still running.
+ * New runs are refused from the call itself, before the first await, even when nothing is in progress.
+ */
 export async function drainRuns(limitMs: number, pollMs = 250): Promise<number> {
+    const starting = !draining
     draining = true
+    if (starting) {
+        for (const listener of [...drainListeners]) {
+            try {
+                listener()
+            } catch {
+                // A listener that fails does not hold up the drain.
+            }
+        }
+    }
     const until = Date.now() + limitMs
     while (inProgress > 0 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, pollMs))
     return inProgress
@@ -197,6 +218,7 @@ export async function shutdownDrain(server: Server | undefined, limitMs: number,
 
 /** Tests only. */
 export function resetRuns(): void {
+    drainListeners.clear()
     inProgress = 0
     backgroundRuns = 0
     draining = false

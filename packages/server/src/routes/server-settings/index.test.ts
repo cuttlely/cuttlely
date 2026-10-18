@@ -10,7 +10,7 @@ import { isServerSettingsUrl } from '../../settings/redact'
 import { StartState } from '../../settings/apply'
 import { readHistory } from '../../settings/history'
 import { resetRestartRequest, setRestartHandler } from '../../settings/restart'
-import { resetRuns } from '../../settings/runs'
+import { isDraining, onDrainStart, resetRuns, runsInProgress } from '../../settings/runs'
 import { publishCheckEnabled, resetRuntimeLimitsForTests, runtimeNumber } from '../../settings/runtime'
 import { SETTINGS_FILE, readSettingsFile, readStoredValues, writeSettingsFile } from '../../settings/store'
 
@@ -318,6 +318,18 @@ describe('discard, history and restart', () => {
         await new Promise((resolve) => setTimeout(resolve, 400))
         expect(handler).toHaveBeenCalledTimes(1)
         expect(readHistory(dir)[0]).toMatchObject({ kind: 'restart', by: 'owner@example.com' })
+    })
+
+    it('starts the drain and its listeners as soon as a restart is accepted, with no run open', async () => {
+        env.CUTTLELY_SUPERVISED = '1'
+        setRestartHandler(jest.fn(async () => undefined))
+        const listener = jest.fn()
+        onDrainStart(listener)
+        expect(runsInProgress()).toBe(0)
+        const res = await app(OWNER).post('/api/v1/server-settings/restart').send({ wait: false })
+        expect(res.body.restarting).toBe(true)
+        expect(isDraining()).toBe(true)
+        expect(listener).toHaveBeenCalledTimes(1)
     })
 
     it('tells queue mode to restart the workers too', async () => {

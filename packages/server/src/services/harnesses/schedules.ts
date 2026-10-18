@@ -2,7 +2,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { safeRecordAudit } from '../../identity/auditLog'
 import { resolveTeamAccess } from '../../identity/rbac'
 import logger from '../../utils/logger'
-import { isDraining, isShuttingDown, trackBackgroundRun } from '../../settings/runs'
+import { isDraining, isShuttingDown, onDrainStart, trackBackgroundRun } from '../../settings/runs'
 import { orgIdForWorkspace } from '../etl'
 import harnessesService, { loadHarness } from '.'
 
@@ -77,10 +77,13 @@ export async function tickHarnessSchedules() {
 }
 
 let timer: NodeJS.Timeout | null = null
+let unsubscribeDrain: (() => void) | null = null
 
 // The web server calls this once it listens. Schedules live in the harness database, so they resume after a restart.
+// A drain (Restart) stops it, the same as shutdown does.
 export function startHarnessScheduler(pollMs = HARNESS_SCHEDULE_POLL_MS) {
     if (timer) return
+    unsubscribeDrain = onDrainStart(stopHarnessScheduler)
     const tick = () =>
         void tickHarnessSchedules().catch((error) => logger.warn(`[harness] schedule tick failed: ${getErrorMessage(error)}`))
     timer = setInterval(tick, pollMs)
@@ -91,4 +94,11 @@ export function startHarnessScheduler(pollMs = HARNESS_SCHEDULE_POLL_MS) {
 export function stopHarnessScheduler() {
     if (timer) clearInterval(timer)
     timer = null
+    unsubscribeDrain?.()
+    unsubscribeDrain = null
+}
+
+/** Tests: whether the poll timer is running. */
+export function harnessSchedulerRunning(): boolean {
+    return timer !== null
 }
