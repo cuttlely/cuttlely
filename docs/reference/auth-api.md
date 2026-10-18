@@ -161,7 +161,7 @@ The token is 32 random bytes, encoded so it can sit in a fragment. The database 
 
 `POST /api/v1/account/invite`
 
-Requires `users:manage` or `workspace:add-user` for the previous behavior. Returning or emailing a link requires `users:manage` (the organization owner can too). The body is the same user, team, and role object the invite already accepts, plus optional `link`.
+Requires `users:manage` or `workspace:add-user`. Returning or emailing a link requires `users:manage` or the organization owner, or `workspace:add-user` when the invite is into the caller's own active team. A `workspace:add-user` caller asking for a link for another team gets 403 `{ "message": "Forbidden" }`, and an invite into another team without a link is 404 `{ "message": "Team not found" }`. With AuthKit on an invite always carries a link, so this is the rule for every AuthKit invite. The body is the same user, team, and role object the invite already accepts, plus optional `link`.
 
 | `link`  | Mail configured | Status | Body                                                                                                                              |
 | ------- | --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -196,12 +196,13 @@ Requires `users:manage`. `:id` must be a user in the caller's current team. Anot
 
 Public. No session. Send `{ "token", "password" }` in the JSON body. A `token` query parameter is ignored. The route is rate limited: 10 failures from one client address in 15 minutes, then 429 `{ "message": "Too many attempts. Try again later." }`.
 
-| Status | When                                                                                                                         | Body                                                   |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules | `{ "message": "Password saved." }`                     |
-| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible                          | `{ "message": "This link is not valid." }`             |
-| 400    | A token is present and the password fails a strength rule                                                                    | `{ "message": "<the rule>" }` The token stays unused   |
-| 429    | Too many failures from this client address                                                                                   | `{ "message": "Too many attempts. Try again later." }` |
+| Status | When                                                                                                                         | Body                                                                                                                                                                          |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules | `{ "message": "Password saved." }`                                                                                                                                            |
+| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible                          | `{ "message": "This link is not valid." }`                                                                                                                                    |
+| 400    | A token is present and the password fails a strength rule                                                                    | `{ "message": "<the rule>" }` The token stays unused                                                                                                                          |
+| 400    | AuthKit is configured and the token is an invite                                                                             | `{ "message": "This invite is accepted by signing in with WorkOS, not with a password. Open your invite link and select Accept invite with WorkOS." }` The token stays unused |
+| 429    | Too many failures from this client address                                                                                   | `{ "message": "Too many attempts. Try again later." }`                                                                                                                        |
 
 An empty or missing token always returns `{ "message": "This link is not valid." }`, including when the password is also weak. When a token is present and the password fails a strength rule, the response is that rule. The token is not read and is not consumed, so a valid token stays unused and the response does not show that the token is live.
 

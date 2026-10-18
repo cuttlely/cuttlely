@@ -48,7 +48,7 @@ AuthKit links an existing active user when the email AuthKit sends is verified a
 
 ## Invite and reset links
 
-A person with `users:manage` can ask `POST /api/v1/account/invite` to return a one-time link by sending `link: true` with the name, email, team, and role. The response includes `link` once. The token sits in the URL fragment (`#token=`), not in the path or the query, so the server log does not receive it. The page at `/local-accept` reads that fragment, clears it from the address bar, and posts the token with the new password to `POST /api/v1/auth/local/accept`.
+A person with `users:manage`, or with `workspace:add-user` for an invite into their own active team, can ask `POST /api/v1/account/invite` to return a one-time link by sending `link: true` with the name, email, team, and role. The response includes `link` once. The token sits in the URL fragment (`#token=`), not in the path or the query, so the server log does not receive it. The page at `/local-accept` reads that fragment, clears it from the address bar, and posts the token with the new password to `POST /api/v1/auth/local/accept`.
 
 `POST /api/v1/users/:id/reset-link` does the same for someone who already has an account in the caller's current team. For someone still pending it returns a new invite link instead, and the older invite link stops working. Saving that password ends every local session for that person. Issuing the link does not. The organization owner, an AuthKit-linked account, and a service account cannot be reset this way. A caller who is not the owner cannot reset someone whose role includes a permission the caller does not have, and cannot invite someone into a role they could not grant themselves.
 

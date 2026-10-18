@@ -106,6 +106,7 @@ A person an admin adds is stored as a pending invite (`invited`). They have no a
 -   **Single use.** Using the token, making the person active, and binding their AuthKit sign-in happen in one transaction, so a second use of the same link is refused, even when two sign-ins race.
 -   **Expiry.** A link lasts the invite link lifetime: 72 hours by default, 1 to 168 hours in **Server Settings** (`INVITE_TOKEN_EXPIRY_IN_HOURS`).
 -   **Only for that person.** The token must be the one made for that user, and the AuthKit email must match the email the invite was sent to.
+-   **No password route around AuthKit.** With AuthKit on, `POST /api/v1/auth/local/accept` refuses an invite token and leaves it unused, so an invite can only be accepted by the AuthKit sign-in that checks the email and binds the account. Without AuthKit, that route is how an invite sets a password.
 -   **Revoked or removed invalidates.** A newer link for the same person replaces the older one. Disabling a pending person, or removing them from the team or the organization, marks their open links used, so adding them back does not bring an old link back. Enabling a user never makes a pending invite active.
 -   **An email match alone never activates.** A sign-in whose email matches a pending invite does not activate it, even when the identity provider reports the email as verified. The sign-in page shows `You have a pending invite. Open the invite link from your email to join.` and the person stays pending.
 
