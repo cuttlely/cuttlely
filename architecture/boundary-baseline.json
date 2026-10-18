@@ -416,6 +416,11 @@
             "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
         },
         {
+            "from": "packages/server/src/routes/export-import/index.test.ts",
+            "to": "packages/server/src/routes/export-import/index.ts",
+            "reason": "The closed-route test mounts the real export-import router"
+        },
+        {
             "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
             "to": "packages/server/src/routes/chat-messages/index.ts",
             "reason": "The bypass test mounts the real router behind the API gate"
