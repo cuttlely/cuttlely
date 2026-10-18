@@ -7,6 +7,7 @@ import request from 'supertest'
 import { DataSource } from 'typeorm'
 import { apiV1Auth } from '../identity/apiGate'
 import { setTeamPermissionLookup } from '../identity/rbac'
+import { API_KEY_BLACKLIST_URLS, WHITELIST_URLS } from '../utils/constants'
 
 const handled: string[] = []
 
@@ -29,6 +30,8 @@ jest.mock('../controllers/chatflows', () => standIn('chatflows'))
 jest.mock('../controllers/flow-drafts', () => standIn('drafts'))
 jest.mock('../controllers/flow-versions', () => standIn('versions'))
 jest.mock('../controllers/flow-promote', () => standIn('promote'))
+jest.mock('../controllers/mcp-server', () => standIn('mcp'))
+jest.mock('../controllers/flow-configs', () => standIn('config'))
 jest.mock('../identity/production', () => ({ applicationSql: () => ({}) }))
 
 type Key = { id: string; workspaceId: string; harnesses: string[] | null }
@@ -51,6 +54,8 @@ jest.mock('../DataSource', () => ({
 import chatflowsRouter from './chatflows'
 import flowDraftsRouter from './flow-drafts'
 import flowVersionsRouter from './flow-versions'
+import mcpServerRouter from './mcp-server'
+import flowConfigRouter from './flow-config'
 
 const ALL = [
     'chatflows:view',
@@ -60,10 +65,13 @@ const ALL = [
     'agentflows:view',
     'agentflows:create',
     'agentflows:update',
-    'agentflows:delete'
+    'agentflows:delete',
+    'chatflows:config',
+    'agentflows:config'
 ]
 const TOKENS: Record<string, { id: string; workspaceId: string; permissions: string[] }> = {
-    'bakery-key': { id: 'key-bakery', workspaceId: 'team-a', permissions: ALL }
+    'bakery-key': { id: 'key-bakery', workspaceId: 'team-a', permissions: ALL },
+    'bare-key': { id: 'key-bare', workspaceId: 'team-a', permissions: [] }
 }
 const person = {
     id: 'user-1',
@@ -84,8 +92,8 @@ function app() {
     server.use(express.json())
     server.use(
         apiV1Auth({
-            whitelistURLs: [],
-            apiKeyBlacklistURLs: [],
+            whitelistURLs: WHITELIST_URLS,
+            apiKeyBlacklistURLs: API_KEY_BLACKLIST_URLS,
             licenseRequired: () => false,
             dataSource,
             validateAPIKey: async (req) => {
@@ -98,6 +106,8 @@ function app() {
     server.use('/api/v1/chatflows', chatflowsRouter)
     server.use('/api/v1/flow-drafts', flowDraftsRouter)
     server.use('/api/v1/flow-versions', flowVersionsRouter)
+    server.use('/api/v1/mcp-server', mcpServerRouter)
+    server.use('/api/v1/flow-config', flowConfigRouter)
     return request(server)
 }
 
@@ -108,6 +118,9 @@ const PAYROLL = '11111111-1111-4111-8111-111111111111'
 const BAKERY = '22222222-2222-4222-8222-222222222222'
 const KEYED_CHAT = '33333333-3333-4333-8333-333333333333'
 const PLAIN_CHAT = '44444444-4444-4444-8444-444444444444'
+const KEYLESS_PAYROLL = '55555555-5555-4555-8555-555555555555'
+const OWN_BAKERY = '66666666-6666-4666-8666-666666666666'
+const OWN_PAYROLL = '77777777-7777-4777-8777-777777777777'
 const SHA = 'abcdef1'
 
 const harnessCard = (name: string) => JSON.stringify({ nodes: [{ data: { name: 'harness', inputs: { harnessName: name } } }], edges: [] })
@@ -144,7 +157,58 @@ beforeEach(() => {
         apikeyid: 'key-x'
     })
     flows.set(PLAIN_CHAT, { ...base, id: PLAIN_CHAT, name: 'Plain', type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}' })
+    flows.set(KEYLESS_PAYROLL, { ...base, id: KEYLESS_PAYROLL, name: 'Open', type: 'CHATFLOW', flowData: harnessCard('payroll') })
+    flows.set(OWN_BAKERY, {
+        ...base,
+        id: OWN_BAKERY,
+        name: 'Mine',
+        type: 'AGENTFLOW',
+        flowData: agentTool('bakery'),
+        apikeyid: 'key-bakery'
+    })
+    flows.set(OWN_PAYROLL, {
+        ...base,
+        id: OWN_PAYROLL,
+        name: 'Mine 2',
+        type: 'CHATFLOW',
+        flowData: harnessCard('payroll'),
+        apikeyid: 'key-bakery'
+    })
 })
+
+/** The path as sent, with each word of each fixed segment after /api/v1/ capitalised, and in mixed case. */
+function spellings(path: string): string[] {
+    const recase = (fn: (word: string) => string) =>
+        path.replace(
+            /^\/api\/v1\/(.*)$/,
+            (_all, rest: string) =>
+                '/api/v1/' +
+                rest
+                    .split('/')
+                    .map((segment) => (/^[a-z-]+$/.test(segment) ? segment.split('-').map(fn).join('-') : segment))
+                    .join('/')
+        )
+    const capitalised = recase((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    const mixed = recase((word) =>
+        word
+            .split('')
+            .map((ch, i) => (i % 2 ? ch.toUpperCase() : ch))
+            .join('')
+    )
+    return [capitalised, mixed]
+}
+
+type Method = 'get' | 'post' | 'put' | 'patch' | 'delete'
+
+/** Sends the request as written, capitalised, and in mixed case, and expects each one refused before a handler. */
+async function refusedInEveryCase(method: Method, path: string, headers: Record<string, string>, body?: object, status = 403) {
+    for (const spelled of [path, ...spellings(path)]) {
+        const sent = app()[method](spelled).set(headers)
+        const res = body === undefined ? await sent : await sent.send(body)
+        expect({ method, spelled, status: res.status }).toEqual({ method, spelled, status })
+    }
+    expect(handled).toEqual([])
+}
 
 describe('M1: a HARNESS canvas on /chatflows needs its name on the key list', () => {
     it('create: refuses a HARNESS canvas named off the list and saves one on it', async () => {
@@ -254,5 +318,71 @@ describe('M2: rebinding or unbinding a flow key', () => {
             .send({ apikeyid: null, flowData: harnessCard('bakery') })
         expect(sent.status).toBe(200)
         expect(handled).toEqual(['chatflows.updateChatflow', 'chatflows.updateChatflow'])
+    })
+})
+
+const MCP_ROUTES: Array<[Method, string, object?]> = [
+    ['get', ''],
+    ['post', '', {}],
+    ['put', '', { enabled: true }],
+    ['delete', ''],
+    ['post', '/refresh', {}]
+]
+
+describe('MCP settings and the MCP token: only on a flow the key could run, with its harnesses on the list', () => {
+    it('refuses a flow bound to another key, in every case, on each MCP route', async () => {
+        for (const [method, suffix, body] of MCP_ROUTES) {
+            await refusedInEveryCase(method, `/api/v1/mcp-server/${KEYED_CHAT}${suffix}`, KEY, body)
+        }
+    })
+
+    it("refuses a keyless flow or a HARNESS canvas that names a harness off the list, and the key's own flow that does", async () => {
+        for (const id of [KEYLESS_PAYROLL, PAYROLL, OWN_PAYROLL]) {
+            for (const [method, suffix, body] of MCP_ROUTES) {
+                await refusedInEveryCase(method, `/api/v1/mcp-server/${id}${suffix}`, KEY, body)
+            }
+        }
+    })
+
+    it('lets the key manage its own flow and a keyless flow whose harnesses are listed; a person by role', async () => {
+        await refusedInEveryCase('post', `/api/v1/mcp-server/${KEYED_CHAT}`, KEY, {})
+        expect((await app().post(`/api/v1/mcp-server/${OWN_BAKERY}`).set(KEY).send({})).status).toBe(200)
+        expect((await app().get(`/api/v1/mcp-server/${PLAIN_CHAT}`).set(KEY)).status).toBe(200)
+        expect((await app().get(`/api/v1/mcp-server/${KEYED_CHAT}`).set(SESSION)).status).toBe(200)
+        expect(handled).toEqual(['mcp.createMcpServerConfig', 'mcp.getMcpServerConfig', 'mcp.getMcpServerConfig'])
+    })
+})
+
+describe('the schedule switch: only on a flow the key could run, with its harnesses on the list', () => {
+    it("refuses another key's flow and a flow naming a harness off the list, in every case", async () => {
+        for (const id of [KEYED_CHAT, KEYLESS_PAYROLL, OWN_PAYROLL]) {
+            await refusedInEveryCase('patch', `/api/v1/chatflows/${id}/schedule/enabled`, KEY, { enabled: true })
+        }
+        expect((await app().patch(`/api/v1/chatflows/${OWN_BAKERY}/schedule/enabled`).set(KEY).send({ enabled: true })).status).toBe(200)
+        expect((await app().patch(`/api/v1/chatflows/${KEYED_CHAT}/schedule/enabled`).set(SESSION).send({ enabled: false })).status).toBe(
+            200
+        )
+        expect(handled).toEqual(['chatflows.toggleScheduleEnabled', 'chatflows.toggleScheduleEnabled'])
+    })
+})
+
+describe('version history reads on a HARNESS canvas need its name on the key list', () => {
+    it('refuses the list, one version, and a diff, in every case', async () => {
+        await refusedInEveryCase('get', `/api/v1/flow-versions/${PAYROLL}`, KEY)
+        await refusedInEveryCase('get', `/api/v1/flow-versions/${PAYROLL}/${SHA}`, KEY)
+        await refusedInEveryCase('get', `/api/v1/flow-versions/${PAYROLL}/${SHA}/diff`, KEY)
+        await app().get(`/api/v1/flow-versions/${BAKERY}`).set(KEY)
+        await app().get(`/api/v1/flow-versions/${BAKERY}/${SHA}`).set(KEY)
+        await app().get(`/api/v1/flow-versions/${BAKERY}/${SHA}/diff`).set(KEY)
+        expect(handled).toEqual(['versions.listVersions', 'versions.getVersion', 'versions.diffVersion'])
+    })
+})
+
+describe('flow config reads use the chatflow read checks', () => {
+    it('refuses a key without a view permission and a HARNESS canvas off the list, in every case', async () => {
+        await refusedInEveryCase('get', `/api/v1/flow-config/${PLAIN_CHAT}`, { Authorization: 'Bearer bare-key' })
+        await refusedInEveryCase('get', `/api/v1/flow-config/${PAYROLL}`, KEY)
+        expect((await app().get(`/api/v1/flow-config/${BAKERY}`).set(KEY)).status).toBe(200)
+        expect(handled).toEqual(['config.getSingleFlowConfig'])
     })
 })

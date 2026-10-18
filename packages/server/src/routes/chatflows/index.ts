@@ -1,7 +1,7 @@
 import express from 'express'
 import chatflowsController from '../../controllers/chatflows'
 import { requireAnyPermission } from '../../identity/rbac'
-import { requireHarnessCanvasAccess, scopeChatflowListToKey } from '../../services/harnesses/apiAccess'
+import { requireFlowRunnableByKey, requireHarnessCanvasAccess, scopeChatflowListToKey } from '../../services/harnesses/apiAccess'
 const router = express.Router()
 
 // An API key also needs a HARNESS canvas's name, and every harness a sent canvas names, on its own list.
@@ -61,7 +61,13 @@ router.get(
     requireAnyPermission('chatflows:view,chatflows:update,agentflows:view,agentflows:update'),
     chatflowsController.getScheduleStatus
 )
-router.patch('/:id/schedule/enabled', requireAnyPermission('chatflows:update,agentflows:update'), chatflowsController.toggleScheduleEnabled)
+// A schedule runs the flow under its own key: an API key may switch it only on a flow it could run itself.
+router.patch(
+    '/:id/schedule/enabled',
+    requireAnyPermission('chatflows:update,agentflows:update'),
+    requireFlowRunnableByKey(),
+    chatflowsController.toggleScheduleEnabled
+)
 router.get(
     '/:id/schedule/trigger-logs',
     requireAnyPermission('chatflows:view,chatflows:update,agentflows:view,agentflows:update'),

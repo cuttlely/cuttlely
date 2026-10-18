@@ -9,7 +9,7 @@ import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import apiKeyService from '../../services/apikey'
 import { actorFromUser } from '../../services/flow-versions/author'
 import chatflowsService from '../../services/chatflows'
-import { harnessCallerFor } from '../../services/harnesses/apiAccess'
+import { harnessAllowlist, harnessCallerFor } from '../../services/harnesses/apiAccess'
 import scheduleService from '../../services/schedule'
 import { GeneralErrorMessage } from '../../utils/constants'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -128,8 +128,12 @@ const getChatflowByApiKey = async (req: Request, res: Response, next: NextFuncti
         if (!apikey) {
             return res.status(401).send('Unauthorized')
         }
-        const apiResponse = await chatflowsService.getChatflowByApiKey(apikey.id, apikey.workspaceId)
-        return res.json(apiResponse)
+        const rows = await chatflowsService.getChatflowByApiKey(apikey.id, apikey.workspaceId)
+        // A HARNESS canvas bound to this key is listed only when its name is on the key's own harness list.
+        const allowed = harnessAllowlist(apikey.harnesses)
+        const listed = rows.filter((row) => row.type !== 'HARNESS' || allowed.includes(row.name))
+        if (!listed.length) throw new AppError(StatusCodes.NOT_FOUND, `Chatflow not found in the database!`)
+        return res.json(listed)
     } catch (error) {
         next(withoutSuppliedKey(error, req.params.apikey))
     }
