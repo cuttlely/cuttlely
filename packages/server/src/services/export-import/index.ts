@@ -614,6 +614,10 @@ async function saveBatch(manager: EntityManager, entity: any, items: any[], batc
     }
 }
 
+// Not reachable: routes/export-import answers 404 to every caller (D50 in the route comment). If that route reopens,
+// every imported chatflow and agentflow must pass the same harness checks as a save first: assertHarnessReferencesWellFormed,
+// then validateReferencedHarnesses with the caller (services/chatflows), or a key could import a canvas naming a
+// harness off its list, or a harnessName that is not text (D91).
 const importData = async (importData: ExportData, orgId: string, activeWorkspaceId: string, subscriptionId: string) => {
     // Initialize missing properties with empty arrays to avoid "undefined" errors
     importData.AgentFlow = importData.AgentFlow || []
