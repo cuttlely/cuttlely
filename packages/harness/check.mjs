@@ -1655,6 +1655,15 @@ check(
             !sameTwice.error,
         joinedOver.error?.message || 'save succeeded'
     )
+    const sameLabel = twoBoxes('a'.repeat(1200), 'b'.repeat(1200))
+    for (const binding of sameLabel.specialists[0].mcpServers) binding.label = 'PostgreSQL MCP'
+    sameLabel.specialists[0].mcpServers.push({ nodeName: 'postgreSQLMCP', label: 'Shops DB', inputs: { analystRules: 'c' } })
+    const sameLabelOver = await capture(() => saveHarness(sameLabel, { overwrite: true }))
+    check(
+        'the joined Rules refusal numbers cards that share a label and leaves a unique label as it is',
+        sameLabelOver.error?.message?.startsWith('Rules on PostgreSQL MCP (1), PostgreSQL MCP (2), Shops DB for specialist "bakery"'),
+        sameLabelOver.error?.message || 'save succeeded'
+    )
     const { assertFlowLimits } = await import('./sync-from-flow.mjs')
     const draftCanvas = (analystRules) =>
         JSON.stringify({
@@ -4426,6 +4435,27 @@ await expectCase('Rules on a canvas PostgreSQL MCP node are saved with the harne
             /2001 characters\. The limit is 2000\./.test(tooLong.error.message) &&
             getHarness('rules-canvas')?.specialists?.[0]?.mcpServers?.[0]?.inputs?.analystRules === rules,
         tooLong.error?.message || 'save succeeded'
+    )
+    const { assertFlowLimits } = await import('./sync-from-flow.mjs')
+    const hidden = 'x'.repeat(2001)
+    const behind = JSON.stringify({
+        nodes: [
+            chiefNode(),
+            specialistNode('spec', 'bakery'),
+            xaiNode(),
+            flowNode('calc', 'calculator', 'Tools', { label: 'Calculator', inputs: {} }),
+            pgNode(hidden)
+        ],
+        edges: [flowEdge('chat', 'chief'), flowEdge('calc', 'spec'), flowEdge('pg', 'calc')]
+    })
+    const behindDraft = await capture(() => assertFlowLimits({ name: 'rules-behind', flowData: behind }))
+    const behindPublish = await capture(() => syncHarnessFromFlow({ name: 'rules-behind', chatflowId: 'canvas-behind', flowData: behind }))
+    check(
+        'a PostgreSQL MCP card wired into another node is ignored: no Rules check on a draft save or on Publish, and no Rules in the soul',
+        !behindDraft.error &&
+            !behindPublish.error &&
+            !specialistSoul(getHarness('rules-behind')?.specialists?.[0] || {}).includes(hidden.slice(0, 50)),
+        behindDraft.error?.message || behindPublish.error?.message || 'rules reached the soul'
     )
 })
 

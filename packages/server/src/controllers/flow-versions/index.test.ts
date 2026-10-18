@@ -33,6 +33,18 @@ jest.mock('../../services/flow-drafts', () => {
     return { __esModule: true, default: drafts, redactDraftStatus }
 })
 jest.mock('../../database/entities/ChatFlow', () => ({ ChatFlow: class ChatFlow {} }))
+const limitChecks: string[] = []
+jest.mock('../../services/flow-drafts/harnessLimits', () => {
+    const { harnessLimitsInChild } = jest.requireActual('../../services/flow-drafts/harnessLimitsInChild')
+    const { AppError } = jest.requireActual('../../errors/appError')
+    return {
+        assertHarnessDraftLimits: async (name: string, flowData: string, action?: 'save' | 'restore') => {
+            limitChecks.push(`${name}:${action}`)
+            const refusal = harnessLimitsInChild(name, flowData, action)
+            if (refusal) throw new AppError(refusal.status, refusal.message)
+        }
+    }
+})
 
 const granted = new Set<string>()
 jest.mock('../../identity/rbac', () => ({
@@ -338,6 +350,71 @@ describe('restore while the canvas saves to a draft', () => {
         await controller.restoreVersion(request(), response(), next)
         expect(next.mock.calls[0][0].statusCode).toBe(403)
         expect(drafts.saveDraft).not.toHaveBeenCalled()
+    })
+})
+
+describe('restoring a harness version with Rules over the cap', () => {
+    const HARNESS = { ...FLOW, name: 'bakery-accounts', type: 'HARNESS' }
+    const REFUSAL =
+        'This version cannot be restored. Rules on Bakery DB for specialist "bakery" on harness "bakery-accounts" are 2001 characters. The limit is 2000. Restore another version, or shorten those rules on the canvas and save.'
+    const harnessCanvas = (rules: string) =>
+        JSON.stringify({
+            nodes: [
+                { id: 'spec_0', data: { name: 'harnessSpecialist', category: 'Harness', inputs: { specialistName: 'bakery' } } },
+                {
+                    id: 'pg_0',
+                    data: { name: 'postgreSQLMCP', label: 'Bakery DB', category: 'Tools (MCP)', inputs: { analystRules: rules } }
+                }
+            ],
+            edges: [{ id: 'e0', source: 'pg_0', target: 'spec_0' }]
+        })
+    const harnessVersion = (rules: string) => ({
+        sha: 'abcdef1',
+        name: 'bakery-accounts',
+        type: 'HARNESS',
+        flowData: harnessCanvas(rules),
+        missingCredentials: []
+    })
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        limitChecks.length = 0
+        granted.clear()
+        granted.add('chatflows:update')
+        versions.isVersioningEnabled.mockReturnValue(true)
+        versions.hiddenInputsDiffer.mockReturnValue(false)
+        versions.diffVersion.mockResolvedValue({ ...EMPTY_DIFF, changed: [{ id: 'pg_0', label: 'Bakery DB', fields: ['analystRules'] }] })
+        versions.listVersions.mockResolvedValue({ versions: [] })
+        getChatflowByIdForWorkspace.mockResolvedValue({ ...HARNESS })
+        savesAndRecords('1234567aaaa')
+    })
+
+    it('is refused before Live changes, saying what to do instead', async () => {
+        drafts.getDraftStatus.mockResolvedValue({ mode: 'live', lastPublished: null })
+        versions.getVersion.mockResolvedValue(harnessVersion('r'.repeat(2001)))
+        const next = jest.fn()
+        await controller.restoreVersion(request(), response(), next)
+        expect(next.mock.calls[0][0]).toMatchObject({ statusCode: 400, message: REFUSAL })
+        expect(updateChatflow).not.toHaveBeenCalled()
+        expect(limitChecks).toEqual(['bakery-accounts:restore'])
+    })
+
+    it('is refused before the draft changes, with the same words', async () => {
+        drafts.getDraftStatus.mockResolvedValue({ mode: 'draft', lastPublished: null })
+        versions.getVersion.mockResolvedValue(harnessVersion('r'.repeat(2001)))
+        const next = jest.fn()
+        await controller.restoreVersion(request(), response(), next)
+        expect(next.mock.calls[0][0]).toMatchObject({ statusCode: 400, message: REFUSAL })
+        expect(drafts.saveDraft).not.toHaveBeenCalled()
+    })
+
+    it('a version at the cap restores', async () => {
+        drafts.getDraftStatus.mockResolvedValue({ mode: 'live', lastPublished: null })
+        versions.getVersion.mockResolvedValue(harnessVersion('r'.repeat(2000)))
+        const next = jest.fn()
+        await controller.restoreVersion(request(), response(), next)
+        expect(next).not.toHaveBeenCalled()
+        expect(updateChatflow).toHaveBeenCalled()
     })
 })
 

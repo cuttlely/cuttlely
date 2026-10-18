@@ -20,11 +20,16 @@ async function loadSync() {
 }
 
 // The harness record limits (assertRosterLimits) on a draft canvas, so a draft cannot hold what Publish would refuse.
-export async function assertHarnessDraftLimits(name: string, flowData: string): Promise<void> {
+// A restore cannot shorten the version it puts back, so its refusal says what the user can do instead.
+export async function assertHarnessDraftLimits(name: string, flowData: string, action: 'save' | 'restore' = 'save'): Promise<void> {
     const sync = await loadSync()
     try {
         sync.assertFlowLimits({ name, flowData })
-    } catch (error) {
-        throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+    } catch (error: any) {
+        const message =
+            action === 'restore' && error?.problem
+                ? `This version cannot be restored. ${error.problem} Restore another version, or shorten those rules on the canvas and save.`
+                : getErrorMessage(error)
+        throw new AppError(StatusCodes.BAD_REQUEST, message)
     }
 }

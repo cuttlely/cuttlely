@@ -77,16 +77,28 @@ function analystRulesBindings(specialist) {
     return [...(specialist?.modules || []), ...(specialist?.mcpServers || [])].filter((binding) => binding?.nodeName === 'postgreSQLMCP')
 }
 
+// The card label a refusal names. Cards that share a label are numbered in the order they are wired, so a
+// refusal that names two of them still tells them apart.
+function analystRulesLabels(bindings) {
+    const names = bindings.map((binding) => binding.label || 'PostgreSQL MCP')
+    return names.map((name, index) => {
+        if (names.filter((other) => other === name).length < 2) return name
+        return `${name} (${names.slice(0, index + 1).filter((other) => other === name).length})`
+    })
+}
+
 // The distinct Rules texts of a specialist's PostgreSQL MCP bindings, without the section tags, so the
 // section cannot be closed early. The analyst prompt carries them joined by a blank line.
 export function analystRulesParts(specialist) {
+    const bindings = analystRulesBindings(specialist)
+    const labels = analystRulesLabels(bindings)
     const parts = []
-    for (const binding of analystRulesBindings(specialist)) {
+    bindings.forEach((binding, index) => {
         const text = analystRulesText(binding.inputs?.analystRules)
             .replace(/<\/?analyst_rules>/gi, '')
             .trim()
-        if (text && !parts.some((part) => part.text === text)) parts.push({ text, label: binding.label || 'PostgreSQL MCP' })
-    }
+        if (text && !parts.some((part) => part.text === text)) parts.push({ text, label: labels[index] })
+    })
     return parts
 }
 
@@ -96,28 +108,32 @@ export function joinedAnalystRules(specialist) {
         .join('\n\n')
 }
 
+// problem is the refusal without what to do next, so a caller that is not a save (a version restore) can say
+// what fits there instead.
+function analystRulesError(problem) {
+    const error = new HarnessError('bad_roster', `${problem} Shorten them and save again.`)
+    error.problem = problem
+    return error
+}
+
 export function assertAnalystRules(record, specialist) {
     const where = `for specialist "${specialist.name}" on harness "${record.name}"`
-    for (const binding of analystRulesBindings(specialist)) {
+    const bindings = analystRulesBindings(specialist)
+    const labels = analystRulesLabels(bindings)
+    bindings.forEach((binding, index) => {
         const length = analystRulesText(binding.inputs?.analystRules).length
-        if (length <= ANALYST_RULES_MAX_CHARS) continue
-        throw new HarnessError(
-            'bad_roster',
-            `Rules on ${
-                binding.label || 'PostgreSQL MCP'
-            } ${where} are ${length} characters. The limit is ${ANALYST_RULES_MAX_CHARS}. Shorten them and save again.`
-        )
-    }
+        if (length <= ANALYST_RULES_MAX_CHARS) return
+        throw analystRulesError(`Rules on ${labels[index]} ${where} are ${length} characters. The limit is ${ANALYST_RULES_MAX_CHARS}.`)
+    })
     const parts = analystRulesParts(specialist)
     const joined = joinedAnalystRules(specialist).length
     if (joined <= ANALYST_RULES_MAX_CHARS) return
-    throw new HarnessError(
-        'bad_roster',
+    throw analystRulesError(
         `Rules on ${parts
             .map((part) => part.label)
             .join(
                 ', '
-            )} ${where} are ${joined} characters together. The analyst gets them as one section, and the limit is ${ANALYST_RULES_MAX_CHARS}. Shorten them and save again.`
+            )} ${where} are ${joined} characters together. The analyst gets them as one section, and the limit is ${ANALYST_RULES_MAX_CHARS}.`
     )
 }
 

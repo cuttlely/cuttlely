@@ -1,37 +1,23 @@
 // The Rules cap on a harness draft save, over a real socket: PUT /api/v1/flow-drafts/:chatflowId, the route the
 // canvas Save and Import JSON both use, through the real draft service. Jest cannot load the ESM harness
-// package, so the harness limit check runs in a Node child process against the real packages/harness code.
+// package, so the real harnessLimits.ts runs in a Node child process and its refusal is thrown here as it came.
 import fs from 'fs'
 import http from 'http'
-import os from 'os'
 import path from 'path'
 import express from 'express'
 
 const ROOT = path.resolve(__dirname, '../../../../..')
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-rules-draft-'))
 process.env.CUTTLELY_DRAFTS = 'on'
 
 const childRuns: string[] = []
 jest.mock('../../services/flow-drafts/harnessLimits', () => {
-    const { spawnSync } = jest.requireActual('child_process')
-    const { pathToFileURL } = jest.requireActual('url')
+    const { harnessLimitsInChild } = jest.requireActual('../../services/flow-drafts/harnessLimitsInChild')
     const { AppError } = jest.requireActual('../../errors/appError')
     return {
-        assertHarnessDraftLimits: async (name: string, flowData: string) => {
+        assertHarnessDraftLimits: async (name: string, flowData: string, action?: string) => {
             childRuns.push(name)
-            const syncUrl = pathToFileURL(path.join(ROOT, 'packages/harness/sync-from-flow.mjs')).href
-            const script = [
-                `import { assertFlowLimits } from ${JSON.stringify(syncUrl)};`,
-                `try { assertFlowLimits({ name: process.env.NAME, flowData: process.env.CANVAS }); process.stdout.write('{}') }`,
-                `catch (error) { process.stdout.write(JSON.stringify({ message: error.message, code: error.code })) }`
-            ].join('\n')
-            const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
-                env: { PATH: process.env.PATH, HOME: process.env.HOME, CUTTLELY_DATA_DIR: dataDir, NAME: name, CANVAS: flowData },
-                encoding: 'utf8'
-            })
-            if (result.status !== 0) throw new Error(result.stderr || `limit check exited ${result.status}`)
-            const outcome = JSON.parse(result.stdout)
-            if (outcome.message) throw new AppError(400, outcome.message)
+            const refusal = harnessLimitsInChild(name, flowData, action)
+            if (refusal) throw new AppError(refusal.status, refusal.message)
         }
     }
 })
@@ -165,7 +151,6 @@ beforeAll(async () => {
 
 afterAll(() => {
     server.close()
-    fs.rmSync(dataDir, { recursive: true, force: true })
 })
 
 beforeEach(() => {

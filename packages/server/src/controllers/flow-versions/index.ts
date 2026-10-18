@@ -6,6 +6,7 @@ import chatflowsService from '../../services/chatflows'
 import { actorFromUser } from '../../services/flow-versions/author'
 import flowVersionsService from '../../services/flow-versions'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
+import { assertHarnessDraftLimits } from '../../services/flow-drafts/harnessLimits'
 import { GithubError } from '../../services/flow-versions/github'
 import { hasAnyPermission } from '../../identity/rbac'
 import { missingCredentialsMessage } from './message'
@@ -120,6 +121,13 @@ async function versionFor(req: Request, flow: ChatFlow, sha: string) {
     return version
 }
 
+// A harness version that a save would refuse for its Rules is refused before anything changes, and the
+// refusal names what to do instead of asking to shorten a version that cannot be edited.
+async function assertRestorable(flow: ChatFlow, version: any) {
+    if ((version.type || flow.type) !== 'HARNESS') return
+    await assertHarnessDraftLimits(version.name || flow.name || '', version.flowData, 'restore')
+}
+
 function credentialNotes(version: any) {
     return {
         missingCredentials: version.missingCredentials,
@@ -136,6 +144,7 @@ export async function putVersionLive(req: Request, flow: ChatFlow, sha: string, 
     const orgId = req.user?.activeOrganizationId
     if (!workspaceId || !orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
     const version = await versionFor(req, flow, sha)
+    if (record.kind === 'restore') await assertRestorable(flow, version)
     // Promote never puts a version Live without every credential it uses: it would fail for real users.
     if (record.kind === 'promote' && version.missingCredentials.length) {
         throw new AppError(StatusCodes.CONFLICT, missingCredentialsMessage(version.missingCredentials))
@@ -231,6 +240,7 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
                 'This version is a different kind of flow, so it cannot become the draft. Use Roll back Live instead.'
             )
         }
+        await assertRestorable(flow, version)
         const status = redactDraftStatus(
             await flowDraftsService.saveDraft(flow, version.flowData, {
                 userId: req.user?.id || null,
