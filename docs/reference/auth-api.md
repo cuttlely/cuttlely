@@ -2,7 +2,7 @@
 
 How a browser signs in when AuthKit is off, and how the server reports which methods are on. The owner break-glass route is unchanged. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
 
-An invite with no `link` field still stores the user with no password. `link: true` returns a one-time URL the person uses to set a password. See [One-time links](#one-time-links).
+An invite stores a pending (`invited`) user with no password. `link: true` returns a one-time URL the person uses to set a password, or, with AuthKit on, to sign in with WorkOS and join. A pending user is never activated by an AuthKit email match alone. See [One-time links](#one-time-links).
 
 ## Which methods are on
 
@@ -155,7 +155,7 @@ The current session is replaced. Every other session for that user is deleted. A
 
 ## One-time links
 
-These routes set a password without an admin typing one. The URL is a secret. It is returned once. Examples below use the fake token `exampletokenexampletokenexampletoken12`. That value is not a real token. Do not log the URL, put it in a query string, or send it to a channel you do not control.
+These routes set a password, or accept an invite through AuthKit, without an admin typing one. The URL is a secret. It is returned once. Examples below use the fake token `exampletokenexampletokenexampletoken12`. That value is not a real token. Do not log the URL, put it in a query string, or send it to a channel you do not control.
 
 The token is 32 random bytes, encoded so it can sit in a fragment. The database stores SHA-256 of it, plus the purpose (`invite` or `reset`), organization, team, user, expiry, and the time it was used. A newer token for the same user, purpose, and team marks the older one used. The raw value is not stored and cannot be fetched again.
 
@@ -165,7 +165,7 @@ Requires `users:manage` or `workspace:add-user` for the previous behavior. Retur
 
 | `link`  | Mail configured | Status | Body                                                                                                                              |
 | ------- | --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| omitted | either          | 200    | `{ "id" }` only, when invite delivery is follow the request (the default). No token and no email.                                 |
+| omitted | either          | 200    | `{ "id" }` only, when invite delivery is follow the request (the default) and AuthKit is off. No token and no email.              |
 | `true`  | no              | 200    | `{ "id", "link" }`. `link` is `https://host/local-accept#token=...`                                                               |
 | `true`  | yes             | 200    | `{ "id", "link", "mailed" }`. `mailed` is true when the email went out                                                            |
 | `false` | yes             | 200    | `{ "id", "mailed": true }`. The URL is only in the email                                                                          |
@@ -174,7 +174,7 @@ Requires `users:manage` or `workspace:add-user` for the previous behavior. Retur
 
 A caller cannot grant a role that contains a permission they do not hold, unless they are the organization owner. The owner role cannot be granted. A password field on the user is ignored.
 
-Invite delivery (`INVITE_DELIVERY`, in Server settings or the environment) applies only when `link` is omitted. `link` returns the URL, as `link: true` does. `email` sends it, as `link: false` does, and fails the same way when mail is not configured. `request`, and an unset value, keep the `{ "id" }` response. A request that sets `link` still wins. A saved Server settings value overrides the environment. Reset links do not use this setting.
+Invite delivery (`INVITE_DELIVERY`, in Server settings or the environment) applies only when `link` is omitted. `link` returns the URL, as `link: true` does. `email` sends it, as `link: false` does, and fails the same way when mail is not configured. `request`, and an unset value, keep the `{ "id" }` response while AuthKit is off. With AuthKit on they behave like `link`, because the invite link is the only way a pending user can join. A request that sets `link` still wins. A saved Server settings value overrides the environment. Reset links do not use this setting.
 
 `POST /api/v1/users/:id/reset-link`
 
@@ -188,6 +188,7 @@ Requires `users:manage`. `:id` must be a user in the caller's current team. Anot
 | Disabled user                                                                              | 403    | `{ "message": "This account is disabled." }`                                                                  |
 | Role with a permission the caller lacks                                                    | 403    | `{ "message": "You cannot reset this account." }`                                                             |
 | Eligible user                                                                              | 200    | `{ "link" }` when `link` is omitted or true. `{ "mailed": true }` when `link` is false and mail is configured |
+| Pending (`invited`) user                                                                   | 200    | The same bodies. The link is a new invite link, and the older invite link stops working                       |
 
 `link: false` without mail is the same 400 as the invite, and no token is stored. The organization owner may reset an eligible user even when that user's role lists permissions the owner role row does not. Issuing the link does not end sessions.
 
@@ -208,7 +209,22 @@ Two accepts of the same token cannot both succeed. The used mark and the passwor
 
 Invite links last 72 hours (`INVITE_TOKEN_EXPIRY_IN_HOURS`, 1 to 168). Reset links last 60 minutes (`PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS`, 5 to 1440). A value saved in Server settings overrides the environment. Blank, zero, negative, and non-integers are ignored. A number below the minimum is raised to the minimum, and a number above the maximum is lowered to the maximum. Mail uses `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_SECURE`, `SMTP_USER`, and `SENDER_EMAIL` the same way. `SMTP_PASSWORD` stays in the environment and is not returned by Server settings. See [Server settings API](server-settings-api.md#invite-and-reset).
 
-Audit rows in `identity_action_audit` record link issued, token consumed, token rejected (expired, reused, superseded, or ineligible), password set, and sessions revoked. They store ids and a short reason. They do not store the token, the URL, or the email.
+`POST /api/v1/auth/invite/start`
+
+Public. No session. Answers 404 unless AuthKit is configured, and 401 `{ "message": "Unauthorized" }` without `x-request-from: internal`. Send `{ "token" }` in the JSON body. A missing token, or one longer than 256 characters, is 400 `{ "message": "This invite link is not valid. Ask for a new invite." }`. Otherwise the answer is 200 `{ "url": "/api/v1/auth/login" }` with an httpOnly, `SameSite=Lax` cookie `cuttlely-invite` that holds the token for 15 minutes. Starting does not use the token and does not say whether it is valid. `/local-accept` calls this route and then opens the URL.
+
+The AuthKit callback reads that cookie, clears it on every outcome, and decides:
+
+| Signed-in user                                        | Result                                                                                                                   |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Active user                                           | Signed in as before. The cookie is ignored                                                                               |
+| Pending user, no cookie                               | Back to `/signin` with `You have a pending invite. Open the invite link from your email to join.` The user stays pending |
+| Pending user, cookie with a valid token for that user | One transaction marks the token used, sets the user `active`, and stores the AuthKit user id on the user. Signed in      |
+| Pending user, any other token                         | Back to `/signin` with `This invite link is not valid. Ask for a new invite.` The user and the token stay as they were   |
+
+A valid token is an unused, unexpired invite token made for that user, whose stored email matches the verified AuthKit email (letter case and surrounding spaces ignored), while that user is still pending, in the same organization and team, and not disabled there. Removing the user from the team or the organization, or disabling them, marks their open invite tokens used, so adding them back does not revive a token. An AuthKit email that matches no user still gets `No account exists for this email.`, and the token is not used.
+
+Audit rows in `identity_action_audit` record link issued, token consumed, token rejected (expired, reused, superseded, ineligible, another user's token, or another email), password set, and sessions revoked. They store ids and a short reason. They do not store the token, the URL, or the email.
 
 ## Errors
 

@@ -226,13 +226,13 @@ If the email does not match, or the variable is unset, the callback returns a 40
 
 ### 7.2 Adding more people
 
-Linking works by email: when a verified AuthKit user signs in and has no linked Cuttlely user yet, Cuttlely looks for exactly one active Cuttlely user with the same email (case-insensitive) that is not linked to anyone, links it by storing the WorkOS user ID, and signs the person in. Later sign-ins match on that stored ID.
+An existing active user is linked by email: when a verified AuthKit user signs in and has no linked Cuttlely user yet, Cuttlely looks for exactly one active Cuttlely user with the same email (case-insensitive) that is not linked to anyone, links it by storing the WorkOS user ID, and signs the person in. Later sign-ins match on that stored ID. A new person is different: they are a pending invite, and only their own invite link lets them join.
 
 1. In WorkOS **Users**, create the person (or invite them), unless public sign-up is on.
-2. In Cuttlely, as the Super User, open Users and choose Add User. Enter a name and an email, then a team and a role. Leave the password out. Cuttlely stores the user as `active` with no local password.
-3. Send them `<your-origin>/signin`. They use **Sign in with WorkOS**. The first verified sign-in links the account.
+2. In Cuttlely, as the Super User, open Users and choose Add User. Enter a name and an email, then a team and a role. Leave the password out. Cuttlely stores the user as `invited` (pending) with no local password, and shows a one-time invite link once.
+3. Send them that link. They open it, select **Accept invite with WorkOS**, and sign in with the invited email. That sign-in makes them `active` and links the account.
 
-An older database may still have an `invited` row from before this change. That person can use the same WorkOS button. The callback marks the row `active`. Do not invent a password for them. `unverified`, `deleted`, and `disable` still cannot sign in.
+Signing in with **Sign in with WorkOS** without the link does not let a pending person in, even with a verified matching email. They see `You have a pending invite. Open the invite link from your email to join.` An `invited` row from an older database works the same way: make a new link for it with `POST /api/v1/users/:id/reset-link`. Do not invent a password for them. `unverified`, `deleted`, and `disable` still cannot sign in. The full rules are in [Invite people](../how-to/sign-in.md#invite-people).
 
 ### 7.3 What stays in Cuttlely
 
@@ -299,8 +299,8 @@ Never leave `CUTTLELY_LOCAL_ADMIN=true` on a public deploy. It puts a password f
 
 ## 11. What this install does
 
--   `/signin` shows **Sign in with WorkOS** when `GET /api/v1/auth/signin-options` reports AuthKit. The button goes to `GET /api/v1/auth/login`. Share that login URL. Cuttlely does not send an invite. AuthKit turns off `POST /api/v1/auth/local/login` even when `CUTTLELY_LOCAL_USERS=true`. The owner password form still follows `CUTTLELY_LOCAL_ADMIN`. The first start with AuthKit configured ends existing local sessions and links a verified AuthKit email only when it matches one existing mailbox. See [Turn AuthKit on](../how-to/users-without-authkit.md#turn-authkit-on).
+-   `/signin` shows **Sign in with WorkOS** when `GET /api/v1/auth/signin-options` reports AuthKit. The button goes to `GET /api/v1/auth/login`. Share that login URL with people who are already active. A new person joins from their invite link instead. AuthKit turns off `POST /api/v1/auth/local/login` even when `CUTTLELY_LOCAL_USERS=true`. The owner password form still follows `CUTTLELY_LOCAL_ADMIN`. The first start with AuthKit configured ends existing local sessions and links a verified AuthKit email only when it matches one existing mailbox. See [Turn AuthKit on](../how-to/users-without-authkit.md#turn-authkit-on).
 -   The password button is **Sign in with password** when WorkOS is on, and **Sign in** when it is the only way in. It appears only when `CUTTLELY_LOCAL_ADMIN=true`.
--   Add User takes a name and an email. It does not ask for a password.
+-   Add User takes a name and an email. It does not ask for a password. It shows the one-time invite link, and emails it when mail is set.
 -   With AuthKit unset and the local-admin flag off, sign-in answers 404.
 -   Other single sign-on providers, Stripe billing, and invite mail are not part of this install. The routes in this guide are the sign-in contract. Datasets, evaluators, and evaluations are in [Evaluations](../how-to/evaluations.md).
