@@ -48,8 +48,12 @@ export const WHITELIST_URLS = [
     '/api/v1/text-to-speech/abort'
 ]
 
+// Public only for GET and HEAD: the API-key lookups take the key from the Authorization header.
+export const READ_ONLY_WHITELIST_URLS = ['/api/v1/verify/apikey/', '/api/v1/chatflows/apikey/']
+
 export const API_KEY_BLACKLIST_URLS = [
     '/api/v1/nvidia-nim',
+    // No route serves the next two today. They stay so a route added under them is closed to API keys.
     '/api/v1/account/delete',
     '/api/v1/files',
     '/api/v1/organizationuser',

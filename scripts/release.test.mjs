@@ -130,6 +130,8 @@ test('the changelog: a planned version, or [Unreleased], becomes the dated relea
 test('the changelog refuses an empty or ambiguous release', () => {
     assert.throws(() => releaseSection('# C\n\n## [Unreleased]\n\nNothing yet.\n', '1.0.0'), /nothing to release/)
     assert.throws(() => releaseSection('# C\n\n## [2.0.0] - Unreleased\n\n', '2.0.0'), /is empty/)
+    assert.throws(() => releaseSection('# C\n\n## [2.0.0] - Unreleased\n\n<!<!-- a -->-- b -->\n', '2.0.0'), /is empty/)
+    assert.equal(releaseSection('# C\n\n## [2.0.0] - Unreleased\n\n<!-- a -->\n-   b\n', '2.0.0').kind, 'planned')
     assert.throws(() => releaseSection('# C\n\n## [Unreleased]\n\n-   a\n\n## [2.0.0] - Unreleased\n\n-   b\n', '2.0.0'), /both/)
 })
 

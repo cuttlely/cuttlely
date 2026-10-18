@@ -40,14 +40,14 @@ export function ids(html) {
 /** Visible text, roughly: tags, scripts and styles removed. */
 export function visibleText(html) {
     return html
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+        .replace(/<style\b[\s\S]*?<\/style\b[^>]*>/gi, ' ')
         .replace(/<[^>]+>/g, ' ')
         .replace(/&nbsp;/g, ' ')
 }
 
 function decode(s) {
-    return s.replace(/&amp;/g, '&').replace(/&#38;/g, '&')
+    return s.replace(/&(?:amp|#38);/g, '&')
 }
 
 /** The dist file a site URL path maps to, or null. */

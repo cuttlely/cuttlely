@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it } from 'node:test'
-import { checkSite } from './check-site.mjs'
+import { checkSite, visibleText } from './check-site.mjs'
 
 function site(files) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-site-'))
@@ -61,6 +61,19 @@ describe('check-site', () => {
             delete files[missing]
             assert.ok(checkSite(site(files)).problems.includes(`missing ${missing}`), missing)
         }
+    })
+
+    it('decodes an escaped ampersand in a link once', () => {
+        const dir = site({
+            ...base,
+            'quickstart/index.html': `<html><head>${head}</head><body><a href="/a&amp;#38;b/">x</a></body></html>`
+        })
+        assert.match(checkSite(dir).problems.join('\n'), /broken link \/a&#38;b\/$/m)
+    })
+
+    it('drops scripts and styles whose end tag has spaces or attributes', () => {
+        const text = visibleText('<p>a</p><script>one</script ><style>two</style\n data-x>b<SCRIPT type="m">three</SCRIPT foo>c')
+        assert.equal(text.replace(/\s+/g, ' ').trim(), 'a b c')
     })
 
     it('flags the section mark', () => {
