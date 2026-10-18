@@ -5,17 +5,19 @@ import { requireHarnessCanvasAccess } from '../../services/harnesses/apiAccess'
 
 const router = express.Router()
 
-// An API key needs a HARNESS canvas's name on its own list for every route here, and every harness a saved draft names.
+// An API key needs a HARNESS canvas's name on its own list for every route here. Reading or discarding the draft also
+// needs every harness the saved draft names; a draft save checks the canvas it sends.
 const canvasOnly = requireHarnessCanvasAccess({ idParam: 'chatflowId', body: false })
+const canvasAndDraft = requireHarnessCanvasAccess({ idParam: 'chatflowId', body: false, draft: true })
 
-router.get('/:chatflowId', requireAnyPermission('chatflows:view,agentflows:view'), canvasOnly, flowDraftsController.getDraft)
+router.get('/:chatflowId', requireAnyPermission('chatflows:view,agentflows:view'), canvasAndDraft, flowDraftsController.getDraft)
 router.put(
     '/:chatflowId',
     requireAnyPermission('chatflows:update,agentflows:update'),
     requireHarnessCanvasAccess({ idParam: 'chatflowId' }),
     flowDraftsController.saveDraft
 )
-router.delete('/:chatflowId', requireAnyPermission('chatflows:update,agentflows:update'), canvasOnly, flowDraftsController.discardDraft)
+router.delete('/:chatflowId', requireAnyPermission('chatflows:update,agentflows:update'), canvasAndDraft, flowDraftsController.discardDraft)
 router.post(
     '/:chatflowId/publish',
     requireAnyPermission('chatflows:update,agentflows:update'),

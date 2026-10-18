@@ -41,13 +41,18 @@ type Key = { id: string; workspaceId: string; harnesses: string[] | null }
 type Flow = { id: string; name: string; type: string; workspaceId: string; flowData: string; apikeyid: string | null }
 const keys = new Map<string, Key>()
 const flows = new Map<string, Flow>()
+const drafts = new Map<string, { chatflowId: string; workspaceId: string; draftFlowData: string }>()
 
 jest.mock('../DataSource', () => ({
     getDataSource: () => ({
         getRepository: (entity: { name?: string }) => ({
             findOneBy: async ({ id }: { id: string }) => (entity?.name === 'ApiKey' ? keys.get(id) ?? null : null),
-            findOne: async ({ where }: { where: { id: string; workspaceId: string } }) => {
-                const row = entity?.name === 'ChatFlow' ? flows.get(where.id) : undefined
+            findOne: async ({ where }: { where: { id?: string; chatflowId?: string; workspaceId: string } }) => {
+                if (entity?.name === 'FlowVersionState') {
+                    const draft = drafts.get(where.chatflowId || '')
+                    return draft && draft.workspaceId === where.workspaceId ? draft : null
+                }
+                const row = entity?.name === 'ChatFlow' ? flows.get(where.id || '') : undefined
                 return row && row.workspaceId === where.workspaceId ? row : null
             }
         })
@@ -165,6 +170,7 @@ beforeEach(() => {
     handled.length = 0
     keys.clear()
     flows.clear()
+    drafts.clear()
     keys.set('key-bakery', { id: 'key-bakery', workspaceId: 'team-a', harnesses: ['bakery'] })
     const base = { workspaceId: 'team-a', apikeyid: null }
     flows.set(PAYROLL, { ...base, id: PAYROLL, name: 'payroll', type: 'HARNESS', flowData: '{"nodes":[],"edges":[]}' })
@@ -473,5 +479,20 @@ describe('a harness name stored as a list is refused', () => {
         await refusedInEveryCase('post', `/api/v1/mcp-server/${LISTED_KEYLESS}`, KEY, {})
         await refusedInEveryCase('post', `/api/v1/chatflows/${LISTED_KEYLESS}/webhook-secret`, KEY, {})
         await refusedInEveryCase('patch', `/api/v1/chatflows/${LISTED_KEYLESS}/schedule/enabled`, KEY, { enabled: true })
+    })
+})
+
+describe('the saved draft on draft reads and discards', () => {
+    it('refuses reading or discarding a draft that names a harness off the key list, though the live canvas names none', async () => {
+        drafts.set(PLAIN_CHAT, { chatflowId: PLAIN_CHAT, workspaceId: 'team-a', draftFlowData: agentTool('payroll') })
+        await refusedInEveryCase('get', `/api/v1/flow-drafts/${PLAIN_CHAT}`, KEY)
+        await refusedInEveryCase('delete', `/api/v1/flow-drafts/${PLAIN_CHAT}`, KEY)
+        drafts.set(PLAIN_CHAT, { chatflowId: PLAIN_CHAT, workspaceId: 'team-b', draftFlowData: agentTool('payroll') })
+        expect((await app().get(`/api/v1/flow-drafts/${PLAIN_CHAT}`).set(KEY)).status).toBe(200)
+        drafts.set(PLAIN_CHAT, { chatflowId: PLAIN_CHAT, workspaceId: 'team-a', draftFlowData: agentTool('bakery') })
+        expect((await app().delete(`/api/v1/flow-drafts/${PLAIN_CHAT}`).set(KEY)).status).toBe(200)
+        drafts.set(PLAIN_CHAT, { chatflowId: PLAIN_CHAT, workspaceId: 'team-a', draftFlowData: agentTool('payroll') })
+        expect((await app().get(`/api/v1/flow-drafts/${PLAIN_CHAT}`).set(SESSION)).status).toBe(200)
+        expect(handled).toEqual(['drafts.getDraft', 'drafts.discardDraft', 'drafts.getDraft'])
     })
 })

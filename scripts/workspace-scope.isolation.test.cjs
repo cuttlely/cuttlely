@@ -563,6 +563,25 @@ describe('workspace isolation', () => {
             assert.equal(saved.workspaceId, WS1)
             assert.equal(saved.description, 'updated')
 
+            // A run an earlier process began just before this start is left by the startup pass and closed by the
+            // second pass once the lock time has passed; a run this process began after its start stays open.
+            const earlier = history.beginHarnessRun({ name: 'LateTeam', chatId: 'c-late', source: 'api', input: 'late' })
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            let laterPass = null
+            await harnesses.closeInterruptedRuns({ schedule: (run, delayMs) => (laterPass = { run, delayMs }) })
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            const mine = history.beginHarnessRun({ name: 'LateTeam', chatId: 'c-mine', source: 'api', input: 'mine' })
+            const lockMod = await import(pathToFileURL(path.join(__dirname, '../packages/harness/lock.mjs')).href)
+            assert.equal(laterPass?.delayMs, Number(lockMod.lockTtlMs()) + 15000)
+            assert.equal(history.getRun('LateTeam', earlier.id).status, 'running')
+            laterPass.run()
+            assert.equal(history.getRun('LateTeam', earlier.id).status, 'failed')
+            assert.equal(
+                history.getRun('LateTeam', earlier.id).error?.code ?? history.getRun('LateTeam', earlier.id).errorCode,
+                'interrupted'
+            )
+            assert.equal(history.getRun('LateTeam', mine.id).status, 'running')
+
             await missingHarness(() => harnesses.deleteHarness('OtherTeam', WS1))
             assert.equal(fs.existsSync(path.join(harnessDir, 'OtherTeam.json')), true)
             // Deleting a harness drops it from the team's key lists first, on the same database the app uses.
