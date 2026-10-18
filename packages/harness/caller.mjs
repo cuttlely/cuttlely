@@ -4,7 +4,8 @@ export const CALLER_REQUIRED = 'caller_required'
 export const KEY_NOT_ALLOWED = 'key_not_allowed'
 
 // `session`: a signed-in person, already checked by role. `api_key`: a key and the harness names on its list.
-// `flow`: a flow with no API key, so whoever has its id can call it; its Harness cards were checked when it was saved.
+// `flow`: a flow with no API key, so whoever has its id can call it. No list applies to its Harness cards when it runs:
+// a key's list limits what that key may save into the flow, and a save by a signed-in person is checked by role only.
 const KINDS = new Set(['session', 'api_key', 'flow'])
 
 /**
