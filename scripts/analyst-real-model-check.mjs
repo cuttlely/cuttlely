@@ -10,8 +10,9 @@
 //
 // It calls the OpenAI chat API with OPENAI_API_KEY (model gpt-4.1 at temperature 0 unless CUTTLELY_CHECK_MODEL is set),
 // so use it only on made-up data like these demo databases. OPENAI_BASE_URL points it at another compatible endpoint.
-// A gpt-5.x or o-series model gets reasoning_effort none instead of a temperature. CUTTLELY_CHECK_REASONING_EFFORT sets
-// that effort, and sends it in place of the temperature for any model.
+// A reasoning model gets a reasoning effort instead of a temperature: none for gpt-5.1 and later, minimal for gpt-5,
+// gpt-5-mini and gpt-5-nano, and low for an o-series model. gpt-5-chat-latest gets neither. CUTTLELY_CHECK_REASONING_EFFORT
+// sets that effort, and sends it in place of the temperature for any model.
 // A URL without a login uses PGUSER and PGPASSWORD.
 //
 // bakery: one analyst, five questions (four data questions and one about a table that is not ticked).
@@ -133,9 +134,18 @@ const TWO = [
 ]
 
 const BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '')
-// Reasoning models (gpt-5.x, o-series) refuse temperature 0, so they get a reasoning effort instead.
-const REASONING_EFFORT = process.env.CUTTLELY_CHECK_REASONING_EFFORT || (/^(gpt-5|o\d)/i.test(MODEL) ? 'none' : '')
-const SAMPLING = REASONING_EFFORT ? { reasoning_effort: REASONING_EFFORT } : { temperature: 0 }
+// Reasoning models refuse temperature 0, and each family accepts a different lowest effort. gpt-5-chat-latest takes
+// neither a temperature nor a reasoning effort. Returns undefined for a model that takes temperature 0.
+function defaultEffort(model) {
+    if (/^gpt-5-chat/i.test(model)) return null
+    const gpt = /^gpt-(\d+)(?:\.(\d+))?/i.exec(model)
+    if (gpt && (Number(gpt[1]) > 5 || (Number(gpt[1]) === 5 && Number(gpt[2] ?? 0) >= 1))) return 'none'
+    if (gpt && Number(gpt[1]) === 5) return 'minimal'
+    if (/^o\d/i.test(model)) return 'low'
+    return undefined
+}
+const REASONING_EFFORT = process.env.CUTTLELY_CHECK_REASONING_EFFORT || defaultEffort(MODEL)
+const SAMPLING = REASONING_EFFORT ? { reasoning_effort: REASONING_EFFORT } : REASONING_EFFORT === null ? {} : { temperature: 0 }
 const tokens = { route: 0, choose: 0, analyst: 0 }
 async function chat(kind, body) {
     const response = await fetch(`${BASE_URL}/chat/completions`, {
