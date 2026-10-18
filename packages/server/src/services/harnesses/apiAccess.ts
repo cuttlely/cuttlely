@@ -297,6 +297,25 @@ async function storedFlow(id: string, workspaceId: string): Promise<StoredFlow |
         .findOne({ where: { id, workspaceId }, select: ['id', 'name', 'type', 'flowData', 'apikeyid'] })
 }
 
+type DraftLookup = (chatflowId: string, workspaceId: string) => Promise<string | null | undefined>
+
+let installedDraftLookup: DraftLookup | null = null
+
+/** Tests install a lookup. Production reads the draft canvas from flow_version_state in the caller's team. */
+export function setHarnessDraftLookup(lookup: DraftLookup | null): void {
+    installedDraftLookup = lookup
+}
+
+async function storedDraftCanvas(chatflowId: string, workspaceId: string): Promise<string | null | undefined> {
+    if (installedDraftLookup) return installedDraftLookup(chatflowId, workspaceId)
+    const { getDataSource } = await import('../../DataSource')
+    const { FlowVersionState } = await import('../../database/entities/FlowVersionState')
+    const state = await getDataSource()
+        .getRepository(FlowVersionState)
+        .findOne({ where: { chatflowId, workspaceId }, select: ['draftFlowData'] })
+    return state?.draftFlowData
+}
+
 /** What a chatflow route touches, from the body it was sent and the row it names. */
 export function canvasHarnessNames(body: Record<string, unknown> | undefined, stored: StoredFlow | null | undefined): string[] {
     const names = new Set<string>()
@@ -316,7 +335,7 @@ export function canvasHarnessNames(body: Record<string, unknown> | undefined, st
  * touches (in the body or the stored row) and every harness the sent canvas names on its own list. A signed-in person
  * is checked by role only. `body: false` checks the stored row only.
  */
-export function requireHarnessCanvasAccess(opts: { idParam?: string; body?: boolean } = {}): RequestHandler {
+export function requireHarnessCanvasAccess(opts: { idParam?: string; body?: boolean; draft?: boolean } = {}): RequestHandler {
     const idParam = opts.idParam ?? 'id'
     const readBody = opts.body !== false
     return (req: Request, res: Response, next: NextFunction) => {
@@ -329,7 +348,12 @@ export function requireHarnessCanvasAccess(opts: { idParam?: string; body?: bool
         void (async () => {
             const stored = typeof id === 'string' && id && typeof workspaceId === 'string' ? await storedFlow(id, workspaceId) : null
             const caller = await harnessCallerFor(req)
-            const refused = harnessRefusedFor(caller, canvasHarnessNames(readBody ? req.body : undefined, stored))
+            const names = canvasHarnessNames(readBody ? req.body : undefined, stored)
+            // A draft route reads or discards the saved draft, which can name harnesses the live canvas does not.
+            if (opts.draft && stored && typeof workspaceId === 'string') {
+                for (const name of referencedHarnessNames(await storedDraftCanvas(stored.id, workspaceId))) names.push(name)
+            }
+            const refused = harnessRefusedFor(caller, names)
             if (refused === null) {
                 next()
                 return
