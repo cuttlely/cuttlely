@@ -565,8 +565,47 @@ describe('workspace isolation', () => {
 
             await missingHarness(() => harnesses.deleteHarness('OtherTeam', WS1))
             assert.equal(fs.existsSync(path.join(harnessDir, 'OtherTeam.json')), true)
-            assert.deepEqual(await harnesses.deleteHarness('OwnTeam', WS1), { name: 'OwnTeam', deleted: true })
+            // Deleting a harness drops it from the team's key lists first, on the same database the app uses.
+            const dataSourceMod = serverRequire('./src/DataSource.ts')
+            const realGetDataSource = dataSourceMod.getDataSource
+            await ds.getRepository(ApiKey).update({ id: own.apiKey }, { harnesses: ['OwnTeam', 'KeptTeam'] })
+            const logger = serverRequire('./src/utils/logger.ts').default
+            const realWarn = logger.warn
+            const warned = []
+            try {
+                logger.warn = (message) => warned.push(String(message))
+                // A key list that cannot be written fails the delete, and the harness stays.
+                dataSourceMod.getDataSource = () => ({
+                    transaction: async (work) =>
+                        work({
+                            getRepository: () => ({
+                                findBy: async () => [{ id: own.apiKey, harnesses: ['OwnTeam'] }],
+                                save: async () => {
+                                    throw new Error('made-up write failure')
+                                }
+                            })
+                        })
+                })
+                await assert.rejects(
+                    () => harnesses.deleteHarness('OwnTeam', WS1),
+                    (error) => {
+                        assert.equal(error.statusCode, 500)
+                        assert.match(error.message, /was not deleted/)
+                        return true
+                    }
+                )
+                assert.equal(fs.existsSync(path.join(harnessDir, 'OwnTeam.json')), true)
+                assert.deepEqual(warned, [
+                    '[harness] OwnTeam was not deleted: removing it from API key lists failed: made-up write failure'
+                ])
+                dataSourceMod.getDataSource = () => ds
+                assert.deepEqual(await harnesses.deleteHarness('OwnTeam', WS1), { name: 'OwnTeam', deleted: true })
+            } finally {
+                dataSourceMod.getDataSource = realGetDataSource
+                logger.warn = realWarn
+            }
             assert.equal(fs.existsSync(path.join(harnessDir, 'OwnTeam.json')), false)
+            assert.deepEqual((await ds.getRepository(ApiKey).findOneBy({ id: own.apiKey })).harnesses, ['KeptTeam'])
 
             assert.ok(!names(await harnesses.listHarnesses(WS1)).includes('OrphanTeam'))
             assert.ok(!names(await harnesses.listHarnesses(WS2)).includes('OrphanTeam'))

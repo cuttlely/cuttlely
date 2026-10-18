@@ -27,6 +27,7 @@
             "packages/server/src/routes/internal-predictions/auth.test.ts",
             "packages/server/src/routes/apiKeyCaseBypass.test.ts",
             "packages/server/src/routes/harnessNamesForKey.test.ts",
+            "packages/server/src/routes/export-import/index.test.ts",
             "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts",
             "packages/etl/**",
             "etl/**",
@@ -400,6 +401,7 @@
                 "packages/server/src/routes/internal-predictions/auth.test.ts",
                 "packages/server/src/routes/apiKeyCaseBypass.test.ts",
                 "packages/server/src/routes/harnessNamesForKey.test.ts",
+                "packages/server/src/routes/export-import/index.test.ts",
                 "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts"
             ],
             "entryPoints": [

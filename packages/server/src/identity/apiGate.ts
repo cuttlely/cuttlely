@@ -41,25 +41,28 @@ export interface ApiV1AuthDeps {
 const CASE_INSENSITIVE = /\/api\/v1\//i
 const CASE_SENSITIVE = /\/api\/v1\//
 
-// Express routes match without regard to letter case, so the lists must too: `/api/v1/Internal-Prediction` reaches
-// the same handler as the lower-case path. An entry ending in '/' also matches that path without the slash: Express
-// routes '/apikey/' for both.
+// Express routes paths ignoring ASCII letter case only (a non-ASCII letter such as the Kelvin sign
+// does not match 'k') and reads repeated slashes as one, so every list is compared in that form.
+export function normalizeApiPath(path: string): string {
+    return collapseSlashes(path).replace(/[A-Z]/g, (c) => c.toLowerCase())
+}
+
+function collapseSlashes(path: string): string {
+    return path.replace(/\/{2,}/g, '/')
+}
+
+// An entry ending in '/' also matches that path without the slash: Express routes '/apikey/' for both.
 const listed = (path: string, urls: string[]) =>
     urls.some((url) => {
-        const entry = url.toLowerCase()
+        const entry = normalizeApiPath(url)
         return (entry.endsWith('/') && path === entry.slice(0, -1)) || path.startsWith(entry)
     })
-
-// Express routes `/api/v1//files` to the `/files` router, so repeated slashes are collapsed before any list is read.
-export function normalizeApiPath(path: string): string {
-    return path.replace(/\/{2,}/g, '/').toLowerCase()
-}
 
 // The /api/v1 sign-in gate. A path on the public list proceeds. A session proceeds for a read,
 // and for a write only with x-request-from: internal. Anything else needs a valid API key.
 export function apiV1Auth(deps: ApiV1AuthDeps) {
     return async (req: Request, res: Response, next: NextFunction) => {
-        const collapsed = req.path.replace(/\/{2,}/g, '/')
+        const collapsed = collapseSlashes(req.path)
         const path = normalizeApiPath(req.path)
         if (!CASE_INSENSITIVE.test(collapsed)) {
             next()

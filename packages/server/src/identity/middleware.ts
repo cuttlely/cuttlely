@@ -18,6 +18,7 @@
 
 import { Request, Response } from 'express'
 import { LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE } from './constants'
+import { normalizeApiPath } from './apiGate'
 import { establishSession } from './handlers'
 import { buildAuthContext } from './production'
 import { SessionUser } from './types'
@@ -35,12 +36,12 @@ const HANDLED_BY_ROUTE = new Set(
         '/api/v1/auth/local/password',
         '/api/v1/account/logout',
         '/api/v1/account/register'
-    ].map((path) => path.toLowerCase())
+    ].map(normalizeApiPath)
 )
 
 export async function attachIdentitySession(req: Request, res: Response): Promise<SessionUser | null> {
     // Express routes ignore letter case and route `/api/v1//x` like `/api/v1/x`, so this check does too.
-    const path = req.path.replace(/\/{2,}/g, '/').toLowerCase()
+    const path = normalizeApiPath(req.path)
     if (HANDLED_BY_ROUTE.has(path) || path.startsWith('/api/v1/prediction')) return null
     const cookies = (req.cookies || {}) as Record<string, string | undefined>
     if (!cookies[WOS_SESSION_COOKIE] && !cookies[LOCAL_SESSION_COOKIE]) return null

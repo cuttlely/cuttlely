@@ -465,7 +465,8 @@ describe('a harness name stored as a list is refused', () => {
         expect(JSON.parse(agentToolList('payroll')).nodes[0].data.inputs.agentTools[0].agentSelectedToolConfig.harnessName).toEqual([
             'payroll'
         ])
-        for (const flowData of [cardList('payroll'), agentToolList('payroll'), cardList('bakery')]) {
+        const padded = harnessCard('bakery').replace('"bakery"', '" bakery "')
+        for (const flowData of [cardList('payroll'), agentToolList('payroll'), cardList('bakery'), padded]) {
             await refusedInEveryCase('post', '/api/v1/chatflows', KEY, { name: 'Listed', type: 'CHATFLOW', flowData })
             await refusedInEveryCase('put', `/api/v1/flow-drafts/${PLAIN_CHAT}`, KEY, { flowData })
         }
