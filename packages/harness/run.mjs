@@ -23,6 +23,8 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
+import { assertHarnessCaller } from './caller.mjs'
+export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
 import {
     analystCallsFor,
@@ -83,7 +85,7 @@ export function configureHarnessRuntime({ contextFor } = {}) {
 // Before a run row is opened. A harness with no team is not in the caller's team.
 // Both empty is an offline run with no team on either side.
 export function assertHarnessWorkspace(name, flowOptions, record) {
-    assertHarnessKeyAccess(record?.name || name, flowOptions)
+    assertHarnessCaller(record?.name || name, flowOptions?.harnessCaller)
     let harness = record
     if (!harness) {
         try {
@@ -97,16 +99,6 @@ export function assertHarnessWorkspace(name, flowOptions, record) {
     const owner = typeof harness.workspaceId === 'string' ? harness.workspaceId : ''
     if (caller !== owner) {
         throw new HarnessError('wrong_workspace', `Harness "${harness.name || name}" belongs to another workspace.`)
-    }
-}
-
-// A flow run under an API key (the flow's own key on the prediction API) runs only harnesses on that key's list.
-export function assertHarnessKeyAccess(name, flowOptions) {
-    const keyId = flowOptions?.apiKeyId
-    if (typeof keyId !== 'string' || !keyId) return
-    const allowed = Array.isArray(flowOptions?.apiKeyHarnesses) ? flowOptions.apiKeyHarnesses : []
-    if (!allowed.includes(name)) {
-        throw new HarnessError('key_not_allowed', `This API key may not run harness "${name}".`)
     }
 }
 
