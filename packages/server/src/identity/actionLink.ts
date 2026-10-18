@@ -18,11 +18,12 @@ import { randomUUID } from 'crypto'
 import { connect as tlsConnect } from 'tls'
 import { accountLinkSnapshot, effectiveAccountEnv } from '../settings/accountLinks'
 import { safeRecordAudit } from './auditLog'
+import { workosConfigured } from './constants'
 import { DirectoryActor, DirectoryError, QueryFn, Sql, createEmailUser } from './directory'
 import { hashPassword, hashSessionToken, passwordErrors, randomToken } from './password'
 import { LoginRateLimit, LoginLimiter } from './rateLimit'
 import { publicOrigin } from './setupCode'
-import { HandlerResult } from './types'
+import { HandlerResult, InviteSignIn } from './types'
 
 export const LINK_INVALID = 'This link is not valid.'
 export const MAIL_REQUIRED = 'Mail is not configured. Set link to true to receive a one-time link, or configure mail first.'
@@ -124,14 +125,17 @@ export function linkMode(body: unknown): true | false | undefined {
     throw new DirectoryError(400, 'link must be true or false')
 }
 
-/** An explicit link field wins. Otherwise the invite delivery setting fills in. Reset links are unchanged. */
+/**
+ * An explicit link field wins. Otherwise the invite delivery setting fills in. Reset links are unchanged.
+ * With AuthKit on, an invite always carries a link, because the invite link is the only way to join.
+ */
 function inviteMode(body: unknown, env: NodeJS.ProcessEnv): true | false | undefined {
     const explicit = linkMode(body)
     if (explicit !== undefined) return explicit
     const delivery = (env.INVITE_DELIVERY || accountLinkSnapshot(env).get('INVITE_DELIVERY')?.value || '').trim()
     if (delivery === 'link') return true
     if (delivery === 'email') return false
-    return undefined
+    return workosConfigured(env) ? true : undefined
 }
 
 /** Fragment only. The browser posts the token. The server path and query do not carry it. */
@@ -371,8 +375,10 @@ async function removeFreshUser(sql: Sql, userId: string): Promise<void> {
 
 async function deliver(deps: LinkDeps, to: string, purpose: LinkPurpose, link: string): Promise<boolean> {
     if (!deps.mailReady()) return false
-    const subject = purpose === 'invite' ? 'Set your Cuttlely password' : 'Reset your Cuttlely password'
-    const text = `Open this one-time link to set a password. It works once. Do not share it.\n\n${link}\n`
+    const join = purpose === 'invite' && workosConfigured(deps.env)
+    const subject = join ? 'Join Cuttlely' : purpose === 'invite' ? 'Set your Cuttlely password' : 'Reset your Cuttlely password'
+    const action = join ? 'accept your invite and sign in' : 'set a password'
+    const text = `Open this one-time link to ${action}. It works once. Do not share it.\n\n${link}\n`
     await deps.send({ to, subject, text })
     return true
 }
@@ -431,6 +437,7 @@ export async function inviteAccount(
 
 interface TargetRow {
     id: string
+    email: string
     status: string
     externalId: string
     ssoProvider: string
@@ -451,7 +458,8 @@ async function loadTarget(
     userId: string
 ): Promise<TargetRow | null> {
     const rows = await query(
-        `SELECT u.${q(sql, 'id')} AS id, u.${q(sql, 'status')} AS status, u.${q(sql, 'externalId')} AS externalId,
+        `SELECT u.${q(sql, 'id')} AS id, u.${q(sql, 'email')} AS email, u.${q(sql, 'status')} AS status,
+                u.${q(sql, 'externalId')} AS externalId,
                 u.${q(sql, 'ssoProvider')} AS ssoProvider, u.${q(sql, 'ssoSubjectId')} AS ssoSubjectId,
                 ou.${q(sql, 'status')} AS orgStatus, orgRole.${q(sql, 'name')} AS orgRoleName,
                 orgRole.${q(sql, 'permissions')} AS orgPermissions,
@@ -471,6 +479,7 @@ async function loadTarget(
     if (!row) return null
     return {
         id: text(cell(row, 'id')),
+        email: text(cell(row, 'email')),
         status: text(cell(row, 'status')).toLowerCase(),
         externalId: text(cell(row, 'externalId')),
         ssoProvider: text(cell(row, 'ssoProvider')),
@@ -496,22 +505,24 @@ function permissionList(value: string): string[] {
 
 type Block = 'missing' | 'disabled' | 'owner' | 'sso' | 'service' | 'workspace' | 'higher'
 
-function blockReason(target: TargetRow | null): Block | null {
+/** A pending (`invited`) user passes only for an invite. An AuthKit invite may carry the owner role the inviter granted. */
+function blockReason(target: TargetRow | null, purpose: LinkPurpose = 'reset', allowOwner = false): Block | null {
     if (!target || target.status === 'deleted' || !target.orgStatus) return 'missing'
-    if (target.orgRoleName === 'owner') return 'owner'
+    if (target.orgRoleName === 'owner' && !allowOwner) return 'owner'
     if (target.status === 'service' || target.ssoProvider.toLowerCase() === 'service' || target.teamRoleName === 'service account') {
         return 'service'
     }
     if (target.externalId || target.ssoProvider || target.ssoSubjectId) return 'sso'
-    if (target.status !== 'active' || target.orgStatus === 'disable') return 'disabled'
+    const pending = purpose === 'invite' && target.status === 'invited'
+    if ((target.status !== 'active' && !pending) || target.orgStatus === 'disable') return 'disabled'
     if (!target.teamStatus) return 'workspace'
     if (target.teamStatus === 'disable') return 'disabled'
     if (target.teamStatus !== 'active' && target.teamStatus !== 'invited') return 'disabled'
     return null
 }
 
-function resetBlock(actor: DirectoryActor, target: TargetRow): Block | null {
-    const blocked = blockReason(target)
+function resetBlock(actor: DirectoryActor, target: TargetRow, purpose: LinkPurpose = 'reset'): Block | null {
+    const blocked = blockReason(target, purpose)
     if (blocked) return blocked
     if (actor.owner) return null
     const held = new Set(actor.permissions || [])
@@ -556,16 +567,20 @@ async function resetLocalLinkInner(
     if (!wantsLink && !deps.mailReady()) throw new DirectoryError(400, MAIL_REQUIRED)
     if (!actor.workspaceId) throw new DirectoryError(400, 'Choose a team')
     const target = await loadTarget(sql.query, sql, actor.organizationId, actor.workspaceId, userId.trim())
-    const blocked = target ? resetBlock(actor, target) : 'missing'
+    // A pending invite gets a fresh invite link. It replaces the older invite link and still needs the invite flow.
+    const purposeFor = (row: TargetRow | null): LinkPurpose => (row?.status === 'invited' ? 'invite' : 'reset')
+    let purpose = purposeFor(target)
+    const blocked = target ? resetBlock(actor, target, purpose) : 'missing'
     if (blocked) throw resetError(blocked)
     let issued = { raw: '', id: '' }
     const workspaceId = actor.workspaceId || ''
     await sql.transaction(async (query) => {
         const again = await loadTarget(query, sql, actor.organizationId, workspaceId, userId.trim())
-        const still = again ? resetBlock(actor, again) : 'missing'
+        purpose = purposeFor(again)
+        const still = again ? resetBlock(actor, again, purpose) : 'missing'
         if (still) throw resetError(still)
         issued = await issueToken(query, sql, {
-            purpose: 'reset',
+            purpose,
             actor,
             userId: userId.trim(),
             workspaceId,
@@ -578,7 +593,7 @@ async function resetLocalLinkInner(
     const address = await userEmail(sql, userId.trim())
     if (!wantsLink) {
         try {
-            await deliver(deps, address, 'reset', link)
+            await deliver(deps, address, purpose, link)
         } catch {
             await sql.query(
                 `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
@@ -588,7 +603,7 @@ async function resetLocalLinkInner(
             throw new DirectoryError(502, MAIL_FAILED)
         }
         await supersedeOpenLinks(sql.query, sql, {
-            purpose: 'reset',
+            purpose,
             actor,
             userId: userId.trim(),
             workspaceId,
@@ -596,12 +611,12 @@ async function resetLocalLinkInner(
             keepId: issued.id
         })
         await safeRecordAudit(sql, {
-            type: 'reset',
+            type: purpose,
             organizationId: actor.organizationId,
             workspaceId,
             userId: userId.trim(),
             actorId: actor.id,
-            summary: 'Password reset link issued',
+            summary: purpose === 'invite' ? 'Invite issued' : 'Password reset link issued',
             detail: { action: 'issued', mailed: true }
         })
         return { mailed: true }
@@ -609,18 +624,18 @@ async function resetLocalLinkInner(
     let mailed = false
     if (deps.mailReady()) {
         try {
-            mailed = await deliver(deps, address, 'reset', link)
+            mailed = await deliver(deps, address, purpose, link)
         } catch {
             mailed = false
         }
     }
     await safeRecordAudit(sql, {
-        type: 'reset',
+        type: purpose,
         organizationId: actor.organizationId,
         workspaceId,
         userId: userId.trim(),
         actorId: actor.id,
-        summary: 'Password reset link issued',
+        summary: purpose === 'invite' ? 'Invite issued' : 'Password reset link issued',
         detail: { action: 'issued', mailed }
     })
     return deps.mailReady() ? { link, mailed } : { link }
@@ -701,7 +716,7 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         return json(400, { message: LINK_INVALID })
     }
     const target = await loadTarget(sql.query, sql, found.organizationId, found.workspaceId, found.userId)
-    const blocked = blockReason(target)
+    const blocked = blockReason(target, found.purpose as LinkPurpose)
     if (blocked) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         await rejectAudit(sql, found, blocked, input.now)
@@ -729,11 +744,12 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
             const organizationId = text(cell(marked[0], 'organizationId'))
             const workspaceId = text(cell(marked[0], 'workspaceId'))
             const again = await loadTarget(query, sql, organizationId, workspaceId, userId)
-            if (blockReason(again)) throw new Error('ineligible')
+            if (blockReason(again, purpose as LinkPurpose)) throw new Error('ineligible')
             await query(
                 `UPDATE ${q(sql, 'user')} SET ${q(sql, 'credential')} = ?, ${q(sql, 'updatedDate')} = ? WHERE ${q(sql, 'id')} = ?`,
                 [credential, dbTime(sql, input.now), userId]
             )
+            if (purpose === 'invite') await activatePending(query, sql, userId, input.now)
             await writeAudit(
                 query,
                 sql,
@@ -821,6 +837,115 @@ async function rejectAudit(sql: Sql, found: StoredLink | null, reason: string, n
         },
         now
     )
+}
+
+async function activatePending(query: QueryFn, sql: Sql, userId: string, now: number): Promise<void> {
+    await query(
+        `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = ?
+         WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) = 'invited'`,
+        ['active', dbTime(sql, now), userId]
+    )
+}
+
+function tokenRefusal(found: StoredLink | null, input: InviteSignIn): string | null {
+    if (!found || found.purpose !== 'invite') return 'unknown'
+    if (found.usedAt) return 'reused'
+    if (!found.expiresAt || found.expiresAt <= input.now) return 'expired'
+    if (found.userId !== input.userId) return 'other-user'
+    return null
+}
+
+/** The invite still stands: same team and organization, not removed or disabled, and the mailbox is the one invited. */
+async function inviteTargetRefusal(query: QueryFn, sql: Sql, found: StoredLink, input: InviteSignIn): Promise<string | null> {
+    const target = await loadTarget(query, sql, found.organizationId, found.workspaceId, found.userId)
+    const blocked = blockReason(target, 'invite', true)
+    if (blocked) return blocked
+    if (!target || target.status !== 'invited') return 'not-pending'
+    if (target.email.trim().toLowerCase() !== input.email.trim().toLowerCase()) return 'other-email'
+    return null
+}
+
+/**
+ * AuthKit sign-in with an invite link. The token is used, the user activated, and the AuthKit id bound in one
+ * transaction, so a second sign-in with the same link finds the token used.
+ */
+export async function acceptAuthKitInvite(sql: Sql, input: InviteSignIn): Promise<'accepted' | 'invalid'> {
+    const hash = hashSessionToken(input.token)
+    const found = await findLink(sql.query, sql, hash)
+    const refused = tokenRefusal(found, input) || (found ? await inviteTargetRefusal(sql.query, sql, found, input) : null)
+    if (refused || !found) {
+        if (refused === 'expired') metrics.expired += 1
+        await rejectAudit(sql, found, refused || 'unknown', input.now)
+        return 'invalid'
+    }
+    const consumeId = randomUUID()
+    let won = false
+    try {
+        await sql.transaction(async (query) => {
+            await query(
+                `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
+                 WHERE ${q(sql, 'tokenHash')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'userId')} = ?
+                   AND ${q(sql, 'usedAt')} IS NULL AND ${q(sql, 'expiresAt')} > ?`,
+                [dbTime(sql, input.now), consumeId, hash, 'invite', input.userId, dbTime(sql, input.now)]
+            )
+            const marked = await query(
+                `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'identity_action_link')} WHERE ${q(sql, 'consumeId')} = ?`,
+                [consumeId]
+            )
+            if (!marked.length) throw new Error('lost')
+            if (await inviteTargetRefusal(query, sql, found, input)) throw new Error('ineligible')
+            await activatePending(query, sql, input.userId, input.now)
+            await query(
+                `UPDATE ${q(sql, 'user')} SET ${q(sql, 'externalId')} = ?, ${q(sql, 'updatedDate')} = ?
+                 WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'externalId')} IS NULL`,
+                [input.externalId, dbTime(sql, input.now), input.userId]
+            )
+            const after = await query(
+                `SELECT ${q(sql, 'status')} AS status, ${q(sql, 'externalId')} AS externalId FROM ${q(sql, 'user')} WHERE ${q(
+                    sql,
+                    'id'
+                )} = ?`,
+                [input.userId]
+            )
+            const row = after[0] || {}
+            if (text(cell(row, 'status')).toLowerCase() !== 'active' || text(cell(row, 'externalId')) !== input.externalId) {
+                throw new Error('lost')
+            }
+            await writeAudit(
+                query,
+                sql,
+                {
+                    action: 'token_consumed',
+                    purpose: 'invite',
+                    organizationId: found.organizationId,
+                    workspaceId: found.workspaceId,
+                    userId: input.userId,
+                    actorId: input.userId,
+                    result: 'success',
+                    reason: 'authkit'
+                },
+                input.now
+            )
+            won = true
+        })
+    } catch {
+        won = false
+    }
+    if (!won) {
+        await rejectAudit(sql, found, 'reused', input.now)
+        return 'invalid'
+    }
+    metrics.accepted += 1
+    await safeRecordAudit(sql, {
+        type: 'invite',
+        organizationId: found.organizationId,
+        workspaceId: found.workspaceId,
+        userId: input.userId,
+        actorId: input.userId,
+        summary: 'Invite accepted',
+        detail: { action: 'completed', method: 'authkit' }
+    })
+    return 'accepted'
 }
 
 function json(status: number, body: unknown): HandlerResult {

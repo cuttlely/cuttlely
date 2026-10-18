@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE } from './constants'
+import { INVITE_COOKIE, INVITE_COOKIE_MS, LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE } from './constants'
 import { SetCookie } from './types'
 
 export function cookieSecure(redirectUri: string | undefined, httpsRequest: boolean): boolean {
@@ -28,6 +28,14 @@ export function sealedCookie(value: string, secure: boolean): SetCookie {
         name: WOS_SESSION_COOKIE,
         value,
         options: { httpOnly: true, sameSite: 'lax', path: '/', secure }
+    }
+}
+
+export function inviteCookie(value: string, secure: boolean): SetCookie {
+    return {
+        name: INVITE_COOKIE,
+        value,
+        options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge: INVITE_COOKIE_MS }
     }
 }
 

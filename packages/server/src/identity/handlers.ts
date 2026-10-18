@@ -15,9 +15,11 @@
  */
 
 import { randomUUID } from 'crypto'
-import { localCookie, sealedCookie } from './cookies'
+import { inviteCookie, localCookie, sealedCookie } from './cookies'
 import {
     EMAIL_MAX_LENGTH,
+    INVITE_COOKIE,
+    INVITE_TOKEN_MAX_LENGTH,
     LOCAL_SESSION_COOKIE,
     PASSWORD_MAX_LENGTH,
     WOS_SESSION_COOKIE,
@@ -25,7 +27,7 @@ import {
     signinErrorUrl,
     unavailablePage
 } from './constants'
-import { isActiveStatus, linkFailureMessage, linkWorkosUser } from './link'
+import { INVITE_LINK_INVALID, isActiveStatus, linkFailureMessage, linkWorkosUser } from './link'
 import { hashForLoginCompare, hashPassword, hashSessionToken, passwordErrors, randomToken, tokensEqual, verifyPassword } from './password'
 import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
@@ -204,13 +206,42 @@ export async function handleLoginGet(ctx: AuthContext): Promise<HandlerResult> {
     }
 }
 
+function inviteTokenFrom(ctx: AuthContext): string | undefined {
+    const raw = ctx.cookies[INVITE_COOKIE]
+    if (typeof raw !== 'string' || !raw || raw.length > INVITE_TOKEN_MAX_LENGTH) return undefined
+    return raw
+}
+
+/**
+ * Starts the AuthKit sign-in for an invite link. The token waits in a short-lived httpOnly cookie, never in a URL,
+ * and the callback checks it. Starting does not use the token or reveal whether it is valid.
+ */
+export async function handleInviteStart(ctx: AuthContext): Promise<HandlerResult> {
+    if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
+    if (!ctx.internal) return json(401, { message: 'Unauthorized' })
+    const token = typeof ctx.body.token === 'string' ? ctx.body.token : ''
+    if (!token || token.length > INVITE_TOKEN_MAX_LENGTH) return json(400, { message: INVITE_LINK_INVALID })
+    return json(200, { url: '/api/v1/auth/login' }, { cookies: [inviteCookie(token, ctx.secure)] })
+}
+
 export async function handleCallback(ctx: AuthContext): Promise<HandlerResult> {
+    const result = await callbackResult(ctx)
+    if (ctx.cookies[INVITE_COOKIE] === undefined || result.type === 'next') return result
+    const names = [...(result.clearCookies || []), INVITE_COOKIE]
+    return { ...result, clearCookies: names, secure: result.secure ?? clearSecure(ctx, names) }
+}
+
+async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
     if (!ctx.code) return json(400, { message: 'No code provided' })
     if (!ctx.cookiePasswordOk) return textUnavailable()
     try {
         const authenticated = await ctx.workos.authenticate(ctx.code)
-        const linked = await linkWorkosUser(ctx.store, authenticated.user, { bootstrapEmail: ctx.bootstrapEmail })
+        const linked = await linkWorkosUser(ctx.store, authenticated.user, {
+            bootstrapEmail: ctx.bootstrapEmail,
+            inviteToken: inviteTokenFrom(ctx),
+            now: ctx.now
+        })
         if (!linked.ok && (linked.reason === 'bootstrap-unset' || linked.reason === 'bootstrap-denied')) {
             return bootstrapPage(linked.reason)
         }

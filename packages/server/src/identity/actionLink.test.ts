@@ -229,7 +229,7 @@ describe('invite and reset links', () => {
         expect(created).not.toHaveProperty('link')
         expect(sent).toEqual([])
         const row = db.prepare('SELECT credential, status FROM "user" WHERE email = ?').all('ada@example.com')
-        expect(row).toEqual([{ credential: null, status: 'active' }])
+        expect(row).toEqual([{ credential: null, status: 'invited' }])
         expect(db.prepare('SELECT id FROM identity_action_link').all()).toEqual([])
     })
 

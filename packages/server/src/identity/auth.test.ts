@@ -15,6 +15,7 @@ import {
     AuthContext,
     establishSession,
     handleCallback,
+    handleInviteStart,
     handleLoginGet,
     handleLoginPost,
     handleLogout,
@@ -32,7 +33,7 @@ import { resolveTrustProxy } from '../utils/trustProxy'
 import { AuthKitSwitchApply, AuthKitSwitchState, switchedSessions } from './authKitSwitch'
 import { IdentityStore } from './store'
 import { addIdentityLoginGuards, addIdentitySignIn, removeIdentityLoginGuards } from './schemaMigration'
-import { CreateOwnerInput, HandlerResult, LocalSession, NotEmptyError, SessionUser, UserRow, WorkosPort } from './types'
+import { CreateOwnerInput, HandlerResult, InviteSignIn, LocalSession, NotEmptyError, SessionUser, UserRow, WorkosPort } from './types'
 
 const GOOD = 'Sup3r-Secret!'
 const NOW = Date.parse('2026-10-06T00:00:00.000Z')
@@ -84,14 +85,21 @@ class MemoryStore implements IdentityStore {
         user.credential = credential
     }
 
-    async activateUser(userId: string): Promise<UserRow | null> {
-        const user = this.users.find((row) => row.id === userId)
-        if (!user) return null
-        if (user.status.toLowerCase() === 'invited') user.status = 'active'
-        if (user.status.toLowerCase() !== 'active') return null
-        const session = this.sessions.get(userId)
+    invites = new Map<string, { userId: string; expiresAt: number; used: boolean }>()
+    inviteCalls: InviteSignIn[] = []
+
+    async acceptInvite(input: InviteSignIn): Promise<'accepted' | 'invalid'> {
+        this.inviteCalls.push(input)
+        const invite = this.invites.get(input.token)
+        const user = this.users.find((row) => row.id === input.userId)
+        if (!invite || invite.used || invite.expiresAt <= input.now || invite.userId !== input.userId) return 'invalid'
+        if (!user || user.status !== 'invited' || user.email.trim().toLowerCase() !== input.email.trim().toLowerCase()) return 'invalid'
+        invite.used = true
+        user.status = 'active'
+        user.externalId = input.externalId
+        const session = this.sessions.get(user.id)
         if (session) session.status = user.status
-        return user
+        return 'accepted'
     }
 
     async createOwner(input: CreateOwnerInput): Promise<UserRow> {
@@ -402,12 +410,89 @@ describe('identity auth', () => {
         expect(store.users).toHaveLength(1)
     })
 
-    it('callback links an invited email-only user and marks them active', async () => {
+    it('callback leaves a pending invite pending on a verified email match without the invite link', async () => {
         const store = new MemoryStore()
         store.add({ id: 'user-2', email: 'owner@example.com', name: 'Owner', status: 'invited', externalId: null, credential: null })
-        const result = await handleCallback(ctx({ workosConfigured: true, code: 'code', store }))
-        expect(result).toMatchObject({ type: 'redirect', url: '/' })
-        expect(store.users[0]).toMatchObject({ externalId: 'wos-1', status: 'active', credential: null })
+        const port = workos()
+        const result = await handleCallback(ctx({ workosConfigured: true, code: 'code', store, workos: port }))
+        expect(result.type).toBe('redirect')
+        if (result.type !== 'redirect') return
+        expect(JSON.parse(new URL(result.url, 'http://x').searchParams.get('error') || '{}')).toEqual({
+            message: 'You have a pending invite. Open the invite link from your email to join.'
+        })
+        expect(result.cookies).toBeUndefined()
+        expect(store.users[0]).toMatchObject({ status: 'invited', externalId: null })
+        expect(store.touched).toEqual([])
+        expect(store.inviteCalls).toEqual([])
+        expect(port.externalIds).toEqual([])
+    })
+
+    it('callback activates a pending invite with its invite link and binds the sign-in the first time', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'user-2', email: 'Owner@Example.com', name: 'Owner', status: 'invited', externalId: null, credential: null })
+        store.invites.set('invite-token', { userId: 'user-2', expiresAt: NOW + 60_000, used: false })
+        const port = workos()
+        const result = await handleCallback(
+            ctx({ workosConfigured: true, code: 'code', store, workos: port, cookies: { 'cuttlely-invite': 'invite-token' } })
+        )
+        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['cuttlely-local-session', 'cuttlely-invite'] })
+        if (result.type === 'redirect') expect(result.cookies?.[0]).toMatchObject({ name: 'wos-session', value: 'sealed-1' })
+        expect(store.users[0]).toMatchObject({ status: 'active', externalId: 'wos-1', credential: null })
+        expect(store.inviteCalls).toEqual([
+            { token: 'invite-token', userId: 'user-2', email: 'owner@example.com', externalId: 'wos-1', now: NOW }
+        ])
+        expect(port.externalIds).toEqual([{ workosUserId: 'wos-1', ourUserId: 'user-2' }])
+
+        const again = await handleCallback(ctx({ workosConfigured: true, code: 'code', store, workos: port }))
+        expect(again).toMatchObject({ type: 'redirect', url: '/' })
+        expect(store.inviteCalls).toHaveLength(1)
+    })
+
+    it('callback refuses a pending invite whose link the store does not accept, and clears the invite cookie', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'user-2', email: 'owner@example.com', name: 'Owner', status: 'invited', externalId: null, credential: null })
+        store.invites.set('old-token', { userId: 'user-2', expiresAt: NOW - 1, used: false })
+        const result = await handleCallback(
+            ctx({ workosConfigured: true, code: 'code', store, cookies: { 'cuttlely-invite': 'old-token' } })
+        )
+        expect(result).toMatchObject({ type: 'redirect', clearCookies: ['cuttlely-invite'] })
+        if (result.type === 'redirect') {
+            expect(decodeURIComponent(result.url)).toContain('This invite link is not valid. Ask for a new invite.')
+            expect(result.cookies).toBeUndefined()
+        }
+        expect(store.users[0]).toMatchObject({ status: 'invited', externalId: null })
+    })
+
+    it('callback signs an already active user in normally and ignores a stray invite cookie', async () => {
+        const store = new MemoryStore()
+        store.add(
+            { id: 'user-1', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: 'wos-1', credential: null },
+            true
+        )
+        const result = await handleCallback(ctx({ workosConfigured: true, code: 'code', store, cookies: { 'cuttlely-invite': 'stray' } }))
+        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['cuttlely-local-session', 'cuttlely-invite'] })
+        expect(store.inviteCalls).toEqual([])
+        expect(store.touched).toEqual(['user-1'])
+    })
+
+    it('invite start holds the token in a short-lived httpOnly cookie and sends the browser to AuthKit', async () => {
+        expect(json(await handleInviteStart(ctx({ internal: true, body: { token: 't' } }))).status).toBe(404)
+        expect(json(await handleInviteStart(ctx({ workosConfigured: true, body: { token: 't' } }))).status).toBe(401)
+        expect(json(await handleInviteStart(ctx({ workosConfigured: true, internal: true, body: {} }))).status).toBe(400)
+        const tooLong = await handleInviteStart(ctx({ workosConfigured: true, internal: true, body: { token: 'x'.repeat(257) } }))
+        expect(json(tooLong).status).toBe(400)
+        const started = json(
+            await handleInviteStart(ctx({ workosConfigured: true, internal: true, secure: true, body: { token: 'raw-token' } }))
+        )
+        expect(started.status).toBe(200)
+        expect(started.body).toEqual({ url: '/api/v1/auth/login' })
+        expect(started.cookies).toEqual([
+            {
+                name: 'cuttlely-invite',
+                value: 'raw-token',
+                options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true, maxAge: 15 * 60 * 1000 }
+            }
+        ])
     })
 
     it('callback still refuses a deleted email-only user', async () => {

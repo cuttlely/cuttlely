@@ -101,7 +101,25 @@ export interface WorkosIdentity {
     name: string | null
 }
 
-export type LinkFailure = 'unverified' | 'rebind' | 'unknown' | 'inactive' | 'ambiguous' | 'bootstrap-unset' | 'bootstrap-denied'
+export type LinkFailure =
+    | 'unverified'
+    | 'rebind'
+    | 'unknown'
+    | 'inactive'
+    | 'ambiguous'
+    | 'bootstrap-unset'
+    | 'bootstrap-denied'
+    | 'invite-required'
+    | 'invite-invalid'
+
+/** An AuthKit sign-in that carries the raw token from an invite link. */
+export interface InviteSignIn {
+    token: string
+    userId: string
+    email: string
+    externalId: string
+    now: number
+}
 
 export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { ok: false; reason: LinkFailure }
 

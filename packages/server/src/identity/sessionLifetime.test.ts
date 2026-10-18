@@ -387,7 +387,7 @@ function fakeStore(sessions: Map<string, LocalSession>): IdentityStore {
         createOwner: async () => {
             throw new Error('unused')
         },
-        activateUser: async () => null,
+        acceptInvite: async () => 'invalid',
         sessionFor: async () => user,
         touchLastLogin: async () => undefined,
         insertLocalSession: async (row) => {

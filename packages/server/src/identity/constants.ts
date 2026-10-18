@@ -20,6 +20,12 @@ export const WOS_SESSION_COOKIE = 'wos-session'
 /** Break-glass session only. Never a WorkOS seal. */
 export const LOCAL_SESSION_COOKIE = 'cuttlely-local-session'
 
+/** Raw invite token held only for the AuthKit round trip. The callback always clears it. */
+export const INVITE_COOKIE = 'cuttlely-invite'
+export const INVITE_COOKIE_MS = 15 * 60 * 1000
+/** randomToken output is far shorter. Anything longer is not a token. */
+export const INVITE_TOKEN_MAX_LENGTH = 256
+
 /** Defaults used before these could be changed, and the fallback when a session row has no issue time. */
 export const IDLE_MS = 12 * 60 * 60 * 1000
 export const ABSOLUTE_MS = 7 * 24 * 60 * 60 * 1000

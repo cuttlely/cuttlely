@@ -97,6 +97,10 @@ function memorySql(record?: string[]): { sql: Sql; db: InstanceType<typeof Datab
             id text primary key, userId text, token text, expiresAt text, absoluteExpiresAt text,
             createdDate text, permissionVersion integer not null default 0
         );
+        CREATE TABLE identity_action_link (
+            id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
+            userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
+        );
         INSERT INTO organization (id, name) VALUES ('${ORG}', 'Cuttlely');
         INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
             ('${OWNER}', 'Owner', 'owner@example.com', 'active', 0),
@@ -598,6 +602,10 @@ describe('local directory rules', () => {
             CREATE TABLE identity_local_session (
                 id text primary key, userId text, token text, expiresAt text, absoluteExpiresAt text,
                 createdDate text, permissionVersion integer not null default 0
+            );
+            CREATE TABLE identity_action_link (
+                id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
+                userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
             );
             INSERT INTO "user" (id, name, email, status) VALUES ('${OWNER}', 'Owner', 'owner@example.com', 'active');
             INSERT INTO role (id, name, permissions) VALUES ('role-owner', 'owner', '[]'), ('role-member', 'member', '[]');
