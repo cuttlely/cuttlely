@@ -851,6 +851,7 @@
                 "packages/server/src/metrics/names.test.ts",
                 "packages/server/src/metrics/names.ts",
                 "packages/server/src/middlewares/errors/index.test.ts",
+                "packages/server/src/routes/index.iconLimit.test.ts",
                 "packages/server/src/routes/index.rateLimit.test.ts",
                 "packages/server/src/routes/oauth2/refresh.test.ts",
                 "packages/server/src/services/dataset/index.test.ts",

@@ -401,6 +401,16 @@
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
         {
+            "from": "packages/server/src/routes/index.iconLimit.test.ts",
+            "to": "packages/server/src/routes/index.ts",
+            "reason": "the test mounts the inherited API router at the lowest page budget to check the icon routers' catalog-sized limit"
+        },
+        {
+            "from": "packages/server/src/routes/index.iconLimit.test.ts",
+            "to": "packages/server/src/utils/rateLimit.ts",
+            "reason": "the test mounts the inherited API router at the lowest page budget to check the icon routers' catalog-sized limit"
+        },
+        {
             "from": "packages/server/src/routes/index.rateLimit.test.ts",
             "to": "packages/server/src/routes/index.ts",
             "reason": "the test mounts the inherited API router to check each guarded prefix's limiter"

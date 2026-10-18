@@ -40,11 +40,11 @@ jest.mock('../controllers/components-credentials', () => {
 import apiRouter from './index'
 import { UI_ICON_CATALOG_LOADS, uiPageLimitMax } from '../utils/rateLimit'
 import { resetRuntimeLimitsForTests } from '../settings/runtime'
-import { HOST_KEYS_VAR } from '../settings/resolve'
 
 jest.setTimeout(120_000)
 
 const PAGE_LIMIT = 100
+const HOST_KEYS_VAR = 'CUTTLELY_SETTINGS_HOST_KEYS'
 
 async function statuses(server: http.Server, urls: string[]): Promise<number[]> {
     const out: number[] = []
