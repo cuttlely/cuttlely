@@ -704,12 +704,6 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         await rejectAudit(sql, found, 'unknown', input.now)
         return json(400, { message: LINK_INVALID })
     }
-    // With AuthKit on, only the AuthKit callback may use an invite: it checks the verified email and binds the sign-in.
-    if (found.purpose === 'invite' && workosConfigured(deps.env)) {
-        await deps.rateLimit.recordFailure(input.ip, '', input.now)
-        await rejectAudit(sql, found, 'authkit-only', input.now)
-        return json(400, { message: INVITE_NEEDS_AUTHKIT })
-    }
     if (found.usedAt) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         await rejectAudit(sql, found, 'reused', input.now)
@@ -727,6 +721,13 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         await rejectAudit(sql, found, blocked, input.now)
         return json(400, { message: LINK_INVALID })
+    }
+    // With AuthKit on, only the AuthKit callback may use an invite: it checks the verified email and binds the sign-in.
+    // Checked last, so a used, expired, or revoked token gets the same answer as any other invalid link.
+    if (found.purpose === 'invite' && workosConfigured(deps.env)) {
+        await deps.rateLimit.recordFailure(input.ip, '', input.now)
+        await rejectAudit(sql, found, 'authkit-only', input.now)
+        return json(400, { message: INVITE_NEEDS_AUTHKIT })
     }
     const credential = await hashPassword(password)
     const consumeId = randomUUID()

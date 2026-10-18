@@ -38,6 +38,7 @@ import { identityAuthRouter } from './http'
 import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
 import { requirePermission, setTeamPermissionLookup } from './rbac'
+import { utcEpoch } from './dbTime'
 import { addIdentityActionLinks } from './schemaMigration'
 import { SqlIdentityStore } from './sqlStore'
 import { LinkResult, WorkosIdentity } from './types'
@@ -361,10 +362,16 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(await gateStatus(ada.id)).toBe(403)
         expect(await signIn('ada@example.com', ada.token)).toMatchObject({ ok: true })
         expect(await gateStatus(ada.id)).toBe(200)
-        await db.rows(`UPDATE "user" SET status = ?, "externalId" = NULL WHERE id = ?`, ['invited', ada.id])
-        await db.rows(`UPDATE identity_action_link SET "usedAt" = NULL, "consumeId" = NULL WHERE "userId" = ?`, [ada.id])
-        const links = await db.rows(`SELECT "usedAt" AS "usedAt" FROM identity_action_link WHERE "userId" = ?`, [ada.id])
-        expect(links).toEqual([{ usedAt: null }])
+        const links = await db.rows(
+            `SELECT "usedAt" AS "usedAt", "consumeId" AS "consumeId" FROM identity_action_link WHERE "userId" = ?`,
+            [ada.id]
+        )
+        expect(links).toHaveLength(1)
+        expect(links[0].usedAt).not.toBeNull()
+        expect(links[0].consumeId).toEqual(expect.any(String))
+        expect(
+            await db.store.acceptInvite({ token: ada.token, userId: ada.id, email: 'ada@example.com', externalId: 'wos-ada', now: NOW })
+        ).toBe('invalid')
     })
 
     maybe('valid token plus matching sign-in activates the user and binds that sign-in once', async () => {
@@ -419,7 +426,18 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
 
     maybe('refuses a token once the team removes the user, even after they are added back', async () => {
         const ada = await invite('ada@example.com')
+        const before = Date.now()
         await deleteWorkspaceUser(db.sql, owner, TEAM, ada.id)
+        const after = Date.now()
+        const revoked = await db.rows(
+            `SELECT "usedAt" AS "usedAt", "consumeId" AS "consumeId" FROM identity_action_link WHERE "userId" = ?`,
+            [ada.id]
+        )
+        expect(revoked).toHaveLength(1)
+        expect(revoked[0].consumeId).toBe('revoked')
+        const revokedAt = utcEpoch(revoked[0].usedAt)
+        expect(revokedAt).toBeGreaterThanOrEqual(before - 1000)
+        expect(revokedAt).toBeLessThanOrEqual(after + 1000)
         expect(await signIn('ada@example.com', ada.token)).toEqual({ ok: false, reason: 'invite-invalid' })
         await db.rows(`INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES (?, ?, ?, ?)`, [
             TEAM,
@@ -494,6 +512,28 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(await signIn('ada@example.com', ada.token)).toMatchObject({ ok: true, user: { id: ada.id, externalId: 'wos-ada' } })
     })
 
+    maybe('with AuthKit on, a used, expired, or revoked invite gets the generic answer on the password route', async () => {
+        const accept = (token: string, now: number) =>
+            acceptLocalPassword(db.sql, { body: { token, password: GOOD }, query: {}, ip: '203.0.113.9', now }, deps(now))
+        const invalid = { type: 'json', status: 400, body: { message: 'This link is not valid.' } }
+
+        const used = await invite('used@example.com', 'Uma Sato')
+        expect(await signIn('used@example.com', used.token)).toMatchObject({ ok: true })
+        expect(await accept(used.token, NOW)).toEqual(invalid)
+
+        const late = await invite('late@example.com', 'Leo Brandt')
+        expect(await accept(late.token, NOW + 73 * HOUR)).toEqual(invalid)
+
+        const gone = await invite('gone@example.com', 'Gia Okoro')
+        await deleteWorkspaceUser(db.sql, owner, TEAM, gone.id)
+        expect(await accept(gone.token, NOW)).toEqual(invalid)
+
+        expect(await accept('not-a-real-token', NOW)).toEqual(invalid)
+        const live = await invite('live@example.com', 'Lia Moreau')
+        expect(await accept(live.token, NOW)).toEqual({ type: 'json', status: 400, body: { message: INVITE_NEEDS_AUTHKIT } })
+        expect((await rejections()).sort()).toEqual(['authkit-only', 'expired', 'reused', 'reused', 'unknown'])
+    })
+
     maybe('without AuthKit, a password accepts an invite once and makes the pending user active', async () => {
         const local = deps(NOW, {})
         const created = await inviteAccount(
@@ -511,7 +551,13 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(await accept()).toMatchObject({ type: 'json', status: 400, body: { message: 'This link is not valid.' } })
     })
     maybe('the real accept route with AuthKit on answers 400, not 404, and does not use the invite', async () => {
-        const ada = await invite('ada@example.com')
+        const created = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { name: 'Ada Lovelace', email: 'ada@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE } },
+            deps(Date.now())
+        )
+        const ada = { id: created.id, token: tokenOf(created.link) }
         const response = await withEnv(AUTHKIT_ENV, () =>
             authApp().post('/api/v1/auth/local/accept').send({ token: ada.token, password: GOOD })
         )
