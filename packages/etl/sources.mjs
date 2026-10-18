@@ -386,6 +386,13 @@ function safeGitUrl(url) {
     return parsed.toString()
 }
 
+// `--` ends git's options, so a branch or URL that starts with `-` (say `--upload-pack=...`) is never read as one.
+export function gitSyncArgs({ dir, url, branch, existing }) {
+    if (branch.startsWith('-')) throw new EtlError('bad_source', `Branch "${branch}" is not a branch name.`)
+    if (existing) return ['-C', dir, 'fetch', '--depth', '1', 'origin', '--', branch || 'HEAD']
+    return ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), '--', url, dir]
+}
+
 async function ensureRepo(source, ctx) {
     const inputs = source.inputs || {}
     if (inputs.repoPath) {
@@ -402,12 +409,11 @@ async function ensureRepo(source, ctx) {
     const dir = path.join(etlDir(), 'repos', `${ctx.pipelineId || 'preview'}-${source.nodeId}`.replace(/[^A-Za-z0-9_.-]/g, '_'))
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
     if (fs.existsSync(path.join(dir, '.git'))) {
-        await run('git', ['-C', dir, 'fetch', '--depth', '1', 'origin', branch || 'HEAD'], { env, timeout: 600000 })
+        await run('git', gitSyncArgs({ dir, url, branch, existing: true }), { env, timeout: 600000 })
         await run('git', ['-C', dir, 'reset', '--hard', 'FETCH_HEAD'], { env, timeout: 120000 })
     } else {
         fs.mkdirSync(path.dirname(dir), { recursive: true })
-        const args = ['clone', '--depth', '1', ...(branch ? ['--branch', branch] : []), url, dir]
-        await run('git', args, { env, timeout: 600000 })
+        await run('git', gitSyncArgs({ dir, url, branch, existing: false }), { env, timeout: 600000 })
     }
     return {
         root: dir,

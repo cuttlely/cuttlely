@@ -302,6 +302,51 @@ export function requireHarnessCanvasAccess(opts: { idParam?: string; body?: bool
 }
 
 /**
+ * MCP settings and the schedule switch start runs that use the flow's own key, or no key. An API key may change them
+ * only on a flow bound to itself or to no key, and only when every harness the stored flow names is on its list, so
+ * it cannot borrow another key's list or reach a harness off its own. A person is checked by role only.
+ */
+export function requireFlowRunnableByKey(opts: { idParam?: string } = {}): RequestHandler {
+    const idParam = opts.idParam ?? 'id'
+    return (req: Request, res: Response, next: NextFunction) => {
+        if (!isApiKeyCaller(req)) {
+            next()
+            return
+        }
+        const workspaceId = callerOf(req).activeWorkspaceId
+        const id = req.params?.[idParam]
+        void (async () => {
+            const stored = typeof id === 'string' && id && typeof workspaceId === 'string' ? await storedFlow(id, workspaceId) : null
+            // A flow that is not in the team is the controller's 404.
+            if (!stored) {
+                next()
+                return
+            }
+            const caller = await harnessCallerFor(req)
+            const keyId = caller.via === 'api_key' ? caller.apiKeyId : ''
+            const boundKey = typeof stored.apikeyid === 'string' && stored.apikeyid ? stored.apikeyid : null
+            if (!keyId || (boundKey !== null && boundKey !== keyId)) {
+                logger.warn(`[harness] API key ${keyId || 'unknown'} was refused flow ${stored.id}: it is bound to another key`)
+                res.status(StatusCodes.FORBIDDEN).json({ message: 'This API key may not change a flow bound to another API key.' })
+                return
+            }
+            const names = new Set(canvasHarnessNames(undefined, stored))
+            for (const name of referencedHarnessNames(stored.flowData)) names.add(name)
+            const refused = harnessRefusedFor(caller, [...names])
+            if (refused === null) {
+                next()
+                return
+            }
+            logger.warn(`[harness] API key ${keyId} was refused flow ${stored.id}, which names harness ${safeHarnessName(refused)}`)
+            res.status(StatusCodes.FORBIDDEN).json({ message: `This API key may not use harness "${safeHarnessName(refused)}".` })
+        })().catch((error) => {
+            logger.warn(`[harness] allowlist check failed: ${getErrorMessage(error)}`)
+            if (!res.headersSent) res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Permission check failed' })
+        })
+    }
+}
+
+/**
  * GET /chatflows for an API key leaves out HARNESS canvases whose name is not on the key's list. The controller hands
  * this list to the query, so paging and the total count already leave those rows out.
  */

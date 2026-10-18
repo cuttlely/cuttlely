@@ -6,6 +6,17 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto'
  */
 export const MAX_API_KEY_LENGTH = 256
 
+/** The key from `Authorization: Bearer <key>`, or '' when the header is missing or has another shape. */
+export const bearerApiKey = (authorization: unknown): string => {
+    if (typeof authorization !== 'string') return ''
+    const match = /^Bearer[ \t]+(\S+)[ \t]*$/i.exec(authorization)
+    return match ? match[1] : ''
+}
+
+/** Message for a GET that still puts the key in the URL, where proxies and browser history keep it. */
+export const API_KEY_IN_URL_MESSAGE =
+    'Send the API key in the Authorization header (Authorization: Bearer <key>). A key in the URL is not accepted.'
+
 /**
  * Prefix on apikey.apiKey after the plaintext is replaced.
  * A second migration must not hash this value, and a client that sends the

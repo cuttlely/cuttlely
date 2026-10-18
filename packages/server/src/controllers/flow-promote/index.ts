@@ -184,7 +184,9 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
         return res
             .status(StatusCodes.ACCEPTED)
-            .json(await flowCheckService.startCheck(flow, req.body || {}, baseURL, candidate, undefined, await harnessCallerFor(req)))
+            .json(
+                await flowCheckService.startCheck(flow, req.body || {}, baseURL, { caller: await harnessCallerFor(req), given: candidate })
+            )
     } catch (error) {
         next(error)
     }

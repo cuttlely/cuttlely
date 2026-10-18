@@ -23,14 +23,15 @@ router.post('/incoming/:chatflowId/check', requireOwner(), flowPromoteController
 router.get('/incoming/:chatflowId/check/:checkId', requireOwner(), flowPromoteController.getCheck)
 router.delete('/incoming/:chatflowId/check/:checkId', requireOwner(), flowPromoteController.stopCheck)
 router.get('/status', requireAnyPermission('chatflows:view,agentflows:view'), flowVersionsController.getStatus)
-router.get('/:chatflowId', requireAnyPermission('chatflows:view,agentflows:view'), flowVersionsController.listVersions)
-router.get('/:chatflowId/:sha', requireAnyPermission('chatflows:view,agentflows:view'), flowVersionsController.getVersion)
-router.get('/:chatflowId/:sha/diff', requireAnyPermission('chatflows:view,agentflows:view'), flowVersionsController.diffVersion)
-// An API key needs a HARNESS canvas's name on its own list. The version's own name and cards are checked on the save.
+// An API key needs a HARNESS canvas's name on its own list. A restored version's own name and cards are checked on the save.
+const canvasOnly = requireHarnessCanvasAccess({ idParam: 'chatflowId', body: false })
+router.get('/:chatflowId', requireAnyPermission('chatflows:view,agentflows:view'), canvasOnly, flowVersionsController.listVersions)
+router.get('/:chatflowId/:sha', requireAnyPermission('chatflows:view,agentflows:view'), canvasOnly, flowVersionsController.getVersion)
+router.get('/:chatflowId/:sha/diff', requireAnyPermission('chatflows:view,agentflows:view'), canvasOnly, flowVersionsController.diffVersion)
 router.post(
     '/:chatflowId/:sha/restore',
     requireAnyPermission('chatflows:update,agentflows:update'),
-    requireHarnessCanvasAccess({ idParam: 'chatflowId', body: false }),
+    canvasOnly,
     flowVersionsController.restoreVersion
 )
 
