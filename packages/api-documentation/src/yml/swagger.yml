@@ -487,24 +487,20 @@ paths:
                     description: Chatflow not found
                 '500':
                     description: Internal error
-    /chatflows/apikey/{apikey}:
+    /chatflows/apikey:
         get:
             tags:
                 - chatflows
+            security:
+                - bearerAuth: []
             summary: List chatflows bound to an API key
             description: >
-                Returns chatflows bound to this API key. Chatflows with no API key are not included.
-                Each item is id, name, deployed, category, and type. The canvas (flowData) and other
-                configuration are not returned. The key is the path value. It is checked with the
-                stored hash. An unknown key is 401.
+                Returns chatflows bound to the API key in the Authorization header (Bearer). Chatflows
+                with no API key are not included. Each item is id, name, deployed, category, and type.
+                The canvas (flowData) and other configuration are not returned. The key is checked with
+                the stored hash. An unknown key is 401. The older form with the key in the path,
+                /chatflows/apikey/{apikey}, answers 400 and does not check the key.
             operationId: getChatflowByApiKey
-            parameters:
-                - in: path
-                  name: apikey
-                  required: true
-                  schema:
-                      type: string
-                  description: API key. Only chatflows bound to this key are returned.
             responses:
                 '200':
                     description: Chatflows bound to the key
@@ -515,9 +511,11 @@ paths:
                                 items:
                                     $ref: '#/components/schemas/ApiKeyChatflowSummary'
                 '401':
-                    description: The API key is missing or not recognized
+                    description: The API key is not recognized
                 '404':
                     description: No chatflow is bound to this key
+                '412':
+                    description: No bearer key in the Authorization header
                 '500':
                     description: Internal error
 
