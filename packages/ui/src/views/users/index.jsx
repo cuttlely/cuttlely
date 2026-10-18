@@ -350,24 +350,7 @@ const Users = () => {
         setShowInviteDialog(true)
     }
 
-    const edit = (user) => {
-        if (user.status.toUpperCase() === 'INVITED') {
-            editInvite(user)
-        } else {
-            editUser(user)
-        }
-    }
-
-    const editInvite = (user) => {
-        const dialogProp = {
-            type: 'EDIT',
-            cancelButtonName: 'Cancel',
-            confirmButtonName: 'Update Invite',
-            data: user
-        }
-        setInviteDialogProps(dialogProp)
-        setShowInviteDialog(true)
-    }
+    const edit = (user) => editUser(user)
 
     const editUser = (user) => {
         const dialogProp = {
