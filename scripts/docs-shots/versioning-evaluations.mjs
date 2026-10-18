@@ -474,6 +474,25 @@ async function animationsDone(page, timeout = 12000) {
     )
 }
 
+// Recharts animates in JavaScript, which document.getAnimations() does not see, and draws custom pie labels before
+// the sectors. Wait until each chart has drawn its shapes and they stop changing.
+async function chartsDrawn(page, timeout = 15000) {
+    await page.waitForFunction(
+        () => {
+            const shapes = [...document.querySelectorAll('.recharts-pie-sector path, .recharts-line-curve, .recharts-bar-rectangle path')]
+            const pies = document.querySelectorAll('.recharts-pie').length
+            const sectors = document.querySelectorAll('.recharts-pie-sector path').length
+            if (!shapes.length || (pies && !sectors)) return false
+            const now = shapes.map((shape) => shape.getAttribute('d') + shape.getAttribute('stroke-dasharray')).join('|')
+            const last = window.__chartShapes
+            window.__chartShapes = { now, at: Date.now() }
+            return last?.now === now && Date.now() - last.at >= 400
+        },
+        null,
+        { timeout, polling: 500 }
+    )
+}
+
 // The target has to be on screen, opaque, and finished with its own transition. A label that
 // already exists (a button named the same as the card it opens) is not enough.
 async function ready(page, locator, timeout = 20000) {
@@ -1252,6 +1271,7 @@ async function main() {
     await page.keyboard.press('Escape')
     await page.goto(`${dev.base}/evaluation_results/${evaluationId}`, { waitUntil: 'domcontentloaded' })
     await see(page, 'Saturday hours check')
+    await chartsDrawn(page)
     await shot(page, 'docs/images/evaluations/evaluation-results.png', TALL)
 
     const risky = await createFlow(dev.base, cookie, {
