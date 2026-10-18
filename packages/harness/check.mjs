@@ -13083,6 +13083,21 @@ await (async () => {
             fast(tail),
         String(tail.ms)
     )
+    const breaks = timed(() => closingLines('. source: x\r'.repeat(50000) + 'y'))
+    const spacesToBreak = timed(() => closingLines('!' + ' '.repeat(300000) + '\rx'))
+    const colonToBreak = timed(() => closingLines('. source:' + '\t'.repeat(300000) + '\rz'))
+    check(
+        'a lone \\r, U+2028 or U+2029 never cuts a closing source, and a long line with breaks is linear',
+        closingLines('Interim. Source: draft\rFinal answer without a source.').length === 0 &&
+            closingLines('Interim. Source: draft\u2028Final answer without a source.').length === 0 &&
+            closingLines('Interim. Source: draft\u2029Final answer without a source.').length === 0 &&
+            closingLines('Interim.\rFinal. Source: orders').join() === 'Source: orders' &&
+            closingLines('Done. Sources:\r orders').join() === 'Sources:\r orders' &&
+            breaks.value.length === 0 &&
+            spacesToBreak.value.length === 0 &&
+            fast(breaks, spacesToBreak, colonToBreak),
+        `${breaks.ms} ${spacesToBreak.ms} ${colonToBreak.ms}`
+    )
 
     const steps = timed(() => isMultiStepDataTask('row' + '\n'.repeat(200000) + 'x'))
     const carriage = timed(() => isMultiStepDataTask('row' + '\r'.repeat(200000) + 'x'))
@@ -13095,6 +13110,18 @@ await (async () => {
             carriage.value === false &&
             fast(steps, carriage),
         `${steps.ms} ${carriage.ms}`
+    )
+    const nbspRun = timed(() => isMultiStepDataTask('row\n' + '\u00a0'.repeat(300000) + 'x'))
+    const nbspLines = timed(() => isMultiStepDataTask(('row\n' + '\u00a0'.repeat(20) + '7').repeat(20000)))
+    check(
+        'a numbered step indented with NBSP still counts, a step after a lone \\r does not, and long indents are linear',
+        isMultiStepDataTask('Do this:\n\u00a01. create the table') === true &&
+            isMultiStepDataTask('Do this:\n\u2003 2) fill the table') === true &&
+            isMultiStepDataTask('Do this:\r1. create the table') === false &&
+            nbspRun.value === false &&
+            nbspLines.value === false &&
+            fast(nbspRun, nbspLines),
+        `${nbspRun.ms} ${nbspLines.ms}`
     )
 
     const words = timed(() => parseAnalystTarget('A'.repeat(100000)))
