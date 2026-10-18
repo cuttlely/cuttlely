@@ -30,6 +30,8 @@ export const MAIL_REQUIRED = 'Mail is not configured. Set link to true to receiv
 export const MAIL_FAILED = 'Mail could not be sent. Nothing was saved.'
 export const TOO_MANY_LINKS = 'Too many attempts. Try again later.'
 export const PASSWORD_SAVED = 'Password saved.'
+export const INVITE_NEEDS_AUTHKIT =
+    'This invite is accepted by signing in with WorkOS, not with a password. Open your invite link and select Accept invite with WorkOS.'
 
 const INVITE_DEFAULT_HOURS = 72
 const INVITE_MIN_HOURS = 1
@@ -704,6 +706,12 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         await rejectAudit(sql, found, 'unknown', input.now)
         return json(400, { message: LINK_INVALID })
     }
+    // With AuthKit on, only the AuthKit callback may use an invite: it checks the verified email and binds the sign-in.
+    if (found.purpose === 'invite' && workosConfigured(deps.env)) {
+        await deps.rateLimit.recordFailure(input.ip, '', input.now)
+        await rejectAudit(sql, found, 'authkit-only', input.now)
+        return json(400, { message: INVITE_NEEDS_AUTHKIT })
+    }
     if (found.usedAt) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         await rejectAudit(sql, found, 'reused', input.now)
@@ -743,6 +751,7 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
             const purpose = text(cell(marked[0], 'purpose'))
             const organizationId = text(cell(marked[0], 'organizationId'))
             const workspaceId = text(cell(marked[0], 'workspaceId'))
+            if (purpose === 'invite' && workosConfigured(deps.env)) throw new Error('authkit-only')
             const again = await loadTarget(query, sql, organizationId, workspaceId, userId)
             if (blockReason(again, purpose as LinkPurpose)) throw new Error('ineligible')
             await query(

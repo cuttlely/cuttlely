@@ -14,7 +14,7 @@
 
 import { randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
-import { LinkDeps, acceptLocalPassword, inviteAccount, resetLocalLink } from './actionLink'
+import { INVITE_NEEDS_AUTHKIT, LinkDeps, acceptLocalPassword, inviteAccount, resetLocalLink } from './actionLink'
 import { DirectoryActor, Sql, deleteOrganizationUser, deleteWorkspaceUser, setUserDisabled, sqlFromDataSource } from './directory'
 import { INVITE_PENDING, linkFailureMessage, linkWorkosUser } from './link'
 import { LoginRateLimit } from './rateLimit'
@@ -197,10 +197,10 @@ async function postgresBackend(): Promise<Backend> {
     }
 }
 
-function deps(now = NOW): LinkDeps {
+function deps(now = NOW, env: NodeJS.ProcessEnv = { ...AUTHKIT_ENV }): LinkDeps {
     return {
         now: () => now,
-        env: { ...AUTHKIT_ENV },
+        env,
         origin: () => 'https://bakery.example',
         mailReady: () => false,
         send: async () => undefined,
@@ -395,14 +395,36 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         expect(await user(local)).toEqual({ status: 'active', externalId: 'wos-lin' })
     })
 
-    maybe('local password accept of an invite link also makes the pending user active', async () => {
+    maybe('with AuthKit on, a password cannot accept an invite, and the link still works through AuthKit', async () => {
         const ada = await invite('ada@example.com')
         const result = await acceptLocalPassword(
             db.sql,
             { body: { token: ada.token, password: GOOD }, query: {}, ip: '203.0.113.9', now: NOW },
             deps()
         )
-        expect(result).toMatchObject({ type: 'json', status: 200 })
-        expect((await user(ada.id)).status).toBe('active')
+        expect(result).toEqual({ type: 'json', status: 400, body: { message: INVITE_NEEDS_AUTHKIT } })
+        const rows = await db.rows(`SELECT status, credential, "externalId" AS "externalId" FROM "user" WHERE id = ?`, [ada.id])
+        expect(rows).toEqual([{ status: 'invited', credential: null, externalId: null }])
+        const links = await db.rows(`SELECT "usedAt" AS "usedAt" FROM identity_action_link WHERE "userId" = ?`, [ada.id])
+        expect(links).toEqual([{ usedAt: null }])
+        expect(await rejections()).toEqual(['authkit-only'])
+        expect(await signIn('ada@example.com', ada.token)).toMatchObject({ ok: true, user: { id: ada.id, externalId: 'wos-ada' } })
+    })
+
+    maybe('without AuthKit, a password accepts an invite once and makes the pending user active', async () => {
+        const local = deps(NOW, {})
+        const created = await inviteAccount(
+            db.sql,
+            owner,
+            { user: { name: 'Lin Park', email: 'lin@example.com' }, workspace: { id: TEAM }, role: { id: MEMBER_ROLE }, link: true },
+            local
+        )
+        const token = tokenOf(created.link)
+        expect(await user(created.id)).toEqual({ status: 'invited', externalId: null })
+        const accept = () => acceptLocalPassword(db.sql, { body: { token, password: GOOD }, query: {}, ip: '203.0.113.9', now: NOW }, local)
+        expect(await accept()).toMatchObject({ type: 'json', status: 200 })
+        expect((await user(created.id)).status).toBe('active')
+        expect(await db.store.localAccountOpen(created.id)).toBe(true)
+        expect(await accept()).toMatchObject({ type: 'json', status: 400, body: { message: 'This link is not valid.' } })
     })
 })
