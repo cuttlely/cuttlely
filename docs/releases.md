@@ -48,7 +48,7 @@ Fixes, including security fixes, ship as a patch release of the latest minor. An
 
 ## The changelog
 
-Each pull request that changes what users see adds a line under `## [Unreleased]` in `CHANGELOG.md`. Use the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) groups: **Added**, **Changed**, **Deprecated**, **Removed**, **Fixed** and **Security**. Anything that needs action from people upgrading also goes under **Upgrade notes / breaking changes**, with the exact thing to change.
+Each pull request that changes what users see adds a line to `CHANGELOG.md`: under the planned `## [X.Y.Z] - Unreleased` section when there is one, otherwise under `## [Unreleased]`. `pnpm release` refuses a changelog with lines in both. Use the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) groups: **Added**, **Changed**, **Deprecated**, **Removed**, **Fixed** and **Security**. Anything that needs action from people upgrading also goes under **Upgrade notes / breaking changes**, with the exact thing to change.
 
 When a release is cut, `## [Unreleased]` becomes `## [X.Y.Z] - YYYY-MM-DD`. A planned version can be written as `## [X.Y.Z] - Unreleased` ahead of time.
 

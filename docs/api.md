@@ -258,6 +258,25 @@ A harness can also run on a cron schedule that a signed-in person sets on the ha
 
 Changing a schedule needs the same permissions as starting a run, and an API key gets `403`. A bad cron, a day of the month no chosen month has (such as `30 2`), or a bad time zone is `400` with a `message`. `lastResult` is `starting` while a due time is being started (shown as `failed` once it has been starting for more than a minute), `running`, a run status such as `succeeded`, or `skipped`, `refused`, or `failed` for a due time that did not start a run, with `lastReason` saying why. Each scheduled run is a run with `source` `schedule`, readable through the run routes above by a signed-in person; an API key reads only the runs it started, so it does not see scheduled runs. Saves, pauses, resumes and deletes are limited to 30 a minute per person, counted in each server process, and are `harness_schedule` audit rows, and so is every run a schedule starts (`run_started`, with the run id).
 
+### Delete a harness
+
+`DELETE /api/v1/harnesses/<name>` removes things in a fixed order, and stops at the first step that fails:
+
+1. The harness name is removed from every API key's harness list in its team, in one transaction.
+2. Its schedule is removed.
+3. The harness itself is deleted.
+
+If step 1 fails, the answer is `500` `Harness "bakery-team" was not deleted, because it could not be removed from API key lists. Try again.`, and nothing has changed. If step 2 fails, the answer is `500` `Harness "bakery-team" was not deleted, because its schedule could not be removed. Try again.` The harness and its schedule are still there, but no key lists the harness any more, so tick it again on any key that should keep running it. Either way the harness is kept, so a new harness created later with the same name never inherits the old key grants or the old owner's schedule. Runs already in run history stay.
+
+### How the API reads a path
+
+Before it decides whether a route is public, or refused to an API key, the server reads the path the way its routes do: decoded, in lower case (ASCII letters only), and with repeated slashes collapsed. So `/api/v1/Internal-Prediction`, `/api/v1//internal-prediction` and `/api/v1/%69nternal-prediction` are refused to an API key exactly like `/api/v1/internal-prediction`, and `/api/v1/Ping` is public like `/api/v1/ping`. An encoded slash (`%2F`) is not decoded and does not reach a route. `DENYLIST_URLS` entries are compared the same way, with spaces around each entry ignored. The schedule write routes (`PUT`, `DELETE`, `.../pause`, `.../resume`) refuse an API key in the route itself, so a path spelled in another case is refused too.
+
+### Known limits
+
+-   **A flow with no API key.** A chatflow or agentflow with **No Authorization** runs every harness its Harness cards and Agent harness tools name, in its team, for anyone who has its id. No key list applies to it. A key's list only limits what that key may save into such a flow, not who may call it. Bind a key to any flow that names a harness you do not want public.
+-   **Credentials that hold another key.** Execute Flow, Chatflow Tool and Agent as Tool call `POST /api/v1/prediction/<flow id>` with the API key stored in their credential (the Chatflow API and Agentflow API credentials). The flow they call runs its Harness cards under its own bound key's list. So anyone who can use a credential holding a key's token, a person or another key, can run that key's flow and that key's harnesses through such a node; the list does not follow the credential. Keep keys that list harnesses out of shared credentials.
+
 ## Stream the answer
 
 Add `"streaming": true` and Cuttlely answers with server-sent events (`Content-Type: text/event-stream`) as the model writes. Each event is two lines and a blank line. The JSON on the `data:` line has an `event` name and its `data`:
