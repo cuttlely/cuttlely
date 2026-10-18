@@ -10,6 +10,8 @@
 //
 // It calls the OpenAI chat API with OPENAI_API_KEY (model gpt-4.1 at temperature 0 unless CUTTLELY_CHECK_MODEL is set),
 // so use it only on made-up data like these demo databases. OPENAI_BASE_URL points it at another compatible endpoint.
+// A gpt-5.x or o-series model gets reasoning_effort none instead of a temperature. CUTTLELY_CHECK_REASONING_EFFORT sets
+// that effort, and sends it in place of the temperature for any model.
 // A URL without a login uses PGUSER and PGPASSWORD.
 //
 // bakery: one analyst, five questions (four data questions and one about a table that is not ticked).
@@ -88,7 +90,7 @@ const BAKERY_RULES = [
     'A question that names an account code such as WA-1004 is about that account. Look up its account_id in wholesale_accounts first when the view needs the id.',
     'Shop and store mean the same thing. Write shop names as stores has them, for example Old Town.',
     'Round money to two decimals.',
-    'Describe a view before the first query against it.'
+    'Before your first query on any view, call describe on it. Never query a view you have not described in this conversation.'
 ].join('\n')
 const VIEWS = ['monthly_sales', 'top_products', 'account_balances', 'weekly_store_revenue']
 const twoDecimals = (r) => dollarFigures(r.answer).length > 0 && dollarFigures(r.answer).every((f) => /\.\d{2}$/.test(f))
@@ -131,12 +133,15 @@ const TWO = [
 ]
 
 const BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '')
+// Reasoning models (gpt-5.x, o-series) refuse temperature 0, so they get a reasoning effort instead.
+const REASONING_EFFORT = process.env.CUTTLELY_CHECK_REASONING_EFFORT || (/^(gpt-5|o\d)/i.test(MODEL) ? 'none' : '')
+const SAMPLING = REASONING_EFFORT ? { reasoning_effort: REASONING_EFFORT } : { temperature: 0 }
 const tokens = { route: 0, choose: 0, analyst: 0 }
 async function chat(kind, body) {
     const response = await fetch(`${BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-        body: JSON.stringify({ model: MODEL, temperature: 0, ...body }),
+        body: JSON.stringify({ model: MODEL, ...SAMPLING, ...body }),
         signal: AbortSignal.timeout(120000)
     })
     if (!response.ok) {
@@ -248,7 +253,13 @@ async function runAnalyst(s, task) {
     return { analyst: s.name, calls, answer: '(no answer after 8 turns)' }
 }
 
-const out = { model: MODEL, mode, ...(mode === 'rules' ? { rules: P.analystRules(bakery) ? 'on' : 'off' } : {}), questions: [] }
+const out = {
+    model: MODEL,
+    ...SAMPLING,
+    mode,
+    ...(mode === 'rules' ? { rules: P.analystRules(bakery) ? 'on' : 'off' } : {}),
+    questions: []
+}
 let passed = 0
 const list = { bakery: BAKERY, 'two-analyst': TWO, rules: RULES }[mode]
 for (const [question, expected, check] of list) {
