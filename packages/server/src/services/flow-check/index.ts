@@ -183,8 +183,7 @@ interface CheckRecord {
     id: string
     flowId: string
     // Who started the check. Each replay runs for this caller, so an API key runs only the harnesses on its list.
-    // Missing, a Harness card or a harness replay is refused by the harness engine.
-    caller: IHarnessCaller | undefined
+    caller: IHarnessCaller
     workspaceId: string
     draftHash: string
     status: CheckView['status']
@@ -741,10 +740,10 @@ export async function startCheck(
         questionIds?: unknown
     },
     baseURL: string,
-    given?: Candidate,
-    watch?: StartWatch,
-    caller?: IHarnessCaller
+    // `caller` is who started the check, and each replay runs for it. `given` is a Promote candidate.
+    options: { caller: IHarnessCaller; given?: Candidate; watch?: StartWatch }
 ): Promise<CheckView> {
+    const { caller, given, watch } = options
     assertPublishCheckOn()
     purge()
     const closed = () => Boolean(watch?.closed?.())

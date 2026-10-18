@@ -332,7 +332,7 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
         const closed = () => gone || clientGone(req)
         // A Harness card, or this harness itself, replays for the caller: an API key runs only what is on its list.
-        const view = await flowCheckService.startCheck(flow, body, baseURL, undefined, { closed }, await harnessCallerFor(req))
+        const view = await flowCheckService.startCheck(flow, body, baseURL, { caller: await harnessCallerFor(req), watch: { closed } })
         ownedId = view.id
         if (closed()) {
             const id = ownedId

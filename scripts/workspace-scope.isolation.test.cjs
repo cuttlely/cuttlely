@@ -1000,7 +1000,10 @@ describe('workspace isolation', () => {
             assert.deepEqual(setup.questions, [])
             assert.equal(opens, 0)
             assert.equal(JSON.stringify(setup).includes(secret), false)
-            const started = await flowCheck.startCheck(row('flow-b', WS2), { count: 4 }, 'http://127.0.0.1', { ...draft, key: 'flow-b' })
+            const started = await flowCheck.startCheck(row('flow-b', WS2), { count: 4 }, 'http://127.0.0.1', {
+                caller: { via: 'session' },
+                given: { ...draft, key: 'flow-b' }
+            })
             assert.deepEqual(started.cases, [])
             assert.equal(opens, 0)
             assert.equal(JSON.stringify(started).includes(secret), false)
@@ -1012,8 +1015,8 @@ describe('workspace isolation', () => {
             )
             assert.equal(opens, 1)
             const ownStarted = await flowCheck.startCheck(row('flow-own', WS1), { count: 4 }, 'http://127.0.0.1', {
-                ...draft,
-                key: 'flow-own'
+                caller: { via: 'session' },
+                given: { ...draft, key: 'flow-own' }
             })
             assert.deepEqual(
                 ownStarted.cases.map((item) => item.question),

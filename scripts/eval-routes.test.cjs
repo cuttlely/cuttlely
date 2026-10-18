@@ -2030,8 +2030,8 @@ describe('evaluation routes', () => {
             assert.equal(cases[1].expected, 'On the left in the back.')
 
             const started = await flowCheck.startCheck(flow, { datasetId: dataset.id }, 'http://127.0.0.1', {
-                key: flow.id,
-                canvas: flowData
+                caller: { via: 'session' },
+                given: { key: flow.id, canvas: flowData }
             })
             assert.equal(started.cases[1].question, 'Where is the rye?')
             assert.equal(started.cases[1].expected, 'On the left in the back.')
