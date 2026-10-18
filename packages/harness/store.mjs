@@ -73,17 +73,58 @@ export function analystRulesText(value) {
     return value.replace(/\r\n?/g, '\n').trim()
 }
 
-function assertAnalystRules(record, specialist) {
-    for (const binding of [...specialist.modules, ...specialist.mcpServers]) {
-        if (binding?.nodeName !== 'postgreSQLMCP') continue
+function analystRulesBindings(specialist) {
+    return [...(specialist?.modules || []), ...(specialist?.mcpServers || [])].filter((binding) => binding?.nodeName === 'postgreSQLMCP')
+}
+
+// The distinct Rules texts of a specialist's PostgreSQL MCP bindings, without the section tags, so the
+// section cannot be closed early. The analyst prompt carries them joined by a blank line.
+export function analystRulesParts(specialist) {
+    const parts = []
+    for (const binding of analystRulesBindings(specialist)) {
+        const text = analystRulesText(binding.inputs?.analystRules)
+            .replace(/<\/?analyst_rules>/gi, '')
+            .trim()
+        if (text && !parts.some((part) => part.text === text)) parts.push({ text, label: binding.label || 'PostgreSQL MCP' })
+    }
+    return parts
+}
+
+export function joinedAnalystRules(specialist) {
+    return analystRulesParts(specialist)
+        .map((part) => part.text)
+        .join('\n\n')
+}
+
+export function assertAnalystRules(record, specialist) {
+    const where = `for specialist "${specialist.name}" on harness "${record.name}"`
+    for (const binding of analystRulesBindings(specialist)) {
         const length = analystRulesText(binding.inputs?.analystRules).length
         if (length <= ANALYST_RULES_MAX_CHARS) continue
-        const label = binding.label || 'PostgreSQL MCP'
         throw new HarnessError(
             'bad_roster',
-            `Rules on ${label} for specialist "${specialist.name}" on harness "${record.name}" are ${length} characters. The limit is ${ANALYST_RULES_MAX_CHARS}. Shorten them and save again.`
+            `Rules on ${
+                binding.label || 'PostgreSQL MCP'
+            } ${where} are ${length} characters. The limit is ${ANALYST_RULES_MAX_CHARS}. Shorten them and save again.`
         )
     }
+    const parts = analystRulesParts(specialist)
+    const joined = joinedAnalystRules(specialist).length
+    if (joined <= ANALYST_RULES_MAX_CHARS) return
+    throw new HarnessError(
+        'bad_roster',
+        `Rules on ${parts
+            .map((part) => part.label)
+            .join(
+                ', '
+            )} ${where} are ${joined} characters together. The analyst gets them as one section, and the limit is ${ANALYST_RULES_MAX_CHARS}. Shorten them and save again.`
+    )
+}
+
+// Size limits on what a harness record carries. A full save and a canvas draft save both run it, so a limit
+// added here holds for both.
+export function assertRosterLimits(record) {
+    for (const specialist of record?.specialists || []) assertAnalystRules(record, specialist)
 }
 
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
@@ -155,7 +196,6 @@ export function saveHarness(record, { overwrite = false } = {}) {
         specialist.codeExecution = Boolean(specialist.codeExecution)
         specialist.modules = specialist.modules || []
         specialist.mcpServers = specialist.mcpServers || []
-        assertAnalystRules(record, specialist)
         const summary = routingSummaryText(specialist.summary)
         if (summary) specialist.summary = summary
         else delete specialist.summary
@@ -166,6 +206,7 @@ export function saveHarness(record, { overwrite = false } = {}) {
         if (handoffChars) specialist.handoffChars = handoffChars
         else delete specialist.handoffChars
     }
+    assertRosterLimits(record)
     const existing = getHarness(record.name)
     // Names are one file per install. A file that already belongs to another team is left as it is.
     // A file with no team is claimed only by claimWorkspace, the startup backfill, not by a save.

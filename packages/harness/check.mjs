@@ -1627,6 +1627,57 @@ check(
             !atCap.error,
         overCap.error?.message || 'save succeeded'
     )
+    const twoBoxes = (first, second) => ({
+        name: 'rules-cap',
+        chief: { instructions: '', model: { nodeName: 'demoChat', nodeId: 'm', inputs: {} } },
+        specialists: [
+            {
+                name: 'bakery',
+                mcpServers: [
+                    { nodeName: 'postgreSQLMCP', label: 'Bakery DB', inputs: { analystRules: first } },
+                    { nodeName: 'postgreSQLMCP', label: 'Shops DB', inputs: { analystRules: second } }
+                ]
+            }
+        ]
+    })
+    const joinedOver = await capture(() => saveHarness(twoBoxes('a'.repeat(1200), 'b'.repeat(1200)), { overwrite: true }))
+    const joinedFits = await capture(() => saveHarness(twoBoxes('a'.repeat(999), 'b'.repeat(999)), { overwrite: true }))
+    const sameTwice = await capture(() => saveHarness(twoBoxes('a'.repeat(1500), 'a'.repeat(1500)), { overwrite: true }))
+    check(
+        'Rules from several PostgreSQL MCP boxes are refused when the joined text passes the cap, never cut',
+        joinedOver.error?.code === 'bad_roster' &&
+            joinedOver.error.message.includes('Bakery DB, Shops DB') &&
+            joinedOver.error.message.includes('2402 characters together') &&
+            !joinedFits.error &&
+            analystRules(joinedFits.value.specialists[0]) === `${'a'.repeat(999)}\n\n${'b'.repeat(999)}` &&
+            !sameTwice.error,
+        joinedOver.error?.message || 'save succeeded'
+    )
+    const { assertFlowLimits } = await import('./sync-from-flow.mjs')
+    const draftCanvas = (analystRules) =>
+        JSON.stringify({
+            nodes: [
+                { id: 'spec', data: { name: 'harnessSpecialist', category: 'Harness', inputs: { specialistName: 'bakery' } } },
+                { id: 'pg', data: { name: 'postgreSQLMCP', label: 'PostgreSQL MCP', category: 'Tools (MCP)', inputs: { analystRules } } }
+            ],
+            edges: [{ id: 'e', source: 'pg', target: 'spec' }]
+        })
+    const draftOver = await capture(() =>
+        assertFlowLimits({ name: 'rules-draft', flowData: draftCanvas('d'.repeat(ANALYST_RULES_MAX_CHARS + 1)) })
+    )
+    const draftAt = await capture(() =>
+        assertFlowLimits({ name: 'rules-draft', flowData: draftCanvas('d'.repeat(ANALYST_RULES_MAX_CHARS)) })
+    )
+    check(
+        'a draft canvas with no Harness Prime or model is held to the same Rules cap as a save',
+        draftOver.error?.code === 'bad_roster' &&
+            draftOver.error.message ===
+                `Rules on PostgreSQL MCP for specialist "bakery" on harness "rules-draft" are ${
+                    ANALYST_RULES_MAX_CHARS + 1
+                } characters. The limit is ${ANALYST_RULES_MAX_CHARS}. Shorten them and save again.` &&
+            !draftAt.error,
+        draftOver.error?.message || 'draft accepted'
+    )
 }
 const writerSpecialist = { name: 'writer', instructions: 'Writes short notes.' }
 const afterSteps = parseSteps(

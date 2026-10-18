@@ -84,6 +84,7 @@ describe('analyst relations: pure helpers', () => {
         assert.match(block, /type: 'string'/)
         assert.match(block, /rows: \d+/)
         assert.match(block, /maxLength: ANALYST_RULES_MAX_CHARS/)
+        assert.doesNotMatch(block, /\b(show|hide|hidden):/, 'Rules stays visible on chatflows and agentflows too')
     })
 
     it('reads a saved selection from JSON, an array, or nothing', () => {
