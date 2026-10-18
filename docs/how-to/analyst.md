@@ -389,6 +389,13 @@ CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery CUTTLELY_BUDGET_URL=postg
     node scripts/analyst-real-model-check.mjs two-analyst
 ```
 
+`rules` checks [your own rules](#write-your-own-rules). It puts the five bakery rules above in the bakery analyst's **Rules** box and asks three questions: the top shop in the latest week, June sales, and what `WA-1004` owes. Each answer passes only with the right figure, every dollar amount to two decimals, and a `describe` of each view before the first query against it. `CUTTLELY_CHECK_RULES=off` asks the same questions with the box empty, so you can compare:
+
+```bash
+CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-real-model-check.mjs rules
+CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery CUTTLELY_CHECK_RULES=off node scripts/analyst-real-model-check.mjs rules
+```
+
 ## Several analysts in one harness
 
 A harness can have more than one analyst specialist, each with its own **PostgreSQL MCP** node and database. For example, one analyst on the made-up bakery database and one on a made-up household budget database. Give each a **Routing summary** that says what its database holds, and tick its tables and views, because those are what Harness Prime reads when it picks one.
