@@ -862,6 +862,11 @@
             "to": "packages/components/src/index.ts"
         },
         {
+            "from": "packages/server/src/settings/runs.test.ts",
+            "to": "packages/server/src/utils/XSS.ts",
+            "reason": "The drain test decodes the path with the real sanitizeMiddleware, as the server does before routing"
+        },
+        {
             "from": "packages/server/src/startup/databaseHealth.test.ts",
             "to": "packages/server/src/controllers/ping/index.ts"
         },
