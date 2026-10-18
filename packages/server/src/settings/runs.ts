@@ -69,7 +69,8 @@ export function refuseWhileShuttingDown(_req: Request, res: Response, next: Next
 
 /** Express middleware: counts run requests, and turns new ones away while a restart waits. */
 export function trackRuns(req: Request, res: Response, next: NextFunction): void {
-    const path = (req.originalUrl || req.url || '').split('?')[0]
+    // Express routes `/api/v1//prediction` like `/api/v1/prediction`, so repeated slashes are collapsed first.
+    const path = (req.originalUrl || req.url || '').split('?')[0].replace(/\/{2,}/g, '/')
     if (!isRunRequest(req.method, path)) return next()
     if (draining) {
         res.setHeader('Retry-After', '30')
@@ -157,7 +158,7 @@ function endRun(res: Response): void {
             res.setHeader('Connection', 'close')
             res.status(503).json({ statusCode: 503, success: false, message: SHUTDOWN_MESSAGE, code: SHUTDOWN_CODE })
         } else {
-            const harness = /^\/api\/v1\/harnesses\//i.test(res.req?.originalUrl || '')
+            const harness = /^\/+api\/+v1\/+harnesses\//i.test(res.req?.originalUrl || '')
             if (String(res.getHeader('Content-Type') || '').includes('text/event-stream')) {
                 const data = harness ? { message: SHUTDOWN_MESSAGE } : SHUTDOWN_MESSAGE
                 res.write(`message:\ndata:${JSON.stringify({ event: 'error', data, status: 503, code: SHUTDOWN_CODE })}\n\n`)

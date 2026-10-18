@@ -417,6 +417,11 @@
         },
         {
             "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
+            "to": "packages/server/src/routes/chat-messages/index.ts",
+            "reason": "The bypass test mounts the real router behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
             "to": "packages/server/src/routes/chatflows/index.ts",
             "reason": "The bypass test mounts the real chatflows router behind the API gate"
         },
@@ -427,8 +432,18 @@
         },
         {
             "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
+            "to": "packages/server/src/routes/internal-chat-messages/index.ts",
+            "reason": "The bypass test mounts the real router behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
             "to": "packages/server/src/routes/mcp-server/index.ts",
             "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
+        },
+        {
+            "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
+            "to": "packages/server/src/routes/stats/index.ts",
+            "reason": "The bypass test mounts the real router behind the API gate"
         },
         {
             "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",

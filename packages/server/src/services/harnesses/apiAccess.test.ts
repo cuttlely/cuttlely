@@ -290,6 +290,8 @@ describe('a canvas save from an API key', () => {
         })
         expect(referencedHarnessNames(agent)).toEqual(['payroll'])
         expect(referencedHarnessNames('not json "harnessName"')).toEqual([])
+        // A JSON escape in the key leaves no literal "harnessName" in the text; the parsed canvas still names it.
+        expect(referencedHarnessNames('{"nodes":[{"data":{"inputs":{"harness\\u004eame":"payroll"}}}]}')).toEqual(['payroll'])
         expect(referencedHarnessNames(undefined)).toEqual([])
     })
 })

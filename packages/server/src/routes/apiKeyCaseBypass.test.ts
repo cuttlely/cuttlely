@@ -98,7 +98,10 @@ function app(opts: { blacklist?: string[] } = {}) {
                     : null
         })
     )
-    server.use('/api/v1/internal-prediction', internalPredictionRouter)
+    // Mounted as in routes/index.ts, so `/api/v1//internal-prediction` routes as it does on the server.
+    const api = express.Router()
+    api.use('/internal-prediction', internalPredictionRouter)
+    server.use('/api/v1', api)
     // Stands in for every other router: reaching it means the gate let the request through.
     server.use('/api/v1', (req, res) => res.json({ reached: req.path }))
     return request(server)
@@ -145,6 +148,24 @@ describe('the API gate lists ignore letter case', () => {
             const res = await app().get(spelled)
             expect({ spelled, status: res.status }).toEqual({ spelled, status: 200 })
         }
+    })
+})
+
+describe('the API gate collapses repeated slashes, as the router does', () => {
+    it('refuses an API key on every key-refused prefix and the in-app prediction path with a doubled slash', async () => {
+        const refused = API_KEY_BLACKLIST_URLS.filter((prefix) => !WHITELIST_URLS.some((url) => `${prefix}/x`.startsWith(url)))
+        for (const prefix of refused) {
+            for (const spelled of [prefix.replace('/api/v1/', '/api/v1//'), prefix.replace('/api/v1/', '/api/v1///')]) {
+                const res = await app().get(`${spelled}/x`).set(KEY)
+                expect({ spelled, status: res.status }).toEqual({ spelled, status: 401 })
+            }
+        }
+        for (const path of [`/api/v1//internal-prediction/${FLOW_ID}`, `/api/v1//Internal-Prediction/${HARNESS_ID}`]) {
+            const res = await app().post(path).set(KEY).send({ question: 'How many loaves?' })
+            expect({ path, status: res.status }).toEqual({ path, status: 401 })
+        }
+        expect(built).toEqual([])
+        expect(canvasRuns).toEqual([])
     })
 })
 

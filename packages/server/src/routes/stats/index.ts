@@ -1,6 +1,7 @@
 import express from 'express'
 import statsController from '../../controllers/stats'
 import { requireAnyPermission } from '../../identity/rbac'
+import { requireHarnessCanvasAccess } from '../../services/harnesses/apiAccess'
 
 const router = express.Router()
 
@@ -10,6 +11,6 @@ const viewStats = requireAnyPermission('chatflows:view,agentflows:view')
 // READ
 // Registered before /:id so "usage" is not treated as a chatflow id.
 router.get('/usage', viewStats, statsController.getTokenUsage)
-router.get(['/', '/:id'], viewStats, statsController.getChatflowStats)
+router.get(['/', '/:id'], viewStats, requireHarnessCanvasAccess({ body: false }), statsController.getChatflowStats)
 
 export default router
