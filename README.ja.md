@@ -139,7 +139,7 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 }
 ```
 
-Harness Prime が質問を分けました。`baker` が注文の値段を出し、`orders` が受け取りの日を確認しています。完全なレスポンスには、トークン、時間、ソース、チームが作った画像も含まれます。そのほかは [API ガイド](./docs/api.md) にあります。API キー、ストリーミング、会話のメモリー、ファイルのアップロード、エラー、そしてキーを自分のサーバーに置いたままにできる、実行可能なサンプルのウェブアプリです。リファレンス：[ハーネスの Prediction API](./docs/how-to/harnesses.md#prediction-api) と [チャットフローからハーネスを呼び出す](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow)。
+Harness Prime が質問を分けました。`baker` が注文の値段を出し、`orders` が受け取りの日を確認しています。完全なレスポンスには、トークン、時間、ソース、チームが作った画像も含まれます。そのほかは [API ガイド](./docs/api.md) にあります。API キー、ストリーミング、会話のメモリー、ファイルのアップロード、エラー、そしてキーを自分のサーバーに置いたままにできる、実行可能なサンプルのウェブアプリです。時間のかかるターンは、同じキーで `POST /api/v1/harnesses/<name>/runs/async` からバックグラウンドで開始し、答えを後で取得できます。ハーネスは cron のスケジュールで実行することもできます：[API キーでアプリから実行する](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key)、[スケジュールで実行する](./docs/how-to/harnesses.md#run-it-on-a-schedule)。リファレンス：[ハーネスの Prediction API](./docs/how-to/harnesses.md#prediction-api) と [チャットフローからハーネスを呼び出す](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow)。
 
 ## 小さなコンテキストで、大きな答え
 
