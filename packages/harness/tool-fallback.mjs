@@ -3,7 +3,7 @@ import { freshNodeInstance, resolveInputs } from './bridge.mjs'
 
 const CHOICE_NOTE_TAIL = 'Reply with JSON only: {"tool":"<name>","arguments":{...}} or {"answer":"<text>"}.'
 
-// Accepts a JSON object of the tool's fields, or a single wordless string when the schema has one string field.
+// Accepts a JSON object of the tool's fields, or a single wordless string when the schema has one string field and no pattern.
 export function validArgs(schema, text) {
     const properties = schema?.properties || {}
     const keys = Object.keys(properties)
@@ -205,7 +205,14 @@ function interpretChoice(content, tools) {
     if (!tool) return { error: `Unknown tool "${body.tool}".` }
     const raw = body.arguments
     const args = validArgs(tool.schema, typeof raw === 'string' ? raw : JSON.stringify(raw ?? {}))
-    if (!args) return { error: `Arguments for ${tool.name} do not match the schema.` }
+    if (!args) {
+        const fields = Object.keys(tool.schema?.properties || {})
+        const patterned = fields.length === 1 && tool.schema.properties[fields[0]]?.pattern != null
+        if (typeof raw === 'string' && !raw.trim().startsWith('{') && patterned) {
+            return { error: `Send the arguments for ${tool.name} as a JSON object, such as {"${fields[0]}":"..."}.` }
+        }
+        return { error: `Arguments for ${tool.name} do not match the schema.` }
+    }
     return {
         content: '',
         toolCalls: [

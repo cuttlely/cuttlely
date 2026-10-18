@@ -103,7 +103,7 @@ const {
 const { getHarness } = await import('./store.mjs')
 const { CHIEF_MODEL_REQUIRED } = await import('./errors.mjs')
 const { harnessStoreDir } = await import('./paths.mjs')
-const { normalizeArithmeticQuestion, validArgs } = await import('./tool-fallback.mjs')
+const { fallbackToolChoice, normalizeArithmeticQuestion, validArgs } = await import('./tool-fallback.mjs')
 const {
     UPLOAD_PREPEND_TOKENS,
     UPLOAD_STUB_BYTES,
@@ -2270,6 +2270,25 @@ check(
         validArgs(patterned, '{"input":"17 * 3"}')?.input === '17 * 3',
     JSON.stringify(validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?')))
 )
+{
+    const tools = [{ type: 'function', function: { name: 'calc', description: 'math', parameters: patterned } }]
+    const replies = ['{"tool":"calc","arguments":"17 * 3"}', '{"tool":"calc","arguments":{"input":"17 * 3"}}']
+    const sent = []
+    const choice = await fallbackToolChoice(
+        async (messages) => {
+            sent.push(messages.at(-1).content)
+            return { content: replies.shift() }
+        },
+        [{ role: 'user', content: 'What is 17 times 3?' }],
+        tools
+    )
+    check(
+        'a bare-string choice for a one-field tool with a pattern is refused with a request for a JSON object, and the retry is taken',
+        sent[1] === 'Send the arguments for calc as a JSON object, such as {"input":"..."}.' &&
+            choice.toolCalls[0]?.function.arguments === '{"input":"17 * 3"}',
+        JSON.stringify({ sent, choice })
+    )
+}
 const backtrackingStarted = Date.now()
 const backtracking = validArgs({ type: 'object', properties: { input: { type: 'string', pattern: '^(a+)+$' } } }, `${'a'.repeat(40)}!`)
 check(
