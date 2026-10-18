@@ -39,8 +39,8 @@ const HANDLED_BY_ROUTE = new Set(
 )
 
 export async function attachIdentitySession(req: Request, res: Response): Promise<SessionUser | null> {
-    // Express routes ignore letter case, so this check does too.
-    const path = req.path.toLowerCase()
+    // Express routes ignore letter case and route `/api/v1//x` like `/api/v1/x`, so this check does too.
+    const path = req.path.replace(/\/{2,}/g, '/').toLowerCase()
     if (HANDLED_BY_ROUTE.has(path) || path.startsWith('/api/v1/prediction')) return null
     const cookies = (req.cookies || {}) as Record<string, string | undefined>
     if (!cookies[WOS_SESSION_COOKIE] && !cookies[LOCAL_SESSION_COOKIE]) return null

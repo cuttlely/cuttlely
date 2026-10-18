@@ -43,6 +43,14 @@ describe('runs in progress', () => {
         expect(isRunRequest('POST', '/api/v1/server-settings')).toBe(false)
     })
 
+    it('turns away a run sent with a doubled slash or in mixed case while a restart drains', async () => {
+        await drainRuns(0)
+        for (const path of ['/api/v1//prediction/abc', '/api/v1///Prediction/abc', '/api/v1//harnesses/bakery/runs/async']) {
+            const res = await request(app({})).post(path).send({ question: 'hi' })
+            expect({ path, status: res.status }).toEqual({ path, status: 503 })
+        }
+    })
+
     it('counts a background run until it settles, and a restart waits for it', async () => {
         let finish: (value: string) => void = () => undefined
         const run = trackBackgroundRun(new Promise<string>((resolve) => (finish = resolve)))

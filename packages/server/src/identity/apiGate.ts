@@ -50,16 +50,22 @@ const listed = (path: string, urls: string[]) =>
         return (entry.endsWith('/') && path === entry.slice(0, -1)) || path.startsWith(entry)
     })
 
+// Express routes `/api/v1//files` to the `/files` router, so repeated slashes are collapsed before any list is read.
+export function normalizeApiPath(path: string): string {
+    return path.replace(/\/{2,}/g, '/').toLowerCase()
+}
+
 // The /api/v1 sign-in gate. A path on the public list proceeds. A session proceeds for a read,
 // and for a write only with x-request-from: internal. Anything else needs a valid API key.
 export function apiV1Auth(deps: ApiV1AuthDeps) {
     return async (req: Request, res: Response, next: NextFunction) => {
-        const path = req.path.toLowerCase()
-        if (!CASE_INSENSITIVE.test(req.path)) {
+        const collapsed = req.path.replace(/\/{2,}/g, '/')
+        const path = normalizeApiPath(req.path)
+        if (!CASE_INSENSITIVE.test(collapsed)) {
             next()
             return
         }
-        if (!CASE_SENSITIVE.test(req.path)) {
+        if (!CASE_SENSITIVE.test(collapsed)) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
         }
