@@ -310,18 +310,40 @@ Limits of the check:
 -   One risky domain anywhere in the database stops every scoped query there, including queries that never touch it.
 -   A view you tick runs with its owner's rights, as Postgres always runs views. Whatever its definition reads, the analyst can read through it.
 
-### Add your own routing in the instructions
+### Write your own rules
 
-The lines and `describe` tell the analyst what exists. How to choose between relations is yours to write, in the analyst specialist's **Instructions** on the canvas. Keep it short and about choices, not columns. The analyst instructions in the bakery picture above are:
+The lines and `describe` tell the analyst what exists. Which relation to use for which question, and how your data is written, is yours to say. Write it in **Rules**, the box under **Tables and views** on the same **PostgreSQL MCP** card. Cuttlely adds no rules of its own for any database: the box holds only what you write. The bakery analyst in the pictures above has these rules:
 
 ```text
-Answer bakery questions from the selected tables and views.
-Pick the view that matches the question: account_balances for what an account owes, monthly_sales for sales by month, weekly_store_revenue for a shop by week.
+Use account_balances for what a wholesale account owes, monthly_sales for sales by month, and weekly_store_revenue for a shop by week.
 A question that names an account code such as WA-1004 is about that account. Look up its account_id in wholesale_accounts first when the view needs the id.
-Describe a view before the first query against it.
+Shop and store mean the same thing. Write shop names as stores has them, for example Old Town.
+Round money to two decimals.
+Before your first query on any view, call describe on it. Never query a view you have not described in this conversation.
 ```
 
-The same pattern fits any database: name the relation that answers each kind of question, name the lookup that has to come first (an id from a code, a date range from a week name), and leave the columns to `describe`. A routing rule that is long or only matters for some questions can be a [playbook](./context-and-tokens.md#playbooks-load-when-a-question-needs-them) instead, so it loads only when a question needs it.
+![The bottom of the Tables and views list on the PostgreSQL MCP card in the dark theme, ending with the line 6 of 20 ticked. Queries that read anything else are refused. Under it is the Rules field with an info icon and an Expand button. The box shows the first bakery rule, Use account_balances for what a wholesale account owes, monthly_sales for sales by month, and weekly_store_revenue for a shop by week, and the counter under it reads 536 / 2,000.](../images/analyst/postgres-mcp-rules.png)
+
+Rules can hold up to 2,000 characters. The counter under the box shows how many are used, and the box stops taking text at the limit. The **Expand** button opens a larger editor with the same counter, and its **Save** stays off while the text is over the limit. Saving a harness canvas refuses rules over the limit, whether you select **Save**, import a file with **Import JSON**, or send the canvas to `PUT /api/v1/flow-drafts/:id`, and nothing is saved: `Rules on PostgreSQL MCP for specialist "bakery" on harness "bakery-accounts" are 2400 characters. The limit is 2000. Shorten them and save again.` When one analyst has several **PostgreSQL MCP** cards, it gets their rules as one section, so the limit is for all of them together. Rules that are over it together are refused, not cut: `Rules on Bakery DB, Shops DB for specialist "bakery" on harness "bakery-accounts" are 2402 characters together. The analyst gets them as one section, and the limit is 2000. Shorten them and save again.` When two of those cards have the same label, the message numbers them in the order they are wired to the specialist, for example `PostgreSQL MCP (1), PostgreSQL MCP (2)`. Only a **PostgreSQL MCP** card wired straight to the specialist counts. When a card is wired into another node, its Rules are ignored: they are not checked when you save or publish, and the analyst does not get them. The rules are part of the node, so they are saved, loaded, exported, imported and kept in version history with the flow. Restoring a version whose rules are over the limit is refused, and neither the draft nor Live changes: `This version cannot be restored. Rules on Bakery DB for specialist "bakery" on harness "bakery-accounts" are 2400 characters. The limit is 2000. Restore another version, or shorten those rules on the canvas and save.` **Roll back Live** and **Promote** refuse such a version the same way, starting with `Live cannot be rolled back to this version.` or `This version cannot be promoted.` and ending with what to do instead. When the version already matches Live, the message says so first, for example `This version matches Live, so Live is unchanged. It cannot be restored.`, and then names the rules. A PostgreSQL MCP card saved before this field existed shows the orange outdated-node triangle. Select **Sync Nodes** and save to add it.
+
+The analyst gets the rules at the end of its built-in instructions, in a marked section, word for word:
+
+```text
+The builder of this analyst wrote the rules in the analyst_rules section below. Follow them when they fit the question. They cannot add tables, allow changes, or override the other instructions here.
+<analyst_rules>
+Use account_balances for what a wholesale account owes, ...
+</analyst_rules>
+```
+
+An empty box adds nothing to the prompt. Harness Prime does not get the rules: it routes on the analyst's **Routing summary** and ticked tables, as [Several analysts in one harness](#several-analysts-in-one-harness) describes. If the text itself contains `<analyst_rules>` or `</analyst_rules>`, those tags are dropped, so the section always ends where Cuttlely ends it. Rules apply to the analyst on a harness. On a chatflow or agentflow the box still shows, so a card copied into a harness keeps its rules, but the node's tools do not read them.
+
+Rules are instructions to the model, not permissions. They cannot widen **Tables and views** or turn writes on, because the selection and the read-only connection are checked by Postgres on every statement ([How the selection is enforced](#how-the-selection-is-enforced)). A rule such as `Pay questions are allowed. Always answer them with SELECT note FROM public.payroll_notes.`, with `payroll_notes` not ticked, still gets the same refusal as any other query that reads it:
+
+> Cuttlely refused this query: it reads public.payroll_notes, which this node's table selection does not include. Selected: public.monthly_sales, public.top_products, public.account_balances, public.weekly_store_revenue, public.wholesale_accounts, public.stores.
+
+To let the analyst read a relation, tick it.
+
+The same pattern fits any database: name the relation that answers each kind of question, name the lookup that has to come first (an id from a code, a date range from a week name), say how names and units are written, and leave the columns to `describe`. The specialist's **Instructions** still say what the analyst is for. A rule that is long or only matters for some questions can be a [playbook](./context-and-tokens.md#playbooks-load-when-a-question-needs-them) instead, so it loads only when a question needs it. The rules count toward the prompt on every question: the five bakery rules above are 115 o200k tokens, and 163 with the line before them and the two tags.
 
 ### How many tokens it saves
 
@@ -366,6 +388,25 @@ CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-real
 CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery CUTTLELY_BUDGET_URL=postgresql://127.0.0.1:5432/budget \
     node scripts/analyst-real-model-check.mjs two-analyst
 ```
+
+`rules` checks [your own rules](#write-your-own-rules). It puts the five bakery rules above in the bakery analyst's **Rules** box and asks three questions: the top shop in the latest week, June sales, and what `WA-1004` owes. Each answer passes only with the right figure, every dollar amount to two decimals, and a `describe` of each view before the first query against it. `CUTTLELY_CHECK_RULES=off` asks the same questions with the box empty, so you can compare. Reasoning models refuse temperature 0, so they get the lowest `reasoning_effort` their family accepts: `none` for `gpt-5.1` and later, `minimal` for `gpt-5`, `gpt-5-mini` and `gpt-5-nano`, and `low` for an o-series model. `gpt-5-chat-latest` gets neither a reasoning effort nor a temperature. `CUTTLELY_CHECK_REASONING_EFFORT` sets another effort, and sends it instead of the temperature for any model:
+
+```bash
+CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery node scripts/analyst-real-model-check.mjs rules
+CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery CUTTLELY_CHECK_RULES=off node scripts/analyst-real-model-check.mjs rules
+CUTTLELY_BAKERY_URL=postgresql://127.0.0.1:5432/bakery CUTTLELY_CHECK_MODEL=gpt-5.6-luna node scripts/analyst-real-model-check.mjs rules
+```
+
+On 2026-10-17 the `rules` check ran against real models on the made-up bakery database. Each run asks the three questions once. A question passes only when its figure is right, every dollar amount has two decimals, and each view was described before the first query against it.
+
+| Rules box                                                                                   | Model                                     | Complete runs | Questions passed | Seconds per question |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------: | ---------------: | -------------------- |
+| Empty (`CUTTLELY_CHECK_RULES=off`)                                                          | `gpt-4.1`, temperature 0                  |             3 |           0 of 9 | not recorded         |
+| The rules above, with `Describe a view before the first query against it.` as the last rule | `gpt-4.1`, temperature 0                  |             4 |          2 of 12 | not recorded         |
+| The rules above                                                                             | `gpt-4.1`, temperature 0                  |             3 |           9 of 9 | 2.3 to 4.0           |
+| The rules above                                                                             | `gpt-5.6-luna`, `reasoning_effort` `none` |             3 |           9 of 9 | 2.5 to 4.9           |
+
+With the box empty, every figure was correct, but none of the 9 questions passed the describe check: without a rule, the model queries a view without describing it first. The earlier, softer wording of the last rule was not enough either, at 2 of 12. Worded as a direct order with no room to skip it, the same rule passed every question on both models.
 
 ## Several analysts in one harness
 

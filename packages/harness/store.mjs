@@ -64,6 +64,85 @@ export function routingSummaryText(value) {
         .slice(0, ROUTING_SUMMARY_CHARS)
 }
 
+// The Rules box on a PostgreSQL MCP node: the builder's own instructions for that analyst. The node's maxLength
+// is the same number, so the canvas counter and this check agree.
+export const ANALYST_RULES_MAX_CHARS = 2000
+
+export function analystRulesText(value) {
+    if (typeof value !== 'string') return ''
+    return value.replace(/\r\n?/g, '\n').trim()
+}
+
+function analystRulesBindings(specialist) {
+    return [...(specialist?.modules || []), ...(specialist?.mcpServers || [])].filter((binding) => binding?.nodeName === 'postgreSQLMCP')
+}
+
+// The card label a refusal names. Cards that share a label are numbered in the order they are wired, so a
+// refusal that names two of them still tells them apart.
+function analystRulesLabels(bindings) {
+    const names = bindings.map((binding) => binding.label || 'PostgreSQL MCP')
+    return names.map((name, index) => {
+        if (names.filter((other) => other === name).length < 2) return name
+        return `${name} (${names.slice(0, index + 1).filter((other) => other === name).length})`
+    })
+}
+
+// The distinct Rules texts of a specialist's PostgreSQL MCP bindings, without the section tags, so the
+// section cannot be closed early. The analyst prompt carries them joined by a blank line.
+export function analystRulesParts(specialist) {
+    const bindings = analystRulesBindings(specialist)
+    const labels = analystRulesLabels(bindings)
+    const parts = []
+    bindings.forEach((binding, index) => {
+        const text = analystRulesText(binding.inputs?.analystRules)
+            .replace(/<\/?analyst_rules>/gi, '')
+            .trim()
+        if (text && !parts.some((part) => part.text === text)) parts.push({ text, label: labels[index] })
+    })
+    return parts
+}
+
+export function joinedAnalystRules(specialist) {
+    return analystRulesParts(specialist)
+        .map((part) => part.text)
+        .join('\n\n')
+}
+
+// problem is the refusal without what to do next, so a caller that is not a save (a version restore) can say
+// what fits there instead.
+function analystRulesError(problem) {
+    const error = new HarnessError('bad_roster', `${problem} Shorten them and save again.`)
+    error.problem = problem
+    return error
+}
+
+export function assertAnalystRules(record, specialist) {
+    const where = `for specialist "${specialist.name}" on harness "${record.name}"`
+    const bindings = analystRulesBindings(specialist)
+    const labels = analystRulesLabels(bindings)
+    bindings.forEach((binding, index) => {
+        const length = analystRulesText(binding.inputs?.analystRules).length
+        if (length <= ANALYST_RULES_MAX_CHARS) return
+        throw analystRulesError(`Rules on ${labels[index]} ${where} are ${length} characters. The limit is ${ANALYST_RULES_MAX_CHARS}.`)
+    })
+    const parts = analystRulesParts(specialist)
+    const joined = joinedAnalystRules(specialist).length
+    if (joined <= ANALYST_RULES_MAX_CHARS) return
+    throw analystRulesError(
+        `Rules on ${parts
+            .map((part) => part.label)
+            .join(
+                ', '
+            )} ${where} are ${joined} characters together. The analyst gets them as one section, and the limit is ${ANALYST_RULES_MAX_CHARS}.`
+    )
+}
+
+// Size limits on what a harness record carries. A full save and a canvas draft save both run it, so a limit
+// added here holds for both.
+export function assertRosterLimits(record) {
+    for (const specialist of record?.specialists || []) assertAnalystRules(record, specialist)
+}
+
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 // Draft tries compile into profiles/try<8-32 hex>. A harness name that does not fit beside its specialist
 // compiles into profiles/tryx<16 hex>. Neither shape is a savable harness name.
@@ -143,6 +222,7 @@ export function saveHarness(record, { overwrite = false } = {}) {
         if (handoffChars) specialist.handoffChars = handoffChars
         else delete specialist.handoffChars
     }
+    assertRosterLimits(record)
     const existing = getHarness(record.name)
     // Names are one file per install. A file that already belongs to another team is left as it is.
     // A file with no team is claimed only by claimWorkspace, the startup backfill, not by a save.

@@ -49,6 +49,7 @@ jest.mock('../../utils/fileRepository', () => ({
     containsBase64File: () => false,
     updateFlowDataWithFilePaths: async (_id: string, flowData: string) => flowData
 }))
+jest.mock('./harnessLimits', () => ({ assertHarnessDraftLimits: async () => undefined }))
 
 import { afterLiveSet, discardDraft, draftToPublish, getDraftStatus, saveDraft } from './index'
 

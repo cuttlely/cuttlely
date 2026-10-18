@@ -33,6 +33,7 @@ import {
 } from './gate'
 import { datasetStartRefusal } from '../flow-check/kinds'
 import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
+import { assertHarnessDraftLimits } from './harnessLimits'
 
 export { redactDraftStatus } from './gate'
 
@@ -126,6 +127,7 @@ export interface DraftFlow {
     type?: string | null
     flowData: string
     workspaceId: string
+    name?: string
 }
 
 export interface DraftInfo {
@@ -373,6 +375,7 @@ export interface SaveDraftContext {
 export async function saveDraft(flow: DraftFlow, flowData: unknown, context: SaveDraftContext): Promise<DraftStatus> {
     refuse(flow, await getState(flow.id))
     let canvas = checkCanvas(flowData)
+    if (flow.type === 'HARNESS') await assertHarnessDraftLimits(flow.name || '', canvas)
     if (containsBase64File({ flowData: canvas } as any)) {
         const app = getRunningExpressApp()
         canvas = await updateFlowDataWithFilePaths(
