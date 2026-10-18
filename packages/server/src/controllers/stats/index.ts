@@ -3,8 +3,9 @@ import { Request, Response, NextFunction } from 'express'
 import statsService from '../../services/stats'
 import { getRawModelFile } from '@cuttlely/components'
 import { priceBookForWorkspace, queryTokenUsage, usageRange } from '../../services/usage'
-import { ChatMessageRatingType, ChatType } from '../../Interface'
+import { ChatType } from '../../Interface'
 import { AppError } from '../../errors/appError'
+import { feedbackTypeFilters } from '../../utils/feedbackTypeFilters'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 
 const getChatflowStats = async (req: Request, res: Response, next: NextFunction) => {
@@ -32,34 +33,8 @@ const getChatflowStats = async (req: Request, res: Response, next: NextFunction)
         }
         const startDate = req.query?.startDate as string | undefined
         const endDate = req.query?.endDate as string | undefined
-        let feedbackTypeFilters = req.query?.feedbackType as ChatMessageRatingType[] | undefined
-        if (feedbackTypeFilters) {
-            try {
-                const feedbackTypeFilterArray = JSON.parse(JSON.stringify(feedbackTypeFilters))
-                if (
-                    feedbackTypeFilterArray.includes(ChatMessageRatingType.THUMBS_UP) &&
-                    feedbackTypeFilterArray.includes(ChatMessageRatingType.THUMBS_DOWN)
-                ) {
-                    feedbackTypeFilters = [ChatMessageRatingType.THUMBS_UP, ChatMessageRatingType.THUMBS_DOWN]
-                } else if (feedbackTypeFilterArray.includes(ChatMessageRatingType.THUMBS_UP)) {
-                    feedbackTypeFilters = [ChatMessageRatingType.THUMBS_UP]
-                } else if (feedbackTypeFilterArray.includes(ChatMessageRatingType.THUMBS_DOWN)) {
-                    feedbackTypeFilters = [ChatMessageRatingType.THUMBS_DOWN]
-                } else {
-                    feedbackTypeFilters = undefined
-                }
-            } catch (e) {
-                return res.status(500).send(e)
-            }
-        }
-        const apiResponse = await statsService.getChatflowStats(
-            chatflowid,
-            activeWorkspaceId,
-            chatTypes,
-            startDate,
-            endDate,
-            feedbackTypeFilters
-        )
+        const feedbackTypes = feedbackTypeFilters(req.query?.feedbackType)
+        const apiResponse = await statsService.getChatflowStats(chatflowid, activeWorkspaceId, chatTypes, startDate, endDate, feedbackTypes)
         return res.json(apiResponse)
     } catch (error) {
         next(error)

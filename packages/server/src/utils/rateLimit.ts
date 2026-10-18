@@ -250,11 +250,12 @@ export function uiPageLimitMax(): number {
 }
 
 /**
- * Limiter for the UI index fallback only. Success responses carry no rate-limit headers,
- * so a page load still looks like the uncounted handler. The key is the same client
- * address the prediction limiter uses.
+ * Limiter for the UI index fallback, and for the sign-in, API-key check, OAuth, MCP server,
+ * and icon routers mounted in routes/index.ts (one counter each). Success responses carry no
+ * rate-limit headers, so a page load still looks like the uncounted handler. The key is the
+ * same client address the prediction limiter uses.
  */
-export function uiPageRateLimiter(max?: number) {
+export function uiPageRateLimiter(max?: number | (() => number)) {
     return rateLimit({
         windowMs: UI_PAGE_LIMIT_WINDOW_MS,
         max: max ?? (() => uiPageLimitMax()),
@@ -262,6 +263,32 @@ export function uiPageRateLimiter(max?: number) {
         legacyHeaders: false,
         keyGenerator: (req) => rateLimitClientKey(req),
         message: 'Too many requests, please try again later.'
+    })
+}
+
+/** How many full cold loads of an icon catalog fit in one window on top of the page budget. */
+export const UI_ICON_CATALOG_LOADS = 3
+
+/**
+ * The node palette mounts an icon request for every node on a cold load, and the credential
+ * dialogs do the same for every credential, so a catalog larger than the page budget would
+ * get 429s on ordinary use at a low CUTTLELY_UI_PAGE_LIMIT_MAX.
+ */
+export function uiIconLimitMax(catalogSize: number): number {
+    const size = Number.isFinite(catalogSize) && catalogSize > 0 ? Math.ceil(catalogSize) : 0
+    return uiPageLimitMax() + UI_ICON_CATALOG_LOADS * size
+}
+
+/** uiPageRateLimiter for an icon router, with its budget read from the loaded catalog on each request. */
+export function uiIconRateLimiter(catalogSize: () => number) {
+    return uiPageRateLimiter(() => {
+        let size = 0
+        try {
+            size = catalogSize()
+        } catch {
+            size = 0
+        }
+        return uiIconLimitMax(size)
     })
 }
 
