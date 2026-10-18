@@ -48,6 +48,8 @@ type AnalystRelationsModule = {
 }
 
 const RELATION_LOOKUP_MS = 10000
+// ANALYST_RULES_MAX_CHARS in packages/harness/store.mjs, which refuses a longer save.
+const ANALYST_RULES_MAX_CHARS = 2000
 
 function optionalPositive(value: unknown): number | undefined {
     if (value === undefined || value === null || String(value).trim() === '') return undefined
@@ -163,7 +165,7 @@ class PostgreSQL_MCP implements INode {
     constructor() {
         this.label = 'PostgreSQL MCP'
         this.name = 'postgreSQLMCP'
-        this.version = 1.2
+        this.version = 1.3
         this.type = 'PostgreSQL MCP Tool'
         this.icon = 'postgres.svg'
         this.category = 'Tools (MCP)'
@@ -193,6 +195,18 @@ class PostgreSQL_MCP implements INode {
                 optional: true,
                 description:
                     'Tick the tables and views the analyst may query. It sees one line per ticked item and describes one when it needs the columns. A query that reads anything else is refused. Leave all unticked to allow every table this login can read. Applies to a database connected by credential or CUTTLELY_POSTGRES_URL.'
+            },
+            {
+                label: 'Rules',
+                name: 'analystRules',
+                type: 'string',
+                rows: 6,
+                maxLength: ANALYST_RULES_MAX_CHARS,
+                optional: true,
+                placeholder:
+                    'Use monthly_sales for questions about sales by month.\nStore names are written as in the stores table, for example Old Town.',
+                description:
+                    'Your own instructions for the analyst on a harness, such as which view answers which question or how names are written. They go into its instructions in a marked section. They cannot widen Tables and views or allow changes.'
             },
             {
                 label: 'Row cap',

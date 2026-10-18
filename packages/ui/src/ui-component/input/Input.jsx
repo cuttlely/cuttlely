@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import PropTypes from 'prop-types'
-import { FormControl, OutlinedInput, InputBase, Popover, InputAdornment, IconButton } from '@mui/material'
+import { FormControl, FormHelperText, OutlinedInput, InputBase, Popover, InputAdornment, IconButton } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import { IconEye, IconEyeOff } from '@tabler/icons-react'
 import SelectVariable from '@/ui-component/json/SelectVariable'
@@ -18,6 +18,7 @@ export const Input = ({ inputParam, value, nodes, edges, nodeId, onChange, onBlu
     const lastValueRef = useRef(value ?? '')
 
     const openPopOver = Boolean(anchorEl)
+    const maxLength = inputParam?.type === 'string' && inputParam?.maxLength > 0 ? inputParam.maxLength : 0
     const hasPasswordToggle = (inputParam?.type === 'password' || inputParam?.type === 'url') && !!inputParam?.enablePasswordToggle
 
     const handleClosePopOver = () => {
@@ -152,6 +153,7 @@ export const Input = ({ inputParam, value, nodes, edges, nodeId, onChange, onBlu
                         }}
                         inputProps={{
                             step: inputParam.step ?? 1,
+                            ...(maxLength ? { maxLength } : {}),
                             style: {
                                 height: inputParam.rows ? '90px' : 'inherit'
                             }
@@ -176,6 +178,7 @@ export const Input = ({ inputParam, value, nodes, edges, nodeId, onChange, onBlu
                             }
                         }}
                     />
+                    {maxLength ? <CharacterCount value={myValue} maxLength={maxLength} /> : null}
                 </FormControl>
             )}
             <div ref={ref}></div>
@@ -205,6 +208,20 @@ export const Input = ({ inputParam, value, nodes, edges, nodeId, onChange, onBlu
             )}
         </>
     )
+}
+
+export const CharacterCount = ({ value, maxLength }) => {
+    const length = typeof value === 'string' ? value.length : 0
+    return (
+        <FormHelperText data-testid='character-count' error={length > maxLength} sx={{ mx: 0, textAlign: 'right' }} aria-live='polite'>
+            {`${length.toLocaleString('en-US')} / ${maxLength.toLocaleString('en-US')}`}
+        </FormHelperText>
+    )
+}
+
+CharacterCount.propTypes = {
+    value: PropTypes.string,
+    maxLength: PropTypes.number
 }
 
 Input.propTypes = {

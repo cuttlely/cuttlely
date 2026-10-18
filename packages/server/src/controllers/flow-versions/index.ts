@@ -6,6 +6,7 @@ import chatflowsService from '../../services/chatflows'
 import { actorFromUser } from '../../services/flow-versions/author'
 import flowVersionsService from '../../services/flow-versions'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
+import { assertHarnessDraftLimits } from '../../services/flow-drafts/harnessLimits'
 import { GithubError } from '../../services/flow-versions/github'
 import { hasAnyPermission } from '../../identity/rbac'
 import { harnessCallerFor } from '../../services/harnesses/apiAccess'
@@ -121,6 +122,24 @@ async function versionFor(req: Request, flow: ChatFlow, sha: string) {
     return version
 }
 
+// Unchanged is decided from the content: same canvas, same name, same type, same category, and no live secret
+// where the version holds a hidden-secret placeholder. The version brings its category back too (Restore, Roll back
+// and Promote alike), so a version that only differs in category still counts as a change.
+async function matchesLive(flow: ChatFlow, sha: string, version: any): Promise<boolean> {
+    const diff = await flowVersionsService.diffVersion(flow, sha, 'current')
+    const typeChanged = Boolean(version.type && version.type !== flow.type)
+    const categoryChanged = (version.category ?? '') !== String(flow.category || '')
+    const hiddenChanged = flowVersionsService.hiddenInputsDiffer(flow.flowData, version.flowData, version.hiddenSecrets || [])
+    return Boolean(diff && !flowVersionsService.hasChanges(diff) && !typeChanged && !categoryChanged && !hiddenChanged)
+}
+
+// A harness version that a save would refuse for its Rules is refused before anything changes, and the
+// refusal names what to do instead of asking to shorten a version that cannot be edited.
+async function assertRestorable(flow: ChatFlow, version: any, kind: LiveRecord['kind'], unchanged: () => Promise<boolean>) {
+    if ((version.type || flow.type) !== 'HARNESS') return
+    await assertHarnessDraftLimits(version.name || flow.name || '', version.flowData, kind, await unchanged())
+}
+
 function credentialNotes(version: any) {
     return {
         missingCredentials: version.missingCredentials,
@@ -142,15 +161,9 @@ export async function putVersionLive(req: Request, flow: ChatFlow, sha: string, 
         throw new AppError(StatusCodes.CONFLICT, missingCredentialsMessage(version.missingCredentials))
     }
 
-    // Unchanged is decided from the content, before anything is saved: same canvas, same name, same type,
-    // and no live secret where the version holds a hidden-secret placeholder.
-    const diff = await flowVersionsService.diffVersion(flow, sha, 'current')
-    const typeChanged = Boolean(version.type && version.type !== flow.type)
-    // The version brings its category back too (Restore, Roll back and Promote alike), so Live matches the version
-    // exactly and a version that only differs in category still counts as a change.
-    const categoryChanged = (version.category ?? '') !== String(flow.category || '')
-    const hiddenChanged = flowVersionsService.hiddenInputsDiffer(flow.flowData, version.flowData, version.hiddenSecrets || [])
-    if (diff && !flowVersionsService.hasChanges(diff) && !typeChanged && !categoryChanged && !hiddenChanged) {
+    const unchanged = await matchesLive(flow, sha, version)
+    await assertRestorable(flow, version, record.kind, async () => unchanged)
+    if (unchanged) {
         return {
             chatflow: null,
             sha: null,
@@ -233,6 +246,7 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
                 'This version is a different kind of flow, so it cannot become the draft. Use Roll back Live instead.'
             )
         }
+        await assertRestorable(flow, version, 'restore', () => matchesLive(flow, sha, version))
         const status = redactDraftStatus(
             await flowDraftsService.saveDraft(flow, version.flowData, {
                 userId: req.user?.id || null,

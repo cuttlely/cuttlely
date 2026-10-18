@@ -664,6 +664,16 @@
             "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
         },
         {
+            "from": "packages/server/src/services/flow-drafts/harnessLimits.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "A harness draft save refuses Rules over the cap as a 400, the same AppError the draft service throws."
+        },
+        {
+            "from": "packages/server/src/services/flow-drafts/harnessLimits.ts",
+            "to": "packages/server/src/errors/utils.ts",
+            "reason": "The 400 carries the harness store refusal text, read with the shared error message helper."
+        },
+        {
             "from": "packages/server/src/services/flow-drafts/index.ts",
             "to": "packages/server/src/database/entities/ChatFlow.ts"
         },
@@ -1345,6 +1355,11 @@
             "to": "packages/ui/src/utils/useNotifier.js"
         },
         {
+            "from": "packages/ui/src/ui-component/dialog/ExpandTextDialog.test.js",
+            "to": "packages/ui/src/ui-component/dialog/ExpandTextDialog.jsx",
+            "reason": "The Save-over-the-cap test renders the inherited Expand editor it covers."
+        },
+        {
             "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "to": "packages/ui/src/store/actions.js"
         },
@@ -1389,6 +1404,11 @@
         {
             "from": "packages/ui/src/ui-component/flow/WhichFlow.jsx",
             "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/input/Input.test.js",
+            "to": "packages/ui/src/ui-component/input/Input.jsx",
+            "reason": "The character counter test renders the inherited Input field it covers."
         },
         {
             "from": "packages/ui/src/utils/usePrompt.test.js",
