@@ -371,6 +371,11 @@
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
         {
+            "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
+            "to": "packages/server/src/routes/chatflows/index.ts",
+            "reason": "The bypass test mounts the real chatflows router behind the API gate"
+        },
+        {
             "from": "packages/server/src/routes/internal-predictions/auth.test.ts",
             "to": "packages/server/src/routes/internal-predictions/index.ts",
             "reason": "The gate test mounts the real internal-prediction router behind the API gate"
@@ -901,6 +906,16 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/utils/buildChatflow.harnessCaller.test.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The caller test names the MCP chat type from the shared server interface"
+        },
+        {
+            "from": "packages/server/src/utils/buildChatflow.harnessCaller.test.ts",
+            "to": "packages/server/src/utils/buildChatflow.ts",
+            "reason": "The caller test runs the real utilBuildChatflow in queue mode"
+        },
+        {
             "from": "packages/server/src/utils/chatUploadStorage.test.ts",
             "to": "packages/components/src/index.ts"
         },
@@ -951,6 +966,16 @@
         {
             "from": "packages/server/src/utils/fileLinkSignature.test.ts",
             "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/flowHarnessCaller.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The flow caller helper only takes the IHarnessCaller type from the shared server interface"
+        },
+        {
+            "from": "packages/server/src/utils/flowHarnessCaller.ts",
+            "to": "packages/server/src/services/apikey/index.ts",
+            "reason": "The flow caller helper reads the bound key's harness list through the API key service"
         },
         {
             "from": "packages/server/src/utils/getGlobalVariable.test.ts",
