@@ -17,7 +17,7 @@
 import express, { Request, Response } from 'express'
 import request from 'supertest'
 import { DataSource } from 'typeorm'
-import { apiV1Auth, ApiV1AuthDeps } from './apiGate'
+import { apiV1Auth, ApiV1AuthDeps, normalizeApiPath, withoutDenylisted } from './apiGate'
 
 const validKey = {
     isValid: true,
@@ -136,6 +136,34 @@ describe('apiV1Auth', () => {
             expect({ path, status: (await server.get(path)).status }).toEqual({ path, status: 200 })
         }
         expect((await server.get('/api/v1/public-chatflows')).status).toBe(401)
+    })
+
+    it('lowercases ASCII letters only, as Express routing does', () => {
+        expect(normalizeApiPath('/API/v1//Public-ChatbotConfig')).toBe('/api/v1/public-chatbotconfig')
+        expect(normalizeApiPath('/api/v1/chatflows/api\u212Aey/')).toBe('/api/v1/chatflows/api\u212Aey/')
+        expect(normalizeApiPath('/api/v1/\u0130tems')).toBe('/api/v1/\u0130tems')
+    })
+
+    it('treats an entry in readOnlyWhitelistURLs as public for GET and HEAD only', async () => {
+        const server = app({
+            whitelistURLs: ['/api/v1/chatflows/apikey/', '/api/v1/ping'],
+            readOnlyWhitelistURLs: ['/api/v1/chatflows/apikey/'],
+            validateAPIKey: async () => ({ isValid: false })
+        })
+        expect((await server.get('/api/v1/chatflows/apikey/')).status).toBe(200)
+        expect((await server.head('/api/v1/Chatflows/apikey')).status).toBe(200)
+        expect((await server.post('/api/v1/chatflows/apikey')).status).toBe(401)
+        expect((await server.put('/api/v1/chatflows/apikey/')).status).toBe(401)
+        expect((await server.delete('/api/v1//chatflows/apikey')).status).toBe(401)
+        expect((await server.post('/api/v1/ping')).status).toBe(200)
+    })
+
+    it('drops DENYLIST_URLS entries from the public list in any letter case, slash run or surrounding space', () => {
+        const list = ['/api/v1/ping', '/api/v1/public-chatbotConfig', '/api/v1/version']
+        expect(withoutDenylisted(list, undefined)).toEqual(list)
+        expect(withoutDenylisted(list, '')).toEqual(list)
+        expect(withoutDenylisted(list, '/api/v1/public-chatbotconfig, /API/v1//ping')).toEqual(['/api/v1/version'])
+        expect(withoutDenylisted(list, '/api/v1/pin')).toEqual(list)
     })
 
     it('returns 401 when a license is required even with a valid key', async () => {

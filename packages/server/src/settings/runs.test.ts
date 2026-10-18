@@ -6,6 +6,7 @@ import path from 'path'
 import express from 'express'
 import request from 'supertest'
 import { watchClientDisconnect } from '../utils/clientAbort'
+import { sanitizeMiddleware } from '../utils/XSS'
 import {
     drainRuns,
     drainTimeoutMs,
@@ -46,6 +47,26 @@ describe('runs in progress', () => {
         expect(isRunRequest('POST', '/api/v1//prediction/abc')).toBe(true)
         expect(isRunRequest('POST', '/api/v1//Harnesses//bakery/runs')).toBe(true)
         expect(isRunRequest('POST', '/api/v1/predictions/abc')).toBe(false)
+    })
+
+    it('turns away a run with a percent-encoded path while a restart drains, as the router decodes it', async () => {
+        const server = express()
+        server.use(sanitizeMiddleware)
+        const api = express.Router()
+        api.use(trackRuns)
+        api.post(['/prediction/:id', '/internal-prediction/:id', '/harnesses/:name/runs'], (_req, res) => res.json({ ran: true }))
+        server.use('/api/v1', api)
+        expect((await request(server).post('/api/v1/%70rediction/x').send({})).body).toEqual({ ran: true })
+        await drainRuns(0)
+        for (const path of [
+            '/api/v1/%70rediction/x',
+            '/api/v1/internal-%70rediction/x',
+            '/api/v1/harnesses/bakery/%72uns',
+            '/api/v1//%50rediction/x'
+        ]) {
+            const res = await request(server).post(path).send({})
+            expect({ path, status: res.status }).toEqual({ path, status: 503 })
+        }
     })
 
     it('counts a run while it is open, waits for it, and turns new runs away meanwhile', async () => {

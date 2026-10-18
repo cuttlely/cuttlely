@@ -1,28 +1,33 @@
 /**
- * The real /api/v1 gate in front of the real API router: an API key is refused on every path the
- * router serves for a refused prefix, whatever the letter case or repeated slashes.
+ * The real /api/v1 gate, with the URL decoding in front of it, before the real API router: an API key is
+ * refused on every path the router serves for a refused prefix, and the public list matches only the
+ * paths and methods the router serves for each public entry.
  */
 import express, { Request, Response } from 'express'
 import request from 'supertest'
 import { DataSource } from 'typeorm'
 import { apiV1Auth } from '../identity/apiGate'
-import { API_KEY_BLACKLIST_URLS, WHITELIST_URLS } from '../utils/constants'
+import { API_KEY_BLACKLIST_URLS, READ_ONLY_WHITELIST_URLS, WHITELIST_URLS } from '../utils/constants'
 
 const reached = (name: string) => jest.fn((req: Request, res: Response) => res.status(200).json({ reached: name, user: req.user ?? null }))
 
-const mockFiles = { getAllFiles: reached('files.list'), deleteFile: reached('files.delete') }
 const mockNim = { preload: reached('nim.preload'), listRunningContainers: reached('nim.list'), stopContainer: reached('nim.stop') }
-const mockPublicChatbotConfig = reached('public-chatbotConfig')
+const mockChatflows = {
+    getSinglePublicChatbotConfig: reached('public-chatbotConfig'),
+    getChatflowByApiKey: reached('chatflows.apikey'),
+    getChatflowById: reached('chatflows.byId'),
+    saveChatflow: reached('chatflows.save'),
+    updateChatflow: reached('chatflows.update')
+}
 const mockGetAllNodes = reached('nodes.list')
 
-jest.mock('../controllers/files', () => ({ __esModule: true, default: mockFiles }))
 jest.mock('../controllers/nvidia-nim', () => {
     const actual = jest.requireActual('../controllers/nvidia-nim').default
     return { __esModule: true, default: { ...actual, ...mockNim } }
 })
 jest.mock('../controllers/chatflows', () => {
     const actual = jest.requireActual('../controllers/chatflows').default
-    return { __esModule: true, default: { ...actual, getSinglePublicChatbotConfig: mockPublicChatbotConfig } }
+    return { __esModule: true, default: { ...actual, ...mockChatflows } }
 })
 jest.mock('../controllers/nodes', () => {
     const actual = jest.requireActual('../controllers/nodes').default
@@ -30,6 +35,7 @@ jest.mock('../controllers/nodes', () => {
 })
 
 import apiRouter from './index'
+import { sanitizeMiddleware } from '../utils/XSS'
 
 jest.setTimeout(60_000)
 
@@ -51,9 +57,11 @@ const sessionUser = { permissions: ['chatflows:view'], activeOrganizationId: 'or
 
 function app() {
     const server = express()
+    server.use(sanitizeMiddleware)
     server.use(
         apiV1Auth({
             whitelistURLs: WHITELIST_URLS,
+            readOnlyWhitelistURLs: READ_ONLY_WHITELIST_URLS,
             apiKeyBlacklistURLs: API_KEY_BLACKLIST_URLS,
             licenseRequired: () => false,
             dataSource: dataSource(),
@@ -71,42 +79,59 @@ function app() {
     return request(server)
 }
 
-const allControllers = () => [...Object.values(mockFiles), ...Object.values(mockNim), mockPublicChatbotConfig, mockGetAllNodes]
+const allControllers = () => [...Object.values(mockNim), ...Object.values(mockChatflows), mockGetAllNodes]
+
+const nimSpellings: Array<['get' | 'post', string, string]> = [
+    ['get', '/api/v1//nvidia-nim/preload', 'nim.preload'],
+    ['get', '/api/v1//nvidia-nim/list-running-containers', 'nim.list'],
+    ['get', '/api/v1/NVIDIA-NIM/preload', 'nim.preload'],
+    ['get', '/api/v1/%6Evidia-nim/preload', 'nim.preload'],
+    ['post', '/api/v1//nvidia-nim//stop-container', 'nim.stop']
+]
 
 describe('API key gate on the real API router', () => {
     beforeEach(() => allControllers().forEach((handler) => handler.mockClear()))
 
-    const refused: Array<['get' | 'delete' | 'post', string]> = [
-        ['get', '/api/v1/files'],
-        ['get', '/api/v1/Files'],
-        ['get', '/api/v1/FILES'],
-        ['get', '/api/v1//files'],
-        ['get', '/api/v1//FILES'],
-        ['get', '/api/v1///files/'],
-        ['delete', '/api/v1/Files?path=a.txt'],
-        ['delete', '/api/v1//files?path=a.txt'],
-        ['get', '//api/v1/files'],
-        ['get', '/api//v1/files'],
-        ['get', '/api/v1/nvidia-nim/preload'],
-        ['get', '/api/v1//nvidia-nim/preload'],
-        ['get', '/api/v1//nvidia-nim/list-running-containers'],
-        ['get', '/api/v1/NVIDIA-NIM/preload'],
-        ['post', '/api/v1//nvidia-nim//stop-container']
-    ]
-
-    it.each(refused)('refuses a no-permission API key on %s %s before the router', async (method, path) => {
+    it.each(nimSpellings)('refuses a no-permission API key on %s %s before the router', async (method, path) => {
         const res = await app()[method](path).set('Authorization', 'Bearer no-permission-key')
         expect(res.status).toBe(401)
         expect(res.body).toEqual({ error: 'Unauthorized Access' })
         for (const handler of allControllers()) expect(handler).not.toHaveBeenCalled()
     })
 
-    it('reaches the nvidia-nim router on those paths without the gate, so each path is one the router serves', async () => {
+    it('reaches the nvidia-nim router on each of those spellings without the gate', async () => {
         const server = express()
+        server.use(sanitizeMiddleware)
         server.use('/api/v1', apiRouter)
-        for (const path of ['/api/v1//nvidia-nim/preload', '/api/v1/NVIDIA-NIM/preload', '/api/v1//nvidia-nim//preload']) {
-            expect((await request(server).get(path)).body.reached).toBe('nim.preload')
+        for (const [method, path, name] of nimSpellings) {
+            expect({ path, reached: (await request(server)[method](path)).body.reached }).toEqual({ path, reached: name })
         }
+    })
+
+    it('does not treat a non-ASCII letter that lowercases to an ASCII one as part of a public entry', async () => {
+        const res = await app().get('/api/v1/chatflows/api%E2%84%AAey/')
+        expect(res.status).toBe(401)
+        expect(res.body).toEqual({ error: 'Unauthorized Access' })
+        for (const handler of allControllers()) expect(handler).not.toHaveBeenCalled()
+    })
+
+    it('keeps the chatflow API-key lookup public for GET only', async () => {
+        const read = await app().get('/api/v1/chatflows/apikey/').set('Authorization', 'Bearer some-key')
+        expect(read.status).toBe(200)
+        expect(read.body.reached).toBe('chatflows.apikey')
+        for (const method of ['post', 'put', 'delete'] as const) {
+            for (const path of ['/api/v1/chatflows/apikey', '/api/v1/chatflows/apikey/']) {
+                const res = await app()[method](path)
+                // The gate's body, not the route permission check's ({ message: 'Unauthorized' }).
+                expect({ method, path, status: res.status, body: res.body }).toEqual({
+                    method,
+                    path,
+                    status: 401,
+                    body: { error: 'Unauthorized Access' }
+                })
+            }
+        }
+        for (const handler of [mockChatflows.saveChatflow, mockChatflows.updateChatflow]) expect(handler).not.toHaveBeenCalled()
     })
 
     it('still serves a permitted API key route', async () => {

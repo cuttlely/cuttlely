@@ -64,7 +64,8 @@ export function refuseWhileShuttingDown(_req: Request, res: Response, next: Next
 
 /** Express middleware: counts run requests, and turns new ones away while a restart waits. */
 export function trackRuns(req: Request, res: Response, next: NextFunction): void {
-    const path = (req.originalUrl || req.url || '').split('?')[0]
+    // req.originalUrl is the raw URL. Express routes on req.url, which sanitizeMiddleware has already decoded.
+    const path = `${req.baseUrl || ''}${req.path || ''}`
     if (!isRunRequest(req.method, path)) return next()
     if (draining) {
         res.setHeader('Retry-After', '30')
