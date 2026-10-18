@@ -54,6 +54,8 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
     const [loadingChoices, setLoadingChoices] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [formError, setFormError] = useState('')
+    const [inviteLink, setInviteLink] = useState('')
+    const [copied, setCopied] = useState(false)
 
     useEffect(() => {
         if (show) dispatch({ type: SHOW_CANVAS_DIALOG })
@@ -121,7 +123,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
         setFormError('')
         setIsSaving(true)
         try {
-            await accountApi.inviteAccount({
+            const response = await accountApi.inviteAccount({
                 user: {
                     name: name.trim(),
                     email: email.trim(),
@@ -142,7 +144,8 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                     )
                 }
             })
-            onConfirm()
+            if (response.data?.link) setInviteLink(response.data.link)
+            else onConfirm()
         } catch (error) {
             const message = error.response?.data?.message || error.message || 'Could not create the user'
             setFormError(message)
@@ -164,117 +167,163 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
         }
     }
 
+    const finishInvite = () => {
+        setInviteLink('')
+        setCopied(false)
+        onConfirm()
+    }
+
+    const copyInvite = async () => {
+        try {
+            await navigator.clipboard.writeText(inviteLink)
+            setCopied(true)
+        } catch {
+            setCopied(false)
+        }
+    }
+
+    const inviteStep = (
+        <>
+            <DialogContent>
+                <Alert severity='success' sx={{ mb: 2 }}>
+                    Send this one-time invite link to {email.trim()}. They open it and sign in with that email to join. It is shown only
+                    once and works once. Do not paste it into a shared chat.
+                </Alert>
+                <OutlinedInput
+                    id='invite-link'
+                    size='small'
+                    fullWidth
+                    readOnly
+                    value={inviteLink}
+                    onFocus={(event) => event.target.select()}
+                />
+            </DialogContent>
+            <DialogActions>
+                <Button onClick={copyInvite}>{copied ? 'Copied' : 'Copy link'}</Button>
+                <StyledButton id='btn_invite_done' variant='contained' onClick={finishInvite}>
+                    Done
+                </StyledButton>
+            </DialogActions>
+        </>
+    )
+
     const component = show ? (
-        <Dialog fullWidth maxWidth='sm' open={show} onClose={onCancel} aria-labelledby='create-user-title'>
+        <Dialog fullWidth maxWidth='sm' open={show} onClose={inviteLink ? finishInvite : onCancel} aria-labelledby='create-user-title'>
             <DialogTitle sx={{ fontSize: '1rem' }} id='create-user-title'>
                 <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
                     <IconUserPlus style={{ marginRight: '10px' }} />
                     Add User
                 </div>
             </DialogTitle>
-            <DialogContent>
-                {roles.length === 0 && !loadingChoices && (
-                    <Alert severity='info' sx={{ mb: 2 }}>
-                        Create a role on the{' '}
-                        <Link to='/roles' onClick={onCancel}>
-                            Roles
-                        </Link>{' '}
-                        page before adding a user. The role is where you set what they can do.
-                    </Alert>
-                )}
-                {formError && (
-                    <Alert severity='error' sx={{ mb: 2 }}>
-                        {formError}
-                    </Alert>
-                )}
-                <Box sx={{ p: 1 }}>
-                    <Typography>
-                        Name<span style={{ color: 'red' }}>&nbsp;*</span>
-                    </Typography>
-                    <OutlinedInput
-                        id='user-name'
-                        size='small'
-                        sx={{ mt: 1 }}
-                        fullWidth
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
-                    />
-                </Box>
-                <Box sx={{ p: 1 }}>
-                    <Typography>
-                        Email<span style={{ color: 'red' }}>&nbsp;*</span>
-                    </Typography>
-                    <OutlinedInput
-                        id='user-email'
-                        size='small'
-                        sx={{ mt: 1 }}
-                        type='email'
-                        fullWidth
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                    />
-                </Box>
-                <Box sx={{ p: 1 }}>
-                    <Typography variant='caption' color='text.secondary'>
-                        They sign in with WorkOS. No password is stored here.
-                    </Typography>
-                </Box>
-                <Box sx={{ p: 1 }}>
-                    <Typography>
-                        Team<span style={{ color: 'red' }}>&nbsp;*</span>
-                    </Typography>
-                    <Select
-                        id='user-team'
-                        size='small'
-                        sx={{ mt: 1 }}
-                        fullWidth
-                        value={teamId}
-                        displayEmpty
-                        disabled={Boolean(workspace?.id)}
-                        onChange={(event) => setTeamId(event.target.value)}
-                        input={<OutlinedInput />}
-                    >
-                        <MenuItem value='' disabled>
-                            Choose a team
-                        </MenuItem>
-                        {teams.map((team) => (
-                            <MenuItem key={team.id} value={team.id}>
-                                {team.name}
-                            </MenuItem>
-                        ))}
-                    </Select>
-                </Box>
-                <Box sx={{ p: 1 }}>
-                    <Typography>
-                        Role<span style={{ color: 'red' }}>&nbsp;*</span>
-                    </Typography>
-                    <Select
-                        id='user-role'
-                        size='small'
-                        sx={{ mt: 1 }}
-                        fullWidth
-                        value={roleId}
-                        displayEmpty
-                        onChange={(event) => setRoleId(event.target.value)}
-                        input={<OutlinedInput />}
-                    >
-                        <MenuItem value='' disabled>
-                            Choose a role
-                        </MenuItem>
-                        {roles.map((role) => (
-                            <MenuItem key={role.id} value={role.id}>
-                                {roleLabel(role)}
-                            </MenuItem>
-                        ))}
-                    </Select>
-                </Box>
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={onCancel}>Cancel</Button>
-                <StyledButton id='btn_submit_user' disabled={!canSubmit} variant='contained' onClick={saveUser}>
-                    {isSaving ? 'Creating...' : 'Create User'}
-                </StyledButton>
-            </DialogActions>
+            {inviteLink ? (
+                inviteStep
+            ) : (
+                <>
+                    <DialogContent>
+                        {roles.length === 0 && !loadingChoices && (
+                            <Alert severity='info' sx={{ mb: 2 }}>
+                                Create a role on the{' '}
+                                <Link to='/roles' onClick={onCancel}>
+                                    Roles
+                                </Link>{' '}
+                                page before adding a user. The role is where you set what they can do.
+                            </Alert>
+                        )}
+                        {formError && (
+                            <Alert severity='error' sx={{ mb: 2 }}>
+                                {formError}
+                            </Alert>
+                        )}
+                        <Box sx={{ p: 1 }}>
+                            <Typography>
+                                Name<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <OutlinedInput
+                                id='user-name'
+                                size='small'
+                                sx={{ mt: 1 }}
+                                fullWidth
+                                value={name}
+                                onChange={(event) => setName(event.target.value)}
+                            />
+                        </Box>
+                        <Box sx={{ p: 1 }}>
+                            <Typography>
+                                Email<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <OutlinedInput
+                                id='user-email'
+                                size='small'
+                                sx={{ mt: 1 }}
+                                type='email'
+                                fullWidth
+                                value={email}
+                                onChange={(event) => setEmail(event.target.value)}
+                            />
+                        </Box>
+                        <Box sx={{ p: 1 }}>
+                            <Typography variant='caption' color='text.secondary'>
+                                They join from a one-time invite link and sign in with WorkOS. No password is stored here.
+                            </Typography>
+                        </Box>
+                        <Box sx={{ p: 1 }}>
+                            <Typography>
+                                Team<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <Select
+                                id='user-team'
+                                size='small'
+                                sx={{ mt: 1 }}
+                                fullWidth
+                                value={teamId}
+                                displayEmpty
+                                disabled={Boolean(workspace?.id)}
+                                onChange={(event) => setTeamId(event.target.value)}
+                                input={<OutlinedInput />}
+                            >
+                                <MenuItem value='' disabled>
+                                    Choose a team
+                                </MenuItem>
+                                {teams.map((team) => (
+                                    <MenuItem key={team.id} value={team.id}>
+                                        {team.name}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </Box>
+                        <Box sx={{ p: 1 }}>
+                            <Typography>
+                                Role<span style={{ color: 'red' }}>&nbsp;*</span>
+                            </Typography>
+                            <Select
+                                id='user-role'
+                                size='small'
+                                sx={{ mt: 1 }}
+                                fullWidth
+                                value={roleId}
+                                displayEmpty
+                                onChange={(event) => setRoleId(event.target.value)}
+                                input={<OutlinedInput />}
+                            >
+                                <MenuItem value='' disabled>
+                                    Choose a role
+                                </MenuItem>
+                                {roles.map((role) => (
+                                    <MenuItem key={role.id} value={role.id}>
+                                        {roleLabel(role)}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </Box>
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={onCancel}>Cancel</Button>
+                        <StyledButton id='btn_submit_user' disabled={!canSubmit} variant='contained' onClick={saveUser}>
+                            {isSaving ? 'Creating...' : 'Create User'}
+                        </StyledButton>
+                    </DialogActions>
+                </>
+            )}
             <ConfirmDialog />
         </Dialog>
     ) : null

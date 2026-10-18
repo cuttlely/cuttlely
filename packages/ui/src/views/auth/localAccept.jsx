@@ -14,6 +14,7 @@ function tokenFromFragment() {
 
 const LocalAcceptPage = () => {
     const [token] = useState(tokenFromFragment)
+    const [authKit, setAuthKit] = useState(null)
     const [password, setPassword] = useState('')
     const [confirm, setConfirm] = useState('')
     const [message, setMessage] = useState('')
@@ -23,6 +24,34 @@ const LocalAcceptPage = () => {
     useEffect(() => {
         if (!token) setMessage('Open the one-time link you were given. This page does not keep a copy of it.')
     }, [token])
+
+    useEffect(() => {
+        let cancelled = false
+        client
+            .get('/auth/signin-options')
+            .then((response) => {
+                if (!cancelled) setAuthKit(response.data?.authKit === true)
+            })
+            .catch(() => {
+                if (!cancelled) setAuthKit(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [])
+
+    const join = async () => {
+        if (!token) return
+        setBusy(true)
+        setMessage('')
+        try {
+            const response = await client.post('/auth/invite/start', { token })
+            window.location.assign(response.data?.url || '/api/v1/auth/login')
+        } catch (error) {
+            setMessage(error.response?.data?.message || 'This invite link is not valid. Ask for a new invite.')
+            setBusy(false)
+        }
+    }
 
     const submit = async (event) => {
         event.preventDefault()
@@ -41,6 +70,26 @@ const LocalAcceptPage = () => {
         } finally {
             setBusy(false)
         }
+    }
+
+    if (authKit === null) return <MainCard />
+
+    if (authKit) {
+        return (
+            <MainCard>
+                <Stack spacing={2}>
+                    <Typography variant='h3'>Accept your invite</Typography>
+                    <Typography>
+                        Sign in with WorkOS using the email address this invite was sent to. The link works once and then stops. Do not
+                        share it. If it has expired, ask for a new invite.
+                    </Typography>
+                    {message ? <Alert severity='info'>{message}</Alert> : null}
+                    <StyledButton variant='contained' onClick={join} disabled={busy || !token}>
+                        Accept invite with WorkOS
+                    </StyledButton>
+                </Stack>
+            </MainCard>
+        )
     }
 
     return (
