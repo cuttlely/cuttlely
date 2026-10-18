@@ -282,6 +282,8 @@ export const upsertVector = async (req: Request, isInternal: boolean = false) =>
             isInternal,
             files,
             isUpsert: true,
+            // An upsert fills a vector store and runs no harness, so a Harness card reached here is refused.
+            harnessCaller: undefined,
             sessionToken: owned.sessionToken,
             orgId,
             workspaceId,

@@ -34,14 +34,17 @@ export function hashEmbed(text, dimensions) {
 }
 
 export class LocalHashEmbeddings {
-    constructor({ dimensions = 384, delayMs = 0 } = {}) {
+    // `gate` is for tests: awaited before each embed call with the call number, so a test can hold a run mid-way.
+    constructor({ dimensions = 384, delayMs = 0, gate = null } = {}) {
         this.dimensions = Math.max(8, Math.min(4096, Number(dimensions) || 384))
         this.delayMs = Number(delayMs) || 0
+        this.gate = typeof gate === 'function' ? gate : null
         this.calls = 0
     }
 
     async embedDocuments(texts) {
         this.calls += 1
+        if (this.gate) await this.gate(this.calls)
         if (this.delayMs) await new Promise((resolve) => setTimeout(resolve, this.delayMs))
         return texts.map((text) => Array.from(hashEmbed(text, this.dimensions)))
     }
@@ -53,6 +56,7 @@ export class LocalHashEmbeddings {
     // ETL reads Float32Arrays directly to skip the Array copy on large runs.
     async embedDocumentsRaw(texts) {
         this.calls += 1
+        if (this.gate) await this.gate(this.calls)
         if (this.delayMs) await new Promise((resolve) => setTimeout(resolve, this.delayMs))
         return texts.map((text) => hashEmbed(text, this.dimensions))
     }

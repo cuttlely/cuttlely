@@ -31,6 +31,7 @@ module.exports = {
     DataSource: jest.fn(),
     In: findOperator('in'),
     IsNull: () => ({ type: 'isNull' }),
+    Not: (value: unknown) => ({ type: 'not', value, _value: value }),
     Equal: (value: unknown) => ({ type: 'equal', value, _value: value }),
     Between: findOperator('between'),
     MoreThanOrEqual: findOperator('moreThanOrEqual'),

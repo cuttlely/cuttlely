@@ -484,7 +484,22 @@ export interface IExecuteFlowParams extends IPredictionQueueAppServer {
     chatType?: ChatType
     /** Server-issued proof that this caller may continue `chatId`. Not a client session string. */
     sessionToken?: string
+    /** Who a Harness card on this flow runs for. The harness engine refuses a run without one. */
+    harnessCaller: IHarnessCaller | undefined
 }
+
+/** An API key and the harnesses on its list, read from its row for this call. */
+export interface IApiKeyAccess {
+    apiKeyId: string
+    harnesses: string[]
+}
+
+/**
+ * Who a harness run or a harness canvas save acts for. Every harness call names one; none is refused.
+ * `session` is a signed-in person, checked by role. `api_key` runs only the harnesses on that key's list.
+ * `flow` is a flow with no API key: anyone with its id can call it, so its Harness cards were checked when it was saved.
+ */
+export type IHarnessCaller = { via: 'session' } | { via: 'flow' } | ({ via: 'api_key' } & IApiKeyAccess)
 
 export interface INodeOverrides {
     [key: string]: {

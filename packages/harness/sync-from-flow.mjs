@@ -1,3 +1,4 @@
+import { SAVE_CALLERS, assertHarnessCaller } from './caller.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
 import { compileProfileCached } from './profile.mjs'
@@ -239,7 +240,9 @@ export function assertFlowLimits({ name, flowData }) {
     assertRosterLimits({ name, specialists })
 }
 
+// A save names who made it, a person or an API key. A key writes only a harness on its own list.
 export async function syncHarnessFromFlow(args) {
+    assertHarnessCaller(args?.name, args?.caller, { allow: SAVE_CALLERS })
     const roster = rosterFromFlow(args)
     const saved = saveHarness(roster, { overwrite: true })
     compileProfileCached(saved)

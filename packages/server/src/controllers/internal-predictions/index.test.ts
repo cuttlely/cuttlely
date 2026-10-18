@@ -22,11 +22,14 @@ const chatflows = () => jest.requireMock('../../services/chatflows').default
 test('the canvas test chat asks for the draft', async () => {
     const res: any = { json: jest.fn() }
     await controller.createInternalPrediction(
-        { params: { id: 'flow-1' }, body: {}, user: { activeWorkspaceId: 'team-a' } } as any,
+        { params: { id: 'flow-1' }, body: {}, user: { id: 'user-1', activeWorkspaceId: 'team-a' } } as any,
         res,
         jest.fn()
     )
-    expect(utilBuildChatflow).toHaveBeenCalledWith(expect.anything(), true, undefined, { testDraft: true })
+    expect(utilBuildChatflow).toHaveBeenCalledWith(expect.anything(), true, undefined, {
+        testDraft: true,
+        harnessCaller: { via: 'session' }
+    })
     expect(res.json).toHaveBeenCalledWith({ text: 'ok' })
 })
 
@@ -42,14 +45,14 @@ test('a harness canvas run uses the draft path', async () => {
     })
     const res: any = { json: jest.fn() }
     await controller.createInternalPrediction(
-        { params: { id: 'flow-1' }, body: { question: 'hi' }, user: { activeWorkspaceId: 'team-a' } } as any,
+        { params: { id: 'flow-1' }, body: { question: 'hi' }, user: { id: 'user-1', activeWorkspaceId: 'team-a' } } as any,
         res,
         jest.fn()
     )
     expect(startCanvasRun).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'flow-1', name: 'bakery-team', type: 'HARNESS' }),
         { question: 'hi' },
-        { source: 'playground' }
+        { source: 'playground', caller: { via: 'session' } }
     )
     expect(utilBuildChatflow).not.toHaveBeenCalled()
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'from the draft' }))
@@ -76,7 +79,7 @@ describe.each([
         sseStreamer.addClient.mockClear()
         const res: any = { json: jest.fn(), setHeader: jest.fn(), flushHeaders: jest.fn(), once: jest.fn(), on: jest.fn(), locals: {} }
         await controller.createInternalPrediction(
-            { params: { id: 'flow-1' }, body: { streaming, chatId: 'chat-1' }, user: { activeWorkspaceId: 'team-a' } } as any,
+            { params: { id: 'flow-1' }, body: { streaming, chatId: 'chat-1' }, user: { id: 'user-1', activeWorkspaceId: 'team-a' } } as any,
             res,
             jest.fn()
         )

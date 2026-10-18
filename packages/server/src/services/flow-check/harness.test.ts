@@ -190,7 +190,7 @@ describe('harness publish check', () => {
             seen.push(`${question}:${JSON.parse(flowData).nodes[0].data.inputs.instructions}`)
             return { text: JSON.parse(flowData).nodes[0].data.inputs.instructions, metrics: [{ totalTokens: 11 }] }
         }
-        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x')
+        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x', { caller: { via: 'session' } })
         await settle()
         const done = await getCheck(flow(), started.id)
         expect(done.status).toBe('done')
@@ -206,13 +206,27 @@ describe('harness publish check', () => {
         expect(writes.update).not.toHaveBeenCalled()
     })
 
+    test('replays each side for the caller that started the check, so an API key keeps its harness list', async () => {
+        replayHooks.run = null
+        const callers: unknown[] = []
+        harnessReplayHooks.run = async ({ flowData, caller }) => {
+            callers.push(caller)
+            return { text: JSON.parse(flowData).nodes[0].data.inputs.instructions }
+        }
+        const keyCaller = { via: 'api_key' as const, apiKeyId: 'key-1', harnesses: ['bakery'] }
+        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x', { caller: keyCaller })
+        await settle()
+        expect((await getCheck(flow(), started.id)).status).toBe('done')
+        expect(callers).toEqual([keyCaller, keyCaller])
+    })
+
     test('sums route, specialist and handoff tokens from the run report', async () => {
         replayHooks.run = null
         harnessReplayHooks.run = async ({ flowData }) => ({
             text: JSON.parse(flowData).nodes[0].data.inputs.instructions,
             report: { tokens: { prompt: 10, completion: 4, cached: 3 } }
         })
-        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x')
+        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x', { caller: { via: 'session' } })
         await settle()
         const done = await getCheck(flow(), started.id)
         expect(done.cases[0].live?.tokens).toBe(14)
@@ -242,7 +256,7 @@ describe('harness publish check', () => {
             text: JSON.parse(flowData).nodes[0].data.inputs.instructions,
             ...recorded
         })
-        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x')
+        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x', { caller: { via: 'session' } })
         await settle()
         const done = await getCheck(flow(), started.id)
         // 45 and 45 of one model are one 90-token line. Priced twice they would be 0.00000676.
@@ -273,7 +287,7 @@ describe('harness publish check', () => {
                 handoff: { status: 'skipped', model: '', tokens: null }
             }
         })
-        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x')
+        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x', { caller: { via: 'session' } })
         await settle()
         const priced = await getCheck(flow(), started.id)
         expect(priced.cases[0].live).toMatchObject({ estimatedCostUsd: 0.0012, price: 'known', unpricedModels: [] })
@@ -282,7 +296,7 @@ describe('harness publish check', () => {
         checks.clear()
         priceHooks.load = async () =>
             priceBook(defaults, new Map([['xAI Grok · grok-4.7', { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }]]))
-        const overridden = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x')
+        const overridden = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x', { caller: { via: 'session' } })
         await settle()
         const done = await getCheck(flow(), overridden.id)
         expect(done.cases[0].live).toMatchObject({ estimatedCostUsd: 0.002, price: 'known', unpricedModels: [] })
@@ -302,10 +316,12 @@ describe('harness publish check', () => {
         const risky = flow({ flowData: canvas('MANGO', [shell]) })
         const setup = await getCheckSetup(risky)
         expect(setup.riskySteps).toEqual([{ id: 'clerk', label: 'clerk (Shell)' }])
-        await expect(startCheck(risky as any, { questions: ['Run it'] }, 'http://x')).rejects.toMatchObject({
-            statusCode: 409,
-            message: expect.stringContaining('clerk (Shell)')
-        })
+        await expect(startCheck(risky as any, { questions: ['Run it'] }, 'http://x', { caller: { via: 'session' } })).rejects.toMatchObject(
+            {
+                statusCode: 409,
+                message: expect.stringContaining('clerk (Shell)')
+            }
+        )
         let aborted = false
         replayHooks.run = ({ signal }) =>
             new Promise((_, reject) => {
@@ -314,7 +330,9 @@ describe('harness publish check', () => {
                     reject(new Error('aborted'))
                 })
             })
-        const started = await startCheck(risky as any, { questions: ['Run it'], includeRiskySteps: true }, 'http://x')
+        const started = await startCheck(risky as any, { questions: ['Run it'], includeRiskySteps: true }, 'http://x', {
+            caller: { via: 'session' }
+        })
         await new Promise((r) => setTimeout(r, 30))
         await stopCheck(risky, started.id)
         await settle()
@@ -327,8 +345,12 @@ describe('harness publish check', () => {
 
     test('dataset rows replay on both rosters, and a missing dataset starts nothing', async () => {
         turns.push({ content: 'From a real run', createdAt: '2026-10-08T10:00:00.000Z' })
-        await expect(startCheck(flow() as any, { datasetId: 'missing' }, 'http://x')).rejects.toMatchObject({ statusCode: 404 })
-        await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject({
+        await expect(startCheck(flow() as any, { datasetId: 'missing' }, 'http://x', { caller: { via: 'session' } })).rejects.toMatchObject(
+            { statusCode: 404 }
+        )
+        await expect(
+            startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x', { caller: { via: 'session' } })
+        ).rejects.toMatchObject({
             statusCode: 400,
             message: 'Send a datasetId on its own. Do not send questions, count, or questionIds with it.'
         })
@@ -345,7 +367,7 @@ describe('harness publish check', () => {
             seen.push(`${question}:${JSON.parse(flowData).nodes[0].data.inputs.instructions}`)
             return { text: question, metrics: [{ totalTokens: 2 }] }
         }
-        const started = await startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x')
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x', { caller: { via: 'session' } })
         await settle()
         const done = await getCheck(flow(), started.id)
         expect(done.status).toBe('done')
@@ -371,7 +393,7 @@ describe('harness publish check', () => {
         replayHooks.run = async ({ flowData }) => ({ text: JSON.parse(flowData).nodes[0].data.label, metrics: [{ totalTokens: 1 }] })
         const setup = await getCheckSetup(chat)
         expect(setup.questions.map((q) => q.text)).toEqual(['From chat'])
-        const started = await startCheck(chat as any, { questions: ['From chat'] }, 'http://x')
+        const started = await startCheck(chat as any, { questions: ['From chat'] }, 'http://x', { caller: { via: 'session' } })
         await settle()
         const done = await getCheck(chat, started.id)
         expect(done.cases[0].question).toBe('From chat')

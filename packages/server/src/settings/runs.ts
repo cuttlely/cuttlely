@@ -6,7 +6,8 @@ import type { Server } from 'http'
 import { NextFunction, Request, Response } from 'express'
 import { runtimeNumber } from './runtime'
 
-const HARNESS_RUN_PATH = /^\/api\/v1\/harnesses\/[^/]+\/runs\/?$/i
+// Case-insensitive, as Express routing is. POST .../runs/async is a harness run too.
+const HARNESS_RUN_PATH = /^\/api\/v1\/harnesses\/[^/]+\/runs(\/async)?\/?$/i
 const RUN_PATHS = [/^\/api\/v1\/prediction(\/|$)/i, /^\/api\/v1\/internal-prediction(\/|$)/i, HARNESS_RUN_PATH]
 export const DEFAULT_WAIT_MS = 45000
 /** How long a shutdown lets requests and streams finish: inside a host's usual 30-second grace period. */
@@ -16,6 +17,7 @@ const SHUTDOWN_MESSAGE = 'Cuttlely is restarting. Try again in a minute.'
 const SHUTDOWN_CODE = 'UNAVAILABLE'
 
 let inProgress = 0
+let backgroundRuns = 0
 let draining = false
 let shuttingDown = false
 // Each open run, and whether it is a harness run (its stream error event carries { message }).
@@ -68,10 +70,18 @@ export function refuseWhileShuttingDown(_req: Request, res: Response, next: Next
     res.status(503).json({ statusCode: 503, success: false, message: SHUTDOWN_MESSAGE, code: SHUTDOWN_CODE })
 }
 
+/**
+ * The path the router matched. sanitizeMiddleware decodes req.url before routing, so `/api/v1/%70rediction` runs the
+ * prediction route while req.originalUrl still holds the encoded text; Express also routes `/api/v1//prediction`.
+ */
+function routedPath(req: Request): string {
+    return `${req.baseUrl || ''}${req.path || ''}` || (req.url || '').split('?')[0]
+}
+
 /** Express middleware: counts run requests, and turns new ones away while a restart waits. */
 export function trackRuns(req: Request, res: Response, next: NextFunction): void {
     // req.originalUrl is the raw URL. Express routes on req.url, which sanitizeMiddleware has already decoded.
-    const path = `${req.baseUrl || ''}${req.path || ''}`
+    const path = routedPath(req)
     if (!isRunRequest(req.method, path)) return next()
     if (draining) {
         res.setHeader('Retry-After', '30')
@@ -92,9 +102,53 @@ export function trackRuns(req: Request, res: Response, next: NextFunction): void
     next()
 }
 
-/** Stops new runs and waits for the ones in progress, up to limitMs. Resolves with how many were still running. */
+/**
+ * A run that keeps going after its request has answered, such as a harness run started with POST .../runs/async.
+ * It counts as in progress until it settles, so Restart and shutdown wait for it like an open request.
+ */
+export function trackBackgroundRun<T>(run: Promise<T>): Promise<T> {
+    inProgress += 1
+    backgroundRuns += 1
+    const settle = () => {
+        inProgress = Math.max(0, inProgress - 1)
+        backgroundRuns = Math.max(0, backgroundRuns - 1)
+    }
+    return run.then(
+        (value) => {
+            settle()
+            return value
+        },
+        (error) => {
+            settle()
+            throw error
+        }
+    )
+}
+
+const drainListeners = new Set<() => void>()
+
+/** Called once when a drain begins, before it waits, such as the harness scheduler stopping. Returns an unsubscribe. */
+export function onDrainStart(listener: () => void): () => void {
+    drainListeners.add(listener)
+    return () => drainListeners.delete(listener)
+}
+
+/**
+ * Stops new runs and waits for the ones in progress, up to limitMs. Resolves with how many were still running.
+ * New runs are refused from the call itself, before the first await, even when nothing is in progress.
+ */
 export async function drainRuns(limitMs: number, pollMs = 250): Promise<number> {
+    const starting = !draining
     draining = true
+    if (starting) {
+        for (const listener of [...drainListeners]) {
+            try {
+                listener()
+            } catch {
+                // A listener that fails does not hold up the drain.
+            }
+        }
+    }
     const until = Date.now() + limitMs
     while (inProgress > 0 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, pollMs))
     return inProgress
@@ -136,7 +190,7 @@ export interface ShutdownDrainResult {
 
 /**
  * Graceful shutdown: new requests get 503 with Retry-After (the health check too), the server stops accepting
- * connections, and requests and streams already running may finish for up to limitMs. Runs still open after that
+ * connections, and requests, streams, and background runs already running may finish for up to limitMs. Runs still open after that
  * end with a 503 or an error event, their model calls are aborted through the client abort signal, and the
  * remaining connections are closed. Resolves when the server is closed.
  */
@@ -153,7 +207,7 @@ export async function shutdownDrain(server: Server | undefined, limitMs: number,
               })
           )
     const until = Date.now() + limitMs
-    while (!closed && Date.now() < until) {
+    while ((!closed || backgroundRuns > 0) && Date.now() < until) {
         // Keep-alive connections that finished their request would hold the server open: close them as they go idle.
         server?.closeIdleConnections?.()
         await sleep(pollMs)
@@ -175,7 +229,9 @@ export async function shutdownDrain(server: Server | undefined, limitMs: number,
 
 /** Tests only. */
 export function resetRuns(): void {
+    drainListeners.clear()
     inProgress = 0
+    backgroundRuns = 0
     draining = false
     shuttingDown = false
     openRuns.clear()

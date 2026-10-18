@@ -52,6 +52,11 @@ jest.mock(
 jest.mock('../utils/telemetry', () => ({ Telemetry: class Telemetry {} }))
 jest.mock('../CachePool', () => ({ CachePool: class CachePool {} }))
 jest.mock('../UsageCacheManager', () => ({ UsageCacheManager: class UsageCacheManager {} }))
+const mockGetApiKeyById = jest.fn()
+jest.mock('../services/apikey', () => ({
+    __esModule: true,
+    default: { getApiKeyById: (...args: unknown[]) => mockGetApiKeyById(...args) }
+}))
 jest.mock('../utils/quotaUsage', () => ({
     checkPredictions: jest.fn(),
     updatePredictionsUsage: jest.fn()
@@ -406,6 +411,33 @@ describe('executeScheduleJob — successful execution', () => {
         )
         // isTool is not set — scheduled runs are not tool invocations
         expect(mockExecuteAgentFlow.mock.calls[0][0].isTool).toBeUndefined()
+    })
+
+    it('runs a Harness card for the flow key and that key list, even though the run is internal', async () => {
+        mockFindOneBy.mockResolvedValueOnce(makeRecord()).mockResolvedValueOnce(makeChatFlow({ apikeyid: 'key-1' }))
+        mockGetApiKeyById.mockResolvedValue({ id: 'key-1', workspaceId: 'ws-1', harnesses: ['bakery'] })
+        mockExecuteAgentFlow.mockResolvedValue({})
+
+        await executeScheduleJob(mockCtx, 'rec-1')
+
+        expect(mockGetApiKeyById).toHaveBeenCalledWith('key-1')
+        expect(mockExecuteAgentFlow.mock.calls[0][0].harnessCaller).toEqual({
+            via: 'api_key',
+            apiKeyId: 'key-1',
+            harnesses: ['bakery']
+        })
+    })
+
+    it('runs a keyless flow as itself, and a key from another team with an empty list', async () => {
+        mockFindOneBy.mockResolvedValueOnce(makeRecord()).mockResolvedValueOnce(makeChatFlow())
+        mockExecuteAgentFlow.mockResolvedValue({})
+        await executeScheduleJob(mockCtx, 'rec-1')
+        expect(mockExecuteAgentFlow.mock.calls[0][0].harnessCaller).toEqual({ via: 'flow' })
+
+        mockFindOneBy.mockResolvedValueOnce(makeRecord()).mockResolvedValueOnce(makeChatFlow({ apikeyid: 'key-2' }))
+        mockGetApiKeyById.mockResolvedValue({ id: 'key-2', workspaceId: 'ws-other', harnesses: ['bakery'] })
+        await executeScheduleJob(mockCtx, 'rec-1')
+        expect(mockExecuteAgentFlow.mock.calls[1][0].harnessCaller).toEqual({ via: 'api_key', apiKeyId: 'key-2', harnesses: [] })
     })
 
     it('uses chatflow.workspaceId when set', async () => {

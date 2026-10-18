@@ -10,6 +10,7 @@ import { BadQuestionIdsError, CheckRuleError, questionIdFailureMessage } from '.
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { hasAnyPermission } from '../../identity/rbac'
+import { harnessCallerFor } from '../../services/harnesses/apiAccess'
 import { putVersionLive } from '../flow-versions'
 import { PUBLISH_CHECK_OFF_MESSAGE, publishCheckEnabled } from '../../settings/runtime'
 
@@ -57,7 +58,8 @@ const saveDraft = async (req: Request, res: Response, next: NextFunction) => {
         const status = await flowDraftsService.saveDraft(flow, req.body?.flowData, {
             userId: req.user?.id || null,
             orgId,
-            subscriptionId: req.user?.activeOrganizationSubscriptionId || ''
+            subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
+            caller: await harnessCallerFor(req)
         })
         return res.json(await shownStatus(req, status))
     } catch (error) {
@@ -130,6 +132,7 @@ const publishDraft = async (req: Request, res: Response, next: NextFunction) => 
                 versionRecord: { kind: 'publish', titlePrefix: 'Published: ' },
                 expectedFlowData: liveBefore,
                 actor: actorFromUser(req.user),
+                caller: await harnessCallerFor(req),
                 onVersionQueued: (result) => {
                     recorded = result
                 }
@@ -328,7 +331,8 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         listen(res, 'finish', onDelivered)
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
         const closed = () => gone || clientGone(req)
-        const view = await flowCheckService.startCheck(flow, body, baseURL, undefined, { closed })
+        // A Harness card, or this harness itself, replays for the caller: an API key runs only what is on its list.
+        const view = await flowCheckService.startCheck(flow, body, baseURL, { caller: await harnessCallerFor(req), watch: { closed } })
         ownedId = view.id
         if (closed()) {
             const id = ownedId

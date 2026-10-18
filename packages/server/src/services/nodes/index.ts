@@ -69,7 +69,13 @@ const getSingleNodeIcon = async (nodeName: string): Promise<string | undefined> 
     return nodeIconPath(nodeInstance?.icon)
 }
 
-const getSingleNodeAsyncOptions = async (nodeName: string, requestBody: any, workspaceId?: string): Promise<any> => {
+const getSingleNodeAsyncOptions = async (
+    nodeName: string,
+    requestBody: any,
+    workspaceId?: string,
+    // An API key's harness list. Null for a signed-in person, who sees every harness in the team.
+    harnessAllowlist: string[] | null = null
+): Promise<any> => {
     try {
         const appServer = getRunningExpressApp()
         const nodeData: INodeData = requestBody
@@ -93,6 +99,9 @@ const getSingleNodeAsyncOptions = async (nodeName: string, requestBody: any, wor
                     workspaceId
                 })
 
+                if (methodName === 'listHarnesses' && harnessAllowlist !== null) {
+                    return (dbResponse || []).filter((option) => harnessAllowlist.includes(option.name))
+                }
                 return dbResponse
             } catch (error) {
                 return []

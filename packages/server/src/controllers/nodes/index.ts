@@ -6,6 +6,7 @@ import { ClientType, VALID_CLIENT_TYPES } from '@cuttlely/components'
 import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { getWorkspaceSearchOptionsFromReq } from '../../identity/workspaceScope'
+import { callerKeyHarnesses } from '../../services/harnesses/apiAccess'
 
 // if req.query.client does not contain a valid client type, then return undefined so it won't filter the nodes unnecessarily
 const parseClientParam = (req: Request): ClientType | undefined => {
@@ -86,7 +87,7 @@ const getSingleNodeAsyncOptions = async (req: Request, res: Response, next: Next
         const body = req.body
         body.searchOptions = getWorkspaceSearchOptionsFromReq(req)
         const workspaceId = req.user?.activeWorkspaceId
-        const apiResponse = await nodesService.getSingleNodeAsyncOptions(req.params.name, body, workspaceId)
+        const apiResponse = await nodesService.getSingleNodeAsyncOptions(req.params.name, body, workspaceId, await callerKeyHarnesses(req))
         return res.json(apiResponse)
     } catch (error) {
         next(error)

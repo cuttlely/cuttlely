@@ -6,7 +6,7 @@ import { initNode } from './nodes.mjs'
 export async function createEmbeddings(spec, ctx = {}) {
     if (!spec) throw new EtlError('bad_pipeline', 'The pipeline has no embeddings node.')
     if (spec.nodeName === LOCAL_EMBEDDINGS && !ctx.componentNodes?.[LOCAL_EMBEDDINGS]?.etlOverride) {
-        return new LocalHashEmbeddings({ dimensions: spec.inputs?.dimensions, delayMs: ctx.embedDelayMs })
+        return new LocalHashEmbeddings({ dimensions: spec.inputs?.dimensions, delayMs: ctx.embedDelayMs, gate: ctx.embedGate })
     }
     // Tests pass a fake with embedDocuments. A real run inits the node, which reads that node's Flowise credential.
     if (ctx.embeddingsDouble?.embedDocuments) return ctx.embeddingsDouble

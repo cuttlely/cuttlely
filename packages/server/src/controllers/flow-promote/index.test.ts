@@ -234,9 +234,12 @@ describe('behavior check', () => {
             { questions: ['hi'] },
             'http://localhost:3000',
             {
-                key: `${FLOW_ID}:promote`,
-                canvas: '{"nodes":[{"id":"dev"}],"edges":[]}',
-                unavailable: null
+                caller: { via: 'session' },
+                given: {
+                    key: `${FLOW_ID}:promote`,
+                    canvas: '{"nodes":[{"id":"dev"}],"edges":[]}',
+                    unavailable: null
+                }
             }
         )
         expect(res.status).toHaveBeenCalledWith(202)
@@ -247,7 +250,7 @@ describe('behavior check', () => {
         await controller.getCheckSetup(request(), response(), jest.fn())
         expect((checkService.getCheckSetup.mock.calls[0] as any[])[1]).toMatchObject({ unavailable: { code: 'type' } })
         await controller.startCheck(request({ questions: ['hi'] }), response(), jest.fn())
-        expect((checkService.startCheck.mock.calls[0] as any[])[3]).toMatchObject({ unavailable: { code: 'type' } })
+        expect((checkService.startCheck.mock.calls[0] as any[])[3].given).toMatchObject({ unavailable: { code: 'type' } })
     })
 
     test('an agentflow can be checked against the agentflow version from Dev', async () => {

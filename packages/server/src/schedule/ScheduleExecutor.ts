@@ -15,6 +15,7 @@ import { ChatFlow } from '../database/entities/ChatFlow'
 import { Workspace } from '../database/entities/identity'
 import { Organization } from '../database/entities/identity'
 import { executeAgentFlow } from '../utils/buildAgentflow'
+import { flowHarnessCaller } from '../utils/flowHarnessCaller'
 import { checkPredictions, updatePredictionsUsage } from '../utils/quotaUsage'
 import scheduleService from '../services/schedule'
 import { Telemetry } from '../utils/telemetry'
@@ -205,6 +206,8 @@ async function _executeAgentflow(ctx: ScheduleExecutionContext, record: Schedule
             sseStreamer,
             baseURL: process.env.APP_URL ?? '',
             isInternal: true,
+            // Internal, but no person is signed in: a Harness card runs for the flow's own key and that key's list.
+            harnessCaller: await flowHarnessCaller(chatflow.apikeyid, workspaceId),
             chatType: ChatType.SCHEDULED,
             orgId,
             workspaceId,

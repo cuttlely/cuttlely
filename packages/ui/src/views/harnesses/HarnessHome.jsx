@@ -14,13 +14,15 @@ import { formatListDateTime } from '@/utils/formatDate'
 import HarnessRunTrace, { questionFromInputPreview, tryItTraceQuestion } from '@/views/chatmessage/HarnessRunTrace'
 import { harnessCanvasRunPath, harnessRunPath } from '@/utils/harnessCanvasChat'
 import { emptyTrace, failTrace, reduceHarnessEvent } from '../../../../../packages/harness/trace.mjs'
+import HarnessSchedule from './HarnessSchedule'
 
 const STATUS_COLOR = {
     succeeded: 'success',
     completed_with_errors: 'warning',
     failed: 'error',
     cancelled: 'warning',
-    running: 'info'
+    running: 'info',
+    queued: 'default'
 }
 
 const STATUS_LABEL = {
@@ -28,7 +30,8 @@ const STATUS_LABEL = {
     completed_with_errors: 'completed with errors',
     failed: 'failed',
     cancelled: 'cancelled',
-    running: 'running'
+    running: 'running',
+    queued: 'queued'
 }
 
 function tokenLabel(tokens) {
@@ -39,6 +42,7 @@ function tokenLabel(tokens) {
 }
 
 function latencyLabel(run) {
+    if (run?.status === 'queued') return 'waiting to start'
     if (run?.status === 'running' || run?.latencyMs == null) return 'in progress'
     if (run.latencyMs < 1000) return `${run.latencyMs} ms`
     return `${(run.latencyMs / 1000).toFixed(1)} s`
@@ -190,8 +194,9 @@ const HarnessHome = () => {
                         <Typography variant='h4'>Try it</Typography>
                         <Typography color='text.secondary'>
                             Runs the draft when the canvas has one, and Live otherwise. External callers use{' '}
-                            <code>POST /api/v1/harnesses/{name}/runs</code>, which stays on Live until you publish. A chatflow uses the
-                            Harness tool and selects {name}.
+                            <code>POST /api/v1/harnesses/{name}/runs</code>, or <code>POST /api/v1/harnesses/{name}/runs/async</code> to get
+                            a run id back at once. Both stay on Live until you publish. An API key needs {name} on its harness list. A
+                            chatflow uses the Harness tool and selects {name}.
                         </Typography>
                         <TextField
                             value={question}
@@ -238,8 +243,14 @@ const HarnessHome = () => {
                         )}
                     </Stack>
                 </Paper>
+                <HarnessSchedule name={name} />
                 <Stack sx={{ gap: 1.5 }}>
-                    <Typography variant='h4'>Runs</Typography>
+                    <Stack direction='row' justifyContent='space-between' alignItems='center'>
+                        <Typography variant='h4'>Runs</Typography>
+                        <Button variant='text' onClick={reloadRuns} disabled={runsApi.loading}>
+                            Refresh
+                        </Button>
+                    </Stack>
                     {runsApi.error ? (
                         <Typography color='error'>Could not load runs.</Typography>
                     ) : runs.length === 0 ? (

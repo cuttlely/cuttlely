@@ -230,9 +230,13 @@ async function harnessToolOutput(payload: { text?: string; artifacts?: unknown }
 }
 
 function selectedHarness(nodeData: INodeData): string {
-    const harnessName = nodeData.inputs?.harnessName as string
-    if (!harnessName) {
+    const harnessName: unknown = nodeData.inputs?.harnessName
+    if (harnessName === undefined || harnessName === null || harnessName === '') {
         throw harnessFailure('Harness cannot run: no harness name is selected.')
+    }
+    // A list or an object would be turned into a name further down; only text names a harness.
+    if (typeof harnessName !== 'string') {
+        throw harnessFailure('Harness cannot run: the harness name is not text. Pick the harness again on this card.')
     }
     return harnessName
 }
@@ -259,7 +263,8 @@ const FLOW_OPTION_KEYS = [
     'componentNodes',
     'usageCacheManager',
     'updateStorageUsage',
-    'checkStorage'
+    'checkStorage',
+    'harnessCaller'
 ] as const
 
 function pickFlowOptions(options: ICommonObject): HarnessFlowOptions {

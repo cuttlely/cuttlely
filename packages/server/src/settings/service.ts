@@ -629,6 +629,10 @@ export async function restartNow(
             (waitingFor ? ` Let ${waitingFor} run(s) in progress finish first (up to ${Math.round(limit / 1000)} s).` : ''),
         outcome: 'ok'
     })
-    const restarting = requestRestart({ env: deps.env, before: waitingFor ? () => drainRuns(limit) : undefined })
+    // The drain starts as soon as the restart is accepted, with or without runs open, so a run or a scheduled harness
+    // that would start in the delay before the restart is turned away instead of being cut off.
+    let drained: Promise<number> | undefined
+    const restarting = requestRestart({ env: deps.env, before: () => drained ?? drainRuns(0) })
+    if (restarting) drained = drainRuns(waitingFor ? limit : 0)
     return waitingFor ? { restarting, steps: [], waitingFor, waitSeconds: Math.round(limit / 1000) } : { restarting, steps: [] }
 }

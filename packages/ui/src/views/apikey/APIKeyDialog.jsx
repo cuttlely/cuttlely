@@ -27,9 +27,11 @@ import { IconCopy, IconKey, IconX } from '@tabler/icons-react'
 // API
 import apikeyApi from '@/api/apikey'
 import authApi from '@/api/auth'
+import harnessesApi from '@/api/harnesses'
 
 // Hooks
 import useApi from '@/hooks/useApi'
+import { useAuth } from '@/hooks/useAuth'
 import { useConfig } from '@/store/context/ConfigContext'
 
 // utils
@@ -60,16 +62,24 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const openPopOver = Boolean(anchorEl)
     const [selectedPermissions, setSelectedPermissions] = useState({})
     const [permissions, setPermissions] = useState({})
+    const [selectedHarnesses, setSelectedHarnesses] = useState([])
 
     const getAllPermissionsApi = useApi(authApi.getAllPermissions)
+    const listHarnessesApi = useApi(harnessesApi.listHarnesses)
+    const { hasPermission } = useAuth()
+    const canListHarnesses = hasPermission('chatflows:view,agentflows:view')
+    const harnessNames = Array.isArray(listHarnessesApi.data) ? listHarnessesApi.data.map((row) => row.name).sort() : []
 
     useEffect(() => {
         if (dialogProps.type === 'EDIT' && dialogProps.key) {
             setKeyName(dialogProps.key.keyName)
+            setSelectedHarnesses(Array.isArray(dialogProps.key.harnesses) ? dialogProps.key.harnesses : [])
         } else if (dialogProps.type === 'ADD') {
             setKeyName('')
+            setSelectedHarnesses([])
         }
         getAllPermissionsApi.request('API_KEY')
+        if (canListHarnesses) listHarnessesApi.request()
         setCreatedSecret('')
         return () => {
             setSelectedPermissions({})
@@ -223,7 +233,8 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
 
             const createResp = await apikeyApi.createNewAPI({
                 keyName,
-                permissions: tempPermissions
+                permissions: tempPermissions,
+                harnesses: selectedHarnesses
             })
             if (createResp.data) {
                 const rows = Array.isArray(createResp.data) ? createResp.data : createResp.data.data || []
@@ -282,7 +293,8 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
 
             const saveResp = await apikeyApi.updateAPI(dialogProps.key.id, {
                 keyName,
-                permissions: tempPermissions
+                permissions: tempPermissions,
+                harnesses: selectedHarnesses
             })
             if (saveResp.data) {
                 enqueueSnackbar({
@@ -521,6 +533,50 @@ const APIKeyDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
                                         </div>
                                     ))}
                             </div>
+                        </div>
+                        <div className='permissions-container'>
+                            <p>Harnesses this key may run</p>
+                            <Typography variant='body2' color='text.secondary' sx={{ mb: 1 }}>
+                                A key runs no harness until one is ticked here. It also needs a chatflow create or update permission to
+                                start a run, and chatflow view to read runs.
+                            </Typography>
+                            {!canListHarnesses ? (
+                                <Typography variant='body2' color='text.secondary'>
+                                    You need chatflow view permission to choose harnesses.
+                                </Typography>
+                            ) : listHarnessesApi.error ? (
+                                <Typography variant='body2' color='error'>
+                                    Could not load the harnesses in this team.
+                                </Typography>
+                            ) : harnessNames.length === 0 && !listHarnessesApi.loading ? (
+                                <Typography variant='body2' color='text.secondary'>
+                                    This team has no harnesses yet.
+                                </Typography>
+                            ) : (
+                                <div className='permissions-list'>
+                                    {[...new Set([...harnessNames, ...selectedHarnesses])].map((harnessName, index) => (
+                                        <div
+                                            key={harnessName}
+                                            className={`permission-item ${index % 2 === 0 ? 'left-column' : 'right-column'}`}
+                                        >
+                                            <label>
+                                                <input
+                                                    type='checkbox'
+                                                    checked={selectedHarnesses.includes(harnessName)}
+                                                    onChange={() =>
+                                                        setSelectedHarnesses((current) =>
+                                                            current.includes(harnessName)
+                                                                ? current.filter((item) => item !== harnessName)
+                                                                : [...current, harnessName]
+                                                        )
+                                                    }
+                                                />
+                                                {harnessName}
+                                            </label>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
