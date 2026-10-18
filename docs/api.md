@@ -220,13 +220,13 @@ Starts are `POST .../runs` and `POST .../runs/async` together. Reads are the run
 
 A harness can also run on a cron schedule that a signed-in person sets on the harness page. The same calls are on the API for a signed-in session. An API key can read a schedule for a harness on its list, and cannot change one, because a schedule runs with its owner's permissions.
 
-| Call                                            | What it does                                       |
-| ----------------------------------------------- | -------------------------------------------------- |
-| `GET /api/v1/harnesses/<name>/schedule`         | The schedule, or `{"schedule":null}`               |
-| `PUT /api/v1/harnesses/<name>/schedule`         | Create or replace it. The caller becomes the owner |
-| `POST /api/v1/harnesses/<name>/schedule/pause`  | Pause it                                           |
-| `POST /api/v1/harnesses/<name>/schedule/resume` | Resume it. The next run is counted from now        |
-| `DELETE /api/v1/harnesses/<name>/schedule`      | Delete it                                          |
+| Call                                            | What it does                                                                            |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `GET /api/v1/harnesses/<name>/schedule`         | The schedule, or `{"schedule":null}`                                                    |
+| `PUT /api/v1/harnesses/<name>/schedule`         | Create or replace it. The caller becomes the owner                                      |
+| `POST /api/v1/harnesses/<name>/schedule/pause`  | Pause it                                                                                |
+| `POST /api/v1/harnesses/<name>/schedule/resume` | Resume it. The next run is counted from now, and the person who resumes it is the owner |
+| `DELETE /api/v1/harnesses/<name>/schedule`      | Delete it                                                                               |
 
 `PUT` takes `cron` (five fields), `timezone` (an IANA place name such as `Europe/Paris`, or `UTC`; offsets and abbreviations such as `+02:00` or `CET` are `400`), `question` (up to 4,000 characters), and optionally `active: false` to save it paused. The zone comes back in canonical spelling. The day-of-month and day-of-week rule, and what happens when the clocks change, are in [Run it on a schedule](./how-to/harnesses.md#run-it-on-a-schedule). The response to a signed-in person, with made-up data:
 
@@ -250,7 +250,7 @@ A harness can also run on a cron schedule that a signed-in person sets on the ha
 
 `question` is shown with secrets such as connection strings and keys hidden, the same way run history stores a question. Sending that shown text back unchanged in a `PUT` keeps the stored question. An API key gets `owner` with `name` only, without `id` or `email`.
 
-Changing a schedule needs the same permissions as starting a run, and an API key gets `403`. A bad cron, a day of the month no chosen month has (such as `30 2`), or a bad time zone is `400` with a `message`. `lastResult` is `starting` while a due time is being started, `running`, a run status such as `succeeded`, or `skipped`, `refused`, or `failed` for a due time that did not start a run, with `lastReason` saying why. Each scheduled run is a run with `source` `schedule`, readable through the run routes above by a signed-in person; an API key reads only the runs it started, so it does not see scheduled runs. Saves, pauses, resumes and deletes are limited to 30 a minute per person, counted in each server process, and are `harness_schedule` audit rows, and so is every run a schedule starts (`run_started`, with the run id).
+Changing a schedule needs the same permissions as starting a run, and an API key gets `403`. A bad cron, a day of the month no chosen month has (such as `30 2`), or a bad time zone is `400` with a `message`. `lastResult` is `starting` while a due time is being started (shown as `failed` once it has been starting for more than a minute), `running`, a run status such as `succeeded`, or `skipped`, `refused`, or `failed` for a due time that did not start a run, with `lastReason` saying why. Each scheduled run is a run with `source` `schedule`, readable through the run routes above by a signed-in person; an API key reads only the runs it started, so it does not see scheduled runs. Saves, pauses, resumes and deletes are limited to 30 a minute per person, counted in each server process, and are `harness_schedule` audit rows, and so is every run a schedule starts (`run_started`, with the run id).
 
 ## Stream the answer
 
