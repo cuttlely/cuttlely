@@ -2,6 +2,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import express from 'express'
+import { rateLimit } from 'express-rate-limit'
 import request from 'supertest'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-icon-cache-'))
@@ -21,6 +22,7 @@ afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
 
 describe('icon responses', () => {
     const app = express()
+    app.use(rateLimit({ windowMs: 60_000, max: 100 }))
     app.get('/node-icon/:name', nodesController.getSingleNodeIcon)
     app.get('/components-credentials-icon/:name', componentsCredentialsController.getSingleComponentsCredentialIcon)
 

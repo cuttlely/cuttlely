@@ -866,8 +866,6 @@ describe('evaluation routes', () => {
 
     it('posts a real evaluation to the prediction route when APP_URL is unset', async () => {
         const { dataSource, api, cleanup } = await openSqlite()
-        // The evaluation runner refuses an id that is not 36 characters, as generated chatflow ids are.
-        const LOCAL_FLOW_ID = '5d1f6c2a-7e34-4b9a-8c01-2f3e4d5a6b7c'
         const hits = []
         const server = http.createServer((req, res) => {
             if (req.method === 'POST' && req.url.startsWith('/api/v1/prediction/')) {
@@ -894,7 +892,7 @@ describe('evaluation routes', () => {
             process.env.PORT = String(server.address().port)
             asOwner()
             await dataSource.getRepository(ChatFlow).save({
-                id: LOCAL_FLOW_ID,
+                id: 'flow-local',
                 name: 'Local flow',
                 flowData: '{}',
                 type: 'CHATFLOW',
@@ -913,7 +911,7 @@ describe('evaluation routes', () => {
                 evaluationType: 'benchmarking',
                 datasetId: dataset.body.id,
                 datasetName: 'Live',
-                chatflowId: JSON.stringify([LOCAL_FLOW_ID]),
+                chatflowId: JSON.stringify(['flow-local']),
                 chatflowName: JSON.stringify(['Local flow']),
                 chatflowType: '[]',
                 selectedSimpleEvaluators: []
@@ -924,7 +922,7 @@ describe('evaluation routes', () => {
                 await new Promise((resolve) => setTimeout(resolve, 25))
             }
             assert.equal(hits.length, 1)
-            assert.equal(hits[0].url, `/api/v1/prediction/${LOCAL_FLOW_ID}`)
+            assert.equal(hits[0].url, '/api/v1/prediction/flow-local')
             assert.equal(hits[0].body.question, 'Where is order 1001?')
             const settled = Date.now()
             while (Date.now() - settled < 5000) {
