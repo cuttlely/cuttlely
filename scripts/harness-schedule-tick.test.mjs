@@ -258,6 +258,57 @@ describe('the server schedule tick', () => {
         schedules.deleteSchedule('stuck-team')
     })
 
+    it('keeps a harness and its schedule when the schedule cannot be removed, then deletes both and its key grants', async () => {
+        await mkdir(path.join(dataDir, 'harnesses'), { recursive: true })
+        const file = path.join(dataDir, 'harnesses', 'gone-team.json')
+        await writeFile(
+            file,
+            JSON.stringify({ name: 'gone-team', workspaceId: WORKSPACE, chief: { model: { nodeName: 'chatOpenAI' } }, specialists: [] })
+        )
+        schedules.saveSchedule(
+            'gone-team',
+            { cron: '0 7 * * *', timezone: 'UTC', question: 'q' },
+            { workspaceId: WORKSPACE, ownerId: 'user-1' }
+        )
+        const keyRows = [{ id: 'key-1', workspaceId: WORKSPACE, harnesses: ['gone-team', 'kept-team'] }]
+        const dataSourceMod = serverRequire('./src/DataSource.ts')
+        const realGetDataSource = dataSourceMod.getDataSource
+        const realRemoveSchedule = servicesIndex.harnessDeleteHooks.removeSchedule
+        dataSourceMod.getDataSource = () => ({
+            transaction: async (work) =>
+                work({
+                    getRepository: () => ({
+                        findBy: async () => keyRows.map((row) => ({ ...row })),
+                        save: async (row) => {
+                            keyRows.splice(0, 1, row)
+                            return row
+                        }
+                    })
+                })
+        })
+        try {
+            servicesIndex.harnessDeleteHooks.removeSchedule = async () => {
+                throw new Error('made-up schedule failure')
+            }
+            await assert.rejects(
+                () => harnesses.deleteHarness('gone-team', WORKSPACE),
+                (error) => error.statusCode === 500 && /schedule could not be removed/.test(error.message)
+            )
+            assert.ok(schedules.getSchedule('gone-team'), 'the schedule stays with the harness')
+            assert.ok((await import('node:fs')).existsSync(file), 'the harness file stays')
+            // Key lists are cleaned first, so the grants are already gone; ticking the harness again restores them.
+            assert.deepEqual(keyRows[0].harnesses, ['kept-team'])
+            servicesIndex.harnessDeleteHooks.removeSchedule = realRemoveSchedule
+            assert.deepEqual(await harnesses.deleteHarness('gone-team', WORKSPACE), { name: 'gone-team', deleted: true })
+            assert.equal(schedules.getSchedule('gone-team'), null)
+            assert.equal((await import('node:fs')).existsSync(file), false)
+            assert.deepEqual(keyRows[0].harnesses, ['kept-team'])
+        } finally {
+            servicesIndex.harnessDeleteHooks.removeSchedule = realRemoveSchedule
+            dataSourceMod.getDataSource = realGetDataSource
+        }
+    })
+
     it('makes the person who resumes a schedule its owner', async () => {
         await mkdir(path.join(dataDir, 'harnesses'), { recursive: true })
         await writeFile(

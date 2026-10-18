@@ -262,15 +262,15 @@ const warmHarnesses = (names?: string[]) => {
         .catch((error) => logger.warn(`[harness] Hermes warm-up failed: ${getErrorMessage(error)}`))
 }
 
+// Tests replace removeSchedule to make it fail.
+export const harnessDeleteHooks = {
+    removeSchedule: async (name: string): Promise<unknown> => (await loadHarness('schedule.mjs')).deleteSchedule(name)
+}
+
 const deleteHarness = async (name: string, workspaceId?: string | null) => {
     const harness = await requireHarness(name, workspaceId)
-    // Key lists first: if that fails the harness stays, so a later harness with this name cannot inherit the old grants.
-    try {
-        const schedules = await loadHarness('schedule.mjs')
-        schedules.deleteSchedule(name)
-    } catch (error) {
-        logger.warn(`[harness] ${name} schedule was not removed: ${getErrorMessage(error)}`)
-    }
+    // Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
+    // must not inherit the old key grants or the old owner's schedule.
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
         await removeHarnessFromKeyLists(harness.workspaceId || workspaceOf(workspaceId), name)
@@ -279,6 +279,15 @@ const deleteHarness = async (name: string, workspaceId?: string | null) => {
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Harness "${name}" was not deleted, because it could not be removed from API key lists. Try again.`
+        )
+    }
+    try {
+        await harnessDeleteHooks.removeSchedule(name)
+    } catch (error) {
+        logger.warn(`[harness] ${name} was not deleted: removing its schedule failed: ${getErrorMessage(error)}`)
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Harness "${name}" was not deleted, because its schedule could not be removed. Try again.`
         )
     }
     const store = await loadHarness('store.mjs')
