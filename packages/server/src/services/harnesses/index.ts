@@ -611,14 +611,24 @@ async function scheduleIn(name: string, workspaceId: string) {
 }
 
 // The question is shown redacted, the same way run history stores it. An API key sees the owner's name only.
-async function presentSchedule(
+export const SCHEDULE_START_STALE_MS = 60 * 1000
+
+export async function presentSchedule(
     schedule: Record<string, any> | null,
-    view: { apiKeyCaller?: boolean } = {}
+    view: { apiKeyCaller?: boolean } = {},
+    now = Date.now()
 ): Promise<{ schedule: Record<string, unknown> | null }> {
     if (!schedule) return { schedule: null }
     const { workspaceId: _workspaceId, ownerId, ...rest } = schedule
     const trace = await loadHarness('trace.mjs')
     rest.question = trace.redactSecrets(String(rest.question || ''))
+    // A claim that never reached a run (the process stopped between the claim and the start) stays `starting`.
+    // The start takes a moment, so after a minute it is shown as failed. The next due time runs as usual.
+    const claimedAt = Date.parse(String(rest.updatedAt || ''))
+    if (rest.lastResult === 'starting' && Number.isFinite(claimedAt) && now - claimedAt > SCHEDULE_START_STALE_MS) {
+        rest.lastResult = 'failed'
+        rest.lastReason = 'The run did not start. The server may have stopped while it was starting this due time.'
+    }
     // A run cut off by a restart never reported back to the schedule. The run history row has its outcome.
     if (rest.lastResult === 'running' && rest.lastRunId) {
         const history = await loadHarness('history.mjs')
@@ -656,14 +666,20 @@ const saveHarnessSchedule = async (name: string, body: Record<string, unknown>, 
     }
 }
 
-const setHarnessScheduleStatus = async (name: string, status: 'active' | 'paused', workspaceId?: string | null) => {
+// Resuming makes the person who resumes it the owner, the same as saving, so it runs with their permissions.
+const setHarnessScheduleStatus = async (
+    name: string,
+    status: 'active' | 'paused',
+    workspaceId: string | null | undefined,
+    opts: { ownerId?: string } = {}
+) => {
     const harness = await requireHarness(name, workspaceId)
     if (!(await scheduleIn(harness.name, workspaceOf(workspaceId)))) {
         throw new AppError(StatusCodes.NOT_FOUND, `Harness ${harness.name} has no schedule.`)
     }
     const schedules = await loadHarness('schedule.mjs')
     try {
-        return presentSchedule(schedules.setScheduleStatus(harness.name, status))
+        return presentSchedule(schedules.setScheduleStatus(harness.name, status, status === 'active' ? { ownerId: opts.ownerId } : {}))
     } catch (error) {
         throw httpHarnessError(error)
     }

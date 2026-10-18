@@ -105,17 +105,23 @@ export function saveSchedule(name, input = {}, { workspaceId, ownerId, now = new
     return getSchedule(harnessName)
 }
 
-export function setScheduleStatus(name, status, { now = new Date() } = {}) {
+/**
+ * Pause or resume. Resuming makes `ownerId` the owner, the same as saving: the schedule then runs with the permissions
+ * of the person who turned it back on, not of whoever saved it before it was paused.
+ */
+export function setScheduleStatus(name, status, { now = new Date(), ownerId } = {}) {
     if (!STATUSES.has(status)) throw new HarnessError('bad_schedule', `Unknown schedule status "${status}".`)
     const current = getSchedule(name)
     if (!current) throw new HarnessError('not_found', `Harness "${name}" has no schedule.`)
+    if (status === 'active' && !ownerId) throw new HarnessError('bad_schedule', 'A schedule runs as a person. Sign in to resume it.')
     // Resuming counts from now, so a schedule paused over several due times does not fire for each of them.
     const next = status === 'active' ? nextCronRun(current.cron, current.timezone, now).getTime() : null
     immediate((db) => {
         ensure(db)
         db.prepare(
-            'UPDATE harness_schedules SET status = ?, next_run_at = COALESCE(?, next_run_at), updated_at = ? WHERE harness_name = ?'
-        ).run(status, next, now.getTime(), current.harness)
+            `UPDATE harness_schedules SET status = ?, next_run_at = COALESCE(?, next_run_at),
+             owner_id = COALESCE(?, owner_id), updated_at = ? WHERE harness_name = ?`
+        ).run(status, next, status === 'active' ? ownerId : null, now.getTime(), current.harness)
     })
     return getSchedule(current.harness)
 }
@@ -170,6 +176,22 @@ export function claimSchedule(name, { dueAt, next, now = new Date() } = {}) {
                  WHERE harness_name = ? AND status = 'active' AND next_run_at = ?`
             )
             .run(next, now.getTime(), harnessName, Date.parse(dueAt)).changes
+    })
+    return changes === 1
+}
+
+/** Gives a claimed due time back unstarted, with the result it had before, so a later tick starts it. */
+export function releaseClaim(name, { dueAt, claimedNext = null, lastResult = null, lastReason = null, now = new Date() } = {}) {
+    const harnessName = assertHarnessName(name)
+    let changes = 0
+    immediate((db) => {
+        ensure(db)
+        changes = db
+            .prepare(
+                `UPDATE harness_schedules SET next_run_at = ?, last_result = ?, last_reason = ?, updated_at = ?
+                 WHERE harness_name = ? AND status = 'active' AND next_run_at IS ?`
+            )
+            .run(Date.parse(dueAt), lastResult, lastReason, now.getTime(), harnessName, claimedNext).changes
     })
     return changes === 1
 }
@@ -230,9 +252,17 @@ let ticking = false
  *
  * `start(schedule, onSettled)` starts the run and resolves to `{ runId }`. `ownerMayRun(schedule)` checks the owner's
  * permissions in the harness team at this due time. `audit(schedule, summary, detail)` writes an audit row, including
- * one with the run id for every run a schedule starts.
+ * one with the run id for every run a schedule starts. `stopping()` is read before each due time is claimed: once it is
+ * true the tick ends, and the due times it did not claim stay due for a later tick.
  */
-export async function tickSchedules({ now = () => new Date(), start, ownerMayRun, audit = async () => {}, log = () => {} } = {}) {
+export async function tickSchedules({
+    now = () => new Date(),
+    start,
+    ownerMayRun,
+    audit = async () => {},
+    log = () => {},
+    stopping = () => false
+} = {}) {
     if (ticking) return []
     ticking = true
     const outcomes = []
@@ -240,6 +270,10 @@ export async function tickSchedules({ now = () => new Date(), start, ownerMayRun
         const { getRun } = await import('./history.mjs')
         const at = now()
         for (const schedule of dueSchedules(at)) {
+            if (stopping()) {
+                log('info', 'schedule tick stopped: the server is restarting or shutting down')
+                break
+            }
             const name = schedule.harness
             const claimedNext = nextAfterDue(schedule, at)
             if (!claimSchedule(name, { dueAt: schedule.nextRunAt, next: claimedNext, now: at })) continue
@@ -260,6 +294,17 @@ export async function tickSchedules({ now = () => new Date(), start, ownerMayRun
                     log('warn', `schedule ${name}: refused, the owner can no longer run it`)
                     outcomes.push({ harness: name, result: 'refused', reason })
                     continue
+                }
+                if (stopping()) {
+                    releaseClaim(name, {
+                        dueAt: schedule.nextRunAt,
+                        claimedNext,
+                        lastResult: schedule.lastResult,
+                        lastReason: schedule.lastReason,
+                        now: at
+                    })
+                    log('info', `schedule ${name}: not started, the server is restarting or shutting down`)
+                    break
                 }
                 inFlight.add(name)
                 let started

@@ -91,7 +91,7 @@ describe('the server schedule tick', () => {
         assert.deepEqual(calls[0].body, { question: 'Summarise yesterday’s orders.' })
         assert.equal(calls[0].opts.workspaceId, WORKSPACE)
         assert.equal(calls[0].opts.source, 'schedule')
-        assert.equal(calls[0].opts.apiKeyId, null)
+        assert.deepEqual(calls[0].opts.caller, { via: 'session' })
         assert.equal(typeof calls[0].opts.track, 'function')
         assert.equal(typeof calls[0].opts.onSettled, 'function')
         const runStarted = audits.find((event) => event.detail?.action === 'run_started')
@@ -164,5 +164,66 @@ describe('the server schedule tick', () => {
             runs.resetRuns()
             schedules.deleteSchedule('quiet-team')
         }
+    })
+
+    it('stops starting due schedules once a drain begins partway through one tick, and leaves the rest due', async () => {
+        saveDue('first-team')
+        saveDue('second-team')
+        const runs = serverRequire('./src/settings/runs.ts')
+        const startedNames = []
+        harnesses.startBackgroundRun = async (name, body, opts) => {
+            startedNames.push(name)
+            await runs.drainRuns(0)
+            const queued = history.queueHarnessRun({ name, chatId: `schedule-${name}`, source: opts.source, input: body.question })
+            return { runId: queued.id, harness: name, chatId: `schedule-${name}`, status: 'queued' }
+        }
+        try {
+            const outcomes = await ticks.tickHarnessSchedules()
+            assert.equal(startedNames.length, 1)
+            assert.equal(outcomes.length, 1)
+            const left = startedNames[0] === 'first-team' ? 'second-team' : 'first-team'
+            assert.ok(Date.parse(schedules.getSchedule(left).nextRunAt) <= Date.now(), 'the schedule not reached stays due')
+            assert.equal(schedules.getSchedule(left).lastResult, null)
+        } finally {
+            runs.resetRuns()
+            schedules.deleteSchedule('first-team')
+            schedules.deleteSchedule('second-team')
+        }
+    })
+
+    it('shows a due time still starting after a minute as failed, and a fresh one as starting', async () => {
+        await mkdir(path.join(dataDir, 'harnesses'), { recursive: true })
+        await writeFile(
+            path.join(dataDir, 'harnesses', 'stuck-team.json'),
+            JSON.stringify({ name: 'stuck-team', workspaceId: WORKSPACE, chief: { model: { nodeName: 'chatOpenAI' } }, specialists: [] })
+        )
+        const due = saveDue('stuck-team')
+        const claimedAt = new Date(Date.now() - 90000)
+        assert.ok(schedules.claimSchedule('stuck-team', { dueAt: due.nextRunAt, next: Date.now() + 3600000, now: claimedAt }))
+        assert.equal(schedules.getSchedule('stuck-team').lastResult, 'starting')
+        const stuck = (await harnesses.getHarnessSchedule('stuck-team', WORKSPACE)).schedule
+        assert.equal(stuck.lastResult, 'failed')
+        assert.match(stuck.lastReason, /did not start/)
+        const fresh = await servicesIndex.presentSchedule({ ...schedules.getSchedule('stuck-team'), updatedAt: new Date().toISOString() })
+        assert.equal(fresh.schedule.lastResult, 'starting')
+        schedules.deleteSchedule('stuck-team')
+    })
+
+    it('makes the person who resumes a schedule its owner', async () => {
+        await mkdir(path.join(dataDir, 'harnesses'), { recursive: true })
+        await writeFile(
+            path.join(dataDir, 'harnesses', 'resume-team.json'),
+            JSON.stringify({ name: 'resume-team', workspaceId: WORKSPACE, chief: { model: { nodeName: 'chatOpenAI' } }, specialists: [] })
+        )
+        schedules.saveSchedule(
+            'resume-team',
+            { cron: '0 7 * * *', timezone: 'UTC', question: 'q' },
+            { workspaceId: WORKSPACE, ownerId: 'user-1' }
+        )
+        await harnesses.setHarnessScheduleStatus('resume-team', 'paused', WORKSPACE)
+        assert.equal(schedules.getSchedule('resume-team').ownerId, 'user-1')
+        await harnesses.setHarnessScheduleStatus('resume-team', 'active', WORKSPACE, { ownerId: 'user-2' })
+        assert.equal(schedules.getSchedule('resume-team').ownerId, 'user-2')
+        schedules.deleteSchedule('resume-team')
     })
 })

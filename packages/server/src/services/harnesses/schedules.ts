@@ -44,17 +44,28 @@ async function auditSchedule(schedule: StoredSchedule, summary: string, detail: 
     }
 }
 
+const stopping = () => isDraining() || isShuttingDown()
+
 // The run goes through startBackgroundRun, the same path as an API run, so history, traces, and usage match.
-// A server that is restarting or shutting down starts nothing; the due time stays due for the next tick.
+// A server that is restarting or shutting down starts nothing; the due time stays due for the next tick. That is checked
+// again before each start, because a drain can begin while one tick works through several due schedules.
 export async function tickHarnessSchedules() {
-    if (isDraining() || isShuttingDown()) return []
+    if (stopping()) return []
     const schedules = await loadHarness('schedule.mjs')
     return schedules.tickSchedules({
+        stopping,
+        // The owner's access was just checked by ownerMayRun, so the run acts as that signed-in person would.
         start: (schedule: StoredSchedule, onSettled: (outcome: { runId: string; status: string }) => void) =>
             harnessesService.startBackgroundRun(
                 schedule.harness,
                 { question: schedule.question },
-                { workspaceId: schedule.workspaceId, source: 'schedule', apiKeyId: null, track: trackBackgroundRun, onSettled }
+                {
+                    workspaceId: schedule.workspaceId,
+                    source: 'schedule',
+                    caller: { via: 'session' },
+                    track: trackBackgroundRun,
+                    onSettled
+                }
             ),
         ownerMayRun: (schedule: StoredSchedule) => ownerMayRun(schedule.ownerId, schedule.workspaceId),
         audit: auditSchedule,

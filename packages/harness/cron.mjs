@@ -71,7 +71,9 @@ export function parseCron(expr) {
         month: parseField(fields[3], 1, 12, MONTHS),
         dow: parseField(fields[4], 0, 7, DAYS),
         domStar: fields[2].startsWith('*'),
-        dowStar: fields[4].startsWith('*')
+        dowStar: fields[4].startsWith('*'),
+        // Vixie cron's fixed-time schedule: neither the minute nor the hour field starts with `*`.
+        fixedTime: !fields[0].startsWith('*') && !fields[1].startsWith('*')
     }
     // A day of the month that no chosen month has, such as 30 February, would never run.
     if (!parsed.domStar && parsed.dowStar) {
@@ -142,6 +144,39 @@ function wallValue(clock) {
     return (((clock.year * 100 + clock.month) * 100 + clock.day) * 100 + clock.hour) * 100 + clock.minute
 }
 
+// A wall clock that is a fixed number of minutes from the epoch, read as if it were UTC, so wall minutes can be counted.
+function wallMinutes(clock) {
+    return Date.UTC(clock.year, clock.month - 1, clock.day, clock.hour, clock.minute) / MINUTE_MS
+}
+
+function clockAtWallMinutes(minutes) {
+    const date = new Date(minutes * MINUTE_MS)
+    return {
+        year: date.getUTCFullYear(),
+        month: date.getUTCMonth() + 1,
+        day: date.getUTCDate(),
+        hour: date.getUTCHours(),
+        minute: date.getUTCMinutes(),
+        weekday: date.getUTCDay()
+    }
+}
+
+// Longer than any daylight saving change, so a larger jump is not read as one.
+const GAP_LIMIT_MINUTES = 3 * 60
+
+/** True when the clocks jumped forward between `before` and `clock` over a wall time the cron names, later than `floor`. */
+function skippedMatch(before, clock, fields, floor) {
+    const from = wallMinutes(before)
+    const to = wallMinutes(clock)
+    if (to - from <= 1 || to - from > GAP_LIMIT_MINUTES) return false
+    for (let minutes = from + 1; minutes < to; minutes += 1) {
+        const skipped = clockAtWallMinutes(minutes)
+        if (wallValue(skipped) <= floor) continue
+        if (dayMatches(skipped, fields) && fields.hour.has(skipped.hour) && fields.minute.has(skipped.minute)) return true
+    }
+    return false
+}
+
 function dayMatches(clock, fields) {
     if (!fields.month.has(clock.month)) return false
     const domOk = fields.dom.has(clock.day)
@@ -158,7 +193,9 @@ function dayMatches(clock, fields) {
  * `dueAt` is the due time that is being moved on from. The search starts at the later of `from` and `dueAt`, and a
  * candidate whose wall clock is not later than the wall clock of both is skipped. So a tick that runs late, or
  * an hour the clocks repeat when they fall back, never runs the same wall time twice: each wall time in a repeated
- * hour runs once, on its first pass. A wall time the clocks skip when they spring forward does not run that day.
+ * hour runs once, on its first pass. When the clocks spring forward over a wall time a fixed-time schedule names (the
+ * minute and hour fields do not start with `*`), it runs once at the first minute after the change, as Vixie cron does.
+ * A `*` minute or hour schedule keeps to the new clock, so the skipped minutes do not run.
  */
 export function nextCronRun(expr, timeZone, from, { dueAt } = {}) {
     const fields = parseCron(expr)
@@ -172,6 +209,8 @@ export function nextCronRun(expr, timeZone, from, { dueAt } = {}) {
     const limit = start + SEARCH_LIMIT_MS
     while (cursor <= limit) {
         const clock = wallClock(cursor, zone)
+        // Every jump below stops on a whole wall hour, where clock changes happen, so the change instant is visited.
+        if (fields.fixedTime && skippedMatch(wallClock(cursor - MINUTE_MS, zone), clock, fields, floor)) return new Date(cursor)
         if (!dayMatches(clock, fields)) {
             // To 23:00 that day, then by the hour: a day with a clock change can be 23 or 25 hours long.
             cursor += Math.max(60 - clock.minute, (23 - clock.hour) * 60 - clock.minute) * MINUTE_MS

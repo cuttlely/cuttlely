@@ -208,8 +208,8 @@ const pauseSchedule = async (req: Request, res: Response, next: NextFunction) =>
 
 const resumeSchedule = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        scheduleOwner(req)
-        const saved = await harnessesService.setHarnessScheduleStatus(req.params.name, 'active', activeWorkspace(req))
+        const ownerId = scheduleOwner(req)
+        const saved = await harnessesService.setHarnessScheduleStatus(req.params.name, 'active', activeWorkspace(req), { ownerId })
         await noteScheduleChange(req, 'resumed', 'Harness schedule resumed', saved)
         return res.json(saved)
     } catch (error) {

@@ -11019,9 +11019,19 @@ await expectCase('a harness schedule fires when due in its time zone, never over
         'a weekday 07:00 Paris schedule runs at 05:00 UTC on Monday',
         next('0 7 * * 1-5', 'Europe/Paris', '2026-10-17T20:00:00Z') === '2026-10-19T05:00:00.000Z'
     )
+    const gapRun = cron.nextCronRun('30 2 * * *', 'Europe/Paris', at('2026-03-28T12:00:00Z'))
     check(
-        'a wall time the clocks skip does not run that day',
-        next('30 2 * * *', 'Europe/Paris', '2026-03-28T12:00:00Z') === '2026-03-30T00:30:00.000Z'
+        'a fixed-time wall time the clocks skip runs once at the first minute after the change, as Vixie cron does',
+        gapRun.toISOString() === '2026-03-29T01:00:00.000Z' &&
+            cron.nextCronRun('30 2 * * *', 'Europe/Paris', gapRun, { dueAt: gapRun }).toISOString() === '2026-03-30T00:30:00.000Z' &&
+            next('30 2 * * *', 'America/New_York', '2026-03-07T12:00:00Z') === '2026-03-08T07:00:00.000Z' &&
+            next('30 2 * * 1', 'Europe/Paris', '2026-03-28T12:00:00Z') === '2026-03-30T00:30:00.000Z',
+        gapRun.toISOString()
+    )
+    check(
+        'a * minute or hour schedule keeps to the new clock, so the skipped minutes do not run',
+        next('*/15 2 * * *', 'Europe/Paris', '2026-03-28T12:00:00Z') === '2026-03-30T00:00:00.000Z' &&
+            next('30 * * * *', 'Europe/Paris', '2026-03-29T00:40:00Z') === '2026-03-29T01:30:00.000Z'
     )
     const first = cron.nextCronRun('30 2 * * *', 'Europe/Paris', at('2026-10-24T12:00:00Z'))
     check(
@@ -11083,8 +11093,8 @@ await expectCase('a harness schedule fires when due in its time zone, never over
         }
         return { runId: run.id }
     }
-    const tick = (now, ownerMayRun = async () => true) =>
-        schedules.tickSchedules({ now: () => at(now), start, ownerMayRun, audit: async (...args) => audits.push(args) })
+    const tick = (now, ownerMayRun = async () => true, stopping = () => false) =>
+        schedules.tickSchedules({ now: () => at(now), start, ownerMayRun, stopping, audit: async (...args) => audits.push(args) })
 
     const early = await tick('2026-10-19T04:59:30Z')
     check('nothing fires before the due time', early.length === 0 && started.length === 0, JSON.stringify(early))
@@ -11121,11 +11131,49 @@ await expectCase('a harness schedule fires when due in its time zone, never over
         paused.status === 'paused' && paused.nextRunAt === null && whilePaused.length === 0 && started.length === 1,
         JSON.stringify({ paused, whilePaused })
     )
-    const resumed = schedules.setScheduleStatus('nightly-orders', 'active', { now: at('2026-10-22T05:00:05Z') })
+    let resumeRefused = ''
+    try {
+        schedules.setScheduleStatus('nightly-orders', 'active', { now: at('2026-10-22T05:00:05Z') })
+    } catch (error) {
+        resumeRefused = error.code
+    }
+    const resumed = schedules.setScheduleStatus('nightly-orders', 'active', { now: at('2026-10-22T05:00:05Z'), ownerId: 'user-2' })
     check(
         'resuming counts the next run from now, not from the missed times',
         resumed.nextRunAt === '2026-10-23T05:00:00.000Z',
         resumed.nextRunAt
+    )
+    check(
+        'resuming makes the person who resumes it the owner, and needs one',
+        resumed.ownerId === 'user-2' && resumeRefused === 'bad_schedule' && paused.ownerId === 'user-1',
+        JSON.stringify({ owner: resumed.ownerId, resumeRefused })
+    )
+
+    const beforeStop = schedules.getSchedule('nightly-orders')
+    const draining = await tick(
+        '2026-10-23T05:00:05Z',
+        async () => true,
+        () => true
+    )
+    let drainDuringCheck = false
+    const drainedLate = await tick(
+        '2026-10-23T05:00:05Z',
+        async () => {
+            drainDuringCheck = true
+            return true
+        },
+        () => drainDuringCheck
+    )
+    const afterStop = schedules.getSchedule('nightly-orders')
+    check(
+        'a tick starts nothing once the server drains, even after it claimed a due time, and that time stays due',
+        draining.length === 0 &&
+            drainedLate.length === 0 &&
+            drainDuringCheck &&
+            started.length === 1 &&
+            afterStop.nextRunAt === '2026-10-23T05:00:00.000Z' &&
+            afterStop.lastResult === beforeStop.lastResult,
+        JSON.stringify({ draining, drainedLate, afterStop })
     )
 
     const refused = await tick('2026-10-23T05:00:05Z', async () => false)

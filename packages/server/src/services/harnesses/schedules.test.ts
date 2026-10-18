@@ -19,8 +19,8 @@ jest.mock('.', () => ({
             saved.push({ name, body, ownerId: opts.ownerId })
             return { schedule: { harness: name, cron: '0 7 * * 1-5', timezone: 'Europe/Paris', status: 'active' } }
         },
-        setHarnessScheduleStatus: async (name: string, status: string) => {
-            statusChanges.push(`${name} ${status}`)
+        setHarnessScheduleStatus: async (name: string, status: string, _workspaceId: string, opts?: { ownerId?: string }) => {
+            statusChanges.push(`${name} ${status}${opts?.ownerId ? ` ${opts.ownerId}` : ''}`)
             return { schedule: { harness: name, status } }
         },
         deleteHarnessSchedule: async (name: string) => ({ harness: name, deleted: true })
@@ -92,13 +92,13 @@ describe('harness schedules', () => {
         expect(statusChanges).toEqual([])
     })
 
-    it('needs a run permission to pause and resume', async () => {
+    it('needs a run permission to pause and resume, and resuming makes that person the owner', async () => {
         access.set('user-1|team-a', { owner: false, permissions: ['chatflows:view'] })
         expect((await request(app(person)).post('/api/v1/harnesses/bakery/schedule/pause')).status).toBe(403)
         access.set('user-1|team-a', { owner: false, permissions: ['chatflows:view', 'chatflows:create'] })
         expect((await request(app(person)).post('/api/v1/harnesses/bakery/schedule/pause')).status).toBe(200)
         expect((await request(app(person)).post('/api/v1/harnesses/bakery/schedule/resume')).status).toBe(200)
-        expect(statusChanges).toEqual(['bakery paused', 'bakery active'])
+        expect(statusChanges).toEqual(['bakery paused', 'bakery active user-1'])
     })
 
     it('lets an API key read the schedule only for a harness on its list', async () => {
