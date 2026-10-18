@@ -53,13 +53,16 @@ function taggedLines(markdown) {
 
 /** Plain text of a Markdown fragment, for descriptions. */
 export function plainText(md) {
-    return md
+    let text = md
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
         .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
         .replace(/[*_`]+/g, '')
-        .replace(/<[^>]+>/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
+    let previous
+    do {
+        previous = text
+        text = text.replace(/<[^>]+>/g, '')
+    } while (text !== previous)
+    return text.replace(/\s+/g, ' ').trim()
 }
 
 function shorten(text, max = 160) {
