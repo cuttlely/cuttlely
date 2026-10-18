@@ -25,6 +25,7 @@ import { ScheduleBeat } from './schedule/ScheduleBeat'
 import { RedisEventSubscriber } from './queue/RedisEventSubscriber'
 import { initWebhookListenerRegistry } from './services/webhook-listener'
 import harnessesService from './services/harnesses'
+import { warnKeysMissingBoundHarnesses } from './services/harnesses/apiAccess'
 import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
@@ -423,6 +424,8 @@ export async function start(): Promise<void> {
         await harnessesService.backfillHarnessWorkspaces().catch((error) => {
             logger.warn(`[harness] workspace backfill failed: ${error instanceof Error ? error.message : error}`)
         })
+        await harnessesService.closeInterruptedRuns()
+        await warnKeysMissingBoundHarnesses()
     }
     server.listen(port, host, () => {
         logger.info(`⚡️ [server]: Cuttlely Server is listening at ${host ? 'http://' + host : ''}:${port}`)

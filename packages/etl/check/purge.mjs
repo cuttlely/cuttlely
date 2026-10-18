@@ -401,16 +401,24 @@ function pineFlow(file, ns) {
     const file = path.join(root, 'purge-resume.csv')
     fs.writeFileSync(file, ['sku,name,notes', ...Array.from({ length: 2000 }, (_, i) => `S${i},Loaf ${i},sourdough batch ${i}`)].join('\n'))
     const flow = flowFor(file, '')
-    api.configureRunner({ contextFor: () => ({ workspaceId: WS, embedDelayMs: 20 }) })
+    // The run's stored counters update about once a second, so polling them let a fast machine finish every batch
+    // before the pause landed. A gate holds the third embed call (two batches committed) until the pause is applied.
+    let reachedGate
+    const gateReached = new Promise((resolve) => (reachedGate = resolve))
+    let releaseGate
+    const gateReleased = new Promise((resolve) => (releaseGate = resolve))
+    const embedGate = async (call) => {
+        if (call !== 3) return
+        reachedGate(true)
+        await gateReleased
+    }
+    api.configureRunner({ contextFor: () => ({ workspaceId: WS, embedGate }) })
     api.recordVersion({ workspaceId: WS, id: 'purge-resume', name: 'Purge resume first', flowData: flow })
     const started = api.startRun('purge-resume', { settings: { batchSize: 40, concurrency: 1, maxRetries: 1, maxErrors: 5 } })
-    let progressed = api.runDetail(started.id)
-    for (let i = 0; i < 400 && progressed.counters.embedded < 80 && progressed.status !== 'succeeded'; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 15))
-        progressed = api.runDetail(started.id)
-    }
-    api.pauseRun(started.id)
+    const held = await Promise.race([gateReached, new Promise((resolve) => setTimeout(() => resolve(false), 10000))])
+    const pausing = held ? api.pauseRun(started.id).status : 'gate not reached'
     api.configureRunner({ contextFor: () => ({ workspaceId: WS }) })
+    releaseGate()
     await api.waitForIdle()
     const paused = api.runDetail(started.id)
     api.recordVersion({ workspaceId: WS, id: 'purge-resume', name: 'Purge resume second', flowData: flow })
@@ -424,17 +432,28 @@ function pineFlow(file, ns) {
     const after = { first: first.count(), second: second.count() }
     check(
         'purge 13: a run paused, given a new name and resumed is cleared from the collections of both names',
-        paused.status === 'paused' &&
+        pausing === 'pausing' &&
+            paused.status === 'paused' &&
+            paused.counters.embedded > 0 &&
+            paused.counters.embedded < 2000 &&
             done.status === 'succeeded' &&
             done.id === started.id &&
-            before.first > 0 &&
-            before.first < 2000 &&
+            before.first === paused.counters.embedded &&
             before.second === 2000 &&
             done.counters.embedded === 2000 &&
             after.first === 0 &&
             after.second === 0 &&
             result.errors.length === 0,
-        JSON.stringify({ paused: paused.status, done: done.status, error: done.error, before, after, result })
+        JSON.stringify({
+            pausing,
+            paused: paused.status,
+            pausedEmbedded: paused.counters.embedded,
+            done: done.status,
+            error: done.error,
+            before,
+            after,
+            result
+        })
     )
 }
 

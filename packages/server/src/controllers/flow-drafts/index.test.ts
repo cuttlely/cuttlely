@@ -94,7 +94,8 @@ test('saves the canvas as a draft with the user, org and subscription', async ()
     expect(drafts.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), '{"nodes":[],"edges":[]}', {
         userId: 'user-1',
         orgId: 'org-1',
-        subscriptionId: 'sub-1'
+        subscriptionId: 'sub-1',
+        caller: { via: 'session' }
     })
 })
 
@@ -506,8 +507,7 @@ describe('the publish check', () => {
             expect.objectContaining({ id: FLOW.id }),
             { questions: ['Hi'] },
             'http://cuttlely.test:3000',
-            undefined,
-            expect.objectContaining({ closed: expect.any(Function) })
+            { caller: { via: 'session' }, watch: expect.objectContaining({ closed: expect.any(Function) }) }
         )
         expect(res.status).toHaveBeenCalledWith(202)
     })
@@ -659,8 +659,7 @@ describe('the publish check', () => {
             expect.objectContaining({ id: FLOW.id }),
             { datasetId: 'ds-1', evaluatorIds: ['ev-1'] },
             'http://cuttlely.test:3000',
-            undefined,
-            expect.objectContaining({ closed: expect.any(Function) })
+            { caller: { via: 'session' }, watch: expect.objectContaining({ closed: expect.any(Function) }) }
         )
         expect(res.status).toHaveBeenCalledWith(202)
     })
@@ -696,13 +695,10 @@ describe('the publish check', () => {
     it('a recent-question check does not ask for dataset or evaluator permission', async () => {
         granted.add('chatflows:update')
         await controller.startCheck(checkRequest({ count: 4 }), accepted(), jest.fn())
-        expect(checkService.startCheck).toHaveBeenCalledWith(
-            expect.anything(),
-            { count: 4 },
-            'http://cuttlely.test:3000',
-            undefined,
-            expect.objectContaining({ closed: expect.any(Function) })
-        )
+        expect(checkService.startCheck).toHaveBeenCalledWith(expect.anything(), { count: 4 }, 'http://cuttlely.test:3000', {
+            caller: { via: 'session' },
+            watch: expect.objectContaining({ closed: expect.any(Function) })
+        })
     })
 
     it('signs question history with the API key id', async () => {
@@ -793,8 +789,7 @@ describe('the publish check', () => {
             expect.objectContaining({ id: FLOW.id }),
             { questionIds: null, count: 4 },
             'http://cuttlely.test:3000',
-            undefined,
-            expect.objectContaining({ closed: expect.any(Function) })
+            { caller: { via: 'api_key', apiKeyId: '', harnesses: [] }, watch: expect.objectContaining({ closed: expect.any(Function) }) }
         )
     })
 

@@ -140,7 +140,7 @@ function syncLive(flowData: string) {
         `import { getHarness } from ${JSON.stringify(storeUrl)};`,
         `await syncHarnessFromFlow({ name: ${JSON.stringify(
             NAME
-        )}, chatflowId: 'flow-1', workspaceId: 'team-a', flowData: process.env.CANVAS });`,
+        )}, chatflowId: 'flow-1', workspaceId: 'team-a', flowData: process.env.CANVAS, caller: { via: 'session' } });`,
         `process.stdout.write(getHarness(${JSON.stringify(NAME)}).chief.instructions);`
     ].join('\n')
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {

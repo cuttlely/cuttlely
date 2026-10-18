@@ -101,6 +101,9 @@ require.cache[appPath] = {
     exports: { getRunningExpressApp: () => app }
 }
 
+// Harness calls name their caller (D91). These cases act as a signed-in person.
+const SESSION_CALLER = { via: 'session' }
+
 function loadService(rel) {
     const mod = serverRequire(rel)
     return mod.default || mod
@@ -543,8 +546,8 @@ describe('workspace isolation', () => {
             const trace = await harnesses.getRun('OwnTeam', ownRun.id, WS1)
             assert.equal(trace.inputPreview, 'own-team-question')
             await missingHarness(() => harnesses.getRun('OtherTeam', otherRun.id, WS1))
-            await missingHarness(() => harnesses.assertRunRequest('OtherTeam', { question: 'hello' }, WS1))
-            const allowed = await harnesses.assertRunRequest('OwnTeam', { question: 'hello' }, WS1)
+            await missingHarness(() => harnesses.assertRunRequest('OtherTeam', { question: 'hello' }, WS1, SESSION_CALLER))
+            const allowed = await harnesses.assertRunRequest('OwnTeam', { question: 'hello' }, WS1, SESSION_CALLER)
             assert.equal(allowed.harness.name, 'OwnTeam')
 
             await assert.rejects(
@@ -560,10 +563,68 @@ describe('workspace isolation', () => {
             assert.equal(saved.workspaceId, WS1)
             assert.equal(saved.description, 'updated')
 
+            // A run an earlier process began just before this start is left by the startup pass and closed by the
+            // second pass once the lock time has passed; a run this process began after its start stays open.
+            const earlier = history.beginHarnessRun({ name: 'LateTeam', chatId: 'c-late', source: 'api', input: 'late' })
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            let laterPass = null
+            await harnesses.closeInterruptedRuns({ schedule: (run, delayMs) => (laterPass = { run, delayMs }) })
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            const mine = history.beginHarnessRun({ name: 'LateTeam', chatId: 'c-mine', source: 'api', input: 'mine' })
+            const lockMod = await import(pathToFileURL(path.join(__dirname, '../packages/harness/lock.mjs')).href)
+            assert.equal(laterPass?.delayMs, Number(lockMod.lockTtlMs()) + 15000)
+            assert.equal(history.getRun('LateTeam', earlier.id).status, 'running')
+            laterPass.run()
+            assert.equal(history.getRun('LateTeam', earlier.id).status, 'failed')
+            assert.equal(
+                history.getRun('LateTeam', earlier.id).error?.code ?? history.getRun('LateTeam', earlier.id).errorCode,
+                'interrupted'
+            )
+            assert.equal(history.getRun('LateTeam', mine.id).status, 'running')
+
             await missingHarness(() => harnesses.deleteHarness('OtherTeam', WS1))
             assert.equal(fs.existsSync(path.join(harnessDir, 'OtherTeam.json')), true)
-            assert.deepEqual(await harnesses.deleteHarness('OwnTeam', WS1), { name: 'OwnTeam', deleted: true })
+            // Deleting a harness drops it from the team's key lists first, on the same database the app uses.
+            const dataSourceMod = serverRequire('./src/DataSource.ts')
+            const realGetDataSource = dataSourceMod.getDataSource
+            await ds.getRepository(ApiKey).update({ id: own.apiKey }, { harnesses: ['OwnTeam', 'KeptTeam'] })
+            const logger = serverRequire('./src/utils/logger.ts').default
+            const realWarn = logger.warn
+            const warned = []
+            try {
+                logger.warn = (message) => warned.push(String(message))
+                // A key list that cannot be written fails the delete, and the harness stays.
+                dataSourceMod.getDataSource = () => ({
+                    transaction: async (work) =>
+                        work({
+                            getRepository: () => ({
+                                findBy: async () => [{ id: own.apiKey, harnesses: ['OwnTeam'] }],
+                                save: async () => {
+                                    throw new Error('made-up write failure')
+                                }
+                            })
+                        })
+                })
+                await assert.rejects(
+                    () => harnesses.deleteHarness('OwnTeam', WS1),
+                    (error) => {
+                        assert.equal(error.statusCode, 500)
+                        assert.match(error.message, /was not deleted/)
+                        return true
+                    }
+                )
+                assert.equal(fs.existsSync(path.join(harnessDir, 'OwnTeam.json')), true)
+                assert.deepEqual(warned, [
+                    '[harness] OwnTeam was not deleted: removing it from API key lists failed: made-up write failure'
+                ])
+                dataSourceMod.getDataSource = () => ds
+                assert.deepEqual(await harnesses.deleteHarness('OwnTeam', WS1), { name: 'OwnTeam', deleted: true })
+            } finally {
+                dataSourceMod.getDataSource = realGetDataSource
+                logger.warn = realWarn
+            }
             assert.equal(fs.existsSync(path.join(harnessDir, 'OwnTeam.json')), false)
+            assert.deepEqual((await ds.getRepository(ApiKey).findOneBy({ id: own.apiKey })).harnesses, ['KeptTeam'])
 
             assert.ok(!names(await harnesses.listHarnesses(WS1)).includes('OrphanTeam'))
             assert.ok(!names(await harnesses.listHarnesses(WS2)).includes('OrphanTeam'))
@@ -587,7 +648,18 @@ describe('workspace isolation', () => {
                 return { chatId: 'c1', run: { id: 'run_1' }, payload: { text: 'ok' } }
             }
             const controller = loadService('./src/controllers/harnesses/index.ts')
-            const key = { permissions: ['chatflows:create'], activeWorkspaceId: WS1, activeOrganizationId: ORG, isOrganizationAdmin: false }
+            // The key lists both harnesses, so the team check is what refuses the other team's harness.
+            serverRequire('./src/services/harnesses/apiAccess.ts').setHarnessKeyLookup(async () => ({
+                workspaceId: WS1,
+                harnesses: ['OwnTeam', 'OtherTeam']
+            }))
+            const key = {
+                apiKeyId: 'key-1',
+                permissions: ['chatflows:create'],
+                activeWorkspaceId: WS1,
+                activeOrganizationId: ORG,
+                isOrganizationAdmin: false
+            }
             writeHarness(roster('OwnTeam', WS1))
             const owned = await callController(controller.createRun, {
                 params: { name: 'OwnTeam' },
@@ -614,6 +686,7 @@ describe('workspace isolation', () => {
             assert.equal(otherKey.error.statusCode, 404)
             assert.equal(otherKey.res.body, null)
         } finally {
+            serverRequire('./src/services/harnesses/apiAccess.ts').setHarnessKeyLookup(null)
             restoreEnv(previous)
             fs.rmSync(dataDir, { recursive: true, force: true })
         }
@@ -796,7 +869,10 @@ describe('workspace isolation', () => {
             })
         try {
             await assert.rejects(
-                () => chatflows.saveChatflow(harnessFlow('payroll', WS2, 'taken'), ORG, WS2, '', app.usageCacheManager),
+                () =>
+                    chatflows.saveChatflow(harnessFlow('payroll', WS2, 'taken'), ORG, WS2, '', app.usageCacheManager, undefined, {
+                        caller: SESSION_CALLER
+                    }),
                 (error) => {
                     assert.equal(error.statusCode, 409)
                     return true
@@ -806,13 +882,29 @@ describe('workspace isolation', () => {
             assert.equal(await repo.count({ where: { name: 'payroll' } }), 0)
             assert.equal(fs.readFileSync(file, 'utf8'), original)
 
-            const owned = await chatflows.saveChatflow(harnessFlow('payroll', WS1, 'TEAM-A-SAVED'), ORG, WS1, '', app.usageCacheManager)
+            const owned = await chatflows.saveChatflow(
+                harnessFlow('payroll', WS1, 'TEAM-A-SAVED'),
+                ORG,
+                WS1,
+                '',
+                app.usageCacheManager,
+                undefined,
+                { caller: SESSION_CALLER }
+            )
             assert.equal(typeof owned.id, 'string')
             assert.equal(await repo.count(), before + 1)
             assert.equal((await repo.findOneBy({ id: owned.id })).workspaceId, WS1)
             assert.match(fs.readFileSync(file, 'utf8'), /TEAM-A-SAVED/)
 
-            const theirs = await chatflows.saveChatflow(harnessFlow('bakery-b', WS2, 'TEAM-B'), ORG, WS2, '', app.usageCacheManager)
+            const theirs = await chatflows.saveChatflow(
+                harnessFlow('bakery-b', WS2, 'TEAM-B'),
+                ORG,
+                WS2,
+                '',
+                app.usageCacheManager,
+                undefined,
+                { caller: SESSION_CALLER }
+            )
             const stored = await repo.findOneBy({ id: theirs.id })
             const payrollAfterOwn = fs.readFileSync(file, 'utf8')
             await assert.rejects(
@@ -822,7 +914,8 @@ describe('workspace isolation', () => {
                         Object.assign(new ChatFlow(), { name: 'payroll', type: 'HARNESS', flowData: canvas('stolen') }),
                         ORG,
                         WS2,
-                        ''
+                        '',
+                        { caller: SESSION_CALLER }
                     ),
                 (error) => {
                     assert.equal(error.statusCode, 409)
@@ -850,7 +943,7 @@ describe('workspace isolation', () => {
                 })
             const rowsBeforeNode = await repo.count()
             await assert.rejects(
-                () => chatflows.saveChatflow(chatWithNode(WS2), ORG, WS2, '', app.usageCacheManager),
+                () => chatflows.saveChatflow(chatWithNode(WS2), ORG, WS2, '', app.usageCacheManager, undefined, { caller: SESSION_CALLER }),
                 (error) => {
                     assert.equal(error.statusCode, 409)
                     return true
@@ -858,7 +951,9 @@ describe('workspace isolation', () => {
             )
             assert.equal(await repo.count(), rowsBeforeNode)
             assert.equal(fs.readFileSync(file, 'utf8'), payrollAfterOwn)
-            const ownCaller = await chatflows.saveChatflow(chatWithNode(WS1), ORG, WS1, '', app.usageCacheManager)
+            const ownCaller = await chatflows.saveChatflow(chatWithNode(WS1), ORG, WS1, '', app.usageCacheManager, undefined, {
+                caller: SESSION_CALLER
+            })
             assert.equal((await repo.findOneBy({ id: ownCaller.id })).workspaceId, WS1)
         } finally {
             if (previous.data === undefined) delete process.env.CUTTLELY_DATA_DIR
@@ -902,7 +997,9 @@ describe('workspace isolation', () => {
                 flowData: '{}',
                 workspaceId: WS1
             }
-            await missingHarness(() => harnesses.replayCheck(canvas, '{}', { question: 'hello from the other team' }))
+            await missingHarness(() =>
+                harnesses.replayCheck(canvas, '{}', { question: 'hello from the other team' }, { caller: SESSION_CALLER })
+            )
             assert.equal(fs.readFileSync(path.join(harnessDir, 'ReplayTeam.json'), 'utf8'), before)
         } finally {
             restoreEnv(previous)
@@ -961,7 +1058,10 @@ describe('workspace isolation', () => {
             assert.deepEqual(setup.questions, [])
             assert.equal(opens, 0)
             assert.equal(JSON.stringify(setup).includes(secret), false)
-            const started = await flowCheck.startCheck(row('flow-b', WS2), { count: 4 }, 'http://127.0.0.1', { ...draft, key: 'flow-b' })
+            const started = await flowCheck.startCheck(row('flow-b', WS2), { count: 4 }, 'http://127.0.0.1', {
+                caller: { via: 'session' },
+                given: { ...draft, key: 'flow-b' }
+            })
             assert.deepEqual(started.cases, [])
             assert.equal(opens, 0)
             assert.equal(JSON.stringify(started).includes(secret), false)
@@ -973,8 +1073,8 @@ describe('workspace isolation', () => {
             )
             assert.equal(opens, 1)
             const ownStarted = await flowCheck.startCheck(row('flow-own', WS1), { count: 4 }, 'http://127.0.0.1', {
-                ...draft,
-                key: 'flow-own'
+                caller: { via: 'session' },
+                given: { ...draft, key: 'flow-own' }
             })
             assert.deepEqual(
                 ownStarted.cases.map((item) => item.question),

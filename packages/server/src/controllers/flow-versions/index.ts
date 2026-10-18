@@ -9,6 +9,7 @@ import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts
 import { assertHarnessDraftLimits } from '../../services/flow-drafts/harnessLimits'
 import { GithubError } from '../../services/flow-versions/github'
 import { hasAnyPermission } from '../../identity/rbac'
+import { harnessCallerFor } from '../../services/harnesses/apiAccess'
 import { missingCredentialsMessage } from './message'
 
 export { missingCredentialsMessage }
@@ -197,6 +198,7 @@ export async function putVersionLive(req: Request, flow: ChatFlow, sha: string, 
             ...(record.promotedFrom ? { promotedFrom: record.promotedFrom } : {})
         },
         actor: actorFromUser(req.user),
+        caller: await harnessCallerFor(req),
         // The version replaces Live only while Live is still the canvas this check read.
         expectedFlowData: flow.flowData,
         onVersionQueued: (result) => {
@@ -249,7 +251,8 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
             await flowDraftsService.saveDraft(flow, version.flowData, {
                 userId: req.user?.id || null,
                 orgId,
-                subscriptionId: req.user?.activeOrganizationSubscriptionId || ''
+                subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
+                caller: await harnessCallerFor(req)
             }),
             {
                 datasets: await hasAnyPermission(req, 'datasets:view'),

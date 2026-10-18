@@ -153,7 +153,8 @@ export function reservedTryProfileName(name) {
 }
 
 export function assertHarnessName(name) {
-    if (!NAME_RE.test(name || '')) {
+    // A regex test turns ["payroll"] into "payroll", so a name that is not a string is refused before it.
+    if (typeof name !== 'string' || !NAME_RE.test(name)) {
         throw new HarnessError('bad_name', `Harness name "${name}" is not valid. Use a letter followed by letters, numbers, "_" or "-".`)
     }
     return name
@@ -168,7 +169,7 @@ export function assertSavedHarnessName(name) {
 }
 
 function fileFor(name) {
-    return path.join(harnessStoreDir(), `${name}.json`)
+    return path.join(harnessStoreDir(), `${assertHarnessName(name)}.json`)
 }
 
 export function listHarnesses() {

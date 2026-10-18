@@ -319,7 +319,8 @@ describe('restore while the canvas saves to a draft', () => {
         expect(drafts.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), '{"nodes":[1],"edges":[]}', {
             userId: 'user-1',
             orgId: 'org-1',
-            subscriptionId: 'sub-1'
+            subscriptionId: 'sub-1',
+            caller: { via: 'session' }
         })
         const body = res.json.mock.calls[0][0]
         expect(body).toMatchObject({ restoredFrom: 'abcdef1', restoredTo: 'draft', unchanged: false, recorded: false, version: null })

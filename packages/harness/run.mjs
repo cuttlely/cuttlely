@@ -23,6 +23,8 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
+import { assertHarnessCaller } from './caller.mjs'
+export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
 import {
     analystCallsFor,
@@ -65,7 +67,7 @@ import {
 import { prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, releaseTurn } from './lock.mjs'
 import { appendTurn, readPromptContext, sessionKey } from './session.mjs'
-import { beginHarnessRun, finishHarnessRun, listRuns, safeTraceId } from './history.mjs'
+import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
@@ -83,6 +85,7 @@ export function configureHarnessRuntime({ contextFor } = {}) {
 // Before a run row is opened. A harness with no team is not in the caller's team.
 // Both empty is an offline run with no team on either side.
 export function assertHarnessWorkspace(name, flowOptions, record) {
+    assertHarnessCaller(record?.name || name, flowOptions?.harnessCaller)
     let harness = record
     if (!harness) {
         try {
@@ -137,6 +140,8 @@ function rememberRun(args, started, pending, result, error) {
             recorded = finishHarnessRun(pending, { result, error, traceId: traceIdFrom(args) }) || pending
         } else {
             const opened = beginHarnessRun({
+                id: args?.runId,
+                apiKeyId: args?.apiKeyId,
                 name: args?.name,
                 chatId: args?.chatId,
                 source: args?.source,
@@ -183,6 +188,8 @@ export async function runHarness(args = {}) {
     if (!replay) {
         try {
             pending = beginHarnessRun({
+                id: args.runId,
+                apiKeyId: args.apiKeyId,
                 name: args.name,
                 chatId: args.chatId,
                 source: args.source,

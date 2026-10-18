@@ -16,6 +16,9 @@ import flowDraftsService from '../flow-drafts'
 import { openHarnessRunTrace } from '../../metrics/tracing'
 import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
+import { safeHarnessName } from './apiAccess'
+import type { IHarnessCaller } from '../../Interface'
+import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -260,7 +263,18 @@ const warmHarnesses = (names?: string[]) => {
 }
 
 const deleteHarness = async (name: string, workspaceId?: string | null) => {
-    await requireHarness(name, workspaceId)
+    const harness = await requireHarness(name, workspaceId)
+    // Key lists first: if that fails the harness stays, so a later harness with this name cannot inherit the old grants.
+    try {
+        const { removeHarnessFromKeyLists } = await import('./apiAccess')
+        await removeHarnessFromKeyLists(harness.workspaceId || workspaceOf(workspaceId), name)
+    } catch (error) {
+        logger.warn(`[harness] ${name} was not deleted: removing it from API key lists failed: ${getErrorMessage(error)}`)
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Harness "${name}" was not deleted, because it could not be removed from API key lists. Try again.`
+        )
+    }
     const store = await loadHarness('store.mjs')
     store.deleteHarness(name)
     return { name, deleted: true }
@@ -305,23 +319,47 @@ const requireHarness = async (name: string, workspaceId?: string | null) => {
     return harness
 }
 
-const listRuns = async (name: string, workspaceId?: string | null) => {
+// apiKeyId null is a signed-in person, who sees every run. A key sees only the runs it started.
+type CallerScope = { apiKeyId?: string | null }
+
+const listRuns = async (name: string, workspaceId?: string | null, scope: CallerScope = {}) => {
     await requireHarness(name, workspaceId)
     const history = await loadHarness('history.mjs')
-    return history.listRuns(name, { limit: 50 })
+    return history.listRuns(name, { limit: 50, apiKeyId: scope.apiKeyId ?? null })
 }
 
-const getRun = async (name: string, runId: string, workspaceId?: string | null) => {
+const getRun = async (name: string, runId: string, workspaceId?: string | null, scope: CallerScope = {}) => {
     await requireHarness(name, workspaceId)
     const history = await loadHarness('history.mjs')
-    const run = history.getRun(name, runId)
+    const run = history.getRun(name, runId, { apiKeyId: scope.apiKeyId ?? null })
     if (!run) {
         throw new AppError(StatusCodes.NOT_FOUND, `Run ${runId} was not found.`)
     }
     return run
 }
 
-const assertRunRequest = async (name: string, body: Record<string, unknown>, workspaceId?: string | null) => {
+// A harness route acts for a person or an API key. Anything else, including no caller, is refused before the harness is read.
+function assertRouteCaller(name: string, caller: IHarnessCaller | undefined): asserts caller is IHarnessCaller {
+    if (caller?.via === 'session') return
+    if (caller?.via === 'api_key' && typeof caller.apiKeyId === 'string' && caller.apiKeyId && Array.isArray(caller.harnesses)) {
+        if (caller.harnesses.includes(name)) return
+        throw new AppError(StatusCodes.FORBIDDEN, `This API key may not run harness "${safeHarnessName(name)}".`)
+    }
+    throw new AppError(StatusCodes.FORBIDDEN, 'A harness run needs a signed-in person or an API key.')
+}
+
+function callerKeyId(caller: IHarnessCaller): string | null {
+    return caller.via === 'api_key' ? caller.apiKeyId : null
+}
+
+const assertRunRequest = async (
+    name: string,
+    body: Record<string, unknown>,
+    workspaceId: string | null | undefined,
+    caller: IHarnessCaller | undefined
+) => {
+    assertRouteCaller(name, caller)
+    const scope: CallerScope = { apiKeyId: callerKeyId(caller) }
     const harness = await requireHarness(name, workspaceId)
     const question = questionOf(body || {})
     if (!question.trim()) {
@@ -334,6 +372,11 @@ const assertRunRequest = async (name: string, body: Record<string, unknown>, wor
     if (rawChatId != null && rawChatId !== '') {
         if (typeof rawChatId !== 'string' || !CHAT_ID.test(rawChatId)) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'chatId must be 1–128 characters of letters, numbers, "_", ".", ":", or "-".')
+        }
+        // A chat's turns are the context of the next one, so another caller's chat is not continued.
+        const history = await loadHarness('history.mjs')
+        if (history.chatBelongsToOtherCaller(harness.name, rawChatId, scope.apiKeyId ?? null)) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'That chatId belongs to another caller. Use a new chatId.')
         }
     }
     return { harness, question, chatId: typeof rawChatId === 'string' && rawChatId ? rawChatId : `playground-${randomUUID()}` }
@@ -364,9 +407,14 @@ const startRun = async (
         workspaceId?: string | null
         // Publish check. The try profile is still used. History, the session and captured analyst rows are not.
         replay?: boolean
-    } = {}
+        // An id already returned to the caller. The run history row uses it.
+        runId?: string
+        // Who the run acts for. An API key's id is stored on the history row.
+        caller: IHarnessCaller
+    }
 ) => {
-    const prepared = await assertRunRequest(name, body, opts.workspaceId)
+    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+    const apiKeyId = callerKeyId(opts.caller)
     await configureRuntime()
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
     try {
@@ -382,7 +430,7 @@ const startRun = async (
     const traceWorkspaceId = typeof prepared.harness.workspaceId === 'string' ? prepared.harness.workspaceId : undefined
     let harnessTrace: ReturnType<typeof openHarnessRunTrace> | undefined
     let recorded: Record<string, unknown> | null = null
-    const flowOptions = { ...(runtime?.flowOptions || {}) }
+    const flowOptions: Record<string, unknown> = { ...(runtime?.flowOptions || {}), ...harnessNodeOptions(opts.caller) }
     // The server context copies the harness file. The run compares the caller's team.
     if (typeof opts.workspaceId === 'string' && opts.workspaceId) flowOptions.workspaceId = opts.workspaceId
     try {
@@ -409,6 +457,8 @@ const startRun = async (
             signal: opts.signal,
             record: opts.record,
             replay: opts.replay === true,
+            runId: opts.runId,
+            apiKeyId: apiKeyId || undefined,
             onRecorded: (row: Record<string, unknown>) => {
                 recorded = row
             }
@@ -449,12 +499,118 @@ const startRun = async (
     }
 }
 
+// Starts a run in the background and returns its id at once. The caller polls the run and then its result.
+// The run goes through startRun, so tracing, token totals, and run history match a run that waits.
+const startBackgroundRun = async (
+    name: string,
+    body: Record<string, unknown>,
+    opts: {
+        workspaceId: string
+        source?: 'api'
+        caller: IHarnessCaller
+        // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
+        track?: <T>(run: Promise<T>) => Promise<T>
+        onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
+    }
+) => {
+    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+    const apiKeyId = callerKeyId(opts.caller)
+    const chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `api-${randomUUID()}`
+    const history = await loadHarness('history.mjs')
+    const source = opts.source || 'api'
+    const queued = history.queueHarnessRun({
+        name: prepared.harness.name,
+        chatId,
+        source,
+        input: prepared.question,
+        apiKeyId
+    })
+    if (!queued?.id) throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The run could not be recorded.')
+    const runId: string = queued.id
+    const running = startRun(
+        name,
+        { ...body, question: prepared.question, chatId },
+        { source, workspaceId: opts.workspaceId, runId, caller: opts.caller }
+    )
+    void (opts.track ? opts.track(running) : running)
+        .then((outcome) => {
+            try {
+                history.saveRunResult(prepared.harness.name, runId, outcome.payload)
+            } catch (error) {
+                logger.warn(`[harness] ${name} result for ${runId} was not saved: ${getErrorMessage(error)}`)
+            }
+            opts.onSettled?.({ runId, status: 'finished' })
+        })
+        .catch((error) => {
+            try {
+                history.failQueuedRun(prepared.harness.name, runId, error)
+            } catch (historyError) {
+                logger.warn(`[harness] ${name} run ${runId} was not marked failed: ${getErrorMessage(historyError)}`)
+            }
+            logger.warn(`[harness] ${name} background run ${runId} failed: ${getErrorMessage(error)}`)
+            opts.onSettled?.({ runId, status: 'failed', error })
+        })
+    return { runId, harness: prepared.harness.name as string, chatId, status: 'queued' as const }
+}
+
+const FINISHED = new Set(['succeeded', 'completed_with_errors', 'failed', 'cancelled'])
+
+const getRunResult = async (name: string, runId: string, workspaceId?: string | null, scope: CallerScope = {}) => {
+    const run = await getRun(name, runId, workspaceId, scope)
+    const history = await loadHarness('history.mjs')
+    const finished = FINISHED.has(run.status)
+    return {
+        runId: run.id,
+        harness: run.harness,
+        status: run.status,
+        finished,
+        source: run.source,
+        chatId: run.chatId,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        latencyMs: run.latencyMs,
+        tokens: run.tokens,
+        error: run.error,
+        result: finished ? history.getRunResult(name, runId) : null
+    }
+}
+
+// A run left queued or running when its process stopped can never finish. Another process, an external worker, or a
+// second server on the same data, may still own a newer row, so in every queue mode only rows that started before the
+// turn lock time (plus 15 seconds) are closed. A lock time of 0 never expires, and then nothing is closed.
+// A row that began shortly before this start is left at first, and nothing else would ever close it in inline mode,
+// so a second pass runs once the lock time (plus 15 seconds) has passed and closes rows that began before this start.
+const closeInterruptedRuns = async (opts: { schedule?: (run: () => void, delayMs: number) => void } = {}): Promise<number> => {
+    const processStart = Date.now()
+    try {
+        const history = await loadHarness('history.mjs')
+        const lock = await loadHarness('lock.mjs')
+        const ttl = Number(lock.lockTtlMs())
+        if (!Number.isFinite(ttl) || ttl <= 0) return 0
+        const closed = history.interruptOpenRuns({ before: processStart - (ttl + 15000) })
+        if (closed) logger.info(`[harness] closed ${closed} run(s) left open by an earlier process`)
+        const schedule = opts.schedule ?? ((run: () => void, delayMs: number) => setTimeout(run, delayMs).unref())
+        schedule(() => {
+            try {
+                const late = history.interruptOpenRuns({ before: processStart })
+                if (late) logger.info(`[harness] closed ${late} run(s) an earlier process left open just before this start`)
+            } catch (error) {
+                logger.warn(`[harness] open runs were not closed: ${getErrorMessage(error)}`)
+            }
+        }, ttl + 15000)
+        return closed
+    } catch (error) {
+        logger.warn(`[harness] open runs were not closed: ${getErrorMessage(error)}`)
+        return 0
+    }
+}
+
 // Canvas chat and Try it. The draft canvas when one exists, otherwise the Live canvas. The saved harness and its
 // profile are not written. The try compiles under its own id and is removed when the run ends.
 const startCanvasRun = async (
     chatflow: { id: string; name: string; type?: string | null; flowData: string; workspaceId: string },
     body: Record<string, unknown>,
-    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}
+    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void; caller: IHarnessCaller }
 ) => {
     const flowData = await flowDraftsService.flowDataForTestChat(chatflow)
     const sync = await loadHarness('sync-from-flow.mjs')
@@ -479,10 +635,12 @@ const replayCheck = async (
     chatflow: { id: string; name: string; flowData: string; workspaceId: string },
     flowData: string,
     body: Record<string, unknown>,
-    opts: { signal?: AbortSignal } = {}
+    opts: { signal?: AbortSignal; caller: IHarnessCaller | undefined }
 ) => {
     // Another team's harness is a 404 before the canvas is read, so that file's credentials are not copied.
-    await assertRunRequest(chatflow.name, body, chatflow.workspaceId)
+    // An API key that does not list this harness, or no caller at all, is refused here too.
+    assertRouteCaller(chatflow.name, opts.caller)
+    await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller)
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
@@ -496,6 +654,7 @@ const replayCheck = async (
         source: 'playground',
         signal: opts.signal,
         workspaceId: chatflow.workspaceId,
+        caller: opts.caller,
         replay: true,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })
@@ -514,6 +673,9 @@ export default {
     getRun,
     assertRunRequest,
     startRun,
+    startBackgroundRun,
+    getRunResult,
+    closeInterruptedRuns,
     startCanvasRun,
     replayCheck,
     chatImages

@@ -11,6 +11,7 @@ import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts
 import flowPromoteService from '../../services/flow-promote'
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
+import { harnessCallerFor } from '../../services/harnesses/apiAccess'
 import { assertHarnessDraftLimits } from '../../services/flow-drafts/harnessLimits'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { checkUsageLimit } from '../../utils/quotaUsage'
@@ -119,7 +120,8 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
                 },
                 onVersionQueued: (result) => {
                     recorded = result
-                }
+                },
+                caller: await harnessCallerFor(req)
             }
         )
         const newSha = await recorded
@@ -182,7 +184,11 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { flow, candidate } = await checkTarget(req)
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
-        return res.status(StatusCodes.ACCEPTED).json(await flowCheckService.startCheck(flow, req.body || {}, baseURL, candidate))
+        return res
+            .status(StatusCodes.ACCEPTED)
+            .json(
+                await flowCheckService.startCheck(flow, req.body || {}, baseURL, { caller: await harnessCallerFor(req), given: candidate })
+            )
     } catch (error) {
         next(error)
     }

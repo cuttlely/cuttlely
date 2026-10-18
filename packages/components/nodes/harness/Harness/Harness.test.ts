@@ -100,6 +100,40 @@ describe('Harness node workspace refusal', () => {
         ).rejects.toThrow(/another workspace/)
         expect(openHarnessRunTrace).not.toHaveBeenCalled()
     })
+
+    it('hands the caller identity, with the flow key and its harness list, to the access check', async () => {
+        assertHarnessWorkspace.mockImplementation(() => {
+            const error = new Error('This API key may not run harness "other".') as Error & { code?: string }
+            error.code = 'key_not_allowed'
+            throw error
+        })
+        const node = new HarnessNode()
+        await expect(
+            node.run(nodeData as never, 'How many loaves?', {
+                chatId: 'c1',
+                workspaceId: 'ws-1',
+                harnessCaller: { via: 'api_key', apiKeyId: 'key-1', harnesses: ['bakery'] }
+            })
+        ).rejects.toMatchObject({ code: 'key_not_allowed' })
+        expect(assertHarnessWorkspace).toHaveBeenCalledWith(
+            'other',
+            expect.objectContaining({ harnessCaller: { via: 'api_key', apiKeyId: 'key-1', harnesses: ['bakery'] } })
+        )
+    })
+
+    it('refuses a harness name that is a list or an object before any check or run, on a keyless flow too', async () => {
+        const node = new HarnessNode()
+        for (const harnessName of [['payroll'], { name: 'payroll' }, 7]) {
+            const data = { id: 'harness_0', inputs: { harnessName } }
+            await expect(
+                node.run(data as never, 'Pay everyone', { chatId: 'c1', workspaceId: 'ws-1', harnessCaller: { via: 'flow' } })
+            ).rejects.toThrow(/not text/)
+            await expect(
+                node.init(data as never, '', { chatId: 'c1', workspaceId: 'ws-1', harnessCaller: { via: 'flow' } })
+            ).rejects.toThrow(/not text/)
+        }
+        expect(assertHarnessWorkspace).not.toHaveBeenCalled()
+    })
 })
 
 describe('Harness node queued run id', () => {

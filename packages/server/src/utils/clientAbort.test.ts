@@ -410,6 +410,11 @@ describe('Client abort: internal streaming prediction, client disconnects after 
         const internalController = require('../controllers/internal-predictions').default
         const app = express()
         app.use(express.json())
+        // The in-app chat is a signed-in person; the controller refuses a caller without a user id as an API key.
+        app.use((req: any, _res: any, next: any) => {
+            req.user = { id: 'user-1' }
+            next()
+        })
         app.post('/api/v1/internal-prediction/:id', internalController.createInternalPrediction)
         app.use(require('../middlewares/errors').default)
         return app

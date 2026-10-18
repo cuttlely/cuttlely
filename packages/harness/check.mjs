@@ -64,12 +64,16 @@ const { HARNESS_EVENT_TYPES } = await import('./events.mjs')
 const { ANALYST_CURSOR_ERRORS, ANALYST_PAGE_TTL_MS, analystPageRequest } = await import('./runtime/analyst-page.mjs')
 const { latestAnalystCursor } = await import('./analyst-capture.mjs')
 const { executeModule: executeModuleRaw, executeSpecialistTool, loadFlowiseNode } = await import('./bridge.mjs')
-const { syncHarnessFromFlow } = await import('./sync-from-flow.mjs')
+const { syncHarnessFromFlow: syncHarnessFromFlowRaw } = await import('./sync-from-flow.mjs')
 const { setFlowiseCredentialPaths, flowiseNodeOptions } = await import('./credential-store.mjs')
+// Every run and sync names its caller. These cases act as a signed-in person unless they say otherwise.
+const SESSION_CALLER = { via: 'session' }
+const syncHarnessFromFlow = (args) => syncHarnessFromFlowRaw({ caller: SESSION_CALLER, ...args })
 // The harness runtime no longer invents a database. Existing tool runs pass the offline fake explicitly.
 function withServerContext(args = {}) {
-    if (args.flowOptions) return args
-    return { ...args, flowOptions: flowiseNodeOptions() }
+    const flowOptions = args.flowOptions || flowiseNodeOptions()
+    if ('harnessCaller' in flowOptions) return { ...args, flowOptions }
+    return { ...args, flowOptions: { ...flowOptions, harnessCaller: SESSION_CALLER } }
 }
 const runHarness = (args) => runHarnessRaw(withServerContext(args))
 const executeModule = (binding, input, options) => executeModuleRaw(binding, input, withServerContext(options))
@@ -8536,7 +8540,8 @@ try {
             chatId: 'pool-1',
             input: 'Say hi',
             callerChatflowId: 'caller-flow',
-            workspaceId: 'ws-pool'
+            workspaceId: 'ws-pool',
+            caller: SESSION_CALLER
         },
         cancelRequested: false
     })
@@ -8670,7 +8675,7 @@ check(
         name: 'extSame',
         chatId: 'extSame-chat',
         input: 'Say hi',
-        flowOptions: { workspaceId: 'team-a', chatflowid: 'caller-flow' }
+        flowOptions: { workspaceId: 'team-a', chatflowid: 'caller-flow', harnessCaller: SESSION_CALLER }
     })
     const sameClaimed = claimJob()
     let sameText = ''
@@ -8752,7 +8757,7 @@ let missingPool
 try {
     await executeJob({
         id: 'job-pool-missing',
-        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi', workspaceId: 'ws-pool' },
+        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi', workspaceId: 'ws-pool', caller: SESSION_CALLER },
         cancelRequested: false
     })
 } catch (error) {
@@ -8868,7 +8873,7 @@ await expectCase('inline and off refuse another team harness before a run row', 
             flowOptions: flowContext({ workspaceId }).flowOptions
         }
         if (mode === 'off') return capture(() => runHarness(args))
-        return capture(() => queuedRun(args))
+        return capture(() => queuedRun(withServerContext(args)))
     }
     try {
         const inlineOther = await cross('inline', 'team-b', 'inline-other')
@@ -11174,6 +11179,229 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     )
 })
 
+await expectCase('a run started in the background keeps the id it returned, its result, and closes when the server stopped', async () => {
+    const history = await import('./history.mjs')
+    const queued = history.queueHarnessRun({ name: 'background', chatId: 'api-1', source: 'api', input: 'How many loaves?' })
+    check(
+        'a background run is queued under the id the caller holds',
+        queued?.status === 'queued' && /^run_/.test(queued?.id || ''),
+        queued?.status
+    )
+    const opened = history.beginHarnessRun({ id: queued.id, name: 'background', chatId: 'api-1', source: 'api', input: 'How many loaves?' })
+    check('the runner opens the queued row instead of a new one', opened?.id === queued.id && opened?.status === 'running', opened?.status)
+    check(
+        'the queued row is the only row for that run',
+        history.listRuns('background').length === 1,
+        String(history.listRuns('background').length)
+    )
+    const done = history.finishHarnessRun(opened, {
+        result: { text: 'Forty-two loaves.', agents: [], report: { tokens: { prompt: 9, completion: 3 } } }
+    })
+    history.saveRunResult('background', queued.id, {
+        text: 'Forty-two loaves.',
+        agents: [{ name: 'baker', status: 'completed' }],
+        artifacts: [{ name: 'chart.png', base64: 'AAAA' }],
+        report: { tokens: { prompt: 9, completion: 3 } }
+    })
+    const stored = history.getRunResult('background', queued.id)
+    check(
+        'the full answer is stored for that run and image bytes are not',
+        done?.status === 'succeeded' && stored?.text === 'Forty-two loaves.' && stored?.artifacts?.[0]?.base64 === undefined,
+        JSON.stringify(stored)
+    )
+    check('a result is not read through another harness name', history.getRunResult('other-harness', queued.id) === null, 'leaked')
+    const refused = history.queueHarnessRun({ name: 'background', chatId: 'api-2', source: 'api', input: 'busy' })
+    history.failQueuedRun(
+        'background',
+        refused.id,
+        Object.assign(new Error('This chat already has a harness turn in progress.'), { code: 'busy' })
+    )
+    const refusedRow = history.getRun('background', refused.id)
+    check(
+        'a queued run that never started is failed with its code',
+        refusedRow?.status === 'failed' && refusedRow?.error?.code === 'busy',
+        refusedRow?.status
+    )
+    const stranded = history.queueHarnessRun({ name: 'background', chatId: 'api-3', source: 'api', input: 'stranded' })
+    const strandedRunning = history.beginHarnessRun({ name: 'background', chatId: 'api-4', source: 'api', input: 'mid-turn' })
+    const closed = history.interruptOpenRuns({ before: Date.now() + 1 })
+    const afterSweep = [history.getRun('background', stranded.id), history.getRun('background', strandedRunning.id)]
+    check(
+        'a restart closes runs left queued or running, and leaves finished runs alone',
+        closed >= 2 &&
+            afterSweep.every((row) => row?.status === 'failed' && row?.error?.code === 'interrupted') &&
+            history.getRun('background', queued.id)?.status === 'succeeded',
+        `${closed} ${afterSweep.map((row) => row?.status).join(',')}`
+    )
+    const queue = await import('./queue.mjs')
+    const job = queue.enqueueHarnessJob({
+        name: 'background',
+        chatId: 'api-5',
+        input: 'q',
+        runId: queued.id,
+        flowOptions: { workspaceId: 'team-1' }
+    })
+    const claimed = queue.claimJob()
+    check(
+        'a queued job carries the run id to the worker',
+        claimed?.id === job.id && claimed?.payload?.runId === queued.id,
+        JSON.stringify(claimed?.payload)
+    )
+    queue.finishJob(job.id, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'check' })
+    check(
+        'a run started in the background keeps the id it returned, its result, and closes when the server stopped',
+        Boolean(stored) && refusedRow?.status === 'failed' && claimed?.payload?.runId === queued.id,
+        'see the rows above'
+    )
+})
+
+await expectCase("an API key reads only its own runs and cannot continue another caller's chat", async () => {
+    const history = await import('./history.mjs')
+    const mine = history.queueHarnessRun({ name: 'keyed', chatId: 'api-a', source: 'api', input: 'q', apiKeyId: 'key-a' })
+    const theirs = history.queueHarnessRun({ name: 'keyed', chatId: 'api-b', source: 'api', input: 'q', apiKeyId: 'key-b' })
+    const person = history.beginHarnessRun({ name: 'keyed', chatId: 'playground-1', source: 'playground', input: 'q' })
+    const listed = history.listRuns('keyed', { apiKeyId: 'key-a' }).map((row) => row.id)
+    check('a key lists only the runs it started', listed.length === 1 && listed[0] === mine.id, listed.join(','))
+    check('a person lists every run', history.listRuns('keyed').length === 3, String(history.listRuns('keyed').length))
+    check(
+        'a key cannot read a run another key started',
+        history.getRun('keyed', theirs.id, { apiKeyId: 'key-a' }) === null &&
+            history.getRun('keyed', mine.id, { apiKeyId: 'key-a' })?.id === mine.id,
+        'leaked'
+    )
+    check(
+        'a chat another key started belongs to another caller',
+        history.chatBelongsToOtherCaller('keyed', 'api-b', 'key-a') && !history.chatBelongsToOtherCaller('keyed', 'api-a', 'key-a'),
+        'ownership'
+    )
+    check(
+        'a person cannot continue a key chat, and a key cannot continue a person chat',
+        history.chatBelongsToOtherCaller('keyed', 'api-a', null) && history.chatBelongsToOtherCaller('keyed', 'playground-1', 'key-a'),
+        'ownership'
+    )
+    check('a new chat belongs to no one yet', !history.chatBelongsToOtherCaller('keyed', 'api-new', 'key-a'), 'new chat')
+    history.finishHarnessRun(person, { result: { text: 'done', agents: [] } })
+    history.interruptOpenRuns({ before: Date.now() + 1 })
+    const reopened = history.beginHarnessRun({ id: mine.id, name: 'keyed', chatId: 'api-a', source: 'api', input: 'q', apiKeyId: 'key-a' })
+    check(
+        'a worker that picks up a run a restart marked interrupted opens that row again',
+        reopened?.id === mine.id && reopened?.status === 'running' && reopened?.error === null,
+        `${reopened?.status} ${JSON.stringify(reopened?.error)}`
+    )
+    const run = await import('./run.mjs')
+    const keyCaller = { via: 'api_key', apiKeyId: 'key-a', harnesses: ['bakery'] }
+    let refused = null
+    try {
+        run.assertHarnessCaller('payroll', keyCaller)
+    } catch (error) {
+        refused = error
+    }
+    let allowed = true
+    try {
+        run.assertHarnessCaller('bakery', keyCaller)
+        run.assertHarnessCaller('payroll', { via: 'session' })
+        run.assertHarnessCaller('payroll', { via: 'flow' })
+    } catch {
+        allowed = false
+    }
+    check(
+        'a flow run under an API key runs only harnesses on that key list',
+        refused?.code === 'key_not_allowed' && allowed,
+        refused?.message || 'not refused'
+    )
+    const queue = await import('./queue.mjs')
+    const job = queue.enqueueHarnessJob({
+        name: 'keyed',
+        chatId: 'api-c',
+        input: 'q',
+        runId: mine.id,
+        apiKeyId: 'key-a',
+        flowOptions: { workspaceId: 'team-1', harnessCaller: keyCaller }
+    })
+    const claimed = queue.claimJob()
+    check(
+        'a queued job carries the API key id and its harness list to the worker',
+        claimed?.payload?.apiKeyId === 'key-a' && JSON.stringify(claimed?.payload?.caller) === JSON.stringify(keyCaller),
+        JSON.stringify(claimed?.payload)
+    )
+    queue.finishJob(job.id, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'check' })
+    check(
+        "an API key reads only its own runs and cannot continue another caller's chat",
+        listed.length === 1 && refused?.code === 'key_not_allowed' && claimed?.payload?.apiKeyId === 'key-a',
+        'see the rows above'
+    )
+})
+
+await expectCase('a run or a canvas sync without a caller identity is refused before anything is written', async () => {
+    const { listRuns } = await import('./history.mjs')
+    const { getHarness } = await import('./store.mjs')
+    const queue = await import('./queue.mjs')
+    saveHarness(
+        {
+            name: 'callerTeam',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const before = listRuns('callerTeam').length
+    const base = { name: 'callerTeam', input: 'q', source: 'prediction' }
+    const noCaller = await capture(() => runHarnessRaw({ ...base, chatId: 'no-caller', flowOptions: flowiseNodeOptions() }))
+    const unknown = await capture(() =>
+        runHarnessRaw({ ...base, chatId: 'odd-caller', flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'root' } } })
+    )
+    const keyNoList = await capture(() =>
+        runHarnessRaw({
+            ...base,
+            chatId: 'key-no-list',
+            flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'api_key', apiKeyId: 'key-a' } }
+        })
+    )
+    const keyUnlisted = await capture(() =>
+        runHarnessRaw({
+            ...base,
+            chatId: 'key-unlisted',
+            flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'api_key', apiKeyId: 'key-a', harnesses: ['bakery'] } }
+        })
+    )
+    const queuedNoCaller = await capture(() => queue.runQueuedHarness({ ...base, chatId: 'queued-no-caller', flowOptions: {} }))
+    check(
+        'runHarness and runQueuedHarness refuse a run with no caller, an unknown caller, or a key without its list',
+        noCaller.error?.code === 'caller_required' &&
+            unknown.error?.code === 'caller_required' &&
+            keyNoList.error?.code === 'caller_required' &&
+            keyUnlisted.error?.code === 'key_not_allowed' &&
+            queuedNoCaller.error?.code === 'caller_required' &&
+            listRuns('callerTeam').length === before,
+        JSON.stringify([noCaller, unknown, keyNoList, keyUnlisted, queuedNoCaller].map((item) => item.error?.code || 'ran'))
+    )
+    const canvas = JSON.parse(fs.readFileSync(path.join(root, 'samples/harnesses/research.canvas.json'), 'utf8'))
+    const sync = (name, caller) =>
+        capture(() =>
+            syncHarnessFromFlowRaw({ name, chatflowId: `canvas-${name}`, flowData: canvas.flowData, ...(caller ? { caller } : {}) })
+        )
+    const syncNone = await sync('syncNone')
+    const syncFlow = await sync('syncFlow', { via: 'flow' })
+    const syncKey = await sync('syncKey', { via: 'api_key', apiKeyId: 'key-a', harnesses: ['bakery'] })
+    const syncListed = await sync('syncListed', { via: 'api_key', apiKeyId: 'key-a', harnesses: ['syncListed'] })
+    check(
+        'syncHarnessFromFlow needs a person or an API key that lists the harness, and writes nothing otherwise',
+        syncNone.error?.code === 'caller_required' &&
+            syncFlow.error?.code === 'caller_required' &&
+            syncKey.error?.code === 'key_not_allowed' &&
+            !getHarness('syncNone') &&
+            !getHarness('syncFlow') &&
+            !getHarness('syncKey') &&
+            syncListed.value?.name === 'syncListed',
+        JSON.stringify([syncNone, syncFlow, syncKey, syncListed].map((item) => item.error?.code || item.value?.name))
+    )
+    check(
+        'a run or a canvas sync without a caller identity is refused before anything is written',
+        noCaller.error?.code === 'caller_required' && syncNone.error?.code === 'caller_required',
+        'see the rows above'
+    )
+})
+
 await expectCase('a stored question is redacted in full and does not push the trace out of history', async () => {
     const secret = 'postgres://user:s3cret-pass@db.example/warehouse'
     const asked = `${'Please compare the warehouse export. '.repeat(16)}${secret} List every ticket`
@@ -11392,6 +11620,7 @@ runHooks.afterProfile = async ({ tryId }) => {
     if (tryId !== tryC) return
     duringTry.untouched = profileTree(publishedProfile) === publishedBytes && profileTree(publishedSpecialist) === publishedSpecialistBytes
     externalDuringTry = await runHarnessRaw({
+        flowOptions: { harnessCaller: SESSION_CALLER },
         name: 'try-live',
         chatId: 'published-while-draft',
         input: 'What are the rules?',
@@ -11406,6 +11635,7 @@ runHooks.afterProfile = async ({ tryId }) => {
 let midTry = null
 try {
     await runHarnessRaw({
+        flowOptions: { harnessCaller: SESSION_CALLER },
         name: 'try-live',
         chatId: 'draft-try',
         input: 'What are the rules?',
@@ -11578,7 +11808,6 @@ await (async () => {
     let importError = null
     try {
         const canvas = JSON.parse(fs.readFileSync(path.join(root, 'samples/harnesses/research.canvas.json'), 'utf8'))
-        const { syncHarnessFromFlow } = await import('./sync-from-flow.mjs')
         await syncHarnessFromFlow({ name: reserved, chatflowId: 'canvas-reserved', flowData: canvas.flowData })
     } catch (error) {
         importError = error
@@ -11995,6 +12224,7 @@ await (async () => {
         return recordingChat([], () => ({ content: 'STUB_ANSWER' }))
     }
     const publicRun = await runHarnessRaw({
+        flowOptions: { harnessCaller: SESSION_CALLER },
         name: 'finance',
         chatId: 'public-long',
         input: 'Review the invoice exception.',
@@ -12003,6 +12233,7 @@ await (async () => {
         baseUrl: 'http://127.0.0.1:8643'
     })
     const canvasRun = await runHarnessRaw({
+        flowOptions: { harnessCaller: SESSION_CALLER },
         name: 'finance',
         chatId: 'canvas-long',
         input: 'Review the invoice exception.',
@@ -12142,6 +12373,7 @@ await (async () => {
     for (let n = 0; n < 3; n += 1) {
         const tryId = `${n + 1}`.repeat(16)
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name: 'try-live',
             chatId: `cleanup-${n}`,
             input: 'Hello',
@@ -12777,6 +13009,7 @@ await (async () => {
     try {
         const [live, draft] = await Promise.all([
             runHarnessRaw({
+                flowOptions: { harnessCaller: SESSION_CALLER },
                 name,
                 chatId: chatA,
                 input: 'check question live',
@@ -12787,6 +13020,7 @@ await (async () => {
                 record: { ...getHarness(name), tryId: idA, chief: { ...getHarness(name).chief, instructions: 'DRAFT-NOT-THIS' } }
             }),
             runHarnessRaw({
+                flowOptions: { harnessCaller: SESSION_CALLER },
                 name,
                 chatId: chatB,
                 input: 'check question draft',
@@ -12797,6 +13031,7 @@ await (async () => {
                 record: { ...getHarness(name), tryId: idB, chief: { ...getHarness(name).chief, instructions: 'DRAFT-INSTRUCTIONS' } }
             }),
             runHarnessRaw({
+                flowOptions: { harnessCaller: SESSION_CALLER },
                 name,
                 chatId: publishedChat,
                 input: 'published question',
@@ -12814,6 +13049,7 @@ await (async () => {
     let errThrown = false
     try {
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'check-err',
             input: 'check question error',
@@ -12831,6 +13067,7 @@ await (async () => {
     let abortThrown = false
     try {
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'check-stop',
             input: 'check question stop',
@@ -13198,6 +13435,7 @@ await (async () => {
     let failed = null
     try {
         const ok = await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'cleanup-ok',
             input: 'cleanup question',
@@ -13214,6 +13452,7 @@ await (async () => {
     let errThrown = false
     try {
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'cleanup-err',
             input: 'cleanup error',
@@ -13231,6 +13470,7 @@ await (async () => {
     let stopThrown = false
     try {
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'cleanup-stop',
             input: 'cleanup stop',
@@ -13396,6 +13636,43 @@ await (async () => {
         'pin lines are kept trimmed, and a long run of tabs after pin: is linear',
         pins.includes('rye only') && pins.includes('oven at 220C') && fast(pinRun),
         JSON.stringify({ pins, ms: pinRun.ms })
+    )
+})()
+
+await (async () => {
+    const { assertHarnessName, deleteHarness } = await import('./store.mjs')
+    const codeOf = (fn) => {
+        try {
+            fn()
+            return 'none'
+        } catch (error) {
+            return error?.code || String(error)
+        }
+    }
+    const listName = ['research']
+    const objectName = { toString: () => 'research' }
+    const kept = getHarness('research')
+    let runError = null
+    try {
+        await runHarness({
+            name: listName,
+            chatId: 'list-name',
+            input: 'hello',
+            flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'flow' } }
+        })
+    } catch (error) {
+        runError = error
+    }
+    check(
+        'a harness name that is a list or an object is refused before it reads, deletes, or runs a harness file',
+        codeOf(() => assertHarnessName(listName)) === 'bad_name' &&
+            codeOf(() => assertHarnessName(objectName)) === 'bad_name' &&
+            codeOf(() => getHarness(listName)) === 'bad_name' &&
+            codeOf(() => deleteHarness(listName)) === 'bad_name' &&
+            JSON.stringify(getHarness('research')) === JSON.stringify(kept) &&
+            runError?.code === 'bad_name' &&
+            !runError?.harnessRun,
+        JSON.stringify({ run: runError?.code || runError?.message })
     )
 })()
 

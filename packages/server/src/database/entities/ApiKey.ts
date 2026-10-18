@@ -23,4 +23,8 @@ export class ApiKey {
 
     @Column({ nullable: false, type: 'text' })
     workspaceId: string
+
+    // Harness names this key may run. Null or empty runs none.
+    @Column({ nullable: true, type: 'simple-json' })
+    harnesses?: string[] | null
 }

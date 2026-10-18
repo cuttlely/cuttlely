@@ -3,6 +3,7 @@ import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
 import demoService from '../../services/demo'
 import { actorFromUser } from '../../services/flow-versions/author'
+import { harnessCallerFor } from '../../services/harnesses/apiAccess'
 
 const workspaceOf = (req: Request) => {
     const workspaceId = req.user?.activeWorkspaceId
@@ -29,7 +30,8 @@ const create = async (req: Request, res: Response, next: NextFunction) => {
                 orgId,
                 workspaceId,
                 subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
-                actor: actorFromUser(req.user)
+                actor: actorFromUser(req.user),
+                harnessCaller: await harnessCallerFor(req)
             },
             req.body?.demo
         )
