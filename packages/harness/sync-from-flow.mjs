@@ -3,7 +3,7 @@ import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
 import { compileProfileCached } from './profile.mjs'
 import { specialistHandoffChars } from './context.mjs'
-import { assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
+import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
 import { toolCallingWarnings } from './tool-fallback.mjs'
 
 function boolInput(value) {
@@ -209,6 +209,35 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
             }
         })
     }
+}
+
+// A draft save checks only the record limits. A draft may still lack a model, a name or a wire that a full
+// save needs, so this reads each specialist's directly wired nodes and nothing else.
+export function assertFlowLimits({ name, flowData }) {
+    const flow = parseFlow(flowData)
+    const nodes = flow?.nodes || []
+    const edges = flow?.edges || []
+    const byId = Object.fromEntries(nodes.map((node) => [node?.id, node]))
+    const specialists = nodes
+        .filter((node) => node?.data?.name === 'harnessSpecialist')
+        .map((specialist) => {
+            const inputs = specialist.data?.inputs || {}
+            const bindings = edges
+                .filter((edge) => edge?.target === specialist.id)
+                .map((edge) => byId[edge.source])
+                .filter((source) => source && !isHarnessNode(source))
+                .map((source) => ({
+                    nodeName: source.data?.name,
+                    label: source.data?.label,
+                    inputs: plainInputs(source.data?.inputs || {})
+                }))
+            return {
+                name: inputs.specialistName || inputs.name || specialist.data?.label || specialist.id,
+                modules: parseMaybeJson(inputs.modules),
+                mcpServers: [...bindings, ...parseMaybeJson(inputs.mcpServers)]
+            }
+        })
+    assertRosterLimits({ name, specialists })
 }
 
 // A save names who made it, a person or an API key. A key writes only a harness on its own list.

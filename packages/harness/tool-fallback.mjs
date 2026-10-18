@@ -30,6 +30,8 @@ export function validArgs(schema, text) {
     const args = { [keys[0]]: trimmed }
     if (Array.isArray(property.enum)) return property.enum.includes(trimmed) ? args : null
     if (typeof property.pattern === 'string') {
+        // The pattern comes from a tool schema; a long input bounds how long a slow pattern can run.
+        if (trimmed.length > 1000) return null
         try {
             return new RegExp(property.pattern).test(trimmed) ? args : null
         } catch {

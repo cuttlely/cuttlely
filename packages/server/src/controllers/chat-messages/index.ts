@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
-import { ChatMessageRatingType, ChatType, IReactFlowObject } from '../../Interface'
+import { ChatType, IReactFlowObject } from '../../Interface'
 import chatflowsService from '../../services/chatflows'
 import chatMessagesService from '../../services/chat-messages'
 import { aMonthAgo, clearSessionMemory } from '../../utils'
@@ -9,29 +9,8 @@ import { ChatMessage } from '../../database/entities/ChatMessage'
 import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { utilGetChatMessage } from '../../utils/getChatMessage'
+import { feedbackTypeFilters } from '../../utils/feedbackTypeFilters'
 import { getPageAndLimitParams } from '../../utils/pagination'
-
-const getFeedbackTypeFilters = (_feedbackTypeFilters: ChatMessageRatingType[]): ChatMessageRatingType[] | undefined => {
-    try {
-        let feedbackTypeFilters
-        const feedbackTypeFilterArray = JSON.parse(JSON.stringify(_feedbackTypeFilters))
-        if (
-            feedbackTypeFilterArray.includes(ChatMessageRatingType.THUMBS_UP) &&
-            feedbackTypeFilterArray.includes(ChatMessageRatingType.THUMBS_DOWN)
-        ) {
-            feedbackTypeFilters = [ChatMessageRatingType.THUMBS_UP, ChatMessageRatingType.THUMBS_DOWN]
-        } else if (feedbackTypeFilterArray.includes(ChatMessageRatingType.THUMBS_UP)) {
-            feedbackTypeFilters = [ChatMessageRatingType.THUMBS_UP]
-        } else if (feedbackTypeFilterArray.includes(ChatMessageRatingType.THUMBS_DOWN)) {
-            feedbackTypeFilters = [ChatMessageRatingType.THUMBS_DOWN]
-        } else {
-            feedbackTypeFilters = undefined
-        }
-        return feedbackTypeFilters
-    } catch (e) {
-        return _feedbackTypeFilters
-    }
-}
 
 const createChatMessage = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -75,10 +54,7 @@ const getAllChatMessages = async (req: Request, res: Response, next: NextFunctio
 
         const { page, limit } = getPageAndLimitParams(req)
 
-        let feedbackTypeFilters = req.query?.feedbackType as ChatMessageRatingType[] | undefined
-        if (feedbackTypeFilters) {
-            feedbackTypeFilters = getFeedbackTypeFilters(feedbackTypeFilters)
-        }
+        const feedbackTypes = feedbackTypeFilters(req.query?.feedbackType)
         if (typeof req.params === 'undefined' || !req.params.id) {
             throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: chatMessageController.getAllChatMessages - id not provided!`)
         }
@@ -93,7 +69,7 @@ const getAllChatMessages = async (req: Request, res: Response, next: NextFunctio
             endDate,
             messageId,
             feedback,
-            feedbackTypeFilters,
+            feedbackTypes,
             activeWorkspaceId,
             page,
             limit
@@ -115,10 +91,7 @@ const getAllInternalChatMessages = async (req: Request, res: Response, next: Nex
         const startDate = req.query?.startDate as string | undefined
         const endDate = req.query?.endDate as string | undefined
         const feedback = req.query?.feedback as boolean | undefined
-        let feedbackTypeFilters = req.query?.feedbackType as ChatMessageRatingType[] | undefined
-        if (feedbackTypeFilters) {
-            feedbackTypeFilters = getFeedbackTypeFilters(feedbackTypeFilters)
-        }
+        const feedbackTypes = feedbackTypeFilters(req.query?.feedbackType)
         const apiResponse = await chatMessagesService.getAllInternalChatMessages(
             req.params.id,
             [ChatType.INTERNAL],
@@ -130,7 +103,7 @@ const getAllInternalChatMessages = async (req: Request, res: Response, next: Nex
             endDate,
             messageId,
             feedback,
-            feedbackTypeFilters,
+            feedbackTypes,
             activeWorkspaceId
         )
         return res.json(parseAPIResponse(apiResponse))
@@ -144,6 +117,10 @@ const removeAllChatMessages = async (req: Request, res: Response, next: NextFunc
         const appServer = getRunningExpressApp()
         if (typeof req.params === 'undefined' || !req.params.id) {
             throw new AppError(StatusCodes.PRECONDITION_FAILED, 'Error: chatMessagesController.removeAllChatMessages - id not provided!')
+        }
+        // An unreadable filter would otherwise mean no filter, and delete every message instead of the rated ones.
+        if (req.query?.feedbackType !== undefined && !feedbackTypeFilters(req.query.feedbackType)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Error: chatMessagesController.removeAllChatMessages - feedbackType is not valid')
         }
         const orgId = req.user?.activeOrganizationId
         if (!orgId) {
@@ -186,13 +163,10 @@ const removeAllChatMessages = async (req: Request, res: Response, next: NextFunc
         const startDate = req.query?.startDate as string | undefined
         const endDate = req.query?.endDate as string | undefined
         const isClearFromViewMessageDialog = req.query?.isClearFromViewMessageDialog as string | undefined
-        let feedbackTypeFilters = req.query?.feedbackType as ChatMessageRatingType[] | undefined
-        if (feedbackTypeFilters) {
-            feedbackTypeFilters = getFeedbackTypeFilters(feedbackTypeFilters)
-        }
+        const feedbackTypes = feedbackTypeFilters(req.query?.feedbackType)
 
         if (!chatId) {
-            const isFeedback = feedbackTypeFilters?.length ? true : false
+            const isFeedback = feedbackTypes?.length ? true : false
             const hardDelete = req.query?.hardDelete as boolean | undefined
 
             const messages = await utilGetChatMessage({
@@ -202,7 +176,7 @@ const removeAllChatMessages = async (req: Request, res: Response, next: NextFunc
                 startDate,
                 endDate,
                 feedback: isFeedback,
-                feedbackTypes: feedbackTypeFilters,
+                feedbackTypes,
                 activeWorkspaceId: workspaceId
             })
             const messageIds = messages.map((message) => message.id)

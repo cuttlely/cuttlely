@@ -118,6 +118,7 @@ export class EvaluationRunner {
     }
 
     async evaluateChatflow(chatflowId: string, apiKey: string, data: any, returnData: any) {
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(chatflowId)) throw new Error('Invalid chatflow id')
         for (let i = 0; i < data.dataset.rows.length; i++) {
             const item = data.dataset.rows[i]
             const uuid = uuidv4()
@@ -141,7 +142,11 @@ export class EvaluationRunner {
                 postData.overrideConfig = { sessionId: data.sessionId }
             }
             try {
-                let response = await axios.post(`${this.baseURL}/api/v1/prediction/${chatflowId}`, postData, axiosConfig)
+                let response = await axios.post(
+                    `${this.baseURL}/api/v1/prediction/${encodeURIComponent(chatflowId)}`,
+                    postData,
+                    axiosConfig
+                )
                 let agentFlowMetrics: any[] = []
                 if (response?.data?.agentFlowExecutedData) {
                     for (let i = 0; i < response.data.agentFlowExecutedData.length; i++) {

@@ -39,7 +39,7 @@ const getSingleComponentsCredentialIcon = async (req: Request, res: Response, ne
             )
         }
         const apiResponse = await componentsCredentialsService.getSingleComponentsCredentialIcon(req.params.name)
-        return res.sendFile(apiResponse)
+        return res.sendFile(apiResponse, { maxAge: '1d' })
     } catch (error) {
         next(error)
     }

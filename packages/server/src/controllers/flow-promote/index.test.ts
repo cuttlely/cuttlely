@@ -51,6 +51,18 @@ jest.mock('../flow-versions', () => {
 })
 const checkUsageLimit = jest.fn(async () => undefined)
 jest.mock('../../utils/quotaUsage', () => ({ checkUsageLimit: (...args: any[]) => (checkUsageLimit as any)(...args) }))
+const limitChecks: string[] = []
+jest.mock('../../services/flow-drafts/harnessLimits', () => {
+    const { harnessLimitsInChild } = jest.requireActual('../../services/flow-drafts/harnessLimitsInChild')
+    const { AppError } = jest.requireActual('../../errors/appError')
+    return {
+        assertHarnessDraftLimits: async (name: string, flowData: string, action?: string, matchesLive?: boolean) => {
+            limitChecks.push(`${name}:${action}`)
+            const refusal = harnessLimitsInChild(name, flowData, action, matchesLive)
+            if (refusal) throw new AppError(refusal.status, refusal.message)
+        }
+    }
+})
 jest.mock('../../utils/getRunningExpressApp', () => ({ getRunningExpressApp: () => ({ usageCacheManager: {} }) }))
 
 import controller from './index'
@@ -172,6 +184,39 @@ describe('Promote', () => {
             statusCode: 409,
             message: 'Add these credentials on this server first: "OpenAI key" (openAIApi), "Search key" (serpApi). Then promote again.'
         })
+        expect(saveChatflow).not.toHaveBeenCalled()
+    })
+
+    test('a new harness whose Rules are over the cap is refused with the promote words, and nothing is saved', async () => {
+        promoteService.promotable.mockResolvedValue({ latest: { ...LATEST, name: 'bakery-accounts' }, row: null })
+        const flowData = JSON.stringify({
+            nodes: [
+                { id: 'spec_0', data: { name: 'harnessSpecialist', category: 'Harness', inputs: { specialistName: 'bakery' } } },
+                {
+                    id: 'pg_0',
+                    data: { name: 'postgreSQLMCP', label: 'Bakery DB', category: 'Tools (MCP)', inputs: { analystRules: 'r'.repeat(2001) } }
+                }
+            ],
+            edges: [{ id: 'e0', source: 'pg_0', target: 'spec_0' }]
+        })
+        versions.getVersion.mockResolvedValue({
+            sha: SHA,
+            name: 'bakery-accounts',
+            type: 'HARNESS',
+            flowData,
+            missingCredentials: [],
+            ambiguousCredentials: [],
+            hiddenSecrets: []
+        })
+        limitChecks.length = 0
+        const next = jest.fn()
+        await controller.promote(request({ sha: SHA }), response(), next)
+        expect(next.mock.calls[0][0]).toMatchObject({
+            statusCode: 400,
+            message:
+                'This version cannot be promoted. Rules on Bakery DB for specialist "bakery" on harness "bakery-accounts" are 2001 characters. The limit is 2000. Shorten those rules on the canvas where this version was made, publish it there, and promote again.'
+        })
+        expect(limitChecks).toEqual(['bakery-accounts:promote'])
         expect(saveChatflow).not.toHaveBeenCalled()
     })
 })

@@ -70,7 +70,7 @@ const getSingleNodeIcon = async (req: Request, res: Response, next: NextFunction
             res.status(StatusCodes.OK).type('image/svg+xml').send(UNKNOWN_NODE_ICON)
             return
         }
-        return res.sendFile(apiResponse)
+        return res.sendFile(apiResponse, { maxAge: '1d' })
     } catch (error) {
         next(error)
     }

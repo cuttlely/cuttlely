@@ -12,6 +12,7 @@ import flowPromoteService from '../../services/flow-promote'
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { harnessCallerFor } from '../../services/harnesses/apiAccess'
+import { assertHarnessDraftLimits } from '../../services/flow-drafts/harnessLimits'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { checkUsageLimit } from '../../utils/quotaUsage'
 import { hasAnyPermission } from '../../identity/rbac'
@@ -90,6 +91,7 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
         if (version.missingCredentials.length) {
             throw new AppError(StatusCodes.CONFLICT, missingCredentialsMessage(version.missingCredentials))
         }
+        if (version.type === 'HARNESS') await assertHarnessDraftLimits(version.name || latest.name, version.flowData, 'promote')
         const app = getRunningExpressApp()
         const type = (version.type || 'CHATFLOW') as NonNullable<ChatFlow['type']>
         const subscriptionId = req.user?.activeOrganizationSubscriptionId || ''

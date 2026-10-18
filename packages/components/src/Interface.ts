@@ -90,6 +90,8 @@ export interface INodeParams {
     optional?: boolean | INodeDisplay
     step?: number
     rows?: number
+    // A string input with a cap shows a character counter and stops typing at this length.
+    maxLength?: number
     list?: boolean
     acceptVariable?: boolean
     acceptNodeOutputAsVariable?: boolean
