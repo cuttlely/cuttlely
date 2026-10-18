@@ -1,6 +1,8 @@
-# Dependabot settings for the npm workspace.
+# Dependabot settings for the npm workspace and the GitHub Actions workflows.
 # Dependabot security updates are turned on in the repository settings. This file only adds ignore rules.
-# open-pull-requests-limit: 0 keeps version-update pull requests off, as they were before this file existed.
+# open-pull-requests-limit: 0 keeps npm version-update pull requests off, as they were before this file existed.
+# GitHub Actions get weekly version updates in one grouped pull request, so the commit SHA pins in
+# .github/workflows/ move with each release and keep their version comments.
 version: 2
 updates:
     - package-ecosystem: 'npm'
@@ -20,3 +22,10 @@ updates:
             update-types: ['version-update:semver-major']
           - dependency-name: 'react-router-dom'
             update-types: ['version-update:semver-major']
+    - package-ecosystem: 'github-actions'
+      directory: '/'
+      schedule:
+          interval: 'weekly'
+      groups:
+          github-actions:
+              patterns: ['*']

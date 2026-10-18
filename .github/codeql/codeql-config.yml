@@ -1,0 +1,7 @@
+# CodeQL settings for .github/workflows/codeql.yml.
+# hermes/ is a pinned upstream copy of the agent runtime (hermes/UPSTREAM_COMMIT). Its security releases are
+# tracked weekly and land through pnpm hermes:vendor, so code scanning covers only Cuttlely's own code.
+# docs/reference/hermes-upgrades.md#code-scanning has the reason.
+name: 'Cuttlely CodeQL config'
+paths-ignore:
+    - 'hermes/**'
