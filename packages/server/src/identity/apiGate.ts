@@ -58,7 +58,10 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             req.user = identityUser as unknown as LoggedInUser
             ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
         }
-        const isWhitelisted = deps.whitelistURLs.some((url) => req.path.startsWith(url))
+        // An entry ending in '/' also matches that path without the slash: Express routes '/apikey/' for both.
+        const isWhitelisted = deps.whitelistURLs.some(
+            (url) => (url.endsWith('/') && req.path === url.slice(0, -1)) || req.path.startsWith(url)
+        )
         const identitySession = (req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity
         if (isWhitelisted) {
             next()

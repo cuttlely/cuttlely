@@ -81,6 +81,18 @@ describe('apiV1Auth', () => {
         expect(res.body).toEqual({ passed: true })
     })
 
+    it('matches a trailing-slash entry with and without the slash, and only that entry', async () => {
+        const gate = (path: string) =>
+            app({
+                whitelistURLs: ['/api/v1/verify/apikey/', '/api/v1/ping'],
+                validateAPIKey: async () => ({ isValid: false })
+            }).get(path)
+        expect((await gate('/api/v1/verify/apikey')).status).toBe(200)
+        expect((await gate('/api/v1/verify/apikey/')).status).toBe(200)
+        expect((await gate('/api/v1/verify/apike')).status).toBe(401)
+        expect((await gate('/api/v1/pin')).status).toBe(401)
+    })
+
     it('returns 401 for a session POST without x-request-from internal, and passes with that header', async () => {
         const attachIdentitySession = async () => sessionUser
         const denied = await app({ attachIdentitySession }).post('/api/v1/chatflows')

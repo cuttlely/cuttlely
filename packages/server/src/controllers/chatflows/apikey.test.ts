@@ -1,11 +1,13 @@
 const getApiKey = jest.fn()
+const verifyApiKey = jest.fn()
 const getChatflowByApiKey = jest.fn()
 const logger = { error: jest.fn(), info: jest.fn(), warn: jest.fn(), debug: jest.fn(), http: jest.fn() }
 
 jest.mock('../../services/apikey', () => ({
     __esModule: true,
     default: {
-        getApiKey: (...args: unknown[]) => getApiKey(...args)
+        getApiKey: (...args: unknown[]) => getApiKey(...args),
+        verifyApiKey: (...args: unknown[]) => verifyApiKey(...args)
     }
 }))
 
@@ -42,7 +44,12 @@ jest.mock('../../utils/logger', () => ({
     default: logger
 }))
 
+import express from 'express'
+import request from 'supertest'
 import chatflowsController from './index'
+import chatflowsRouter from '../../routes/chatflows'
+import verifyRouter from '../../routes/verify'
+import apikeyController from '../apikey'
 
 const secret = 'not-a-real-key'
 
@@ -76,7 +83,11 @@ describe('getChatflowByApiKey', () => {
         const res = response()
         const next = jest.fn()
 
-        await chatflowsController.getChatflowByApiKey({ params: { apikey: secret }, query: {} } as any, res as any, next)
+        await chatflowsController.getChatflowByApiKey(
+            { headers: { authorization: `Bearer ${secret}` }, params: {}, query: {} } as any,
+            res as any,
+            next
+        )
 
         expect(res.statusCode).toBe(401)
         expect(res.body).toBe('Unauthorized')
@@ -91,7 +102,11 @@ describe('getChatflowByApiKey', () => {
         const res = response()
         const next = jest.fn()
 
-        await chatflowsController.getChatflowByApiKey({ params: { apikey: secret }, query: {} } as any, res as any, next)
+        await chatflowsController.getChatflowByApiKey(
+            { headers: { authorization: `Bearer ${secret}` }, params: {}, query: {} } as any,
+            res as any,
+            next
+        )
 
         expect(res.body).toBeUndefined()
         expect(next).toHaveBeenCalledTimes(1)
@@ -105,7 +120,11 @@ describe('getChatflowByApiKey', () => {
         const res = response()
         const next = jest.fn()
 
-        await chatflowsController.getChatflowByApiKey({ params: { apikey: secret }, query: { keyonly: 'true' } } as any, res as any, next)
+        await chatflowsController.getChatflowByApiKey(
+            { headers: { authorization: `Bearer ${secret}` }, params: {}, query: { keyonly: 'true' } } as any,
+            res as any,
+            next
+        )
 
         expect(next).not.toHaveBeenCalled()
         expect(getApiKey).toHaveBeenCalledWith(secret)
@@ -114,5 +133,124 @@ describe('getChatflowByApiKey', () => {
         expect(JSON.stringify(res.body)).not.toContain('flowData')
         expect(JSON.stringify(logger.error.mock.calls)).not.toContain(secret)
         expect(JSON.stringify(logger.info.mock.calls)).not.toContain(secret)
+    })
+
+    it('does not take the key from the URL path', async () => {
+        const res = response()
+        const next = jest.fn()
+
+        await chatflowsController.getChatflowByApiKey({ headers: {}, params: { apikey: secret }, query: {} } as any, res as any, next)
+
+        expect(getApiKey).not.toHaveBeenCalled()
+        expect(next).toHaveBeenCalledTimes(1)
+        expect(next.mock.calls[0][0].statusCode).toBe(412)
+    })
+
+    it('ignores an Authorization header that is not a bearer key', async () => {
+        const res = response()
+        const next = jest.fn()
+
+        await chatflowsController.getChatflowByApiKey(
+            { headers: { authorization: `Basic ${secret}` }, params: {}, query: {} } as any,
+            res as any,
+            next
+        )
+
+        expect(getApiKey).not.toHaveBeenCalled()
+        expect(next.mock.calls[0][0].statusCode).toBe(412)
+    })
+})
+
+describe('refuseApiKeyInUrl', () => {
+    it('answers 400 and names the Authorization header without echoing the key', () => {
+        const res = response()
+
+        apikeyController.refuseApiKeyInUrl({ params: { apikey: secret } } as any, res as any)
+
+        expect(res.statusCode).toBe(400)
+        expect(JSON.stringify(res.body)).toContain('Authorization: Bearer')
+        expect(JSON.stringify(res.body)).not.toContain(secret)
+        expect(getApiKey).not.toHaveBeenCalled()
+    })
+})
+
+describe('verifyApiKey', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+    })
+
+    it('checks the key from the Authorization header', async () => {
+        verifyApiKey.mockResolvedValue('OK')
+        const res = response()
+        const next = jest.fn()
+
+        await apikeyController.verifyApiKey({ headers: { authorization: `Bearer ${secret}` }, params: {} } as any, res as any, next)
+
+        expect(verifyApiKey).toHaveBeenCalledWith(secret)
+        expect(res.body).toBe('OK')
+        expect(next).not.toHaveBeenCalled()
+    })
+
+    it('does not check a key sent in the URL path', async () => {
+        const res = response()
+        const next = jest.fn()
+
+        await apikeyController.verifyApiKey({ headers: {}, params: { apikey: secret } } as any, res as any, next)
+
+        expect(verifyApiKey).not.toHaveBeenCalled()
+        expect(next.mock.calls[0][0].statusCode).toBe(412)
+    })
+})
+
+describe('chatflows API-key routes', () => {
+    const app = express()
+    app.use('/api/v1/chatflows', chatflowsRouter)
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+    })
+
+    it('serves GET /apikey/ from the Authorization header, not as a chatflow id', async () => {
+        getApiKey.mockResolvedValue({ id: 'key-row', workspaceId: 'ws-1' })
+        getChatflowByApiKey.mockResolvedValue([])
+
+        const res = await request(app).get('/api/v1/chatflows/apikey/').set('Authorization', `Bearer ${secret}`)
+
+        expect(res.status).toBe(200)
+        expect(getApiKey).toHaveBeenCalledWith(secret)
+    })
+
+    it('refuses a key in the URL path without looking it up', async () => {
+        const res = await request(app).get(`/api/v1/chatflows/apikey/${secret}`)
+
+        expect(res.status).toBe(400)
+        expect(res.text).not.toContain(secret)
+        expect(getApiKey).not.toHaveBeenCalled()
+    })
+})
+
+describe('verify API-key routes', () => {
+    const app = express()
+    app.use('/api/v1/verify', verifyRouter)
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+    })
+
+    it('serves GET /api/v1/verify/apikey without a trailing slash from the Authorization header', async () => {
+        verifyApiKey.mockResolvedValue('OK')
+
+        const res = await request(app).get('/api/v1/verify/apikey').set('Authorization', `Bearer ${secret}`)
+
+        expect(res.status).toBe(200)
+        expect(verifyApiKey).toHaveBeenCalledWith(secret)
+    })
+
+    it('refuses a key in the URL path without checking it', async () => {
+        const res = await request(app).get(`/api/v1/verify/apikey/${secret}`)
+
+        expect(res.status).toBe(400)
+        expect(res.text).not.toContain(secret)
+        expect(verifyApiKey).not.toHaveBeenCalled()
     })
 })

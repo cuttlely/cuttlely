@@ -44,6 +44,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Security
 
+-   `GET /api/v1/chatflows/apikey` and `GET /api/v1/verify/apikey` read the API key from the `Authorization: Bearer` header. The older form with the key in the URL path (`/chatflows/apikey/<key>`, `/verify/apikey/<key>`) now answers 400 and does not check the key, because proxies, browser history and access logs keep URLs.
+-   A Code Repository source refuses a branch that starts with `-`, and its git clone and fetch end options with `--`, so a branch or URL can never reach git as an option such as `--upload-pack`.
 -   Text parsing that code scanning reported as slow regular expressions now runs in linear time: the chat widget's host and link base, ETL number, JSON and whitespace handling, quota error detection and collection names, and in harnesses the analyst statement fingerprint, keyword connection strings, upload stubs, pin lines, closing source lines, numbered task lists and arithmetic questions. Answers are unchanged, with two exceptions: a closing source at the end of a line that ends with a carriage return is now found, and the first-run owner email is refused when a domain label is empty (`rosa@bakery..example`, `rosa@bakery.example.`).
 -   A raw MCP server listed in a specialist record's `mcpServers` now passes the same checks as a Custom MCP node (`CUSTOM_MCP_ALLOWED_COMMANDS`, `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS`, `CUSTOM_MCP_ALLOWED_ENV_VARS`, no `cwd`, no shell characters, no code-running flags) before the agent runtime starts it. One that fails is left out of the profile with a warning in the server log. `CUSTOM_MCP_SECURITY_CHECK=false` turns the checks off, as it does for the node.
 
