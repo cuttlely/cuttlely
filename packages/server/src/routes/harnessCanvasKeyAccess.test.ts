@@ -33,6 +33,8 @@ jest.mock('../controllers/flow-promote', () => standIn('promote'))
 jest.mock('../controllers/apikey', () => standIn('apikey'))
 jest.mock('../controllers/mcp-server', () => standIn('mcp'))
 jest.mock('../controllers/flow-configs', () => standIn('config'))
+jest.mock('../controllers/chat-messages', () => standIn('messages'))
+jest.mock('../controllers/stats', () => standIn('stats'))
 jest.mock('../identity/production', () => ({ applicationSql: () => ({}) }))
 
 type Key = { id: string; workspaceId: string; harnesses: string[] | null }
@@ -57,6 +59,9 @@ import flowDraftsRouter from './flow-drafts'
 import flowVersionsRouter from './flow-versions'
 import mcpServerRouter from './mcp-server'
 import flowConfigRouter from './flow-config'
+import chatMessagesRouter from './chat-messages'
+import internalChatMessagesRouter from './internal-chat-messages'
+import statsRouter from './stats'
 
 const ALL = [
     'chatflows:view',
@@ -104,11 +109,17 @@ function app() {
             attachIdentitySession: async (req) => (req.headers.cookie === 'session=ok' ? { ...person } : null)
         })
     )
-    server.use('/api/v1/chatflows', chatflowsRouter)
-    server.use('/api/v1/flow-drafts', flowDraftsRouter)
-    server.use('/api/v1/flow-versions', flowVersionsRouter)
-    server.use('/api/v1/mcp-server', mcpServerRouter)
-    server.use('/api/v1/flow-config', flowConfigRouter)
+    // Mounted as in routes/index.ts: one /api/v1 router, so `/api/v1//chatflows` routes as it does on the server.
+    const api = express.Router()
+    api.use('/chatflows', chatflowsRouter)
+    api.use('/flow-drafts', flowDraftsRouter)
+    api.use('/flow-versions', flowVersionsRouter)
+    api.use('/mcp-server', mcpServerRouter)
+    api.use('/flow-config', flowConfigRouter)
+    api.use('/chatmessage', chatMessagesRouter)
+    api.use('/internal-chatmessage', internalChatMessagesRouter)
+    api.use('/stats', statsRouter)
+    server.use('/api/v1', api)
     return request(server)
 }
 
@@ -122,6 +133,7 @@ const PLAIN_CHAT = '44444444-4444-4444-8444-444444444444'
 const KEYLESS_PAYROLL = '55555555-5555-4555-8555-555555555555'
 const OWN_BAKERY = '66666666-6666-4666-8666-666666666666'
 const OWN_PAYROLL = '77777777-7777-4777-8777-777777777777'
+const ESCAPED_KEYLESS = '88888888-8888-4888-8888-888888888888'
 const SHA = 'abcdef1'
 
 const harnessCard = (name: string) => JSON.stringify({ nodes: [{ data: { name: 'harness', inputs: { harnessName: name } } }], edges: [] })
@@ -137,6 +149,9 @@ const agentTool = (name: string) =>
         ],
         edges: []
     })
+
+/** A Harness card whose key is written with a JSON escape: `"harness\u004eame"` parses to `harnessName`. */
+const escapedCard = (name: string) => harnessCard(name).replace('"harnessName"', '"harness\\u004eame"')
 
 beforeAll(() => setTeamPermissionLookup({ accessFor: async () => ({ owner: true, permissions: null }) }))
 afterAll(() => setTeamPermissionLookup(null))
@@ -175,6 +190,7 @@ beforeEach(() => {
         flowData: harnessCard('payroll'),
         apikeyid: 'key-bakery'
     })
+    flows.set(ESCAPED_KEYLESS, { ...base, id: ESCAPED_KEYLESS, name: 'Escaped', type: 'CHATFLOW', flowData: escapedCard('payroll') })
 })
 
 /** The path as sent, with each word of each fixed segment after /api/v1/ capitalised, and in mixed case. */
@@ -201,9 +217,9 @@ function spellings(path: string): string[] {
 
 type Method = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
-/** Sends the request as written, capitalised, and in mixed case, and expects each one refused before a handler. */
+/** Sends the request as written, capitalised, in mixed case, and with a doubled slash, and expects each one refused. */
 async function refusedInEveryCase(method: Method, path: string, headers: Record<string, string>, body?: object, status = 403) {
-    for (const spelled of [path, ...spellings(path)]) {
+    for (const spelled of [path, ...spellings(path), path.replace('/api/v1/', '/api/v1//')]) {
         const sent = app()[method](spelled).set(headers)
         const res = body === undefined ? await sent : await sent.send(body)
         expect({ method, spelled, status: res.status }).toEqual({ method, spelled, status })
@@ -385,5 +401,55 @@ describe('flow config reads use the chatflow read checks', () => {
         await refusedInEveryCase('get', `/api/v1/flow-config/${PAYROLL}`, KEY)
         expect((await app().get(`/api/v1/flow-config/${BAKERY}`).set(KEY)).status).toBe(200)
         expect(handled).toEqual(['config.getSingleFlowConfig'])
+    })
+})
+
+describe('a harness name written with a JSON escape is still read', () => {
+    it('refuses a save, a draft save, and MCP, a webhook secret or the schedule on a keyless flow that names it', async () => {
+        expect(JSON.parse(escapedCard('payroll')).nodes[0].data.inputs.harnessName).toBe('payroll')
+        await refusedInEveryCase('post', '/api/v1/chatflows', KEY, { name: 'Escaped', type: 'CHATFLOW', flowData: escapedCard('payroll') })
+        await refusedInEveryCase('put', `/api/v1/flow-drafts/${PLAIN_CHAT}`, KEY, { flowData: escapedCard('payroll') })
+        await refusedInEveryCase('post', `/api/v1/mcp-server/${ESCAPED_KEYLESS}`, KEY, {})
+        await refusedInEveryCase('post', `/api/v1/chatflows/${ESCAPED_KEYLESS}/webhook-secret`, KEY, {})
+        await refusedInEveryCase('patch', `/api/v1/chatflows/${ESCAPED_KEYLESS}/schedule/enabled`, KEY, { enabled: true })
+        const listed = await app()
+            .post('/api/v1/chatflows')
+            .set(KEY)
+            .send({ name: 'Escaped', flowData: escapedCard('bakery') })
+        expect(listed.status).toBe(200)
+    })
+})
+
+describe('the webhook secret: only on a flow the key could run, with its harnesses on the list', () => {
+    it("refuses rotating or clearing another key's secret, or one on a flow naming a harness off the list, in every case", async () => {
+        for (const id of [KEYED_CHAT, KEYLESS_PAYROLL, OWN_PAYROLL]) {
+            await refusedInEveryCase('post', `/api/v1/chatflows/${id}/webhook-secret`, KEY, {})
+            await refusedInEveryCase('delete', `/api/v1/chatflows/${id}/webhook-secret`, KEY)
+        }
+        expect((await app().post(`/api/v1/chatflows/${OWN_BAKERY}/webhook-secret`).set(KEY).send({})).status).toBe(200)
+        expect((await app().delete(`/api/v1/chatflows/${PLAIN_CHAT}/webhook-secret`).set(KEY)).status).toBe(200)
+        expect((await app().post(`/api/v1/chatflows/${KEYED_CHAT}/webhook-secret`).set(SESSION).send({})).status).toBe(200)
+        expect(handled).toEqual(['chatflows.setWebhookSecret', 'chatflows.clearWebhookSecret', 'chatflows.setWebhookSecret'])
+    })
+})
+
+describe("a HARNESS canvas's chat, totals and schedule reads need its name on the key list", () => {
+    it('refuses messages, abort, clear, the canvas chat, stats, schedule status and logs, and has-changed, in every case', async () => {
+        await refusedInEveryCase('get', `/api/v1/chatmessage/${PAYROLL}`, KEY)
+        // /chatmessage/abort is on the public list, so a key is never signed in there and the role check answers 401.
+        await refusedInEveryCase('put', `/api/v1/chatmessage/abort/${PAYROLL}/chat-1`, KEY, {}, 401)
+        await refusedInEveryCase('delete', `/api/v1/chatmessage/${PAYROLL}`, KEY)
+        await refusedInEveryCase('get', `/api/v1/internal-chatmessage/${PAYROLL}`, KEY)
+        await refusedInEveryCase('get', `/api/v1/stats/${PAYROLL}`, KEY)
+        await refusedInEveryCase('get', `/api/v1/chatflows/${PAYROLL}/schedule/status`, KEY)
+        await refusedInEveryCase('get', `/api/v1/chatflows/${PAYROLL}/schedule/trigger-logs`, KEY)
+        await refusedInEveryCase('delete', `/api/v1/chatflows/${PAYROLL}/schedule/trigger-logs`, KEY)
+        await refusedInEveryCase('get', `/api/v1/chatflows/has-changed/${PAYROLL}/1`, KEY)
+        keys.set('key-bakery', { id: 'key-bakery', workspaceId: 'team-a', harnesses: [] })
+        await refusedInEveryCase('get', `/api/v1/chatmessage/${BAKERY}`, KEY)
+        keys.set('key-bakery', { id: 'key-bakery', workspaceId: 'team-a', harnesses: ['bakery'] })
+        expect((await app().get(`/api/v1/chatmessage/${BAKERY}`).set(KEY)).status).toBe(200)
+        expect((await app().get(`/api/v1/stats/${PLAIN_CHAT}`).set(KEY)).status).toBe(200)
+        expect(handled).toEqual(['messages.getAllChatMessages', 'stats.getChatflowStats'])
     })
 })

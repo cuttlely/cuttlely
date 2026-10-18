@@ -48,13 +48,25 @@ router.delete(
 )
 
 // WEBHOOK SECRET
-router.post('/:id/webhook-secret', requireAnyPermission('chatflows:update,agentflows:update'), chatflowsController.setWebhookSecret)
-router.delete('/:id/webhook-secret', requireAnyPermission('chatflows:update,agentflows:update'), chatflowsController.clearWebhookSecret)
+// The secret lets a caller run the flow's webhook, which uses the flow's own key: same rule as MCP and the schedule.
+router.post(
+    '/:id/webhook-secret',
+    requireAnyPermission('chatflows:update,agentflows:update'),
+    requireFlowRunnableByKey(),
+    chatflowsController.setWebhookSecret
+)
+router.delete(
+    '/:id/webhook-secret',
+    requireAnyPermission('chatflows:update,agentflows:update'),
+    requireFlowRunnableByKey(),
+    chatflowsController.clearWebhookSecret
+)
 
 // CHECK FOR CHANGE
 router.get(
     '/has-changed/:id/:lastUpdatedDateTime',
     requireAnyPermission('chatflows:update,agentflows:update'),
+    requireHarnessCanvasAccess({ body: false }),
     chatflowsController.checkIfChatflowHasChanged
 )
 
@@ -62,6 +74,7 @@ router.get(
 router.get(
     '/:id/schedule/status',
     requireAnyPermission('chatflows:view,chatflows:update,agentflows:view,agentflows:update'),
+    requireHarnessCanvasAccess({ body: false }),
     chatflowsController.getScheduleStatus
 )
 // A schedule runs the flow under its own key: an API key may switch it only on a flow it could run itself.
@@ -74,11 +87,13 @@ router.patch(
 router.get(
     '/:id/schedule/trigger-logs',
     requireAnyPermission('chatflows:view,chatflows:update,agentflows:view,agentflows:update'),
+    requireHarnessCanvasAccess({ body: false }),
     chatflowsController.getScheduleTriggerLogs
 )
 router.delete(
     '/:id/schedule/trigger-logs',
     requireAnyPermission('chatflows:update,agentflows:update,executions:delete'),
+    requireHarnessCanvasAccess({ body: false }),
     chatflowsController.deleteScheduleTriggerLogs
 )
 
