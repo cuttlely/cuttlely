@@ -466,7 +466,7 @@ const installs = [
                 </p>
                 <p class="cl-note">
                     Put the team behind a chatflow with one Harness card, publish it, and bind a key from <strong>API Keys</strong>. On that key, tick the harness under
-                    <strong>Harnesses this key may run</strong>: a new key runs no harness, and the call answers <code>403</code> until it is ticked.
+                    <strong>Harnesses this key may run</strong>: every key, including keys made before upgrading to 1.3.0, starts with an empty list, so the call answers <code>403</code> until the harness is ticked.
                 </p>
             </div>
             <div class="cl-code-pair">
