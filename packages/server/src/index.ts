@@ -30,12 +30,12 @@ import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
 import { attachIdentitySession } from './identity'
-import { apiV1Auth } from './identity/apiGate'
+import { apiV1Auth, withoutDenylisted } from './identity/apiGate'
 import { resolveTrustProxy } from './utils/trustProxy'
 import { UsageCacheManager } from './UsageCacheManager'
 import { getEncryptionKey, getNodeModulesPackagePath } from './utils'
 import { fileSizeLimit } from './settings/settingAlias'
-import { API_KEY_BLACKLIST_URLS, WHITELIST_URLS } from './utils/constants'
+import { API_KEY_BLACKLIST_URLS, READ_ONLY_WHITELIST_URLS, WHITELIST_URLS } from './utils/constants'
 import logger, { expressRequestLogger } from './utils/logger'
 import { RateLimiterManager, uiAssetMiddleware, uiPageRateLimiter } from './utils/rateLimit'
 import { chatWidgetScript } from './utils/chatWidget'
@@ -242,12 +242,12 @@ export class App {
         // Add the sanitizeMiddleware to guard against XSS
         this.app.use(sanitizeMiddleware)
 
-        const denylistURLs = process.env.DENYLIST_URLS ? process.env.DENYLIST_URLS.split(',') : []
-        const whitelistURLs = WHITELIST_URLS.filter((url) => !denylistURLs.includes(url))
+        const whitelistURLs = withoutDenylisted(WHITELIST_URLS, process.env.DENYLIST_URLS)
 
         this.app.use(
             apiV1Auth({
                 whitelistURLs,
+                readOnlyWhitelistURLs: READ_ONLY_WHITELIST_URLS,
                 apiKeyBlacklistURLs: API_KEY_BLACKLIST_URLS,
                 licenseRequired: () =>
                     this.identityManager.getPlatformType() !== Platform.OPEN_SOURCE && !this.identityManager.isLicenseValid(),
