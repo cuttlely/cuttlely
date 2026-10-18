@@ -62,9 +62,9 @@ Open **Admin**, then **Users**, or go to `/users`. You need `users:manage`.
 
 Cuttlely stores the person as a pending invite (`invited`) and does not set a password. With WorkOS on, the dialog then shows a one-time invite link once, and Cuttlely also emails it when mail is set. The person joins only by opening that link and signing in with that email: a WorkOS sign-in with a matching email alone shows `You have a pending invite. Open the invite link from your email to join.` The link is single use, expires, and stops working when a newer one replaces it or the person is disabled or removed. They have no access to any team until they accept. See [Invite people](./sign-in.md#invite-people).
 
-![Add User. Name is Avery Chen. Email is avery.chen@example.com. The note says they sign in with WorkOS and no password is stored here. Team is Default Workspace. Role is Reader. Cancel and Create User are at the bottom.](../images/roles/add-user.png)
+![Add User. Name is Avery Chen. Email is avery.chen@example.com. The note says they join from a one-time invite link and sign in with WorkOS, and no password is stored here. Team is Default Workspace. Role is Reader. Cancel and Create User are at the bottom.](../images/roles/add-user.png)
 
-![User Management. Casey Quinn, casey.quinn@example.com, is Super User, read-only, ACTIVE, with 1 assigned role. Avery Chen, avery.chen@example.com, is ACTIVE, last login Never, with 1 assigned role. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/roles/users-list.png)
+![User Management. Casey Quinn, casey.quinn@example.com, is Super User, read-only, ACTIVE, with 1 assigned role. Avery Chen, avery.chen@example.com, is INVITED, a pending invite, last login Never, with 1 assigned role. The sidebar shows the Admin menu: Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History.](../images/roles/users-list.png)
 
 The eye on a row lists each team and the role on that team. The trash icon removes the person. You cannot delete the organization owner or your own row. The assigned-role count and the last login include every team in the organization for an organization owner, except Personal Workspace. Anyone else sees only the teams they belong to.
 

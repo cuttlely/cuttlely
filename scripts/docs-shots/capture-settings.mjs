@@ -559,7 +559,8 @@ async function captureSetup(browser) {
     }
 }
 
-async function captureRoles(browser) {
+async function captureRoles(browser, only = null) {
+    const want = (rel) => !only || only.has(rel)
     const server = startServer(mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-roles-')), 44119, {
         CUTTLELY_LOCAL_ADMIN: 'true',
         LOG_LEVEL: 'info'
@@ -580,7 +581,7 @@ async function captureRoles(browser) {
                 .filter({ hasText: /^View$/ })
                 .first()
                 .click()
-            await shotBox(page, dialog, 'roles/create-role.png', { width: 900, height: 850 })
+            if (want('roles/create-role.png')) await shotBox(page, dialog, 'roles/create-role.png', { width: 900, height: 850 })
             await dialog.getByRole('button', { name: 'Create Role' }).click()
             await page.getByText('Reader').first().waitFor()
 
@@ -598,12 +599,15 @@ async function captureRoles(browser) {
             // A fresh load drops the User created notice, which would sit over the Admin menu.
             await page.reload({ waitUntil: 'domcontentloaded' })
             await page.getByText(AVERY.name).waitFor()
+            await page.getByText('INVITED', { exact: true }).first().waitFor()
             await shot(page, 'roles/users-list.png', ADMIN_VIEW)
             await assertAdminMenu(page, 'roles/users-list.png')
 
-            await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
-            await page.getByText('Reader').first().waitFor()
-            await shot(page, 'roles/roles-list.png')
+            if (want('roles/roles-list.png')) {
+                await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
+                await page.getByText('Reader').first().waitFor()
+                await shot(page, 'roles/roles-list.png')
+            }
         } finally {
             await context.close()
         }
@@ -824,6 +828,10 @@ async function main() {
     try {
         if (process.env.DOCS_SHOTS === 'testing') {
             await captureTesting(browser)
+            return
+        }
+        if (process.env.DOCS_SHOTS === 'roles') {
+            await captureRoles(browser, new Set(['roles/add-user.png', 'roles/users-list.png']))
             return
         }
         if (process.env.DOCS_SHOTS === 'local-users') {
