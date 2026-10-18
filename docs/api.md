@@ -581,7 +581,7 @@ The routes above are how an app asks a published flow. These management routes a
 -   `GET /api/v1/server-settings/history` pages settings changes. Testing and Limits, including `CUTTLELY_PUBLISH_CHECK`, apply on the next use. [Server settings API](./reference/server-settings-api.md).
 -   `POST /api/v1/auth/local/login`, `POST /api/v1/auth/local/logout`, `POST /api/v1/auth/local/password`, and `POST /api/v1/auth/local/accept` are local password sign-in. [Auth API](./reference/auth-api.md).
 -   `GET /api/v1/auth/options` reports which methods are on, including `status` after AuthKit is linked. [Which methods are on](./reference/auth-api.md#which-methods-are-on).
--   `POST /api/v1/account/invite` with `link: true`, and `POST /api/v1/users/:id/reset-link`, return a one-time URL. [One-time links](./reference/auth-api.md#one-time-links).
+-   `POST /api/v1/account/invite` with `link: true`, and `POST /api/v1/users/:id/reset-link`, return a one-time URL. An invited person is pending until they open their own invite link; a sign-in with a matching email alone never activates them. With AuthKit on, an invite always returns or emails the link. [One-time links](./reference/auth-api.md#one-time-links).
 -   `POST /api/v1/users/:id/disable`, `POST /api/v1/users/:id/enable`, and `GET /api/v1/users/:id/sessions` manage local users. [Local users, roles, and sessions](./reference/local-directory-api.md).
 -   `GET /api/v1/audit` lists sign-in, role, and settings events. [Audit API](./reference/audit-api.md).
 

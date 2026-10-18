@@ -98,6 +98,23 @@ A session is bound to that user id. It does not grant the owner role. The role i
 
 The first owner is still created with the one-time setup code. No route sets another user's password. Invited users have no password until a sign-in link exists. Details are in [Users without AuthKit](./docs/how-to/users-without-authkit.md) and the [Auth API](./docs/reference/auth-api.md).
 
+## Invites
+
+A person an admin adds is stored as a pending invite (`invited`). They have no access to any team until they accept, and only their own one-time invite link accepts:
+
+-   **A token is required.** The link carries a random token in the URL fragment, which the server log does not receive. The database stores only its SHA-256. With AuthKit on, the token reaches the sign-in callback in an `HttpOnly`, `SameSite=Lax` cookie that lasts 15 minutes, never in a URL.
+-   **Single use.** Using the token, making the person active, and binding their AuthKit sign-in happen in one transaction, so a second use of the same link is refused, even when two sign-ins race.
+-   **Expiry.** A link lasts the invite link lifetime: 72 hours by default, 1 to 168 hours in **Server Settings** (`INVITE_TOKEN_EXPIRY_IN_HOURS`).
+-   **Only for that person.** The token must be the one made for that user, and the AuthKit email must match the email the invite was sent to.
+-   **Revoked or removed invalidates.** A newer link for the same person replaces the older one. Disabling a pending person, or removing them from the team or the organization, marks their open links used, so adding them back does not bring an old link back. Enabling a user never makes a pending invite active.
+-   **An email match alone never activates.** A sign-in whose email matches a pending invite does not activate it, even when the identity provider reports the email as verified. The sign-in page shows `You have a pending invite. Open the invite link from your email to join.` and the person stays pending.
+
+Issued, used, and refused links are audit rows with a short reason. They do not store the token, the URL, or the email. People added before 1.3.0 were stored as active, not pending, so these rules do not cover them until they are removed and invited again ([Upgrading](./docs/upgrading.md#invites-after-130)). The full flow is in [Invite people](./docs/how-to/sign-in.md#invite-people).
+
+## Stored files
+
+Files a request names are written only inside their storage folder. In local, S3, Google Cloud Storage, and Azure storage, every file name and folder part is checked before any write or read: `..`, encoded separators, control characters, and absolute paths are refused, and separators and leading dots are then removed, so a name stays inside the folder even with `PATH_TRAVERSAL_SAFETY=false`. Upload bodies are saved under random names. ETL uploads keep only letters, digits, `.`, `_`, and `-`, inside a new random folder. A harness file name must be a letter followed by letters, digits, `_`, or `-`, and harness file staging copies only files that resolve inside the upload folders, under their base name. Document loaders that download from S3 write through a check that keeps each path inside a new temporary folder.
+
 ## Maintainer checks
 
 The merge gate is `pnpm verify` on Node 24, described in [CONTRIBUTING.md](./CONTRIBUTING.md). It fails when a secret-like value or a removed commercial path is committed. Do not commit secrets, tokens or `.env` files.

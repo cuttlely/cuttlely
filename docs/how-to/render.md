@@ -68,7 +68,7 @@ In WorkOS, set these URIs to the service's real address:
 
 1. Open `https://your-service.onrender.com/signin`. The page shows **Sign in with WorkOS**.
 2. Sign in with the email in `CUTTLELY_BOOTSTRAP_EMAIL`. You become the owner.
-3. Add other people under **Admin** > **Users**, then send them the sign-in link. See [Sign in with WorkOS](./sign-in.md#sign-in-with-workos).
+3. Add other people under **Admin** > **Users**, then send each person the one-time invite link **Add User** shows. They join only through that link. See [Invite people](./sign-in.md#invite-people).
 
 `CUTTLELY_LOCAL_ADMIN` isn't in `render.yaml`, so the password form is off. See [Recover access](#recover-access).
 
