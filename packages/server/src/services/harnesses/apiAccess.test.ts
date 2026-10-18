@@ -25,22 +25,25 @@ jest.mock('../../identity/production', () => ({ applicationSql: () => ({}) }))
 const storedKeys: Array<{ id: string; workspaceId: string; harnesses: string[] | null }> = []
 const savedKeys: string[] = []
 const boundFlows: Array<{ id: string; apikeyid: string; workspaceId: string; flowData: string }> = []
-jest.mock('../../DataSource', () => ({
-    getDataSource: () => ({
-        getRepository: (entity: { name?: string }) =>
-            entity?.name === 'ChatFlow'
-                ? { find: async () => boundFlows }
-                : {
-                      findBy: async ({ workspaceId }: { workspaceId: string }) =>
-                          storedKeys.filter((key) => key.workspaceId === workspaceId),
-                      findOneBy: async ({ id }: { id: string }) => storedKeys.find((key) => key.id === id) ?? null,
-                      save: async (key: { id: string }) => {
-                          savedKeys.push(key.id)
-                          return key
-                      }
+jest.mock('../../DataSource', () => {
+    const getRepository = (entity: { name?: string }) =>
+        entity?.name === 'ChatFlow'
+            ? { find: async () => boundFlows }
+            : {
+                  findBy: async ({ workspaceId }: { workspaceId: string }) => storedKeys.filter((key) => key.workspaceId === workspaceId),
+                  findOneBy: async ({ id }: { id: string }) => storedKeys.find((key) => key.id === id) ?? null,
+                  save: async (key: { id: string }) => {
+                      savedKeys.push(key.id)
+                      return key
                   }
-    })
-}))
+              }
+    return {
+        getDataSource: () => ({
+            getRepository,
+            transaction: async (work: (manager: { getRepository: typeof getRepository }) => Promise<unknown>) => work({ getRepository })
+        })
+    }
+})
 
 jest.mock('../../identity/auditLog', () => ({
     safeRecordAudit: async (_sql: unknown, event: (typeof audits)[number]) => {
@@ -298,6 +301,17 @@ describe('a canvas save from an API key', () => {
             referencedHarnessNames('{"a":{"agentSelectedToolConfig":{"harnessName":[["payroll"]]}},"b":{"harnessName":"bakery"}}')
         ).toEqual(['bakery', '<invalid>'])
         expect(referencedHarnessNames('{"a":{"harnessName":""},"b":{"harnessName":null}}')).toEqual([])
+        // The runtime does not trim, so a name with surrounding whitespace is refused rather than checked trimmed.
+        expect(referencedHarnessNames('{"a":{"harnessName":" payroll "}}')).toEqual(['<invalid>'])
+        expect(referencedHarnessNames('{"a":{"harnessName":"payroll\\n"}}')).toEqual(['<invalid>'])
+    })
+
+    it('refuses a harnessName deeper than the scan reads, escaped or not, and ignores a deep canvas without one', () => {
+        const nest = (inner: string, levels: number) => '{"x":'.repeat(levels) + inner + '}'.repeat(levels)
+        expect(referencedHarnessNames(nest('{"harnessName":"payroll"}', 63))).toEqual(['payroll'])
+        expect(referencedHarnessNames(nest('{"harnessName":"payroll"}', 80))).toEqual(['<invalid>'])
+        expect(referencedHarnessNames(nest('{"harness\\u004eame":"payroll"}', 80))).toEqual(['<invalid>'])
+        expect(referencedHarnessNames(nest('{"label":"deep"}', 80))).toEqual([])
         expect(referencedHarnessNames(undefined)).toEqual([])
     })
 })

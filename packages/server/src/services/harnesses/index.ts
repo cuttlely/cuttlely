@@ -264,14 +264,19 @@ const warmHarnesses = (names?: string[]) => {
 
 const deleteHarness = async (name: string, workspaceId?: string | null) => {
     const harness = await requireHarness(name, workspaceId)
-    const store = await loadHarness('store.mjs')
-    store.deleteHarness(name)
+    // Key lists first: if that fails the harness stays, so a later harness with this name cannot inherit the old grants.
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
         await removeHarnessFromKeyLists(harness.workspaceId || workspaceOf(workspaceId), name)
     } catch (error) {
-        logger.warn(`[harness] ${name} was not removed from API key lists: ${getErrorMessage(error)}`)
+        logger.warn(`[harness] ${name} was not deleted: removing it from API key lists failed: ${getErrorMessage(error)}`)
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Harness "${name}" was not deleted, because it could not be removed from API key lists. Try again.`
+        )
     }
+    const store = await loadHarness('store.mjs')
+    store.deleteHarness(name)
     return { name, deleted: true }
 }
 

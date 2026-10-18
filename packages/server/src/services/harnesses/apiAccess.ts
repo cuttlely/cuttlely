@@ -50,20 +50,25 @@ async function storedKey(id: string): Promise<StoredKey | null | undefined> {
     return getDataSource().getRepository(ApiKey).findOneBy({ id })
 }
 
-/** A deleted harness leaves every key's list in that team, so a later harness with the same name is not granted. */
+/**
+ * A deleted harness leaves every key's list in that team, so a later harness with the same name is not granted.
+ * One transaction: either every list drops the name or none does, and a failure reaches the caller.
+ */
 export async function removeHarnessFromKeyLists(workspaceId: string, name: string): Promise<number> {
     const { getDataSource } = await import('../../DataSource')
     const { ApiKey } = await import('../../database/entities/ApiKey')
-    const repo = getDataSource().getRepository(ApiKey)
-    let changed = 0
-    for (const key of await repo.findBy({ workspaceId })) {
-        const list = harnessAllowlist(key.harnesses)
-        if (!list.includes(name)) continue
-        key.harnesses = list.filter((item) => item !== name)
-        await repo.save(key)
-        changed += 1
-    }
-    return changed
+    return getDataSource().transaction(async (manager) => {
+        const repo = manager.getRepository(ApiKey)
+        let changed = 0
+        for (const key of await repo.findBy({ workspaceId })) {
+            const list = harnessAllowlist(key.harnesses)
+            if (!list.includes(name)) continue
+            key.harnesses = list.filter((item) => item !== name)
+            await repo.save(key)
+            changed += 1
+        }
+        return changed
+    })
 }
 
 /**
@@ -189,7 +194,8 @@ const MAX_REFERENCE_DEPTH = 64
 /**
  * Every harness a chatflow or agentflow canvas names: a Harness card, an Agent's harness tool
  * (`agentSelectedToolConfig.harnessName`), or any other `harnessName` value at any depth. `malformed` is true when a
- * `harnessName` holds anything but a string; `''` and null mean no harness is chosen yet.
+ * `harnessName` holds anything but a string, a string with surrounding whitespace, or sits deeper than the scan reads;
+ * `''` and null mean no harness is chosen yet.
  */
 export function harnessReferences(flowData: unknown): { names: string[]; malformed: boolean } {
     let parsed: unknown = flowData
@@ -204,7 +210,17 @@ export function harnessReferences(flowData: unknown): { names: string[]; malform
     const names = new Set<string>()
     let malformed = false
     const walk = (value: unknown, depth: number) => {
-        if (!value || typeof value !== 'object' || depth > MAX_REFERENCE_DEPTH) return
+        if (!value || typeof value !== 'object') return
+        if (depth > MAX_REFERENCE_DEPTH) {
+            // Past the scan depth a name is not read, so a harnessName down there is refused, not ignored.
+            // JSON.stringify writes every key plainly, so an escaped key is found too.
+            try {
+                if (JSON.stringify(value).includes('"harnessName"')) malformed = true
+            } catch {
+                malformed = true
+            }
+            return
+        }
         if (Array.isArray(value)) {
             for (const item of value) walk(item, depth + 1)
             return
@@ -212,7 +228,9 @@ export function harnessReferences(flowData: unknown): { names: string[]; malform
         for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
             if (key !== 'harnessName') walk(item, depth + 1)
             else if (typeof item === 'string') {
-                if (item.trim()) names.add(item.trim())
+                // The runtime does not trim, so " payroll " would be checked as payroll and then fail to run.
+                if (item !== item.trim()) malformed = true
+                else if (item) names.add(item)
             } else if (item !== null && item !== undefined) {
                 // The runtime once turned ["payroll"] into "payroll" while this scan saw no name at all.
                 malformed = true
@@ -235,7 +253,10 @@ export function referencedHarnessNames(flowData: unknown): string[] {
 /** Every save path, for a person or a key: a `harnessName` that is not a string is 400 and nothing is written. */
 export function assertHarnessReferencesWellFormed(flowData: unknown): void {
     if (!harnessReferences(flowData).malformed) return
-    throw new AppError(StatusCodes.BAD_REQUEST, 'A harness name on this canvas is not text. Pick the harness again on each Harness card.')
+    throw new AppError(
+        StatusCodes.BAD_REQUEST,
+        'A harness name on this canvas is not plain text. Pick the harness again on each Harness card.'
+    )
 }
 
 /** The first name this caller may not use, or null. A save with no caller, or a keyless flow's caller, may use none. */
