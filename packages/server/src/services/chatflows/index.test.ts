@@ -1278,6 +1278,25 @@ describe('harnesses a saved canvas names', () => {
         expect(assertNameAvailable.mock.calls).toEqual([['payroll', 'ws-1']])
     })
 
+    it('refuses a harness name that is a list or an object on every save, for a person and a key', async () => {
+        const listed = agentTool('payroll').replace('"harnessName":"payroll"', '"harnessName":["payroll"]')
+        const card = JSON.stringify({ nodes: [{ id: 'h', data: { name: 'harness', inputs: { harnessName: ['payroll'] } } }], edges: [] })
+        expect(listed.includes('["payroll"]')).toBe(true)
+        for (const flowData of [listed, card]) {
+            for (const caller of [{ via: 'session' as const }, keyCaller]) {
+                await expect(validateReferencedHarnesses({ flowData, workspaceId: 'ws-1' }, caller)).rejects.toMatchObject({
+                    statusCode: 400
+                })
+            }
+            await expect(
+                chatflowsService.saveChatflow(makeChatflow({ flowData }) as any, 'org-1', 'ws-1', 'sub-1', {} as any, undefined, {
+                    caller: { via: 'session' }
+                })
+            ).rejects.toMatchObject({ statusCode: 400 })
+        }
+        expect(assertNameAvailable).not.toHaveBeenCalled()
+    })
+
     it('refuses an import or a Publish, Roll back, or Restore that writes a canvas naming a harness off the key list', async () => {
         const existingFlow = makeChatflow({ flowData: makePlainFlowData() })
         await expect(

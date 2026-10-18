@@ -12,6 +12,8 @@ import logger from '../../utils/logger'
 export const HARNESS_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 export const HARNESS_ALLOWLIST_MAX = 200
 const INVALID_NAME = '<invalid>'
+/** Stands for a `harnessName` that is not text. No harness is named this, and no key lists it. */
+export const INVALID_HARNESS_REFERENCE = INVALID_NAME
 
 /** Runs started per minute per API key, or per person for a signed-in caller. */
 export const HARNESS_RUN_START_LIMIT = 60
@@ -186,19 +188,21 @@ const MAX_REFERENCE_DEPTH = 64
 
 /**
  * Every harness a chatflow or agentflow canvas names: a Harness card, an Agent's harness tool
- * (`agentSelectedToolConfig.harnessName`), or any other `harnessName` string at any depth.
+ * (`agentSelectedToolConfig.harnessName`), or any other `harnessName` value at any depth. `malformed` is true when a
+ * `harnessName` holds anything but a string; `''` and null mean no harness is chosen yet.
  */
-export function referencedHarnessNames(flowData: unknown): string[] {
+export function harnessReferences(flowData: unknown): { names: string[]; malformed: boolean } {
     let parsed: unknown = flowData
     // Always parsed: a text search for "harnessName" misses a key written with JSON escapes, such as harness\u004eame.
     if (typeof flowData === 'string') {
         try {
             parsed = JSON.parse(flowData)
         } catch {
-            return []
+            return { names: [], malformed: false }
         }
     }
     const names = new Set<string>()
+    let malformed = false
     const walk = (value: unknown, depth: number) => {
         if (!value || typeof value !== 'object' || depth > MAX_REFERENCE_DEPTH) return
         if (Array.isArray(value)) {
@@ -206,12 +210,32 @@ export function referencedHarnessNames(flowData: unknown): string[] {
             return
         }
         for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-            if (key === 'harnessName' && typeof item === 'string' && item.trim()) names.add(item.trim())
-            else walk(item, depth + 1)
+            if (key !== 'harnessName') walk(item, depth + 1)
+            else if (typeof item === 'string') {
+                if (item.trim()) names.add(item.trim())
+            } else if (item !== null && item !== undefined) {
+                // The runtime once turned ["payroll"] into "payroll" while this scan saw no name at all.
+                malformed = true
+            }
         }
     }
     walk(parsed, 0)
-    return [...names]
+    return { names: [...names], malformed }
+}
+
+/**
+ * The names for a key-list check. A malformed `harnessName` adds `<invalid>`, which is on no key's list, so every
+ * key-list check refuses that canvas.
+ */
+export function referencedHarnessNames(flowData: unknown): string[] {
+    const { names, malformed } = harnessReferences(flowData)
+    return malformed ? [...names, INVALID_NAME] : names
+}
+
+/** Every save path, for a person or a key: a `harnessName` that is not a string is 400 and nothing is written. */
+export function assertHarnessReferencesWellFormed(flowData: unknown): void {
+    if (!harnessReferences(flowData).malformed) return
+    throw new AppError(StatusCodes.BAD_REQUEST, 'A harness name on this canvas is not text. Pick the harness again on each Harness card.')
 }
 
 /** The first name this caller may not use, or null. A save with no caller, or a keyless flow's caller, may use none. */

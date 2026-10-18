@@ -13613,6 +13613,43 @@ await (async () => {
     )
 })()
 
+await (async () => {
+    const { assertHarnessName, deleteHarness } = await import('./store.mjs')
+    const codeOf = (fn) => {
+        try {
+            fn()
+            return 'none'
+        } catch (error) {
+            return error?.code || String(error)
+        }
+    }
+    const listName = ['research']
+    const objectName = { toString: () => 'research' }
+    const kept = getHarness('research')
+    let runError = null
+    try {
+        await runHarness({
+            name: listName,
+            chatId: 'list-name',
+            input: 'hello',
+            flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'flow' } }
+        })
+    } catch (error) {
+        runError = error
+    }
+    check(
+        'a harness name that is a list or an object is refused before it reads, deletes, or runs a harness file',
+        codeOf(() => assertHarnessName(listName)) === 'bad_name' &&
+            codeOf(() => assertHarnessName(objectName)) === 'bad_name' &&
+            codeOf(() => getHarness(listName)) === 'bad_name' &&
+            codeOf(() => deleteHarness(listName)) === 'bad_name' &&
+            JSON.stringify(getHarness('research')) === JSON.stringify(kept) &&
+            runError?.code === 'bad_name' &&
+            !runError?.harnessRun,
+        JSON.stringify({ run: runError?.code || runError?.message })
+    )
+})()
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)
