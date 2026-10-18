@@ -26,7 +26,8 @@ let shuttingDown = false
 const openRuns = new Set<Response>()
 
 export function isRunRequest(method: string, path: string): boolean {
-    return method === 'POST' && RUN_PATHS.some((pattern) => pattern.test(path))
+    const collapsed = path.replace(/\/{2,}/g, '/')
+    return method === 'POST' && RUN_PATHS.some((pattern) => pattern.test(collapsed))
 }
 
 export function runsInProgress(): number {
@@ -72,8 +73,7 @@ export function refuseWhileShuttingDown(_req: Request, res: Response, next: Next
  * prediction route while req.originalUrl still holds the encoded text; Express also routes `/api/v1//prediction`.
  */
 function routedPath(req: Request): string {
-    const routed = `${req.baseUrl || ''}${req.path || ''}` || (req.url || '').split('?')[0]
-    return routed.replace(/\/{2,}/g, '/')
+    return `${req.baseUrl || ''}${req.path || ''}` || (req.url || '').split('?')[0]
 }
 
 /** Express middleware: counts run requests, and turns new ones away while a restart waits. */
@@ -144,7 +144,7 @@ function endRun(res: Response): void {
             res.setHeader('Connection', 'close')
             res.status(503).json({ statusCode: 503, success: false, message: SHUTDOWN_MESSAGE, code: SHUTDOWN_CODE })
         } else {
-            const harness = Boolean(res.req) && /^\/api\/v1\/harnesses\//i.test(routedPath(res.req))
+            const harness = Boolean(res.req) && /^\/api\/v1\/harnesses\//i.test(routedPath(res.req).replace(/\/{2,}/g, '/'))
             if (String(res.getHeader('Content-Type') || '').includes('text/event-stream')) {
                 const data = harness ? { message: SHUTDOWN_MESSAGE } : SHUTDOWN_MESSAGE
                 res.write(`message:\ndata:${JSON.stringify({ event: 'error', data, status: 503, code: SHUTDOWN_CODE })}\n\n`)
