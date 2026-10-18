@@ -8,6 +8,14 @@ export function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (ch) => ESCAPES[ch])
 }
 
+/** `value` without trailing slashes. A scan from the end, so a long run of slashes stays linear. */
+export function trimTrailingSlashes(value) {
+    const text = String(value ?? '')
+    let end = text.length
+    while (end > 0 && text.charCodeAt(end - 1) === 47) end -= 1
+    return text.slice(0, end)
+}
+
 const SAFE_DATA_IMAGE = /^data:image\/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i
 
 /**
@@ -23,7 +31,7 @@ export function safeUrl(raw, { image = false, base = '' } = {}) {
     if (image && /^data:/i.test(url)) return SAFE_DATA_IMAGE.test(url) ? url.replace(/\s+/g, '') : null
     if (/^https?:\/\//i.test(url)) return url
     if (!image && /^mailto:[^/]/i.test(url)) return url
-    if (url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\')) return base ? base.replace(/\/+$/, '') + url : url
+    if (url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\')) return base ? trimTrailingSlashes(base) + url : url
     return null
 }
 

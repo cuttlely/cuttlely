@@ -13,12 +13,15 @@ function runKey(harness, specialist, chatId) {
     return `${String(harness || '')}\0${String(specialist || '')}\0${String(chatId || '')}`
 }
 
+// Drops trailing semicolons and spaces with a scan from the end, so a long run of them stays linear.
+function withoutTrailingSemicolons(text) {
+    let end = text.length
+    while (end > 0 && (text[end - 1] === ';' || text[end - 1] === ' ')) end -= 1
+    return text.slice(0, end).trim()
+}
+
 function statementFingerprint(sql, cursor) {
-    const statement = String(sql || '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .replace(/(?:\s*;+)+\s*$/, '')
-        .trim()
+    const statement = withoutTrailingSemicolons(String(sql || '').replace(/\s+/g, ' '))
     if (statement) return crypto.createHash('sha256').update(statement).digest('hex').slice(0, 16)
     const token = String(cursor || '').trim()
     if (token) return crypto.createHash('sha256').update(`cursor:${token}`).digest('hex').slice(0, 16)

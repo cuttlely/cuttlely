@@ -304,7 +304,8 @@ export function stageUploadFile(sourcePath, workspaceDir, roots = defaultUploadR
 
 function parseAttrs(raw) {
     const attrs = {}
-    const re = /([A-Za-z0-9_-]+)='([^']*)'/g
+    // The lookbehind starts a name only at the start of a word, so a long run with no `=` is scanned once.
+    const re = /(?<![A-Za-z0-9_-])([A-Za-z0-9_-]+)='([^']*)'/g
     let match = re.exec(raw)
     while (match) {
         attrs[match[1]] = match[2]

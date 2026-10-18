@@ -135,7 +135,7 @@ function oneLine(text, max) {
 function pinsFromText(text) {
     const pins = []
     for (const line of String(text || '').split('\n')) {
-        const match = line.match(/^\s*pin:\s*(.+)$/i)
+        const match = line.match(/^\s*pin:(.*)$/i)
         if (match?.[1].trim()) pins.push(match[1].trim())
     }
     return pins

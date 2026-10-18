@@ -93,7 +93,7 @@ function whitelistUrls(): string[] {
     return [...text.slice(start, end).matchAll(/'([^']+)'/g)].map((match) => match[1])
 }
 
-function localRouteApp() {
+function localRouteApp(router = identityAuthRouter) {
     const server = express()
     server.use(cookieParser())
     server.use(express.json())
@@ -107,7 +107,7 @@ function localRouteApp() {
             attachIdentitySession
         })
     )
-    server.use('/api/v1/auth', identityAuthRouter)
+    server.use('/api/v1/auth', router)
     return server
 }
 
@@ -913,6 +913,102 @@ describe('local users mode', () => {
             else process.env.WORKOS_API_KEY = saved.key
             if (saved.client === undefined) delete process.env.WORKOS_CLIENT_ID
             else process.env.WORKOS_CLIENT_ID = saved.client
+        }
+    })
+
+    it('caps failed owner sign-ins on POST /login per client and leaves good sign-ins uncounted', async () => {
+        const { store } = await seed()
+        mockRouteStore.current = store
+        let router = identityAuthRouter
+        jest.isolateModules(() => {
+            router = (require('./http') as typeof import('./http')).identityAuthRouter
+        })
+        const http = request(localRouteApp(router))
+        const saved = { admin: process.env.CUTTLELY_LOCAL_ADMIN, limit: process.env.CUTTLELY_LOGIN_FAILURE_LIMIT }
+        const signIn = (password: string) =>
+            http.post('/api/v1/auth/login').set('x-request-from', 'internal').send({ email: 'owner@example.com', password })
+        try {
+            process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+            process.env.CUTTLELY_LOGIN_FAILURE_LIMIT = '3'
+            for (let i = 0; i < 2; i++) expect((await signIn(OTHER)).status).toBe(401)
+            for (let i = 0; i < 5; i++) {
+                const ok = await signIn(GOOD)
+                expect(ok.status).toBe(200)
+                expect(String(ok.headers['set-cookie'])).toContain('cuttlely-local-session=')
+            }
+            const last = await signIn(OTHER)
+            expect(last.status).toBe(401)
+            expect(last.body).toEqual(INVALID)
+            for (const password of [OTHER, GOOD]) {
+                const capped = await signIn(password)
+                expect(capped.status).toBe(429)
+                expect(capped.body).toEqual(LOCKED)
+                expect(capped.headers['set-cookie']).toBeUndefined()
+            }
+        } finally {
+            mockRouteStore.current = null
+            if (saved.admin === undefined) delete process.env.CUTTLELY_LOCAL_ADMIN
+            else process.env.CUTTLELY_LOCAL_ADMIN = saved.admin
+            if (saved.limit === undefined) delete process.env.CUTTLELY_LOGIN_FAILURE_LIMIT
+            else process.env.CUTTLELY_LOGIN_FAILURE_LIMIT = saved.limit
+        }
+    })
+
+    it('does not let header-less or owner-off POST /login requests use up the shared cap', async () => {
+        const { store } = await seed()
+        mockRouteStore.current = store
+        let router = identityAuthRouter
+        jest.isolateModules(() => {
+            router = (require('./http') as typeof import('./http')).identityAuthRouter
+        })
+        const http = request(localRouteApp(router))
+        const saved = {
+            users: process.env.CUTTLELY_LOCAL_USERS,
+            admin: process.env.CUTTLELY_LOCAL_ADMIN,
+            key: process.env.WORKOS_API_KEY,
+            client: process.env.WORKOS_CLIENT_ID,
+            limit: process.env.CUTTLELY_LOGIN_FAILURE_LIMIT
+        }
+        const restore = (key: string, value: string | undefined) => {
+            if (value === undefined) delete process.env[key]
+            else process.env[key] = value
+        }
+        try {
+            process.env.CUTTLELY_LOCAL_USERS = 'true'
+            process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+            process.env.CUTTLELY_LOGIN_FAILURE_LIMIT = '3'
+            delete process.env.WORKOS_API_KEY
+            delete process.env.WORKOS_CLIENT_ID
+            for (let i = 0; i < 15; i++) {
+                const refused = await http.post('/api/v1/auth/login').send({ email: 'owner@example.com', password: OTHER })
+                expect(refused.status).toBe(401)
+            }
+            delete process.env.CUTTLELY_LOCAL_ADMIN
+            for (let i = 0; i < 15; i++) {
+                const off = await http
+                    .post('/api/v1/auth/login')
+                    .set('x-request-from', 'internal')
+                    .send({ email: 'owner@example.com', password: OTHER })
+                expect(off.status).toBe(404)
+            }
+            process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+            const local = await http
+                .post('/api/v1/auth/local/login')
+                .set('x-request-from', 'internal')
+                .send({ email: 'ada@example.com', password: OTHER })
+            expect(local.status).toBe(200)
+            const owner = await http
+                .post('/api/v1/auth/login')
+                .set('x-request-from', 'internal')
+                .send({ email: 'owner@example.com', password: GOOD })
+            expect(owner.status).toBe(200)
+        } finally {
+            mockRouteStore.current = null
+            restore('CUTTLELY_LOCAL_USERS', saved.users)
+            restore('CUTTLELY_LOCAL_ADMIN', saved.admin)
+            restore('WORKOS_API_KEY', saved.key)
+            restore('WORKOS_CLIENT_ID', saved.client)
+            restore('CUTTLELY_LOGIN_FAILURE_LIMIT', saved.limit)
         }
     })
 
