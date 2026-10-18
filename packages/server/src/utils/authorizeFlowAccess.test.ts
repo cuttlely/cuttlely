@@ -296,6 +296,20 @@ describe('Attachment access: defensive check in createFileAttachment and the reu
         expect(await hasFlowAccess(directReq({}, { activeWorkspaceId: undefined }), { ...flow, workspaceId: undefined })).toBe(false)
     })
 
+    it('hasFlowAccess with sessionNeedsHeader: a session writes only with x-request-from: internal; the key still works', async () => {
+        const flow = mockDb.chatflows.get(K)
+        const check = { sessionNeedsHeader: true }
+        const write = (headers: Record<string, string>, user?: object) =>
+            ({ ...directReq(headers, user), method: 'POST' } as unknown as Request)
+        expect(await hasFlowAccess(write({}, { activeWorkspaceId: WS }), flow, check)).toBe(false)
+        expect(await hasFlowAccess(write({ 'x-request-from': 'internal' }, { activeWorkspaceId: WS }), flow, check)).toBe(true)
+        expect(await hasFlowAccess(write({ 'x-request-from': 'internal' }), flow, check)).toBe(false)
+        expect(await hasFlowAccess(write({ authorization: `Bearer ${KEY_K}` }), flow, check)).toBe(true)
+        expect(await hasFlowAccess(write({}, { activeWorkspaceId: WS }), mockDb.chatflows.get(F), check)).toBe(true)
+        // A direct call with no method counts as a write.
+        expect(await hasFlowAccess(directReq({}, { activeWorkspaceId: WS }), flow, check)).toBe(false)
+    })
+
     it('authorizeFlowAccess is reusable on other routes (chatflow id from any request field)', async () => {
         const other = express()
         other.get(

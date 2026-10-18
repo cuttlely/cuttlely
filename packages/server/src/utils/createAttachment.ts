@@ -51,7 +51,7 @@ export const createFileAttachment = async (req: Request) => {
         if (!chatflow) {
             throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
         }
-        if (!(await hasFlowAccess(req, chatflow))) {
+        if (!(await hasFlowAccess(req, chatflow, { sessionNeedsHeader: true }))) {
             throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
         }
     }

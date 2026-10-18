@@ -190,11 +190,14 @@ export function plannedVersion(text) {
 }
 
 function isEmptyBody(body) {
-    const text = body
-        .replace(/<!--[\s\S]*?-->/g, '')
-        .replace(/^nothing yet\.?$/gim, '')
-        .trim()
-    return text === ''
+    let text = body
+    let previous
+    // Removing one comment can join the text around it into another, so repeat until nothing changes.
+    do {
+        previous = text
+        text = text.replace(/<!--[\s\S]*?-->/g, '')
+    } while (text !== previous)
+    return text.replace(/^nothing yet\.?$/gim, '').trim() === ''
 }
 
 // Pick the section that becomes the release: "## [X.Y.Z] - Unreleased", or "## [Unreleased]".

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { docOutPath, docRoute, readmeSection, rewriteLinks, rewriteTarget, sidebarFromIndex, splitPage } from './sync-docs.mjs'
+import { docOutPath, docRoute, plainText, readmeSection, rewriteLinks, rewriteTarget, sidebarFromIndex, splitPage } from './sync-docs.mjs'
 
 const REPO = 'https://github.com/cuttlely/cuttlely'
 
@@ -64,6 +64,11 @@ describe('sync-docs', () => {
         assert.equal(page.description, 'First line of text.')
         assert.ok(!page.body.includes('<img'))
         assert.ok(page.body.startsWith('First'))
+    })
+
+    it('leaves no tag in a description, nested or not', () => {
+        assert.equal(plainText('A <b>bold</b> <<script>script>x</script> word'), 'A bold script>x word')
+        assert.equal(plainText('Keep a < b and c > d'), 'Keep a d')
     })
 
     it('cuts one README section', () => {
