@@ -6,10 +6,11 @@ import type { Server } from 'http'
 import { NextFunction, Request, Response } from 'express'
 import { runtimeNumber } from './runtime'
 
+// Case-insensitive, as Express routing is.
 const RUN_PATHS = [
-    /^\/api\/v1\/prediction(\/|$)/,
-    /^\/api\/v1\/internal-prediction(\/|$)/,
-    /^\/api\/v1\/harnesses\/[^/]+\/runs(\/async)?\/?$/
+    /^\/api\/v1\/prediction(\/|$)/i,
+    /^\/api\/v1\/internal-prediction(\/|$)/i,
+    /^\/api\/v1\/harnesses\/[^/]+\/runs(\/async)?\/?$/i
 ]
 export const DEFAULT_WAIT_MS = 45000
 /** How long a shutdown lets requests and streams finish: inside a host's usual 30-second grace period. */
@@ -135,7 +136,7 @@ function endRun(res: Response): void {
             res.setHeader('Connection', 'close')
             res.status(503).json({ statusCode: 503, success: false, message: SHUTDOWN_MESSAGE, code: SHUTDOWN_CODE })
         } else {
-            const harness = /^\/api\/v1\/harnesses\//.test(res.req?.originalUrl || '')
+            const harness = /^\/api\/v1\/harnesses\//i.test(res.req?.originalUrl || '')
             if (String(res.getHeader('Content-Type') || '').includes('text/event-stream')) {
                 const data = harness ? { message: SHUTDOWN_MESSAGE } : SHUTDOWN_MESSAGE
                 res.write(`message:\ndata:${JSON.stringify({ event: 'error', data, status: 503, code: SHUTDOWN_CODE })}\n\n`)

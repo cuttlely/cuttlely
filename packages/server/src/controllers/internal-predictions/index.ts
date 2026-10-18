@@ -11,14 +11,17 @@ import { onAbort, watchClientDisconnect } from '../../utils/clientAbort'
 import { bindRequestSession } from '../../utils/sessionOwnership'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { isStreamingRequest } from '../../utils/streaming'
+import { harnessCallerFor, isApiKeyCaller } from '../../services/harnesses/apiAccess'
 import type { IHarnessCaller } from '../../Interface'
-
-// The API gate refuses an API key on this route, so a Harness card here runs for the signed-in person.
-const SESSION_CALLER: IHarnessCaller = { via: 'session' }
 
 // Send input message and get prediction result (Internal)
 const createInternalPrediction = async (req: Request, res: Response, next: NextFunction) => {
     try {
+        // The API gate already refuses a key here. This route runs drafts, so it refuses one on its own as well.
+        if (isApiKeyCaller(req)) {
+            throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized Access')
+        }
+        const caller = await harnessCallerFor(req)
         const workspaceId = req.user?.activeWorkspaceId
 
         const chatflow = await chatflowService.getChatflowByIdForWorkspace(req.params.id, workspaceId)
@@ -31,16 +34,16 @@ const createInternalPrediction = async (req: Request, res: Response, next: NextF
         // A harness canvas is not a chatflow. Building it looks for node.init and throws.
         // The same draft path as a chatflow test chat: this route runs the draft, the public runs route stays on Live.
         if (chatflow.type === 'HARNESS') {
-            await runHarnessCanvasChat(req, res, chatflow)
+            await runHarnessCanvasChat(req, res, chatflow, caller)
             return
         }
 
         // Same rule as POST /api/v1/prediction: only `true` or `'true'` asks for a stream.
         if (isStreamingRequest(req)) {
-            createAndStreamInternalPrediction(req, res, next)
+            createAndStreamInternalPrediction(req, res, next, caller)
             return
         } else {
-            const apiResponse = await utilBuildChatflow(req, true, undefined, { testDraft: true, harnessCaller: SESSION_CALLER })
+            const apiResponse = await utilBuildChatflow(req, true, undefined, { testDraft: true, harnessCaller: caller })
             if (apiResponse) return res.json(apiResponse)
         }
     } catch (error) {
@@ -49,7 +52,7 @@ const createInternalPrediction = async (req: Request, res: Response, next: NextF
 }
 
 // Send input message and stream prediction result using SSE (Internal)
-const createAndStreamInternalPrediction = async (req: Request, res: Response, next: NextFunction) => {
+const createAndStreamInternalPrediction = async (req: Request, res: Response, next: NextFunction, caller: IHarnessCaller) => {
     const chatId = req.body.chatId
     const sseStreamer = getRunningExpressApp().sseStreamer
     const isQueueMode = process.env.MODE === MODE.QUEUE
@@ -70,7 +73,7 @@ const createAndStreamInternalPrediction = async (req: Request, res: Response, ne
             await getRunningExpressApp().redisSubscriber.subscribe(chatId)
         }
 
-        const apiResponse = await utilBuildChatflow(req, true, undefined, { testDraft: true, harnessCaller: SESSION_CALLER })
+        const apiResponse = await utilBuildChatflow(req, true, undefined, { testDraft: true, harnessCaller: caller })
         sseStreamer.streamMetadataEvent(apiResponse.chatId, apiResponse)
     } catch (error) {
         if (chatId) {
@@ -88,12 +91,13 @@ const createAndStreamInternalPrediction = async (req: Request, res: Response, ne
 async function runHarnessCanvasChat(
     req: Request,
     res: Response,
-    chatflow: { id: string; name: string; flowData: string; workspaceId: string }
+    chatflow: { id: string; name: string; flowData: string; workspaceId: string },
+    caller: IHarnessCaller
 ) {
     const streaming = isStreamingRequest(req)
     const source = 'playground'
     const run = (extra: { signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}) =>
-        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, caller: SESSION_CALLER, ...extra })
+        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, caller, ...extra })
     if (!streaming) {
         const outcome = await run()
         return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })

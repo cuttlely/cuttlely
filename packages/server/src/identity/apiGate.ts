@@ -41,10 +41,15 @@ export interface ApiV1AuthDeps {
 const CASE_INSENSITIVE = /\/api\/v1\//i
 const CASE_SENSITIVE = /\/api\/v1\//
 
+// Express routes match without regard to letter case, so the lists must too: `/api/v1/Internal-Prediction` reaches
+// the same handler as the lower-case path.
+const listed = (path: string, urls: string[]) => urls.some((url) => path.startsWith(url.toLowerCase()))
+
 // The /api/v1 sign-in gate. A path on the public list proceeds. A session proceeds for a read,
 // and for a write only with x-request-from: internal. Anything else needs a valid API key.
 export function apiV1Auth(deps: ApiV1AuthDeps) {
     return async (req: Request, res: Response, next: NextFunction) => {
+        const path = req.path.toLowerCase()
         if (!CASE_INSENSITIVE.test(req.path)) {
             next()
             return
@@ -58,7 +63,7 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             req.user = identityUser as unknown as LoggedInUser
             ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
         }
-        const isWhitelisted = deps.whitelistURLs.some((url) => req.path.startsWith(url))
+        const isWhitelisted = listed(path, deps.whitelistURLs)
         const identitySession = (req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity
         if (isWhitelisted) {
             next()
@@ -76,7 +81,7 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
         }
-        if (deps.apiKeyBlacklistURLs.some((url) => req.path.startsWith(url))) {
+        if (listed(path, deps.apiKeyBlacklistURLs)) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
         }
