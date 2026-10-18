@@ -155,7 +155,7 @@ export class NotEmptyError extends Error {
 export interface CookieOptions {
     httpOnly: true
     sameSite: 'lax'
-    path: '/'
+    path: string
     secure: boolean
     maxAge?: number
 }

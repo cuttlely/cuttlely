@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { INVITE_COOKIE, INVITE_COOKIE_MS, LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE } from './constants'
+import { INVITE_COOKIE, INVITE_COOKIE_MS, INVITE_COOKIE_PATH, LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE } from './constants'
 import { SetCookie } from './types'
 
 export function cookieSecure(redirectUri: string | undefined, httpsRequest: boolean): boolean {
@@ -35,8 +35,13 @@ export function inviteCookie(value: string, secure: boolean): SetCookie {
     return {
         name: INVITE_COOKIE,
         value,
-        options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge: INVITE_COOKIE_MS }
+        options: { httpOnly: true, sameSite: 'lax', path: INVITE_COOKIE_PATH, secure, maxAge: INVITE_COOKIE_MS }
     }
+}
+
+/** Expires the invite cookie on its own path. A clear on `/` would not reach it. */
+export function expiredInviteCookie(secure: boolean): SetCookie {
+    return { name: INVITE_COOKIE, value: '', options: { httpOnly: true, sameSite: 'lax', path: INVITE_COOKIE_PATH, secure, maxAge: 0 } }
 }
 
 export function localCookie(value: string, secure: boolean, maxAge: number): SetCookie {

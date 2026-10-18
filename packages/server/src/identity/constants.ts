@@ -23,6 +23,8 @@ export const LOCAL_SESSION_COOKIE = 'cuttlely-local-session'
 /** Raw invite token held only for the AuthKit round trip. The callback always clears it. */
 export const INVITE_COOKIE = 'cuttlely-invite'
 export const INVITE_COOKIE_MS = 15 * 60 * 1000
+/** The browser sends the invite cookie only to the AuthKit callback. */
+export const INVITE_COOKIE_PATH = '/api/v1/auth/callback'
 /** randomToken output is far shorter. Anything longer is not a token. */
 export const INVITE_TOKEN_MAX_LENGTH = 256
 

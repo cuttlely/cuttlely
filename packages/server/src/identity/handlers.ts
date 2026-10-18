@@ -15,7 +15,7 @@
  */
 
 import { randomUUID } from 'crypto'
-import { inviteCookie, localCookie, sealedCookie } from './cookies'
+import { expiredInviteCookie, inviteCookie, localCookie, sealedCookie } from './cookies'
 import {
     EMAIL_MAX_LENGTH,
     INVITE_COOKIE,
@@ -227,8 +227,7 @@ export async function handleInviteStart(ctx: AuthContext): Promise<HandlerResult
 export async function handleCallback(ctx: AuthContext): Promise<HandlerResult> {
     const result = await callbackResult(ctx)
     if (ctx.cookies[INVITE_COOKIE] === undefined || result.type === 'next') return result
-    const names = [...(result.clearCookies || []), INVITE_COOKIE]
-    return { ...result, clearCookies: names, secure: result.secure ?? clearSecure(ctx, names) }
+    return { ...result, cookies: [...(result.cookies || []), expiredInviteCookie(ctx.secure)] }
 }
 
 async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {

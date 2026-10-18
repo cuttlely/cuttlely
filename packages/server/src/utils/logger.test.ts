@@ -111,6 +111,30 @@ describe('logger.ts', () => {
             expect(logged).not.toContain(secret)
         })
 
+        it('does not write the invite token or a session from the cookie header in the debug record', () => {
+            process.env.DEBUG = 'true'
+            const invite = 'exampleinvitetokenexampleinvitetoken99'
+            const sealed = 'sealed-authkit-session-value'
+            const local = 'local-session-value'
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            const req = {
+                url: '/api/v1/auth/callback?code=made-up',
+                method: 'POST',
+                params: {},
+                body: { token: invite },
+                query: {},
+                headers: { cookie: `theme=light; Cuttlely-Invite=${invite}; wos-session=${sealed}; cuttlely-local-session=${local}` }
+            } as any
+            expressRequestLogger(req, {} as any, next)
+            const logged = JSON.stringify(infoSpy.mock.calls)
+            for (const secret of [invite, sealed, local]) expect(logged).not.toContain(secret)
+            const meta = infoSpy.mock.calls[0][1] as { request: { headers: { cookie: string } } }
+            expect(meta.request.headers.cookie).toBe(
+                'theme=light; Cuttlely-Invite=[redacted]; wos-session=[redacted]; cuttlely-local-session=[redacted]'
+            )
+            infoSpy.mockRestore()
+        })
+
         it('logs GET request (requestLogger.http path)', () => {
             const req = { url: '/api/v1/chatflows', method: 'GET', params: {} } as any
             expressRequestLogger(req, {} as any, next)

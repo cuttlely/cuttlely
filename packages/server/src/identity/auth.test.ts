@@ -435,8 +435,15 @@ describe('identity auth', () => {
         const result = await handleCallback(
             ctx({ workosConfigured: true, code: 'code', store, workos: port, cookies: { 'cuttlely-invite': 'invite-token' } })
         )
-        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['cuttlely-local-session', 'cuttlely-invite'] })
-        if (result.type === 'redirect') expect(result.cookies?.[0]).toMatchObject({ name: 'wos-session', value: 'sealed-1' })
+        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['cuttlely-local-session'] })
+        if (result.type === 'redirect') {
+            expect(result.cookies?.[0]).toMatchObject({ name: 'wos-session', value: 'sealed-1' })
+            expect(result.cookies?.[1]).toEqual({
+                name: 'cuttlely-invite',
+                value: '',
+                options: { httpOnly: true, sameSite: 'lax', path: '/api/v1/auth/callback', secure: false, maxAge: 0 }
+            })
+        }
         expect(store.users[0]).toMatchObject({ status: 'active', externalId: 'wos-1', credential: null })
         expect(store.inviteCalls).toEqual([
             { token: 'invite-token', userId: 'user-2', email: 'owner@example.com', externalId: 'wos-1', now: NOW }
@@ -455,10 +462,16 @@ describe('identity auth', () => {
         const result = await handleCallback(
             ctx({ workosConfigured: true, code: 'code', store, cookies: { 'cuttlely-invite': 'old-token' } })
         )
-        expect(result).toMatchObject({ type: 'redirect', clearCookies: ['cuttlely-invite'] })
+        expect(result.type).toBe('redirect')
         if (result.type === 'redirect') {
             expect(decodeURIComponent(result.url)).toContain('This invite link is not valid. Ask for a new invite.')
-            expect(result.cookies).toBeUndefined()
+            expect(result.cookies).toEqual([
+                {
+                    name: 'cuttlely-invite',
+                    value: '',
+                    options: { httpOnly: true, sameSite: 'lax', path: '/api/v1/auth/callback', secure: false, maxAge: 0 }
+                }
+            ])
         }
         expect(store.users[0]).toMatchObject({ status: 'invited', externalId: null })
     })
@@ -470,7 +483,13 @@ describe('identity auth', () => {
             true
         )
         const result = await handleCallback(ctx({ workosConfigured: true, code: 'code', store, cookies: { 'cuttlely-invite': 'stray' } }))
-        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['cuttlely-local-session', 'cuttlely-invite'] })
+        expect(result).toMatchObject({ type: 'redirect', url: '/', clearCookies: ['cuttlely-local-session'] })
+        if (result.type === 'redirect')
+            expect(result.cookies?.[1]).toEqual({
+                name: 'cuttlely-invite',
+                value: '',
+                options: { httpOnly: true, sameSite: 'lax', path: '/api/v1/auth/callback', secure: false, maxAge: 0 }
+            })
         expect(store.inviteCalls).toEqual([])
         expect(store.touched).toEqual(['user-1'])
     })
@@ -490,7 +509,7 @@ describe('identity auth', () => {
             {
                 name: 'cuttlely-invite',
                 value: 'raw-token',
-                options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true, maxAge: 15 * 60 * 1000 }
+                options: { httpOnly: true, sameSite: 'lax', path: '/api/v1/auth/callback', secure: true, maxAge: 15 * 60 * 1000 }
             }
         ])
     })
