@@ -1263,6 +1263,21 @@ describe('harnesses a saved canvas names', () => {
         ])
     })
 
+    it('reads a harness name whose key is written with a JSON escape, on the reference check and on create', async () => {
+        const escaped = agentTool('payroll').replace('"harnessName"', '"harness\\u004eame"')
+        expect(escaped.includes('"harnessName"')).toBe(false)
+        await expect(validateReferencedHarnesses({ flowData: escaped, workspaceId: 'ws-1' }, keyCaller)).rejects.toMatchObject({
+            statusCode: 403
+        })
+        await expect(
+            chatflowsService.saveChatflow(makeChatflow({ flowData: escaped }) as any, 'org-1', 'ws-1', 'sub-1', {} as any, undefined, {
+                caller: keyCaller
+            })
+        ).rejects.toMatchObject({ statusCode: 403 })
+        await validateReferencedHarnesses({ flowData: escaped, workspaceId: 'ws-1' }, { via: 'session' })
+        expect(assertNameAvailable.mock.calls).toEqual([['payroll', 'ws-1']])
+    })
+
     it('refuses an import or a Publish, Roll back, or Restore that writes a canvas naming a harness off the key list', async () => {
         const existingFlow = makeChatflow({ flowData: makePlainFlowData() })
         await expect(

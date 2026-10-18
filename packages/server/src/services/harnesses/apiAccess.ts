@@ -190,8 +190,8 @@ const MAX_REFERENCE_DEPTH = 64
  */
 export function referencedHarnessNames(flowData: unknown): string[] {
     let parsed: unknown = flowData
+    // Always parsed: a text search for "harnessName" misses a key written with JSON escapes, such as harness\u004eame.
     if (typeof flowData === 'string') {
-        if (!flowData.includes('"harnessName"')) return []
         try {
             parsed = JSON.parse(flowData)
         } catch {
