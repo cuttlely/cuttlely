@@ -156,6 +156,7 @@ import etlRouter from '../routes/etl'
 import harnessesRouter from '../routes/harnesses'
 import flowVersionsRouter from '../routes/flow-versions'
 import flowDraftsRouter from '../routes/flow-drafts'
+import { setHarnessFlowLookup, setHarnessKeyLookup } from '../services/harnesses/apiAccess'
 
 type Method = 'get' | 'post' | 'put' | 'delete'
 
@@ -296,6 +297,16 @@ function call(router: Router, user: object | null, probe: Probe) {
 }
 
 describe('switched route groups', () => {
+    // These flows are not harness canvases, so the per-key harness list does not decide anything here.
+    beforeAll(() => {
+        setHarnessFlowLookup(async () => null)
+        setHarnessKeyLookup(async () => null)
+    })
+    afterAll(() => {
+        setHarnessFlowLookup(null)
+        setHarnessKeyLookup(null)
+    })
+
     beforeEach(() => {
         hits.n = 0
         lookups = 0
