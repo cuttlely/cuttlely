@@ -128,10 +128,36 @@ function liveApp() {
         }
         held.push({ release: () => res.json({ text: `${req.params.id}: two dozen croissants` }), signal })
     })
-    const server = http.createServer(app)
+    const api = express.Router()
+    const harnesses = express.Router()
+    api.use('/harnesses', harnesses)
+    harnesses.post('/:name/runs', (_req, res) => {
+        const signal = watchClientDisconnect(res)
+        res.setHeader('Content-Type', 'text/event-stream')
+        res.flushHeaders()
+        res.write(`message:\ndata:${JSON.stringify({ event: 'token', data: 'Fresh ' })}\n\n`)
+        held.push({ release: () => res.end(), signal })
+    })
+    app.use('/api/v1', api)
+    const server = http.createServer(sanitizedApp(app))
     return new Promise<{ server: http.Server; base: string; held: Held[] }>((resolve) =>
         server.listen(0, '127.0.0.1', () => resolve({ server, base: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, held }))
     )
+}
+
+// The real URL decoding in front, as in production, so an encoded path routes the way Express sees it.
+function sanitizedApp(inner: express.Express) {
+    const outer = express()
+    outer.use(sanitizeMiddleware)
+    outer.use(inner)
+    return outer
+}
+
+function streamEvents(text: string) {
+    return text
+        .split('\n\n')
+        .filter((chunk) => chunk.includes('data:'))
+        .map((chunk) => JSON.parse(chunk.slice(chunk.indexOf('data:') + 5)))
 }
 
 async function waitFor(check: () => boolean, ms = 3000) {
@@ -203,10 +229,38 @@ describe('shutdown drain', () => {
             .split('\n\n')
             .filter((chunk) => chunk.includes('data:'))
             .map((chunk) => JSON.parse(chunk.slice(chunk.indexOf('data:') + 5)))
-        expect(events).toContainEqual(expect.objectContaining({ event: 'error', status: 503, code: 'UNAVAILABLE' }))
+        expect(events).toContainEqual({
+            event: 'error',
+            data: 'Cuttlely is restarting. Try again in a minute.',
+            status: 503,
+            code: 'UNAVAILABLE'
+        })
         expect(events[events.length - 1]).toEqual({ event: 'end', data: '[DONE]' })
         expect(held[0].signal.aborted).toBe(true)
         expect(server.listening).toBe(false)
+    })
+
+    it.each([
+        '/api/v1/harnesses/bakery/runs',
+        '/api/v1/Harnesses/bakery/runs',
+        '/api/v1//harnesses//bakery/runs',
+        '/api/v1/%68arnesses/bakery/runs'
+    ])('ends a harness stream on %s past the drain time with the harness error shape', async (runPath) => {
+        const { server, base, held } = await liveApp()
+        const response = await fetch(`${base}${runPath}`, { method: 'POST' })
+        expect(response.status).toBe(200)
+        await waitFor(() => held.length === 1)
+        const body = readAll(response)
+
+        expect(await shutdownDrain(server, 100, 10)).toEqual({ endedRuns: 1, closedInTime: false })
+        const events = streamEvents(await body)
+        expect(events).toContainEqual({
+            event: 'error',
+            data: { message: 'Cuttlely is restarting. Try again in a minute.' },
+            status: 503,
+            code: 'UNAVAILABLE'
+        })
+        expect(events[events.length - 1]).toEqual({ event: 'end', data: '[DONE]' })
     })
 
     it('answers a run that has not answered by the drain time with 503 and Retry-After', async () => {
