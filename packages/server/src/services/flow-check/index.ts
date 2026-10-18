@@ -26,7 +26,7 @@ import { EvaluationRunner, getRawModelFile } from '@cuttlely/components'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Organization, Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
-import { ChatType, IChatFlow } from '../../Interface'
+import { ChatType, IChatFlow, IHarnessCaller } from '../../Interface'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { estimateTokenLines, priceBookForWorkspace, usageLinesFromMetrics, usageLinesFromRun } from '../usage'
@@ -182,6 +182,9 @@ export interface CheckView {
 interface CheckRecord {
     id: string
     flowId: string
+    // Who started the check. Each replay runs for this caller, so an API key runs only the harnesses on its list.
+    // Missing, a Harness card or a harness replay is refused by the harness engine.
+    caller: IHarnessCaller | undefined
     workspaceId: string
     draftHash: string
     status: CheckView['status']
@@ -272,6 +275,7 @@ export interface ReplayInput {
     question: string
     signal: AbortController
     baseURL: string
+    caller: IHarnessCaller | undefined
 }
 
 function purge(now = Date.now()) {
@@ -738,7 +742,8 @@ export async function startCheck(
     },
     baseURL: string,
     given?: Candidate,
-    watch?: StartWatch
+    watch?: StartWatch,
+    caller?: IHarnessCaller
 ): Promise<CheckView> {
     assertPublishCheckOn()
     purge()
@@ -851,6 +856,7 @@ export async function startCheck(
     const record: CheckRecord = {
         id: uuidv4(),
         flowId: flow.id,
+        caller,
         workspaceId: String(flow.workspaceId || ''),
         draftHash: canvasHash(draft as string),
         status: 'running',
@@ -915,7 +921,7 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
     const started = Date.now()
     try {
         const run = replayHooks.run || replayFlow
-        const { text, metrics, lines } = await run({ flow, flowData, question, signal: controller, baseURL })
+        const { text, metrics, lines } = await run({ flow, flowData, question, signal: controller, baseURL, caller: record.caller })
         const tokens = totalTokens(metrics)
         const usage = lines ?? usageLinesFromMetrics(metrics)
         const book = await bookOnce(record)
@@ -1130,9 +1136,10 @@ async function replayFlow({
     flowData,
     question,
     signal,
-    baseURL
+    baseURL,
+    caller
 }: ReplayInput): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
-    if (flow.type === 'HARNESS') return replayHarnessQuestion({ flow, flowData, question, signal })
+    if (flow.type === 'HARNESS') return replayHarnessQuestion({ flow, flowData, question, signal, caller })
     // Imported here so loading this module does not load the whole prediction path.
     const { executeFlow } = await import('../../utils/buildChatflow')
     const app = getRunningExpressApp()
@@ -1164,7 +1171,8 @@ async function replayFlow({
             productId: OSS_PRODUCT_ID,
             chatType: replay.chatType as ChatType,
             signal,
-            replay: true
+            replay: true,
+            harnessCaller: caller
         })
         // An agentflow reports tokens on each step. A chatflow prices the lines the usage write keeps.
         const metrics = flow.type === 'AGENTFLOW' ? stepTokens(result?.agentFlowExecutedData) : EvaluationRunner.metrics.get(runId)

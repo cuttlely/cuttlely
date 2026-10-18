@@ -17,9 +17,9 @@ export interface HarnessFlowOptions {
     usageCacheManager?: unknown
     updateStorageUsage?: unknown
     checkStorage?: unknown
-    // Set when a flow runs under an API key. The harness has to be on apiKeyHarnesses.
-    apiKeyId?: unknown
-    apiKeyHarnesses?: unknown
+    // Who the run acts for: { via: 'session' }, { via: 'flow' }, or { via: 'api_key', apiKeyId, harnesses }.
+    // The engine refuses a run without one, and a key runs only the harnesses on its list.
+    harnessCaller?: unknown
 }
 
 export interface HarnessRunArgs {

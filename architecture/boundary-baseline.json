@@ -245,6 +245,11 @@
             "to": "packages/server/src/errors/utils.ts"
         },
         {
+            "from": "packages/server/src/controllers/harnesses/index.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Harness caller identity: core harness code takes the IHarnessCaller type from the shared server interface, and the per-key canvas check reads the chat_flow row"
+        },
+        {
             "from": "packages/server/src/controllers/internal-predictions/index.test.ts",
             "to": "packages/server/src/controllers/internal-predictions/index.ts"
         },
@@ -366,6 +371,11 @@
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
         {
+            "from": "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
+            "to": "packages/server/src/routes/chatflows/index.ts",
+            "reason": "The bypass test mounts the real chatflows router behind the API gate"
+        },
+        {
             "from": "packages/server/src/routes/internal-predictions/auth.test.ts",
             "to": "packages/server/src/routes/internal-predictions/index.ts",
             "reason": "The gate test mounts the real internal-prediction router behind the API gate"
@@ -456,6 +466,11 @@
         },
         {
             "from": "packages/server/src/services/demo/index.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Harness caller identity: core harness code takes the IHarnessCaller type from the shared server interface, and the per-key canvas check reads the chat_flow row"
+        },
+        {
+            "from": "packages/server/src/services/demo/index.ts",
             "to": "packages/server/src/services/chatflows/index.ts"
         },
         {
@@ -503,6 +518,11 @@
             "from": "packages/server/src/services/flow-check/harness.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "The harness publish check reports bad questions through the shared server error class."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/harness.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Harness caller identity: core harness code takes the IHarnessCaller type from the shared server interface, and the per-key canvas check reads the chat_flow row"
         },
         {
             "from": "packages/server/src/services/flow-check/index.test.ts",
@@ -599,6 +619,11 @@
         },
         {
             "from": "packages/server/src/services/flow-drafts/index.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Harness caller identity: core harness code takes the IHarnessCaller type from the shared server interface, and the per-key canvas check reads the chat_flow row"
+        },
+        {
+            "from": "packages/server/src/services/flow-drafts/index.ts",
             "to": "packages/server/src/utils/fileRepository.ts"
         },
         {
@@ -653,6 +678,11 @@
         },
         {
             "from": "packages/server/src/services/harnesses/apiAccess.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts",
+            "reason": "Harness caller identity: core harness code takes the IHarnessCaller type from the shared server interface, and the per-key canvas check reads the chat_flow row"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/apiAccess.ts",
             "to": "packages/server/src/DataSource.ts",
             "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
         },
@@ -665,6 +695,11 @@
             "from": "packages/server/src/services/harnesses/apiAccess.ts",
             "to": "packages/server/src/errors/utils.ts",
             "reason": "The harness API key check reads the apikey row, logs refusals, and returns the shared server errors and rate limit key, like the harness service beside it."
+        },
+        {
+            "from": "packages/server/src/services/harnesses/apiAccess.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Harness caller identity: core harness code takes the IHarnessCaller type from the shared server interface, and the per-key canvas check reads the chat_flow row"
         },
         {
             "from": "packages/server/src/services/harnesses/apiAccess.ts",
@@ -684,6 +719,11 @@
         {
             "from": "packages/server/src/services/harnesses/index.ts",
             "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Harness caller identity: core harness code takes the IHarnessCaller type from the shared server interface, and the per-key canvas check reads the chat_flow row"
         },
         {
             "from": "packages/server/src/services/harnesses/index.ts",
@@ -723,7 +763,7 @@
         {
             "from": "packages/server/src/utils/apiKeyAccess.ts",
             "to": "packages/server/src/Interface.ts",
-            "reason": "The harness key options helper only takes the IApiKeyAccess type from the shared server interface"
+            "reason": "The harness caller options helper only takes the IHarnessCaller type from the shared server interface"
         },
         {
             "from": "packages/server/src/utils/authorizeFeedback.test.ts",
@@ -876,6 +916,16 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/utils/buildChatflow.harnessCaller.test.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The caller test names the MCP chat type from the shared server interface"
+        },
+        {
+            "from": "packages/server/src/utils/buildChatflow.harnessCaller.test.ts",
+            "to": "packages/server/src/utils/buildChatflow.ts",
+            "reason": "The caller test runs the real utilBuildChatflow in queue mode"
+        },
+        {
             "from": "packages/server/src/utils/chatUploadStorage.test.ts",
             "to": "packages/components/src/index.ts"
         },
@@ -926,6 +976,16 @@
         {
             "from": "packages/server/src/utils/fileLinkSignature.test.ts",
             "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/flowHarnessCaller.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The flow caller helper only takes the IHarnessCaller type from the shared server interface"
+        },
+        {
+            "from": "packages/server/src/utils/flowHarnessCaller.ts",
+            "to": "packages/server/src/services/apikey/index.ts",
+            "reason": "The flow caller helper reads the bound key's harness list through the API key service"
         },
         {
             "from": "packages/server/src/utils/getGlobalVariable.test.ts",

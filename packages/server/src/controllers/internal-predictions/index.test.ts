@@ -26,7 +26,10 @@ test('the canvas test chat asks for the draft', async () => {
         res,
         jest.fn()
     )
-    expect(utilBuildChatflow).toHaveBeenCalledWith(expect.anything(), true, undefined, { testDraft: true })
+    expect(utilBuildChatflow).toHaveBeenCalledWith(expect.anything(), true, undefined, {
+        testDraft: true,
+        harnessCaller: { via: 'session' }
+    })
     expect(res.json).toHaveBeenCalledWith({ text: 'ok' })
 })
 
@@ -49,7 +52,7 @@ test('a harness canvas run uses the draft path', async () => {
     expect(startCanvasRun).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'flow-1', name: 'bakery-team', type: 'HARNESS' }),
         { question: 'hi' },
-        { source: 'playground' }
+        { source: 'playground', caller: { via: 'session' } }
     )
     expect(utilBuildChatflow).not.toHaveBeenCalled()
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'from the draft' }))

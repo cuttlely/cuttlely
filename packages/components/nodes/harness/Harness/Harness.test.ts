@@ -101,7 +101,7 @@ describe('Harness node workspace refusal', () => {
         expect(openHarnessRunTrace).not.toHaveBeenCalled()
     })
 
-    it('hands the flow key and its harness list to the access check', async () => {
+    it('hands the caller identity, with the flow key and its harness list, to the access check', async () => {
         assertHarnessWorkspace.mockImplementation(() => {
             const error = new Error('This API key may not run harness "other".') as Error & { code?: string }
             error.code = 'key_not_allowed'
@@ -112,13 +112,12 @@ describe('Harness node workspace refusal', () => {
             node.run(nodeData as never, 'How many loaves?', {
                 chatId: 'c1',
                 workspaceId: 'ws-1',
-                apiKeyId: 'key-1',
-                apiKeyHarnesses: ['bakery']
+                harnessCaller: { via: 'api_key', apiKeyId: 'key-1', harnesses: ['bakery'] }
             })
         ).rejects.toMatchObject({ code: 'key_not_allowed' })
         expect(assertHarnessWorkspace).toHaveBeenCalledWith(
             'other',
-            expect.objectContaining({ apiKeyId: 'key-1', apiKeyHarnesses: ['bakery'] })
+            expect.objectContaining({ harnessCaller: { via: 'api_key', apiKeyId: 'key-1', harnesses: ['bakery'] } })
         )
     })
 })

@@ -9,6 +9,7 @@ import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import apiKeyService from '../../services/apikey'
 import { actorFromUser } from '../../services/flow-versions/author'
 import chatflowsService from '../../services/chatflows'
+import { harnessCallerFor } from '../../services/harnesses/apiAccess'
 import scheduleService from '../../services/schedule'
 import { GeneralErrorMessage } from '../../utils/constants'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -100,7 +101,8 @@ const getAllChatflows = async (req: Request, res: Response, next: NextFunction) 
             req.query?.type as ChatflowType,
             req.user?.activeWorkspaceId,
             page,
-            limit
+            limit,
+            Array.isArray(res.locals.harnessCanvasScope) ? res.locals.harnessCanvasScope : undefined
         )
         return res.json(apiResponse)
     } catch (error) {
@@ -179,7 +181,8 @@ const saveChatflow = async (req: Request, res: Response, next: NextFunction) => 
             workspaceId,
             subscriptionId,
             getRunningExpressApp().usageCacheManager,
-            actorFromUser(req.user)
+            actorFromUser(req.user),
+            { caller: await harnessCallerFor(req) }
         )
 
         return res.json(apiResponse)
@@ -215,7 +218,8 @@ const updateChatflow = async (req: Request, res: Response, next: NextFunction) =
         await rateLimiterManager.updateRateLimiter(updateChatFlow)
 
         const apiResponse = await chatflowsService.updateChatflow(chatflow, updateChatFlow, orgId, workspaceId, subscriptionId, {
-            actor: actorFromUser(req.user)
+            actor: actorFromUser(req.user),
+            caller: await harnessCallerFor(req)
         })
         return res.json(apiResponse)
     } catch (error) {

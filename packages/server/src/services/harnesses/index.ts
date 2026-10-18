@@ -16,6 +16,9 @@ import flowDraftsService from '../flow-drafts'
 import { openHarnessRunTrace } from '../../metrics/tracing'
 import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
+import { safeHarnessName } from './apiAccess'
+import type { IHarnessCaller } from '../../Interface'
+import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -336,7 +339,28 @@ const getRun = async (name: string, runId: string, workspaceId?: string | null, 
     return run
 }
 
-const assertRunRequest = async (name: string, body: Record<string, unknown>, workspaceId?: string | null, scope: CallerScope = {}) => {
+// A harness route acts for a person or an API key. Anything else, including no caller, is refused before the harness is read.
+function assertRouteCaller(name: string, caller: IHarnessCaller | undefined): asserts caller is IHarnessCaller {
+    if (caller?.via === 'session') return
+    if (caller?.via === 'api_key' && typeof caller.apiKeyId === 'string' && caller.apiKeyId && Array.isArray(caller.harnesses)) {
+        if (caller.harnesses.includes(name)) return
+        throw new AppError(StatusCodes.FORBIDDEN, `This API key may not run harness "${safeHarnessName(name)}".`)
+    }
+    throw new AppError(StatusCodes.FORBIDDEN, 'A harness run needs a signed-in person or an API key.')
+}
+
+function callerKeyId(caller: IHarnessCaller): string | null {
+    return caller.via === 'api_key' ? caller.apiKeyId : null
+}
+
+const assertRunRequest = async (
+    name: string,
+    body: Record<string, unknown>,
+    workspaceId: string | null | undefined,
+    caller: IHarnessCaller | undefined
+) => {
+    assertRouteCaller(name, caller)
+    const scope: CallerScope = { apiKeyId: callerKeyId(caller) }
     const harness = await requireHarness(name, workspaceId)
     const question = questionOf(body || {})
     if (!question.trim()) {
@@ -386,11 +410,12 @@ const startRun = async (
         replay?: boolean
         // An id already returned to the caller. The run history row uses it.
         runId?: string
-        // The API key that started the run, stored on its history row. Null for a person.
-        apiKeyId?: string | null
-    } = {}
+        // Who the run acts for. An API key's id is stored on the history row.
+        caller: IHarnessCaller
+    }
 ) => {
-    const prepared = await assertRunRequest(name, body, opts.workspaceId, { apiKeyId: opts.apiKeyId })
+    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+    const apiKeyId = callerKeyId(opts.caller)
     await configureRuntime()
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
     try {
@@ -406,7 +431,7 @@ const startRun = async (
     const traceWorkspaceId = typeof prepared.harness.workspaceId === 'string' ? prepared.harness.workspaceId : undefined
     let harnessTrace: ReturnType<typeof openHarnessRunTrace> | undefined
     let recorded: Record<string, unknown> | null = null
-    const flowOptions = { ...(runtime?.flowOptions || {}) }
+    const flowOptions: Record<string, unknown> = { ...(runtime?.flowOptions || {}), ...harnessNodeOptions(opts.caller) }
     // The server context copies the harness file. The run compares the caller's team.
     if (typeof opts.workspaceId === 'string' && opts.workspaceId) flowOptions.workspaceId = opts.workspaceId
     try {
@@ -434,7 +459,7 @@ const startRun = async (
             record: opts.record,
             replay: opts.replay === true,
             runId: opts.runId,
-            apiKeyId: opts.apiKeyId || undefined,
+            apiKeyId: apiKeyId || undefined,
             onRecorded: (row: Record<string, unknown>) => {
                 recorded = row
             }
@@ -483,13 +508,14 @@ const startBackgroundRun = async (
     opts: {
         workspaceId: string
         source?: 'api' | 'schedule'
-        apiKeyId?: string | null
+        caller: IHarnessCaller
         // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
         track?: <T>(run: Promise<T>) => Promise<T>
         onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
     }
 ) => {
-    const prepared = await assertRunRequest(name, body, opts.workspaceId, { apiKeyId: opts.apiKeyId })
+    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+    const apiKeyId = callerKeyId(opts.caller)
     const source = opts.source || 'api'
     const chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
     const history = await loadHarness('history.mjs')
@@ -498,14 +524,14 @@ const startBackgroundRun = async (
         chatId,
         source,
         input: prepared.question,
-        apiKeyId: opts.apiKeyId || null
+        apiKeyId
     })
     if (!queued?.id) throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The run could not be recorded.')
     const runId: string = queued.id
     const running = startRun(
         name,
         { ...body, question: prepared.question, chatId },
-        { source, workspaceId: opts.workspaceId, runId, apiKeyId: opts.apiKeyId }
+        { source, workspaceId: opts.workspaceId, runId, caller: opts.caller }
     )
     void (opts.track ? opts.track(running) : running)
         .then((outcome) => {
@@ -658,7 +684,7 @@ const deleteHarnessSchedule = async (name: string, workspaceId?: string | null) 
 const startCanvasRun = async (
     chatflow: { id: string; name: string; type?: string | null; flowData: string; workspaceId: string },
     body: Record<string, unknown>,
-    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}
+    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void; caller: IHarnessCaller }
 ) => {
     const flowData = await flowDraftsService.flowDataForTestChat(chatflow)
     const sync = await loadHarness('sync-from-flow.mjs')
@@ -683,10 +709,12 @@ const replayCheck = async (
     chatflow: { id: string; name: string; flowData: string; workspaceId: string },
     flowData: string,
     body: Record<string, unknown>,
-    opts: { signal?: AbortSignal } = {}
+    opts: { signal?: AbortSignal; caller: IHarnessCaller | undefined }
 ) => {
     // Another team's harness is a 404 before the canvas is read, so that file's credentials are not copied.
-    await assertRunRequest(chatflow.name, body, chatflow.workspaceId)
+    // An API key that does not list this harness, or no caller at all, is refused here too.
+    assertRouteCaller(chatflow.name, opts.caller)
+    await assertRunRequest(chatflow.name, body, chatflow.workspaceId, opts.caller)
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
@@ -700,6 +728,7 @@ const replayCheck = async (
         source: 'playground',
         signal: opts.signal,
         workspaceId: chatflow.workspaceId,
+        caller: opts.caller,
         replay: true,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })

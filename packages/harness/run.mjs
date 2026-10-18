@@ -23,6 +23,8 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
+import { assertHarnessCaller } from './caller.mjs'
+export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
 import {
     analystCallsFor,
@@ -83,7 +85,7 @@ export function configureHarnessRuntime({ contextFor } = {}) {
 // Before a run row is opened. A harness with no team is not in the caller's team.
 // Both empty is an offline run with no team on either side.
 export function assertHarnessWorkspace(name, flowOptions, record) {
-    assertHarnessKeyAccess(record?.name || name, flowOptions)
+    assertHarnessCaller(record?.name || name, flowOptions?.harnessCaller)
     let harness = record
     if (!harness) {
         try {
@@ -97,16 +99,6 @@ export function assertHarnessWorkspace(name, flowOptions, record) {
     const owner = typeof harness.workspaceId === 'string' ? harness.workspaceId : ''
     if (caller !== owner) {
         throw new HarnessError('wrong_workspace', `Harness "${harness.name || name}" belongs to another workspace.`)
-    }
-}
-
-// A flow run under an API key (the flow's own key on the prediction API) runs only harnesses on that key's list.
-export function assertHarnessKeyAccess(name, flowOptions) {
-    const keyId = flowOptions?.apiKeyId
-    if (typeof keyId !== 'string' || !keyId) return
-    const allowed = Array.isArray(flowOptions?.apiKeyHarnesses) ? flowOptions.apiKeyHarnesses : []
-    if (!allowed.includes(name)) {
-        throw new HarnessError('key_not_allowed', `This API key may not run harness "${name}".`)
     }
 }
 
@@ -930,7 +922,8 @@ export const HANDOFF_KEEP_CLOSING =
 // a closing line from the last lines of a completed result that the answer dropped is put back at the end.
 const CLOSING_LINE = /^(sources?|citations?|references?|data sources?)\s*:\s*\S/i
 const CLOSING_LINE_WINDOW = 3
-const CLOSING_TAIL = /[.!?)]\s+((?:sources?|citations?|references?|data sources?)\s*:\s*\S.*)$/i
+// No `$`: the capture runs to the end of the line, so a failed match cannot rescan the rest of it.
+const CLOSING_TAIL = /[.!?)]\s+((?:sources?|citations?|references?|data sources?)\s*:\s*\S.*)/i
 
 export function closingLines(text) {
     const lines = String(text || '')
@@ -1065,7 +1058,7 @@ export function isMultiStepDataTask(text) {
     const verbs = value.match(SQL_VERB) || []
     if (verbs.length >= 2) return true
     if (/\bthen\b/i.test(value) && verbs.length >= 1) return true
-    if (/(?:^|\n)\s*\d+[.)]\s+/.test(value) && /\b(table|insert|select|row)\b/i.test(value)) return true
+    if (/^[ \t]*\d+[.)]\s/m.test(value) && /\b(table|insert|select|row)\b/i.test(value)) return true
     return false
 }
 

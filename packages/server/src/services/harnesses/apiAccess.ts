@@ -1,9 +1,11 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { StatusCodes } from 'http-status-codes'
+import { IsNull, Not } from 'typeorm'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { AuditType, safeRecordAudit } from '../../identity/auditLog'
+import type { IHarnessCaller } from '../../Interface'
 import { rateLimitClientKey } from '../../utils/rateLimit'
 import logger from '../../utils/logger'
 
@@ -62,6 +64,47 @@ export async function removeHarnessFromKeyLists(workspaceId: string, name: strin
         changed += 1
     }
     return changed
+}
+
+/**
+ * At startup: a flow bound to an API key runs its Harness cards under that key's list, so a card that names a harness
+ * the key does not list is refused on every call. Each such pair is logged once so an operator can fix the list.
+ */
+export async function warnKeysMissingBoundHarnesses(): Promise<Array<{ chatflowId: string; apiKeyId: string; harness: string }>> {
+    const found: Array<{ chatflowId: string; apiKeyId: string; harness: string }> = []
+    try {
+        const { getDataSource } = await import('../../DataSource')
+        const { ApiKey } = await import('../../database/entities/ApiKey')
+        const { ChatFlow } = await import('../../database/entities/ChatFlow')
+        const dataSource = getDataSource()
+        const bound = await dataSource.getRepository(ChatFlow).find({
+            where: { apikeyid: Not(IsNull()) },
+            select: ['id', 'apikeyid', 'workspaceId', 'flowData']
+        })
+        const lists = new Map<string, string[]>()
+        for (const flow of bound) {
+            const names = referencedHarnessNames(flow.flowData)
+            const keyId = typeof flow.apikeyid === 'string' ? flow.apikeyid : ''
+            if (!names.length || !keyId) continue
+            let list = lists.get(`${keyId}:${flow.workspaceId}`)
+            if (!list) {
+                const key = await dataSource.getRepository(ApiKey).findOneBy({ id: keyId })
+                list = key && key.workspaceId === flow.workspaceId ? harnessAllowlist(key.harnesses) : []
+                lists.set(`${keyId}:${flow.workspaceId}`, list)
+            }
+            for (const name of names) {
+                if (list.includes(name)) continue
+                found.push({ chatflowId: flow.id, apiKeyId: keyId, harness: name })
+                logger.warn(
+                    `[harness] API key ${keyId} is bound to flow ${flow.id}, whose Harness card names ${safeHarnessName(name)}. ` +
+                        "That harness is not on the key's list, so the card is refused when the flow runs. Add it to the key or change the card."
+                )
+            }
+        }
+    } catch (error) {
+        logger.warn(`[harness] bound API keys were not checked: ${getErrorMessage(error)}`)
+    }
+    return found
 }
 
 function callerOf(req: Request): Caller {
@@ -134,60 +177,144 @@ export async function callerKeyHarnesses(req: Request): Promise<string[] | null>
     return harnessAllowlist(key.harnesses)
 }
 
-/** The list a key has for a flow prediction. An unknown key, or one in another team, runs no harness. */
-export async function keyHarnessesFor(keyId: string, workspaceId: string): Promise<string[]> {
-    const key = await storedKey(keyId)
-    if (!key || key.workspaceId !== workspaceId) return []
-    return harnessAllowlist(key.harnesses)
+/** Who this request acts for. A key that the gate could not name gets an empty id, which every harness check refuses. */
+export async function harnessCallerFor(req: Request): Promise<IHarnessCaller> {
+    const keyId = callerApiKeyId(req)
+    if (keyId === null) return { via: 'session' }
+    return { via: 'api_key', apiKeyId: keyId, harnesses: (await callerKeyHarnesses(req)) || [] }
 }
 
-/** Harness names a chatflow or agentflow canvas names on its Harness cards. */
+const MAX_REFERENCE_DEPTH = 64
+
+/**
+ * Every harness a chatflow or agentflow canvas names: a Harness card, an Agent's harness tool
+ * (`agentSelectedToolConfig.harnessName`), or any other `harnessName` string at any depth.
+ */
 export function referencedHarnessNames(flowData: unknown): string[] {
-    if (typeof flowData !== 'string' || !flowData.includes('"harness"')) return []
-    let parsed: { nodes?: Array<{ data?: { name?: string; inputs?: { harnessName?: unknown } } }> }
-    try {
-        parsed = JSON.parse(flowData)
-    } catch {
-        return []
+    let parsed: unknown = flowData
+    if (typeof flowData === 'string') {
+        if (!flowData.includes('"harnessName"')) return []
+        try {
+            parsed = JSON.parse(flowData)
+        } catch {
+            return []
+        }
     }
     const names = new Set<string>()
-    for (const node of parsed?.nodes || []) {
-        if (node?.data?.name !== 'harness') continue
-        const name = node.data.inputs?.harnessName
-        if (typeof name === 'string' && name.trim()) names.add(name.trim())
+    const walk = (value: unknown, depth: number) => {
+        if (!value || typeof value !== 'object' || depth > MAX_REFERENCE_DEPTH) return
+        if (Array.isArray(value)) {
+            for (const item of value) walk(item, depth + 1)
+            return
+        }
+        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+            if (key === 'harnessName' && typeof item === 'string' && item.trim()) names.add(item.trim())
+            else walk(item, depth + 1)
+        }
     }
+    walk(parsed, 0)
+    return [...names]
+}
+
+/** The first name this caller may not use, or null. A save with no caller, or a keyless flow's caller, may use none. */
+export function harnessRefusedFor(caller: IHarnessCaller | undefined, names: string[]): string | null {
+    if (!names.length || caller?.via === 'session') return null
+    if (caller?.via !== 'api_key') return names[0]
+    return names.find((name) => !caller.harnesses.includes(name)) ?? null
+}
+
+/** The save-side check every chatflow write path runs: create, update, import, draft, publish, roll back, restore. */
+export function assertCallerMayUseHarnesses(caller: IHarnessCaller | undefined, names: string[]): void {
+    const refused = harnessRefusedFor(caller, names)
+    if (refused === null) return
+    const shown = safeHarnessName(refused)
+    if (caller?.via === 'api_key') {
+        logger.warn(`[harness] API key ${caller.apiKeyId || 'unknown'} was refused a canvas that names harness ${shown}`)
+        throw new AppError(StatusCodes.FORBIDDEN, `This API key may not use harness "${shown}".`)
+    }
+    throw new AppError(StatusCodes.FORBIDDEN, `Saving a canvas that names harness "${shown}" needs a signed-in person or an API key.`)
+}
+
+type StoredFlow = { id: string; name: string; type?: string | null; flowData?: string | null; apikeyid?: string | null }
+type FlowLookup = (id: string, workspaceId: string) => Promise<StoredFlow | null | undefined>
+
+let installedFlowLookup: FlowLookup | null = null
+
+/** Tests install a lookup. Production reads the chat_flow row in the caller's team. */
+export function setHarnessFlowLookup(lookup: FlowLookup | null): void {
+    installedFlowLookup = lookup
+}
+
+async function storedFlow(id: string, workspaceId: string): Promise<StoredFlow | null | undefined> {
+    if (installedFlowLookup) return installedFlowLookup(id, workspaceId)
+    const { getDataSource } = await import('../../DataSource')
+    const { ChatFlow } = await import('../../database/entities/ChatFlow')
+    return getDataSource()
+        .getRepository(ChatFlow)
+        .findOne({ where: { id, workspaceId }, select: ['id', 'name', 'type', 'flowData', 'apikeyid'] })
+}
+
+/** What a chatflow route touches, from the body it was sent and the row it names. */
+export function canvasHarnessNames(body: Record<string, unknown> | undefined, stored: StoredFlow | null | undefined): string[] {
+    const names = new Set<string>()
+    const sent = body && typeof body === 'object' ? body : {}
+    if (stored?.type === 'HARNESS' && typeof stored.name === 'string') names.add(stored.name)
+    const type = 'type' in sent ? sent.type : stored?.type
+    if (type === 'HARNESS' && typeof sent.name === 'string' && sent.name) names.add(sent.name)
+    // A canvas that is rebound or unbound runs its stored cards under a different key, or under no key at all.
+    const rebinding = 'apikeyid' in sent && (sent.apikeyid ?? null) !== (stored?.apikeyid ?? null)
+    const flowData = sent.flowData !== undefined ? sent.flowData : rebinding ? stored?.flowData : undefined
+    for (const name of referencedHarnessNames(flowData)) names.add(name)
     return [...names]
 }
 
 /**
- * Refuses an API key that saves a chatflow, agentflow, or draft whose Harness card names a harness that is not on the
- * key's list. A keyless flow runs for anyone who has its id, so the save is where the key's list is enforced.
+ * The per-key list on routes that read or write one chatflow row. An API key needs every HARNESS canvas the request
+ * touches (in the body or the stored row) and every harness the sent canvas names on its own list. A signed-in person
+ * is checked by role only. `body: false` checks the stored row only.
  */
-export function refuseUnlistedHarnessCards(): RequestHandler {
+export function requireHarnessCanvasAccess(opts: { idParam?: string; body?: boolean } = {}): RequestHandler {
+    const idParam = opts.idParam ?? 'id'
+    const readBody = opts.body !== false
     return (req: Request, res: Response, next: NextFunction) => {
         if (!isApiKeyCaller(req)) {
             next()
             return
         }
-        const named = referencedHarnessNames(req.body?.flowData)
-        if (!named.length) {
+        const workspaceId = callerOf(req).activeWorkspaceId
+        const id = req.params?.[idParam]
+        void (async () => {
+            const stored = typeof id === 'string' && id && typeof workspaceId === 'string' ? await storedFlow(id, workspaceId) : null
+            const caller = await harnessCallerFor(req)
+            const refused = harnessRefusedFor(caller, canvasHarnessNames(readBody ? req.body : undefined, stored))
+            if (refused === null) {
+                next()
+                return
+            }
+            const label = callerLabel(req)
+            logger.warn(`[harness] API key ${label.keyId || 'unknown'} was refused a canvas that names harness ${safeHarnessName(refused)}`)
+            res.status(StatusCodes.FORBIDDEN).json({ message: `This API key may not use harness "${safeHarnessName(refused)}".` })
+        })().catch((error) => {
+            logger.warn(`[harness] allowlist check failed: ${getErrorMessage(error)}`)
+            if (!res.headersSent) res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Permission check failed' })
+        })
+    }
+}
+
+/**
+ * GET /chatflows for an API key leaves out HARNESS canvases whose name is not on the key's list. The controller hands
+ * this list to the query, so paging and the total count already leave those rows out.
+ */
+export function scopeChatflowListToKey(): RequestHandler {
+    return (req: Request, res: Response, next: NextFunction) => {
+        if (!isApiKeyCaller(req)) {
             next()
             return
         }
         void callerKeyHarnesses(req)
             .then((allowed) => {
-                const refused = named.find((name) => !(allowed || []).includes(name))
-                if (!refused) {
-                    next()
-                    return
-                }
-                const label = callerLabel(req)
-                logger.warn(
-                    `[harness] API key ${label.keyId || 'unknown'} was refused a canvas that names harness ${safeHarnessName(refused)}`
-                )
-                res.status(StatusCodes.FORBIDDEN).json({
-                    message: `This API key may not save a Harness card for "${safeHarnessName(refused)}".`
-                })
+                res.locals.harnessCanvasScope = allowed || []
+                next()
             })
             .catch((error) => {
                 logger.warn(`[harness] allowlist check failed: ${getErrorMessage(error)}`)

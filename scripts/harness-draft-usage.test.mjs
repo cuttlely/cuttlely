@@ -163,11 +163,19 @@ describe('harness draft try usage', () => {
             workspaceId: WORKSPACE
         }
 
-        await harnesses.startRun('bakery-team', { question: 'How many loaves?' }, { source: 'api', workspaceId: WORKSPACE })
+        await harnesses.startRun(
+            'bakery-team',
+            { question: 'How many loaves?' },
+            { source: 'api', workspaceId: WORKSPACE, caller: { via: 'session' } }
+        )
         const afterPublic = await settle(dataSource, 20, 8)
         assert.deepEqual(afterPublic, { inputTokens: 20, outputTokens: 8 })
 
-        const outcome = await harnesses.startCanvasRun(chatflow, { question: 'Try the draft' }, { source: 'playground' })
+        const outcome = await harnesses.startCanvasRun(
+            chatflow,
+            { question: 'Try the draft' },
+            { source: 'playground', caller: { via: 'session' } }
+        )
         assert.equal(outcome.payload.text, 'baked')
         const afterDraft = await settle(dataSource, 40, 16)
         assert.deepEqual(afterDraft, { inputTokens: 40, outputTokens: 16 })

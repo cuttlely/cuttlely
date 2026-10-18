@@ -83,9 +83,18 @@ export function defaultCaps() {
     return { ...DEFAULT_CAPS }
 }
 
-const ASCII_WS = /^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g
+const isAsciiSpace = (code) => code === 32 || (code >= 9 && code <= 13)
+// Trims space, tab, LF, VT, FF and CR (not the Unicode spaces String.trim also removes), scanning in from both ends.
+export function trimAsciiSpace(value) {
+    let start = 0
+    let end = value.length
+    while (start < end && isAsciiSpace(value.charCodeAt(start))) start += 1
+    while (end > start && isAsciiSpace(value.charCodeAt(end - 1))) end -= 1
+    return value.slice(start, end)
+}
 const INTEGER = /^[+-]?\d+$/
-const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
+// The fraction is optional as a whole, so a run of digits has only one way to match.
+export const NUMBER = /^[+-]?(\d+(?:\.\d*)?|\.\d+)([eE][+-]?\d+)?$/
 const DECIMAL = /^([+-]?)(\d+)(?:\.(\d+))?$/
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?([Zz]|[+-]\d{2}:\d{2})$/
@@ -155,7 +164,7 @@ export function coerceValue(name, def, raw, { fromCsv = false } = {}) {
         let value = raw
         if (fromCsv) {
             try {
-                value = parseStrict(String(raw).replace(ASCII_WS, ''))
+                value = parseStrict(trimAsciiSpace(String(raw)))
             } catch (error) {
                 if (error instanceof JsonStrictError) reject(error.code, name, `${name}: ${error.message}`)
                 throw error
@@ -168,7 +177,7 @@ export function coerceValue(name, def, raw, { fromCsv = false } = {}) {
     }
     if (typeof raw === 'object' && !(raw instanceof JsonBigInt)) reject('nested_metadata', name, `${name} holds an object or array`)
     const isBig = raw instanceof JsonBigInt
-    const text = isBig ? raw.$bigint : typeof raw === 'string' ? raw.replace(ASCII_WS, '') : null
+    const text = isBig ? raw.$bigint : typeof raw === 'string' ? trimAsciiSpace(raw) : null
     if (type === 'integer') {
         if (typeof raw === 'number') {
             if (!Number.isInteger(raw)) bad('not an integer')

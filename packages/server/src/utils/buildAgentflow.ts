@@ -28,7 +28,7 @@ import {
     INodeData,
     IReactFlowObject,
     IExecuteFlowParams,
-    IApiKeyAccess,
+    IHarnessCaller,
     IFlowConfig,
     IAgentflowExecutedData,
     ExecutionState,
@@ -43,7 +43,7 @@ import {
     INodeDirectedGraph,
     StartInputType
 } from '../Interface'
-import { apiKeyNodeOptions } from './apiKeyAccess'
+import { harnessNodeOptions } from './apiKeyAccess'
 import {
     RUNTIME_MESSAGES_LENGTH_VAR_PREFIX,
     CHAT_HISTORY_VAR_PREFIX,
@@ -187,7 +187,7 @@ interface IExecuteNodeParams {
     subscriptionId: string
     productId: string
     replay?: boolean
-    apiKeyAccess?: IApiKeyAccess
+    harnessCaller?: IHarnessCaller
 }
 
 interface IExecuteAgentFlowParams extends Omit<IExecuteFlowParams, 'incomingInput'> {
@@ -1117,7 +1117,7 @@ const executeNode = async ({
     subscriptionId,
     productId,
     replay,
-    apiKeyAccess
+    harnessCaller
 }: IExecuteNodeParams): Promise<{
     result: any
     shouldStop?: boolean
@@ -1338,7 +1338,7 @@ const executeNode = async ({
             replay,
             // A harness tool on this canvas records against the agentflow. The tool closes over these params.
             recordTokenUsage: recordCompletedRun,
-            ...apiKeyNodeOptions(apiKeyAccess)
+            ...harnessNodeOptions(harnessCaller)
         }
 
         // Execute node. tracedNode is a no-op check when run traces are off.
@@ -1423,7 +1423,7 @@ const executeNode = async ({
                             subscriptionId,
                             productId,
                             replay,
-                            apiKeyAccess
+                            harnessCaller
                         })
 
                         // Store the result
@@ -1821,7 +1821,7 @@ const runAgentFlow = async ({
     productId,
     sessionToken,
     replay,
-    apiKeyAccess
+    harnessCaller
 }: IExecuteAgentFlowParams) => {
     logger.debug('\n🚀 Starting flow execution')
 
@@ -2354,7 +2354,7 @@ const runAgentFlow = async ({
                 subscriptionId,
                 productId,
                 replay,
-                apiKeyAccess
+                harnessCaller
             })
 
             if (executionResult.agentFlowExecutedData) {

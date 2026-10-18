@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { assertHarnessCaller, serializableCaller } from './caller.mjs'
 import { HarnessError } from './errors.mjs'
 import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
 import { promptImages } from './images.mjs'
@@ -45,6 +46,8 @@ function jobPayload(args) {
         // An id the caller already returned, so the run history row is the one it polls.
         runId: typeof args.runId === 'string' && /^run_[A-Za-z0-9-]{8,80}$/.test(args.runId) ? args.runId : null,
         apiKeyId: typeof args.apiKeyId === 'string' && args.apiKeyId ? args.apiKeyId.slice(0, 128) : null,
+        // A worker in another process checks the same caller. A job without one is refused there.
+        caller: serializableCaller(flow.harnessCaller),
         traceId: args.traceId || flow.executionId || null,
         // A worker in another process needs the images too. They are already within the count and size limits.
         images: promptImages(args.images)
@@ -201,6 +204,7 @@ function callerFlowOptions(payload, flowOptions) {
     const next = { ...(flowOptions || {}) }
     if (payload?.callerChatflowId && next.callerChatflowId == null) next.callerChatflowId = payload.callerChatflowId
     next.workspaceId = payload?.workspaceId || undefined
+    next.harnessCaller = payload?.caller || undefined
     return next
 }
 
@@ -442,6 +446,8 @@ function kickInline() {
 }
 
 export async function runQueuedHarness(args) {
+    // Refused before a job row, the same as a run that does not queue.
+    assertHarnessCaller(args?.name, args?.flowOptions?.harnessCaller)
     let job
     try {
         job = enqueueHarnessJob(args)

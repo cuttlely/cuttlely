@@ -15,6 +15,8 @@ import { AppError } from '../../errors/appError'
 import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fileRepository'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stampNodePack } from '../../utils/nodePacks'
+import type { IHarnessCaller } from '../../Interface'
+import { assertCallerMayUseHarnesses, referencedHarnessNames } from '../harnesses/apiAccess'
 import {
     GateResult,
     GateStatus,
@@ -366,6 +368,8 @@ export interface SaveDraftContext {
     userId?: string | null
     orgId: string
     subscriptionId: string
+    // Who saves the draft. A draft that names a harness needs a person, or an API key that lists every one of them.
+    caller?: IHarnessCaller
 }
 
 // Saves the canvas as this flow's draft. Live is not touched. A canvas that matches Live clears the
@@ -373,6 +377,7 @@ export interface SaveDraftContext {
 export async function saveDraft(flow: DraftFlow, flowData: unknown, context: SaveDraftContext): Promise<DraftStatus> {
     refuse(flow, await getState(flow.id))
     let canvas = checkCanvas(flowData)
+    assertCallerMayUseHarnesses(context.caller, referencedHarnessNames(canvas))
     if (containsBase64File({ flowData: canvas } as any)) {
         const app = getRunningExpressApp()
         canvas = await updateFlowDataWithFilePaths(

@@ -1,5 +1,6 @@
 // Talks to the Cuttlely server's public chat endpoints. See README "Server API used".
 
+import { trimTrailingSlashes } from './markdown.js'
 import { createEventParser } from './sse.js'
 
 export class ChatApiError extends Error {
@@ -27,7 +28,7 @@ async function readError(res) {
 }
 
 export function createClient({ apiHost, flowId, fetchImpl }) {
-    const host = String(apiHost || '').replace(/\/+$/, '')
+    const host = trimTrailingSlashes(apiHost || '')
     const id = encodeURIComponent(flowId)
     const doFetch = fetchImpl || ((...args) => globalThis.fetch(...args))
 

@@ -3,6 +3,7 @@
 // as chat questions. Secrets are redacted the same way as a run preview, then the text is cut at 2,000
 // characters. The short preview on the Runs list is not replayed.
 // A request that sends datasetId is resolved before this module runs. A harness accepts it.
+import type { IHarnessCaller } from '../../Interface'
 import { randomUUID } from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
@@ -45,6 +46,7 @@ export interface ReplayCall {
     flowData: string
     question: string
     signal: AbortSignal
+    caller: IHarnessCaller | undefined
 }
 
 // Tests stand in for the try-profile replay. Production calls the harness service.
@@ -202,6 +204,7 @@ export async function replayHarnessQuestion(args: {
     flowData: string
     question: string
     signal: AbortSignal | AbortController
+    caller: IHarnessCaller | undefined
 }): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
     const signal = abortSignalOf(args.signal)
     if (harnessReplayHooks.run) {
@@ -209,7 +212,8 @@ export async function replayHarnessQuestion(args: {
             name: args.flow.name,
             flowData: args.flowData,
             question: args.question,
-            signal
+            signal,
+            caller: args.caller
         })
         return {
             text: String(outcome?.text ?? ''),
@@ -227,7 +231,7 @@ export async function replayHarnessQuestion(args: {
         },
         args.flowData,
         { question: args.question, chatId: `check-${randomUUID()}` },
-        { signal }
+        { signal, caller: args.caller }
     )
     const payload = outcome?.payload as
         | { text?: string; trace?: unknown; report?: { tokens?: { prompt?: number | null; completion?: number | null } } }

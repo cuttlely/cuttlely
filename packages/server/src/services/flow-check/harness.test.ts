@@ -206,6 +206,20 @@ describe('harness publish check', () => {
         expect(writes.update).not.toHaveBeenCalled()
     })
 
+    test('replays each side for the caller that started the check, so an API key keeps its harness list', async () => {
+        replayHooks.run = null
+        const callers: unknown[] = []
+        harnessReplayHooks.run = async ({ flowData, caller }) => {
+            callers.push(caller)
+            return { text: JSON.parse(flowData).nodes[0].data.inputs.instructions }
+        }
+        const keyCaller = { via: 'api_key' as const, apiKeyId: 'key-1', harnesses: ['bakery'] }
+        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x', undefined, undefined, keyCaller)
+        await settle()
+        expect((await getCheck(flow(), started.id)).status).toBe('done')
+        expect(callers).toEqual([keyCaller, keyCaller])
+    })
+
     test('sums route, specialist and handoff tokens from the run report', async () => {
         replayHooks.run = null
         harnessReplayHooks.run = async ({ flowData }) => ({

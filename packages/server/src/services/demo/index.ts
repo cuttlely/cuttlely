@@ -13,6 +13,7 @@ import credentialsService from '../credentials'
 import etlService from '../etl'
 import { loadHarness } from '../harnesses'
 import { VersionActor } from '../flow-versions/author'
+import type { IHarnessCaller } from '../../Interface'
 import { DEMOS, DemoDefinition, demoById, demoCredentialNames, demoModelFor, withDemoStarters } from './plan'
 
 // node:sqlite is built into Node 24, which Cuttlely requires (ETL opens its database the same way).
@@ -106,11 +107,13 @@ export interface DemoCaller {
     workspaceId: string
     subscriptionId: string
     actor?: VersionActor
+    // Who makes the demo canvas. An API key needs the demo harness name on its own list.
+    harnessCaller: IHarnessCaller
 }
 
 // Makes a demo team with the person's own model key. A second call returns the team made the first time.
 const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknown) => {
-    const { orgId, workspaceId, subscriptionId, actor } = caller
+    const { orgId, workspaceId, subscriptionId, actor, harnessCaller } = caller
     const demo = demoById(demoId)
     if (typeof credentialId !== 'string' || !credentialId)
         throw new AppError(StatusCodes.BAD_REQUEST, 'Pick the model key the demo should use.')
@@ -165,7 +168,8 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
         workspaceId,
         subscriptionId,
         getRunningExpressApp().usageCacheManager,
-        actor
+        actor,
+        { caller: harnessCaller }
     )
     logger.info(`[server]: Try the demo made ${demo.harness} with ${model.name}${model.modelName ? ` (${model.modelName})` : ''}`)
     return { id: saved.id, name: saved.name, created: true, starterQuestions: demo.starters }

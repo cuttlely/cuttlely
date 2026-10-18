@@ -260,8 +260,7 @@ const FLOW_OPTION_KEYS = [
     'usageCacheManager',
     'updateStorageUsage',
     'checkStorage',
-    'apiKeyId',
-    'apiKeyHarnesses'
+    'harnessCaller'
 ] as const
 
 function pickFlowOptions(options: ICommonObject): HarnessFlowOptions {

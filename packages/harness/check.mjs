@@ -18,6 +18,8 @@ const {
     compileProfileCached,
     compileTryProfile,
     discardTryProfile,
+    hermesToolsetsFor,
+    mcpValidatorPath,
     modelConfigured,
     readProfileEnv,
     CHIEF_TOOLSETS,
@@ -62,12 +64,16 @@ const { HARNESS_EVENT_TYPES } = await import('./events.mjs')
 const { ANALYST_CURSOR_ERRORS, ANALYST_PAGE_TTL_MS, analystPageRequest } = await import('./runtime/analyst-page.mjs')
 const { latestAnalystCursor } = await import('./analyst-capture.mjs')
 const { executeModule: executeModuleRaw, executeSpecialistTool, loadFlowiseNode } = await import('./bridge.mjs')
-const { syncHarnessFromFlow } = await import('./sync-from-flow.mjs')
+const { syncHarnessFromFlow: syncHarnessFromFlowRaw } = await import('./sync-from-flow.mjs')
 const { setFlowiseCredentialPaths, flowiseNodeOptions } = await import('./credential-store.mjs')
+// Every run and sync names its caller. These cases act as a signed-in person unless they say otherwise.
+const SESSION_CALLER = { via: 'session' }
+const syncHarnessFromFlow = (args) => syncHarnessFromFlowRaw({ caller: SESSION_CALLER, ...args })
 // The harness runtime no longer invents a database. Existing tool runs pass the offline fake explicitly.
 function withServerContext(args = {}) {
-    if (args.flowOptions) return args
-    return { ...args, flowOptions: flowiseNodeOptions() }
+    const flowOptions = args.flowOptions || flowiseNodeOptions()
+    if ('harnessCaller' in flowOptions) return { ...args, flowOptions }
+    return { ...args, flowOptions: { ...flowOptions, harnessCaller: SESSION_CALLER } }
 }
 const runHarness = (args) => runHarnessRaw(withServerContext(args))
 const executeModule = (binding, input, options) => executeModuleRaw(binding, input, withServerContext(options))
@@ -5703,38 +5709,165 @@ await expectCase('a database refusal stays the database error', async () => {
     )
 })
 
-await expectCase('typed MCP server extras stay raw', async () => {
-    compileProfile(
-        saveHarness(
+const withCustomMcpAllowLists = (values, fn) => {
+    const keys = [
+        'CUSTOM_MCP_SECURITY_CHECK',
+        'CUSTOM_MCP_ALLOWED_COMMANDS',
+        'CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS',
+        'CUSTOM_MCP_ALLOWED_ENV_VARS',
+        'CUTTLELY_MCP_VALIDATOR_PATH'
+    ]
+    const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+    for (const key of keys) {
+        if (values[key] === undefined) delete process.env[key]
+        else process.env[key] = values[key]
+    }
+    try {
+        return fn()
+    } finally {
+        for (const key of keys) {
+            if (saved[key] === undefined) delete process.env[key]
+            else process.env[key] = saved[key]
+        }
+    }
+}
+
+const componentsBuilt = fs.existsSync(mcpValidatorPath())
+
+await expectCase('raw MCP server extras pass the Custom MCP checks', async () => {
+    const record = (config) => ({
+        name: 'maMcpChecked',
+        chatflowId: 'canvas-mcp-checked',
+        chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+        specialists: [
+            { name: 'operator', instructions: 'Use the servers.', modules: [], mcpServers: [{ serverName: 'extra-tools', config }] }
+        ]
+    })
+    const yamlFor = (config) => {
+        compileProfile(saveHarness(record(config), { overwrite: true }))
+        return profilesFor('maMcpChecked')
+            .map((profile) => profile.yaml)
+            .join('\n')
+    }
+    const toolsets = (config) => hermesToolsetsFor(record(config).specialists[0])
+    const config = { command: 'keep-extra', args: ['/srv/mcp/extra.mjs'] }
+    const allowed = { CUSTOM_MCP_ALLOWED_COMMANDS: 'keep-extra', CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: '/srv/mcp/extra.mjs' }
+    const cases = {
+        noAllowList: withCustomMcpAllowLists({}, () => ({ yaml: yamlFor(config), sets: toolsets(config) })),
+        allowed: withCustomMcpAllowLists(allowed, () => ({ yaml: yamlFor(config), sets: toolsets(config) })),
+        injected: withCustomMcpAllowLists(allowed, () => yamlFor({ ...config, args: ['/srv/mcp/extra.mjs', '; rm -rf /'] })),
+        withCwd: withCustomMcpAllowLists(allowed, () => yamlFor({ ...config, cwd: '/' })),
+        env: withCustomMcpAllowLists(allowed, () => yamlFor({ ...config, env: { NODE_OPTIONS: '--require /tmp/x.js' } })),
+        checksOff: withCustomMcpAllowLists({ CUSTOM_MCP_SECURITY_CHECK: 'false' }, () => yamlFor(config))
+    }
+    const refused =
+        !cases.noAllowList.yaml.includes('keep-extra') &&
+        !cases.noAllowList.sets.includes('extra-tools') &&
+        !cases.injected.includes('keep-extra') &&
+        !cases.withCwd.includes('keep-extra') &&
+        !cases.env.includes('keep-extra') &&
+        cases.checksOff.includes('keep-extra')
+    const detail = JSON.stringify({
+        noAllowList: cases.noAllowList.yaml.includes('keep-extra'),
+        allowed: cases.allowed.yaml.includes('keep-extra'),
+        injected: cases.injected.includes('keep-extra'),
+        withCwd: cases.withCwd.includes('keep-extra'),
+        env: cases.env.includes('keep-extra'),
+        checksOff: cases.checksOff.includes('keep-extra')
+    })
+    if (componentsBuilt) {
+        check(
+            'raw MCP server extras pass the Custom MCP checks',
+            refused && cases.allowed.yaml.includes('keep-extra') && cases.allowed.sets.includes('extra-tools'),
+            detail
+        )
+    } else {
+        console.log('skip an allowed raw MCP server is kept (components not built); the refusals are still checked')
+        check('raw MCP server extras pass the Custom MCP checks', refused, detail)
+    }
+})
+
+await expectCase('raw MCP server extras are refused when the components package is not built', async () => {
+    const warnings = []
+    const warn = console.warn
+    console.warn = (...args) => warnings.push(args.join(' '))
+    let yaml = ''
+    let sets = []
+    try {
+        withCustomMcpAllowLists(
             {
-                name: 'maMcpExtra',
-                chatflowId: 'canvas-mcp-extra',
-                chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
-                specialists: [
-                    {
-                        name: 'operator',
-                        instructions: 'Use the servers.',
-                        modules: [],
-                        mcpServers: [
-                            {
-                                nodeName: 'customMCP',
-                                label: 'Custom MCP',
-                                inputs: { mcpServerConfig: JSON.stringify({ command: 'do-not-launch', args: ['--raw-mcp'] }) }
-                            },
-                            { serverName: 'extra-tools', config: { command: 'keep-extra', args: ['--flag'] } }
-                        ]
-                    }
-                ]
+                CUSTOM_MCP_ALLOWED_COMMANDS: 'keep-extra',
+                CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: '/srv/mcp/extra.mjs',
+                CUTTLELY_MCP_VALIDATOR_PATH: path.join(dataDir, 'no-components', 'core.js')
             },
-            { overwrite: true }
+            () => {
+                const record = {
+                    name: 'maMcpUnbuilt',
+                    chatflowId: 'canvas-mcp-unbuilt',
+                    chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+                    specialists: [
+                        {
+                            name: 'operator',
+                            instructions: 'Use the servers.',
+                            modules: [],
+                            mcpServers: [{ serverName: 'extra-tools', config: { command: 'keep-extra', args: ['/srv/mcp/extra.mjs'] } }]
+                        }
+                    ]
+                }
+                compileProfile(saveHarness(record, { overwrite: true }))
+                yaml = profilesFor('maMcpUnbuilt')
+                    .map((profile) => profile.yaml)
+                    .join('\n')
+                sets = hermesToolsetsFor(record.specialists[0])
+            }
+        )
+    } finally {
+        console.warn = warn
+    }
+    check(
+        'raw MCP server extras are refused when the components package is not built',
+        !yaml.includes('keep-extra') &&
+            !sets.includes('extra-tools') &&
+            warnings.some((line) => line.includes('extra-tools') && line.includes('components package is not built')),
+        JSON.stringify({ inYaml: yaml.includes('keep-extra'), sets, warnings })
+    )
+})
+
+await expectCase('typed MCP server extras stay raw', async () => {
+    withCustomMcpAllowLists({ CUSTOM_MCP_ALLOWED_COMMANDS: 'keep-extra', CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: '--flag' }, () =>
+        compileProfile(
+            saveHarness(
+                {
+                    name: 'maMcpExtra',
+                    chatflowId: 'canvas-mcp-extra',
+                    chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+                    specialists: [
+                        {
+                            name: 'operator',
+                            instructions: 'Use the servers.',
+                            modules: [],
+                            mcpServers: [
+                                {
+                                    nodeName: 'customMCP',
+                                    label: 'Custom MCP',
+                                    inputs: { mcpServerConfig: JSON.stringify({ command: 'do-not-launch', args: ['--raw-mcp'] }) }
+                                },
+                                { serverName: 'extra-tools', config: { command: 'keep-extra', args: ['--flag'] } }
+                            ]
+                        }
+                    ]
+                },
+                { overwrite: true }
+            )
         )
     )
     const yaml = profilesFor('maMcpExtra')
         .map((profile) => profile.yaml)
         .join('\n')
+    if (!componentsBuilt) console.log('skip the typed MCP server extra is written raw (components not built)')
     check(
         'typed MCP server extras stay raw',
-        yaml.includes('keep-extra') && !yaml.includes('do-not-launch') && yaml.includes('mcp-bridge.mjs'),
+        (!componentsBuilt || yaml.includes('keep-extra')) && !yaml.includes('do-not-launch') && yaml.includes('mcp-bridge.mjs'),
         yaml.includes('do-not-launch') ? 'custom MCP was written raw' : 'typed extra or bridge missing'
     )
 })
@@ -8160,7 +8293,8 @@ try {
             chatId: 'pool-1',
             input: 'Say hi',
             callerChatflowId: 'caller-flow',
-            workspaceId: 'ws-pool'
+            workspaceId: 'ws-pool',
+            caller: SESSION_CALLER
         },
         cancelRequested: false
     })
@@ -8294,7 +8428,7 @@ check(
         name: 'extSame',
         chatId: 'extSame-chat',
         input: 'Say hi',
-        flowOptions: { workspaceId: 'team-a', chatflowid: 'caller-flow' }
+        flowOptions: { workspaceId: 'team-a', chatflowid: 'caller-flow', harnessCaller: SESSION_CALLER }
     })
     const sameClaimed = claimJob()
     let sameText = ''
@@ -8376,7 +8510,7 @@ let missingPool
 try {
     await executeJob({
         id: 'job-pool-missing',
-        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi', workspaceId: 'ws-pool' },
+        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi', workspaceId: 'ws-pool', caller: SESSION_CALLER },
         cancelRequested: false
     })
 } catch (error) {
@@ -8492,7 +8626,7 @@ await expectCase('inline and off refuse another team harness before a run row', 
             flowOptions: flowContext({ workspaceId }).flowOptions
         }
         if (mode === 'off') return capture(() => runHarness(args))
-        return capture(() => queuedRun(args))
+        return capture(() => queuedRun(withServerContext(args)))
     }
     try {
         const inlineOther = await cross('inline', 'team-b', 'inline-other')
@@ -11213,16 +11347,18 @@ await expectCase("an API key reads only its own runs and cannot continue another
         `${reopened?.status} ${JSON.stringify(reopened?.error)}`
     )
     const run = await import('./run.mjs')
+    const keyCaller = { via: 'api_key', apiKeyId: 'key-a', harnesses: ['bakery'] }
     let refused = null
     try {
-        run.assertHarnessKeyAccess('payroll', { apiKeyId: 'key-a', apiKeyHarnesses: ['bakery'] })
+        run.assertHarnessCaller('payroll', keyCaller)
     } catch (error) {
         refused = error
     }
     let allowed = true
     try {
-        run.assertHarnessKeyAccess('bakery', { apiKeyId: 'key-a', apiKeyHarnesses: ['bakery'] })
-        run.assertHarnessKeyAccess('payroll', { workspaceId: 'team-1' })
+        run.assertHarnessCaller('bakery', keyCaller)
+        run.assertHarnessCaller('payroll', { via: 'session' })
+        run.assertHarnessCaller('payroll', { via: 'flow' })
     } catch {
         allowed = false
     }
@@ -11238,14 +11374,88 @@ await expectCase("an API key reads only its own runs and cannot continue another
         input: 'q',
         runId: mine.id,
         apiKeyId: 'key-a',
-        flowOptions: { workspaceId: 'team-1' }
+        flowOptions: { workspaceId: 'team-1', harnessCaller: keyCaller }
     })
     const claimed = queue.claimJob()
-    check('a queued job carries the API key id to the worker', claimed?.payload?.apiKeyId === 'key-a', JSON.stringify(claimed?.payload))
+    check(
+        'a queued job carries the API key id and its harness list to the worker',
+        claimed?.payload?.apiKeyId === 'key-a' && JSON.stringify(claimed?.payload?.caller) === JSON.stringify(keyCaller),
+        JSON.stringify(claimed?.payload)
+    )
     queue.finishJob(job.id, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'check' })
     check(
         "an API key reads only its own runs and cannot continue another caller's chat",
         listed.length === 1 && refused?.code === 'key_not_allowed' && claimed?.payload?.apiKeyId === 'key-a',
+        'see the rows above'
+    )
+})
+
+await expectCase('a run or a canvas sync without a caller identity is refused before anything is written', async () => {
+    const { listRuns } = await import('./history.mjs')
+    const { getHarness } = await import('./store.mjs')
+    const queue = await import('./queue.mjs')
+    saveHarness(
+        {
+            name: 'callerTeam',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const before = listRuns('callerTeam').length
+    const base = { name: 'callerTeam', input: 'q', source: 'prediction' }
+    const noCaller = await capture(() => runHarnessRaw({ ...base, chatId: 'no-caller', flowOptions: flowiseNodeOptions() }))
+    const unknown = await capture(() =>
+        runHarnessRaw({ ...base, chatId: 'odd-caller', flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'root' } } })
+    )
+    const keyNoList = await capture(() =>
+        runHarnessRaw({
+            ...base,
+            chatId: 'key-no-list',
+            flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'api_key', apiKeyId: 'key-a' } }
+        })
+    )
+    const keyUnlisted = await capture(() =>
+        runHarnessRaw({
+            ...base,
+            chatId: 'key-unlisted',
+            flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'api_key', apiKeyId: 'key-a', harnesses: ['bakery'] } }
+        })
+    )
+    const queuedNoCaller = await capture(() => queue.runQueuedHarness({ ...base, chatId: 'queued-no-caller', flowOptions: {} }))
+    check(
+        'runHarness and runQueuedHarness refuse a run with no caller, an unknown caller, or a key without its list',
+        noCaller.error?.code === 'caller_required' &&
+            unknown.error?.code === 'caller_required' &&
+            keyNoList.error?.code === 'caller_required' &&
+            keyUnlisted.error?.code === 'key_not_allowed' &&
+            queuedNoCaller.error?.code === 'caller_required' &&
+            listRuns('callerTeam').length === before,
+        JSON.stringify([noCaller, unknown, keyNoList, keyUnlisted, queuedNoCaller].map((item) => item.error?.code || 'ran'))
+    )
+    const canvas = JSON.parse(fs.readFileSync(path.join(root, 'samples/harnesses/research.canvas.json'), 'utf8'))
+    const sync = (name, caller) =>
+        capture(() =>
+            syncHarnessFromFlowRaw({ name, chatflowId: `canvas-${name}`, flowData: canvas.flowData, ...(caller ? { caller } : {}) })
+        )
+    const syncNone = await sync('syncNone')
+    const syncFlow = await sync('syncFlow', { via: 'flow' })
+    const syncKey = await sync('syncKey', { via: 'api_key', apiKeyId: 'key-a', harnesses: ['bakery'] })
+    const syncListed = await sync('syncListed', { via: 'api_key', apiKeyId: 'key-a', harnesses: ['syncListed'] })
+    check(
+        'syncHarnessFromFlow needs a person or an API key that lists the harness, and writes nothing otherwise',
+        syncNone.error?.code === 'caller_required' &&
+            syncFlow.error?.code === 'caller_required' &&
+            syncKey.error?.code === 'key_not_allowed' &&
+            !getHarness('syncNone') &&
+            !getHarness('syncFlow') &&
+            !getHarness('syncKey') &&
+            syncListed.value?.name === 'syncListed',
+        JSON.stringify([syncNone, syncFlow, syncKey, syncListed].map((item) => item.error?.code || item.value?.name))
+    )
+    check(
+        'a run or a canvas sync without a caller identity is refused before anything is written',
+        noCaller.error?.code === 'caller_required' && syncNone.error?.code === 'caller_required',
         'see the rows above'
     )
 })
@@ -11468,6 +11678,7 @@ runHooks.afterProfile = async ({ tryId }) => {
     if (tryId !== tryC) return
     duringTry.untouched = profileTree(publishedProfile) === publishedBytes && profileTree(publishedSpecialist) === publishedSpecialistBytes
     externalDuringTry = await runHarnessRaw({
+        flowOptions: { harnessCaller: SESSION_CALLER },
         name: 'try-live',
         chatId: 'published-while-draft',
         input: 'What are the rules?',
@@ -11482,6 +11693,7 @@ runHooks.afterProfile = async ({ tryId }) => {
 let midTry = null
 try {
     await runHarnessRaw({
+        flowOptions: { harnessCaller: SESSION_CALLER },
         name: 'try-live',
         chatId: 'draft-try',
         input: 'What are the rules?',
@@ -11654,7 +11866,6 @@ await (async () => {
     let importError = null
     try {
         const canvas = JSON.parse(fs.readFileSync(path.join(root, 'samples/harnesses/research.canvas.json'), 'utf8'))
-        const { syncHarnessFromFlow } = await import('./sync-from-flow.mjs')
         await syncHarnessFromFlow({ name: reserved, chatflowId: 'canvas-reserved', flowData: canvas.flowData })
     } catch (error) {
         importError = error
@@ -12071,6 +12282,7 @@ await (async () => {
         return recordingChat([], () => ({ content: 'STUB_ANSWER' }))
     }
     const publicRun = await runHarnessRaw({
+        flowOptions: { harnessCaller: SESSION_CALLER },
         name: 'finance',
         chatId: 'public-long',
         input: 'Review the invoice exception.',
@@ -12079,6 +12291,7 @@ await (async () => {
         baseUrl: 'http://127.0.0.1:8643'
     })
     const canvasRun = await runHarnessRaw({
+        flowOptions: { harnessCaller: SESSION_CALLER },
         name: 'finance',
         chatId: 'canvas-long',
         input: 'Review the invoice exception.',
@@ -12218,6 +12431,7 @@ await (async () => {
     for (let n = 0; n < 3; n += 1) {
         const tryId = `${n + 1}`.repeat(16)
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name: 'try-live',
             chatId: `cleanup-${n}`,
             input: 'Hello',
@@ -12853,6 +13067,7 @@ await (async () => {
     try {
         const [live, draft] = await Promise.all([
             runHarnessRaw({
+                flowOptions: { harnessCaller: SESSION_CALLER },
                 name,
                 chatId: chatA,
                 input: 'check question live',
@@ -12863,6 +13078,7 @@ await (async () => {
                 record: { ...getHarness(name), tryId: idA, chief: { ...getHarness(name).chief, instructions: 'DRAFT-NOT-THIS' } }
             }),
             runHarnessRaw({
+                flowOptions: { harnessCaller: SESSION_CALLER },
                 name,
                 chatId: chatB,
                 input: 'check question draft',
@@ -12873,6 +13089,7 @@ await (async () => {
                 record: { ...getHarness(name), tryId: idB, chief: { ...getHarness(name).chief, instructions: 'DRAFT-INSTRUCTIONS' } }
             }),
             runHarnessRaw({
+                flowOptions: { harnessCaller: SESSION_CALLER },
                 name,
                 chatId: publishedChat,
                 input: 'published question',
@@ -12890,6 +13107,7 @@ await (async () => {
     let errThrown = false
     try {
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'check-err',
             input: 'check question error',
@@ -12907,6 +13125,7 @@ await (async () => {
     let abortThrown = false
     try {
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'check-stop',
             input: 'check question stop',
@@ -13274,6 +13493,7 @@ await (async () => {
     let failed = null
     try {
         const ok = await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'cleanup-ok',
             input: 'cleanup question',
@@ -13290,6 +13510,7 @@ await (async () => {
     let errThrown = false
     try {
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'cleanup-err',
             input: 'cleanup error',
@@ -13307,6 +13528,7 @@ await (async () => {
     let stopThrown = false
     try {
         await runHarnessRaw({
+            flowOptions: { harnessCaller: SESSION_CALLER },
             name,
             chatId: 'cleanup-stop',
             input: 'cleanup stop',
@@ -13356,6 +13578,95 @@ await (async () => {
         listed.map((row) => row.content).join('|') === `${prefix} wheat loaf|${prefix} rye bread` &&
             listed.every((row) => row.content.length > 240 && !row.content.endsWith('…')),
         listed.map((row) => row.content.length).join(',')
+    )
+})()
+
+// Slow-regex inputs from code scanning. Each must keep its old answer and finish in linear time.
+await (async () => {
+    const { closingLines, isMultiStepDataTask } = await import('./run.mjs')
+    const { analystCaptureId } = await import('./analyst-capture.mjs')
+    const { parseAnalystTarget } = await import('./runtime/analyst-postgres.mjs')
+    const { parseUploadStubs } = await import('./uploads.mjs')
+    const { appendTurn, readMemory } = await import('./session.mjs')
+    const timed = (fn) => {
+        const started = performance.now()
+        const value = fn()
+        return { value, ms: performance.now() - started }
+    }
+    const fast = (...runs) => runs.every((run) => run.ms < 500)
+
+    const semis = timed(() => analystCaptureId({ seq: 1, sql: 'select 1' + ';'.repeat(100000) + 'x' }))
+    check(
+        'an analyst statement fingerprint ignores trailing semicolons and is linear on a long run of them',
+        analystCaptureId({ seq: 1, sql: 'select  1 ; ;; ' }) === analystCaptureId({ seq: 1, sql: 'select 1' }) &&
+            analystCaptureId({ seq: 1, sql: 'select 1;x' }) !== analystCaptureId({ seq: 1, sql: 'select 1' }) &&
+            semis.value.startsWith('1:') &&
+            fast(semis),
+        String(semis.ms)
+    )
+
+    const marks = timed(() => normalizeArithmeticQuestion('1 plus 2' + '!'.repeat(100000) + 'x'))
+    check(
+        'arithmetic questions lose trailing punctuation, and a long run of it in the middle is linear',
+        normalizeArithmeticQuestion('What is 17 times 3?!？') === '17 * 3' &&
+            normalizeArithmeticQuestion('17 times 3.。') === '17 * 3' &&
+            marks.value === null &&
+            fast(marks),
+        String(marks.ms)
+    )
+
+    const tail = timed(() => closingLines('Done' + '!\tsource:!'.repeat(30000) + '\r'))
+    check(
+        'a closing source at the end of the last sentence is found, also on a CRLF line, and a long line is linear',
+        closingLines('Two rows match. Sources: orders, customers').join() === 'Sources: orders, customers' &&
+            closingLines('Two rows match. Sources: orders\r').join() === 'Sources: orders' &&
+            closingLines('Two rows match.').length === 0 &&
+            fast(tail),
+        String(tail.ms)
+    )
+
+    const steps = timed(() => isMultiStepDataTask('row' + '\n'.repeat(200000) + 'x'))
+    const carriage = timed(() => isMultiStepDataTask('row' + '\r'.repeat(200000) + 'x'))
+    check(
+        'a numbered list of table steps is a multi-step data task, and a long run of newlines is linear',
+        isMultiStepDataTask('Do this:\n\n  1. create the table\n  2. fill it') === true &&
+            isMultiStepDataTask('1) list each row') === true &&
+            isMultiStepDataTask('show one row') === false &&
+            steps.value === false &&
+            carriage.value === false &&
+            fast(steps, carriage),
+        `${steps.ms} ${carriage.ms}`
+    )
+
+    const words = timed(() => parseAnalystTarget('A'.repeat(100000)))
+    const keywords = parseAnalystTarget("host=db.example port=5433 dbname=Shop user=reader password='p w'")
+    check(
+        'a keyword connection string still parses, and a long word with no = is linear',
+        keywords?.host === 'db.example' &&
+            keywords.port === '5433' &&
+            keywords.database === 'shop' &&
+            keywords.password === 'p w' &&
+            words.value === null &&
+            fast(words),
+        JSON.stringify({ keywords, ms: words.ms })
+    )
+
+    const dashes = timed(() => parseUploadStubs(`<file ${'-'.repeat(100000)}>x</file>`))
+    const stub = parseUploadStubs("<file name='a.csv' path='/u/a.csv' rows='3'>body</file>")[0]
+    check(
+        'upload stubs keep their attributes, and a long attribute run with no = is linear',
+        stub?.name === 'a.csv' && stub.path === '/u/a.csv' && stub.rows === '3' && dashes.value.length === 1 && fast(dashes),
+        JSON.stringify({ stub, ms: dashes.ms })
+    )
+
+    const pinHarness = 'regex-pins'
+    const pinRun = timed(() => appendTurn(pinHarness, 'chat-1', 'pin:' + '\t'.repeat(100000) + '\r', 'ok'))
+    appendTurn(pinHarness, 'chat-1', 'pin:  rye only  \nhello', 'pin: oven at 220C')
+    const pins = readMemory(pinHarness, 'chat-1').pins
+    check(
+        'pin lines are kept trimmed, and a long run of tabs after pin: is linear',
+        pins.includes('rye only') && pins.includes('oven at 220C') && fast(pinRun),
+        JSON.stringify({ pins, ms: pinRun.ms })
     )
 })()
 

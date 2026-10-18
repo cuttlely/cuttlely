@@ -6,6 +6,7 @@ import harnessesService from '../../services/harnesses'
 import {
     callerApiKeyId,
     callerKeyHarnesses,
+    harnessCallerFor,
     isApiKeyCaller,
     noteBackgroundRunSettled,
     noteBackgroundRunStarted,
@@ -13,6 +14,7 @@ import {
     safeHarnessName,
     scheduleOwner
 } from '../../services/harnesses/apiAccess'
+import type { IHarnessCaller } from '../../Interface'
 import { trackBackgroundRun } from '../../settings/runs'
 import { chatImages } from '../../services/harnesses/chatImages'
 import { watchClientDisconnect } from '../../utils/clientAbort'
@@ -82,18 +84,19 @@ function writeSse(res: Response, event: string, data: unknown) {
 
 const createRun = async (req: Request, res: Response, next: NextFunction) => {
     const source = req.get('x-request-from') === 'internal' ? 'playground' : 'api'
-    const apiKeyId = callerApiKeyId(req)
     let workspaceId = ''
+    let caller: IHarnessCaller
     try {
         workspaceId = activeWorkspace(req)
-        await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId, { apiKeyId })
+        caller = await harnessCallerFor(req)
+        await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId, caller)
     } catch (error) {
         next(error)
         return
     }
     if (!isStreamingRequest(req)) {
         try {
-            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, { source, workspaceId, apiKeyId })
+            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, { source, workspaceId, caller })
             return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
         } catch (error) {
             next(error)
@@ -111,7 +114,7 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
         const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
             source,
             workspaceId,
-            apiKeyId,
+            caller,
             signal,
             onEvent: (event) => writeSse(res, `harness.${event.type}`, event)
         })
@@ -134,7 +137,7 @@ const startBackgroundRun = async (req: Request, res: Response, next: NextFunctio
         const started = await harnessesService.startBackgroundRun(req.params.name, req.body || {}, {
             workspaceId,
             source: 'api',
-            apiKeyId: callerApiKeyId(req),
+            caller: await harnessCallerFor(req),
             track: trackBackgroundRun,
             onSettled: (outcome) => noteBackgroundRunSettled(req.params.name, outcome)
         })
