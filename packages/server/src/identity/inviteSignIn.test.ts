@@ -14,6 +14,11 @@
 
 let mockDataSource: unknown
 jest.mock('../DataSource', () => ({ getDataSource: () => mockDataSource }))
+// The real logger loads the storage providers from @cuttlely/components, which the Postgres CI job does not build.
+jest.mock('../utils/logger', () => {
+    const quiet = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(), verbose: jest.fn() }
+    return { __esModule: true, default: quiet }
+})
 
 import { randomUUID } from 'crypto'
 import express from 'express'
