@@ -117,6 +117,27 @@ describe('apiV1Auth', () => {
         expect(res.body).toEqual({ error: 'Unauthorized Access' })
     })
 
+    it('returns 401 for an API-key-blacklisted path in another letter case or with repeated slashes', async () => {
+        const server = app({ validateAPIKey: async () => validKey, apiKeyBlacklistURLs: ['/api/v1/files'] })
+        for (const path of ['/api/v1/Files', '/api/v1//files', '/api/v1//FILES', '/api/v1///files/x']) {
+            const res = await server.get(path).set('Authorization', 'Bearer good-key')
+            expect({ path, status: res.status }).toEqual({ path, status: 401 })
+        }
+        expect((await server.get('/api/v1/chatflows').set('Authorization', 'Bearer good-key')).status).toBe(200)
+    })
+
+    it('matches a capitalized public entry in any letter case and with repeated slashes', async () => {
+        const server = app({ whitelistURLs: ['/api/v1/public-chatbotConfig'], validateAPIKey: async () => ({ isValid: false }) })
+        for (const path of [
+            '/api/v1/public-chatbotConfig/flow-1',
+            '/api/v1/public-chatbotconfig/flow-1',
+            '/api/v1//public-chatbotConfig'
+        ]) {
+            expect({ path, status: (await server.get(path)).status }).toEqual({ path, status: 200 })
+        }
+        expect((await server.get('/api/v1/public-chatflows')).status).toBe(401)
+    })
+
     it('returns 401 when a license is required even with a valid key', async () => {
         const res = await app({
             licenseRequired: () => true,

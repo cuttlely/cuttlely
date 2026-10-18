@@ -41,15 +41,25 @@ export interface ApiV1AuthDeps {
 const CASE_INSENSITIVE = /\/api\/v1\//i
 const CASE_SENSITIVE = /\/api\/v1\//
 
+// Express routes paths case-insensitively and reads repeated slashes as one, so both lists are
+// compared against the path in that same form.
+export function normalizeApiPath(path: string): string {
+    return path.replace(/\/{2,}/g, '/').toLowerCase()
+}
+
 // The /api/v1 sign-in gate. A path on the public list proceeds. A session proceeds for a read,
 // and for a write only with x-request-from: internal. Anything else needs a valid API key.
 export function apiV1Auth(deps: ApiV1AuthDeps) {
+    const whitelistURLs = deps.whitelistURLs.map(normalizeApiPath)
+    const apiKeyBlacklistURLs = deps.apiKeyBlacklistURLs.map(normalizeApiPath)
     return async (req: Request, res: Response, next: NextFunction) => {
-        if (!CASE_INSENSITIVE.test(req.path)) {
+        const collapsed = req.path.replace(/\/{2,}/g, '/')
+        const path = collapsed.toLowerCase()
+        if (!CASE_INSENSITIVE.test(collapsed)) {
             next()
             return
         }
-        if (!CASE_SENSITIVE.test(req.path)) {
+        if (!CASE_SENSITIVE.test(collapsed)) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
         }
@@ -59,9 +69,7 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
         }
         // An entry ending in '/' also matches that path without the slash: Express routes '/apikey/' for both.
-        const isWhitelisted = deps.whitelistURLs.some(
-            (url) => (url.endsWith('/') && req.path === url.slice(0, -1)) || req.path.startsWith(url)
-        )
+        const isWhitelisted = whitelistURLs.some((url) => (url.endsWith('/') && path === url.slice(0, -1)) || path.startsWith(url))
         const identitySession = (req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity
         if (isWhitelisted) {
             next()
@@ -79,7 +87,7 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
         }
-        if (deps.apiKeyBlacklistURLs.some((url) => req.path.startsWith(url))) {
+        if (apiKeyBlacklistURLs.some((url) => path.startsWith(url))) {
             res.status(401).json({ error: 'Unauthorized Access' })
             return
         }

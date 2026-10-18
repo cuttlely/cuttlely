@@ -41,6 +41,13 @@ describe('runs in progress', () => {
         expect(isRunRequest('POST', '/api/v1/server-settings')).toBe(false)
     })
 
+    it('matches a run path in any letter case and with repeated slashes, as Express routes it', () => {
+        expect(isRunRequest('POST', '/api/v1/Prediction/abc')).toBe(true)
+        expect(isRunRequest('POST', '/api/v1//prediction/abc')).toBe(true)
+        expect(isRunRequest('POST', '/api/v1//Harnesses//bakery/runs')).toBe(true)
+        expect(isRunRequest('POST', '/api/v1/predictions/abc')).toBe(false)
+    })
+
     it('counts a run while it is open, waits for it, and turns new runs away meanwhile', async () => {
         const hold: { release?: () => void } = {}
         const server = app(hold)

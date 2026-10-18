@@ -6,7 +6,7 @@ import type { Server } from 'http'
 import { NextFunction, Request, Response } from 'express'
 import { runtimeNumber } from './runtime'
 
-const RUN_PATHS = [/^\/api\/v1\/prediction(\/|$)/, /^\/api\/v1\/internal-prediction(\/|$)/, /^\/api\/v1\/harnesses\/[^/]+\/runs\/?$/]
+const RUN_PATHS = [/^\/api\/v1\/prediction(\/|$)/i, /^\/api\/v1\/internal-prediction(\/|$)/i, /^\/api\/v1\/harnesses\/[^/]+\/runs\/?$/i]
 export const DEFAULT_WAIT_MS = 45000
 /** How long a shutdown lets requests and streams finish: inside a host's usual 30-second grace period. */
 export const DEFAULT_DRAIN_TIMEOUT_MS = 25000
@@ -20,7 +20,8 @@ let shuttingDown = false
 const openRuns = new Set<Response>()
 
 export function isRunRequest(method: string, path: string): boolean {
-    return method === 'POST' && RUN_PATHS.some((pattern) => pattern.test(path))
+    const collapsed = path.replace(/\/{2,}/g, '/')
+    return method === 'POST' && RUN_PATHS.some((pattern) => pattern.test(collapsed))
 }
 
 export function runsInProgress(): number {
