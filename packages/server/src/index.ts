@@ -25,6 +25,7 @@ import { ScheduleBeat } from './schedule/ScheduleBeat'
 import { RedisEventSubscriber } from './queue/RedisEventSubscriber'
 import { initWebhookListenerRegistry } from './services/webhook-listener'
 import harnessesService from './services/harnesses'
+import { startHarnessSchedulerIfReady, stopHarnessScheduler } from './services/harnesses/schedules'
 import { warnKeysMissingBoundHarnesses } from './services/harnesses/apiAccess'
 import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
@@ -442,6 +443,7 @@ export async function start(): Promise<void> {
         harnessesService.startHarnessRuntime()
         harnessesService.warmHarnesses()
         etlService.resumeEtlRuns()
+        startHarnessSchedulerIfReady(serverApp?.initError)
         flowVersionsService.startGithubSync()
         const keepWarmMinutes = Number(process.env.CUTTLELY_HERMES_KEEP_WARM_MINUTES)
         if (keepWarmMinutes > 0) setInterval(() => harnessesService.warmHarnesses(), keepWarmMinutes * 60000).unref()
@@ -456,6 +458,8 @@ export async function start(): Promise<void> {
 export async function shutdown(limitMs: number = drainTimeoutMs()): Promise<void> {
     const started = Date.now()
     logger.info(`🛑 [server]: Shutting down: finishing open requests (up to ${Math.round(limitMs / 1000)}s), new requests get 503.`)
+    // A schedule that comes due now would start a run the drain then has to cut off.
+    stopHarnessScheduler()
     const { endedRuns, closedInTime } = await shutdownDrain(httpServer, limitMs)
     if (closedInTime) logger.info(`🛑 [server]: Open requests finished in ${Math.round((Date.now() - started) / 100) / 10}s.`)
     else logger.warn(`🛑 [server]: Drain time is up: ended ${endedRuns} run(s) still answering and closed the remaining connections.`)

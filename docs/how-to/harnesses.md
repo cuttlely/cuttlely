@@ -246,7 +246,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ## Look at earlier runs
 
-**Runs** on the harness page lists recent runs, newest first. Each row has the start time, where the run came from, the time it took, the tokens, the start of the prompt, and a status: `succeeded`, `completed with errors`, `failed`, `cancelled`, `running`, or `queued`. Runs from **Try it** and the canvas chat are listed as `playground`, and runs started through the API as `api`.
+**Runs** on the harness page lists recent runs, newest first. Each row has the start time, where the run came from, the time it took, the tokens, the start of the prompt, and a status: `succeeded`, `completed with errors`, `failed`, `cancelled`, `running`, or `queued`. Runs from **Try it** and the canvas chat are listed as `playground`, runs started through the API as `api`, and runs from a schedule as `schedule`.
 
 Select a row to open its run card under the list. Select a specialist row in the card to see its task and tool chips.
 
@@ -293,6 +293,31 @@ Then read the `resultUrl` every few seconds until `finished` is `true`:
 ```
 
 The run shows under **Runs** on the harness page with its run card and tokens, listed as `api`. It runs Live, not the draft. A harness that is not ticked on the key answers `403` `This API key may not run harness "payroll".`, whether or not that harness exists, and that refusal is an **Admin** > **Audit log** row. Each key may start 60 runs and read 600 times a minute, counted in each server process. The key sees only the runs it started. The full request and response, and every error, are in [Run a harness in the background](../api.md#run-a-harness-in-the-background).
+
+## Run it on a schedule
+
+A harness can run by itself on a cron schedule, for example a morning summary on weekdays. This example uses a made-up harness, `bakery-team`.
+
+1. Open the harness page, `/harnesses/bakery-team`.
+2. Under **Schedule**, set **Cron** to `0 7 * * 1-5` (07:00, Monday to Friday). The fields are minute, hour, day of the month, month, and day of the week.
+3. Pick a **Time zone**, for example `Europe/Paris`. The page starts with your browser's time zone, and the list always includes it.
+4. Type the **Question for each run**, for example `Summarise yesterday's orders and flag any cake booked for today.`
+5. Select **Add schedule**. The note beside the button says that saving makes you the owner.
+
+The card then says who the schedule runs as, when the next run is, and how the last one went. A few more rules:
+
+-   **Owner.** A schedule runs with the permissions of the person who last saved or resumed it, in the harness team. At each due time Cuttlely checks that this person can still start a harness run there (organization owner, or `chatflows:create`, `chatflows:update`, or `agentflows:create`). If they cannot, for example after a role change or when the user is disabled, that time is skipped as `refused`, with an **Admin** > **Audit log** row. Save or resume the schedule as someone who can run it. An API key cannot set a schedule. Every run a schedule starts is an audit row with its run id.
+-   **Delete.** **Delete schedule** asks before it deletes. The runs it already made stay under **Runs**.
+-   **Pause.** The switch at the top right of the card pauses and resumes. A paused schedule shows no next run. Resuming counts the next run from now, so the times missed while paused are not run, and makes the person who resumes it the owner.
+-   **No overlap.** A due time while the previous scheduled run is still going is skipped as `skipped`. The next due time tries again.
+-   **Run history.** Scheduled runs show under **Runs**, listed as `schedule`, with the same run card, tokens, usage totals and traces as any other run. **Refresh** next to **Runs** loads new ones. A scheduled run uses Live, not the draft.
+-   **Restarts.** Schedules are kept in the harness database in the data folder, so they continue after a restart. While the server restarts or shuts down it starts no scheduled run, including the rest of a tick that was already going; a due time it did not reach stays due. A due time still `starting` after a minute is shown as `failed`, because the server stopped before it started the run. **Restart** in Server settings stops starting scheduled runs as soon as you press it, even when nothing is running. A shutdown, and a Restart that lets runs finish, wait for a scheduled run already going, up to their usual wait, and a run cut off by the restart is marked failed with `interrupted` at a later start. A due time that passed while the server was down runs once when it is back, and the next run is counted from then.
+-   **Several servers.** Servers that share the data folder each check schedules, and each due time is claimed by one of them, so it starts one run.
+-   **Days.** The day-of-month and day-of-week fields follow Vixie cron. A field that starts with `*` (such as `*` or `*/2`) is unrestricted. When one of the two starts with `*`, a day has to match the other one. When both are restricted, a day that matches either one runs: `0 9 1 * 1` runs on the 1st and on every Monday. A day of the month that no chosen month has, such as `30 2` (30 February), is refused when you save.
+-   **Time zone.** Use a place name such as `Europe/Paris`, or `UTC`. An offset such as `+02:00` or `Etc/GMT-2`, and an abbreviation such as `CET`, are refused, because they do not follow the place's clock changes. The zone is saved in the server's canonical spelling.
+-   **Time changes.** In a zone with daylight saving time, when the clocks spring forward over a time a fixed-time schedule names, it runs once at the first minute after the change, as Vixie cron does: `30 2 * * *` in `Europe/Paris` runs at 03:00 on the day the clocks go from 02:00 to 03:00. A fixed-time schedule is one whose minute and hour fields do not start with `*`. A schedule whose minute or hour field starts with `*`, such as `*/15 2 * * *`, keeps to the new clock, so the skipped minutes do not run. If the time right after the change is also on the schedule, it runs once. When the clocks fall back and an hour repeats, each wall time in it runs once, on its first pass, including `*/15`; this is stricter than Vixie cron, which runs a `*` minute or hour schedule again in the repeated hour. A tick that runs late never runs the same wall time twice.
+
+Deleting the harness deletes its schedule. The API calls are in [Schedule a harness](../api.md#schedule-a-harness).
 
 ## Call the harness from a chatflow
 

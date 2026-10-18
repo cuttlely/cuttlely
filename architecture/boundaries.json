@@ -417,6 +417,7 @@
                 "packages/server/src/routes/harnesses/index.ts",
                 "packages/server/src/services/harnesses/apiAccess.ts",
                 "packages/server/src/services/harnesses/index.ts",
+                "packages/server/src/services/harnesses/schedules.ts",
                 "packages/ui/src/api/harnesses.js",
                 "packages/ui/src/utils/harnessCanvasChat.js",
                 "packages/ui/src/utils/harnessChatReady.js",

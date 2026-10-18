@@ -4,7 +4,7 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
 import { DataSource } from 'typeorm'
-import { Workspace } from '../../database/entities/identity'
+import { User, Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { requireWorkspaceId } from '../../identity/workspaceScope'
@@ -262,9 +262,15 @@ const warmHarnesses = (names?: string[]) => {
         .catch((error) => logger.warn(`[harness] Hermes warm-up failed: ${getErrorMessage(error)}`))
 }
 
+// Tests replace removeSchedule to make it fail.
+export const harnessDeleteHooks = {
+    removeSchedule: async (name: string): Promise<unknown> => (await loadHarness('schedule.mjs')).deleteSchedule(name)
+}
+
 const deleteHarness = async (name: string, workspaceId?: string | null) => {
     const harness = await requireHarness(name, workspaceId)
-    // Key lists first: if that fails the harness stays, so a later harness with this name cannot inherit the old grants.
+    // Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
+    // must not inherit the old key grants or the old owner's schedule.
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
         await removeHarnessFromKeyLists(harness.workspaceId || workspaceOf(workspaceId), name)
@@ -273,6 +279,15 @@ const deleteHarness = async (name: string, workspaceId?: string | null) => {
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Harness "${name}" was not deleted, because it could not be removed from API key lists. Try again.`
+        )
+    }
+    try {
+        await harnessDeleteHooks.removeSchedule(name)
+    } catch (error) {
+        logger.warn(`[harness] ${name} was not deleted: removing its schedule failed: ${getErrorMessage(error)}`)
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Harness "${name}" was not deleted, because its schedule could not be removed. Try again.`
         )
     }
     const store = await loadHarness('store.mjs')
@@ -294,7 +309,7 @@ function httpHarnessError(error: unknown) {
     const message = getErrorMessage(error)
     if (code === 'not_found') return new AppError(StatusCodes.NOT_FOUND, message)
     if (code === 'name_clash') return new AppError(StatusCodes.CONFLICT, message)
-    if (code === 'bad_name' || code === 'bad_session') return new AppError(StatusCodes.BAD_REQUEST, message)
+    if (code === 'bad_name' || code === 'bad_session' || code === 'bad_schedule') return new AppError(StatusCodes.BAD_REQUEST, message)
     if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
     if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
@@ -447,7 +462,7 @@ const startRun = async (
             name,
             chatId: prepared.chatId,
             input: prepared.question,
-            source: opts.source === 'playground' || opts.source === 'api' ? opts.source : 'api',
+            source: opts.source === 'playground' || opts.source === 'api' || opts.source === 'schedule' ? opts.source : 'api',
             componentNodes: runtime?.componentNodes,
             flowOptions,
             onEvent: (event: { type: string }) => {
@@ -506,33 +521,47 @@ const startBackgroundRun = async (
     body: Record<string, unknown>,
     opts: {
         workspaceId: string
-        source?: 'api'
+        source?: 'api' | 'schedule'
         caller: IHarnessCaller
         // Counts the run as in progress until it settles, so a restart or shutdown waits for it.
         track?: <T>(run: Promise<T>) => Promise<T>
         onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
     }
 ) => {
-    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
-    const apiKeyId = callerKeyId(opts.caller)
-    const chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `api-${randomUUID()}`
-    const history = await loadHarness('history.mjs')
-    const source = opts.source || 'api'
-    const queued = history.queueHarnessRun({
-        name: prepared.harness.name,
-        chatId,
-        source,
-        input: prepared.question,
-        apiKeyId
-    })
-    if (!queued?.id) throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The run could not be recorded.')
-    const runId: string = queued.id
-    const running = startRun(
-        name,
-        { ...body, question: prepared.question, chatId },
-        { source, workspaceId: opts.workspaceId, runId, caller: opts.caller }
-    )
-    void (opts.track ? opts.track(running) : running)
+    // Counted before the first await: a caller that checked for a drain just before this call is then waited for by a
+    // drain that begins during the awaits below, instead of the drain seeing nothing in progress.
+    let release = () => {}
+    if (opts.track) void opts.track(new Promise<void>((resolve) => (release = resolve)))
+    let running: ReturnType<typeof startRun>
+    let prepared: Awaited<ReturnType<typeof assertRunRequest>>
+    let runId: string
+    let chatId: string
+    let history: Awaited<ReturnType<typeof loadHarness>>
+    try {
+        prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+        const apiKeyId = callerKeyId(opts.caller)
+        const source = opts.source || 'api'
+        chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
+        history = await loadHarness('history.mjs')
+        const queued = history.queueHarnessRun({
+            name: prepared.harness.name,
+            chatId,
+            source,
+            input: prepared.question,
+            apiKeyId
+        })
+        if (!queued?.id) throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The run could not be recorded.')
+        runId = queued.id
+        running = startRun(
+            name,
+            { ...body, question: prepared.question, chatId },
+            { source, workspaceId: opts.workspaceId, runId, caller: opts.caller }
+        )
+    } catch (error) {
+        release()
+        throw error
+    }
+    void running
         .then((outcome) => {
             try {
                 history.saveRunResult(prepared.harness.name, runId, outcome.payload)
@@ -550,6 +579,7 @@ const startBackgroundRun = async (
             logger.warn(`[harness] ${name} background run ${runId} failed: ${getErrorMessage(error)}`)
             opts.onSettled?.({ runId, status: 'failed', error })
         })
+        .finally(release)
     return { runId, harness: prepared.harness.name as string, chatId, status: 'queued' as const }
 }
 
@@ -603,6 +633,107 @@ const closeInterruptedRuns = async (opts: { schedule?: (run: () => void, delayMs
         logger.warn(`[harness] open runs were not closed: ${getErrorMessage(error)}`)
         return 0
     }
+}
+
+async function ownerSummary(ownerId: string) {
+    try {
+        const user = await getRunningExpressApp().AppDataSource.getRepository(User).findOneBy({ id: ownerId })
+        return { id: ownerId, name: user?.name || null, email: user?.email || null }
+    } catch {
+        return { id: ownerId, name: null, email: null }
+    }
+}
+
+// A schedule stored for the same name in another team is not this team's schedule.
+async function scheduleIn(name: string, workspaceId: string) {
+    const schedules = await loadHarness('schedule.mjs')
+    const schedule = schedules.getSchedule(name)
+    return schedule && schedule.workspaceId === workspaceId ? schedule : null
+}
+
+// The question is shown redacted, the same way run history stores it. An API key sees the owner's name only.
+export const SCHEDULE_START_STALE_MS = 60 * 1000
+
+export async function presentSchedule(
+    schedule: Record<string, any> | null,
+    view: { apiKeyCaller?: boolean } = {},
+    now = Date.now()
+): Promise<{ schedule: Record<string, unknown> | null }> {
+    if (!schedule) return { schedule: null }
+    const { workspaceId: _workspaceId, ownerId, ...rest } = schedule
+    const trace = await loadHarness('trace.mjs')
+    rest.question = trace.redactSecrets(String(rest.question || ''))
+    // A claim that never reached a run (the process stopped between the claim and the start) stays `starting`.
+    // The start takes a moment, so after a minute it is shown as failed. The next due time runs as usual.
+    const claimedAt = Date.parse(String(rest.updatedAt || ''))
+    if (rest.lastResult === 'starting' && Number.isFinite(claimedAt) && now - claimedAt > SCHEDULE_START_STALE_MS) {
+        rest.lastResult = 'failed'
+        rest.lastReason = 'The run did not start. The server may have stopped while it was starting this due time.'
+    }
+    // A run cut off by a restart never reported back to the schedule. The run history row has its outcome.
+    if (rest.lastResult === 'running' && rest.lastRunId) {
+        const history = await loadHarness('history.mjs')
+        const status = history.getRun(rest.harness, rest.lastRunId)?.status
+        if (status && status !== 'running' && status !== 'queued') rest.lastResult = status
+    }
+    const owner = await ownerSummary(ownerId)
+    return { schedule: { ...rest, owner: view.apiKeyCaller ? { name: owner.name } : owner } }
+}
+
+const getHarnessSchedule = async (name: string, workspaceId?: string | null, view: { apiKeyCaller?: boolean } = {}) => {
+    const harness = await requireHarness(name, workspaceId)
+    return presentSchedule(await scheduleIn(harness.name, workspaceOf(workspaceId)), view)
+}
+
+const saveHarnessSchedule = async (name: string, body: Record<string, unknown>, opts: { workspaceId?: string | null; ownerId: string }) => {
+    const harness = await requireHarness(name, opts.workspaceId)
+    const schedules = await loadHarness('schedule.mjs')
+    // The page shows the question redacted. Saving that text back unchanged keeps the stored question.
+    const stored = await scheduleIn(harness.name, workspaceOf(opts.workspaceId))
+    const input = { ...(body || {}) }
+    if (stored && typeof input.question === 'string') {
+        const trace = await loadHarness('trace.mjs')
+        const shown = trace.redactSecrets(String(stored.question || ''))
+        if (shown !== stored.question && input.question.trim() === shown.trim()) input.question = stored.question
+    }
+    try {
+        const saved = schedules.saveSchedule(harness.name, input, {
+            workspaceId: workspaceOf(opts.workspaceId),
+            ownerId: opts.ownerId
+        })
+        return presentSchedule(saved)
+    } catch (error) {
+        throw httpHarnessError(error)
+    }
+}
+
+// Resuming makes the person who resumes it the owner, the same as saving, so it runs with their permissions.
+const setHarnessScheduleStatus = async (
+    name: string,
+    status: 'active' | 'paused',
+    workspaceId: string | null | undefined,
+    opts: { ownerId?: string } = {}
+) => {
+    const harness = await requireHarness(name, workspaceId)
+    if (!(await scheduleIn(harness.name, workspaceOf(workspaceId)))) {
+        throw new AppError(StatusCodes.NOT_FOUND, `Harness ${harness.name} has no schedule.`)
+    }
+    const schedules = await loadHarness('schedule.mjs')
+    try {
+        return presentSchedule(schedules.setScheduleStatus(harness.name, status, status === 'active' ? { ownerId: opts.ownerId } : {}))
+    } catch (error) {
+        throw httpHarnessError(error)
+    }
+}
+
+const deleteHarnessSchedule = async (name: string, workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
+    if (!(await scheduleIn(harness.name, workspaceOf(workspaceId)))) {
+        throw new AppError(StatusCodes.NOT_FOUND, `Harness ${harness.name} has no schedule.`)
+    }
+    const schedules = await loadHarness('schedule.mjs')
+    schedules.deleteSchedule(harness.name)
+    return { harness: harness.name, deleted: true }
 }
 
 // Canvas chat and Try it. The draft canvas when one exists, otherwise the Live canvas. The saved harness and its
@@ -676,6 +807,10 @@ export default {
     startBackgroundRun,
     getRunResult,
     closeInterruptedRuns,
+    getHarnessSchedule,
+    saveHarnessSchedule,
+    setHarnessScheduleStatus,
+    deleteHarnessSchedule,
     startCanvasRun,
     replayCheck,
     chatImages

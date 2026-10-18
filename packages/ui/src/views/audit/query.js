@@ -9,7 +9,8 @@ export const AUDIT_TYPES = [
     { value: 'user_disable', label: 'User disabled or enabled' },
     { value: 'setting_change', label: 'Settings changed' },
     { value: 'harness_run', label: 'Harness run from the API' },
-    { value: 'harness_access', label: 'API key harness access' }
+    { value: 'harness_access', label: 'API key harness access' },
+    { value: 'harness_schedule', label: 'Harness schedule' }
 ]
 
 export function auditParams({ type, user, cursor } = {}) {

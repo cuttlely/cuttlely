@@ -7,8 +7,12 @@ import {
     callerApiKeyId,
     callerKeyHarnesses,
     harnessCallerFor,
+    isApiKeyCaller,
     noteBackgroundRunSettled,
-    noteBackgroundRunStarted
+    noteBackgroundRunStarted,
+    noteHarnessAudit,
+    safeHarnessName,
+    scheduleOwner
 } from '../../services/harnesses/apiAccess'
 import type { IHarnessCaller } from '../../Interface'
 import { trackBackgroundRun } from '../../settings/runs'
@@ -156,6 +160,74 @@ const getRunResult = async (req: Request, res: Response, next: NextFunction) => 
     }
 }
 
+const getSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        return res.json(
+            await harnessesService.getHarnessSchedule(req.params.name, activeWorkspace(req), { apiKeyCaller: isApiKeyCaller(req) })
+        )
+    } catch (error) {
+        next(error)
+    }
+}
+
+type ScheduleView = { schedule: Record<string, unknown> | null }
+
+async function noteScheduleChange(req: Request, action: string, summary: string, view: ScheduleView | { deleted: boolean }) {
+    const schedule = 'schedule' in view ? view.schedule : null
+    await noteHarnessAudit(req, 'harness_schedule', summary, {
+        harness: safeHarnessName(req.params.name),
+        action,
+        ...(schedule ? { cron: schedule.cron, timezone: schedule.timezone, status: schedule.status } : {})
+    })
+}
+
+const saveSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const ownerId = scheduleOwner(req)
+        const saved = await harnessesService.saveHarnessSchedule(req.params.name, req.body || {}, {
+            workspaceId: activeWorkspace(req),
+            ownerId
+        })
+        await noteScheduleChange(req, 'saved', 'Harness schedule saved', saved)
+        return res.json(saved)
+    } catch (error) {
+        next(error)
+    }
+}
+
+const pauseSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        scheduleOwner(req)
+        const saved = await harnessesService.setHarnessScheduleStatus(req.params.name, 'paused', activeWorkspace(req))
+        await noteScheduleChange(req, 'paused', 'Harness schedule paused', saved)
+        return res.json(saved)
+    } catch (error) {
+        next(error)
+    }
+}
+
+const resumeSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const ownerId = scheduleOwner(req)
+        const saved = await harnessesService.setHarnessScheduleStatus(req.params.name, 'active', activeWorkspace(req), { ownerId })
+        await noteScheduleChange(req, 'resumed', 'Harness schedule resumed', saved)
+        return res.json(saved)
+    } catch (error) {
+        next(error)
+    }
+}
+
+const deleteSchedule = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        scheduleOwner(req)
+        const removed = await harnessesService.deleteHarnessSchedule(req.params.name, activeWorkspace(req))
+        await noteScheduleChange(req, 'deleted', 'Harness schedule deleted', removed)
+        return res.json(removed)
+    } catch (error) {
+        next(error)
+    }
+}
+
 export default {
     listHarnesses,
     getHarness,
@@ -165,5 +237,10 @@ export default {
     getRun,
     createRun,
     startBackgroundRun,
-    getRunResult
+    getRunResult,
+    getSchedule,
+    saveSchedule,
+    pauseSchedule,
+    resumeSchedule,
+    deleteSchedule
 }

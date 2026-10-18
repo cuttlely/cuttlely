@@ -28,7 +28,8 @@ export const AUDIT_TYPES = [
     'user_disable',
     'setting_change',
     'harness_run',
-    'harness_access'
+    'harness_access',
+    'harness_schedule'
 ] as const
 
 export type AuditType = (typeof AUDIT_TYPES)[number]
@@ -184,6 +185,7 @@ export function auditSummary(type: AuditType): string {
     if (type === 'user_disable') return 'User disabled'
     if (type === 'harness_run') return 'Harness run'
     if (type === 'harness_access') return 'API key harness access changed'
+    if (type === 'harness_schedule') return 'Harness schedule changed'
     return 'Settings changed'
 }
 

@@ -48,6 +48,36 @@ router.post(
     requireHarnessAccess({ auditDenial: true }),
     harnessesController.createRun
 )
+router.get(
+    '/:name/schedule',
+    requireAnyPermission('chatflows:view,agentflows:view'),
+    requireHarnessAccess(),
+    harnessesController.getSchedule
+)
+router.put(
+    '/:name/schedule',
+    harnessRunRateLimit('schedule'),
+    requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
+    harnessesController.saveSchedule
+)
+router.post(
+    '/:name/schedule/pause',
+    harnessRunRateLimit('schedule'),
+    requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
+    harnessesController.pauseSchedule
+)
+router.post(
+    '/:name/schedule/resume',
+    harnessRunRateLimit('schedule'),
+    requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
+    harnessesController.resumeSchedule
+)
+router.delete(
+    '/:name/schedule',
+    harnessRunRateLimit('schedule'),
+    requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
+    harnessesController.deleteSchedule
+)
 router.get('/:name', requireAnyPermission('chatflows:view,agentflows:view'), requireHarnessAccess(), harnessesController.getHarness)
 router.delete(
     '/:name',
