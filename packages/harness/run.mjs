@@ -922,7 +922,8 @@ export const HANDOFF_KEEP_CLOSING =
 // a closing line from the last lines of a completed result that the answer dropped is put back at the end.
 const CLOSING_LINE = /^(sources?|citations?|references?|data sources?)\s*:\s*\S/i
 const CLOSING_LINE_WINDOW = 3
-const CLOSING_TAIL = /[.!?)]\s+((?:sources?|citations?|references?|data sources?)\s*:\s*\S.*)$/i
+// No `$`: the capture runs to the end of the line, so a failed match cannot rescan the rest of it.
+const CLOSING_TAIL = /[.!?)]\s+((?:sources?|citations?|references?|data sources?)\s*:\s*\S.*)/i
 
 export function closingLines(text) {
     const lines = String(text || '')
@@ -1057,7 +1058,7 @@ export function isMultiStepDataTask(text) {
     const verbs = value.match(SQL_VERB) || []
     if (verbs.length >= 2) return true
     if (/\bthen\b/i.test(value) && verbs.length >= 1) return true
-    if (/(?:^|\n)\s*\d+[.)]\s+/.test(value) && /\b(table|insert|select|row)\b/i.test(value)) return true
+    if (/^[ \t]*\d+[.)]\s/m.test(value) && /\b(table|insert|select|row)\b/i.test(value)) return true
     return false
 }
 

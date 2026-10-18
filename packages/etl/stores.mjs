@@ -9,12 +9,15 @@ import { namespaceName } from './namespaces.mjs'
 import { adaptStore, legacyDeleteFirst, pendingStaleCount, shapeFor } from './store-adapter.mjs'
 
 export function collectionName(value) {
-    const text = String(value || '')
+    let text = String(value || '')
         .trim()
         .toLowerCase()
         .replace(/[^a-z0-9_-]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 80)
+    let start = 0
+    let end = text.length
+    while (start < end && text[start] === '-') start += 1
+    while (end > start && text[end - 1] === '-') end -= 1
+    text = text.slice(start, end).slice(0, 80)
     if (!text) throw new EtlError('bad_store', 'Local Vector Store needs a collection name.')
     return text
 }

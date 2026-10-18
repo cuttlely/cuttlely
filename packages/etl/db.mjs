@@ -219,6 +219,23 @@ const MIGRATIONS = [
             handle.exec('CREATE INDEX IF NOT EXISTS pipelines_workspace ON pipelines (workspace_id)')
             handle.exec(WORKSPACE_TRIGGERS)
         }
+    },
+    {
+        version: 4,
+        name: 'the pipeline names each run wrote under',
+        up(handle) {
+            // A Local Vector Store with a blank collection writes to a collection named after the pipeline. A run that
+            // is paused, given a new name and resumed writes under both names, so a delete needs every name each run used.
+            handle.exec(`
+                CREATE TABLE IF NOT EXISTS run_names (
+                    run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, workspace_id TEXT, name TEXT NOT NULL,
+                    PRIMARY KEY (run_id, name)) WITHOUT ROWID;
+                CREATE INDEX IF NOT EXISTS run_names_pipeline ON run_names (pipeline_id);
+                INSERT OR IGNORE INTO run_names (run_id, pipeline_id, workspace_id, name)
+                    SELECT r.id, r.pipeline_id, r.workspace_id, p.name FROM runs r JOIN pipelines p ON p.id = r.pipeline_id
+                    WHERE r.started_at IS NOT NULL;
+            `)
+        }
     }
 ]
 
