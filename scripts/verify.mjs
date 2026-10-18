@@ -93,6 +93,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'template-gallery-wait.test.mjs'),
             path.join(ROOT, 'scripts', 'templates-respace.test.mjs'),
             path.join(ROOT, 'scripts', 'vendor-hermes.test.mjs'),
+            path.join(ROOT, 'scripts', 'codeql-config.test.mjs'),
             path.join(ROOT, 'scripts', 'release.test.mjs'),
             path.join(ROOT, 'scripts', 'test-git-isolation.test.mjs'),
             path.join(ROOT, 'scripts', 'compose-image.test.mjs'),

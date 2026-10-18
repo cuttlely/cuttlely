@@ -621,9 +621,13 @@ const tests = {
         })
         out.attachOnFlowWithoutUpload = await attach(F.rag, `pt-up-${run}-rag`)
         const storageDir = pt('flowise', 'storage')
-        out.storedFilesForNoKeyChat = execFileSync('bash', ['-c', `find ${storageDir} -path '*pt-up-${run}-nokey*' -type f | wc -l`], {
-            encoding: 'utf8'
-        }).trim()
+        let found = ''
+        try {
+            found = execFileSync('find', [storageDir, '-path', `*pt-up-${run}-nokey*`, '-type', 'f'], { encoding: 'utf8', stdio: 'pipe' })
+        } catch (error) {
+            found = String(error.stdout || '')
+        }
+        out.storedFilesForNoKeyChat = String(found.split('\n').filter(Boolean).length)
         // Full-file upload inside a prediction, session A, then session B must not see it.
         const data = `data:text/plain;base64,${Buffer.from(text).toString('base64')}`
         const sessA = `pt-up-${run}-sessA`

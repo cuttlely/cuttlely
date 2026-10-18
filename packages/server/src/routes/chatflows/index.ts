@@ -1,4 +1,5 @@
 import express from 'express'
+import apikeyController from '../../controllers/apikey'
 import chatflowsController from '../../controllers/chatflows'
 import { requireAnyPermission } from '../../identity/rbac'
 import { requireFlowRunnableByKey, requireHarnessCanvasAccess, scopeChatflowListToKey } from '../../services/harnesses/apiAccess'
@@ -20,13 +21,15 @@ router.get(
     scopeChatflowListToKey(),
     chatflowsController.getAllChatflows
 )
+// Before '/:id', which would otherwise take 'apikey' as a chatflow id.
+router.get('/apikey/', chatflowsController.getChatflowByApiKey)
+router.get('/apikey/:apikey', apikeyController.refuseApiKeyInUrl)
 router.get(
     ['/', '/:id'],
     requireAnyPermission('chatflows:view,chatflows:update,chatflows:delete,agentflows:view,agentflows:update,agentflows:delete'),
     requireHarnessCanvasAccess({ body: false }),
     chatflowsController.getChatflowById
 )
-router.get(['/apikey/', '/apikey/:apikey'], chatflowsController.getChatflowByApiKey)
 
 // UPDATE
 router.put(

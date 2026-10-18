@@ -532,7 +532,7 @@ describe('switched route groups', () => {
     })
 
     it('leaves chatflow lookup by API key without a permission check', async () => {
-        const res = await call(chatflowsRouter, null, { method: 'get', path: '/apikey/example', permission: '' })
+        const res = await call(chatflowsRouter, null, { method: 'get', path: '/apikey/', permission: '' })
         expect(res.status).toBe(200)
         expect(hits.n).toBe(1)
     })

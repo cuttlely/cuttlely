@@ -42,8 +42,13 @@ const CASE_INSENSITIVE = /\/api\/v1\//i
 const CASE_SENSITIVE = /\/api\/v1\//
 
 // Express routes match without regard to letter case, so the lists must too: `/api/v1/Internal-Prediction` reaches
-// the same handler as the lower-case path.
-const listed = (path: string, urls: string[]) => urls.some((url) => path.startsWith(url.toLowerCase()))
+// the same handler as the lower-case path. An entry ending in '/' also matches that path without the slash: Express
+// routes '/apikey/' for both.
+const listed = (path: string, urls: string[]) =>
+    urls.some((url) => {
+        const entry = url.toLowerCase()
+        return (entry.endsWith('/') && path === entry.slice(0, -1)) || path.startsWith(entry)
+    })
 
 // The /api/v1 sign-in gate. A path on the public list proceeds. A session proceeds for a read,
 // and for a write only with x-request-from: internal. Anything else needs a valid API key.

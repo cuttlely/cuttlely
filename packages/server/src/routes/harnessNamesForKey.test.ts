@@ -1,6 +1,6 @@
 /**
  * Harness names an API key can see outside the harness routes, through the real API gate, the real routers and the
- * real controllers: the Harness card's picker (POST /node-load-method/harness) and GET /chatflows/apikey/:apikey.
+ * real controllers: the Harness card's picker (POST /node-load-method/harness) and GET /chatflows/apikey (key in the Authorization header).
  */
 import express from 'express'
 import request from 'supertest'
@@ -155,11 +155,12 @@ describe("the Harness card's picker lists only the key's harnesses", () => {
     })
 })
 
-describe('GET /chatflows/apikey/:apikey hides HARNESS canvases off the key list', () => {
+describe('GET /chatflows/apikey hides HARNESS canvases off the key list', () => {
     it("lists the key's bound flows without a HARNESS canvas it may not run, in every case", async () => {
-        const path = '/api/v1/chatflows/apikey/bakery-token-1'
-        for (const spelled of [path, ...spellings(path)]) {
-            const res = await app().get(spelled)
+        const path = '/api/v1/chatflows/apikey'
+        const bearer = { Authorization: 'Bearer bakery-token-1' }
+        for (const spelled of [path, `${path}/`, ...spellings(path)]) {
+            const res = await app().get(spelled).set(bearer)
             expect({ spelled, status: res.status, ids: res.body.map?.((row: { id: string }) => row.id) }).toEqual({
                 spelled,
                 status: 200,
@@ -167,6 +168,6 @@ describe('GET /chatflows/apikey/:apikey hides HARNESS canvases off the key list'
             })
         }
         keys.set('key-bakery', { id: 'key-bakery', workspaceId: 'team-a', harnesses: null })
-        expect((await app().get(path)).body.map((row: { id: string }) => row.id)).toEqual(['flow-1'])
+        expect((await app().get(path).set(bearer)).body.map((row: { id: string }) => row.id)).toEqual(['flow-1'])
     })
 })
