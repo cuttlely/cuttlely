@@ -16,7 +16,7 @@ import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fil
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stampNodePack } from '../../utils/nodePacks'
 import type { IHarnessCaller } from '../../Interface'
-import { assertCallerMayUseHarnesses, referencedHarnessNames } from '../harnesses/apiAccess'
+import { assertCallerMayUseHarnesses, assertHarnessReferencesWellFormed, referencedHarnessNames } from '../harnesses/apiAccess'
 import {
     GateResult,
     GateStatus,
@@ -379,6 +379,7 @@ export interface SaveDraftContext {
 export async function saveDraft(flow: DraftFlow, flowData: unknown, context: SaveDraftContext): Promise<DraftStatus> {
     refuse(flow, await getState(flow.id))
     let canvas = checkCanvas(flowData)
+    assertHarnessReferencesWellFormed(canvas)
     assertCallerMayUseHarnesses(context.caller, referencedHarnessNames(canvas))
     if (flow.type === 'HARNESS') await assertHarnessDraftLimits(flow.name || '', canvas)
     if (containsBase64File({ flowData: canvas } as any)) {

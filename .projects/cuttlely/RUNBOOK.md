@@ -85,6 +85,8 @@ pnpm --filter <pkg> test:coverage   # one package at a time on a small machine; 
 
 `pnpm test:queue-abort` checks queue mode end to end against a Redis (`REDIS_URL`) and a built server, with a placeholder model and no key. `pnpm verify` does not run it; the daily scheduled CI run on `main` does. CONTRIBUTING has the full command.
 
+When the code-scanning alert API is not readable (an agent token gets 403), reproduce the alerts with the CodeQL bundle the workflow uses (`codeql-bundle-linux64.tar.gz` from the `github/codeql-action` releases): `codeql database create <db> --language=javascript-typescript --source-root=. --codescanning-config=.github/codeql/codeql-config.yml`, then `codeql database analyze <db> codeql/javascript-queries:codeql-suites/javascript-code-scanning.qls --format=sarifv2.1.0 --output=<file>`. Repeat with `python` and `actions`, and for the hermes-patches entry copy the files in `.github/codeql/hermes-patched-files.txt` to an empty folder and use it as the source root. A local run gives rule and location, not alert numbers. The JavaScript run takes several minutes.
+
 `pnpm install` sets up husky; commits run `lint-staged` (eslint --fix on staged files). Formatting: 4 spaces, single quotes, no semicolons, print width 140.
 
 ## Run the one server

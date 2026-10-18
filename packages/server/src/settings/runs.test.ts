@@ -6,6 +6,7 @@ import path from 'path'
 import express from 'express'
 import request from 'supertest'
 import { watchClientDisconnect } from '../utils/clientAbort'
+import { sanitizeMiddleware } from '../utils/XSS'
 import {
     drainRuns,
     drainTimeoutMs,
@@ -47,6 +48,25 @@ describe('runs in progress', () => {
         await drainRuns(0)
         for (const path of ['/api/v1//prediction/abc', '/api/v1///Prediction/abc', '/api/v1//harnesses/bakery/runs/async']) {
             const res = await request(app({})).post(path).send({ question: 'hi' })
+            expect({ path, status: res.status }).toEqual({ path, status: 503 })
+        }
+    })
+
+    it('turns away a percent-encoded run path while a restart drains, as the router decodes it', async () => {
+        // As on the server: sanitizeMiddleware decodes req.url, then one /api/v1 router counts runs and routes them.
+        const server = express()
+        server.use(sanitizeMiddleware)
+        const api = express.Router()
+        api.use(trackRuns)
+        api.post('/prediction/:id', (_req, res) => res.json({ ran: 'prediction' }))
+        api.post('/internal-prediction/:id', (_req, res) => res.json({ ran: 'internal' }))
+        api.post('/harnesses/:name/runs', (_req, res) => res.json({ ran: 'harness' }))
+        server.use('/api/v1', api)
+        const encoded = ['/api/v1/%70rediction/abc', '/api/v1/internal-%70rediction/abc', '/api/v1/%68arnesses/bakery/%72uns']
+        expect((await request(server).post('/api/v1/%70rediction/abc').send({})).body).toEqual({ ran: 'prediction' })
+        await drainRuns(0)
+        for (const path of encoded) {
+            const res = await request(server).post(path).send({ question: 'hi' })
             expect({ path, status: res.status }).toEqual({ path, status: 503 })
         }
     })

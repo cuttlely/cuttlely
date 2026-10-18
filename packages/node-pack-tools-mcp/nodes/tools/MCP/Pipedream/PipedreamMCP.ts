@@ -282,7 +282,12 @@ class Pipedream_MCP implements INode {
             externalUserId = 'flowise_preview_user'
         }
 
-        externalUserId = externalUserId.replace(/<[^>]*>/g, '').trim()
+        let previousUserId: string
+        do {
+            previousUserId = externalUserId
+            externalUserId = externalUserId.replace(/<[^>]*>/g, '')
+        } while (externalUserId !== previousUserId)
+        externalUserId = externalUserId.trim()
         if (!externalUserId) {
             throw new Error('Pipedream user ID is required')
         }

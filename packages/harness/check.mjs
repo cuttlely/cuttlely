@@ -107,7 +107,7 @@ const {
 const { getHarness } = await import('./store.mjs')
 const { CHIEF_MODEL_REQUIRED } = await import('./errors.mjs')
 const { harnessStoreDir } = await import('./paths.mjs')
-const { normalizeArithmeticQuestion, validArgs } = await import('./tool-fallback.mjs')
+const { fallbackToolChoice, normalizeArithmeticQuestion, validArgs } = await import('./tool-fallback.mjs')
 const {
     UPLOAD_PREPEND_TOKENS,
     UPLOAD_STUB_BYTES,
@@ -2269,14 +2269,36 @@ const patterned = {
     required: ['input']
 }
 check(
-    'validArgs accepts the normalized expression when the raw question fails',
-    validArgs(patterned, 'What is 17 times 3?') == null &&
-        validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?'))?.input === '17 * 3',
+    'validArgs leaves plain text for a schema with a pattern to the model, and still takes a JSON object',
+    validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?')) == null &&
+        validArgs(patterned, '{"input":"17 * 3"}')?.input === '17 * 3',
     JSON.stringify(validArgs(patterned, normalizeArithmeticQuestion('What is 17 times 3?')))
 )
+{
+    const tools = [{ type: 'function', function: { name: 'calc', description: 'math', parameters: patterned } }]
+    const replies = ['{"tool":"calc","arguments":"17 * 3"}', '{"tool":"calc","arguments":{"input":"17 * 3"}}']
+    const sent = []
+    const choice = await fallbackToolChoice(
+        async (messages) => {
+            sent.push(messages.at(-1).content)
+            return { content: replies.shift() }
+        },
+        [{ role: 'user', content: 'What is 17 times 3?' }],
+        tools
+    )
+    check(
+        'a bare-string choice for a one-field tool with a pattern is refused with a request for a JSON object, and the retry is taken',
+        sent[1] === 'Send the arguments for calc as a JSON object, such as {"input":"..."}.' &&
+            choice.toolCalls[0]?.function.arguments === '{"input":"17 * 3"}',
+        JSON.stringify({ sent, choice })
+    )
+}
+const backtrackingStarted = Date.now()
+const backtracking = validArgs({ type: 'object', properties: { input: { type: 'string', pattern: '^(a+)+$' } } }, `${'a'.repeat(40)}!`)
 check(
-    'validArgs does not run a schema pattern on input longer than 1000 characters',
-    validArgs(patterned, '1+'.repeat(501)) == null && validArgs(patterned, `${'1+'.repeat(499)}1`)?.input?.length === 999
+    'validArgs never compiles a schema pattern, so a backtracking pattern returns at once',
+    backtracking == null && Date.now() - backtrackingStarted < 50,
+    `${Date.now() - backtrackingStarted} ms`
 )
 function silentFetch() {
     const calls = []
@@ -2479,7 +2501,11 @@ const pattern = await runHarness({
         patternCalls
     )
 })
-check('input that matches the schema pattern skips the model', pattern.text === '51' && patternCalls.length === 0, pattern.text)
+check(
+    'a schema with a pattern gets its arguments from the model, since the pattern is never compiled',
+    pattern.text === '51' && patternCalls.length === 1 && pattern.agents[0].fill === 'model',
+    `${pattern.text} calls ${patternCalls.length} fill ${pattern.agents[0].fill}`
+)
 
 const plainCalls = []
 const plainSeen = []
@@ -13963,6 +13989,43 @@ await (async () => {
         'pin lines are kept trimmed, and a long run of tabs after pin: is linear',
         pins.includes('rye only') && pins.includes('oven at 220C') && fast(pinRun),
         JSON.stringify({ pins, ms: pinRun.ms })
+    )
+})()
+
+await (async () => {
+    const { assertHarnessName, deleteHarness } = await import('./store.mjs')
+    const codeOf = (fn) => {
+        try {
+            fn()
+            return 'none'
+        } catch (error) {
+            return error?.code || String(error)
+        }
+    }
+    const listName = ['research']
+    const objectName = { toString: () => 'research' }
+    const kept = getHarness('research')
+    let runError = null
+    try {
+        await runHarness({
+            name: listName,
+            chatId: 'list-name',
+            input: 'hello',
+            flowOptions: { ...flowiseNodeOptions(), harnessCaller: { via: 'flow' } }
+        })
+    } catch (error) {
+        runError = error
+    }
+    check(
+        'a harness name that is a list or an object is refused before it reads, deletes, or runs a harness file',
+        codeOf(() => assertHarnessName(listName)) === 'bad_name' &&
+            codeOf(() => assertHarnessName(objectName)) === 'bad_name' &&
+            codeOf(() => getHarness(listName)) === 'bad_name' &&
+            codeOf(() => deleteHarness(listName)) === 'bad_name' &&
+            JSON.stringify(getHarness('research')) === JSON.stringify(kept) &&
+            runError?.code === 'bad_name' &&
+            !runError?.harnessRun,
+        JSON.stringify({ run: runError?.code || runError?.message })
     )
 })()
 

@@ -484,6 +484,31 @@ describe('saving a draft', () => {
     })
 })
 
+describe('a harness name that is not text', () => {
+    const card = (harnessName: unknown) =>
+        JSON.stringify({ nodes: [{ id: 'harness_0', data: { name: 'harness', inputs: { harnessName } } }], edges: [] })
+    const agent = (harnessName: unknown) =>
+        JSON.stringify({
+            nodes: [
+                {
+                    id: 'agent_0',
+                    data: { inputs: { agentTools: [{ agentSelectedTool: 'harness', agentSelectedToolConfig: { harnessName } }] } }
+                }
+            ],
+            edges: []
+        })
+
+    test('is refused on a draft save for a signed-in person, as a card and as an Agent harness tool', async () => {
+        const person = { ...context, caller: { via: 'session' as const } }
+        for (const bad of [card(['payroll']), agent(['payroll']), agent({ name: 'payroll' })]) {
+            await expect(saveDraft(flow(), bad, person)).rejects.toMatchObject({ statusCode: 400 })
+        }
+        expect(rows).toEqual([])
+        await saveDraft(flow(), card(''), person)
+        expect(rows.length).toBe(1)
+    })
+})
+
 describe('publishing', () => {
     test('hands over the draft canvas', async () => {
         await saveDraft(flow(), canvas('Draft'), context)

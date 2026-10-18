@@ -120,6 +120,20 @@ describe('Harness node workspace refusal', () => {
             expect.objectContaining({ harnessCaller: { via: 'api_key', apiKeyId: 'key-1', harnesses: ['bakery'] } })
         )
     })
+
+    it('refuses a harness name that is a list or an object before any check or run, on a keyless flow too', async () => {
+        const node = new HarnessNode()
+        for (const harnessName of [['payroll'], { name: 'payroll' }, 7]) {
+            const data = { id: 'harness_0', inputs: { harnessName } }
+            await expect(
+                node.run(data as never, 'Pay everyone', { chatId: 'c1', workspaceId: 'ws-1', harnessCaller: { via: 'flow' } })
+            ).rejects.toThrow(/not text/)
+            await expect(
+                node.init(data as never, '', { chatId: 'c1', workspaceId: 'ws-1', harnessCaller: { via: 'flow' } })
+            ).rejects.toThrow(/not text/)
+        }
+        expect(assertHarnessWorkspace).not.toHaveBeenCalled()
+    })
 })
 
 describe('Harness node queued run id', () => {

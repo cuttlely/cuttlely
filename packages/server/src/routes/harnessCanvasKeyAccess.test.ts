@@ -134,6 +134,7 @@ const KEYLESS_PAYROLL = '55555555-5555-4555-8555-555555555555'
 const OWN_BAKERY = '66666666-6666-4666-8666-666666666666'
 const OWN_PAYROLL = '77777777-7777-4777-8777-777777777777'
 const ESCAPED_KEYLESS = '88888888-8888-4888-8888-888888888888'
+const LISTED_KEYLESS = '99999999-9999-4999-8999-999999999999'
 const SHA = 'abcdef1'
 
 const harnessCard = (name: string) => JSON.stringify({ nodes: [{ data: { name: 'harness', inputs: { harnessName: name } } }], edges: [] })
@@ -152,6 +153,10 @@ const agentTool = (name: string) =>
 
 /** A Harness card whose key is written with a JSON escape: `"harness\u004eame"` parses to `harnessName`. */
 const escapedCard = (name: string) => harnessCard(name).replace('"harnessName"', '"harness\\u004eame"')
+
+/** A harness name stored as a list, on a Harness card and nested in an Agent harness tool. */
+const cardList = (name: string) => JSON.stringify({ nodes: [{ data: { name: 'harness', inputs: { harnessName: [name] } } }], edges: [] })
+const agentToolList = (name: string) => agentTool(name).replace(`"harnessName":"${name}"`, `"harnessName":["${name}"]`)
 
 beforeAll(() => setTeamPermissionLookup({ accessFor: async () => ({ owner: true, permissions: null }) }))
 afterAll(() => setTeamPermissionLookup(null))
@@ -191,6 +196,7 @@ beforeEach(() => {
         apikeyid: 'key-bakery'
     })
     flows.set(ESCAPED_KEYLESS, { ...base, id: ESCAPED_KEYLESS, name: 'Escaped', type: 'CHATFLOW', flowData: escapedCard('payroll') })
+    flows.set(LISTED_KEYLESS, { ...base, id: LISTED_KEYLESS, name: 'Listed', type: 'AGENTFLOW', flowData: agentToolList('payroll') })
 })
 
 /** The path as sent, with each word of each fixed segment after /api/v1/ capitalised, and in mixed case. */
@@ -451,5 +457,20 @@ describe("a HARNESS canvas's chat, totals and schedule reads need its name on th
         expect((await app().get(`/api/v1/chatmessage/${BAKERY}`).set(KEY)).status).toBe(200)
         expect((await app().get(`/api/v1/stats/${PLAIN_CHAT}`).set(KEY)).status).toBe(200)
         expect(handled).toEqual(['messages.getAllChatMessages', 'stats.getChatflowStats'])
+    })
+})
+
+describe('a harness name stored as a list is refused', () => {
+    it('on a save, a draft save, and MCP, a webhook secret or the schedule on a keyless flow, as a card and nested', async () => {
+        expect(JSON.parse(agentToolList('payroll')).nodes[0].data.inputs.agentTools[0].agentSelectedToolConfig.harnessName).toEqual([
+            'payroll'
+        ])
+        for (const flowData of [cardList('payroll'), agentToolList('payroll'), cardList('bakery')]) {
+            await refusedInEveryCase('post', '/api/v1/chatflows', KEY, { name: 'Listed', type: 'CHATFLOW', flowData })
+            await refusedInEveryCase('put', `/api/v1/flow-drafts/${PLAIN_CHAT}`, KEY, { flowData })
+        }
+        await refusedInEveryCase('post', `/api/v1/mcp-server/${LISTED_KEYLESS}`, KEY, {})
+        await refusedInEveryCase('post', `/api/v1/chatflows/${LISTED_KEYLESS}/webhook-secret`, KEY, {})
+        await refusedInEveryCase('patch', `/api/v1/chatflows/${LISTED_KEYLESS}/schedule/enabled`, KEY, { enabled: true })
     })
 })

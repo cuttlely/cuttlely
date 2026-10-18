@@ -67,11 +67,18 @@ export function refuseWhileShuttingDown(_req: Request, res: Response, next: Next
     res.status(503).json({ statusCode: 503, success: false, message: SHUTDOWN_MESSAGE, code: SHUTDOWN_CODE })
 }
 
+/**
+ * The path the router matched. sanitizeMiddleware decodes req.url before routing, so `/api/v1/%70rediction` runs the
+ * prediction route while req.originalUrl still holds the encoded text; Express also routes `/api/v1//prediction`.
+ */
+function routedPath(req: Request): string {
+    const routed = `${req.baseUrl || ''}${req.path || ''}` || (req.url || '').split('?')[0]
+    return routed.replace(/\/{2,}/g, '/')
+}
+
 /** Express middleware: counts run requests, and turns new ones away while a restart waits. */
 export function trackRuns(req: Request, res: Response, next: NextFunction): void {
-    // Express routes `/api/v1//prediction` like `/api/v1/prediction`, so repeated slashes are collapsed first.
-    const path = (req.originalUrl || req.url || '').split('?')[0].replace(/\/{2,}/g, '/')
-    if (!isRunRequest(req.method, path)) return next()
+    if (!isRunRequest(req.method, routedPath(req))) return next()
     if (draining) {
         res.setHeader('Retry-After', '30')
         res.status(503).json({ message: 'Cuttlely is restarting to apply new settings. Try again in a minute.' })
@@ -158,7 +165,7 @@ function endRun(res: Response): void {
             res.setHeader('Connection', 'close')
             res.status(503).json({ statusCode: 503, success: false, message: SHUTDOWN_MESSAGE, code: SHUTDOWN_CODE })
         } else {
-            const harness = /^\/+api\/+v1\/+harnesses\//i.test(res.req?.originalUrl || '')
+            const harness = Boolean(res.req) && /^\/api\/v1\/harnesses\//i.test(routedPath(res.req))
             if (String(res.getHeader('Content-Type') || '').includes('text/event-stream')) {
                 const data = harness ? { message: SHUTDOWN_MESSAGE } : SHUTDOWN_MESSAGE
                 res.write(`message:\ndata:${JSON.stringify({ event: 'error', data, status: 503, code: SHUTDOWN_CODE })}\n\n`)

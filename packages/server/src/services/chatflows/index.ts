@@ -25,7 +25,12 @@ import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
 import etlService, { orgIdForWorkspace } from '../../services/etl'
 import harnessesService from '../../services/harnesses'
-import { assertCallerMayUseHarnesses, referencedHarnessNames } from '../../services/harnesses/apiAccess'
+import {
+    assertCallerMayUseHarnesses,
+    assertHarnessReferencesWellFormed,
+    INVALID_HARNESS_REFERENCE,
+    referencedHarnessNames
+} from '../../services/harnesses/apiAccess'
 import scheduleService from '../../services/schedule'
 import {
     constructGraphs,
@@ -871,10 +876,14 @@ export async function validateReferencedHarnesses(
     caller: IHarnessCaller | undefined,
     checkKeyList = true
 ) {
+    if (checkKeyList) assertHarnessReferencesWellFormed(chatflow.flowData)
     const names = referencedHarnessNames(chatflow.flowData)
     if (!names.length) return
     if (checkKeyList) assertCallerMayUseHarnesses(caller, names)
-    for (const name of names) await harnessesService.assertNameAvailable(name, chatflow.workspaceId)
+    for (const name of names) {
+        if (name === INVALID_HARNESS_REFERENCE) continue
+        await harnessesService.assertNameAvailable(name, chatflow.workspaceId)
+    }
 }
 
 async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined) {
