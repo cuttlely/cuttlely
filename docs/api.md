@@ -260,7 +260,7 @@ Changing a schedule needs the same permissions as starting a run, and an API key
 
 ### Delete a harness
 
-`DELETE /api/v1/harnesses/<name>` removes things in a fixed order, and stops at the first step that fails:
+`DELETE /api/v1/harnesses/<name>` needs `chatflows:delete` or `agentflows:delete`, and with an API key the harness on the key's list. It removes things in a fixed order, and stops at the first step that fails:
 
 1. The harness name is removed from every API key's harness list in its team, in one transaction.
 2. Its schedule is removed.

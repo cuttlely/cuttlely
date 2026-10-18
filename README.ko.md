@@ -113,7 +113,7 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 <a id="use-a-team-from-your-app"></a>
 
-**Harness** 카드 하나로 된 챗플로우 뒤에 팀을 두고 게시한 다음, **API Keys**에서 키를 발급하세요. 앱이 질문을 보내면 팀의 답변이 돌아옵니다. 다음은 `baker`와 `orders`라는 두 스페셜리스트가 있는 작은 빵집 팀을 실제로 호출한 예입니다.
+**Harness** 카드 하나로 된 챗플로우 뒤에 팀을 두고 게시한 다음, **API Keys**에서 키를 발급하세요. 그 키의 **Harnesses this key may run**에서 하네스를 체크하세요. 새 키는 어떤 하네스도 실행하지 못하며, 체크하기 전까지 호출은 `403`이 됩니다. 앱이 질문을 보내면 팀의 답변이 돌아옵니다. 다음은 `baker`와 `orders`라는 두 스페셜리스트가 있는 작은 빵집 팀을 실제로 호출한 예입니다.
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \

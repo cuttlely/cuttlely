@@ -102,7 +102,7 @@ Give your app a team instead of a single prompt. An agent team is a lead agent w
 
 ## Use a team from your app
 
-Put the team behind a chatflow with one **Harness** card, publish it, and give it a key from **API Keys**. Your app sends a question and gets the team's answer back. Here is a real call to a small bakery team with two specialists, `baker` and `orders`:
+Put the team behind a chatflow with one **Harness** card, publish it, and give it a key from **API Keys**. On that key, tick the harness under **Harnesses this key may run**: a new key runs no harness, and the call answers `403` until it is ticked. Your app sends a question and gets the team's answer back. Here is a real call to a small bakery team with two specialists, `baker` and `orders`:
 
 ```bash
 curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
@@ -128,7 +128,7 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 }
 ```
 
-Harness Prime split the question: `baker` priced the order and `orders` checked the pickup day. The full response also has the tokens, the timings, the sources and any images the team made. The [API guide](./docs/api.md) covers the rest: API keys, streaming, conversation memory, file uploads, errors, and a runnable example web app that keeps your key on your server. Reference: [Prediction API for harnesses](./docs/how-to/harnesses.md#prediction-api) and [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
+Harness Prime split the question: `baker` priced the order and `orders` checked the pickup day. The full response also has the tokens, the timings, the sources and any images the team made. The [API guide](./docs/api.md) covers the rest: API keys, streaming, conversation memory, file uploads, errors, and a runnable example web app that keeps your key on your server. For a long turn, the same key can start the run in the background with `POST /api/v1/harnesses/<name>/runs/async` and fetch the answer later, and a harness can also run on a cron schedule: [Run it from your app with an API key](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [Run it on a schedule](./docs/how-to/harnesses.md#run-it-on-a-schedule). Reference: [Prediction API for harnesses](./docs/how-to/harnesses.md#prediction-api) and [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
 ## Small context, big answers
 
