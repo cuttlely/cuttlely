@@ -514,26 +514,40 @@ const startBackgroundRun = async (
         onSettled?: (outcome: { runId: string; status: string; error?: unknown }) => void
     }
 ) => {
-    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
-    const apiKeyId = callerKeyId(opts.caller)
-    const source = opts.source || 'api'
-    const chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
-    const history = await loadHarness('history.mjs')
-    const queued = history.queueHarnessRun({
-        name: prepared.harness.name,
-        chatId,
-        source,
-        input: prepared.question,
-        apiKeyId
-    })
-    if (!queued?.id) throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The run could not be recorded.')
-    const runId: string = queued.id
-    const running = startRun(
-        name,
-        { ...body, question: prepared.question, chatId },
-        { source, workspaceId: opts.workspaceId, runId, caller: opts.caller }
-    )
-    void (opts.track ? opts.track(running) : running)
+    // Counted before the first await: a caller that checked for a drain just before this call is then waited for by a
+    // drain that begins during the awaits below, instead of the drain seeing nothing in progress.
+    let release = () => {}
+    if (opts.track) void opts.track(new Promise<void>((resolve) => (release = resolve)))
+    let running: ReturnType<typeof startRun>
+    let prepared: Awaited<ReturnType<typeof assertRunRequest>>
+    let runId: string
+    let chatId: string
+    let history: Awaited<ReturnType<typeof loadHarness>>
+    try {
+        prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+        const apiKeyId = callerKeyId(opts.caller)
+        const source = opts.source || 'api'
+        chatId = typeof body?.chatId === 'string' && body.chatId ? prepared.chatId : `${source}-${randomUUID()}`
+        history = await loadHarness('history.mjs')
+        const queued = history.queueHarnessRun({
+            name: prepared.harness.name,
+            chatId,
+            source,
+            input: prepared.question,
+            apiKeyId
+        })
+        if (!queued?.id) throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The run could not be recorded.')
+        runId = queued.id
+        running = startRun(
+            name,
+            { ...body, question: prepared.question, chatId },
+            { source, workspaceId: opts.workspaceId, runId, caller: opts.caller }
+        )
+    } catch (error) {
+        release()
+        throw error
+    }
+    void running
         .then((outcome) => {
             try {
                 history.saveRunResult(prepared.harness.name, runId, outcome.payload)
@@ -551,6 +565,7 @@ const startBackgroundRun = async (
             logger.warn(`[harness] ${name} background run ${runId} failed: ${getErrorMessage(error)}`)
             opts.onSettled?.({ runId, status: 'failed', error })
         })
+        .finally(release)
     return { runId, harness: prepared.harness.name as string, chatId, status: 'queued' as const }
 }
 

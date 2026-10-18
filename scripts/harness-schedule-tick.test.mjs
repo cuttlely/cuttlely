@@ -8,6 +8,19 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, beforeEach, describe, it } from 'node:test'
 
+// The server logger handles uncaught errors without exiting (exitOnError: false). A failure while this file loads, such
+// as a package that is not built, would end it with code 0 and no case run, and node --test would count that as a pass.
+let ran = 0
+process.on('uncaughtException', (error) => {
+    process.exitCode = 1
+    console.error(error)
+})
+process.on('exit', () => {
+    if (ran > 0) return
+    process.exitCode = 1
+    console.error('harness-schedule-tick ran no tests')
+})
+
 const root = path.join(import.meta.dirname, '..')
 const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cuttlely-schedule-tick-'))
 process.env.CUTTLELY_DATA_DIR = dataDir
@@ -71,6 +84,7 @@ function saveDue(name) {
 
 describe('the server schedule tick', () => {
     beforeEach(() => {
+        ran += 1
         audits.length = 0
         harnesses.startBackgroundRun = realStartBackgroundRun
     })
@@ -188,6 +202,41 @@ describe('the server schedule tick', () => {
             runs.resetRuns()
             schedules.deleteSchedule('first-team')
             schedules.deleteSchedule('second-team')
+        }
+    })
+
+    it('counts a background run as in progress before its first await, so a drain that begins then waits for it', async () => {
+        const runs = serverRequire('./src/settings/runs.ts')
+        try {
+            const pending = realStartBackgroundRun(
+                'missing-team',
+                { question: 'q' },
+                { workspaceId: WORKSPACE, source: 'schedule', caller: { via: 'session' }, track: runs.trackBackgroundRun }
+            )
+            assert.equal(runs.runsInProgress(), 1, 'tracked in the same turn as the call')
+            const order = []
+            const drained = runs.drainRuns(5000, 5).then((left) => {
+                order.push('drained')
+                return left
+            })
+            await assert.rejects(pending.finally(() => order.push('settled')))
+            assert.equal(await drained, 0)
+            assert.deepEqual(order, ['settled', 'drained'])
+        } finally {
+            runs.resetRuns()
+        }
+    })
+
+    it('stops the scheduler when a drain begins, as a restart does', async () => {
+        const runs = serverRequire('./src/settings/runs.ts')
+        try {
+            ticks.startHarnessScheduler(60000)
+            assert.equal(ticks.harnessSchedulerRunning(), true)
+            await runs.drainRuns(0)
+            assert.equal(ticks.harnessSchedulerRunning(), false)
+        } finally {
+            ticks.stopHarnessScheduler()
+            runs.resetRuns()
         }
     })
 
