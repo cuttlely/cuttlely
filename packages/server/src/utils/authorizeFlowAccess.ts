@@ -6,6 +6,7 @@ import { Workspace } from '../database/entities/identity'
 import { AppError } from '../errors/appError'
 import { validateFeedbackExists, validateMessageExists } from '../services/feedback/validation'
 import { checkChatflowOrigin } from './domainValidation'
+import { cookieMutationAllowed } from '../identity/sessionGuard'
 import { verifyFileLink } from './fileLinkSignature'
 import { getRunningExpressApp } from './getRunningExpressApp'
 import { bindSuppliedChatId, callerIsSignedIn } from './sessionOwnership'
@@ -22,6 +23,8 @@ export interface FlowAccessOptions {
      * A logged-in session is not accepted. Used on `/prediction`, which never accepts a session.
      */
     keyOnly?: boolean
+    /** When true, a session counts only with `x-request-from: internal`; see `FlowAccessCheck.sessionNeedsHeader`. */
+    sessionNeedsHeader?: boolean
     /** The error for a request with no chatflow id. Defaults to 400 (invalid chatflow id). */
     missingIdError?: () => AppError
     /**
@@ -40,16 +43,26 @@ export interface FlowAccessOptions {
 export interface FlowAccessCheck {
     /** Skip the session branch; only the flow's API key decides. */
     keyOnly?: boolean
+    /**
+     * For a write on a path the sign-in gate lets through without its own header check: the session counts only
+     * with `x-request-from: internal`, which a cross-site form cannot send. Without it the flow's key decides, so
+     * keyless and key-holding (embedded) callers are unaffected.
+     */
+    sessionNeedsHeader?: boolean
 }
 
 /**
  * True when the caller may act on the flow as its owner or as a holder of the flow's key:
  * a logged-in session whose active workspace owns the flow, or the flow's API key
  * (`validateFlowAPIKey`, which also lets keyless flows through). With `keyOnly`, only the key decides.
- * The `x-request-from: internal` header is client-controlled and is never consulted here.
+ * The `x-request-from: internal` header is client-controlled: it never grants access, and only gates the session
+ * with `sessionNeedsHeader`.
  */
 export const hasFlowAccess = async (req: Request, chatflow: ChatFlow, check: FlowAccessCheck = {}): Promise<boolean> => {
-    if (!check.keyOnly && chatflow.workspaceId && req.user?.activeWorkspaceId === chatflow.workspaceId) return true
+    const sessionUsable =
+        !check.keyOnly &&
+        (!check.sessionNeedsHeader || cookieMutationAllowed(req.method || '', req.headers['x-request-from'] === 'internal'))
+    if (sessionUsable && chatflow.workspaceId && req.user?.activeWorkspaceId === chatflow.workspaceId) return true
     return validateFlowAPIKey(req, chatflow)
 }
 
@@ -89,7 +102,10 @@ export const authorizeFlowAccess =
 
             const signed = options.signedAccess ? (await options.signedAccess(req, chatflow)) === true : false
             res.locals.signedAccess = signed
-            if (!signed && !(await hasFlowAccess(req, chatflow, { keyOnly: options.keyOnly }))) {
+            if (
+                !signed &&
+                !(await hasFlowAccess(req, chatflow, { keyOnly: options.keyOnly, sessionNeedsHeader: options.sessionNeedsHeader }))
+            ) {
                 throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
             }
 
@@ -113,7 +129,8 @@ export const authorizeFlowAccess =
 /** `POST /api/v1/attachments/:chatflowId/:chatId`: runs before multer. */
 export const authorizeAttachmentUpload: RequestHandler = authorizeFlowAccess({
     getChatflowId: (req) => req.params.chatflowId,
-    getPathValues: (req) => [req.params.chatId]
+    getPathValues: (req) => [req.params.chatId],
+    sessionNeedsHeader: true
 })
 
 /** After flow access, before multer. A chat id this caller does not own is replaced, so the file is not stored under it. */
@@ -193,7 +210,8 @@ export const authorizeFeedbackCreate: RequestHandler = authorizeFlowAccess({
         const messageId = singleString(req.body?.messageId)
         if (!messageId) throw new AppError(StatusCodes.BAD_REQUEST, 'Message ID is required')
         return (await validateMessageExists(messageId)).chatflowid
-    }
+    },
+    sessionNeedsHeader: true
 })
 
 /**
@@ -204,7 +222,8 @@ export const authorizeFeedbackCreate: RequestHandler = authorizeFlowAccess({
 export const authorizeFeedbackUpdate: RequestHandler = authorizeFlowAccess({
     getChatflowId: async (req) => (req.params.id ? (await validateFeedbackExists(req.params.id)).chatflowid : undefined),
     missingIdError: () =>
-        new AppError(StatusCodes.PRECONDITION_FAILED, `Error: feedbackController.updateChatMessageFeedbackForChatflow - id not provided!`)
+        new AppError(StatusCodes.PRECONDITION_FAILED, `Error: feedbackController.updateChatMessageFeedbackForChatflow - id not provided!`),
+    sessionNeedsHeader: true
 })
 
 /**

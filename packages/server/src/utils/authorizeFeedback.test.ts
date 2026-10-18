@@ -120,6 +120,8 @@ const FILE_SECRET = 'feedback-file-secret'
 
 const bearer = (key: string) => ({ Authorization: `Bearer ${key}` })
 const session = (workspaceId: string) => ({ 'x-test-session-workspace': workspaceId })
+// The in-app UI sends this header on every request; a cross-site form cannot.
+const appSession = (workspaceId: string) => ({ ...session(workspaceId), 'x-request-from': 'internal' })
 const UNAUTHORIZED = { statusCode: 401, success: false, message: 'Unauthorized', stack: {} }
 
 // Stands in for the session-cookie middleware, as in the attachments access test (A0 confirmed the logged-in UI's cookie fills
@@ -246,9 +248,18 @@ describe('Flow access: POST /api/v1/feedback(/:id)', () => {
         expect(res.body).toMatchObject({ chatflowid: K, chatId: CHAT_K, messageId: MSG_K2, rating: 'THUMBS_DOWN' })
         expect(feedbackRows()).toHaveLength(3)
         mockDb.feedback.delete(res.body.id)
-        const viaSession = await postFeedback('', { messageId: MSG_K2, rating: 'THUMBS_UP' }, session(WS))
+        const viaSession = await postFeedback('', { messageId: MSG_K2, rating: 'THUMBS_UP' }, appSession(WS))
         expect(viaSession.status).toBe(200)
         expect(viaSession.body).toMatchObject({ chatflowid: K, chatId: CHAT_K, messageId: MSG_K2 })
+    })
+
+    it('8b: a session without x-request-from: internal -> 401 on a key-protected flow, no row written; a keyless flow still takes it', async () => {
+        const before = feedbackRows()
+        const res = await postFeedback('', { messageId: MSG_K2, rating: 'THUMBS_UP' }, session(WS))
+        expect(res.status).toBe(401)
+        expect(res.body).toEqual(UNAUTHORIZED)
+        expect(feedbackRows()).toEqual(before)
+        expect((await postFeedback('', { messageId: MSG_F, rating: 'THUMBS_UP' }, session(WS))).status).toBe(200)
     })
 
     it("9: cross-flow - access is checked on the message's flow, not on a client-named flow", async () => {
@@ -307,9 +318,16 @@ describe('Flow access: PUT /api/v1/feedback/:feedbackId', () => {
         const withKey = await putFeedback(FB_K, { rating: 'THUMBS_DOWN', content: 'changed' }, bearer(KEY_K))
         expect(withKey.status).toBe(200)
         expect(mockDb.feedback.get(FB_K)).toMatchObject({ chatflowid: K, rating: 'THUMBS_DOWN', content: 'changed' })
-        const withSession = await putFeedback(FB_K, { content: 'again' }, session(WS))
+        const withSession = await putFeedback(FB_K, { content: 'again' }, appSession(WS))
         expect(withSession.status).toBe(200)
         expect(mockDb.feedback.get(FB_K).content).toBe('again')
+    })
+
+    it('13b: a session without x-request-from: internal -> 401, row unchanged', async () => {
+        const before = feedbackRows()
+        const res = await putFeedback(FB_K, { content: 'forged' }, session(WS))
+        expect(res.status).toBe(401)
+        expect(feedbackRows()).toEqual(before)
     })
 
     it("14: cross-flow - naming another flow's chat or message in a PUT moves nothing (only rating and content are copied)", async () => {
