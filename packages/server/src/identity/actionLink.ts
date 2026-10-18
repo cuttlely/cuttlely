@@ -180,6 +180,15 @@ function canIssueLinks(actor: DirectoryActor): boolean {
 }
 
 /**
+ * `workspace:add-user` may send the invite link for an invite into the caller's own active team. createEmailUser
+ * still refuses another team and a role with a permission the caller does not hold.
+ */
+function canIssueInviteLink(actor: DirectoryActor, workspaceId: string): boolean {
+    if (canIssueLinks(actor)) return true
+    return Boolean(actor.permissions?.includes('workspace:add-user') && actor.workspaceId && actor.workspaceId === workspaceId)
+}
+
+/**
  * Milliseconds from a driver value. Postgres returns a real Date. MySQL and MariaDB store UTC wall
  * time with no zone: a Date from the driver was built in local time, and a `YYYY-MM-DD HH:MM:SS`
  * string is the same wall time. Both are read as UTC. The SQL compare binds that same wall string.
@@ -392,10 +401,10 @@ export async function inviteAccount(
     deps: LinkDeps = defaultDeps()
 ): Promise<{ id: string; link?: string; mailed?: boolean }> {
     const mode = inviteMode(body, deps.env)
-    if (mode !== undefined && !canIssueLinks(actor)) throw new DirectoryError(403, 'Forbidden')
+    const workspaceId = workspaceOf(body)
+    if (mode !== undefined && !canIssueInviteLink(actor, workspaceId)) throw new DirectoryError(403, 'Forbidden')
     if (mode === false && !deps.mailReady()) throw new DirectoryError(400, MAIL_REQUIRED)
     let raw = ''
-    const workspaceId = workspaceOf(body)
     const created = await createEmailUser(sql, actor, body, async (query, userId) => {
         if (mode === undefined) return
         raw = (await issueToken(query, sql, { purpose: 'invite', actor, userId, workspaceId, now: deps.now(), env: deps.env })).raw
