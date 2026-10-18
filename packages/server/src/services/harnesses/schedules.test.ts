@@ -23,7 +23,10 @@ jest.mock('.', () => ({
             statusChanges.push(`${name} ${status}${opts?.ownerId ? ` ${opts.ownerId}` : ''}`)
             return { schedule: { harness: name, status } }
         },
-        deleteHarnessSchedule: async (name: string) => ({ harness: name, deleted: true })
+        deleteHarnessSchedule: async (name: string) => {
+            statusChanges.push(`${name} deleted`)
+            return { harness: name, deleted: true }
+        }
     }
 }))
 
@@ -43,7 +46,10 @@ function app(user: object) {
         ;(req as Request).user = { ...user } as Express.User
         next()
     })
-    server.use('/api/v1/harnesses', harnessesRouter)
+    // Mounted as in routes/index.ts, so other spellings of the path route as they do on the server.
+    const api = express.Router()
+    api.use('/harnesses', harnessesRouter)
+    server.use('/api/v1', api)
     server.use((error: { statusCode?: number; message?: string }, _req: Request, res: express.Response, _next: express.NextFunction) => {
         res.status(error.statusCode || 500).json({ message: error.message })
     })
@@ -88,6 +94,29 @@ describe('harness schedules', () => {
         expect(res.status).toBe(403)
         expect(res.body.message).toBe('A schedule runs as a person, so an API key cannot change one. Sign in to set it.')
         expect((await request(app(apiKey)).post('/api/v1/harnesses/bakery/schedule/pause')).status).toBe(403)
+        expect(saved).toEqual([])
+        expect(statusChanges).toEqual([])
+    })
+
+    it('refuses an API key on every schedule write in the controller, however the path is spelled', async () => {
+        // The write routes have no key check of their own; the controller reads the caller, not the path.
+        const writes: Array<['put' | 'post' | 'delete', string]> = [
+            ['put', 'harnesses/bakery/schedule'],
+            ['post', 'harnesses/bakery/schedule/pause'],
+            ['post', 'harnesses/bakery/schedule/resume'],
+            ['delete', 'harnesses/bakery/schedule']
+        ]
+        for (const [method, rest] of writes) {
+            const capitalised = rest.replace(/(^|\/)([a-z])/g, (_all, slash: string, ch: string) => slash + ch.toUpperCase())
+            for (const path of [
+                `/api/v1/${rest}`,
+                `/api/v1/${capitalised}`,
+                `/api/v1//${rest.toUpperCase().replace('BAKERY', 'bakery')}`
+            ]) {
+                const res = await request(app(apiKey))[method](path).send(body)
+                expect({ method, path, status: res.status }).toEqual({ method, path, status: 403 })
+            }
+        }
         expect(saved).toEqual([])
         expect(statusChanges).toEqual([])
     })
