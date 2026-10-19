@@ -13,15 +13,18 @@ const tagline = hero.tagline ?? ''
 
 <section class="cl-hero not-content" aria-labelledby="_top">
     <div class="cl-hero-copy">
-        <p class="cl-eyebrow"><span class="cl-dot" aria-hidden="true"></span>{tagline}</p>
-        <h1 id="_top" class="cl-display cl-hero-title">Your applications <span class="cl-gradient-text">deserve agents.</span></h1>
-        <p class="cl-hero-lead">
-            Cuttlely is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a
-            team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.
-        </p>
+        {tagline && (
+            <p class="cl-eyebrow">
+                <span class="cl-dot" aria-hidden="true"></span>
+                {tagline}
+            </p>
+        )}
+        <h1 id="_top" class="cl-display cl-hero-title">The visual agent builder, <span class="cl-gradient-text">ready for production.</span></h1>
+        <p class="cl-hero-lead">Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p>
         <p class="cl-hero-proof">
-            Each agent sees only what its job needs, and every run shows the tokens it used.
-            <a href="#small-context-big-answers">See how Cuttlely keeps context small</a>
+            <a href="/docs/bring-your-flows/"
+                >Cuttlely picks up where Flowise left off... built on its Apache-2.0 code, with the production layer on top.</a
+            >
         </p>
         <div class="cl-actions">
             <a class="cl-button cl-button-primary" href="/quickstart/">

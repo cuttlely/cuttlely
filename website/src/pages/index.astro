@@ -129,7 +129,7 @@ const teamFeatures = [
     },
     {
         title: 'On your own servers',
-        text: 'Docker, Render or from source, with SQLite, Postgres, MySQL or MariaDB.',
+        text: 'Docker, Render or from source, with SQLite or Postgres.',
         href: '/docs/how-to/docker/',
         icon: 'server'
     }
@@ -163,21 +163,30 @@ const installs = [
 
 <StarlightPage
     frontmatter={{
-        title: 'Your applications deserve agents.',
+        title: 'Cuttlely: the visual agent builder, ready for production',
         description:
-            'Cuttlely is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.',
+            'Open-source visual agent builder, ready for production: drafts, Compare and rollback, a scoped SQL analyst, and Flowise import. Apache-2.0, self-hosted.',
         template: 'splash',
-        hero: { tagline: 'The open-source agent platform for applications.', actions: [] },
+        hero: { tagline: 'Open source · Apache-2.0', actions: [] },
+        head: [{ tag: 'title', content: 'Cuttlely: the visual agent builder, ready for production' }],
         pagefind: false,
         tableOfContents: false
     }}
     hasSidebar={false}
 >
     <div class="cl-home not-content">
-        <ul class="cl-proof" aria-label="At a glance">
-            <li><Icon name="open-book" /> Open source under Apache 2.0</li>
-            <li><Icon name="laptop" /> Docker, Render or from source</li>
-            <li><Icon name="rocket" /> The demo shows a team at work in about a minute</li>
+        <ul class="cl-pillars" aria-label="What Cuttlely gives you">
+            <li>
+                <strong>Ship changes safely.</strong> Edits to flows and agent teams go to a draft. Compare it with Live, gate Publish on a test set, and roll
+                Live back at once. Roles, an audit log, and API keys that only run the harnesses you tick.
+            </li>
+            <li>
+                <strong>Keep context small.</strong> A team splits each question so every specialist gets a self-contained task, not the whole chat. The
+                analyst sees only the tables you tick. Every run shows its tokens.
+            </li>
+            <li>
+                <strong>Bring your flows.</strong> Import your Flowise JSON and it opens node for node. No rebuild.
+            </li>
         </ul>
 
         <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
