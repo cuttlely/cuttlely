@@ -617,7 +617,7 @@ test('the home page hero uses the production message house', () => {
     assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
     assert.ok(!/picks up where|next generation/i.test(hero))
     assert.ok(hero.includes('href="/flowise/"'))
-    assert.ok(hero.includes('Bring your flows'))
+    assert.ok(hero.includes('Already have flows? Bring them over'))
     assert.ok(page.includes(`title: 'Cuttlely: the visual agent builder, ready for production'`))
     assert.match(page, /Governance\./)
     assert.match(page, /Lean context\./)
