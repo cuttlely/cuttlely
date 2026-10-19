@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.1] - Unreleased
+
+### Security
+
+-   Sign-in accepts bcrypt password hashes from a moved Flowise 3.1.4 install (`$2a$`, `$2b$`, `$2y$`, cost 4 to 12) and rehashes them to Cuttlely's scrypt scheme after the first successful login. A cost outside that range is refused without running the expensive compare. A failed rehash still issues the session and leaves the stored hash unchanged.
+
 ## [1.3.0] - 2026-10-18
 
 ### Added
