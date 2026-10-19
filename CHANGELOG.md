@@ -10,6 +10,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   After the first successful run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.
 
+### Fixed
+
+-   A Flowise database older than `3.1.4` is refused before any migration, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is left unchanged. That includes application data in document stores, variables, and the other tables that gain a workspace id, not only flows, credentials, and tools. An older enterprise identity schema is refused even when those application tables are empty. A database with no application data, including a first start that stopped part way, still migrates. Upgrade it in Flowise `3.1.4` first, then move it. [Move a whole install](./docs/bring-your-flows.md#move-a-whole-install).
+
 ### Security
 
 -   Sign-in accepts bcrypt password hashes from a moved Flowise 3.1.4 install (`$2a$`, `$2b$`, `$2y$`, cost 4 to 12) and rehashes them to Cuttlely's scrypt scheme after the first successful login. A cost outside that range is refused without running the expensive compare. A failed rehash still issues the session and leaves the stored hash unchanged. While any accepted bcrypt hash remains stored, unknown and disabled sign-in misses pay the same dummy scrypt-then-bcrypt work as a wrong password on an already-migrated scrypt account, so those paths are not distinguishable by timing; after the last one is rehashed, misses use the scrypt dummy again. Looking for a remaining accepted hash walks rejected `$2x$` prefixes by id instead of an OFFSET page.
