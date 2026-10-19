@@ -33,6 +33,8 @@ describe('FAQ page wiring', () => {
         assert.doesNotMatch(faq, /picks up where/)
         assert.doesNotMatch(faq, /next generation of the visual builder/)
         assert.doesNotMatch(faq, /fork of/)
+        assert.match(faq, /### Where does the code come from\?/)
+        assert.match(faq, /credited in \[CREDITS\.md\]\(CREDITS\.md\)/)
         assert.match(faq, /### Can I bring my Flowise flows\?/)
         assert.doesNotMatch(faq, /### Can I bring my existing flows\?/)
         assert.match(faq, /### What about the Flowise security advisories\?/)

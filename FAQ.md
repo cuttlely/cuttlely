@@ -45,6 +45,10 @@ Full notes: [v1.3.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v
 
 ## Coming from Flowise
 
+### Where does the code come from?
+
+Cuttlely includes Apache-2.0 licensed code from FlowiseAI/Flowise, credited in [CREDITS.md](CREDITS.md), and isn't affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.
+
 ### Can I bring my Flowise flows?
 
 Yes. Go to **Chatflows** → **Import** → **Import Flowise JSON**. It opens a chatflow or agentflow node for node; about 300 nodes open with their settings. A chatflow's prediction API takes the same request body. API keys, passwords and credential ids are removed from the file, so you pick a credential on each card.
