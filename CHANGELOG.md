@@ -8,7 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Security
 
--   Path validation no longer rejects Windows-style absolute path strings on non-Windows systems. Imported flows from Flowise can include Windows-looking placeholders (for example on a memory or vector store path); these are now treated as ordinary file names on Linux and macOS and contained under the application data directory. Absolute-path protection remains intact: Unix absolute paths outside allowed base directories are still refused, and Windows-only absolute and UNC forms remain blocked on Windows.
+-   On Linux and macOS, a Windows drive path, UNC path, or extended-length path in a flow field is remapped to that path's basename under the application data directory, so the Agent Memory placeholder `C:\Users\User\.cuttlely\database.sqlite` from a Flowise import becomes `~/.cuttlely/database.sqlite`. A remap whose basename is empty, `.`, or `..` is refused. Traversal, encoding, and null-byte checks still run first, and the result must still fall inside the allowed directories. On Windows those absolute and UNC forms remain blocked. Unix absolute paths outside the allowlist remain refused.
 
 ## [1.3.0] - 2026-10-18
 

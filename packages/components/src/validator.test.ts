@@ -12,6 +12,10 @@ import path from 'path'
 import { getUserHome } from './utils'
 import * as utils from './utils'
 
+const isInsideBase = (resolved: string, base: string): boolean => resolved === base || resolved.startsWith(base + path.sep)
+
+const AGENT_MEMORY_PLACEHOLDER = String.raw`C:\Users\User\.cuttlely\database.sqlite`
+
 describe('isPathTraversal', () => {
     describe('returns true for dangerous patterns', () => {
         it.each([
@@ -302,7 +306,7 @@ describe('validateVectorStorePath', () => {
             const result = validateVectorStorePath(absolutePath)
 
             expect(result).toBe(absolutePath)
-            expect(result.startsWith(defaultFlowisePath)).toBe(true)
+            expect(isInsideBase(result, defaultFlowisePath)).toBe(true)
         })
     })
 
@@ -332,18 +336,72 @@ describe('validateVectorStorePath', () => {
             }).toThrow(/Invalid path:/)
         })
 
-        it.each([
-            ['C:\\Windows\\System32', 'Windows absolute path'],
-            ['C:\\Users\\Administrator', 'Windows user path'],
-            ['\\\\server\\share', 'UNC path'],
-            ['\\\\?\\C:\\Windows', 'Extended-length path']
-        ])('Windows-style paths are rejected on Windows, contained on Unix-like systems: %s (%s)', (windowsPath) => {
-            if (process.platform === 'win32') {
-                expect(() => validateVectorStorePath(windowsPath)).toThrow(/Invalid path:/)
-            } else {
-                const result = validateVectorStorePath(windowsPath)
-                expect(result.startsWith(path.join(userHome, '.cuttlely'))).toBe(true)
-            }
+        describe('Windows-style paths on Windows (mocked)', () => {
+            const originalPlatform = process.platform
+
+            beforeEach(() => {
+                Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+            })
+
+            afterEach(() => {
+                Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+            })
+
+            it('rejects a Windows absolute path with the drive message', () => {
+                expect(() => validateVectorStorePath('C:\\Windows\\System32')).toThrow(
+                    'Invalid path: Windows absolute paths are not allowed'
+                )
+            })
+
+            it('rejects a UNC path with the UNC message', () => {
+                expect(() => validateVectorStorePath('\\\\server\\share')).toThrow('Invalid path: UNC paths are not allowed')
+            })
+
+            it('rejects an extended-length path with the extended-length message', () => {
+                expect(() => validateVectorStorePath('\\\\?\\C:\\Windows')).toThrow('Invalid path: Extended-length paths are not allowed')
+            })
+        })
+
+        describe('Windows-style paths remapped on non-Windows', () => {
+            const originalPlatform = process.platform
+
+            beforeEach(() => {
+                Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+            })
+
+            afterEach(() => {
+                Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+            })
+
+            it('remaps a Windows drive path to defaultDir/<basename>', () => {
+                expect(validateVectorStorePath('C:\\Windows\\System32')).toBe(path.join(userHome, '.cuttlely', 'System32'))
+            })
+
+            it('remaps a Windows user path to defaultDir/<basename>', () => {
+                expect(validateVectorStorePath('C:\\Users\\Administrator')).toBe(path.join(userHome, '.cuttlely', 'Administrator'))
+            })
+
+            it('remaps a UNC path to defaultDir/<basename>', () => {
+                expect(validateVectorStorePath('\\\\server\\share')).toBe(path.join(userHome, '.cuttlely', 'share'))
+            })
+
+            it('remaps an extended-length path to defaultDir/<basename>', () => {
+                expect(validateVectorStorePath('\\\\?\\C:\\Windows')).toBe(path.join(userHome, '.cuttlely', 'Windows'))
+            })
+
+            it('rejects a Windows-style path whose basename is "."', () => {
+                expect(() => validateVectorStorePath('C:\\Users\\User\\.')).toThrow(
+                    'Invalid path: empty or relative filename is not allowed'
+                )
+            })
+
+            it('rejects a Windows-style path whose basename is ".."', () => {
+                expect(() => validateVectorStorePath('C:\\Users\\User\\..')).toThrow('Invalid path: path traversal attempt detected')
+            })
+
+            it('rejects a Windows-style path whose basename is empty', () => {
+                expect(() => validateVectorStorePath('\\\\/')).toThrow('Invalid path: empty or relative filename is not allowed')
+            })
         })
     })
 
@@ -453,7 +511,7 @@ describe('validateVectorStorePath', () => {
             const pathWithTrailingSlash = path.join(defaultFlowisePath, 'vectorstore') + path.sep
             const result = validateVectorStorePath(pathWithTrailingSlash)
 
-            expect(result.startsWith(defaultFlowisePath)).toBe(true)
+            expect(isInsideBase(result, defaultFlowisePath)).toBe(true)
         })
 
         it('should normalize path separators', () => {
@@ -574,24 +632,74 @@ describe('validateSQLitePath', () => {
     })
 
     describe('disallowed absolute paths', () => {
-        it('handles Windows absolute path (C:\\) platform-specifically', () => {
-            if (process.platform === 'win32') {
+        describe('Windows-style paths on Windows (mocked)', () => {
+            const originalPlatform = process.platform
+
+            beforeEach(() => {
+                Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+            })
+
+            afterEach(() => {
+                Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+            })
+
+            it('rejects a Windows absolute path with the drive message', () => {
                 expect(() => validateSQLitePath('C:\\Windows\\System32\\db.sqlite')).toThrow(
                     'Invalid SQLite path: Windows absolute paths are not allowed'
                 )
-            } else {
-                const result = validateSQLitePath('C:\\Windows\\System32\\db.sqlite')
-                expect(result.startsWith(path.join(defaultFlowiseDir))).toBe(true)
-            }
+            })
+
+            it('rejects a UNC path with the UNC message', () => {
+                expect(() => validateSQLitePath('\\\\server\\share\\db.sqlite')).toThrow('Invalid SQLite path: UNC paths are not allowed')
+            })
+
+            it('rejects an extended-length path with the extended-length message', () => {
+                expect(() => validateSQLitePath('\\\\?\\C:\\Windows\\db.sqlite')).toThrow(
+                    'Invalid SQLite path: extended-length paths are not allowed'
+                )
+            })
         })
 
-        it('handles UNC path (\\\\server\\share) platform-specifically', () => {
-            if (process.platform === 'win32') {
-                expect(() => validateSQLitePath('\\\\server\\share\\db.sqlite')).toThrow('Invalid SQLite path: UNC paths are not allowed')
-            } else {
-                const result = validateSQLitePath('\\\\server\\share\\db.sqlite')
-                expect(result.startsWith(path.join(defaultFlowiseDir))).toBe(true)
-            }
+        describe('Windows-style paths remapped on non-Windows', () => {
+            const originalPlatform = process.platform
+
+            beforeEach(() => {
+                Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+            })
+
+            afterEach(() => {
+                Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+            })
+
+            it('remaps a Windows drive path to defaultDir/<basename>', () => {
+                expect(validateSQLitePath('C:\\Windows\\System32\\db.sqlite')).toBe(path.join(defaultFlowiseDir, 'db.sqlite'))
+            })
+
+            it('remaps the Agent Memory placeholder to ~/.cuttlely/database.sqlite', () => {
+                expect(validateSQLitePath(AGENT_MEMORY_PLACEHOLDER)).toBe(path.join(defaultFlowiseDir, 'database.sqlite'))
+            })
+
+            it('remaps a forward-slash Windows drive path to defaultDir/<basename>', () => {
+                expect(validateSQLitePath('C:/Users/User/.cuttlely/database.sqlite')).toBe(path.join(defaultFlowiseDir, 'database.sqlite'))
+            })
+
+            it('remaps a UNC path to defaultDir/<basename>', () => {
+                expect(validateSQLitePath('\\\\server\\share\\db.sqlite')).toBe(path.join(defaultFlowiseDir, 'db.sqlite'))
+            })
+
+            it('rejects a Windows-style path whose basename is "."', () => {
+                expect(() => validateSQLitePath('C:\\Users\\User\\.')).toThrow(
+                    'Invalid SQLite path: empty or relative filename is not allowed'
+                )
+            })
+
+            it('rejects a Windows-style path whose basename is ".."', () => {
+                expect(() => validateSQLitePath('C:\\Users\\User\\..')).toThrow('Invalid SQLite path: path traversal attempt detected')
+            })
+
+            it('rejects a Windows-style path whose basename is empty', () => {
+                expect(() => validateSQLitePath('\\\\/')).toThrow('Invalid SQLite path: empty or relative filename is not allowed')
+            })
         })
 
         it('should reject /etc paths (RCE attack vector)', () => {
@@ -672,13 +780,15 @@ describe('validateSQLitePath', () => {
     describe('Windows case-insensitive path comparison', () => {
         // Simulate Windows: getUserHome() returns mixed-case path, user supplies lowercase version.
         // path.normalize() on Unix preserves casing, so this exercises the toLowerCase branch.
+        const originalPlatform = process.platform
+
         beforeEach(() => {
             Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
             jest.spyOn(utils, 'getUserHome').mockReturnValue('/Users/TestUser')
         })
 
         afterEach(() => {
-            Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+            Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
             jest.restoreAllMocks()
         })
 
