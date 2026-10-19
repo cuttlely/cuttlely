@@ -1,6 +1,6 @@
 # Status
 
-Last refreshed 2026-10-19. Check `git log origin/main` for anything newer. `pnpm verify` (full, Node 24) passed on this Orchestrate `external_chat` branch. The live tenant check in the architect's section 2.12 is not part of this change.
+Last refreshed 2026-10-19. Check `git log origin/main` for anything newer. `pnpm verify` (full, Node 24) passed on this Orchestrate `external_chat` branch. After the merge of `main`, `.gitattributes` is core-shared, so it is off the inherited-files list. The live tenant check in the architect's section 2.12 is not part of this change.
 
 ## What works on `main`
 
