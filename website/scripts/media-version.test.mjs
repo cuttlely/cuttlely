@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { mediaHash, mediaHrefProblems, mediaHrefs, mediaUrl, repoMediaLinkProblems } from './media-version.mjs'
+import { localMediaHref, mediaHash, mediaHrefProblems, mediaHrefs, mediaUrl, repoMediaLinkProblems } from './media-version.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -72,6 +72,12 @@ test('mediaHrefs skips file paths and mediaUrl() calls', () => {
         "poster={mediaUrl('/media/products/testing-poster.webp')}"
     ].join('\n')
     assert.deepEqual(mediaHrefs(text), ['https://cuttlely.com/media/products/testing.mp4'])
+})
+
+test('localMediaHref drops only the site origin, not a lookalike host', () => {
+    assert.equal(localMediaHref('https://cuttlely.com/media/clip.mp4?v=abcd1234'), '/media/clip.mp4?v=abcd1234')
+    assert.equal(localMediaHref('/media/clip.mp4?v=abcd1234'), '/media/clip.mp4?v=abcd1234')
+    assert.equal(localMediaHref('https://cuttlely.com.example/media/clip.mp4'), 'https://cuttlely.com.example/media/clip.mp4')
 })
 
 test('mediaHrefProblems fails a missing or stale hash and accepts the file hash', () => {

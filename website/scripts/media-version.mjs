@@ -28,7 +28,12 @@ export function mediaUrl(urlPath, publicDir = defaultPublic) {
  * Link-like `/media/` URLs, with or without the site origin and `?v=`.
  * File paths such as `website/public/media/...` and `mediaUrl('/media/...')` are not links.
  */
-export const MEDIA_HREF_RE = /(?:https:\/\/cuttlely\.com)?\/media\/[A-Za-z0-9._\-/]+(?:\?v=[0-9a-f]+)?/g
+export const MEDIA_HREF_RE = /(?:https:\/\/cuttlely\.com\/media\/|\/media\/)[A-Za-z0-9._\-/]+(?:\?v=[0-9a-f]+)?/g
+
+/** `/media/...` from a root-relative href or one on the site origin. A lookalike host is left as-is. */
+export function localMediaHref(href) {
+    return href.startsWith('https://cuttlely.com/') ? href.slice(SITE_ORIGIN.length) : href
+}
 
 export function mediaHrefs(text) {
     const out = []
@@ -46,7 +51,7 @@ export function mediaHrefs(text) {
 export function mediaHrefProblems(text, publicDir = defaultPublic) {
     const problems = []
     for (const href of mediaHrefs(text)) {
-        const local = href.startsWith(SITE_ORIGIN) ? href.slice(SITE_ORIGIN.length) : href
+        const local = localMediaHref(href)
         const clean = local.split('?')[0]
         const v = new URLSearchParams(local.split('?')[1] || '').get('v')
         if (!v || !/^[0-9a-f]{8}$/.test(v)) {
