@@ -94,7 +94,7 @@ IBM watsonx Orchestrate can call a published chatflow as an `external_chat` coll
 
 **Auth.** Send the flow's API key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. If both headers are present they must match. A flow with no bound key is refused (`403` `keyless_flow`). A missing or wrong key is `401` `unauthorized`.
 
-**Threads.** Optional `X-IBM-THREAD-ID` continues one conversation on that flow and key. Omit it and each call is a new chat; earlier `user` and `assistant` turns in `messages` become history. A second stream on the same thread while the first is still open is `409` `thread_busy`.
+**Threads.** Optional `X-IBM-THREAD-ID` continues one conversation on that flow and key. Omit it and each call is a new chat; earlier `user` and `assistant` turns in `messages` become history. A second stream on the same thread while the first is still open is `409` `thread_busy`. In queue mode with more than one API replica, that busy check is per replica: two streams routed to different replicas are both accepted.
 
 **Streaming.** `"stream": true` writes `text/event-stream` frames:
 
