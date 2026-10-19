@@ -5,13 +5,19 @@
  */
 import type { DataSource, QueryRunner } from 'typeorm'
 import { randomUUID } from 'crypto'
-import { DatabaseSync } from 'node:sqlite'
 import {
     UNSUPPORTED_FLOWISE_UPGRADE,
     assertSupportedFlowiseUpgrade,
     ensureFlowiseUpgradeSupported,
     runSupportedMigrations
 } from './flowiseUpgradeGuard'
+
+const { DatabaseSync } = require('node:sqlite') as {
+    DatabaseSync: new (path: string) => {
+        close(): void
+        prepare(sql: string): { all(...params: unknown[]): Record<string, unknown>[]; run(...params: unknown[]): unknown }
+    }
+}
 
 const pgPassword = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD
 
