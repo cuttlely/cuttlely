@@ -12,6 +12,10 @@ Or, with Node 20+ and Docker: `npx cuttlely start`. Open http://localhost:43117,
 
 ## The basics
 
+### How do you say Cuttlely?
+
+Like "cuddly".
+
 ### What is Cuttlely?
 
 A visual agent builder you run yourself, built around three things:
