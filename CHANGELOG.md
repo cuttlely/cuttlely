@@ -4,7 +4,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
-## [1.3.0] - Unreleased
+## [1.3.0] - 2026-10-18
 
 ### Added
 
@@ -379,7 +379,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/cuttlely/cuttlely/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cuttlely/cuttlely/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/cuttlely/cuttlely/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/cuttlely/cuttlely/compare/v1.0.2...v1.0.3
