@@ -25,10 +25,10 @@ describe('itWorked one-time log marker', () => {
     })
 
     test('writes marker only once and creates no network calls', async () => {
-        // Stub the server logger to avoid loading transports and external deps
+        const info = jest.fn()
         jest.doMock('./logger', () => ({
             __esModule: true,
-            default: { info: jest.fn(), error: jest.fn() }
+            default: { info, error: jest.fn() }
         }))
         const http = require('http')
         const https = require('https')
@@ -40,16 +40,18 @@ describe('itWorked one-time log marker', () => {
         const marker = path.join(dataDir, 'settings', 'it-worked.json')
         expect(fs.existsSync(marker)).toBe(false)
 
-        await maybeLogFirstSuccess()
+        maybeLogFirstSuccess()
         expect(fs.existsSync(marker)).toBe(true)
         const first = fs.readFileSync(marker, 'utf8')
         expect(() => JSON.parse(first)).not.toThrow()
         expect(JSON.parse(first).shown).toBe(true)
+        expect(info).toHaveBeenCalledTimes(1)
 
-        // Second call should keep the marker as-is
+        // Second call should keep the marker as-is and not log again
         const mtime = fs.statSync(marker).mtimeMs
-        await maybeLogFirstSuccess()
+        maybeLogFirstSuccess()
         expect(fs.statSync(marker).mtimeMs).toBe(mtime)
+        expect(info).toHaveBeenCalledTimes(1)
 
         // No network calls in this path
         expect(fetchSpy).not.toHaveBeenCalled()
@@ -60,6 +62,53 @@ describe('itWorked one-time log marker', () => {
         httpsSpy.mockRestore()
     })
 
+    test('sets the in-process flag from an existing marker without taking the lock', async () => {
+        const settings = path.join(dataDir, 'settings')
+        fs.mkdirSync(settings, { recursive: true })
+        fs.writeFileSync(path.join(settings, 'it-worked.json'), JSON.stringify({ shown: true }) + '\n')
+
+        const tryNamedLockSync = jest.fn()
+        jest.doMock('../settings/lock', () => ({
+            tryNamedLockSync
+        }))
+        jest.doMock('./logger', () => ({
+            __esModule: true,
+            default: { info: jest.fn(), error: jest.fn() }
+        }))
+
+        const { maybeLogFirstSuccess } = await import('./itWorked')
+        maybeLogFirstSuccess()
+        maybeLogFirstSuccess()
+        expect(tryNamedLockSync).not.toHaveBeenCalled()
+    })
+
+    test('returns immediately when the lock is already held', async () => {
+        const tryNamedLockSync = jest.fn(() => undefined)
+        jest.doMock('../settings/lock', () => ({
+            tryNamedLockSync
+        }))
+        const info = jest.fn()
+        jest.doMock('./logger', () => ({
+            __esModule: true,
+            default: { info, error: jest.fn() }
+        }))
+
+        const { maybeLogFirstSuccess } = await import('./itWorked')
+        maybeLogFirstSuccess()
+        expect(tryNamedLockSync).toHaveBeenCalledWith(expect.any(String), '.it-worked.lock', expect.any(Function))
+        expect(info).not.toHaveBeenCalled()
+        expect(fs.existsSync(path.join(dataDir, 'settings', 'it-worked.json'))).toBe(false)
+    })
+
+    test('notifyFirstSuccess is fire-and-forget and never throws', async () => {
+        jest.doMock('./logger', () => ({
+            __esModule: true,
+            default: { info: jest.fn(), error: jest.fn() }
+        }))
+        const { notifyFirstSuccess } = await import('./itWorked')
+        expect(() => notifyFirstSuccess()).not.toThrow()
+    })
+
     test('respects CUTTLELY_DISABLE_IT_WORKED', async () => {
         jest.doMock('./logger', () => ({
             __esModule: true,
@@ -68,7 +117,7 @@ describe('itWorked one-time log marker', () => {
         process.env.CUTTLELY_DISABLE_IT_WORKED = 'true'
         const { maybeLogFirstSuccess } = await import('./itWorked')
         const marker = path.join(dataDir, 'settings', 'it-worked.json')
-        await maybeLogFirstSuccess()
+        maybeLogFirstSuccess()
         expect(fs.existsSync(marker)).toBe(false)
     })
 })

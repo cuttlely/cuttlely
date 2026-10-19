@@ -1343,6 +1343,9 @@ export const utilBuildChatflow = async (
             }
             await updatePredictionsUsage(orgId, subscriptionId, workspaceId, appServer.usageCacheManager)
             incrementSuccessMetricCounter(appServer.metricsProvider, isInternal, isAgentFlow)
+            // After the first successful run on this install, print a one-time friendly prompt in the server log.
+            // Fire-and-forget: never stall the request. No telemetry or network calls.
+            import('./itWorked').then(({ notifyFirstSuccess }) => notifyFirstSuccess()).catch(() => undefined)
             return result
         } else {
             // Add abort controller to the pool
@@ -1358,13 +1361,8 @@ export const utilBuildChatflow = async (
             await updatePredictionsUsage(orgId, subscriptionId, workspaceId, appServer.usageCacheManager)
             incrementSuccessMetricCounter(appServer.metricsProvider, isInternal, isAgentFlow)
             // After the first successful run on this install, print a one-time friendly prompt in the server log.
-            // No telemetry or network calls.
-            try {
-                const { maybeLogFirstSuccess } = await import('./itWorked')
-                await maybeLogFirstSuccess()
-            } catch {
-                // never fail the run on this
-            }
+            // Fire-and-forget: never stall the request. No telemetry or network calls.
+            import('./itWorked').then(({ notifyFirstSuccess }) => notifyFirstSuccess()).catch(() => undefined)
             return result
         }
     } catch (e) {

@@ -3,47 +3,64 @@ import path from 'path'
 import logger from './logger'
 import { IT_WORKED_DISABLE_ENV, IT_WORKED_URL } from './constants'
 import { settingsDir, writeFileAtomic } from '../settings/store'
-import { withSettingsLockSync } from '../settings/lock'
+import { tryNamedLockSync } from '../settings/lock'
 
 let loggedThisProcess = false
 const MARKER_FILE = 'it-worked.json'
+const LOCK_FILE = '.it-worked.lock'
 
 function isDisabled(env: Record<string, string | undefined> = process.env): boolean {
     return String(env[IT_WORKED_DISABLE_ENV] ?? '').trim() === 'true'
 }
 
+function markerShown(file: string): boolean {
+    try {
+        const raw = fs.readFileSync(file, 'utf8')
+        const parsed = JSON.parse(raw) as { shown?: boolean }
+        return parsed?.shown === true
+    } catch {
+        return false
+    }
+}
+
 /**
  * Logs a one-line "It worked!" message the first time a flow run finishes successfully on this install.
  * - No telemetry, no network calls.
+ * - Cheap unlocked read first; lock only to write the marker, and skip immediately if the lock is held.
  * - Guarded in memory per process and persisted once in the settings folder, so it prints at most once.
  * - Respects CUTTLELY_DISABLE_IT_WORKED=true.
  */
-export async function maybeLogFirstSuccess(): Promise<void> {
+export function maybeLogFirstSuccess(): void {
     if (loggedThisProcess) return
     if (isDisabled()) return
     try {
         const dir = settingsDir(process.env)
         const file = path.join(dir, MARKER_FILE)
-        // Synchronous lock to avoid races among parallel requests in this process (and across processes on this host).
-        withSettingsLockSync(dir, () => {
-            let already = false
-            try {
-                const raw = fs.readFileSync(file, 'utf8')
-                const parsed = JSON.parse(raw) as { shown?: boolean }
-                already = parsed?.shown === true
-            } catch {
-                already = false
-            }
-            if (!already) {
-                // Print the message once.
-                logger.info(`⭐ It worked! If Cuttlely helped, a GitHub star helps others find it: ${IT_WORKED_URL}`)
-                // Persist the marker so other processes will not print it again.
-                writeFileAtomic(dir, MARKER_FILE, JSON.stringify({ shown: true }) + '\n')
+        if (markerShown(file)) {
+            loggedThisProcess = true
+            return
+        }
+        // Own lock file so this never waits on (or holds) the settings lock. Skip immediately if busy.
+        tryNamedLockSync(dir, LOCK_FILE, () => {
+            if (markerShown(file)) {
                 loggedThisProcess = true
+                return
             }
+            logger.info(`⭐ It worked! If Cuttlely helped, a GitHub star helps others find it: ${IT_WORKED_URL}`)
+            writeFileAtomic(dir, MARKER_FILE, JSON.stringify({ shown: true }) + '\n')
+            loggedThisProcess = true
         })
     } catch {
         // Never fail a run over this. A quiet skip is fine.
+    }
+}
+
+/** Fire-and-forget wrapper so a successful run never waits on the prompt. */
+export function notifyFirstSuccess(): void {
+    try {
+        void maybeLogFirstSuccess()
+    } catch {
+        // never fail the run on this
     }
 }
 

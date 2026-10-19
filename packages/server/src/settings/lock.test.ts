@@ -2,7 +2,7 @@ import { spawn } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { SettingsBusyError, withNamedLock, withNamedLockSync } from './lock'
+import { SettingsBusyError, tryNamedLockSync, withNamedLock, withNamedLockSync } from './lock'
 
 const NAME = 'settings.lock'
 
@@ -85,6 +85,22 @@ describe('settings lock owner', () => {
             ran = true
         })
         expect(ran).toBe(true)
+        expect(fs.existsSync(file)).toBe(false)
+    })
+
+    it('tryNamedLockSync skips work when the lock is already held', () => {
+        const dir = folder()
+        const file = path.join(dir, NAME)
+        let innerRan = false
+        withNamedLockSync(dir, NAME, () => {
+            const ran = tryNamedLockSync(dir, NAME, () => {
+                innerRan = true
+                return 'held'
+            })
+            expect(ran).toBeUndefined()
+            expect(innerRan).toBe(false)
+            expect(fs.existsSync(file)).toBe(true)
+        })
         expect(fs.existsSync(file)).toBe(false)
     })
 
