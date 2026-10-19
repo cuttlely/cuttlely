@@ -1,0 +1,21 @@
+# Copy this file, replace YOUR_HOST, YOUR_FLOW_ID and <API_KEY>, then import the copy.
+# Do not import this repository file into Orchestrate: the placeholders are not a working agent.
+# Continuity uses A2A contextId. Do not send X-IBM-THREAD-ID on this api_url.
+spec_version: v1
+kind: external
+name: cuttlely_a2a_test
+title: Harbor bakery hours
+nickname: cuttlely_a2a_test
+provider: external_chat/A2A/0.3.0
+description: Cuttlely chatflow Harbor bakery hours
+tags:
+    - cuttlely
+api_url: 'https://YOUR_HOST/api/v1/a2a/YOUR_FLOW_ID'
+auth_scheme: API_KEY
+auth_config:
+    token: '<API_KEY>'
+chat_params:
+    stream: true
+    pushNotifications: false
+config:
+    hidden: false

@@ -8,6 +8,7 @@ All outputs on this page come from real runs against a local Cuttlely server wit
 -   [Create an API key](#create-an-api-key)
 -   [Ask a chatflow](#ask-a-chatflow)
 -   [Call a chatflow from Orchestrate](#call-a-chatflow-from-orchestrate)
+-   [MCP endpoint](#mcp-endpoint)
 -   [Agentflows and harnesses](#agentflows-and-harnesses)
 -   [Run a harness in the background](#run-a-harness-in-the-background)
 -   [Stream the answer](#stream-the-answer)
@@ -105,7 +106,7 @@ data: {"id":"chatcmpl-…","object":"thread.message.delta","thread_id":"…","mo
 
 Without `"stream": true` the body is a `chat.completion` object whose `choices[0].message.content` is the answer.
 
-**Errors** before any stream starts use `{ "error": { "message", "type", "code" } }`. Common codes: `content_type_invalid` (415, Content-Type must be `application/json`), `messages_invalid` (400), `thread_id_invalid` (400), `credentials_conflict` (400), `unauthorized` (401), `keyless_flow` (403), `origin_not_allowed` (403), `flow_not_found` (404), `thread_busy` (409). A body over 1 MB is 413. The flow's prediction rate limit answers 429 with the same plain text as `/prediction`.
+**Errors** before any stream starts use `{ "error": { "message", "type", "code" } }`. Common codes: `content_type_invalid` (415, Content-Type must be `application/json`), `messages_invalid` (400), `thread_id_invalid` (400, Orchestrate routes only), `credentials_conflict` (400), `unauthorized` (401), `keyless_flow` (403), `origin_not_allowed` (403), `flow_not_found` (404), `thread_busy` (409), `internal_error` (500, generic message; the raw error stays in the server log). A body over 1 MB is 413. The flow's prediction rate limit answers 429 with the same plain text as `/prediction`. The how-to [troubleshooting table](./how-to/orchestrate.md#troubleshooting) lists each code.
 
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
@@ -124,7 +125,15 @@ curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
 }
 ```
 
-A flow that uses Buffer Memory continues from stored turns when `X-IBM-THREAD-ID` is sent. A flow with no memory node answers from the `messages` history only if that flow reads it.
+A flow that uses Buffer Memory continues from stored turns when `X-IBM-THREAD-ID` is sent. A flow with no memory node answers from the `messages` history only if that flow reads it. `X-IBM-THREAD-ID` belongs only on these Orchestrate routes, not on A2A.
+
+The how-to is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md). The Harbor bakery demo is [Record the Orchestrate demo](./how-to/orchestrate-demo.md).
+
+## MCP endpoint
+
+A published chatflow can also answer as a remote MCP server at `POST /api/v1/mcp/<flow id>`. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Send that token as `Authorization: Bearer <token>`. `DELETE /api/v1/mcp/<flow id>` ends a session and answers 405 in the default stateless mode. The body is MCP JSON-RPC (1 MB cap), not the Orchestrate chat-completions body.
+
+Orchestrate users who want a remote toolkit instead of an `external_chat` or A2A collaborator point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
 
 ## Agentflows and harnesses
 
