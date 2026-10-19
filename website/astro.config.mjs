@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
 import { applyScreenshotZoom } from './scripts/apply-screenshot-zoom.mjs'
+import { omitLangflowImportFromSitemaps } from './scripts/omit-langflow-sitemap.mjs'
 import { REPO_URL, SITE_URL } from './scripts/site-config.mjs'
 
 const sidebarFile = new URL('./src/generated/sidebar.json', import.meta.url)
@@ -80,6 +81,14 @@ export default defineConfig({
             pagination: true,
             tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
             titleDelimiter: '·'
-        })
+        }),
+        {
+            name: 'omit-langflow-import-sitemap',
+            hooks: {
+                'astro:build:done': async ({ dir }) => {
+                    omitLangflowImportFromSitemaps(fileURLToPath(dir))
+                }
+            }
+        }
     ]
 })

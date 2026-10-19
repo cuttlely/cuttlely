@@ -19,8 +19,36 @@ export const BANNED = [
     { re: new RegExp(`${OTHER_PRODUCT}[- ]compatible`, 'i'), why: 'a compatibility claim' },
     { re: new RegExp(['den', 'flow'].join(''), 'i'), why: 'an internal name' }
 ]
-// Pages where naming another product is not allowed (the docs and credits name them where they must).
-const BRAND_PAGES = new Set(['index.html', '404.html'])
+
+const RETIRED_COPY = [
+    { needle: 'Your applications deserve agents', why: 'the retired headline' },
+    { needle: 'agent platform for applications', why: 'the retired tagline' },
+    { needle: 'zero failed runs', why: 'a ratio-style benchmark claim' },
+    { needle: '3.7 times', why: 'a ratio-style benchmark claim' },
+    { needle: '2,114', why: 'a ratio-style token count' },
+    { needle: '7,719', why: 'a ratio-style token count' },
+    { needle: 'whitepaper', why: 'a removed whitepaper' }
+]
+
+const RATIO_CLAIMS = [
+    { re: /\b\d+(\.\d+)? times (smaller|fewer|less)\b/i, why: 'a ratio-style benchmark claim' },
+    { re: /a (third|quarter) of the/i, why: 'a ratio-style benchmark claim' }
+]
+
+const SCORE_CLAIMS = [
+    { re: /\d+ of \d+ questions/i, why: 'a score-style benchmark claim' },
+    { re: /(?<!step )\b5 of 5\b/i, why: 'a score-style benchmark claim' },
+    { re: /(?<!step )\b9 of 9\b/i, why: 'a score-style benchmark claim' }
+]
+
+const OTHER_APPS = ['n8n', ['lang', 'flow'].join(''), 'dify', ['keel', 'flow'].join(''), 'heym', ['migrate', 'flows'].join(''), 'ashes']
+const OTHER_APPS_RE = new RegExp(`\\b(${OTHER_APPS.join('|')})\\b`, 'i')
+
+const HOME_LINES = [
+    'The visual agent builder, ready for production.',
+    'Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.',
+    'Copyright 2026 The Cuttlely Authors'
+]
 
 export function htmlFiles(dir, base = dir, out = []) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -50,6 +78,24 @@ function decode(s) {
     return s.replace(/&(?:amp|#38);/g, '&')
 }
 
+function sitePath(page) {
+    return '/' + page.replace(/index\.html$/, '')
+}
+
+function isChangelog(page) {
+    const p = sitePath(page)
+    return p === '/changelog/' || p === '/changelog' || p.startsWith('/changelog/')
+}
+
+function isAnalystGuide(page) {
+    return sitePath(page).startsWith('/docs/how-to/analyst/')
+}
+
+function skipCompetitorNames(page) {
+    const p = sitePath(page)
+    return p.startsWith('/docs/reference/') || p.includes('langflow-import')
+}
+
 /** The dist file a site URL path maps to, or null. */
 export function resolveFile(dist, urlPath) {
     const clean = decodeURIComponent(urlPath.split('?')[0])
@@ -66,6 +112,11 @@ export function inlineScriptHashes(html) {
         out.push(`'sha256-${crypto.createHash('sha256').update(m[1]).digest('base64')}'`)
     }
     return out
+}
+
+function pngSize(buf) {
+    if (buf.length < 24 || buf[0] !== 0x89 || buf[1] !== 0x50) return null
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
 }
 
 /**
@@ -120,11 +171,30 @@ export function checkSite(dist, { csp = null } = {}) {
         if (csp) for (const h of inlineScriptHashes(html)) if (!csp.includes(h)) unlisted.add(h)
         // Words
         const text = visibleText(html)
+        const haystack = `${text}\n${html}`
         for (const { re, why } of BANNED) {
             const hit = text.match(re) || html.match(re)
             if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)
         }
-        if (BRAND_PAGES.has(page) && new RegExp(OTHER_PRODUCT, 'i').test(text)) problems.push(`${page}: names another product`)
+        for (const { needle, why } of RETIRED_COPY) {
+            if (needle !== 'whitepaper' && isChangelog(page)) continue
+            if (haystack.includes(needle)) problems.push(`${page}: shows ${why} ("${needle}")`)
+        }
+        for (const { re, why } of RATIO_CLAIMS) {
+            if (isChangelog(page)) continue
+            const hit = haystack.match(re)
+            if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)
+        }
+        if (!isChangelog(page) && !isAnalystGuide(page)) {
+            for (const { re, why } of SCORE_CLAIMS) {
+                const hit = haystack.match(re)
+                if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)
+            }
+        }
+        if (!skipCompetitorNames(page)) {
+            const hit = text.match(OTHER_APPS_RE)
+            if (hit) problems.push(`${page}: names another product ("${hit[0]}")`)
+        }
         // Head
         if (!/<link rel="canonical"/.test(html) && page !== '404.html') problems.push(`${page}: no canonical link`)
         if (!/property="og:image"/.test(html)) problems.push(`${page}: no og:image`)
@@ -143,17 +213,31 @@ export function checkSite(dist, { csp = null } = {}) {
     ]) {
         if (!fs.existsSync(path.join(dist, required))) problems.push(`missing ${required}`)
     }
+    const og = path.join(dist, 'social/og-light.png')
+    if (fs.existsSync(og)) {
+        const buf = fs.readFileSync(og)
+        const size = pngSize(buf)
+        if (size) {
+            if (size.width !== 1200 || size.height !== 630) {
+                problems.push(`social/og-light.png is ${size.width}x${size.height}, need 1200x630`)
+            }
+            if (buf.length > 300 * 1024) problems.push('social/og-light.png is over 300 KB')
+        } else if (buf.length > 0) {
+            problems.push('social/og-light.png is not a PNG')
+        }
+    }
+    for (const name of fs.existsSync(dist) ? fs.readdirSync(dist) : []) {
+        if (!/^sitemap.*\.xml$/.test(name)) continue
+        const xml = fs.readFileSync(path.join(dist, name), 'utf8')
+        if (/langflow-import/i.test(xml)) problems.push(`${name}: lists the Langflow import page`)
+    }
     if (unlisted.size) {
         problems.push(`inline scripts not allowed by the Content-Security-Policy in website/render.yaml, add: ${[...unlisted].join(' ')}`)
     }
     const home = fs.existsSync(path.join(dist, 'index.html')) ? fs.readFileSync(path.join(dist, 'index.html'), 'utf8') : ''
-    for (const line of [
-        'Your applications',
-        'deserve agents.',
-        'The open-source agent platform for applications.',
-        'Copyright 2026 The Cuttlely Authors'
-    ]) {
-        if (!home.includes(line)) problems.push(`index.html: missing "${line}"`)
+    const homeText = visibleText(home).replace(/\s+/g, ' ')
+    for (const line of HOME_LINES) {
+        if (!homeText.includes(line) && !home.includes(line)) problems.push(`index.html: missing "${line}"`)
     }
     return { pages: pages.length, links, problems }
 }
