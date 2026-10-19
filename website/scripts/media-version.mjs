@@ -28,7 +28,8 @@ export function mediaUrl(urlPath, publicDir = defaultPublic) {
  * Link-like `/media/` URLs, with or without the site origin and `?v=`.
  * File paths such as `website/public/media/...` and `mediaUrl('/media/...')` are not links.
  */
-export const MEDIA_HREF_RE = /(?:https:\/\/cuttlely\.com\/media\/|\/media\/)[A-Za-z0-9._\-/]+(?:\?v=[0-9a-f]+)?/g
+export const MEDIA_HREF_RE =
+    /https:\/\/cuttlely\.com\/media\/[A-Za-z0-9._\-/]+(?:\?v=[0-9a-f]+)?|\/media\/[A-Za-z0-9._\-/]+(?:\?v=[0-9a-f]+)?/g
 
 /** `/media/...` from a root-relative href or one on the site origin. A lookalike host is left as-is. */
 export function localMediaHref(href) {
@@ -38,16 +39,21 @@ export function localMediaHref(href) {
 export function mediaHrefs(text) {
     const out = []
     const re = new RegExp(MEDIA_HREF_RE.source, 'g')
-    for (const match of String(text).matchAll(re)) {
-        const before = String(text).slice(Math.max(0, match.index - 24), match.index)
-        if (before.endsWith('public')) continue
-        if (/mediaUrl\s*\(\s*['"`]$/.test(before)) continue
-        out.push(match[0])
+    const source = String(text)
+    for (const match of source.matchAll(re)) {
+        const href = match[0]
+        const before = source.slice(0, match.index)
+        const tail = before.slice(-32)
+        if (tail.endsWith('public')) continue
+        if (/mediaUrl\s*\(\s*['"`]$/.test(tail)) continue
+        // A `/media/` suffix of another host is not a site link.
+        if (href.startsWith('/media/') && /https?:\/\/[A-Za-z0-9.-]+(?::\d+)?$/i.test(before)) continue
+        out.push(href)
     }
     return out
 }
 
-/** Hrefs whose `?v=` is missing, malformed, or not the hash of the public file. */
+/** Hrefs whose `?v=` is missing, malformed, not the hash of the public file, or whose file is missing. */
 export function mediaHrefProblems(text, publicDir = defaultPublic) {
     const problems = []
     for (const href of mediaHrefs(text)) {
@@ -59,7 +65,10 @@ export function mediaHrefProblems(text, publicDir = defaultPublic) {
             continue
         }
         const file = path.join(publicDir, clean.replace(/^\//, ''))
-        if (!fs.existsSync(file)) continue
+        if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+            problems.push(href)
+            continue
+        }
         if (local !== mediaUrl(clean, publicDir)) problems.push(href)
     }
     return problems

@@ -65,9 +65,10 @@ test('every homepage video and poster URL carries that file content hash', () =>
     assert.match(og[1], /\?v=[0-9a-f]{8}$/)
 })
 
-test('mediaHrefs skips file paths and mediaUrl() calls', () => {
+test('mediaHrefs skips file paths, mediaUrl() calls, and other hosts', () => {
     const text = [
         'https://cuttlely.com/media/products/testing.mp4',
+        'https://example.com/media/video.mp4',
         'src="./website/public/media/products/testing-poster.webp"',
         "poster={mediaUrl('/media/products/testing-poster.webp')}"
     ].join('\n')
@@ -89,6 +90,11 @@ test('mediaHrefProblems fails a missing or stale hash and accepts the file hash'
     assert.deepEqual(mediaHrefProblems(`<a href="/media/clip.mp4?v=deadbeef">`, dir), ['/media/clip.mp4?v=deadbeef'])
     assert.deepEqual(mediaHrefProblems(`<a href="${hashed}">`, dir), [])
     assert.deepEqual(mediaHrefProblems(`<a href="https://cuttlely.com${hashed}">`, dir), [])
+    assert.deepEqual(mediaHrefProblems(`<a href="/media/missing.mp4?v=deadbeef">`, dir), ['/media/missing.mp4?v=deadbeef'])
+    assert.deepEqual(mediaHrefProblems(`<a href="https://cuttlely.com/media/missing.mp4?v=deadbeef">`, dir), [
+        'https://cuttlely.com/media/missing.mp4?v=deadbeef'
+    ])
+    assert.deepEqual(mediaHrefProblems(`<a href="https://example.com/media/video.mp4">`, dir), [])
 })
 
 test('repository markdown media links carry the hash of the public file', () => {
