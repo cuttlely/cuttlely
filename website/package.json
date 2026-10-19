@@ -6,7 +6,7 @@
     "license": "Apache-2.0",
     "type": "module",
     "engines": {
-        "node": ">=22.12"
+        "node": ">=22.22.0"
     },
     "scripts": {
         "sync": "node scripts/sync-docs.mjs",
@@ -18,7 +18,7 @@
     },
     "dependencies": {
         "@astrojs/starlight": "0.42.6",
-        "astro": "7.3.8",
+        "astro": "7.4.0",
         "sharp": "0.35.5"
     },
     "overrides": {

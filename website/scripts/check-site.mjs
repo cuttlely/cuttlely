@@ -236,7 +236,105 @@ export function checkSite(dist, { csp = null } = {}) {
     for (const line of HOME_LINES) {
         if (!homeText.includes(line) && !home.includes(line)) problems.push(`index.html: missing "${line}"`)
     }
+    // A real site build has hashed /_astro assets. Fixtures used by unit tests do not.
+    if (home && fs.existsSync(path.join(dist, '_astro'))) {
+        const { bytes } = homeFirstLoadBytes(dist)
+        if (bytes > HOME_FIRST_LOAD_LIMIT) {
+            problems.push(`index.html first-load ${bytes} bytes exceeds ${HOME_FIRST_LOAD_LIMIT} (${(bytes / 1024).toFixed(1)} KiB)`)
+        }
+    }
     return { pages: pages.length, links, problems }
+}
+
+/** Desktop first paint of `/` must stay under this, videos excluded because they stay detached until play. */
+export const HOME_FIRST_LOAD_LIMIT = 600 * 1024
+
+const VIDEO_RE = /\.(mp4|webm|m4v)(\?|$)/i
+const FIRST_LOAD_LINK_REL = /(?:^|\s)(?:stylesheet|modulepreload|preload|icon|shortcut icon|apple-touch-icon|manifest)(?:\s|$)/i
+
+function attr(tag, name) {
+    return new RegExp(`\\s${name}="([^"]*)"`, 'i').exec(tag)?.[1]
+}
+
+function cssUrls(css, fromPath) {
+    const found = []
+    for (const m of css.matchAll(/url\(\s*['"]?([^'")\s]+)['"]?\s*\)/g)) {
+        const raw = m[1]
+        if (/^(data:|https?:|\/\/)/i.test(raw)) continue
+        found.push(path.posix.normalize(path.posix.join(path.posix.dirname(fromPath), raw.split('?')[0])))
+    }
+    return found
+}
+
+function enqueueSrcset(srcset, enqueue) {
+    const candidates = String(srcset || '')
+        .split(',')
+        .map((part) => part.trim().split(/\s+/)[0])
+        .filter(Boolean)
+    if (candidates.length) enqueue(candidates[candidates.length - 1])
+}
+
+/**
+ * Bytes `/` fetches on a first desktop visit: the HTML, render-blocking CSS and JS, fonts,
+ * eager images, and video posters. Navigation links, lazy images, and video files stay out
+ * because those files are not requested until the visitor follows a link, scrolls, or clicks play.
+ */
+export function homeFirstLoadBytes(dist) {
+    const htmlPath = path.join(dist, 'index.html')
+    const html = fs.readFileSync(htmlPath, 'utf8')
+    const pending = new Set(['/index.html'])
+    const seen = new Set()
+    let bytes = 0
+    const files = []
+    const enqueue = (urlPath) => {
+        const clean = decodeURIComponent(String(urlPath).split('?')[0])
+        if (!clean.startsWith('/') || VIDEO_RE.test(clean)) return
+        pending.add(clean)
+    }
+    for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+        const tag = m[0]
+        const rel = attr(tag, 'rel') || ''
+        const href = attr(tag, 'href')
+        if (href && FIRST_LOAD_LINK_REL.test(rel)) enqueue(href)
+    }
+    for (const m of html.matchAll(/<script\b[^>]*>/gi)) {
+        const src = attr(m[0], 'src')
+        if (src) enqueue(src)
+    }
+    for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+        const tag = m[0]
+        if (/\sloading="lazy"/i.test(tag)) continue
+        const srcset = attr(tag, 'srcset')
+        if (srcset) enqueueSrcset(srcset, enqueue)
+        else {
+            const src = attr(tag, 'src')
+            if (src) enqueue(src)
+        }
+    }
+    for (const m of html.matchAll(/<video\b[^>]*>/gi)) {
+        const poster = attr(m[0], 'poster')
+        if (poster) enqueue(poster)
+    }
+    for (const m of html.matchAll(/<track\b[^>]*>/gi)) {
+        const src = attr(m[0], 'src')
+        if (src) enqueue(src)
+    }
+    while (pending.size) {
+        const urlPath = pending.values().next().value
+        pending.delete(urlPath)
+        if (seen.has(urlPath)) continue
+        seen.add(urlPath)
+        const file = resolveFile(dist, urlPath)
+        if (!file) continue
+        const size = fs.statSync(file).size
+        bytes += size
+        files.push({ urlPath, size })
+        if (file.endsWith('.css')) {
+            const rel = '/' + path.relative(dist, file).split(path.sep).join('/')
+            for (const u of cssUrls(fs.readFileSync(file, 'utf8'), rel)) enqueue(u)
+        }
+    }
+    return { bytes, files }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

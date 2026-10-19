@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it } from 'node:test'
-import { checkSite, visibleText } from './check-site.mjs'
+import { checkSite, visibleText, homeFirstLoadBytes } from './check-site.mjs'
 
 function site(files) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-site-'))
@@ -71,6 +71,55 @@ describe('check-site', () => {
     it('flags the section mark', () => {
         const dir = site({ ...base, 'quickstart/index.html': `<html><head>${head}</head><body>See \u00a7 2</body></html>` })
         assert.match(checkSite(dir).problems.join('\n'), /section mark/)
+    })
+})
+
+describe('website render.yaml cache headers', () => {
+    it('sets a year-long immutable cache for hashed media, social and astro assets', () => {
+        const yaml = fs.readFileSync(new URL('../render.yaml', import.meta.url), 'utf8')
+        for (const route of ['/_astro/*', '/media/*', '/social/*']) {
+            const block = yaml.split(`path: ${route}`)[1]
+            assert.ok(block, route)
+            assert.match(block.slice(0, 180), /name: Cache-Control/)
+            assert.match(block.slice(0, 180), /value: public, max-age=31536000, immutable/)
+        }
+        const html = yaml.split('path: /*')[1]
+        assert.equal(/name: Cache-Control/.test(html.slice(0, 400)), false)
+    })
+})
+
+describe('home first-load weight', () => {
+    it('counts HTML, CSS, scripts, eager images and posters, and leaves video, lazy images and nav pages out', () => {
+        const dir = site({
+            ...base,
+            'index.html': `${home}<link rel="stylesheet" href="/s.css"><script src="/app.js"></script><img src="/a.webp"><img loading="lazy" src="/lazy.webp"><video poster="/p.webp"><source src="/clip.mp4"></video><a href="/docs/">Docs</a>`,
+            '_astro/keep.txt': '',
+            's.css': 'body{background:url("/bg.webp")}',
+            'app.js': 'x'.repeat(10),
+            'a.webp': 'x'.repeat(100),
+            'lazy.webp': 'L'.repeat(8000),
+            'p.webp': 'y'.repeat(50),
+            'bg.webp': 'z'.repeat(25),
+            'clip.mp4': 'm'.repeat(5000),
+            'docs/index.html': 'D'.repeat(9000)
+        })
+        const { bytes, files } = homeFirstLoadBytes(dir)
+        const paths = files.map((f) => f.urlPath)
+        assert.equal(
+            paths.some((p) => p.includes('clip.mp4')),
+            false
+        )
+        assert.equal(
+            paths.some((p) => p.includes('lazy.webp')),
+            false
+        )
+        assert.equal(
+            paths.some((p) => p === '/docs/' || p === '/docs/index.html'),
+            false
+        )
+        assert.ok(paths.includes('/app.js'))
+        assert.ok(bytes < 5000)
+        assert.ok(bytes >= 100 + 50 + 25 + 10)
     })
 })
 

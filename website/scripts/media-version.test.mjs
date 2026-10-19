@@ -13,7 +13,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 /** The built homepage, produced here so `npm test` does not depend on a build that already ran. */
 function builtHomepage() {
     const htmlPath = path.join(root, 'dist', 'index.html')
-    const inputs = [path.join(root, 'src/pages/index.astro'), path.join(root, 'scripts/media-version.mjs')]
+    const inputs = [
+        path.join(root, 'src/pages/index.astro'),
+        path.join(root, 'scripts/media-version.mjs'),
+        path.join(root, 'astro.config.mjs')
+    ]
     const built = fs.existsSync(htmlPath) ? fs.statSync(htmlPath).mtimeMs : 0
     const stale = inputs.some((file) => fs.statSync(file).mtimeMs > built)
     if (stale) {
@@ -55,4 +59,8 @@ test('every homepage video and poster URL carries that file content hash', () =>
         assert.equal(url, mediaUrl(clean), url)
         assert.match(url, /\?v=[0-9a-f]{8}$/)
     }
+    const og = html.match(/property="og:image" content="https:\/\/cuttlely\.com(\/social\/[^"]+)"/)
+    assert.ok(og, 'the homepage Open Graph image is a hashed /social URL')
+    assert.equal(og[1], mediaUrl(og[1].split('?')[0]))
+    assert.match(og[1], /\?v=[0-9a-f]{8}$/)
 })
