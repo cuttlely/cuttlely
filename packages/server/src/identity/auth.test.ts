@@ -26,7 +26,7 @@ import {
     SETUP_LINK_NEEDED
 } from './handlers'
 import { LoginRateLimit } from './rateLimit'
-import { hashPassword, hashSessionToken, passwordErrors } from './password'
+import { hashPassword, hashSessionToken, isBcryptHash, passwordErrors } from './password'
 import { cookieMutationAllowed } from './sessionGuard'
 import { announceFirstRunSetup, firstRunSetupLink, resetFirstRunSetupCode } from './setupCode'
 import { resolveTrustProxy } from '../utils/trustProxy'
@@ -83,6 +83,17 @@ class MemoryStore implements IdentityStore {
         const user = this.users.find((row) => row.id === userId)
         if (!user) throw new Error('missing')
         user.credential = credential
+    }
+
+    async replaceCredential(userId: string, expected: string, next: string): Promise<boolean> {
+        const user = this.users.find((row) => row.id === userId)
+        if (!user || user.credential !== expected) return false
+        user.credential = next
+        return true
+    }
+
+    async hasBcryptCredential(): Promise<boolean> {
+        return this.users.some((user) => Boolean(user.credential && isBcryptHash(user.credential)))
     }
 
     invites = new Map<string, { userId: string; expiresAt: number; used: boolean }>()
