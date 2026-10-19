@@ -1357,6 +1357,14 @@ export const utilBuildChatflow = async (
             appServer.abortControllerPool.remove(abortControllerId)
             await updatePredictionsUsage(orgId, subscriptionId, workspaceId, appServer.usageCacheManager)
             incrementSuccessMetricCounter(appServer.metricsProvider, isInternal, isAgentFlow)
+            // After the first successful run on this install, print a one-time friendly prompt in the server log.
+            // No telemetry or network calls.
+            try {
+                const { maybeLogFirstSuccess } = await import('./itWorked')
+                await maybeLogFirstSuccess()
+            } catch {
+                // never fail the run on this
+            }
             return result
         }
     } catch (e) {

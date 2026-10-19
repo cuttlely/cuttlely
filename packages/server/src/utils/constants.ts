@@ -168,3 +168,10 @@ export const LICENSE_QUOTAS = {
     STORAGE_LIMIT: 'quota:storage',
     ADDITIONAL_SEATS_LIMIT: 'quota:additionalSeats'
 } as const
+
+// Community: single place to keep the repo URL for the "It worked" prompt.
+export const IT_WORKED_URL = 'https://github.com/cuttlely/cuttlely'
+/** Env var to disable the It Worked prompt everywhere. Accepts exactly 'true' (string). */
+export const IT_WORKED_DISABLE_ENV = 'CUTTLELY_DISABLE_IT_WORKED'
+/** Saved flag in the settings file to remember that the server already printed the log line once. */
+export const IT_WORKED_SHOWN_SETTING = 'CUTTLELY_IT_WORKED_SHOWN'
