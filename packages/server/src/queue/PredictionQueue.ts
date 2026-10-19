@@ -104,6 +104,13 @@ export class PredictionQueue extends BaseQueue {
             data.signal = signal
         }
 
-        return await executeFlow(data)
+        const result = await executeFlow(data)
+        // After the first successful run on this install, print a one-time friendly prompt in the worker log.
+        // Fire-and-forget: never stall the job. No telemetry or network calls.
+        // A falsy result is a failure on the API path; do not treat it as success here.
+        if (result) {
+            import('../utils/itWorked').then(({ notifyFirstSuccess }) => notifyFirstSuccess()).catch(() => undefined)
+        }
+        return result
     }
 }

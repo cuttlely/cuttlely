@@ -168,3 +168,6 @@ export const LICENSE_QUOTAS = {
     STORAGE_LIMIT: 'quota:storage',
     ADDITIONAL_SEATS_LIMIT: 'quota:additionalSeats'
 } as const
+
+/** Env var to disable the It Worked prompt everywhere. Accepts exactly 'true' (string). */
+export const IT_WORKED_DISABLE_ENV = 'CUTTLELY_DISABLE_IT_WORKED'

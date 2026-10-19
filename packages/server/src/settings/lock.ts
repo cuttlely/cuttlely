@@ -217,6 +217,20 @@ export function withNamedLockSync<T>(dir: string, name: string, work: () => T): 
     }
 }
 
+/**
+ * Take a named lock once. Returns immediately (without running work) when the lock is already held.
+ * Used for optional, fire-and-forget work that must never stall a request.
+ */
+export function tryNamedLockSync<T>(dir: string, name: string, work: () => T): T | undefined {
+    const token = take(dir, name)
+    if (!token) return undefined
+    try {
+        return work()
+    } finally {
+        release(dir, name, token)
+    }
+}
+
 export async function withSettingsLock<T>(dir: string, work: () => Promise<T>): Promise<T> {
     return withNamedLock(dir, SETTINGS_LOCK, work)
 }
