@@ -212,7 +212,7 @@ That dataset can drive the Publish check. A row that still needs an expected ans
 
 ## Run the Publish check on a dataset
 
-On a chatflow, an agentflow that starts with **Chat Input**, or a harness, the Publish dialog can ask a dataset instead of recent questions. [Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4) shows a chatflow draft scored on a test set and published after that set passes.
+On a chatflow, an agentflow that starts with **Chat Input**, or a harness, the Publish dialog can ask a dataset instead of recent questions. [Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4?v=d1873063) shows a chatflow draft scored on a test set and published after that set passes.
 
 1. Save a draft, then select **Publish**.
 2. Under **Check recent questions**, set **Questions from** to **A dataset** and choose the dataset. **Questions from** is hidden when your role cannot view datasets.

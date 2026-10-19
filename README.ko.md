@@ -41,9 +41,9 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 <a id="watch-a-team-resolve-a-complaint"></a>
 
 <p align="center">
-<a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo에 있는 고객 지원 팀의 실행을 내레이션과 함께 봅니다(78초, 자막 포함). 타이틀 카드에는 로고 옆에서 손을 흔드는 Cuttlely 마스코트와 Your applications deserve agents라는 문구가 나옵니다." width="880"></a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo에 있는 고객 지원 팀의 실행을 내레이션과 함께 봅니다(78초, 자막 포함). 타이틀 카드에는 로고 옆에서 손을 흔드는 Cuttlely 마스코트와 Your applications deserve agents라는 문구가 나옵니다." width="880"></a>
 <br>
-<a href="https://cuttlely.com/media/customer-care-demo.mp4">내레이션이 있는 실행 보기(78초, 소리 있음)</a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722">내레이션이 있는 실행 보기(78초, 소리 있음)</a>
 </p>
 
 한 고객이 늦어진 주문에 대해 문의합니다. 고객 스페셜리스트가 계정을 읽고, 운영 스페셜리스트가 소포가 창고를 한 번도 떠나지 않았다는 사실을 찾아내며, 운영 쪽 작업이 끝나면 정책 스페셜리스트가 문서로 된 정책을 확인합니다. 각자 자신의 데이터와 도구를 가지고 있습니다. Harness Prime이 결정, 회신, 조치를 근거와 함께 작성합니다. [Try the demo](./docs/how-to/try-the-demo.md)를 사용하면 이 팀이 여러분의 모델 키로 열립니다.
@@ -57,9 +57,9 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 모든 편집은 초안에 저장되고, 그동안 Live는 계속 앱에 응답합니다. Publish 대화 상자의 Compare는 실제 질문을 Live와 초안에 모두 던지고, 게시하기 전에 각 답변을 Same, Changed, Error 중 하나로 표시합니다. passing test set(통과해야 하는 테스트 세트)을 켜면 Publish는 초안이 통과할 때까지 기다립니다. 최대 100개의 질문과 답변 쌍으로 테스트할 수 있으며, 더 늘리는 것은 로드맵에 있습니다.
 
 <p align="center">
-<a href="https://cuttlely.com/media/products/testing.mp4"><img src="./website/public/media/products/testing-poster.webp" alt="테스트 영상의 타이틀 카드. Cuttlely 마스코트가 클립보드와 돋보기를 들고 있고, 옆에 Cuttlely 로고, Testing이라는 단어, Compare, score, then publish라는 문구가 있습니다." width="880"></a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="테스트 영상의 타이틀 카드. Cuttlely 마스코트가 클립보드와 돋보기를 들고 있고, 옆에 Cuttlely 로고, Testing이라는 단어, Compare, score, then publish라는 문구가 있습니다." width="880"></a>
 <br>
-<a href="https://cuttlely.com/media/products/testing.mp4">테스트 실행 보기(56초, 소리 있음)</a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063">테스트 실행 보기(56초, 소리 있음)</a>
 </p>
 
 ![Bakery helper 설정의 passing test set. Require a passing test set before Publish가 켜져 있고, 데이터셋은 Saturday hours, Pass at은 100이며, Mentions rye와 Short answer가 체크되어 있습니다.](./docs/images/evaluations/publish-gate-settings.png)

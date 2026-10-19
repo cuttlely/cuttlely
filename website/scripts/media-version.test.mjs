@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
-import { mediaHash, mediaUrl } from './media-version.mjs'
+import { mediaHash, mediaHrefProblems, mediaHrefs, mediaUrl, repoMediaLinkProblems } from './media-version.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -63,4 +63,29 @@ test('every homepage video and poster URL carries that file content hash', () =>
     assert.ok(og, 'the homepage Open Graph image is a hashed /social URL')
     assert.equal(og[1], mediaUrl(og[1].split('?')[0]))
     assert.match(og[1], /\?v=[0-9a-f]{8}$/)
+})
+
+test('mediaHrefs skips file paths and mediaUrl() calls', () => {
+    const text = [
+        'https://cuttlely.com/media/products/testing.mp4',
+        'src="./website/public/media/products/testing-poster.webp"',
+        "poster={mediaUrl('/media/products/testing-poster.webp')}"
+    ].join('\n')
+    assert.deepEqual(mediaHrefs(text), ['https://cuttlely.com/media/products/testing.mp4'])
+})
+
+test('mediaHrefProblems fails a missing or stale hash and accepts the file hash', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-href-'))
+    fs.mkdirSync(path.join(dir, 'media'))
+    fs.writeFileSync(path.join(dir, 'media', 'clip.mp4'), 'frame-bytes')
+    const hashed = mediaUrl('/media/clip.mp4', dir)
+    assert.deepEqual(mediaHrefProblems(`<a href="/media/clip.mp4">`, dir), ['/media/clip.mp4'])
+    assert.deepEqual(mediaHrefProblems(`<a href="/media/clip.mp4?v=deadbeef">`, dir), ['/media/clip.mp4?v=deadbeef'])
+    assert.deepEqual(mediaHrefProblems(`<a href="${hashed}">`, dir), [])
+    assert.deepEqual(mediaHrefProblems(`<a href="https://cuttlely.com${hashed}">`, dir), [])
+})
+
+test('repository markdown media links carry the hash of the public file', () => {
+    const repo = path.resolve(root, '..')
+    assert.deepEqual(repoMediaLinkProblems(repo), [])
 })
