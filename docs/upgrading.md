@@ -85,6 +85,12 @@ On the first start, Cuttlely updates its database by itself. That start can take
 2. Check the version: `curl -fsS http://localhost:43117/api/v1/version`, or open the About dialog from the profile menu.
 3. Sign in. Open a flow, its **Version history**, **Credentials** and your harnesses. Ask a flow one question.
 
+If you moved a whole Flowise `3.1.4` install into Cuttlely before this start, existing passwords still work. Flowise stored bcrypt password hashes; Cuttlely accepts them and rehashes to its current scheme after the first successful sign-in for each account. If the owner cannot sign in after the move (for example the email changed), reset it from a terminal with:
+
+```bash
+pnpm --filter @cuttlely/server user --email you@example.com
+```
+
 ## Roll back
 
 A new version can change the database in ways the version before it cannot read. To roll back, restore the backup you took and start the version you had before. Do not start an older version on a database a newer one has already opened.
