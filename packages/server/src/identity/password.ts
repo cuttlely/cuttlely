@@ -20,7 +20,9 @@ import bcrypt from 'bcryptjs'
 
 const scryptAsync = promisify(scrypt)
 const PREFIX = 'scrypt'
-const BCRYPT_REGEX = /^\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}$/
+const BCRYPT_REGEX = /^\$2[aby]\$(\d{2})\$[./A-Za-z0-9]{53}$/
+const BCRYPT_MIN_COST = 4
+const BCRYPT_MAX_COST = 12
 
 /**
  * Well-formed scrypt string used when the account cannot be checked.
@@ -29,9 +31,28 @@ const BCRYPT_REGEX = /^\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}$/
  */
 export const DUMMY_PASSWORD_HASH = 'scrypt$AAECAwQFBgcICQoLDA0ODw==$AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA='
 
-/** Real hash only when this account may sign in. Every other case uses the dummy so scrypt still runs. */
+/**
+ * Well-formed bcrypt string at cost 10. Used on the miss or ineligible path when the stored hash is bcrypt,
+ * so a migrated account is not distinguishable from a disabled or unknown one by algorithm.
+ * Not a password anyone can sign in with.
+ */
+export const DUMMY_BCRYPT_HASH = '$2a$10$izJQJlD9yogrwzhiB6CQA.X0TmTi5UTGyQsoXeQpetpnyAGhVJWJO'
+
+function isScryptHash(stored: string): boolean {
+    return stored.startsWith(`${PREFIX}$`)
+}
+
+/** Parsed bcrypt cost when the string matches the tight form; otherwise null. */
+export function bcryptCost(stored: string): number | null {
+    const match = BCRYPT_REGEX.exec(stored)
+    if (!match) return null
+    return Number(match[1])
+}
+
+/** Real hash only when this account may sign in. Every other case uses a dummy so the same class of work still runs. */
 export function hashForLoginCompare(eligible: boolean, credential: string | null): string {
-    if (eligible && credential && (credential.startsWith(`${PREFIX}$`) || isBcryptHash(credential))) return credential
+    if (eligible && credential && (isScryptHash(credential) || isBcryptHash(credential))) return credential
+    if (credential && isBcryptHash(credential)) return DUMMY_BCRYPT_HASH
     return DUMMY_PASSWORD_HASH
 }
 
@@ -55,7 +76,7 @@ export async function hashPassword(password: string): Promise<string> {
 
 export async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
     if (!stored) return false
-    if (stored.startsWith(`${PREFIX}$`)) {
+    if (isScryptHash(stored)) {
         const parts = stored.split('$')
         if (parts.length !== 3) return false
         const salt = parts[1]
@@ -74,8 +95,10 @@ export async function verifyPassword(password: string, stored: string | null): P
     return false
 }
 
+/** True only for `$2a$` / `$2b$` / `$2y$` with 53 hash chars and a cost of 4 to 12. */
 export function isBcryptHash(stored: string): boolean {
-    return BCRYPT_REGEX.test(stored)
+    const cost = bcryptCost(stored)
+    return cost !== null && cost >= BCRYPT_MIN_COST && cost <= BCRYPT_MAX_COST
 }
 
 export function tokensEqual(left: string, right: string): boolean {

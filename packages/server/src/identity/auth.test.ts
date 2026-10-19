@@ -85,6 +85,13 @@ class MemoryStore implements IdentityStore {
         user.credential = credential
     }
 
+    async replaceCredential(userId: string, expected: string, next: string): Promise<boolean> {
+        const user = this.users.find((row) => row.id === userId)
+        if (!user || user.credential !== expected) return false
+        user.credential = next
+        return true
+    }
+
     invites = new Map<string, { userId: string; expiresAt: number; used: boolean }>()
     inviteCalls: InviteSignIn[] = []
 

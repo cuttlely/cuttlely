@@ -203,6 +203,16 @@ function loginFields(body: Record<string, unknown>): { ok: true; email: string; 
     return { ok: true, email, password }
 }
 
+/** Compare-and-swap a migrated bcrypt hash to scrypt. A missed write still signs the person in. */
+async function rehashBcryptAfterLogin(store: IdentityStore, userId: string, current: string | null, password: string): Promise<void> {
+    if (!current || !isBcryptHash(current)) return
+    try {
+        await store.replaceCredential(userId, current, await hashPassword(password))
+    } catch {
+        // Best-effort: sign-in can proceed even if the rehash fails.
+    }
+}
+
 export async function handleLoginGet(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
     if (!ctx.redirectUri) return textUnavailable()
@@ -302,16 +312,12 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     if (!email || !password) return fail()
 
     const owner = await ctx.store.findSuperUser()
-    if (!owner || owner.email.toLowerCase() !== email.toLowerCase()) return fail()
-    if (!(await verifyPassword(password, owner.credential))) return fail()
-    // Rehash a migrated bcrypt password to the current scrypt scheme after the first successful sign-in.
-    if (owner.credential && isBcryptHash(owner.credential)) {
-        try {
-            await ctx.store.setCredential(owner.id, await hashPassword(password))
-        } catch {
-            // Best-effort: sign-in can proceed even if the rehash fails.
-        }
+    if (!owner || owner.email.toLowerCase() !== email.toLowerCase()) {
+        await verifyPassword(password, hashForLoginCompare(false, owner ? owner.credential : null))
+        return fail()
     }
+    if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential)))) return fail()
+    await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
     const token = randomToken()
     const limits = sessionLimitsMs()
@@ -506,14 +512,7 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
         if (await ctx.rateLimit.blocked(ctx.ip, fields.email, ctx.now)) await noteSignIn(ctx, 'lockout', userId, 'local')
         return json(401, { message: INVALID_LOGIN })
     }
-    // Rehash a migrated bcrypt password to the current scrypt scheme after the first successful sign-in.
-    if (user.credential && isBcryptHash(user.credential)) {
-        try {
-            await ctx.store.setCredential(user.id, await hashPassword(fields.password))
-        } catch {
-            // Best-effort: proceed even if the rehash fails.
-        }
-    }
+    await rehashBcryptAfterLogin(ctx.store, user.id, user.credential, fields.password)
 
     const issued = await issueLocalSession(ctx, user.id)
     if (!issued) {

@@ -384,6 +384,7 @@ function fakeStore(sessions: Map<string, LocalSession>): IdentityStore {
         setExternalId: async () => 'missing',
         findSuperUser: async () => null,
         setCredential: async () => undefined,
+        replaceCredential: async () => false,
         createOwner: async () => {
             throw new Error('unused')
         },
