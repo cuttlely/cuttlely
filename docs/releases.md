@@ -110,7 +110,7 @@ Do this for every release, before the tag. The release bumps the version files, 
 -   **Features.** Each headline item in the changelog section is described in `README.md`, the guide it belongs to, and the website home page where that section covers it, with the same names as the UI.
 -   **Translations.** `README.ja.md` and `README.ko.md` carry the same change. `node --test scripts/readme-translations.test.mjs` checks that their links, images and code blocks match `README.md`, and that every in-page link has an `<a id>` anchor. It does not check the prose.
 -   **Figures.** A number on the site or in a README matches the guide that records it, and links to it.
--   **Live site.** After the site deploys, open the home page and the pages that changed, and check that their links answer.
+-   **Live site.** After the site deploys, open the home page, the FAQ at `/faq/`, and the pages that changed, and check that their links answer.
 
 After `pnpm release X.Y.Z --npm`, check that each published README matches the tag:
 
