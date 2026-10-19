@@ -57,10 +57,11 @@ test('MCP_CORS_ORIGINS is an origin list, not a method list', () => {
 
 test('relative Next steps links resolve', () => {
     const page = read(PAGE)
-    assert.match(page, /\]\(\.\.\/\.\.\/README\.md#your-first-10-minutes\)/)
+    assert.match(page, /\[Get started in 10 minutes\]\(\.\.\/\.\.\/README\.md#your-first-10-minutes\)/)
     assert.match(page, /\]\(\.\/share-and-embed\.md\)/)
     assert.match(page, /\]\(\.\/harnesses\.md\)/)
     assert.match(page, /\]\(\.\.\/api\.md\)/)
+    assert.match(page, /\[Star on GitHub\]\(https:\/\/github\.com\/cuttlely\/cuttlely\)/)
     assert.equal(existsSync(join(ROOT, 'README.md')), true)
     assert.equal(existsSync(join(ROOT, 'docs', 'how-to', 'share-and-embed.md')), true)
     assert.equal(existsSync(join(ROOT, 'docs', 'how-to', 'harnesses.md')), true)

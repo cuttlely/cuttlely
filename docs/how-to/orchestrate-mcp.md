@@ -1,12 +1,12 @@
 # Use a chatflow as an Orchestrate toolkit
 
-A published chatflow can answer as a [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) MCP server at `/api/v1/mcp/<flow id>`. IBM watsonx Orchestrate can import that URL as a [remote MCP toolkit](https://developer.watson-orchestrate.ibm.com/tools/toolkits/remote_mcp_toolkits), so a native agent calls the flow as a tool.
+Give your IBM watsonx Orchestrate agents a tool you build on the Cuttlely canvas. A published chatflow or agentflow answers as a [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) MCP server at `/api/v1/mcp/<flow id>`, and Orchestrate imports that URL as a [remote MCP toolkit](https://developer.watson-orchestrate.ibm.com/tools/toolkits/remote_mcp_toolkits), so a native agent calls your flow as a tool.
 
 This is not the same as registering the flow as a collaborator agent. That path uses an OpenAI-style chat completions URL. IBM documents it under [Connect to external agents](https://developer.watson-orchestrate.ibm.com/agents/connect_agent). This page covers the toolkit (MCP) path only.
 
 The examples use a made-up bakery, Crumb & Co., and a published chatflow named **Bakery hours**.
 
-New to Cuttlely? [Get started](../../README.md#your-first-10-minutes) first: three commands and one model key, then publish a chatflow.
+New to Cuttlely? [Get started in 10 minutes](../../README.md#your-first-10-minutes): three commands and one model key, then publish a chatflow.
 
 ## Before you start
 
@@ -132,8 +132,9 @@ A missing flow, a disabled MCP server, or a wrong token is a JSON-RPC error on t
 
 ## Next steps
 
--   [Get started](../../README.md#your-first-10-minutes)
+-   [Get started in 10 minutes](../../README.md#your-first-10-minutes)
 -   IBM's [Importing remote MCP toolkits](https://developer.watson-orchestrate.ibm.com/tools/toolkits/remote_mcp_toolkits)
 -   [Share and embed a chat](./share-and-embed.md)
 -   [Harnesses](./harnesses.md), noting that you bind a key that lists the harness
 -   [Use the API in your own web app](../api.md)
+-   [Star on GitHub](https://github.com/cuttlely/cuttlely) if this page saved you time
