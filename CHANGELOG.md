@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.1] - Unreleased
+
+### Added
+
+-   After the first successful run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.
+
 ## [1.3.0] - 2026-10-18
 
 ### Added
@@ -379,7 +385,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/cuttlely/cuttlely/compare/v1.3.0...HEAD
 [1.3.0]: https://github.com/cuttlely/cuttlely/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cuttlely/cuttlely/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/cuttlely/cuttlely/compare/v1.0.3...v1.1.0
