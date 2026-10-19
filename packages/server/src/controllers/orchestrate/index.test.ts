@@ -66,7 +66,6 @@ jest.mock('../../services/predictions', () => ({
     default: { buildChatflow: (...args: unknown[]) => mockBuildChatflow(...args) }
 }))
 
-import cookieParser from 'cookie-parser'
 import orchestrateRouter, { isJsonContentType, orchestrateContentTypeGuard, orchestrateJsonParser } from '../../routes/orchestrate'
 import predictionsRouter from '../../routes/predictions'
 import errorHandlerMiddleware from '../../middlewares/errors'
@@ -126,7 +125,6 @@ function makeApp() {
     app.use('/api/v1/orchestrate', orchestrateContentTypeGuard, orchestrateJsonParser)
     app.use(express.json({ limit: '50mb' }))
     app.use(express.urlencoded({ limit: '50mb', extended: true }))
-    app.use(cookieParser())
     app.use('/api/v1/orchestrate', orchestrateRouter)
     app.use('/api/v1/prediction', predictionsRouter)
     app.use(errorHandlerMiddleware)
