@@ -26,11 +26,17 @@ describe('FAQ page wiring', () => {
         assert.match(fs.readFileSync(path.join(SITE, 'scripts/site-config.mjs'), 'utf8'), /'FAQ\.md': '\/faq\/'/)
     })
 
-    it('keeps the 3.1.4 advisories, the older file-write advisory, and the internal-benchmarks sentence, and leaves Cloud, waitlist and product lineage out', () => {
+    it('keeps the 3.1.4 advisories, the older file-write advisory, the internal-benchmarks sentence, and the approved lineage question and import headings, and leaves Cloud and waitlist out', () => {
         const faq = fs.readFileSync(path.join(REPO, 'FAQ.md'), 'utf8')
-        assert.match(faq, /## Importing existing flows/)
-        assert.doesNotMatch(faq, /## Coming from Flowise/)
-        assert.match(faq, /### Can I bring my existing flows\?/)
+        assert.match(faq, /## Coming from Flowise/)
+        assert.doesNotMatch(faq, /## Importing existing flows/)
+        assert.match(faq, /### Is Cuttlely a fork of Flowise\?/)
+        assert.match(
+            faq,
+            /It picks up where Flowise left off: the next generation of the visual builder\. It's built on Flowise's Apache-2\.0 code, credited in CREDITS\.md, and isn't affiliated with FlowiseAI\. The work since adds agent teams, the scoped analyst, drafts, Compare, gates, rollback, roles, audit and scoped keys\./
+        )
+        assert.match(faq, /### Can I bring my Flowise flows\?/)
+        assert.doesNotMatch(faq, /### Can I bring my existing flows\?/)
         assert.match(faq, /### What about the Flowise security advisories\?/)
         assert.match(faq, /the six advisories on Flowise 3\.1\.4 that list no patched release/)
         assert.match(faq, /an older file-write advisory, \[GHSA-8vvx-qvq9-5948\]/)
@@ -43,7 +49,6 @@ describe('FAQ page wiring', () => {
         assert.match(faq, /lean context means fewer tokens in our \[internal benchmarks\]/)
         assert.doesNotMatch(faq, /Cuttlely Cloud/)
         assert.doesNotMatch(faq, /waitlist/)
-        assert.doesNotMatch(faq, /Is Cuttlely a fork/)
         assert.doesNotMatch(faq, /Everything stays open source under Apache-2\.0/)
     })
 })
