@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BRANCH, HOME_ANCHORS, REPO_URL, ROOT_PAGES } from './site-config.mjs'
+import { repoMediaLinkProblems } from './media-version.mjs'
 
 const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const REPO = path.resolve(SITE, '..')
@@ -371,6 +372,8 @@ export function sync({ check = true, write = true } = {}) {
     if (more.length) project.items.unshift(...more.map((link) => ({ label: titles[link], link })))
     const sidebar = [start, ...groups, project].filter((g) => g.items.length)
     if (write) fs.writeFileSync(path.join(GEN, 'sidebar.json'), JSON.stringify(sidebar, null, 2) + '\n')
+
+    problems.push(...repoMediaLinkProblems(REPO))
 
     const images = walk(path.join(REPO, 'docs', 'images')).length
     const verb = write ? 'wrote' : 'checked'

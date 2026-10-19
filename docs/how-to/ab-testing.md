@@ -4,9 +4,9 @@ Test with up to 100 question-and-answer pairs, with more on the roadmap.
 
 A change on a chatflow, agentflow, or harness canvas saves to a draft. Live keeps serving the API, embeds, and shared links until you publish. Compare, in the Publish dialog, asks the same questions on Live and on your draft and shows the two answers side by side, so you see what the change does before anyone else does. A passing test set can then hold Publish until the draft passes.
 
-[![The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish. Narrated run of a draft compared with Live, scored on a test set, and published after it passes, 56 seconds with captions.](../images/evaluations/testing-video-poster.png)](https://cuttlely.com/media/products/testing.mp4)
+[![The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish. Narrated run of a draft compared with Live, scored on a test set, and published after it passes, 56 seconds with captions.](../images/evaluations/testing-video-poster.png)](https://cuttlely.com/media/products/testing.mp4?v=d1873063)
 
-[Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4)
+[Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4?v=d1873063)
 
 ## Compare Live and your draft
 

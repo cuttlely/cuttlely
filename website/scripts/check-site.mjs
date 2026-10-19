@@ -9,6 +9,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { mediaHrefProblems, repoMediaLinkProblems } from './media-version.mjs'
 
 const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -164,6 +165,9 @@ export function checkSite(dist, { csp = null } = {}) {
             }
         }
         if (/<iframe\b/i.test(html)) problems.push(`${page}: has an iframe`)
+        for (const href of mediaHrefProblems(html)) {
+            problems.push(`${page}: unhashed or stale media link ${href}`)
+        }
         if (csp) for (const h of inlineScriptHashes(html)) if (!csp.includes(h)) unlisted.add(h)
         // Words
         const text = visibleText(html)
@@ -371,6 +375,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const blueprint = path.join(SITE, 'render.yaml')
     const cspLine = fs.existsSync(blueprint) ? fs.readFileSync(blueprint, 'utf8').match(/value: "(default-src[^"]*)"/) : null
     const { pages, links, problems } = checkSite(dist, { csp: cspLine ? cspLine[1] : '' })
+    problems.push(...repoMediaLinkProblems(path.join(SITE, '..')))
     for (const p of problems) console.error(`check-site: ${p}`)
     if (problems.length) {
         console.error(`check-site: FAILED, ${problems.length} problem(s) in ${pages} pages`)
