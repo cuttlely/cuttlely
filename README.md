@@ -17,7 +17,7 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 
 **Your applications deserve agents.**
 
-Cuttlely is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.
+Cuttlely (said like "cuddly") is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.
 
 ## Contents
 

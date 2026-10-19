@@ -13,6 +13,48 @@ import { ChatFlow } from '../../database/entities/ChatFlow'
 import logger from '../../utils/logger'
 import { ChatType, IMcpServerConfig, IReactFlowObject, StartInputType } from '../../Interface'
 
+const MCP_SERVER_NAME_PREFIX = 'cuttlely'
+const MCP_SERVER_NAME_MAX = 64
+
+/**
+ * Lowercase [a-z0-9-] slug from a flow name. Empty when nothing usable remains.
+ * Walks the string once so a long name cannot blow up a collapsing regex.
+ */
+function mcpSafeSlug(value: unknown): string {
+    if (typeof value !== 'string' || value.length === 0) return ''
+    const lower = value.toLowerCase()
+    let out = ''
+    for (let i = 0; i < lower.length; i++) {
+        const c = lower[i]
+        const isSafe = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+        if (isSafe) {
+            out += c
+        } else if (out.length > 0 && out[out.length - 1] !== '-') {
+            out += '-'
+        }
+    }
+    if (out.endsWith('-')) out = out.slice(0, -1)
+    return out
+}
+
+/**
+ * MCP Implementation.name for initialize. Clients such as IBM watsonx Orchestrate
+ * show this in tool metadata, so it has to be a Cuttlely name and MCP-safe.
+ * Uses the flow name when that yields a slug, otherwise `cuttlely`.
+ */
+function mcpServerName(chatflow: ChatFlow): string {
+    const slug = mcpSafeSlug(chatflow?.name)
+    if (!slug) return MCP_SERVER_NAME_PREFIX
+    let name = `${MCP_SERVER_NAME_PREFIX}-${slug}`
+    if (name.length > MCP_SERVER_NAME_MAX) {
+        name = name.slice(0, MCP_SERVER_NAME_MAX)
+        while (name.endsWith('-')) {
+            name = name.slice(0, -1)
+        }
+    }
+    return name || MCP_SERVER_NAME_PREFIX
+}
+
 /**
  * Build the MCP tool name from config + chatflow
  */
@@ -277,7 +319,7 @@ const handleMcpRequest = async (chatflowId: string, token: string, req: Request,
     // Create a stateless MCP server for this request
     const mcpServer = new McpServer(
         {
-            name: `flowise-${toolName}`,
+            name: mcpServerName(chatflow),
             version: '1.0.0'
         },
         {

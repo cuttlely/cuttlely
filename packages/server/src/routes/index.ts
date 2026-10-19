@@ -44,6 +44,7 @@ import openaiAssistantsVectorStoreRouter from './openai-assistants-vector-store'
 import openaiRealtimeRouter from './openai-realtime'
 import pingRouter from './ping'
 import predictionRouter from './predictions'
+import orchestrateRouter from './orchestrate'
 import promptListsRouter from './prompts-lists'
 import publicChatbotRouter from './public-chatbots'
 import publicChatflowsRouter from './public-chatflows'
@@ -139,6 +140,7 @@ router.use('/openai-assistants-file', openaiAssistantsFileRouter)
 router.use('/openai-assistants-vector-store', openaiAssistantsVectorStoreRouter)
 router.use('/openai-realtime', openaiRealtimeRouter)
 router.use('/prediction', predictionRouter)
+router.use('/orchestrate', orchestrateRouter)
 router.use('/prompts-list', promptListsRouter)
 router.use('/public-chatbotConfig', publicChatbotRouter)
 router.use('/public-chatflows', publicChatflowsRouter)

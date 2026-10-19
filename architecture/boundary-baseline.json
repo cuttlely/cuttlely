@@ -293,6 +293,66 @@
             "reason": "the test checks the cache header on the inherited node icon handler"
         },
         {
+            "from": "packages/server/src/controllers/orchestrate/index.test.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.test.ts",
+            "to": "packages/server/src/routes/predictions/index.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.test.ts",
+            "to": "packages/server/src/services/apikey/index.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.test.ts",
+            "to": "packages/server/src/utils/rateLimit.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.ts",
+            "to": "packages/server/src/errors/utils.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.ts",
+            "to": "packages/server/src/services/predictions/index.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/orchestrate/index.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
             "from": "packages/server/src/controllers/ping/index.test.ts",
             "to": "packages/server/src/controllers/ping/index.ts"
         },
@@ -537,6 +597,21 @@
         {
             "from": "packages/server/src/routes/oauth2/refresh.test.ts",
             "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/routes/orchestrate/index.ts",
+            "to": "packages/server/src/controllers/predictions/index.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/routes/orchestrate/index.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/routes/orchestrate/index.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
         {
             "from": "packages/server/src/routes/server-settings/index.ts",
@@ -888,6 +963,21 @@
             "reason": "The harness scheduler logs each due time with the shared server logger, and the Schedule card uses the shared permission button and role check like the harness page beside it."
         },
         {
+            "from": "packages/server/src/services/orchestrate/ibmEncoder.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/orchestrate/mapRequest.test.ts",
+            "to": "packages/components/nodes/memory/BufferMemory/BufferMemory.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/orchestrate/mapRequest.test.ts",
+            "to": "packages/server/src/utils/index.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
             "from": "packages/server/src/settings/connection.ts",
             "to": "packages/components/src/index.ts"
         },
@@ -1106,6 +1196,11 @@
             "to": "packages/server/src/utils/domainValidation.ts"
         },
         {
+            "from": "packages/server/src/utils/externalAgentAuth.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
             "from": "packages/server/src/utils/feedbackTypeFilters.test.ts",
             "to": "packages/server/src/Interface.ts",
             "reason": "the test uses the rating values from the inherited Interface"
@@ -1265,6 +1360,11 @@
         {
             "from": "packages/server/src/utils/sessionOwnership.ts",
             "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/utils/SSEStreamer.encoder.test.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "Orchestrate adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
         {
             "from": "packages/server/src/utils/SSEStreamer.metadata.test.ts",

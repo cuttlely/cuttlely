@@ -7,6 +7,7 @@ All outputs on this page come from real runs against a local Cuttlely server wit
 -   [Before you start](#before-you-start)
 -   [Create an API key](#create-an-api-key)
 -   [Ask a chatflow](#ask-a-chatflow)
+-   [Call a chatflow from Orchestrate](#call-a-chatflow-from-orchestrate)
 -   [Agentflows and harnesses](#agentflows-and-harnesses)
 -   [Run a harness in the background](#run-a-harness-in-the-background)
 -   [Stream the answer](#stream-the-answer)
@@ -86,6 +87,44 @@ curl -s "$CUTTLELY_URL/api/v1/prediction/$FLOW_ID" \
 ```
 
 `text` is the answer. `chatId` and `sessionToken` continue the conversation; see [Keep the conversation going](#keep-the-conversation-going).
+
+## Call a chatflow from Orchestrate
+
+IBM watsonx Orchestrate can call a published chatflow as an `external_chat` collaborator. Bind an API key to the chatflow, then set the agent's `api_url` to `$CUTTLELY_URL/api/v1/orchestrate/<flow id>`. Both `POST /api/v1/orchestrate/<flow id>` and `POST /api/v1/orchestrate/<flow id>/chat/completions` run the same handler. The body is OpenAI-style chat completions. This route does not accept `overrideConfig`, uploads, or a client session token.
+
+**Auth.** Send the flow's API key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. If both headers are present they must match. A flow with no bound key is refused (`403` `keyless_flow`). A missing or wrong key is `401` `unauthorized`.
+
+**Threads.** Optional `X-IBM-THREAD-ID` continues one conversation on that flow and key. Omit it and each call is a new chat; earlier `user` and `assistant` turns in `messages` become history. A second stream on the same thread while the first is still open is `409` `thread_busy`. In queue mode with more than one API replica, that busy check is per replica: two streams routed to different replicas are both accepted.
+
+**Streaming.** `"stream": true` writes `text/event-stream` frames:
+
+```text
+event: thread.message.delta
+data: {"id":"chatcmpl-…","object":"thread.message.delta","thread_id":"…","model":"…","created":1792430000,"choices":[{"delta":{"role":"assistant","content":"We open at 7:00."}}]}
+```
+
+Without `"stream": true` the body is a `chat.completion` object whose `choices[0].message.content` is the answer.
+
+**Errors** before any stream starts use `{ "error": { "message", "type", "code" } }`. Common codes: `content_type_invalid` (415, Content-Type must be `application/json`), `messages_invalid` (400), `thread_id_invalid` (400), `credentials_conflict` (400), `unauthorized` (401), `keyless_flow` (403), `origin_not_allowed` (403), `flow_not_found` (404), `thread_busy` (409). A body over 1 MB is 413. The flow's prediction rate limit answers 429 with the same plain text as `/prediction`.
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
+  -H "Authorization: Bearer $CUTTLELY_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"any","messages":[{"role":"user","content":"What time do you open on Saturday?"}]}'
+```
+
+```json
+{
+    "id": "chatcmpl-…",
+    "object": "chat.completion",
+    "created": 1792430000,
+    "model": "any",
+    "choices": [{ "index": 0, "message": { "role": "assistant", "content": "We open at 7:00 on Saturday." }, "finish_reason": "stop" }]
+}
+```
+
+A flow that uses Buffer Memory continues from stored turns when `X-IBM-THREAD-ID` is sent. A flow with no memory node answers from the `messages` history only if that flow reads it.
 
 ## Agentflows and harnesses
 

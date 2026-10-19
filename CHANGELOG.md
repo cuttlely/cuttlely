@@ -9,12 +9,15 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Added
 
 -   Docs: how to register a published chatflow as a remote MCP toolkit in IBM watsonx Orchestrate (`POST /api/v1/mcp/:id`). The ADK sample is `samples/orchestrate/bakery-hours.toolkit.yaml`. [Use a chatflow as an Orchestrate toolkit](./docs/how-to/orchestrate-mcp.md).
+-   Published chatflows answer IBM watsonx Orchestrate native agents on `POST /api/v1/orchestrate/:id` and `POST /api/v1/orchestrate/:id/chat/completions` (OpenAI-style chat completions, streaming `thread.message.delta` frames, Bearer or `X-API-Key`, optional `X-IBM-THREAD-ID`). A flow without a bound API key is refused. A second overlapping stream on the same replica is `409`; queue mode with several API replicas does not share that lease. [Call a chatflow from Orchestrate](./docs/api.md#call-a-chatflow-from-orchestrate).
 -   The website has an FAQ at `/faq/`, linked from the header, the footer, and the docs sidebar.
 -   The website has a Flowise migration page at `/flowise/`, with `/migrate/` as an alias. It is linked from the home hero, the header, and the footer.
 -   After the first successful run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.
 
 ### Changed
 
+-   MCP `initialize` reports a Cuttlely server name (`cuttlely-<flow>` when the flow name has a usable slug, otherwise `cuttlely`). The name is lowercase `[a-z0-9-]`, at most 64 characters. Clients such as IBM watsonx Orchestrate show it in tool metadata.
+-   The README intro and the public FAQ note that Cuttlely is said like "cuddly".
 -   The public website leads with "The visual agent builder, ready for production." Home-page benchmark copy states the bakery analyst prompt sizes (2,562 to 663 tokens on a made-up bakery database) without score ratios. The Analyst guide's rules-check table says "all passed" instead of a score. Made for real teams names SQLite or Postgres; Server Settings still accepts only those two. The site changelog omits the 1.3.0 paper-page line.
 -   The import page, the home hero link, and the FAQ import entry stay.
 -   The project site home page shows a poster for each video until you click play, so the first load does not fetch the files. Product-tile silent loops start only after that click, one at a time, and not when Save-Data is on. A hero that was playing with sound returns to the poster when it ends or is scrolled off screen. The media files are smaller, hashed `/media`, `/social` and `/_astro` assets are cached for a year, the Open Graph image URL carries a content hash, and the site build uses Astro 7.4.0 (Node 22.22 or newer).
