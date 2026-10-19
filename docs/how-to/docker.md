@@ -175,7 +175,7 @@ Create the first account with [sign-in.md](./sign-in.md). SQLite is the default 
 
 Local (stdio) MCP servers are off by default. The Custom MCP node connects over SSE/HTTP unless you explicitly opt into stdio and allow the command and script path.
 
-To enable a local stdio MCP server in Docker, you must pass the CUSTOM*MCP*\* variables through to the container. The root `docker-compose.yml` does not forward these by default. Add them under `services.cuttlely.environment`:
+To enable a local stdio MCP server in Docker, you must pass the `CUSTOM_MCP_*` variables through to the container. The root `docker-compose.yml` does not forward these by default. Add them under `services.cuttlely.environment`:
 
 ```yaml
 services:
