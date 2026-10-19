@@ -235,6 +235,9 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
                 }
             })
             if (sanitizedHeaders['x-cuttlely-session-token']) sanitizedHeaders['x-cuttlely-session-token'] = '[redacted]'
+            if (sanitizedHeaders.authorization) sanitizedHeaders.authorization = '[redacted]'
+            if (sanitizedHeaders['x-api-key']) sanitizedHeaders['x-api-key'] = '[redacted]'
+            if (sanitizedHeaders['x-ibm-thread-id']) sanitizedHeaders['x-ibm-thread-id'] = '[redacted]'
             if (typeof sanitizedHeaders.cookie === 'string') sanitizedHeaders.cookie = redactLoggedCookies(sanitizedHeaders.cookie)
 
             // Server settings bodies can hold secrets (database password, API keys). Never log them, even at debug.
