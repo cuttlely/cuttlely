@@ -43,6 +43,10 @@ The packs that ship with the install always load. Today that is `@cuttlely/node-
 
 Node names and inputs are unchanged. A from-source install (`pnpm install` at the repository root) includes these packages. The default image includes them too. Chat model nodes stay in `packages/components`. A chain a bundled template or the flagship demo uses stays there too. Custom Tool, Custom MCP, chatflow and agentflow tools, Retriever Tool, Calculator, Request tools, the ETL Retriever, and the PostgreSQL MCP node the analyst uses stay in `packages/components`. Buffer Memory, Buffer Window Memory, Conversation Summary Memory, Conversation Summary Buffer Memory and the agent memory nodes stay there because they do not need an outside memory service.
 
+Security note for Custom MCP
+
+- Local (stdio) MCP servers are off by default. To enable them safely you must explicitly allow commands and absolute script paths; otherwise the server refuses the config. See the FAQ entry “Are stdio MCP servers enabled by default?” for the required environment variables and examples.
+
 A credential that another node still uses stays in `packages/components/credentials`. Postgres, Zep, Redis, MongoDB and AWS credentials are in that set. Zep, Redis and MongoDB credentials stay because vector store nodes still use them. Brave Search, GitHub, Google Drive, Google Sheets, Jira, SearchApi and Serp API credentials stay because a document loader still uses them. OpenAI, Azure OpenAI, Cohere, AWS, Google Vertex, Fireworks, Together, Hugging Face, IBM Watsonx and SambaNova credentials stay too, because a chat model or an embeddings node still uses each one. The Replicate API credential is used only by the completion model node, so it lives in the legacy chains pack. The E2B client stays on `@cuttlely/components` because in-process code execution loads it.
 
 ## Layout for the next pack

@@ -170,3 +170,33 @@ Copy `.env.example` to `.env` only to change a default. `.env` is gitignored.
 Queue files under `docker/` are not this install. They build this repository and do not pull an image. See [docker/README.md](../../docker/README.md).
 
 Create the first account with [sign-in.md](./sign-in.md). SQLite is the default above. A Postgres server you already run uses the variables in [from-source.md](./from-source.md). A hosted Postgres install is [render.md](./render.md). Analyst mode, including QUERY and a read-only URL, is [analyst.md](./analyst.md).
+
+## Custom MCP servers (stdio)
+
+Local (stdio) MCP servers are off by default. The Custom MCP node connects over SSE/HTTP unless you explicitly opt into stdio and allow the command and script path.
+
+To enable a local stdio MCP server in Docker, set these in your `.env` (or Compose environment) and restart:
+
+```bash
+CUSTOM_MCP_PROTOCOL=stdio
+CUSTOM_MCP_ALLOWED_COMMANDS=node
+CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS=/opt/mcp/servers/fs-server.js
+CUSTOM_MCP_ALLOWED_ENV_VARS=
+```
+
+Then use this on the Custom MCP node:
+
+```json
+{
+  "command": "node",
+  "args": ["/opt/mcp/servers/fs-server.js", "/data"]
+}
+```
+
+Rules that apply in 1.3.0:
+
+- The command must be in CUSTOM_MCP_ALLOWED_COMMANDS.
+- If any args are present, the first must be an absolute path listed in CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS.
+- Dangerous flags are blocked; for example, npx -y is refused even if npx is allow-listed.
+
+Prefer SSE/HTTP when possible. See the FAQ entry “Are stdio MCP servers enabled by default?” for more detail and examples.
