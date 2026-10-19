@@ -70,7 +70,7 @@ orchestrate toolkits import -f samples/orchestrate/bakery-hours.toolkit.yaml -a 
 
 If import requires `key_value` instead of `bearer`, configure that kind and set credentials as environment entries. Do not put the token in the YAML. [LIVE-TEST]: the `key_value` keys that produce `Authorization: Bearer`.
 
-Or add the toolkit in one command, still with `streamable_http`:
+IBM currently documents that `orchestrate toolkits add --app-id` accepts only `key_value` connections. [LIVE-TEST]: whether that add works with the `bearer` connection above, or needs `key_value`. Until that check lands, prefer `toolkits import` with the YAML. A one-command add, still with `streamable_http`, looks like this:
 
 ```bash
 orchestrate toolkits add \
@@ -101,12 +101,12 @@ The `initialize` result includes `serverInfo.name`. For **Bakery hours** that is
 
 The MCP router is stateless. It does not keep a session id.
 
-| Method    | What Cuttlely does                                                                                                                                                                                            |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST`    | JSON-RPC: `initialize`, `tools/list`, `tools/call`, and the other Streamable HTTP messages. Needs the Bearer token. Body at most 1 MB.                                                                        |
-| `DELETE`  | **405** from the app, with `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Session termination is not supported in stateless mode."},"id":null}`. This is not an SDK fallback. Orchestrate can ignore it. |
-| `OPTIONS` | CORS preflight. Allowed methods are whatever `MCP_CORS_ORIGINS` is configured with. Desktop and server clients that send no `Origin` pass.                                                                    |
-| `GET`     | This app does not open an SSE stream on GET. [LIVE-TEST]: confirm what Orchestrate sends on GET during import, and whether it accepts the response. Streamable HTTP allows 405 when the server has no stream. |
+| Method    | What Cuttlely does                                                                                                                                                                                                                     |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`    | JSON-RPC: `initialize`, `tools/list`, `tools/call`, and the other Streamable HTTP messages. Needs the Bearer token. Body at most 1 MB.                                                                                                 |
+| `DELETE`  | **405** from the app, with `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Session termination is not supported in stateless mode."},"id":null}`. This is not an SDK fallback. Orchestrate can ignore it.                          |
+| `OPTIONS` | CORS preflight. Allowed methods are always `GET`, `POST`, `DELETE`, and `OPTIONS`. `MCP_CORS_ORIGINS` is the origin list (`*` or comma-separated origins), not the method list. Desktop and server clients that send no `Origin` pass. |
+| `GET`     | This app does not open an SSE stream on GET. [LIVE-TEST]: confirm what Orchestrate sends on GET during import, and whether it accepts the response. Streamable HTTP allows 405 when the server has no stream.                          |
 
 A browser CORS client needs `MCP_CORS_ORIGINS` (or **Sites that may call the MCP endpoint** in Server settings). Orchestrate's ADK is a server client and sends no `Origin`.
 

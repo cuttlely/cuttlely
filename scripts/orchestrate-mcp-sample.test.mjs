@@ -47,6 +47,12 @@ test('DELETE is 405 from the app, and buildChatflow is not cited by line', () =>
     assert.doesNotMatch(page, /buildChatflow\.ts:\d+/)
 })
 
+test('MCP_CORS_ORIGINS is an origin list, not a method list', () => {
+    const page = read(PAGE)
+    assert.match(page, /`MCP_CORS_ORIGINS` is the origin list/)
+    assert.doesNotMatch(page, /Allowed methods are whatever `MCP_CORS_ORIGINS`/)
+})
+
 test('the sample toolkit YAML is public-safe and names the expected server', () => {
     const yaml = read(SAMPLE)
     const readme = read(SAMPLE_README)
