@@ -175,18 +175,17 @@ Create the first account with [sign-in.md](./sign-in.md). SQLite is the default 
 
 Local (stdio) MCP servers are off by default. The Custom MCP node connects over SSE/HTTP unless you explicitly opt into stdio and allow the command and script path.
 
-To enable a local stdio MCP server in Docker, you must pass the `CUSTOM_MCP_*` variables through to the container. The root `docker-compose.yml` does not forward these by default. Add them under `services.cuttlely.environment`:
+To enable a local stdio MCP server in Docker, you must pass the `CUSTOM_MCP_*` variables through to the container. The root `docker-compose.yml` does not forward these by default. Its `environment` block is a mapping (`KEY: value`), so add matching lines there:
 
 ```yaml
 services:
     cuttlely:
         environment:
-            # MCP stdio security controls — pass-through from your .env
-            - CUSTOM_MCP_SECURITY_CHECK=${CUSTOM_MCP_SECURITY_CHECK:-}
-            - CUSTOM_MCP_PROTOCOL=${CUSTOM_MCP_PROTOCOL:-}
-            - CUSTOM_MCP_ALLOWED_ENV_VARS=${CUSTOM_MCP_ALLOWED_ENV_VARS:-}
-            - CUSTOM_MCP_ALLOWED_COMMANDS=${CUSTOM_MCP_ALLOWED_COMMANDS:-}
-            - CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS=${CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS:-}
+            CUSTOM_MCP_SECURITY_CHECK: ${CUSTOM_MCP_SECURITY_CHECK:-}
+            CUSTOM_MCP_PROTOCOL: ${CUSTOM_MCP_PROTOCOL:-}
+            CUSTOM_MCP_ALLOWED_ENV_VARS: ${CUSTOM_MCP_ALLOWED_ENV_VARS:-}
+            CUSTOM_MCP_ALLOWED_COMMANDS: ${CUSTOM_MCP_ALLOWED_COMMANDS:-}
+            CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: ${CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS:-}
 ```
 
 Then set them in your `.env` and restart:
@@ -198,13 +197,22 @@ CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS=/opt/mcp/servers/fs-server.js
 CUSTOM_MCP_ALLOWED_ENV_VARS=
 ```
 
-Alternatively, the CLI supports passing an env file directly to `docker run`:
+The image does not include `/opt/mcp/servers/fs-server.js` or a `/data` directory. Bind-mount them from the host, or put the script and its data under the existing data volume at `/var/cuttlely`. With Compose, add volumes next to the one already in the file:
 
-```bash
-npx cuttlely start --env-file .env
+```yaml
+services:
+    cuttlely:
+        volumes:
+            - cuttlely-data:/var/cuttlely
+            - ./mcp:/opt/mcp/servers:ro
+            - ./mcp-data:/data
 ```
 
-Then use this config on the Custom MCP node:
+Put the server file on the host at `./mcp/fs-server.js`. That path is `/opt/mcp/servers/fs-server.js` in the container. `./mcp-data` is `/data`. To keep everything on the data volume instead, copy the script into `/var/cuttlely` (for example `/var/cuttlely/mcp/fs-server.js`) and allow-list that path.
+
+Alternatively, `npx cuttlely start --env-file .env` passes that file to `docker run`. The CLI does not take extra volume flags. It only mounts the `cuttlely-data` volume at `/var/cuttlely`. Put the script under that path, or start with Compose or `docker run -v` if you need another bind mount.
+
+Then use this config on the Custom MCP node (paths must exist in the container):
 
 ```json
 {
