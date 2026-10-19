@@ -16,9 +16,9 @@ Or, with Node 20+ and Docker: `npx cuttlely start`. Open http://localhost:43117,
 
 A visual agent builder you run yourself, built around three things:
 
--   **Ship changes safely.** Edits to flows and agent teams go to a draft. Compare it with Live, gate Publish on a test set, and roll Live back at once. Roles, an audit log, and API keys that only run the harnesses you tick.
--   **Keep context small.** A team splits each question so every specialist gets a self-contained task, not the whole chat. The analyst sees only the tables you tick. Every run shows its tokens.
--   **Bring your flows.** Import your Flowise JSON and it opens node for node. No rebuild.
+-   **Governance.** Safe drafts and replay. Edits to flows and agent teams go to a draft. Compare it with Live, gate Publish on a test set, and roll Live back at once. Roles, an audit log, and API keys that only run the harnesses you tick.
+-   **Lean context.** Lower token cost. A team splits each question so every specialist gets a self-contained task, not the whole chat. The analyst sees only the tables you tick. Every run shows its tokens.
+-   **Build agent teams.** Harness Prime routes each question to specialists, each with its own instructions and tools. Every specialist gets a task that stands on its own.
 
 ### How do I install it?
 
