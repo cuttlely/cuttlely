@@ -28,7 +28,16 @@ import {
     unavailablePage
 } from './constants'
 import { INVITE_LINK_INVALID, isActiveStatus, linkFailureMessage, linkWorkosUser } from './link'
-import { hashForLoginCompare, hashPassword, hashSessionToken, passwordErrors, randomToken, tokensEqual, verifyPassword } from './password'
+import {
+    hashForLoginCompare,
+    hashPassword,
+    hashSessionToken,
+    passwordErrors,
+    randomToken,
+    tokensEqual,
+    verifyPassword,
+    isBcryptHash
+} from './password'
 import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
 import { isLoopbackAddress } from './sessionGuard'
@@ -194,6 +203,16 @@ function loginFields(body: Record<string, unknown>): { ok: true; email: string; 
     return { ok: true, email, password }
 }
 
+/** Compare-and-swap a migrated bcrypt hash to scrypt. A missed write still signs the person in. */
+async function rehashBcryptAfterLogin(store: IdentityStore, userId: string, current: string | null, password: string): Promise<void> {
+    if (!current || !isBcryptHash(current)) return
+    try {
+        await store.replaceCredential(userId, current, await hashPassword(password))
+    } catch {
+        // Best-effort: sign-in can proceed even if the rehash fails.
+    }
+}
+
 export async function handleLoginGet(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
     if (!ctx.redirectUri) return textUnavailable()
@@ -293,8 +312,13 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     if (!email || !password) return fail()
 
     const owner = await ctx.store.findSuperUser()
-    if (!owner || owner.email.toLowerCase() !== email.toLowerCase()) return fail()
-    if (!(await verifyPassword(password, owner.credential))) return fail()
+    const bcryptPresent = await ctx.store.hasBcryptCredential()
+    if (!owner || owner.email.toLowerCase() !== email.toLowerCase()) {
+        await verifyPassword(password, hashForLoginCompare(false, owner ? owner.credential : null, bcryptPresent), bcryptPresent)
+        return fail()
+    }
+    if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
+    await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
     const token = randomToken()
     const limits = sessionLimitsMs()
@@ -480,7 +504,12 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
     const user = matches.length === 1 ? matches[0] : null
     const open = await ctx.store.localAccountOpen(user ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
     const eligible = Boolean(user && open && user.credential)
-    const passwordOk = await verifyPassword(fields.password, hashForLoginCompare(eligible, user ? user.credential : null))
+    const bcryptPresent = await ctx.store.hasBcryptCredential()
+    const passwordOk = await verifyPassword(
+        fields.password,
+        hashForLoginCompare(eligible, user ? user.credential : null, bcryptPresent),
+        bcryptPresent
+    )
     if (!user || !eligible || !passwordOk) {
         await ctx.store.deleteLocalSessionsForUser(user && !open ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
         await ctx.rateLimit.recordFailure(ctx.ip, fields.email, ctx.now)
@@ -489,6 +518,7 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
         if (await ctx.rateLimit.blocked(ctx.ip, fields.email, ctx.now)) await noteSignIn(ctx, 'lockout', userId, 'local')
         return json(401, { message: INVALID_LOGIN })
     }
+    await rehashBcryptAfterLogin(ctx.store, user.id, user.credential, fields.password)
 
     const issued = await issueLocalSession(ctx, user.id)
     if (!issued) {

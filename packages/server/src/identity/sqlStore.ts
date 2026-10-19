@@ -22,6 +22,7 @@ import { runtimeNumber } from '../settings/runtime'
 import { AuthKitSwitchApply, AuthKitSwitchState, nextAuthKitSwitch } from './authKitSwitch'
 import { utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
+import { isBcryptHash } from './password'
 import { IdentityStore } from './store'
 import { CreateOwnerInput, InviteSignIn, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
 import { acceptAuthKitInvite } from './actionLink'
@@ -207,6 +208,56 @@ export class SqlIdentityStore implements IdentityStore {
                 )} = ?`,
                 [credential, userId]
             )
+        })
+    }
+
+    async replaceCredential(userId: string, expected: string, next: string): Promise<boolean> {
+        return this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            // TypeORM UPDATE result shape differs by dialect (Postgres rowCount, SQLite often undefined).
+            // UPDATE ... WHERE the old hash, then SELECT to confirm, so both drivers agree.
+            await query(
+                runner,
+                `UPDATE ${quote(d, 'user')} SET ${quote(d, 'credential')} = ?, ${quote(d, 'updatedDate')} = CURRENT_TIMESTAMP WHERE ${quote(
+                    d,
+                    'id'
+                )} = ? AND ${quote(d, 'credential')} = ?`,
+                [next, userId, expected]
+            )
+            const rows = await query(
+                runner,
+                `SELECT ${quote(d, 'credential')} AS ${quote(d, 'credential')} FROM ${quote(d, 'user')} WHERE ${quote(d, 'id')} = ?`,
+                [userId]
+            )
+            return Boolean(rows[0] && text(cell(rows[0], 'credential')) === next)
+        })
+    }
+
+    async hasBcryptCredential(): Promise<boolean> {
+        return this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            // LIKE $2x$% also matches cost-31 and other rejected shapes. Keyset by id
+            // (no OFFSET) until isBcryptHash hits so a later accepted hash is not hidden.
+            const page = 32
+            let after: string | null = null
+            for (;;) {
+                const keyset = after ? ` AND ${quote(d, 'id')} > ?` : ''
+                const rows = await query(
+                    runner,
+                    `SELECT ${quote(d, 'id')} AS ${quote(d, 'id')}, ${quote(d, 'credential')} AS ${quote(d, 'credential')}
+                     FROM ${quote(d, 'user')}
+                     WHERE (${quote(d, 'credential')} LIKE '$2a$%'
+                        OR ${quote(d, 'credential')} LIKE '$2b$%'
+                        OR ${quote(d, 'credential')} LIKE '$2y$%')${keyset}
+                     ORDER BY ${quote(d, 'id')}
+                     LIMIT ?`,
+                    after ? [after, page] : [page]
+                )
+                if (!rows.length) return false
+                if (rows.some((row) => isBcryptHash(text(cell(row, 'credential'))))) return true
+                if (rows.length < page) return false
+                after = text(cell(rows[rows.length - 1], 'id'))
+            }
         })
     }
 
