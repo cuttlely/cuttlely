@@ -31,7 +31,8 @@ import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
 import { attachIdentitySession } from './identity'
-import { apiV1Auth, withoutDenylisted } from './identity/apiGate'
+import { apiV1Auth, isMcpEndpointPath, withoutDenylisted } from './identity/apiGate'
+import { sendMcpMethodNotAllowed } from './routes/mcp-endpoint/http'
 import { resolveTrustProxy } from './utils/trustProxy'
 import { UsageCacheManager } from './UsageCacheManager'
 import { getEncryptionKey, getNodeModulesPackagePath } from './utils'
@@ -330,7 +331,11 @@ export class App {
         if (uiBuild) {
             this.app.use(uiAssetMiddleware(uiBuild.directory))
             // `/` and `/index.html` fall through to this. Hashed files are served above and are not counted.
-            this.app.use(uiPageRateLimiter(), (_req: Request, res: Response) => {
+            this.app.use(uiPageRateLimiter(), (req: Request, res: Response) => {
+                if (isMcpEndpointPath(`${req.baseUrl}${req.path}`)) {
+                    sendMcpMethodNotAllowed(res)
+                    return
+                }
                 res.sendFile(uiBuild.indexHtml)
             })
         } else {

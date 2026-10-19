@@ -29,7 +29,14 @@ jest.mock('../../controllers/mcp-endpoint', () => ({
         getRateLimiterMiddleware: (_req: Request, _res: Response, next: () => void) => next(),
         authenticateToken: (_req: Request, _res: Response, next: () => void) => next(),
         handlePost: (_req: Request, res: Response) => res.status(200).json({ ok: true }),
-        handleGet: (_req: Request, res: Response) => res.status(200).end(),
+        handleGet: (_req: Request, res: Response) => {
+            res.set('Allow', 'POST, DELETE, OPTIONS')
+            res.status(405).json({
+                jsonrpc: '2.0',
+                error: { code: -32000, message: 'Method Not Allowed. This MCP endpoint does not offer server-initiated streams.' },
+                id: null
+            })
+        },
         handleSseMessage: (_req: Request, res: Response) => res.status(200).json({ ok: true }),
         handleDelete: (_req: Request, res: Response) => res.status(200).json({ ok: true })
     }
@@ -53,6 +60,62 @@ function buildApp(): express.Application {
 // Body size limit
 // Express uses the `bytes` package where '1mb' = 1,048,576 bytes (binary MiB).
 // ---------------------------------------------------------------------------
+describe('GET Streamable HTTP (no server-initiated streams)', () => {
+    let app: express.Application
+
+    beforeAll(() => {
+        delete process.env.MCP_CORS_ORIGINS
+        app = buildApp()
+        app.use((_req, res) => {
+            res.status(200).type('html').send('<html>ui</html>')
+        })
+    })
+
+    it('returns 405 with Allow: POST, DELETE, OPTIONS and a JSON-RPC error body', async () => {
+        const res = await request(app).get('/mcp/test-flow')
+
+        expect(res.status).toBe(405)
+        expect(res.headers.allow).toBe('POST, DELETE, OPTIONS')
+        expect(res.body).toEqual({
+            jsonrpc: '2.0',
+            error: { code: -32000, message: 'Method Not Allowed. This MCP endpoint does not offer server-initiated streams.' },
+            id: null
+        })
+        expect(res.text).not.toContain('<html>')
+    })
+
+    it('does not fall through to the UI catch-all', async () => {
+        const res = await request(app).get('/mcp/test-flow')
+
+        expect(res.status).toBe(405)
+        expect(res.type).not.toMatch(/html/)
+        expect(res.text).not.toBe('<html>ui</html>')
+    })
+})
+
+describe('POST behaviour is unchanged', () => {
+    let app: express.Application
+
+    beforeAll(() => {
+        delete process.env.MCP_CORS_ORIGINS
+        app = buildApp()
+        app.use((_req, res) => {
+            res.status(200).type('html').send('<html>ui</html>')
+        })
+    })
+
+    it('still reaches the JSON-RPC handler and does not serve HTML', async () => {
+        const res = await request(app)
+            .post('/mcp/test-flow')
+            .set('Content-Type', 'application/json')
+            .send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))
+
+        expect(res.status).toBe(200)
+        expect(res.body).toEqual({ ok: true })
+        expect(res.text).not.toContain('<html>')
+    })
+})
+
 describe('body size limit', () => {
     let app: express.Application
 
@@ -167,6 +230,19 @@ describe('CORS — MCP_CORS_ORIGINS=*', () => {
 
         expect(res.status).toBe(204)
         expect(res.headers['access-control-allow-origin']).toBe('https://any.example.com')
+    })
+
+    it('lists POST, DELETE and OPTIONS on preflight, not GET', async () => {
+        const res = await request(app)
+            .options('/mcp/test-flow')
+            .set('Origin', 'https://any.example.com')
+            .set('Access-Control-Request-Method', 'POST')
+
+        const allowed = (res.headers['access-control-allow-methods'] || '').toUpperCase()
+        expect(allowed).toContain('POST')
+        expect(allowed).toContain('DELETE')
+        expect(allowed).toContain('OPTIONS')
+        expect(allowed.split(',').map((m: string) => m.trim())).not.toContain('GET')
     })
 })
 
