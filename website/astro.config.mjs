@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
 import { applyScreenshotZoom } from './scripts/apply-screenshot-zoom.mjs'
+import { mediaUrl } from './scripts/media-version.mjs'
 import { REPO_URL, SITE_URL } from './scripts/site-config.mjs'
+
+const ogImage = `${SITE_URL}${mediaUrl('/social/og-light.png')}`
 
 const sidebarFile = new URL('./src/generated/sidebar.json', import.meta.url)
 const sidebar = fs.existsSync(sidebarFile) ? JSON.parse(fs.readFileSync(sidebarFile, 'utf8')) : []
@@ -50,7 +53,7 @@ export default defineConfig({
                     }
                 },
                 { tag: 'meta', attrs: { name: 'theme-color', content: '#6A3DF2' } },
-                { tag: 'meta', attrs: { property: 'og:image', content: `${SITE_URL}/social/og-light.png` } },
+                { tag: 'meta', attrs: { property: 'og:image', content: ogImage } },
                 { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
                 { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
                 {
@@ -60,7 +63,7 @@ export default defineConfig({
                         content: 'Cuttlely. Your applications deserve agents. The open-source agent platform for applications.'
                     }
                 },
-                { tag: 'meta', attrs: { name: 'twitter:image', content: `${SITE_URL}/social/og-light.png` } }
+                { tag: 'meta', attrs: { name: 'twitter:image', content: ogImage } }
             ],
             social: [{ icon: 'github', label: 'Cuttlely on GitHub', href: REPO_URL }],
             editLink: { baseUrl: `${REPO_URL}/edit/main/docs/` },

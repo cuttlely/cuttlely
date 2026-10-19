@@ -6,7 +6,7 @@
     "license": "Apache-2.0",
     "type": "module",
     "engines": {
-        "node": ">=22.12"
+        "node": ">=22.22.0"
     },
     "scripts": {
         "sync": "node scripts/sync-docs.mjs",

@@ -339,14 +339,7 @@ function watchViewport(videos, win, doc) {
                         }
                     }
                     if (!owner || narrating.get(owner) !== video) continue
-                    try {
-                        video.pause()
-                    } catch {
-                        // Already idle.
-                    }
-                    endNarration(video)
-                    if (sounding.has(video)) leaveSoundMode(video)
-                    playActiveLoop(owner, win)
+                    settleNarration(video, win)
                 }
             }
             playActiveLoop(doc, win)

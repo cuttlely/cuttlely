@@ -10,7 +10,7 @@ Home page videos show the poster on first load. Sources stay detached and nothin
 
 ## Run it
 
-Node 22.12 or newer. The website has its own dependencies and lockfile, separate from the pnpm workspace.
+Node 22.22 or newer. The website has its own dependencies and lockfile, separate from the pnpm workspace.
 
 ```bash
 cd website

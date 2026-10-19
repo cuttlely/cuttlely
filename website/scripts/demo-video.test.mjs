@@ -392,6 +392,21 @@ function shellVideo(dataset) {
     return video
 }
 
+function attachSource(video) {
+    const source = {
+        removed: false,
+        remove() {
+            this.removed = true
+        }
+    }
+    const attached = [source]
+    video.querySelectorAll = () => attached.filter((item) => !item.removed)
+    video.appendChild = (node) => {
+        node.removed = false
+    }
+    return source
+}
+
 test('the home page puts a play button on the hero and on every tile loop', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     assert.equal((src.match(/slug: '/g) || []).length, 6)
@@ -1379,6 +1394,7 @@ test('a pending hero play does not resume previews after a dialog takes over', a
 
 test('scrolling the sounding hero off screen ends the sound session', async () => {
     const hero = shellVideo({ demoVideo: '' })
+    const heroSource = attachSource(hero)
     const heroButton = control({ playWithSound: '' })
     hero.nextElementSibling = heroButton
     const tile = shellVideo({ loopVideo: '' })
@@ -1423,6 +1439,8 @@ test('scrolling the sounding hero off screen ends the sound session', async () =
     assert.equal(hero.muted, true)
     assert.equal(hero.loop, true)
     assert.equal(hero.controls, false)
+    assert.equal(heroSource.removed, true)
+    assert.equal(hero.calls.includes('load'), true)
     assert.equal(tile.calls.includes('play'), true)
     assert.equal(tile.paused, false)
     assert.equal(tile.muted, true)
@@ -1435,6 +1453,7 @@ test('scrolling the sounding hero off screen ends the sound session', async () =
 
 test('scrolling a sounding hero off screen ends narration when autoplay is off', async () => {
     const hero = shellVideo({ demoVideo: '' })
+    const heroSource = attachSource(hero)
     const heroButton = control({ playWithSound: '' })
     hero.nextElementSibling = heroButton
     const tile = shellVideo({ loopVideo: '' })
@@ -1490,7 +1509,8 @@ test('scrolling a sounding hero off screen ends narration when autoplay is off',
     assert.equal(hero.defaultMuted, true)
     assert.equal(hero.loop, true)
     assert.equal(hero.controls, false)
-    assert.equal(hero.calls.includes('load'), false)
+    assert.equal(heroSource.removed, true)
+    assert.equal(hero.calls.includes('load'), true)
     assert.equal(tile.calls.includes('play'), false)
     assert.equal(tile.calls.includes('load'), false)
     observers[0].cb([{ target: hero, isIntersecting: true }])

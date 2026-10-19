@@ -13,7 +13,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   The project site home page shows a poster for each video until you click play, so the first load does not fetch the files. Product-tile silent loops start only after that click, one at a time, and not when Save-Data is on. The media files are smaller, hashed `/media`, `/social` and `/_astro` assets are cached for a year, and the site build uses Astro 7.4.0.
+-   The project site home page shows a poster for each video until you click play, so the first load does not fetch the files. Product-tile silent loops start only after that click, one at a time, and not when Save-Data is on. A hero that was playing with sound returns to the poster when it ends or is scrolled off screen. The media files are smaller, hashed `/media`, `/social` and `/_astro` assets are cached for a year, the Open Graph image URL carries a content hash, and the site build uses Astro 7.4.0 (Node 22.22 or newer).
 
 ### Fixed
 
