@@ -358,13 +358,12 @@ describe('Orchestrate mapping, threads, and responses', () => {
 
     it('refuses a bad or repeated thread header', async () => {
         expectIbmError(await post(K, hi, withKey({ 'X-IBM-THREAD-ID': 'has space' })), 400, 'thread_id_invalid')
-        const res = await hangGuard(
-            request(app)
-                .post(`/api/v1/orchestrate/${K}`)
-                .set('Authorization', `Bearer ${KEY_K}`)
-                .set('X-IBM-THREAD-ID', [THREAD, 'other-thread'])
-                .send(hi)
-        )
+        const repeated = request(app).post(`/api/v1/orchestrate/${K}`).set('Authorization', `Bearer ${KEY_K}`)
+        ;(repeated as request.Test & { set: (field: string, val: string | string[]) => request.Test }).set('X-IBM-THREAD-ID', [
+            THREAD,
+            'other-thread'
+        ])
+        const res = await hangGuard(repeated.send(hi))
         expectIbmError(res, 400, 'thread_id_invalid')
     })
 
