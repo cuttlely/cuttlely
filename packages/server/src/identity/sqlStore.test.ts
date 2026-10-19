@@ -63,6 +63,17 @@ livePg('finds a local session on postgres, where user.id is a uuid and the sessi
 const OLD_BCRYPT = '$2a$10$izJQJlD9yogrwzhiB6CQA.X0TmTi5UTGyQsoXeQpetpnyAGhVJWJO'
 const NEXT_SCRYPT = 'scrypt$salt$new-key'
 const OTHER_SCRYPT = 'scrypt$salt$other-writer'
+/** Matches `$2a$%` but fails isBcryptHash (cost 31). One page of these used to hide a later accepted hash. */
+const REJECTED_BCRYPT = '$2a$31$' + 'A'.repeat(53)
+const REJECTED_PAGE = 33
+
+function sqliteRejectedIds(count: number): string[] {
+    return Array.from({ length: count }, (_, i) => `aa-${String(i).padStart(2, '0')}`)
+}
+
+function postgresRejectedIds(count: number): string[] {
+    return Array.from({ length: count }, (_, i) => `00000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`)
+}
 
 async function expectReplaceCredentialCas(store: SqlIdentityStore, userId: string, read: () => Promise<string | null>): Promise<void> {
     expect(await store.replaceCredential(userId, OLD_BCRYPT, NEXT_SCRYPT)).toBe(true)
@@ -113,6 +124,48 @@ it('replaces a credential only when the stored hash still matches, on sqlite', a
     }
 })
 
+it('finds an accepted bcrypt hash after more than one page of rejected $2x$ prefixes, on sqlite', async () => {
+    const { DatabaseSync } = require('node:sqlite') as {
+        DatabaseSync: new (path: string) => {
+            exec(sql: string): void
+            close(): void
+            prepare(sql: string): { all(...params: unknown[]): Record<string, unknown>[]; run(...params: unknown[]): unknown }
+        }
+    }
+    const db = new DatabaseSync(':memory:')
+    const rejected = sqliteRejectedIds(REJECTED_PAGE)
+    const values = rejected.map((id) => `('${id}', '${REJECTED_BCRYPT}')`).join(', ')
+    db.exec(`
+        CREATE TABLE "user" (
+            id text PRIMARY KEY,
+            credential text,
+            "updatedDate" text
+        );
+        INSERT INTO "user" (id, credential) VALUES ${values};
+    `)
+    const run = async (statement: string, params: unknown[] = []) => {
+        const prepared = db.prepare(statement)
+        if (/^\s*(select|with)\b/i.test(statement)) return prepared.all(...params)
+        prepared.run(...params)
+        return []
+    }
+    const runner = {
+        connection: { options: { type: 'sqlite' } },
+        connect: async () => undefined,
+        release: async () => undefined,
+        query: run
+    }
+    const store = new SqlIdentityStore({ createQueryRunner: () => runner } as unknown as DataSource)
+    try {
+        expect(rejected.length).toBeGreaterThan(32)
+        expect(await store.hasBcryptCredential()).toBe(false)
+        await run('INSERT INTO "user" (id, credential) VALUES (?, ?)', ['zz-valid', OLD_BCRYPT])
+        expect(await store.hasBcryptCredential()).toBe(true)
+    } finally {
+        db.close()
+    }
+})
+
 livePg('replaces a credential only when the stored hash still matches, on postgres', async () => {
     const pg = require('pg') as { Client: new (config: Record<string, unknown>) => PgClient }
     const password = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD
@@ -141,6 +194,43 @@ livePg('replaces a credential only when the stored hash still matches, on postgr
             return result.rows[0] ? String(result.rows[0].credential) : null
         })
         expect(await store.hasBcryptCredential()).toBe(false)
+    } finally {
+        await db.end()
+        const drop = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: 'postgres' })
+        await drop.connect()
+        await drop.query(`DROP DATABASE IF EXISTS ${name}`)
+        await drop.end()
+    }
+})
+
+livePg('finds an accepted bcrypt hash after more than one page of rejected $2x$ prefixes, on postgres', async () => {
+    const pg = require('pg') as { Client: new (config: Record<string, unknown>) => PgClient }
+    const password = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD
+    const admin = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: 'postgres' })
+    await admin.connect()
+    const name = `cuttlely_bcrypt_page_${process.pid}`
+    await admin.query(`DROP DATABASE IF EXISTS ${name}`)
+    await admin.query(`CREATE DATABASE ${name}`)
+    await admin.end()
+    const db = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: name })
+    await db.connect()
+    try {
+        await db.query(`CREATE TABLE "user" (id uuid PRIMARY KEY, credential text, "updatedDate" TIMESTAMP)`)
+        const rejected = postgresRejectedIds(REJECTED_PAGE)
+        for (const id of rejected) {
+            await db.query(`INSERT INTO "user" (id, credential) VALUES ($1, $2)`, [id, REJECTED_BCRYPT])
+        }
+        const runner = {
+            connection: { options: { type: 'postgres' } },
+            connect: async () => undefined,
+            release: async () => undefined,
+            query: async (text: string, params?: unknown[]) => (await db.query(text, params)).rows
+        }
+        const store = new SqlIdentityStore({ createQueryRunner: () => runner } as unknown as DataSource)
+        expect(rejected.length).toBeGreaterThan(32)
+        expect(await store.hasBcryptCredential()).toBe(false)
+        await db.query(`INSERT INTO "user" (id, credential) VALUES ($1, $2)`, ['ffffffff-ffff-4fff-bfff-ffffffffffff', OLD_BCRYPT])
+        expect(await store.hasBcryptCredential()).toBe(true)
     } finally {
         await db.end()
         const drop = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: 'postgres' })
