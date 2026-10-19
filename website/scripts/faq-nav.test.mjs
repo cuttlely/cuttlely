@@ -26,15 +26,13 @@ describe('FAQ page wiring', () => {
         assert.match(fs.readFileSync(path.join(SITE, 'scripts/site-config.mjs'), 'utf8'), /'FAQ\.md': '\/faq\/'/)
     })
 
-    it('keeps the 3.1.4 advisories, the older file-write advisory, the internal-benchmarks sentence, and the approved lineage question and import headings, and leaves Cloud and waitlist out', () => {
+    it('keeps the 3.1.4 advisories, the older file-write advisory, the internal-benchmarks sentence, and the import headings, and leaves Cloud and waitlist out', () => {
         const faq = fs.readFileSync(path.join(REPO, 'FAQ.md'), 'utf8')
         assert.match(faq, /## Coming from Flowise/)
         assert.doesNotMatch(faq, /## Importing existing flows/)
-        assert.match(faq, /### Is Cuttlely a fork of Flowise\?/)
-        assert.match(
-            faq,
-            /It picks up where Flowise left off: the next generation of the visual builder\. It's built on Flowise's Apache-2\.0 code, credited in CREDITS\.md, and isn't affiliated with FlowiseAI\. The work since adds agent teams, the scoped analyst, drafts, Compare, gates, rollback, roles, audit and scoped keys\./
-        )
+        assert.doesNotMatch(faq, /picks up where/)
+        assert.doesNotMatch(faq, /next generation of the visual builder/)
+        assert.doesNotMatch(faq, /fork of/)
         assert.match(faq, /### Can I bring my Flowise flows\?/)
         assert.doesNotMatch(faq, /### Can I bring my existing flows\?/)
         assert.match(faq, /### What about the Flowise security advisories\?/)

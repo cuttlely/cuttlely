@@ -45,10 +45,6 @@ Full notes: [v1.3.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v
 
 ## Coming from Flowise
 
-### Is Cuttlely a fork of Flowise?
-
-It picks up where Flowise left off: the next generation of the visual builder. It's built on Flowise's Apache-2.0 code, credited in CREDITS.md, and isn't affiliated with FlowiseAI. The work since adds agent teams, the scoped analyst, drafts, Compare, gates, rollback, roles, audit and scoped keys.
-
 ### Can I bring my Flowise flows?
 
 Yes. Go to **Chatflows** → **Import** → **Import Flowise JSON**. It opens a chatflow or agentflow node for node; about 300 nodes open with their settings. A chatflow's prediction API takes the same request body. API keys, passwords and credential ids are removed from the file, so you pick a credential on each card.

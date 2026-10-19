@@ -350,6 +350,7 @@
             ".changeset/**",
             ".dockerignore",
             ".eslintrc.js",
+            ".gitattributes",
             ".gitignore",
             ".npmrc",
             ".nvmrc",
