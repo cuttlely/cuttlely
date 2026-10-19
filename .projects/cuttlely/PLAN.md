@@ -33,4 +33,4 @@
 3. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers.
 4. **Hand-picked questions for the other stores.** Chat question history and `questionIds` are on the drafts check API, and the Publish dialog can choose from that list. Recorded form, webhook, and schedule inputs, and harness turns, are not listed yet. The execution table and the harness session table do not yet have the keyset index those lists would use.
 5. **Reshoot the admin pictures that show the old menu order.** Done in [#171](https://github.com/cuttlely/cuttlely/pull/171): `docs/images/users/users-list.png`, `docs/images/users/sessions-list.png`, `docs/images/audit/audit-log.png`, and `docs/images/server-settings/testing-and-limits.png` show Users and Teams first.
-6. **Cut 1.3.0.** Done. `CHANGELOG.md` dates it 2026-10-18, and `## [Unreleased]` is empty.
+6. **Cut 1.3.0.** Done. `CHANGELOG.md` dates it 2026-10-18. The next patch is planned as `## [1.3.1] - Unreleased`, with `## [Unreleased]` empty above it.
