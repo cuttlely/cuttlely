@@ -15,6 +15,9 @@
             "packages/server/src/routes/index.rateLimit.test.ts",
             "packages/server/src/routes/index.iconLimit.test.ts",
             "packages/server/src/routes/index.apiGate.test.ts",
+            "packages/server/src/routes/orchestrate/**",
+            "packages/server/src/controllers/orchestrate/**",
+            "packages/server/src/services/orchestrate/**",
             "packages/components/nodes/harness/**",
             "packages/ui/src/views/harnesses/**",
             "packages/ui/src/views/chatmessage/Harness*",
@@ -132,6 +135,8 @@
             "packages/server/src/utils/itWorked.ts",
             "packages/server/src/utils/itWorked.test.ts",
             "packages/server/src/utils/authorize*",
+            "packages/server/src/utils/externalAgentAuth*",
+            "packages/server/src/utils/externalThread*",
             "packages/server/src/utils/sessionOwnership*",
             "packages/server/src/utils/fileLinkSignature*",
             "packages/server/src/utils/upload*",
@@ -231,6 +236,7 @@
             "packages/server/src/services/nodes/nodeIcon.ts",
             "packages/server/src/services/settings/canvasCardLook.test.ts",
             "packages/server/src/services/settings/canvasCardLook.ts",
+            "packages/server/src/utils/SSEStreamer.encoder.test.ts",
             "packages/server/src/utils/SSEStreamer.metadata.test.ts",
             "packages/server/src/utils/buildAgentGraph.overrides.test.ts",
             "packages/server/src/utils/buildAgentflow.analytics.test.ts",
@@ -734,6 +740,8 @@
             "name": "Request security hardening",
             "paths": [
                 "packages/server/src/utils/authorize*",
+                "packages/server/src/utils/externalAgentAuth*",
+                "packages/server/src/utils/externalThread*",
                 "packages/server/src/utils/sessionOwnership*",
                 "packages/server/src/utils/fileLinkSignature*",
                 "packages/server/src/utils/upload*",
@@ -743,6 +751,8 @@
             "entryPoints": [
                 "packages/server/src/utils/authorizeFlowAccess.ts",
                 "packages/server/src/utils/authorizeUpsert.ts",
+                "packages/server/src/utils/externalAgentAuth.ts",
+                "packages/server/src/utils/externalThread.ts",
                 "packages/server/src/utils/fileLinkSignature.ts",
                 "packages/server/src/utils/predictionUploads.ts",
                 "packages/server/src/utils/replaceInputsWithConfig.ts",
@@ -784,6 +794,15 @@
                 "packages/ui/src/utils/flowiseImport.js",
                 "packages/ui/src/utils/langflowImport.mjs"
             ]
+        },
+        {
+            "name": "Orchestrate",
+            "paths": [
+                "packages/server/src/routes/orchestrate/**",
+                "packages/server/src/controllers/orchestrate/**",
+                "packages/server/src/services/orchestrate/**"
+            ],
+            "entryPoints": ["packages/server/src/routes/orchestrate/index.ts"]
         },
         {
             "name": "Usage",
@@ -902,6 +921,7 @@
                 "packages/server/src/services/nodes/nodeIcon.ts",
                 "packages/server/src/services/settings/canvasCardLook.test.ts",
                 "packages/server/src/services/settings/canvasCardLook.ts",
+                "packages/server/src/utils/SSEStreamer.encoder.test.ts",
                 "packages/server/src/utils/SSEStreamer.metadata.test.ts",
                 "packages/server/src/utils/buildAgentGraph.overrides.test.ts",
                 "packages/server/src/utils/buildAgentflow.analytics.test.ts",

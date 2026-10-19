@@ -8,6 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Published chatflows answer IBM watsonx Orchestrate native agents on `POST /api/v1/orchestrate/:id` and `POST /api/v1/orchestrate/:id/chat/completions` (OpenAI-style chat completions, streaming `thread.message.delta` frames, Bearer or `X-API-Key`, optional `X-IBM-THREAD-ID`). A flow without a bound API key is refused. A second overlapping stream on the same replica is `409`; queue mode with several API replicas does not share that lease. [Call a chatflow from Orchestrate](./docs/api.md#call-a-chatflow-from-orchestrate).
 -   The website has an FAQ at `/faq/`, linked from the header, the footer, and the docs sidebar.
 -   The website has a Flowise migration page at `/flowise/`, with `/migrate/` as an alias. It is linked from the home hero, the header, and the footer.
 -   After the first successful run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.

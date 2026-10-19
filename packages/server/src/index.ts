@@ -30,6 +30,7 @@ import { warnKeysMissingBoundHarnesses } from './services/harnesses/apiAccess'
 import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
+import { orchestrateContentTypeGuard, orchestrateJsonParser } from './routes/orchestrate'
 import { attachIdentitySession } from './identity'
 import { apiV1Auth, isMcpEndpointPath, withoutDenylisted } from './identity/apiGate'
 import { sendMcpMethodNotAllowed } from './routes/mcp-endpoint/http'
@@ -58,6 +59,7 @@ declare global {
         interface User extends LoggedInUser {}
         interface Request {
             user?: LoggedInUser
+            orchestrate?: unknown
         }
         namespace Multer {
             interface File {
@@ -209,6 +211,8 @@ export class App {
         const captureRawBody = (req: Request, _res: Response, buf: Buffer) => {
             ;(req as any).rawBody = buf
         }
+        // Parse Orchestrate bodies at 1 MB and refuse non-JSON before the 50 MB urlencoded parser runs.
+        this.app.use('/api/v1/orchestrate', orchestrateContentTypeGuard, orchestrateJsonParser)
         this.app.use(express.json({ limit: flowise_file_size_limit, verify: captureRawBody }))
         this.app.use(express.urlencoded({ limit: flowise_file_size_limit, extended: true, verify: captureRawBody }))
 
