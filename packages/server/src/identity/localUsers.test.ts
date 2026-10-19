@@ -740,7 +740,7 @@ describe('local users mode', () => {
         if (!member) throw new Error('missing user-a')
         member.credential = bcryptHash
         const rateLimit = new LoginRateLimit()
-        const compare = jest.spyOn(bcrypt, 'compare').mockRejectedValueOnce(new Error('bcrypt failed'))
+        const compare = jest.spyOn(bcrypt, 'compare').mockImplementationOnce(() => Promise.reject(new Error('bcrypt failed')))
         const out = json(await handleLocalLogin(signed({ store, rateLimit, body: { email: 'ada@example.com', password: OTHER } })))
         compare.mockRestore()
         expect(out.status).toBe(401)

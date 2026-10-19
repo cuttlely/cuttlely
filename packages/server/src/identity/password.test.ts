@@ -105,7 +105,7 @@ describe('verifyPassword', () => {
 
     it('treats a thrown bcrypt.compare as a miss', async () => {
         const hashed = bcrypt.hashSync(GOOD, 10)
-        const compare = jest.spyOn(bcrypt, 'compare').mockRejectedValueOnce(new Error('bcrypt failed'))
+        const compare = jest.spyOn(bcrypt, 'compare').mockImplementationOnce(() => Promise.reject(new Error('bcrypt failed')))
         expect(await verifyPassword(GOOD, hashed)).toBe(false)
         compare.mockRestore()
     })
