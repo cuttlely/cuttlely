@@ -1013,6 +1013,7 @@
                 "packages/server/src/services/settings/canvasCardLook.ts",
                 "packages/server/src/startup/databaseHealth.ts",
                 "packages/server/src/startup/startingPage.ts",
+                "packages/server/src/startup/flowiseUpgradeGuard.ts",
                 "packages/server/src/utils/uiBuild.ts",
                 "packages/server/src/utils/clientAbort.ts",
                 "packages/server/src/utils/codeInputLiteral.ts",
