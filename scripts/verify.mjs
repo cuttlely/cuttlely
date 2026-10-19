@@ -204,6 +204,7 @@ const STEPS = [
             'src/views/marketplaces/templateUsePermission.test.js',
             'src/utils/publishCheck.test.js',
             'src/utils/promote.test.js',
+            'src/utils/itWorked.test.js',
             'src/views/promote/PromoteViews.test.js',
             'src/views/usage/query.test.js',
             'src/views/usage/route.test.js',

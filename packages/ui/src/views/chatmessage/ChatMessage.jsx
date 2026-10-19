@@ -80,7 +80,7 @@ import ttsApi from '@/api/tts'
 // Hooks
 import useApi from '@/hooks/useApi'
 import { flowContext } from '@/store/context/ReactFlowContext'
-import { useItWorkedNotice } from '@/utils/itWorked'
+import { shouldToastOnStreamEnd, useItWorkedNotice } from '@/utils/itWorked'
 
 // Const
 import { baseURL, maxScroll } from '@/store/constant'
@@ -1111,6 +1111,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     const response = await predictionApi.sendMessageWithFiles(chatflowid, formData)
                     if (response.data) {
                         const data = response.data
+                        itWorkedNotice.onSuccess()
 
                         updateMetadata(data, input)
 
@@ -1207,6 +1208,9 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
         predictionAbortRef.current?.abort()
         const controller = new AbortController()
         predictionAbortRef.current = controller
+        let sawResult = false
+        let sawError = false
+        let sawAbort = false
         await fetchEventSource(`${baseURL}${harnessCanvasRunPath(chatflowId)}`, {
             openWhenHidden: true,
             signal: controller.signal,
@@ -1224,13 +1228,30 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                 const eventName = payload.event
                 const data = payload.data || {}
                 if (typeof eventName === 'string' && eventName.startsWith('harness.') && eventName !== 'harness.recorded') {
+                    sawResult = true
                     updateHarnessEvent({ ...data, type: eventName.slice('harness.'.length) })
                     return
                 }
                 // Images the team made, as data URLs, after the run.
-                if (eventName === 'artifacts' && Array.isArray(payload.data)) setLastMessageImages(payload.data)
-                if (eventName === 'error') updateErrorMessage(data.message || 'The harness run failed.')
-                if (eventName === 'end') closeResponse()
+                if (eventName === 'artifacts' && Array.isArray(payload.data)) {
+                    sawResult = true
+                    setLastMessageImages(payload.data)
+                }
+                if (eventName === 'token' || eventName === 'metadata') sawResult = true
+                if (eventName === 'error') {
+                    sawError = true
+                    updateErrorMessage(data.message || 'The harness run failed.')
+                }
+                if (eventName === 'abort') {
+                    sawAbort = true
+                    abortMessage(data)
+                    closeResponse()
+                    return
+                }
+                if (eventName === 'end') {
+                    closeResponse()
+                    if (shouldToastOnStreamEnd({ sawResult, sawError, sawAbort })) itWorkedNotice.onSuccess()
+                }
             },
             async onclose() {
                 closeResponse()
@@ -1262,6 +1283,9 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
         predictionAbortRef.current?.abort()
         const controller = new AbortController()
         predictionAbortRef.current = controller
+        let sawResult = false
+        let sawError = false
+        let sawAbort = false
         await fetchEventSource(`${baseURL}/api/v1/internal-prediction/${chatflowid}`, {
             openWhenHidden: true,
             signal: controller.signal,
@@ -1293,6 +1317,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         })
                         break
                     case 'token':
+                        sawResult = true
                         updateLastMessage(payload.data)
                         break
                     case 'sourceDocuments':
@@ -1332,12 +1357,15 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         updateLastMessageNextAgentFlow(payload.data)
                         break
                     case 'metadata':
+                        sawResult = true
                         updateMetadata(payload.data, input)
                         break
                     case 'error':
+                        sawError = true
                         updateErrorMessage(payload.data)
                         break
                     case 'abort':
+                        sawAbort = true
                         abortMessage(payload.data)
                         closeResponse()
                         break
@@ -1358,8 +1386,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         finalizeThinking()
                         setLocalStorageChatflow(chatflowid, chatId)
                         closeResponse()
-                        // One-time friendly toast after the first successful streamed run.
-                        itWorkedNotice.onSuccess()
+                        if (shouldToastOnStreamEnd({ sawResult, sawError, sawAbort })) itWorkedNotice.onSuccess()
                         break
                 }
             },
