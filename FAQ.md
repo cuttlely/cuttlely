@@ -57,6 +57,17 @@ Key limits:
 
 The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix and AssemblyAI configuration cards are dropped with a note, and the file still opens. The full list of limits is in [Bring your flows](docs/bring-your-flows.md).
 
+### What about the Flowise security advisories?
+
+We read the code at v1.3.0 against the six advisories on Flowise 3.1.4 that list no patched release:
+
+-   Five don't apply. The chat-message ([GHSA-ppmg-4cx6-95hh](https://github.com/advisories/GHSA-ppmg-4cx6-95hh)), upsert-history ([GHSA-jvx3-mjpw-r4gh](https://github.com/advisories/GHSA-jvx3-mjpw-r4gh)) and credential ([GHSA-27w2-26m5-x82c](https://github.com/advisories/GHSA-27w2-26m5-x82c)) routes check permissions and team. The BullMQ dashboard isn't mounted ([GHSA-rpcc-gw54-mfgx](https://github.com/advisories/GHSA-rpcc-gw54-mfgx)). There's no multi-provider SSO ([GHSA-cffm-583c-vffr](https://github.com/advisories/GHSA-cffm-583c-vffr)).
+-   The sixth, invites activated by an email match ([GHSA-vf3j-89vf-r697](https://github.com/advisories/GHSA-vf3j-89vf-r697)), is fixed in 1.3.0. A pending invite needs its one-time link. One caveat: someone added with **Add User** before 1.3.0 was stored as active and can still join by email match, so remove and re-invite them to require the link.
+
+We also checked the file-write advisory [GHSA-8vvx-qvq9-5948](https://github.com/advisories/GHSA-8vvx-qvq9-5948). The storage helpers it names sanitize the file name in every storage provider.
+
+This is a code read, not a pen test. If you find something, please report it privately through [SECURITY.md](SECURITY.md).
+
 ## The analyst
 
 ### Does the analyst stop a model from reading data it shouldn't?
@@ -76,7 +87,7 @@ Postgres databases you connect, plus Cuttlely's own isolated SQLite analyst stor
 
 ### How many tokens does it save?
 
-On a made-up bakery database, ticking 6 of 20 relations took the analyst's prompt from 2,562 to 663 tokens. You can rerun it with `scripts/analyst-schema-tokens.mjs`.
+On a made-up bakery database, ticking 6 of 20 relations took the analyst's prompt from 2,562 to 663 tokens. You can rerun it with [`scripts/analyst-schema-tokens.mjs`](scripts/analyst-schema-tokens.mjs). More broadly, lean context means fewer tokens in our [internal benchmarks](docs/how-to/analyst.md#how-many-tokens-it-saves).
 
 ## Upgrading to 1.3.0
 

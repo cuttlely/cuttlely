@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.1] - Unreleased
+
 ### Added
 
 -   The website has an FAQ at `/faq/`, linked from the header, the footer, and the docs sidebar.
