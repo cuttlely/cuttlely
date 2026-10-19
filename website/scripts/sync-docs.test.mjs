@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { docOutPath, docRoute, plainText, readmeSection, rewriteLinks, rewriteTarget, sidebarFromIndex, splitPage } from './sync-docs.mjs'
+import {
+    docOutPath,
+    docRoute,
+    filterChangelogForSite,
+    plainText,
+    readmeSection,
+    rewriteLinks,
+    rewriteTarget,
+    sidebarFromIndex,
+    SIDEBAR_OMIT,
+    splitPage
+} from './sync-docs.mjs'
 
 const REPO = 'https://github.com/cuttlely/cuttlely'
 
@@ -91,5 +102,25 @@ describe('sync-docs', () => {
             },
             { label: 'Reference', items: [{ label: 'Changelog', link: '/changelog/' }] }
         ])
+    })
+
+    it('keeps the Langflow import page off the generated sidebar', () => {
+        assert.equal(SIDEBAR_OMIT.has('/docs/langflow-import/'), true)
+    })
+
+    it('drops the whitepaper changelog line for the site copy', () => {
+        const md = [
+            '## [1.3.0] - 2026-10-18',
+            '',
+            '### Added',
+            '',
+            '-   Keep this.',
+            '-   The benchmark whitepaper is on the website at `/whitepaper/`, as a web page and a PDF.',
+            '-   Also keep this.'
+        ].join('\n')
+        const out = filterChangelogForSite(md)
+        assert.equal(out.includes('whitepaper'), false)
+        assert.ok(out.includes('-   Keep this.'))
+        assert.ok(out.includes('-   Also keep this.'))
     })
 })

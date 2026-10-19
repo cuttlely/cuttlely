@@ -11,7 +11,7 @@
     "scripts": {
         "sync": "node scripts/sync-docs.mjs",
         "dev": "node scripts/sync-docs.mjs && astro dev",
-        "build": "node scripts/sync-docs.mjs && astro build && node scripts/check-site.mjs",
+        "build": "node scripts/sync-docs.mjs && astro build && node scripts/omit-langflow-sitemap.mjs && node scripts/check-site.mjs",
         "preview": "astro preview",
         "check": "node scripts/check-site.mjs",
         "test": "node --test scripts/*.test.mjs"

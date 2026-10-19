@@ -81,30 +81,9 @@ pnpm --filter @cuttlely/server user --email you@example.com
 -   Rewriting an older completion model into the chat model of the same provider. The wizard keeps it as it is.
 -   Keeping the saved zoom and position of the canvas.
 
-## From Langflow
+## Other JSON exports
 
-### Import a simple chat
-
-Cuttlely opens a Langflow export when it is one chat: exactly one chat model, at most one prompt, and chat input and output.
-
-1. In Langflow, export the flow to a JSON file.
-2. In Cuttlely, open **Chatflows** and select **Import**, then **Import Langflow JSON**, and pick the file. The same option is on the chatflow canvas gear menu.
-3. The chat opens on the chatflow canvas. The prompt becomes the system message, and a note on the canvas says the API key was not copied.
-
-    ![Bakery greeter, not saved yet, drawn with classic cards on the dark canvas. OpenAI shows an empty Connect Credential box, Model Name gpt-4.1-mini, and Temperature 0.2. OpenAI and Buffer Memory plug into Conversation Chain: OpenAI into its Chat Model, and Buffer Memory into its Memory. The Buffer Memory card sits over the bottom of the OpenAI card. A yellow note reads Imported from Langflow. API keys were not copied. Select a credential on the chat model. Credentials stay in this app.](./images/bring-your-flows/langflow-opened.png)
-
-4. Select a credential on the chat model card, then select **Save**.
-
-Supported chat models: OpenAI, Anthropic, Google, Groq, Ollama, Mistral, Azure OpenAI and xAI. The model name, the temperature and a positive max token count are copied. Buffer Memory is added, because the chat needs one. The full mapping: [Langflow import](./langflow-import.md).
-
-### Not yet supported
-
--   Agents, tools, vector stores, retrievers and file loaders.
--   More than one chat model, or more than one prompt.
--   A chat model from a provider not in the list above.
--   Any other component.
-
-A file like that stays on the import screen with `Langflow import is not supported yet`, and nothing opens.
+A simple-chat JSON export (one chat model, at most one prompt) is documented on its [import page](./langflow-import.md).
 
 ## After the import
 

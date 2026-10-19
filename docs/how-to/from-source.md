@@ -160,7 +160,7 @@ More about the account, a lost password, and WorkOS for a team: [Sign in](./sign
 
 After sign-in the app opens **Chatflows**. The sidebar lists everything else, from **Harness · Agent Team** to **Document Stores**, then **Datasets**, **Evaluators**, **Evaluations** and **Usage**, plus the **Admin** menu: **Users**, **Teams**, **Roles**, **Server Settings**, **Logs**, **Audit log**, and **Version History**, in that order. Each entry shows only to someone who can open it. Server Settings and Version History are for the organization owner. Your name and **Logout** are under the gear at the top right.
 
-![Chatflows on a new install. Import, Start from a template and Add New are at the top. A Try the demo card offers Add a model key, Try the demo, and the bakery quickstart. Your applications deserve agents. sits above What are you building?, with Agent team, Chat / simple AI app, Workflow / automation and Knowledge / data pipeline. The lightbulb mascot is above No chatflows yet. Pick Chat / simple AI app above, or start from a template.](../images/from-source/first-signed-in.png)
+![Chatflows on a new install. Import, Start from a template and Add New are at the top. A Try the demo card offers Add a model key, Try the demo, and the bakery quickstart. A What are you building? card offers Agent team, Chat / simple AI app, Workflow / automation and Knowledge / data pipeline. The lightbulb mascot is above No chatflows yet. Pick Chat / simple AI app above, or start from a template.](../images/from-source/first-signed-in.png)
 
 Next steps: save a model key under **Credentials**, then build an [agent team](./harnesses.md) or an [ETL pipeline](./etl.md).
 

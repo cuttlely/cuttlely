@@ -36,7 +36,7 @@ Agents, tools, vector stores, retrievers, file loaders, more than one model, mor
 
 Chatflows, Harnesses, Agentflows, ETL, and Templates open with outcome choices. An empty list keeps that card open. A list that already has items can hide it. **Which should I use?** opens the names:
 
--   **Agent team** is a harness. The sidebar and the list say **Harness · Agent Team**: Harness Prime and specialists, called by name from a chatflow. Langflow has no harness.
+-   **Agent team** is a harness. The sidebar and the list say **Harness · Agent Team**: Harness Prime and specialists, called by name from a chatflow.
 -   **Chat / simple AI app** is a Chatflow: one chatbot or a simple flow you chat with.
 -   **Workflow / automation** is an Agentflow.
 -   **Knowledge / data pipeline** is ETL.

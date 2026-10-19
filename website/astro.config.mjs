@@ -7,6 +7,7 @@ import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
 import { applyScreenshotZoom } from './scripts/apply-screenshot-zoom.mjs'
 import { mediaUrl } from './scripts/media-version.mjs'
+import { omitLangflowImportFromSitemaps } from './scripts/omit-langflow-sitemap.mjs'
 import { REPO_URL, SITE_URL } from './scripts/site-config.mjs'
 
 const ogImage = `${SITE_URL}${mediaUrl('/social/og-light.png')}`
@@ -30,7 +31,8 @@ export default defineConfig({
         },
         starlight({
             title: 'Cuttlely',
-            description: 'The open-source agent platform for applications.',
+            description:
+                'Open-source visual agent builder, ready for production: drafts, Compare and rollback, a scoped SQL analyst, and Flowise import. Apache-2.0, self-hosted.',
             logo: {
                 light: './src/assets/cuttlely-logo-horizontal.svg',
                 dark: './src/assets/cuttlely-logo-horizontal-dark.svg',
@@ -60,7 +62,8 @@ export default defineConfig({
                     tag: 'meta',
                     attrs: {
                         property: 'og:image:alt',
-                        content: 'Cuttlely. Your applications deserve agents. The open-source agent platform for applications.'
+                        content:
+                            'Cuttlely. The visual agent builder, ready for production. Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.'
                     }
                 },
                 { tag: 'meta', attrs: { name: 'twitter:image', content: ogImage } }
@@ -81,6 +84,14 @@ export default defineConfig({
             pagination: true,
             tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
             titleDelimiter: '·'
-        })
+        }),
+        {
+            name: 'omit-langflow-import-sitemap',
+            hooks: {
+                'astro:build:done': async ({ dir }) => {
+                    omitLangflowImportFromSitemaps(fileURLToPath(dir))
+                }
+            }
+        }
     ]
 })
