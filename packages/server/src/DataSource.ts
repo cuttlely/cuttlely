@@ -26,7 +26,8 @@ export const init = async (): Promise<void> => {
             appDataSource = new DataSource({
                 type: 'sqlite',
                 database: path.resolve(homePath, 'database.sqlite'),
-                enableWAL: true,
+                // WAL is applied in runSupportedMigrations after the pre-3.1.4 guard.
+                enableWAL: false,
                 synchronize: false,
                 migrationsRun: false,
                 entities: Object.values(entities),
@@ -95,7 +96,8 @@ export const init = async (): Promise<void> => {
             appDataSource = new DataSource({
                 type: 'sqlite',
                 database: path.resolve(homePath, 'database.sqlite'),
-                enableWAL: true,
+                // WAL is applied in runSupportedMigrations after the pre-3.1.4 guard.
+                enableWAL: false,
                 synchronize: false,
                 migrationsRun: false,
                 entities: Object.values(entities),

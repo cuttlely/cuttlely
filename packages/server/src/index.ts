@@ -50,6 +50,7 @@ import { announceFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
 import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
+import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from './startup/flowiseUpgradeGuard'
 
 declare global {
     namespace Express {
@@ -101,15 +102,11 @@ export class App {
         try {
             setBootStep('Opening the database')
             await this.AppDataSource.initialize()
-            if (this.AppDataSource.options.type === 'sqlite') {
-                // WAL keeps every commit from waiting on a full fsync.
-                await this.AppDataSource.query('PRAGMA synchronous = NORMAL')
-            }
             logger.info('📦 [server]: Data Source initialized successfully')
 
             // Run Migrations Scripts
             setBootStep('Updating the database')
-            await this.AppDataSource.runMigrations({ transaction: 'each' })
+            await runSupportedMigrations(this.AppDataSource)
             logger.info('🔄 [server]: Database migrations completed successfully')
             const authKitSwitch = await applyAuthKitSwitchOnBoot(this.AppDataSource)
             if (authKitSwitch) {
@@ -197,7 +194,9 @@ export class App {
             logger.info('🎉 [server]: All initialization steps completed successfully!')
         } catch (error) {
             this.initError = error
-            logger.error('❌ [server]: Error during Data Source initialization:', error)
+            if (!logUnsupportedFlowiseUpgrade(error, logger)) {
+                logger.error('❌ [server]: Error during Data Source initialization:', error)
+            }
         }
     }
 
