@@ -169,7 +169,5 @@ export const LICENSE_QUOTAS = {
     ADDITIONAL_SEATS_LIMIT: 'quota:additionalSeats'
 } as const
 
-// Community: single place to keep the repo URL for the "It worked" prompt.
-export const IT_WORKED_URL = 'https://github.com/cuttlely/cuttlely'
 /** Env var to disable the It Worked prompt everywhere. Accepts exactly 'true' (string). */
 export const IT_WORKED_DISABLE_ENV = 'CUTTLELY_DISABLE_IT_WORKED'

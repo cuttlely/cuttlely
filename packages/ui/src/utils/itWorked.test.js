@@ -91,6 +91,30 @@ describe('itWorked UI helpers', () => {
         expect(localStorage.getItem('cuttlely.itWorked.shown')).toBe(null)
     })
 
+    test('does not claim a toast when localStorage is missing', () => {
+        const cfg = { IT_WORKED_DISABLED: false }
+        setItWorkedStorageReader(null)
+        setItWorkedStorageWriter(null)
+        const original = global.localStorage
+        Object.defineProperty(global, 'localStorage', {
+            configurable: true,
+            get() {
+                return undefined
+            }
+        })
+        try {
+            expect(markItWorkedShown()).toBe(false)
+            expect(claimItWorkedShown(cfg)).toBe(false)
+        } finally {
+            Object.defineProperty(global, 'localStorage', {
+                configurable: true,
+                enumerable: true,
+                value: original,
+                writable: true
+            })
+        }
+    })
+
     test('stream toast only after a real result with no error or abort', () => {
         expect(shouldToastOnStreamEnd({ sawResult: false, sawError: false, sawAbort: false })).toBe(false)
         expect(shouldToastOnStreamEnd({ sawResult: true, sawError: true, sawAbort: false })).toBe(false)

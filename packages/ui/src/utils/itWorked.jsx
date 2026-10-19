@@ -1,3 +1,4 @@
+import { Button } from '@mui/material'
 import { IT_WORKED_URL } from '@/store/constant'
 import { useSnackbar } from 'notistack'
 import { useCallback } from 'react'
@@ -102,26 +103,30 @@ export function useItWorkedNotice() {
             enqueueSnackbar('It worked! If Cuttlely helped, a GitHub star helps others find it.', {
                 key,
                 variant: 'info',
-                autoHideDuration: 8000,
-                action: () => (
+                persist: true,
+                action: (snackbarKey) => (
                     <div style={{ display: 'flex', gap: 8 }}>
-                        <a href={IT_WORKED_URL} target='_blank' rel='noopener noreferrer' style={{ color: '#1976d2' }}>
+                        <a
+                            href={IT_WORKED_URL}
+                            target='_blank'
+                            rel='noopener noreferrer'
+                            aria-label='Star on GitHub (opens in a new tab)'
+                            style={{ color: 'white' }}
+                            onClick={() => closeSnackbar(snackbarKey)}
+                        >
                             Star on GitHub
                         </a>
-                        <button
+                        <Button
+                            type='button'
+                            aria-label='Dismiss'
+                            style={{ color: 'white' }}
                             onClick={() => {
                                 dismissItWorked()
-                                closeSnackbar(key)
-                            }}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: '#6b7280',
-                                cursor: 'pointer'
+                                closeSnackbar(snackbarKey)
                             }}
                         >
                             Dismiss
-                        </button>
+                        </Button>
                     </div>
                 )
             })
