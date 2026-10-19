@@ -1,6 +1,6 @@
 # Status
 
-Last refreshed 2026-10-19. Check `git log origin/main` for anything newer. This branch adds the Orchestrate how-to, Harbor bakery demo samples, and a checked-in pull request banned-phrase check. `pnpm verify` (full, Node 24) passed with `OPENAI_API_KEY` and `XAI_API_KEY` unset. The live tenant check (L1–L4) is not part of this change; `[LIVE-TEST]` placeholders stay until that run.
+Last refreshed 2026-10-19. Check `git log origin/main` for anything newer. This branch adds the Orchestrate how-to, Harbor bakery demo samples, and a checked-in pull request banned-phrase check. The how-to records the live-test UI path (**AI Gateway** → **Agent directory** → **Add agent**) and that people chat with a native agent that calls `chat_with_collaborator`. `pnpm verify` (full, Node 24) passed with `OPENAI_API_KEY` and `XAI_API_KEY` unset. Screenshot `[LIVE-TEST]` placeholders stay until that run is recorded.
 
 ## What works on `main`
 

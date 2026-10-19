@@ -18,7 +18,9 @@ The demo flow uses a Grok chat model (`chatXAI`, default `grok-4.7`) with an xAI
 
 ## Register an `external_chat` agent
 
-Set the agent's `api_url` to `$CUTTLELY_URL/api/v1/orchestrate/<flow id>`. IBM may call that URL or append `/chat/completions`; both paths run the same handler.
+In the Orchestrate UI, register the external agent under **AI Gateway** → **Agent directory** → **Add agent**. Set its `api_url` to `$CUTTLELY_URL/api/v1/orchestrate/<flow id>`. IBM may call that URL or append `/chat/completions`; both paths run the same handler.
+
+People do not chat with that external agent directly. They chat with a **native** Orchestrate agent that has the Cuttlely agent added as a collaborator. Orchestrate then calls the Cuttlely flow through `chat_with_collaborator`.
 
 ```yaml
 spec_version: v1

@@ -34,17 +34,17 @@ Harbor bakery is made-up. Saturday hours are 7:00 to 15:00, Sunday is closed, we
 
     The proxy prints `http://127.0.0.1:<port>`. Point the tunnel at that port. `$CUTTLELY_URL` in the YAML is that public origin. `[LIVE-TEST]`: record the tunnel command you used.
 
-7. Copy `samples/orchestrate/external-chat.agent.yaml` to a working file. Replace `YOUR_HOST` with the tunnel host, `YOUR_FLOW_ID` with the flow id, and `<API_KEY>` with the bound key. Import **that copy** into Orchestrate, not the repository file. `auth_scheme` is `API_KEY` (`X-API-Key`). Leave streaming on and `enable_cot` off.
+7. Copy `samples/orchestrate/external-chat.agent.yaml` to a working file. Replace `YOUR_HOST` with the tunnel host, `YOUR_FLOW_ID` with the flow id, and `<API_KEY>` with the bound key. In Orchestrate, open **AI Gateway** → **Agent directory** → **Add agent** and import **that copy**, not the repository file. `auth_scheme` is `API_KEY` (`X-API-Key`). Leave streaming on and `enable_cot` off.
 
-8. Create a native router agent that lists this collaborator.
+8. Create a native Orchestrate agent and add the Cuttlely external agent as a collaborator. People chat with that native agent. Orchestrate routes each turn through `chat_with_collaborator`.
 
 ## Checks L1–L4
 
 Run these against the live tenant before you record. Note the Cuttlely log line `[orchestrate] flow=… path=… thread=… stream=… fields=… status=…`.
 
-**L1 Register.** Both the external agent and the native router save and deploy. The router lists **Harbor bakery hours** as a collaborator. `[LIVE-TEST]`
+**L1 Register.** The external agent is under **AI Gateway** → **Agent directory**. The native agent lists **Harbor bakery hours** as a collaborator. `[LIVE-TEST]`
 
-**L2 Streaming call.** In Orchestrate, ask: `What time do you open on Saturday?` Pass: the answer shows (Harbor bakery opens at 7:00 on Saturday); the log has `stream=true status=200`. Record `path`, `fields`, whether the answer rendered while streaming, and whether Orchestrate handled the close. `[LIVE-TEST]`
+**L2 Streaming call.** In Orchestrate, chat with the **native** agent (not the external agent): `What time do you open on Saturday?` Pass: the answer shows (Harbor bakery opens at 7:00 on Saturday); Cuttlely's log has `stream=true status=200` from `chat_with_collaborator`. Record `path`, `fields`, whether the answer rendered while streaming, and whether Orchestrate handled the close. `[LIVE-TEST]`
 
 **L3 Thread continuity.** In the same chat: `My name is Ada.` then `What is my name?` Pass: the answer says Ada and both lines have the same `thread=` hash. In a new chat, `What is my name?` Pass: it does not know, and the hash is different.
 
@@ -60,18 +60,18 @@ Record **after L1–L4 pass and before teardown**. Teardown stops the tunnel, so
 
 Show no keys. Captions name the credential (`xAI demo`) and the API key (`orchestrate-demo`) only.
 
-| #   | Shot                            | Must show                                                                                                                                                                                                                    | Result        |
-| --- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| 1   | Cuttlely Chatflows page         | Signed-in list. No keys.                                                                                                                                                                                                     | `[LIVE-TEST]` |
-| 2   | Import the demo flow            | `demo.chatflow.json` / **Harbor bakery hours**.                                                                                                                                                                              | `[LIVE-TEST]` |
-| 3   | Canvas with the Grok card       | Conversation Chain, **xAI Grok** (`grok-4.7`), Buffer Memory. Credential already picked; the paste dialog is not in frame.                                                                                                   | `[LIVE-TEST]` |
-| 4   | Credentials page                | Credential **name** only (`xAI demo`). No key material.                                                                                                                                                                      | `[LIVE-TEST]` |
-| 5   | API key dialog                  | Key **name** only (`orchestrate-demo`). No key material.                                                                                                                                                                     | `[LIVE-TEST]` |
-| 6   | IBM external agent create       | `external_chat`, `api_url` `$CUTTLELY_URL/api/v1/orchestrate/<flow id>`, streaming on, CoT off. Token field hidden or empty in the frame.                                                                                    | `[LIVE-TEST]` |
-| 7   | Request / thread header         | **`X-IBM-THREAD-ID`** on the Orchestrate request (Cuttlely log `thread=` hash, or IBM's header view). Fallback: if IBM sends no header, caption `thread=none` and that continuity is IBM's `messages` history. `[LIVE-TEST]` | `[LIVE-TEST]` |
-| 8   | First Orchestrate chat          | Made-up Harbor bakery Saturday hours question; the answer visible. Streaming behaviour `[LIVE-TEST]`.                                                                                                                        | `[LIVE-TEST]` |
-| 9   | Follow-up in the same thread    | Continuity (Ada, or a second Saturday-hours follow-up). **`X-IBM-THREAD-ID`** same as shot 7. Same fallback as shot 7 if IBM omits the header. `[LIVE-TEST]`                                                                 | `[LIVE-TEST]` |
-| 10  | Native router collaborator list | The router lists the Harbor bakery collaborator.                                                                                                                                                                             | `[LIVE-TEST]` |
+| #   | Shot                           | Must show                                                                                                                                                                                                                    | Result        |
+| --- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| 1   | Cuttlely Chatflows page        | Signed-in list. No keys.                                                                                                                                                                                                     | `[LIVE-TEST]` |
+| 2   | Import the demo flow           | `demo.chatflow.json` / **Harbor bakery hours**.                                                                                                                                                                              | `[LIVE-TEST]` |
+| 3   | Canvas with the Grok card      | Conversation Chain, **xAI Grok** (`grok-4.7`), Buffer Memory. Credential already picked; the paste dialog is not in frame.                                                                                                   | `[LIVE-TEST]` |
+| 4   | Credentials page               | Credential **name** only (`xAI demo`). No key material.                                                                                                                                                                      | `[LIVE-TEST]` |
+| 5   | API key dialog                 | Key **name** only (`orchestrate-demo`). No key material.                                                                                                                                                                     | `[LIVE-TEST]` |
+| 6   | IBM external agent create      | **AI Gateway** → **Agent directory** → **Add agent**. `external_chat`, `api_url` `$CUTTLELY_URL/api/v1/orchestrate/<flow id>`, streaming on, CoT off. Token field hidden or empty in the frame.                              | `[LIVE-TEST]` |
+| 7   | Request / thread header        | **`X-IBM-THREAD-ID`** on the Orchestrate request (Cuttlely log `thread=` hash, or IBM's header view). Fallback: if IBM sends no header, caption `thread=none` and that continuity is IBM's `messages` history. `[LIVE-TEST]` | `[LIVE-TEST]` |
+| 8   | First Orchestrate chat         | Chat is with the **native** agent that has Harbor bakery as a collaborator (`chat_with_collaborator`). Made-up Saturday hours question; the answer visible. Streaming behaviour `[LIVE-TEST]`.                               | `[LIVE-TEST]` |
+| 9   | Follow-up in the same thread   | Continuity (Ada, or a second Saturday-hours follow-up). **`X-IBM-THREAD-ID`** same as shot 7. Same fallback as shot 7 if IBM omits the header. `[LIVE-TEST]`                                                                 | `[LIVE-TEST]` |
+| 10  | Native agent collaborator list | The native agent lists the Harbor bakery collaborator. People chat here, not on the external agent.                                                                                                                          | `[LIVE-TEST]` |
 
 Do not add Markdown image links until the PNG files are in `docs/images/`. A missing file fails the docs link check.
 
