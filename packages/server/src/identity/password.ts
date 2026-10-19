@@ -16,9 +16,13 @@
 
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'crypto'
 import { promisify } from 'util'
+import bcrypt from 'bcryptjs'
 
 const scryptAsync = promisify(scrypt)
 const PREFIX = 'scrypt'
+const BCRYPT_REGEX = /^\$2[aby]\$(\d{2})\$[./A-Za-z0-9]{53}$/
+const BCRYPT_MIN_COST = 4
+const BCRYPT_MAX_COST = 12
 
 /**
  * Well-formed scrypt string used when the account cannot be checked.
@@ -27,9 +31,31 @@ const PREFIX = 'scrypt'
  */
 export const DUMMY_PASSWORD_HASH = 'scrypt$AAECAwQFBgcICQoLDA0ODw==$AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA='
 
-/** Real hash only when this account may sign in. Every other case uses the dummy so scrypt still runs. */
-export function hashForLoginCompare(eligible: boolean, credential: string | null): string {
-    if (eligible && credential && credential.startsWith(`${PREFIX}$`)) return credential
+/**
+ * Well-formed bcrypt string at cost 10. Used to pad a failed or dummy scrypt compare
+ * while any accepted bcrypt hash is still stored. Not a password anyone can sign in with.
+ */
+export const DUMMY_BCRYPT_HASH = '$2a$10$izJQJlD9yogrwzhiB6CQA.X0TmTi5UTGyQsoXeQpetpnyAGhVJWJO'
+
+function isScryptHash(stored: string): boolean {
+    return stored.startsWith(`${PREFIX}$`)
+}
+
+/** Parsed bcrypt cost when the string matches the tight form; otherwise null. */
+export function bcryptCost(stored: string): number | null {
+    const match = BCRYPT_REGEX.exec(stored)
+    if (!match) return null
+    return Number(match[1])
+}
+
+/**
+ * Real hash only when this account may sign in.
+ * A miss always uses the scrypt dummy. When any accepted bcrypt hash is still stored,
+ * verifyPassword then pads dummy bcrypt, so unknown, disabled, and a wrong scrypt password
+ * do the same work. Scrypt-only installs stay on the scrypt dummy.
+ */
+export function hashForLoginCompare(eligible: boolean, credential: string | null, _bcryptPresent = false): string {
+    if (eligible && credential && (isScryptHash(credential) || isBcryptHash(credential))) return credential
     return DUMMY_PASSWORD_HASH
 }
 
@@ -51,8 +77,7 @@ export async function hashPassword(password: string): Promise<string> {
     return `${PREFIX}$${salt}$${key.toString('base64')}`
 }
 
-export async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
-    if (!stored || !stored.startsWith(`${PREFIX}$`)) return false
+async function compareScrypt(password: string, stored: string): Promise<boolean> {
     const parts = stored.split('$')
     if (parts.length !== 3) return false
     const salt = parts[1]
@@ -60,6 +85,42 @@ export async function verifyPassword(password: string, stored: string | null): P
     const actual = (await scryptAsync(password, salt, expected.length)) as Buffer
     if (actual.length !== expected.length) return false
     return timingSafeEqual(actual, expected)
+}
+
+async function compareBcrypt(password: string, stored: string): Promise<boolean> {
+    try {
+        return await bcrypt.compare(password, stored)
+    } catch {
+        return false
+    }
+}
+
+/**
+ * When `bcryptPresent` is set, a failed compare also runs the other dummy so unknown,
+ * disabled, and wrong-password paths pay both scrypt and bcrypt work.
+ */
+export async function verifyPassword(password: string, stored: string | null, bcryptPresent = false): Promise<boolean> {
+    if (stored && isScryptHash(stored)) {
+        const ok = await compareScrypt(password, stored)
+        if (!ok && bcryptPresent) await compareBcrypt(password, DUMMY_BCRYPT_HASH)
+        return ok
+    }
+    if (stored && isBcryptHash(stored)) {
+        const ok = await compareBcrypt(password, stored)
+        if (!ok && bcryptPresent) await compareScrypt(password, DUMMY_PASSWORD_HASH)
+        return ok
+    }
+    if (bcryptPresent) {
+        await compareScrypt(password, DUMMY_PASSWORD_HASH)
+        await compareBcrypt(password, DUMMY_BCRYPT_HASH)
+    }
+    return false
+}
+
+/** True only for `$2a$` / `$2b$` / `$2y$` with 53 hash chars and a cost of 4 to 12. */
+export function isBcryptHash(stored: string): boolean {
+    const cost = bcryptCost(stored)
+    return cost !== null && cost >= BCRYPT_MIN_COST && cost <= BCRYPT_MAX_COST
 }
 
 export function tokensEqual(left: string, right: string): boolean {

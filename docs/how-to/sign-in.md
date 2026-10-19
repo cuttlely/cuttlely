@@ -187,3 +187,4 @@ Field names and status codes are in [One-time links](../reference/auth-api.md#on
 | `First-user setup is not available.` after WorkOS sign-in          | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Set it to your email and restart.           |
 | `You have a pending invite. Open the invite link from ...`         | You were invited and have not accepted yet. Open the invite link you were sent and select **Accept invite with WorkOS**.                             |
 | `This invite link is not valid. Ask for a new invite.`             | The link was already used, expired, replaced by a newer one, or revoked, or you signed in with a different email. Ask an admin for a new invite.     |
+| After moving a Flowise `3.1.4` install you cannot sign in          | Passwords from that install are accepted (bcrypt). Sign in once, or reset the owner with `pnpm user --email you@example.com`.                        |
