@@ -102,10 +102,12 @@ it('replaces a credential only when the stored hash still matches, on sqlite', a
     }
     const store = new SqlIdentityStore({ createQueryRunner: () => runner } as unknown as DataSource)
     try {
+        expect(await store.hasBcryptCredential()).toBe(true)
         await expectReplaceCredentialCas(store, 'user-1', async () => {
             const rows = await run('SELECT credential FROM "user" WHERE id = ?', ['user-1'])
             return rows[0] ? String(rows[0].credential) : null
         })
+        expect(await store.hasBcryptCredential()).toBe(false)
     } finally {
         db.close()
     }
@@ -133,10 +135,12 @@ livePg('replaces a credential only when the stored hash still matches, on postgr
             query: async (text: string, params?: unknown[]) => (await db.query(text, params)).rows
         }
         const store = new SqlIdentityStore({ createQueryRunner: () => runner } as unknown as DataSource)
+        expect(await store.hasBcryptCredential()).toBe(true)
         await expectReplaceCredentialCas(store, userId, async () => {
             const result = await db.query('SELECT credential FROM "user" WHERE id = $1', [userId])
             return result.rows[0] ? String(result.rows[0].credential) : null
         })
+        expect(await store.hasBcryptCredential()).toBe(false)
     } finally {
         await db.end()
         const drop = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: 'postgres' })

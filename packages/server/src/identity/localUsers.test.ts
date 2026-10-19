@@ -36,7 +36,7 @@ import {
     handleLogout,
     handleRefresh
 } from './handlers'
-import { DUMMY_BCRYPT_HASH, hashPassword, hashSessionToken } from './password'
+import { DUMMY_BCRYPT_HASH, hashPassword, hashSessionToken, isBcryptHash } from './password'
 import { LoginRateLimit, accountLockKey } from './rateLimit'
 import { addIdentityLoginGuards } from './schemaMigration'
 import { requireOwner, requirePermission, setTeamPermissionLookup } from './rbac'
@@ -160,6 +160,9 @@ class MemoryStore implements IdentityStore {
         if (!user || user.credential !== expected) return false
         user.credential = next
         return true
+    }
+    async hasBcryptCredential(): Promise<boolean> {
+        return this.users.some((user) => Boolean(user.credential && isBcryptHash(user.credential)))
     }
     async acceptInvite(): Promise<'accepted' | 'invalid'> {
         return 'invalid'
@@ -765,6 +768,57 @@ describe('local users mode', () => {
         compare.mockRestore()
     })
 
+    it('runs dummy bcrypt for an unknown or disabled member while any bcrypt hash remains', async () => {
+        const { store } = await seed()
+        const member = store.users.find((u) => u.id === 'user-a')
+        if (!member) throw new Error('missing user-a')
+        member.credential = bcrypt.hashSync(OTHER, 10)
+        const compare = jest.spyOn(bcrypt, 'compare')
+        const unknown = json(await handleLocalLogin(signed({ store, body: { email: 'nobody@example.com', password: OTHER } })))
+        const disabled = json(await handleLocalLogin(signed({ store, body: { email: 'disabled@example.com', password: OTHER } })))
+        expect(unknown.status).toBe(401)
+        expect(disabled.status).toBe(401)
+        expect(compare.mock.calls.length).toBeGreaterThanOrEqual(2)
+        expect(compare.mock.calls.every((call) => call[1] === DUMMY_BCRYPT_HASH)).toBe(true)
+        compare.mockRestore()
+    })
+
+    it('runs dummy bcrypt for an unknown or disabled owner while any bcrypt hash remains', async () => {
+        const { store } = await seed()
+        const owner = store.users.find((u) => u.id === 'owner')
+        if (!owner) throw new Error('missing owner')
+        owner.credential = bcrypt.hashSync(GOOD, 10)
+        const compare = jest.spyOn(bcrypt, 'compare')
+        const unknown = json(
+            await handleLoginPost(ctx({ store, localAdmin: true, internal: true, body: { email: 'nobody@example.com', password: GOOD } }))
+        )
+        expect(unknown.status).toBe(401)
+        expect(compare).toHaveBeenCalled()
+        expect(compare.mock.calls[0][1]).toBe(DUMMY_BCRYPT_HASH)
+        owner.status = 'inactive'
+        const disabled = json(
+            await handleLoginPost(ctx({ store, localAdmin: true, internal: true, body: { email: 'owner@example.com', password: GOOD } }))
+        )
+        expect(disabled.status).toBe(401)
+        expect(compare.mock.calls[compare.mock.calls.length - 1][1]).toBe(DUMMY_BCRYPT_HASH)
+        compare.mockRestore()
+    })
+
+    it('keeps the scrypt dummy for an unknown or disabled miss when no bcrypt hash remains', async () => {
+        const { store } = await seed()
+        const compare = jest.spyOn(bcrypt, 'compare')
+        const unknownMember = json(await handleLocalLogin(signed({ store, body: { email: 'nobody@example.com', password: OTHER } })))
+        const disabledMember = json(await handleLocalLogin(signed({ store, body: { email: 'disabled@example.com', password: OTHER } })))
+        const unknownOwner = json(
+            await handleLoginPost(ctx({ store, localAdmin: true, internal: true, body: { email: 'nobody@example.com', password: GOOD } }))
+        )
+        expect(unknownMember.status).toBe(401)
+        expect(disabledMember.status).toBe(401)
+        expect(unknownOwner.status).toBe(401)
+        expect(compare).not.toHaveBeenCalled()
+        compare.mockRestore()
+    })
+
     it('logs out idempotently and refuses a missing or invalid CSRF header', async () => {
         const { store } = await seed()
         const ok = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
@@ -1228,6 +1282,7 @@ describe('local users mode', () => {
         const calls: string[] = []
         const find = store.findUsersByEmail.bind(store)
         const open = store.localAccountOpen.bind(store)
+        const bcryptLeft = store.hasBcryptCredential.bind(store)
         const drop = store.deleteLocalSessionsForUser.bind(store)
         store.findUsersByEmail = async (email) => {
             calls.push(`find:${email}`)
@@ -1236,6 +1291,10 @@ describe('local users mode', () => {
         store.localAccountOpen = async (id) => {
             calls.push(`open:${id}`)
             return open(id)
+        }
+        store.hasBcryptCredential = async () => {
+            calls.push('bcrypt')
+            return bcryptLeft()
         }
         store.deleteLocalSessionsForUser = async (id) => {
             calls.push(`drop:${id}`)
@@ -1252,7 +1311,7 @@ describe('local users mode', () => {
         const disabled = await attempt('disabled@example.com', OTHER)
         expect(unknown.result.status).toBe(401)
         const names = (rows: string[]) => rows.map((call) => call.split(':')[0])
-        expect(names(unknown.calls)).toEqual(['find', 'open', 'drop'])
+        expect(names(unknown.calls)).toEqual(['find', 'open', 'bcrypt', 'drop'])
         expect(names(wrong.calls)).toEqual(names(unknown.calls))
         expect(names(empty.calls)).toEqual(names(unknown.calls))
         expect(names(disabled.calls)).toEqual(names(unknown.calls))

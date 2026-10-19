@@ -32,8 +32,8 @@ const BCRYPT_MAX_COST = 12
 export const DUMMY_PASSWORD_HASH = 'scrypt$AAECAwQFBgcICQoLDA0ODw==$AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA='
 
 /**
- * Well-formed bcrypt string at cost 10. Used on the miss or ineligible path when the stored hash is bcrypt,
- * so a migrated account is not distinguishable from a disabled or unknown one by algorithm.
+ * Well-formed bcrypt string at cost 10. Used on the miss or ineligible path when this hash is bcrypt,
+ * or when any accepted bcrypt hash is still stored, so a migrated mailbox is not distinguishable by work.
  * Not a password anyone can sign in with.
  */
 export const DUMMY_BCRYPT_HASH = '$2a$10$izJQJlD9yogrwzhiB6CQA.X0TmTi5UTGyQsoXeQpetpnyAGhVJWJO'
@@ -49,10 +49,14 @@ export function bcryptCost(stored: string): number | null {
     return Number(match[1])
 }
 
-/** Real hash only when this account may sign in. Every other case uses a dummy so the same class of work still runs. */
-export function hashForLoginCompare(eligible: boolean, credential: string | null): string {
+/**
+ * Real hash only when this account may sign in.
+ * A miss uses dummy bcrypt when this credential is bcrypt, or when any accepted bcrypt hash is still stored,
+ * so an unknown or disabled mailbox is not faster than a migrated one. Scrypt-only installs keep the scrypt dummy.
+ */
+export function hashForLoginCompare(eligible: boolean, credential: string | null, bcryptPresent = false): string {
     if (eligible && credential && (isScryptHash(credential) || isBcryptHash(credential))) return credential
-    if (credential && isBcryptHash(credential)) return DUMMY_BCRYPT_HASH
+    if ((credential && isBcryptHash(credential)) || bcryptPresent) return DUMMY_BCRYPT_HASH
     return DUMMY_PASSWORD_HASH
 }
 

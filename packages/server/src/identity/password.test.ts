@@ -63,6 +63,15 @@ describe('hashForLoginCompare', () => {
         expect(hashForLoginCompare(true, `$2a$31$${BCRYPT_TAIL}`)).toBe(DUMMY_PASSWORD_HASH)
         expect(hashForLoginCompare(false, null)).toBe(DUMMY_PASSWORD_HASH)
     })
+
+    it('uses dummy bcrypt for a null or ineligible miss while any bcrypt hash is still stored', () => {
+        const scrypt = 'scrypt$salt$key'
+        expect(hashForLoginCompare(false, null, true)).toBe(DUMMY_BCRYPT_HASH)
+        expect(hashForLoginCompare(false, scrypt, true)).toBe(DUMMY_BCRYPT_HASH)
+        expect(hashForLoginCompare(false, '', true)).toBe(DUMMY_BCRYPT_HASH)
+        expect(hashForLoginCompare(true, scrypt, true)).toBe(scrypt)
+        expect(hashForLoginCompare(false, null, false)).toBe(DUMMY_PASSWORD_HASH)
+    })
 })
 
 describe('verifyPassword', () => {

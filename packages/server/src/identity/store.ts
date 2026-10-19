@@ -30,6 +30,8 @@ export interface IdentityStore {
      * Returns false when the row is missing or another writer already changed it.
      */
     replaceCredential(userId: string, expected: string, next: string): Promise<boolean>
+    /** True when any stored credential is an accepted bcrypt hash (cost 4 to 12). */
+    hasBcryptCredential(): Promise<boolean>
     createOwner(input: CreateOwnerInput): Promise<UserRow>
     /**
      * Uses one invite token for this pending user: the token must be an unused, unexpired invite for that user and

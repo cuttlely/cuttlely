@@ -22,6 +22,7 @@ import { runtimeNumber } from '../settings/runtime'
 import { AuthKitSwitchApply, AuthKitSwitchState, nextAuthKitSwitch } from './authKitSwitch'
 import { utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
+import { isBcryptHash } from './password'
 import { IdentityStore } from './store'
 import { CreateOwnerInput, InviteSignIn, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
 import { acceptAuthKitInvite } from './actionLink'
@@ -229,6 +230,21 @@ export class SqlIdentityStore implements IdentityStore {
                 [userId]
             )
             return Boolean(rows[0] && text(cell(rows[0], 'credential')) === next)
+        })
+    }
+
+    async hasBcryptCredential(): Promise<boolean> {
+        return this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            const rows = await query(
+                runner,
+                `SELECT ${quote(d, 'credential')} AS ${quote(d, 'credential')} FROM ${quote(d, 'user')}
+                 WHERE ${quote(d, 'credential')} LIKE '$2a$%'
+                    OR ${quote(d, 'credential')} LIKE '$2b$%'
+                    OR ${quote(d, 'credential')} LIKE '$2y$%'
+                 LIMIT 32`
+            )
+            return rows.some((row) => isBcryptHash(text(cell(row, 'credential'))))
         })
     }
 
