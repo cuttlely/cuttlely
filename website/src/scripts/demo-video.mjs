@@ -349,6 +349,59 @@ function watchViewport(videos, win, doc) {
     for (const video of videos) observer.observe(video)
 }
 
+function clipHasSources(video) {
+    if (!video) return false
+    if (video.dataset?.srcWebm || video.dataset?.srcMp4) return true
+    if (typeof video.querySelector === 'function' && video.querySelector('source')) return true
+    return !!parkedSources.get(video)?.length
+}
+
+function attachClipSources(video, doc) {
+    if (!video || typeof video.querySelector !== 'function' || typeof doc?.createElement !== 'function') return false
+    if (video.querySelector('source')) return true
+    if (parkedSources.get(video)?.length) return true
+    const webm = video.dataset?.srcWebm
+    const mp4 = video.dataset?.srcMp4
+    if (!webm && !mp4) return false
+    const add = (src, type) => {
+        const source = doc.createElement('source')
+        source.src = src
+        source.type = type
+        video.appendChild(source)
+    }
+    if (webm) add(webm, 'video/webm')
+    if (mp4) add(mp4, 'video/mp4')
+    return true
+}
+
+/**
+ * Poster-first clip slots. A later clip can put source tags in the HTML (parked until play, same
+ * as the home videos) or leave URLs on data-src-* until the visitor clicks play.
+ */
+export function initClipSlots(doc = document) {
+    if (typeof doc?.querySelectorAll !== 'function') return 0
+    let count = 0
+    for (const stage of doc.querySelectorAll('[data-clip-slot]')) {
+        const video = stage.matches?.('video') ? stage : stage.querySelector?.('video')
+        const button = stage.querySelector?.('[data-play-with-sound]') || nextPlayButton(video)
+        const poster = stage.querySelector?.('[data-clip-poster]')
+        if (!clipHasSources(video)) {
+            if (button) button.disabled = true
+            continue
+        }
+        if (button) button.disabled = false
+        const start = () => {
+            if (!attachClipSources(video, doc)) return
+            if (poster) poster.hidden = true
+            if (video) video.hidden = false
+            playFromStart(video)
+        }
+        if (button && typeof button.addEventListener === 'function') button.addEventListener('click', start)
+        count += 1
+    }
+    return count
+}
+
 /**
  * Parks every source on first paint. Heroes play only when the visitor clicks play.
  * Tile loops may start later, one at a time, after that click, when canAutoplay is true.

@@ -23,6 +23,7 @@ const base = {
     'quickstart/index.html': `<html><head>${head}</head><body></body></html>`,
     'docs/index.html': `<html><head>${head}</head><body><h2 id="build">Build</h2></body></html>`,
     'faq/index.html': `<html><head>${head}</head><body></body></html>`,
+    'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`,
     'robots.txt': '',
     'sitemap-index.xml': '',
     '.well-known/security.txt': '',
@@ -53,6 +54,12 @@ describe('check-site', () => {
         const files = { ...base }
         delete files['faq/index.html']
         assert.ok(checkSite(site(files)).problems.includes('missing faq/index.html'))
+    })
+
+    it('fails when the Flowise import page was not built', () => {
+        const files = { ...base }
+        delete files['flowise/index.html']
+        assert.ok(checkSite(site(files)).problems.includes('missing flowise/index.html'))
     })
 
     it('decodes an escaped ampersand in a link once', () => {
@@ -215,6 +222,54 @@ describe('check-site message house', () => {
             'sitemap-0.xml': '<urlset><url><loc>https://cuttlely.com/docs/langflow-import/</loc></url></urlset>'
         })
         assert.match(checkSite(dir).problems.join('\n'), /lists the Langflow import page/)
+    })
+
+    it('fails a sitemap that lists the /migrate/ alias', () => {
+        const dir = site({
+            ...base,
+            'sitemap-0.xml': '<urlset><url><loc>https://cuttlely.com/migrate/</loc></url></urlset>'
+        })
+        assert.match(checkSite(dir).problems.join('\n'), /lists the \/migrate\/ alias/)
+    })
+
+    it('requires the home lineage line to point at /flowise/ and the Coming from Flowise link', () => {
+        const lineageHome = home.replace(
+            '</body>',
+            '<p><a href="/docs/bring-your-flows/">Cuttlely picks up where Flowise left off... built on its Apache-2.0 code, with the production layer on top.</a></p></body>'
+        )
+        const dir = site({ ...base, 'index.html': lineageHome })
+        const problems = checkSite(dir).problems.join('\n')
+        assert.match(problems, /lineage line should point at \/flowise\//)
+        assert.match(problems, /Coming from Flowise\?/)
+    })
+
+    it('fails waitlist copy and an unchanged-flows claim on the Flowise import page', () => {
+        const waitlist = site({
+            ...base,
+            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Join the waitlist</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
+        })
+        assert.match(checkSite(waitlist).problems.join('\n'), /waitlist/)
+        const unchanged = site({
+            ...base,
+            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Cuttlely runs your flows unchanged</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
+        })
+        assert.match(checkSite(unchanged).problems.join('\n'), /unchanged/)
+        const draft = site({
+            ...base,
+            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>The import opens a draft of that flow.</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
+        })
+        assert.match(checkSite(draft).problems.join('\n'), /opens a draft/)
+    })
+
+    it('skips social tags on a static redirect page', () => {
+        const dir = site({
+            ...base,
+            'migrate/index.html': '<html><head><meta http-equiv="refresh" content="0;url=/flowise/"></head><body>Moved</body></html>'
+        })
+        assert.deepEqual(
+            checkSite(dir).problems.filter((p) => p.includes('migrate')),
+            []
+        )
     })
 
     it('the committed link preview is 1200x630 and under 300 KB', () => {

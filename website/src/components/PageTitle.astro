@@ -1,0 +1,8 @@
+---
+// Splash pages with their own H1 (the Flowise import page) skip Starlight's title so the heading is not doubled.
+import Default from '@astrojs/starlight/components/PageTitle.astro'
+
+const hide = Astro.url.pathname.startsWith('/flowise/')
+---
+
+{hide ? null : <Default><slot /></Default>}

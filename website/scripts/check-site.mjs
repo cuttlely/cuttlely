@@ -191,9 +191,10 @@ export function checkSite(dist, { csp = null } = {}) {
             const hit = text.match(OTHER_APPS_RE)
             if (hit) problems.push(`${page}: names another product ("${hit[0]}")`)
         }
-        // Head
-        if (!/<link rel="canonical"/.test(html) && page !== '404.html') problems.push(`${page}: no canonical link`)
-        if (!/property="og:image"/.test(html)) problems.push(`${page}: no og:image`)
+        // Head. A static redirect is a meta refresh; it does not need social tags of its own.
+        const redirect = /http-equiv=["']refresh["']/i.test(html)
+        if (!redirect && !/<link rel="canonical"/.test(html) && page !== '404.html') problems.push(`${page}: no canonical link`)
+        if (!redirect && !/property="og:image"/.test(html)) problems.push(`${page}: no og:image`)
     }
     for (const required of [
         'index.html',
@@ -201,6 +202,7 @@ export function checkSite(dist, { csp = null } = {}) {
         'quickstart/index.html',
         'docs/index.html',
         'faq/index.html',
+        'flowise/index.html',
         'robots.txt',
         'sitemap-index.xml',
         '.well-known/security.txt',
@@ -227,6 +229,7 @@ export function checkSite(dist, { csp = null } = {}) {
         if (!/^sitemap.*\.xml$/.test(name)) continue
         const xml = fs.readFileSync(path.join(dist, name), 'utf8')
         if (/langflow-import/i.test(xml)) problems.push(`${name}: lists the Langflow import page`)
+        if (/\/migrate\/?<\/loc>/.test(xml)) problems.push(`${name}: lists the /migrate/ alias`)
     }
     if (unlisted.size) {
         problems.push(`inline scripts not allowed by the Content-Security-Policy in website/render.yaml, add: ${[...unlisted].join(' ')}`)
@@ -235,6 +238,28 @@ export function checkSite(dist, { csp = null } = {}) {
     const homeText = visibleText(home).replace(/\s+/g, ' ')
     for (const line of HOME_LINES) {
         if (!homeText.includes(line) && !home.includes(line)) problems.push(`index.html: missing "${line}"`)
+    }
+    if (/picks up where/.test(home) && !home.includes('href="/flowise/"')) {
+        problems.push('index.html: lineage line should point at /flowise/')
+    }
+    if (/picks up where/.test(home) && !home.includes('Coming from Flowise?')) {
+        problems.push('index.html: missing "Coming from Flowise?"')
+    }
+    const flowiseFile = path.join(dist, 'flowise/index.html')
+    if (fs.existsSync(flowiseFile)) {
+        const flowise = fs.readFileSync(flowiseFile, 'utf8')
+        const flowiseText = visibleText(flowise)
+        for (const line of [
+            'Bring your Flowise flows.',
+            'Import a flow (2-min guide)',
+            'Star on GitHub',
+            'Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.'
+        ]) {
+            if (!flowise.includes(line) && !flowiseText.includes(line)) problems.push(`flowise/index.html: missing "${line}"`)
+        }
+        if (/waitlist/i.test(flowiseText)) problems.push('flowise/index.html: shows waitlist copy')
+        if (/runs your flows unchanged/i.test(flowiseText)) problems.push('flowise/index.html: claims flows run unchanged')
+        if (/opens a draft/i.test(flowiseText)) problems.push('flowise/index.html: says the import opens a draft')
     }
     // A real site build has hashed /_astro assets. Fixtures used by unit tests do not.
     if (home && fs.existsSync(path.join(dist, '_astro'))) {
