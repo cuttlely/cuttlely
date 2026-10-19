@@ -72,3 +72,9 @@ services:
           - type: redirect
             source: /start
             destination: /quickstart/
+          - type: redirect
+            source: /migrate
+            destination: /flowise/
+          - type: redirect
+            source: /migrate/
+            destination: /flowise/

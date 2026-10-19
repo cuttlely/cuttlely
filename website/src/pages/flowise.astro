@@ -1,0 +1,240 @@
+---
+// Public Flowise import page at /flowise/. Claims match the import guides; unverified paths stay off.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import { Code, Icon } from '@astrojs/starlight/components'
+import { getImage } from 'astro:assets'
+import CopyButton from '../components/CopyButton.astro'
+import wizardCanvas from '../content/docs/docs/images/bring-your-flows/wizard-opened-canvas.png'
+import { REPO_URL } from '../../scripts/site-config.mjs'
+
+const poster = await getImage({ src: wizardCanvas, width: 1280, format: 'webp' })
+
+const title = 'Bring your Flowise flows: import, no rebuild | Cuttlely'
+const description =
+    'Import your Flowise JSON. It opens node for node, no rebuild. Open source, Apache-2.0, self-hosted.'
+
+const curlDiff = `- curl -s http://localhost:3000/api/v1/prediction/cf_bakery_helper_7a2c -H "Content-Type: application/json" -d '{"question":"How much are two croissants?"}'
++ curl -s http://localhost:43117/api/v1/prediction/cf_bakery_helper_7a2c -H "Content-Type: application/json" -d '{"question":"How much are two croissants?"}'`
+
+const after = [
+    { label: 'drafts', href: '/docs/how-to/versioning/#drafts-and-publish' },
+    { label: 'Compare', href: '/docs/how-to/ab-testing/#compare-live-and-your-draft' },
+    { label: 'gates', href: '/docs/how-to/ab-testing/#make-publish-wait-for-a-passing-test-set' },
+    { label: 'rollback', href: '/docs/how-to/versioning/#restore-a-version' },
+    { label: 'roles', href: '/docs/how-to/roles-and-permissions/' },
+    { label: 'audit', href: '/docs/how-to/audit-log/' },
+    { label: 'scoped keys', href: '/docs/how-to/harnesses/#run-it-from-your-app-with-an-api-key' },
+    { label: 'teams', href: '/docs/how-to/roles-and-permissions/#teams' },
+    { label: 'scoped analyst', href: '/docs/how-to/analyst/#pick-the-tables-and-views-the-analyst-sees' },
+    { label: 'tokens per run', href: '/docs/how-to/context-and-tokens/#where-a-run-shows-the-tokens' }
+] as const
+---
+
+<StarlightPage
+    frontmatter={{
+        title: 'Bring your Flowise flows: import, no rebuild',
+        description,
+        template: 'splash',
+        head: [{ tag: 'title', content: title }],
+        pagefind: true,
+        tableOfContents: false
+    }}
+    hasSidebar={false}
+>
+    <div class="cl-home cl-flowise not-content">
+        <section class="cl-hero" aria-labelledby="_top">
+            <div class="cl-hero-copy">
+                <p class="cl-eyebrow"><span class="cl-dot" aria-hidden="true"></span>The visual agent builder, ready for production.</p>
+                <h1 id="_top" class="cl-display cl-hero-title">Bring your Flowise flows.</h1>
+                <p class="cl-hero-lead">Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p>
+                <p class="cl-hero-proof">
+                    Cuttlely picks up where Flowise left off... the next generation of the visual builder. Import opens your flows node for node.
+                </p>
+            </div>
+        </section>
+
+        <ul class="cl-pillars" aria-label="What Cuttlely gives you">
+            <li>
+                <strong>Ship changes safely.</strong> Edits to flows and agent teams go to a draft. Compare it with Live, gate Publish on a test set, and roll
+                Live back at once. Roles, an audit log, and API keys that only run the harnesses you tick.
+            </li>
+            <li>
+                <strong>Keep context small.</strong> A team splits each question so every specialist gets a self-contained task, not the whole chat. The
+                analyst sees only the tables you tick. Every run shows its tokens.
+            </li>
+            <li>
+                <strong>Bring your flows.</strong> Import your Flowise JSON and it opens node for node. No rebuild.
+            </li>
+        </ul>
+
+        <div class="cl-actions">
+            <a class="cl-button cl-button-primary" href="/docs/bring-your-flows/">
+                Import a flow (2-min guide)
+                <Icon name="right-arrow" size="1.1em" />
+            </a>
+            <a class="cl-button cl-button-ghost" href={REPO_URL}>
+                <Icon name="github" size="1.1em" />
+                Star on GitHub
+            </a>
+        </div>
+
+        <div class="cl-terminal" role="group" aria-label="Start Cuttlely, then import Flowise JSON">
+            <div class="cl-terminal-bar">
+                <span class="cl-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="cl-terminal-title">Node 20+ and Docker, then Import Flowise JSON</span>
+                <CopyButton target="cl-flowise-start" />
+            </div>
+            <pre id="cl-flowise-start"><code><span class="cl-prompt" aria-hidden="true">$ </span>npx cuttlely start
+<span class="cl-prompt" aria-hidden="true">$ </span>git clone https://github.com/cuttlely/cuttlely && cd cuttlely && docker compose up -d</code></pre>
+        </div>
+        <p class="cl-note cl-flowise-open">
+            Then open <code>http://localhost:43117</code>, go to <strong>Chatflows</strong>, and select <strong>Import</strong> → <strong>Import Flowise JSON</strong>.
+        </p>
+
+        <figure class="cl-demo-window cl-flowise-clip">
+            <div class="cl-video-stage" data-clip-slot>
+                <img
+                    class="cl-demo-video"
+                    data-clip-poster
+                    src={poster.src}
+                    alt="Bakery helper after Import Flowise JSON: ChatOpenAI, Buffer Memory and Conversation Chain on the canvas, with an empty credential on ChatOpenAI."
+                    width="1280"
+                    height="720"
+                />
+                <video
+                    class="cl-demo-video"
+                    hidden
+                    playsinline
+                    preload="none"
+                    poster={poster.src}
+                    data-src-webm=""
+                    data-src-mp4=""
+                    aria-describedby="cl-flowise-clip-caption"
+                ></video>
+                <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play a walkthrough of Import Flowise JSON">
+                    <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+                        <path d="M8 5v14l12-7z" fill="currentColor"></path>
+                    </svg>
+                </button>
+            </div>
+            <figcaption id="cl-flowise-clip-caption" class="cl-demo-caption">
+                The opened canvas after Import Flowise JSON. A short walkthrough will play here; the poster is the bakery helper export.
+            </figcaption>
+        </figure>
+
+        <section id="pick-your-path" class="cl-section" aria-labelledby="path-title">
+            <div class="cl-center">
+                <p class="cl-kicker">Two ways in</p>
+                <h2 id="path-title" class="cl-display">Pick your path</h2>
+            </div>
+            <ul class="cl-installs cl-flowise-paths">
+                <li>
+                    <a href="/docs/bring-your-flows/">
+                        <Icon name="document" size="1.5rem" />
+                        <span class="cl-display">One flow at a time</span>
+                        <span>
+                            On <strong>Chatflows</strong>, select <strong>Import Flowise JSON</strong>. The wizard checks one chatflow or agentflow export and
+                            opens it on the canvas that fits it.
+                        </span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/docs/api/">
+                        <Icon name="seti:json" size="1.5rem" />
+                        <span class="cl-display">Just the API</span>
+                        <span>
+                            A chatflow still answers on <code>POST /api/v1/prediction/:id</code> with the same request body. Point the call at Cuttlely and use
+                            the id it assigns.
+                        </span>
+                    </a>
+                </li>
+            </ul>
+            <div class="cl-flowise-diff">
+                <p class="cl-code-label">Same body, new host</p>
+                <Code code={curlDiff} lang="diff" />
+                <p class="cl-note">
+                    <code>cf_bakery_helper_7a2c</code> is a made-up id. After import, use the id Cuttlely shows on the chatflow. The JSON body does not change.
+                </p>
+            </div>
+        </section>
+
+        <section id="what-carries-over" class="cl-section cl-band" aria-labelledby="carry-title">
+            <h2 id="carry-title" class="cl-display">What carries over</h2>
+            <ul class="cl-flowise-list">
+                <li>About 300 nodes, with their settings.</li>
+                <li>Connections between nodes that exist.</li>
+                <li>Chatflows and agentflows, each on their own canvas.</li>
+                <li>A chatflow's prediction API body.</li>
+                <li>Custom tools, via <strong>Tools</strong> → <strong>Load</strong>.</li>
+                <li>
+                    <code>FLOWISE_*</code> setting names. <code>CUTTLELY_*</code> aliases win when both are set.
+                </li>
+            </ul>
+
+            <h3 class="cl-display">On purpose</h3>
+            <p>
+                API keys, passwords and saved credential ids are removed from the file. Pick a credential on each card, then <strong>Save</strong>.
+            </p>
+
+            <h3 class="cl-display">Dropped, with a note</h3>
+            <p>
+                The file still opens. The wizard drops Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix, and AssemblyAI configuration cards. Set up
+                tracing in Analytics (Chatflow Configuration → Analytics) and transcription in Speech to Text.
+            </p>
+
+            <h3 class="cl-display">Not yet</h3>
+            <ul class="cl-flowise-list">
+                <li>Old embed scripts. Copy the new snippet from the chatflow's <strong>Embed</strong> tab.</li>
+                <li>Whole-workspace exports. Import one flow at a time.</li>
+                <li>LlamaIndex nodes.</li>
+                <li>Credential matching in the wizard. Select credentials on the canvas after it opens.</li>
+                <li>Saved canvas zoom.</li>
+            </ul>
+            <p>
+                <a class="cl-link-arrow" href="/docs/bring-your-flows/">What carries over <Icon name="right-arrow" /></a>
+                <a class="cl-link-arrow" href="/docs/flowise-migration-wizard/">Flowise migration wizard <Icon name="right-arrow" /></a>
+            </p>
+        </section>
+
+        <section id="before-you-move" class="cl-section" aria-labelledby="before-title">
+            <h2 id="before-title" class="cl-display">Before you move</h2>
+            <ol class="cl-steps">
+                <li><strong>Back up the data folder and the encryption key.</strong> Keep a copy you can restore if the first import is not what you expected.</li>
+                <li><strong>Export the flows you care about</strong> as JSON, one chatflow or agentflow per file.</li>
+                <li><strong>List the credentials</strong> those flows use, so you can recreate them under <strong>Credentials</strong>.</li>
+                <li><strong>Note any website embeds</strong>, because the old snippet does not carry over.</li>
+                <li><strong>Try one flow on a laptop first</strong>, then move the rest.</li>
+            </ol>
+        </section>
+
+        <section id="what-you-get-after" class="cl-section" aria-labelledby="after-title">
+            <h2 id="after-title" class="cl-display">What you get after</h2>
+            <p>The import opens a draft of that flow. From there you get:</p>
+            <ul class="cl-after">
+                {
+                    after.map((item) => (
+                        <li>
+                            <a href={item.href}>{item.label}</a>
+                        </li>
+                    ))
+                }
+            </ul>
+        </section>
+
+        <section id="send-a-flow-that-breaks" class="cl-section cl-final" aria-labelledby="break-title">
+            <h2 id="break-title" class="cl-display">Send me a flow that breaks.</h2>
+            <p>
+                Open a new issue and attach a made-up export. Remove API keys, passwords and saved credential ids first.
+            </p>
+            <div class="cl-actions cl-actions-center">
+                <a class="cl-button cl-button-primary" href={`${REPO_URL}/issues/new?template=bug_report.yml`}>
+                    Open an issue
+                    <Icon name="right-arrow" />
+                </a>
+                <a class="cl-button cl-button-ghost" href="/docs/bring-your-flows/">2-min guide</a>
+            </div>
+        </section>
+
+        <p class="cl-disclaimer">Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p>
+    </div>
+</StarlightPage>

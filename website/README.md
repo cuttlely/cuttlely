@@ -36,6 +36,7 @@ npm test          # unit tests for the build scripts
 | `src/pages/index.astro`  | The home page                                                                                |
 | `src/pages/404.astro`    | The page for unknown addresses                                                               |
 | `/faq/`                  | The public FAQ, copied from the repository `FAQ.md`                                          |
+| `/flowise/`              | Flowise import page (`src/pages/flowise.astro`). `/migrate/` redirects here                  |
 | `src/components/`        | Header links, hero, footer, screenshot images and the Starlight components the site replaces |
 | `src/scripts/`           | Screenshot viewer (bundled module, no inline script)                                         |
 | `src/styles/`            | Brand colors (Cuttle Violet, light and dark) and the site layout                             |

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* eslint-disable no-console -- build script; output is the interface */
-// Drops the Langflow import page from sitemap XML after `astro build`.
+// Drops the Langflow import page and the /migrate/ alias from sitemap XML after `astro build`.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -14,7 +14,9 @@ export function omitLangflowImportFromSitemaps(dist) {
         if (!/^sitemap.*\.xml$/.test(name)) continue
         const file = path.join(dist, name)
         const xml = fs.readFileSync(file, 'utf8')
-        const next = xml.replace(/<url>\s*<loc>[^<]*langflow-import[^<]*<\/loc>[\s\S]*?<\/url>\s*/gi, '')
+        const next = xml
+            .replace(/<url>\s*<loc>[^<]*langflow-import[^<]*<\/loc>[\s\S]*?<\/url>\s*/gi, '')
+            .replace(/<url>\s*<loc>[^<]*\/migrate\/?<\/loc>[\s\S]*?<\/url>\s*/gi, '')
         if (next !== xml) {
             fs.writeFileSync(file, next)
             changed += 1

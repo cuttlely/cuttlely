@@ -550,6 +550,52 @@ function watchNarrationScroll(videos, win) {
     for (const video of heroes) observer.observe(video)
 }
 
+function attachClipSources(video, doc) {
+    if (!video || typeof video.querySelector !== 'function' || typeof doc?.createElement !== 'function') return false
+    if (video.querySelector('source')) return true
+    const webm = video.dataset?.srcWebm
+    const mp4 = video.dataset?.srcMp4
+    if (!webm && !mp4) return false
+    const add = (src, type) => {
+        const source = doc.createElement('source')
+        source.src = src
+        source.type = type
+        video.appendChild(source)
+    }
+    if (webm) add(webm, 'video/webm')
+    if (mp4) add(mp4, 'video/mp4')
+    return true
+}
+
+/**
+ * Poster-first clip slots. Source URLs stay on data-src-* until the visitor clicks play, so a later
+ * clip can drop in files without putting a fetch on first paint.
+ */
+export function initClipSlots(doc = document) {
+    if (typeof doc?.querySelectorAll !== 'function') return 0
+    let count = 0
+    for (const stage of doc.querySelectorAll('[data-clip-slot]')) {
+        const video = stage.matches?.('video') ? stage : stage.querySelector?.('video')
+        const button = stage.querySelector?.('[data-play-with-sound]') || nextPlayButton(video)
+        const poster = stage.querySelector?.('[data-clip-poster]')
+        const hasSrc = !!(video?.dataset?.srcWebm || video?.dataset?.srcMp4)
+        if (!hasSrc) {
+            if (button) button.disabled = true
+            continue
+        }
+        if (button) button.disabled = false
+        const start = () => {
+            if (!attachClipSources(video, doc)) return
+            if (poster) poster.hidden = true
+            if (video) video.hidden = false
+            playFromStart(video)
+        }
+        if (button && typeof button.addEventListener === 'function') button.addEventListener('click', start)
+        count += 1
+    }
+    return count
+}
+
 /** Plays the demo video and the tile loops while they are on screen, when autoplay is fine for this visitor. */
 export function initDemoVideo(doc = document, win = window) {
     const videos = [...doc.querySelectorAll('[data-demo-video], [data-loop-video]')]
