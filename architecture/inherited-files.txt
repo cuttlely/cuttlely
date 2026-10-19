@@ -1,6 +1,7 @@
 .changeset/config.json
 .dockerignore
 .eslintrc.js
+.gitattributes
 .github/ISSUE_TEMPLATE/bug_report.yml
 .github/ISSUE_TEMPLATE/feature_request.yml
 .github/workflows/main.yml
@@ -1301,6 +1302,8 @@ packages/server/src/routes/leads/index.ts
 packages/server/src/routes/load-prompts/index.ts
 packages/server/src/routes/log/index.ts
 packages/server/src/routes/marketplaces/index.ts
+packages/server/src/routes/mcp-endpoint/http.test.ts
+packages/server/src/routes/mcp-endpoint/http.ts
 packages/server/src/routes/mcp-endpoint/index.test.ts
 packages/server/src/routes/mcp-endpoint/index.ts
 packages/server/src/routes/mcp-server/index.ts
