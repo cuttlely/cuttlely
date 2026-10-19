@@ -615,7 +615,12 @@ test('the home Integrations section follows the pillars, leads with Orchestrate,
     assert.ok(start > page.indexOf('<strong>Build agent teams.</strong>'), 'Integrations section sits after the pillars')
     assert.ok(start < page.indexOf('<section id="watch-a-team-resolve-a-complaint"'), 'Integrations section sits before the showcase')
     const section = page.slice(start, page.indexOf('</section>', start))
-    assert.match(section, /Call your agents from IBM watsonx Orchestrate/)
+    assert.match(section, /Integrations for the enterprise/)
+    assert.match(section, /Example: call your agents from IBM watsonx Orchestrate/)
+    assert.match(
+        section,
+        /Cuttlely agents answer over a standard chat API, so enterprise platforms can call them\. Here's one we tested live: IBM watsonx Orchestrate\./
+    )
     assert.match(section, /href="\/docs\/api\/#call-a-chatflow-from-orchestrate"/)
     assert.match(section, /Get started in 10 minutes/)
     assert.match(section, /Star on GitHub/)
