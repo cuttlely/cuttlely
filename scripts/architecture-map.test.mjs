@@ -26,7 +26,8 @@ describe('architecture map', () => {
             'packages/server/src/settings/registry.ts': 'Admin panel and server settings',
             'scripts/verify.mjs': 'core-shared',
             'ARCHITECTURE.md': 'core-shared',
-            'architecture/boundaries.json': 'core-shared'
+            'architecture/boundaries.json': 'core-shared',
+            '.gitattributes': 'core-shared'
         }
         for (const [file, name] of Object.entries(expectSubsystem)) {
             assert.equal(files.has(file), true, file)

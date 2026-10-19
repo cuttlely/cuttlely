@@ -49,6 +49,15 @@ export function normalizeApiPath(path: string): string {
     return collapseSlashes(path).replace(/[A-Z]/g, (c) => c.toLowerCase())
 }
 
+/**
+ * True for the remote MCP Streamable HTTP paths. `/api/v1/mcp-server` is a
+ * different route and must not match.
+ */
+export function isMcpEndpointPath(reqPath: string): boolean {
+    const path = normalizeApiPath(reqPath)
+    return path === '/api/v1/mcp' || path.startsWith('/api/v1/mcp/')
+}
+
 function collapseSlashes(path: string): string {
     return path.replace(/\/{2,}/g, '/')
 }

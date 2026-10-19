@@ -1974,10 +1974,6 @@
     ],
     "r6Additions": [
         {
-            "path": ".gitattributes",
-            "reason": "Git attributes keep the vendored runtime out of the language bar"
-        },
-        {
             "path": "packages/components/load-coverage-transformer.cjs",
             "reason": "Jest transformer that records ts-jest compile time for the node load budget"
         },

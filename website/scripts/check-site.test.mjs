@@ -17,7 +17,7 @@ function site(files) {
 
 const head =
     '<link rel="canonical" href="https://cuttlely.com/"><meta property="og:image" content="https://cuttlely.com/social/og-light.png">'
-const home = `<html><head>${head}</head><body><h1>The visual agent builder, <span>ready for production.</span></h1><p>Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/docs/#build">Docs</a></body></html>`
+const home = `<html><head>${head}</head><body><h1>The visual agent builder, <span>ready for production.</span></h1><p>Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/flowise/">Coming from Flowise? Bring your flows</a><a href="/docs/#build">Docs</a></body></html>`
 const base = {
     'index.html': home,
     '404.html': `<html><head>${head}</head><body>Not found</body></html>`,
@@ -185,7 +185,10 @@ describe('check-site message house', () => {
             ['See the whitepaper', /removed whitepaper/],
             ['a third of the tokens', /ratio-style benchmark/],
             ['about a quarter of the prompt', /ratio-style benchmark/],
-            ['2.5 times smaller', /ratio-style benchmark/]
+            ['2.5 times smaller', /ratio-style benchmark/],
+            ['picks up where the last release', /retired successor copy/],
+            ['the next generation of the visual builder', /retired successor copy/],
+            ['with the production layer on top', /retired successor copy/]
         ]
         for (const [body, why] of cases) {
             const dir = site({
@@ -255,14 +258,13 @@ describe('check-site message house', () => {
         assert.match(checkSite(dir).problems.join('\n'), /lists the \/migrate\/ alias/)
     })
 
-    it('requires the home lineage line to point at /flowise/ and the Coming from Flowise link', () => {
-        const lineageHome = home.replace(
-            '</body>',
-            '<p><a href="/docs/bring-your-flows/">Cuttlely picks up where Flowise left off... built on its Apache-2.0 code, with the production layer on top.</a></p></body>'
-        )
-        const dir = site({ ...base, 'index.html': lineageHome })
+    it('requires the Coming from Flowise home link to /flowise/', () => {
+        const missingLink = home
+            .replace('Coming from Flowise? Bring your flows', 'Bring your flows')
+            .replace('href="/flowise/"', 'href="/docs/"')
+        const dir = site({ ...base, 'index.html': missingLink })
         const problems = checkSite(dir).problems.join('\n')
-        assert.match(problems, /lineage line should point at \/flowise\//)
+        assert.match(problems, /missing href="\/flowise\/"/)
         assert.match(problems, /Coming from Flowise\?/)
     })
 
