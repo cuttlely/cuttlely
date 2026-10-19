@@ -9,6 +9,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Security
 
 -   Sign-in accepts bcrypt password hashes from a moved Flowise 3.1.4 install (`$2a$`, `$2b$`, `$2y$`, cost 4 to 12) and rehashes them to Cuttlely's scrypt scheme after the first successful login. A cost outside that range is refused without running the expensive compare. A failed rehash still issues the session and leaves the stored hash unchanged. While any accepted bcrypt hash remains stored, unknown and disabled sign-in misses, and a wrong password on an already-migrated scrypt account, run the same dummy bcrypt compare so a migrated mailbox is not distinguishable by timing; after the last one is rehashed, misses use the scrypt dummy again. Looking for a remaining accepted hash keeps scanning past rejected `$2x$` prefixes instead of stopping after the first page.
+-   On Linux and macOS, a Windows drive path, UNC path, or extended-length path in a flow field is remapped to that path's basename under the application data directory, so the Agent Memory placeholder `C:\Users\User\.cuttlely\database.sqlite` from a Flowise import becomes `~/.cuttlely/database.sqlite`. A remap whose basename is empty, `.`, or `..` is refused. Traversal, encoding, and null-byte checks still run first, and the result must still fall inside the allowed directories. On Windows those absolute and UNC forms remain blocked. Unix absolute paths outside the allowlist remain refused.
 
 ## [1.3.0] - 2026-10-18
 

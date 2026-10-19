@@ -137,7 +137,15 @@ export function waitForRun(runId) {
 }
 
 export async function waitForIdle() {
-    while (active.size) await Promise.all([...active.values()].map((job) => job.promise))
+    // Guard against a race where the last finishing job schedules a follow-up
+    // pump on setImmediate(): yield once when the map looks empty, then recheck.
+    for (;;) {
+        if (active.size === 0) {
+            await new Promise((resolve) => setImmediate(resolve))
+            if (active.size === 0) return
+        }
+        await Promise.all([...active.values()].map((job) => job.promise))
+    }
 }
 
 function requireRun(runId) {

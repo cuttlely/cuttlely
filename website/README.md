@@ -31,18 +31,17 @@ npm test          # unit tests for the build scripts
 
 ## What is where
 
-| Path                     | What it is                                                                                     |
-| ------------------------ | ---------------------------------------------------------------------------------------------- |
-| `src/pages/index.astro`  | The home page                                                                                  |
-| `src/pages/404.astro`    | The page for unknown addresses                                                                 |
-| `src/pages/whitepaper/`  | The benchmark whitepaper page, and the PDF and web version served from `../assets/whitepaper/` |
-| `src/components/`        | Header links, hero, footer, screenshot images and the Starlight components the site replaces   |
-| `src/scripts/`           | Screenshot viewer (bundled module, no inline script)                                           |
-| `src/styles/`            | Brand colors (Cuttle Violet, light and dark) and the site layout                               |
-| `src/assets/`, `public/` | Logos, mascot, icons, link preview images and the Urbanist font (SIL OFL)                      |
-| `scripts/sync-docs.mjs`  | Copies the docs in and rewrites links                                                          |
-| `scripts/check-site.mjs` | Checks the built site                                                                          |
-| `render.yaml`            | The Render static site: build, headers and redirects                                           |
+| Path                     | What it is                                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `src/pages/index.astro`  | The home page                                                                                |
+| `src/pages/404.astro`    | The page for unknown addresses                                                               |
+| `src/components/`        | Header links, hero, footer, screenshot images and the Starlight components the site replaces |
+| `src/scripts/`           | Screenshot viewer (bundled module, no inline script)                                         |
+| `src/styles/`            | Brand colors (Cuttle Violet, light and dark) and the site layout                             |
+| `src/assets/`, `public/` | Logos, mascot, icons, link preview images and the Urbanist font (SIL OFL)                    |
+| `scripts/sync-docs.mjs`  | Copies the docs in and rewrites links                                                        |
+| `scripts/check-site.mjs` | Checks the built site                                                                        |
+| `render.yaml`            | The Render static site: build, headers and redirects                                         |
 
 ## Hosting
 
