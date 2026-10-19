@@ -15,6 +15,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   MCP `initialize` reports a Cuttlely server name (`cuttlely-<flow>` when the flow name has a usable slug, otherwise `cuttlely`). The name is lowercase `[a-z0-9-]`, at most 64 characters. Clients such as IBM watsonx Orchestrate show it in tool metadata.
 -   The README intro and the public FAQ note that Cuttlely is said like "cuddly".
 -   The public website leads with "The visual agent builder, ready for production." Home-page benchmark copy states the bakery analyst prompt sizes (2,562 to 663 tokens on a made-up bakery database) without score ratios. The Analyst guide's rules-check table says "all passed" instead of a score. Made for real teams names SQLite or Postgres; Server Settings still accepts only those two. The site changelog omits the 1.3.0 paper-page line.
 -   The import page, the home hero link, and the FAQ import entry stay.

@@ -86,8 +86,14 @@ jest.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
 
 // --- Import after mocking ---
 import { StatusCodes } from 'http-status-codes'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { AppError } from '../../errors/appError'
 import mcpEndpointService from '.'
+
+function lastMcpServerName(): string {
+    const calls = (McpServer as unknown as jest.Mock).mock.calls
+    return calls[calls.length - 1][0].name
+}
 
 // --- Helpers ---
 
@@ -233,6 +239,62 @@ describe('handleMcpRequest', () => {
         expect(registeredName).toMatch(/^[a-z0-9_-]+$/)
         expect(registeredName).not.toMatch(/^_|_$/)
         expect(registeredName).toBe('my_complex_flow_v2')
+    })
+
+    describe('initialize server name', () => {
+        it('uses cuttlely- plus the sanitized flow name', async () => {
+            mockGetChatflowByIdAndVerifyToken.mockResolvedValue(makeChatflow({ name: 'Test Chatflow' }))
+
+            await mcpEndpointService.handleMcpRequest('flow-123', 'token', makeReq() as any, makeRes())
+
+            expect(lastMcpServerName()).toBe('cuttlely-test-chatflow')
+        })
+
+        it('is based on the flow name, not the configured toolName', async () => {
+            mockParseMcpConfig.mockReturnValue(makeConfig({ toolName: 'custom_tool' }))
+            mockGetChatflowByIdAndVerifyToken.mockResolvedValue(makeChatflow({ name: 'Customer Care' }))
+
+            await mcpEndpointService.handleMcpRequest('flow-123', 'token', makeReq() as any, makeRes())
+
+            expect(lastMcpServerName()).toBe('cuttlely-customer-care')
+            expect(mockMcpTool.mock.calls[0][0]).toBe('custom_tool')
+        })
+
+        it('lowercases and maps punctuation, spaces, and underscores to hyphens', async () => {
+            mockGetChatflowByIdAndVerifyToken.mockResolvedValue(makeChatflow({ name: 'My Complex Flow! V2_beta' }))
+
+            await mcpEndpointService.handleMcpRequest('flow-123', 'token', makeReq() as any, makeRes())
+
+            expect(lastMcpServerName()).toBe('cuttlely-my-complex-flow-v2-beta')
+        })
+
+        it('collapses repeated separators and drops leading or trailing ones', async () => {
+            mockGetChatflowByIdAndVerifyToken.mockResolvedValue(makeChatflow({ name: '  --Hello___World!!  ' }))
+
+            await mcpEndpointService.handleMcpRequest('flow-123', 'token', makeReq() as any, makeRes())
+
+            expect(lastMcpServerName()).toBe('cuttlely-hello-world')
+        })
+
+        it('is cuttlely when the flow name is missing, blank, or has no usable slug', async () => {
+            for (const name of ['', '   ', '!!!', undefined]) {
+                mockGetChatflowByIdAndVerifyToken.mockResolvedValue(makeChatflow({ name }))
+                await mcpEndpointService.handleMcpRequest('flow-123', 'token', makeReq() as any, makeRes())
+                expect(lastMcpServerName()).toBe('cuttlely')
+            }
+        })
+
+        it('stays MCP-safe and at most 64 characters for a long flow name', async () => {
+            mockGetChatflowByIdAndVerifyToken.mockResolvedValue(makeChatflow({ name: `Long ${'Name!'.repeat(40)}` }))
+
+            await mcpEndpointService.handleMcpRequest('flow-123', 'token', makeReq() as any, makeRes())
+
+            const serverName = lastMcpServerName()
+            expect(serverName).toMatch(/^cuttlely-[a-z0-9-]+$/)
+            expect(serverName).not.toMatch(/-$/)
+            expect(serverName.length).toBeLessThanOrEqual(64)
+            expect(serverName.startsWith('cuttlely-long-name')).toBe(true)
+        })
     })
 
     it('uses default description when config.description is absent', async () => {
