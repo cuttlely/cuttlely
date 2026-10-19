@@ -18,7 +18,7 @@ describe('Flowise import page wiring', () => {
         assert.match(read('src/components/SiteFooter.astro'), /href="\/flowise\/"/)
         const hero = read('src/components/Hero.astro')
         assert.match(hero, /href="\/flowise\/"/)
-        assert.match(hero, /Coming from Flowise\?/)
+        assert.match(hero, /Bring your flows/)
     })
 
     it('keeps the approved title, pillars, buttons, quickstart, paths, disclaimer, and issue link, and leaves waitlist, unchanged-flows, sequential-agent, and whole-install claims out', () => {

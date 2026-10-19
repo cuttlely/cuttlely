@@ -399,3 +399,7 @@ Supersedes the proof-line sentence of D97 and the pillar bodies of D98 for the p
 ## D100. Home page names the import format only in the hero link
 
 Supersedes the home-page Import JSON feature-line sentences of D97 and D98. The home page names that other product only in the "Coming from Flowise? Bring your flows" hero link. The Bring your existing flows band keeps the generic Import menu sentence and the What carries over link. The import page, the FAQ import entry, and Apache-2.0 attribution stay. Why: the home page should lead with the product, and name the import format only on the path that takes a reader to the import page.
+
+## D101. Home hero import link reads Bring your flows
+
+Supersedes the hero-link sentences of D97, D98, D99, and D100 for the project website (`website/`). The home hero keeps the H1, the lead, the proof line, Get started, Star on GitHub, and the three-command block. The link under the hero actions is "Bring your flows", class `cl-link-arrow`, href `/flowise/`, with the same arrow icon. The hero markup does not name that other product except inside that href. The home page does not name that import format in visible copy. The import page, the FAQ import entry, and Apache-2.0 attribution stay. Why: the home page should lead with the product, and the hero should invite import without naming the other product in the link text.
