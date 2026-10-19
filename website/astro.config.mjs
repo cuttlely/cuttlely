@@ -36,7 +36,7 @@ export default defineConfig({
         starlight({
             title: 'Cuttlely',
             description:
-                'Open-source visual agent builder, ready for production: drafts, Compare and rollback, and a scoped SQL analyst. Apache-2.0, self-hosted.',
+                'Open-source visual agent builder, ready for production: governance with drafts and side-by-side replay, lean context, and agent teams. Apache-2.0, self-hosted.',
             logo: {
                 light: './src/assets/cuttlely-logo-horizontal.svg',
                 dark: './src/assets/cuttlely-logo-horizontal-dark.svg',

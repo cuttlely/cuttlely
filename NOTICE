@@ -12,10 +12,11 @@ Third-party components stay under the license their owners gave them.
 Flowise
 Copyright (c) 2023-present FlowiseAI, Inc.
 
-Cuttlely includes Apache-2.0 licensed code from FlowiseAI/Flowise
-(https://github.com/FlowiseAI/Flowise). The chatflow canvas, the node catalog,
-and the prediction API in this tree come from that project. Flowise names and
-trademarks remain with their owners.
+Cuttlely includes code from FlowiseAI/Flowise (https://github.com/FlowiseAI/Flowise),
+licensed under the Apache License, Version 2.0. The chatflow canvas, the node
+catalog, and the prediction API in this tree include code from that project.
+Flowise names and trademarks remain with their owners. Cuttlely is not
+affiliated with FlowiseAI.
 
 Hermes
 Copyright (c) 2025 Nous Research

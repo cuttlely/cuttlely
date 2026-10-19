@@ -13,7 +13,7 @@ const mediaUrl = (urlPath: string) => versionedMedia(urlPath, publicDir)
 
 const title = 'Bring your Flowise flows: import, no rebuild | Cuttlely'
 const description =
-    'Import your Flowise JSON. It opens node for node, no rebuild. Open source, Apache-2.0, self-hosted.'
+    'Import Flowise JSON opens your chatflows and agentflows node for node. See what carries over, then try it in three commands. Open source, Apache-2.0.'
 
 const curlDiff = `- curl -s http://localhost:3000/api/v1/prediction/cf_bakery_helper_7a2c -H "Content-Type: application/json" -d '{"question":"How much are two croissants?"}'
 + curl -s http://localhost:43117/api/v1/prediction/cf_bakery_helper_7a2c -H "Content-Type: application/json" -d '{"question":"How much are two croissants?"}'`
@@ -28,7 +28,8 @@ const after = [
     { label: 'scoped keys', href: '/docs/how-to/harnesses/#run-it-from-your-app-with-an-api-key' },
     { label: 'teams', href: '/docs/how-to/roles-and-permissions/#teams' },
     { label: 'scoped analyst', href: '/docs/how-to/analyst/#pick-the-tables-and-views-the-analyst-sees' },
-    { label: 'tokens per run', href: '/docs/how-to/context-and-tokens/#where-a-run-shows-the-tokens' }
+    { label: 'tokens per run', href: '/docs/how-to/context-and-tokens/#where-a-run-shows-the-tokens' },
+    { label: 'Build with AI', href: '/docs/how-to/harnesses/#build-a-team-with-ai' }
 ] as const
 ---
 
@@ -49,22 +50,26 @@ const after = [
                 <p class="cl-eyebrow"><span class="cl-dot" aria-hidden="true"></span>The visual agent builder, ready for production.</p>
                 <h1 id="_top" class="cl-display cl-hero-title">Bring your Flowise flows.</h1>
                 <p class="cl-hero-lead">Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p>
-                <p class="cl-hero-proof">Import opens your flows node for node. No rebuild.</p>
+                <p class="cl-hero-proof">
+                    Import Flowise JSON opens a chatflow or agentflow on the canvas, node for node. You pick your credentials again, and everything that doesn't
+                    carry over is listed below.
+                </p>
             </div>
         </section>
 
-        <ul class="cl-pillars" aria-label="What Cuttlely gives you">
+        <ul class="cl-pillars" aria-label="What you get after you import">
             <li>
-                <strong>Governance.</strong> Safe drafts and replay. Edits to flows and agent teams go to a draft. Compare it with Live, gate Publish on a test
-                set, and roll Live back at once. Roles, an audit log, and API keys that only run the harnesses you tick.
+                <strong>Governance.</strong> Every edit waits in a draft while Live keeps serving. Before you publish, replay recent real questions on Live and
+                the draft, side by side. Gate Publish on a test set and roll Live back in one step. Roles, an audit log, and API keys that only run the teams
+                you tick.
             </li>
             <li>
-                <strong>Lean context.</strong> Lower token cost. A team splits each question so every specialist gets a self-contained task, not the whole chat.
-                The analyst sees only the tables you tick. Every run shows its tokens.
+                <strong>Lean context.</strong> Each specialist gets a self-contained task, not the whole chat, and the analyst sees only the tables you tick.
+                Fewer tokens in our internal benchmarks, and every run shows what it used.
             </li>
             <li>
-                <strong>Build agent teams.</strong> Harness Prime routes each question to specialists, each with its own instructions and tools. Every specialist
-                gets a task that stands on its own.
+                <strong>Build agent teams.</strong> Describe a team and Build with AI puts a first version on the canvas, with every part and connection checked.
+                Call it from your app with a scoped API key, or put it on a schedule.
             </li>
         </ul>
 
@@ -99,7 +104,7 @@ const after = [
             </div>
         </div>
         <p class="cl-note cl-flowise-open">
-            Then open <code>http://localhost:43117</code>, go to <strong>Chatflows</strong>, and select <strong>Import</strong> → <strong>Import Flowise JSON</strong>.
+            Then open <code>http://localhost:43117</code>, go to <strong>Chatflows</strong>, and select <strong>Import</strong> → <strong>Import Flowise JSON</strong>. Pick a credential on each card and select <strong>Save</strong>.
         </p>
 
         <figure class="cl-demo-window cl-flowise-clip">
@@ -165,7 +170,7 @@ const after = [
             <h2 id="carry-title" class="cl-display">What carries over</h2>
             <ul class="cl-flowise-list">
                 <li>About 300 nodes, with their settings.</li>
-                <li>Connections between nodes that exist.</li>
+                <li>Connections between the nodes that open.</li>
                 <li>Chatflows and agentflows, each on their own canvas.</li>
                 <li>A chatflow's prediction API body.</li>
                 <li>Custom tools, via <strong>Tools</strong> → <strong>Load</strong>.</li>
@@ -213,7 +218,8 @@ const after = [
         <section id="what-you-get-after" class="cl-section" aria-labelledby="after-title">
             <h2 id="after-title" class="cl-display">What you get after</h2>
             <p>
-                Nothing is saved until you select <strong>Save</strong>. The first Save publishes the flow; the next canvas save is a draft. After that you get:
+                Nothing is saved until you select <strong>Save</strong>. The first Save publishes the flow; the next canvas save is a draft. After that, your
+                flow gets governance and lean context, and you can build agent teams around it:
             </p>
             <ul class="cl-after">
                 {

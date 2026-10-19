@@ -29,8 +29,7 @@ const RETIRED_COPY = [
     { needle: '2,114', why: 'a ratio-style token count' },
     { needle: '7,719', why: 'a ratio-style token count' },
     { needle: 'whitepaper', why: 'a removed whitepaper' },
-    { needle: 'picks up where', why: 'retired successor copy' },
-    { needle: 'next generation of the visual builder', why: 'retired successor copy' },
+    { re: /picks up where|next generation of the visual builder/i, why: 'retired successor copy' },
     { needle: 'production layer on top', why: 'retired successor copy' }
 ]
 
@@ -179,9 +178,14 @@ export function checkSite(dist, { csp = null } = {}) {
             const hit = text.match(re) || html.match(re)
             if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)
         }
-        for (const { needle, why } of RETIRED_COPY) {
-            if (needle !== 'whitepaper' && isChangelog(page)) continue
-            if (haystack.includes(needle)) problems.push(`${page}: shows ${why} ("${needle}")`)
+        for (const item of RETIRED_COPY) {
+            if (item.needle !== 'whitepaper' && isChangelog(page)) continue
+            if (item.re) {
+                const hit = haystack.match(item.re)
+                if (hit) problems.push(`${page}: shows ${item.why} ("${hit[0]}")`)
+            } else if (item.needle && haystack.includes(item.needle)) {
+                problems.push(`${page}: shows ${item.why} ("${item.needle}")`)
+            }
         }
         for (const { re, why } of RATIO_CLAIMS) {
             if (isChangelog(page)) continue

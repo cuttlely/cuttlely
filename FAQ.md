@@ -16,9 +16,11 @@ Or, with Node 20+ and Docker: `npx cuttlely start`. Open http://localhost:43117,
 
 A visual agent builder you run yourself, built around three things:
 
--   **Governance.** Safe drafts and replay. Edits to flows and agent teams go to a draft. Compare it with Live, gate Publish on a test set, and roll Live back at once. Roles, an audit log, and API keys that only run the harnesses you tick.
--   **Lean context.** Lower token cost. A team splits each question so every specialist gets a self-contained task, not the whole chat. The analyst sees only the tables you tick. Every run shows its tokens.
--   **Build agent teams.** Harness Prime routes each question to specialists, each with its own instructions and tools. Every specialist gets a task that stands on its own.
+-   **Governance.** Every edit waits in a draft while Live keeps serving. Before you publish, replay recent real questions on Live and the draft, side by side. Gate Publish on a test set and roll Live back in one step. Roles, an audit log, and API keys that only run the teams you tick.
+-   **Lean context.** Each specialist gets a self-contained task, not the whole chat, and the analyst sees only the tables you tick. Fewer tokens in our internal benchmarks, and every run shows what it used.
+-   **Build agent teams.** Describe a team and Build with AI puts a first version on the canvas, with every part and connection checked. Call it from your app with a scoped API key, or put it on a schedule.
+
+Try it: `git clone https://github.com/cuttlely/cuttlely && cd cuttlely && docker compose up -d`, then open http://localhost:43117 and select **Try the demo**.
 
 ### How do I install it?
 
@@ -45,13 +47,13 @@ Full notes: [v1.3.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v
 
 ## Coming from Flowise
 
-### Where does the code come from?
+### Is Cuttlely affiliated with FlowiseAI?
 
-Cuttlely includes Apache-2.0 licensed code from FlowiseAI/Flowise, credited in [CREDITS.md](CREDITS.md), and isn't affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.
+No. Cuttlely is its own project, open source under Apache-2.0. Like most open-source software it includes code from other projects: the chatflow canvas, node catalog and prediction API include code from Flowise, the agent runtime is Hermes from Nous Research, and the canvas UI uses React Flow. Each is credited in [NOTICE](./NOTICE) and [CREDITS.md](./CREDITS.md). Cuttlely is built around governance (drafts, side-by-side replay, gates, rollback, roles, audit, scoped keys), lean context and agent teams. Have Flowise flows? The next answer shows how to bring them.
 
 ### Can I bring my Flowise flows?
 
-Yes. Go to **Chatflows** → **Import** → **Import Flowise JSON**. It opens a chatflow or agentflow node for node; about 300 nodes open with their settings. A chatflow's prediction API takes the same request body. API keys, passwords and credential ids are removed from the file, so you pick a credential on each card.
+Yes, and you're welcome here. Go to **Chatflows** → **Import** → **Import Flowise JSON**. It opens a chatflow or agentflow node for node; about 300 nodes open with their settings. A chatflow's prediction API takes the same request body, so your app changes only the host and the flow id. API keys, passwords and credential ids are removed from the file, so you pick a credential on each card. The step-by-step page is [cuttlely.com/flowise](https://cuttlely.com/flowise/).
 
 Key limits:
 
@@ -59,7 +61,7 @@ Key limits:
 -   Whole-workspace exports. Import one flow at a time.
 -   LlamaIndex nodes.
 
-The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix and AssemblyAI configuration cards are dropped with a note, and the file still opens. The full list of limits is in [Bring your flows](docs/bring-your-flows.md).
+The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix and AssemblyAI configuration cards are dropped with a note, and the file still opens. The full list of limits is in [Bring your flows](docs/bring-your-flows.md). If a flow doesn't open the way you expect, [open an issue](https://github.com/cuttlely/cuttlely/issues/new?template=bug_report.yml) with a made-up export.
 
 ### What about the Flowise security advisories?
 
