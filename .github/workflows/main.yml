@@ -23,7 +23,7 @@ jobs:
         env:
             PUPPETEER_SKIP_DOWNLOAD: true
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
               with:
                   # On a pull request HEAD is the merge commit, and HEAD^1 is the base it is diffed against.
                   fetch-depth: 2
@@ -31,9 +31,9 @@ jobs:
               run: node scripts/proprietary-paths.mjs ${{ github.event_name == 'pull_request' && '--base HEAD^1' || '' }}
             - name: media size
               run: node scripts/media-size.mjs
-            - uses: pnpm/action-setup@v4
+            - uses: pnpm/action-setup@v6
             - name: Use Node.js 24.15.0
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@v7
               with:
                   node-version: 24.15.0
                   cache: 'pnpm'
@@ -55,7 +55,7 @@ jobs:
         steps:
             # The PR merge commit's first parent is the base, so HEAD^1..HEAD is exactly this PR's change set.
             # Trees only (blob:none, sparse .github): a few seconds.
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
               if: github.event_name == 'pull_request'
               with:
                   fetch-depth: 2
@@ -110,10 +110,10 @@ jobs:
                     --health-timeout 3s
                     --health-retries 10
         steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v4
+            - uses: actions/checkout@v7
+            - uses: pnpm/action-setup@v6
             - name: Use Node.js 24.15.0
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@v7
               with:
                   node-version: 24.15.0
                   cache: 'pnpm'
@@ -169,10 +169,10 @@ jobs:
                     --health-timeout 3s
                     --health-retries 10
         steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v4
+            - uses: actions/checkout@v7
+            - uses: pnpm/action-setup@v6
             - name: Use Node.js 24.15.0
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@v7
               with:
                   node-version: 24.15.0
                   cache: 'pnpm'
@@ -199,10 +199,10 @@ jobs:
         env:
             PUPPETEER_SKIP_DOWNLOAD: true
         steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v4
+            - uses: actions/checkout@v7
+            - uses: pnpm/action-setup@v6
             - name: Use Node.js 24.15.0
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@v7
               with:
                   node-version: 24.15.0
                   cache: 'pnpm'
@@ -214,12 +214,12 @@ jobs:
             - name: Cypress install
               run: pnpm cypress install
             - name: Install dependencies (Cypress Action)
-              uses: cypress-io/github-action@v7.1.5
+              uses: cypress-io/github-action@v7.4.6
               with:
                   working-directory: ./
                   runTests: false
             - name: Cypress test
-              uses: cypress-io/github-action@v7.1.5
+              uses: cypress-io/github-action@v7.4.6
               with:
                   install: false
                   working-directory: packages/server
@@ -249,10 +249,10 @@ jobs:
                     --health-timeout 3s
                     --health-retries 10
         steps:
-            - uses: actions/checkout@v6
-            - uses: pnpm/action-setup@v4
+            - uses: actions/checkout@v7
+            - uses: pnpm/action-setup@v6
             - name: Use Node.js 24.15.0
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@v7
               with:
                   node-version: 24.15.0
                   cache: 'pnpm'

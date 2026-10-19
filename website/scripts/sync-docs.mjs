@@ -344,7 +344,6 @@ export function sync({ check = true, write = true } = {}) {
     const project = { label: 'Project', items: [] }
     for (const [link, label] of [
         ['/changelog/', 'Changelog'],
-        ['/whitepaper/', 'Benchmark whitepaper'],
         ['/security/', 'Security'],
         ['/credits/', 'Credits and license']
     ]) {

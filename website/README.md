@@ -35,7 +35,6 @@ npm test          # unit tests for the build scripts
 | ------------------------ | ---------------------------------------------------------------------------------------------- |
 | `src/pages/index.astro`  | The home page                                                                                  |
 | `src/pages/404.astro`    | The page for unknown addresses                                                                 |
-| `src/pages/whitepaper/`  | The benchmark whitepaper page, and the PDF and web version served from `../assets/whitepaper/` |
 | `src/components/`        | Header links, hero, footer, screenshot images and the Starlight components the site replaces   |
 | `src/scripts/`           | Screenshot viewer (bundled module, no inline script)                                           |
 | `src/styles/`            | Brand colors (Cuttle Violet, light and dark) and the site layout                               |

@@ -25,7 +25,7 @@ jobs:
         steps:
             # The PR merge commit's first parent is the base, so HEAD^1..HEAD is exactly this PR's change set.
             # Trees only (blob:none, sparse .github): a few seconds.
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
               if: github.event_name == 'pull_request'
               with:
                   fetch-depth: 2
@@ -63,12 +63,12 @@ jobs:
         env:
             PUPPETEER_SKIP_DOWNLOAD: true
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - run: docker build --no-cache -t cuttlely .
             - name: Use Node.js 24.15.0
               id: node
               continue-on-error: true
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@v7
               with:
                   node-version: 24.15.0
             # Report only. A missing size, or a Node setup that did not succeed, does not fail the image build.
