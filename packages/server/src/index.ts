@@ -50,6 +50,7 @@ import { announceFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
 import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
+import { runSupportedMigrations } from './startup/flowiseUpgradeGuard'
 
 declare global {
     namespace Express {
@@ -109,7 +110,7 @@ export class App {
 
             // Run Migrations Scripts
             setBootStep('Updating the database')
-            await this.AppDataSource.runMigrations({ transaction: 'each' })
+            await runSupportedMigrations(this.AppDataSource)
             logger.info('🔄 [server]: Database migrations completed successfully')
             const authKitSwitch = await applyAuthKitSwitchOnBoot(this.AppDataSource)
             if (authKitSwitch) {

@@ -13,6 +13,7 @@
  * database that already applied them does not run them again.
  */
 import type { QueryRunner } from 'typeorm'
+import { unsupportedFlowiseUpgradeError } from '../startup/flowiseUpgradeGuard'
 
 type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mariadb'
 
@@ -33,8 +34,6 @@ const MEMBER_DESCRIPTION = 'Has limited control over the organization.'
 const PERSONAL_WORKSPACE_DESCRIPTION = 'Has full control over the personal workspace'
 export const PERSONAL_WORKSPACE_PERMISSIONS =
     '["chatflows:view","chatflows:create","chatflows:update","chatflows:duplicate","chatflows:delete","chatflows:export","chatflows:import","chatflows:config","chatflows:domains","agentflows:view","agentflows:create","agentflows:update","agentflows:duplicate","agentflows:delete","agentflows:export","agentflows:import","agentflows:config","agentflows:domains","tools:view","tools:create","tools:update","tools:delete","tools:export","assistants:view","assistants:create","assistants:update","assistants:delete","credentials:view","credentials:create","credentials:update","credentials:delete","credentials:share","variables:view","variables:create","variables:update","variables:delete","apikeys:view","apikeys:create","apikeys:update","apikeys:delete","documentStores:view","documentStores:create","documentStores:update","documentStores:delete","documentStores:add-loader","documentStores:delete-loader","documentStores:preview-process","documentStores:upsert-config","datasets:view","datasets:create","datasets:update","datasets:delete","evaluators:view","evaluators:create","evaluators:update","evaluators:delete","evaluations:view","evaluations:create","evaluations:update","evaluations:delete","evaluations:run","templates:marketplace","templates:custom","templates:custom-delete","templates:toolexport","templates:flowexport","templates:custom-share","workspace:export","workspace:import","executions:view","executions:delete"]'
-
-const UNSUPPORTED_UPGRADE = 'unsupported upgrade path, upgrade via Flowise 3.1.4 first'
 
 function dialectOf(runner: QueryRunner): Dialect {
     const type = runner.connection.options.type
@@ -716,7 +715,7 @@ async function legacyIdentityPresent(runner: QueryRunner, dialect: Dialect): Pro
 export async function refactorUp(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
     if (await legacyIdentityPresent(runner, dialect)) {
-        throw new Error(UNSUPPORTED_UPGRADE)
+        throw unsupportedFlowiseUpgradeError()
     }
     if (
         mysqlFamily(dialect) &&

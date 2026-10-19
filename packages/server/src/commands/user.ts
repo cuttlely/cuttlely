@@ -14,6 +14,7 @@ import '../settings/bootstrap'
 import { Args, Flags } from '@oclif/core'
 import * as DataSource from '../DataSource'
 import { runUserCli } from '../identity/cli'
+import { runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
 import { localAdminEnabled } from '../identity/constants'
 import { SqlIdentityStore } from '../identity/sqlStore'
 import logger from '../utils/logger'
@@ -40,7 +41,7 @@ export default class user extends BaseCommand {
         try {
             const dataSource = DataSource.getDataSource()
             await dataSource.initialize()
-            await dataSource.runMigrations({ transaction: 'each' })
+            await runSupportedMigrations(dataSource)
             const result = await runUserCli(new SqlIdentityStore(dataSource), {
                 email,
                 password,

@@ -63,7 +63,7 @@ mv ~/.flowise ~/.cuttlely
 
 A Flowise Docker install keeps the same folder in the volume mounted at `/root/.flowise`. Copy its contents into Cuttlely's data volume at `/var/cuttlely/data` before Cuttlely starts.
 
-Cuttlely upgrades the database when it starts. Your flows, credentials and the rest of that database come with it, as long as the encryption key in that folder comes too. A database from a release older than `3.1.4` stops with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`. Upgrade it there first, then move it. More on where Cuttlely keeps its data: [From source](./how-to/from-source.md#where-your-data-lives).
+Cuttlely upgrades the database when it starts. Your flows, credentials and the rest of that database come with it, as long as the encryption key in that folder comes too. A database from a release older than `3.1.4` stops with `unsupported upgrade path, upgrade via Flowise 3.1.4 first` before any migration runs, and that database is left unchanged. The log line includes a link to this section. Upgrade it in Flowise `3.1.4` first, then move it. More on where Cuttlely keeps its data: [From source](./how-to/from-source.md#where-your-data-lives).
 
 ### Not yet supported
 
