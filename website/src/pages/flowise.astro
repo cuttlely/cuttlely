@@ -1,13 +1,15 @@
 ---
 // Public Flowise import page at /flowise/. Claims match the import guides; unverified paths stay off.
+import path from 'node:path'
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import { Code, Icon } from '@astrojs/starlight/components'
-import { getImage } from 'astro:assets'
 import CopyButton from '../components/CopyButton.astro'
-import wizardCanvas from '../content/docs/docs/images/bring-your-flows/wizard-opened-canvas.png'
+import { mediaUrl as versionedMedia } from '../../scripts/media-version.mjs'
 import { REPO_URL } from '../../scripts/site-config.mjs'
 
-const poster = await getImage({ src: wizardCanvas, width: 1280, format: 'webp' })
+// Resolved when the page renders. import.meta.url is the bundled chunk by then, so the site root is the build's cwd.
+const publicDir = path.resolve(process.cwd(), 'public')
+const mediaUrl = (urlPath: string) => versionedMedia(urlPath, publicDir)
 
 const title = 'Bring your Flowise flows: import, no rebuild | Cuttlely'
 const description =
@@ -103,22 +105,14 @@ const after = [
 
         <figure class="cl-demo-window cl-flowise-clip">
             <div class="cl-video-stage" data-clip-slot>
-                <img
-                    class="cl-demo-video"
-                    data-clip-poster
-                    src={poster.src}
-                    alt="Bakery helper after Import Flowise JSON: ChatOpenAI, Buffer Memory and Conversation Chain on the canvas, with an empty credential on ChatOpenAI."
-                    width="1280"
-                    height="720"
-                />
                 <video
                     class="cl-demo-video"
-                    hidden
                     playsinline
                     preload="none"
-                    poster={poster.src}
-                    data-src-webm=""
-                    data-src-mp4=""
+                    width="1280"
+                    height="720"
+                    poster={mediaUrl('/media/flowise-import-poster.webp')}
+                    aria-label="Bakery helper after Import Flowise JSON: ChatOpenAI, Buffer Memory and Conversation Chain on the canvas, with an empty credential on ChatOpenAI."
                     aria-describedby="cl-flowise-clip-caption"
                 ></video>
                 <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play a walkthrough of Import Flowise JSON">
