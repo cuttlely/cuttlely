@@ -19,7 +19,7 @@ services:
           paths:
               - website/**
               - docs/**
-              - assets/whitepaper/**
+              - FAQ.md
               - README.md
               - CHANGELOG.md
               - SECURITY.md
@@ -63,6 +63,12 @@ services:
             name: Cache-Control
             value: public, max-age=31536000, immutable
       routes:
+          - type: redirect
+            source: /whitepaper
+            destination: /
+          - type: redirect
+            source: /whitepaper/*
+            destination: /
           - type: redirect
             source: /github
             destination: https://github.com/cuttlely/cuttlely

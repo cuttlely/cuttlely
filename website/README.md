@@ -2,7 +2,7 @@
 
 The Cuttlely website: a home page plus the docs from this repository, built with [Astro](https://astro.build) and [Starlight](https://starlight.astro.build). It is a static site with no analytics and nothing loaded from other sites.
 
-The docs are written in [`docs/`](../docs) and nowhere else. Before every build, `scripts/sync-docs.mjs` copies them into `src/content/docs/` (gitignored), together with the quickstart section of the README, `CHANGELOG.md`, `SECURITY.md`, `CREDITS.md` and `NOTICE`. Links between repository files become site links, and links to code go to GitHub. The sidebar follows the groups in `docs/README.md`.
+The docs are written in [`docs/`](../docs) and nowhere else. Before every build, `scripts/sync-docs.mjs` copies them into `src/content/docs/` (gitignored), together with the quickstart section of the README, `CHANGELOG.md`, `FAQ.md`, `SECURITY.md`, `CREDITS.md` and `NOTICE`. Links between repository files become site links, and links to code go to GitHub. The sidebar follows the groups in `docs/README.md`.
 
 Content screenshots on the home page and in the docs open in a full-screen viewer (zoom, pan, keyboard and touch). With JavaScript off, the same images are links to the full image file. Logos, icons and the mascot are not part of that.
 
@@ -35,6 +35,7 @@ npm test          # unit tests for the build scripts
 | ------------------------ | -------------------------------------------------------------------------------------------- |
 | `src/pages/index.astro`  | The home page                                                                                |
 | `src/pages/404.astro`    | The page for unknown addresses                                                               |
+| `/faq/`                  | The public FAQ, copied from the repository `FAQ.md`                                          |
 | `src/components/`        | Header links, hero, footer, screenshot images and the Starlight components the site replaces |
 | `src/scripts/`           | Screenshot viewer (bundled module, no inline script)                                         |
 | `src/styles/`            | Brand colors (Cuttle Violet, light and dark) and the site layout                             |

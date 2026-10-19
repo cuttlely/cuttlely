@@ -22,6 +22,7 @@ const base = {
     '404.html': `<html><head>${head}</head><body>Not found</body></html>`,
     'quickstart/index.html': `<html><head>${head}</head><body></body></html>`,
     'docs/index.html': `<html><head>${head}</head><body><h2 id="build">Build</h2></body></html>`,
+    'faq/index.html': `<html><head>${head}</head><body></body></html>`,
     'robots.txt': '',
     'sitemap-index.xml': '',
     '.well-known/security.txt': '',
@@ -46,6 +47,12 @@ describe('check-site', () => {
         assert.match(problems, /<img> loads from another site/)
         assert.match(problems, /<script> loads from another site/)
         assert.match(problems, /index\.html: missing anchor \/docs\/#build/)
+    })
+
+    it('fails when the FAQ page was not built', () => {
+        const files = { ...base }
+        delete files['faq/index.html']
+        assert.ok(checkSite(site(files)).problems.includes('missing faq/index.html'))
     })
 
     it('decodes an escaped ampersand in a link once', () => {

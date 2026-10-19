@@ -19,6 +19,7 @@ describe('sync-docs', () => {
         assert.equal(rewriteTarget('../../README.md#your-first-10-minutes', from).url, '/quickstart/')
         assert.equal(rewriteTarget('../../README.md#use-a-team-from-your-app', from).url, '/#use-a-team-from-your-app')
         assert.equal(rewriteTarget('../../SECURITY.md#report-a-vulnerability', from).url, '/security/#report-a-vulnerability')
+        assert.equal(rewriteTarget('../../FAQ.md', from).url, '/faq/')
         assert.equal(rewriteTarget('../../NOTICE', from).url, '/credits/#notice')
         assert.equal(rewriteTarget('../../render.yaml', from, () => 'file').url, `${REPO}/blob/main/render.yaml`)
         assert.equal(rewriteTarget('../../examples/web-app', from, () => 'dir').url, `${REPO}/tree/main/examples/web-app`)
