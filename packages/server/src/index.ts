@@ -31,6 +31,7 @@ import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
 import { orchestrateContentTypeGuard, orchestrateJsonParser } from './routes/orchestrate'
+import { a2aBodyErrorHandler, a2aContentTypeGuard, a2aJsonParser, assertA2aPublicBaseUrl } from './routes/a2a'
 import { attachIdentitySession } from './identity'
 import { apiV1Auth, withoutDenylisted } from './identity/apiGate'
 import { resolveTrustProxy } from './utils/trustProxy'
@@ -210,8 +211,12 @@ export class App {
         const captureRawBody = (req: Request, _res: Response, buf: Buffer) => {
             ;(req as any).rawBody = buf
         }
+        assertA2aPublicBaseUrl()
         // Parse Orchestrate bodies at 1 MB and refuse non-JSON before the 50 MB urlencoded parser runs.
         this.app.use('/api/v1/orchestrate', orchestrateContentTypeGuard, orchestrateJsonParser)
+        this.app.use('/api/v1/a2a', a2aContentTypeGuard)
+        this.app.use('/api/v1/a2a', a2aJsonParser)
+        this.app.use('/api/v1/a2a', a2aBodyErrorHandler)
         this.app.use(express.json({ limit: flowise_file_size_limit, verify: captureRawBody }))
         this.app.use(express.urlencoded({ limit: flowise_file_size_limit, extended: true, verify: captureRawBody }))
 

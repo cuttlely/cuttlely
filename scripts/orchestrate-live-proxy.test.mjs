@@ -56,6 +56,32 @@ function call(method, path, headers = {}, body) {
 }
 
 describe('orchestrate live proxy', () => {
+    it('forwards GET and POST A2A paths with Accept, and still 404s other routes', async () => {
+        const card = await call('GET', '/api/v1/a2a/11111111-1111-4111-8111-111111111111/.well-known/agent-card.json', {
+            authorization: 'Bearer test-key',
+            'x-api-key': 'test-key',
+            accept: 'application/json'
+        })
+        assert.equal(card.status, 200)
+        assert.equal(seen.method, 'GET')
+        assert.equal(seen.path, '/api/v1/a2a/11111111-1111-4111-8111-111111111111/.well-known/agent-card.json')
+        assert.equal(seen.headers.accept, 'application/json')
+        assert.equal(seen.headers.authorization, 'Bearer test-key')
+
+        const rpc = await call(
+            'POST',
+            '/api/v1/a2a/11111111-1111-4111-8111-111111111111',
+            { 'content-type': 'application/json', accept: 'text/event-stream', 'x-api-key': 'test-key' },
+            '{"jsonrpc":"2.0","id":1,"method":"message/stream","params":{}}'
+        )
+        assert.equal(rpc.status, 200)
+        assert.equal(seen.method, 'POST')
+        assert.equal(seen.path, '/api/v1/a2a/11111111-1111-4111-8111-111111111111')
+        assert.equal(seen.headers.accept, 'text/event-stream')
+        assert.equal((await call('GET', '/api/v1/a2a/11111111-1111-4111-8111-111111111111')).status, 404)
+        assert.equal((await call('POST', '/api/v1/a2a/11111111-1111-4111-8111-111111111111/extra')).status, 404)
+    })
+
     it('forwards POST /api/v1/orchestrate/* with the body and the four headers, and 404s everything else', async () => {
         const body = '{"messages":[{"role":"user","content":"Hi"}]}'
         const res = await call(

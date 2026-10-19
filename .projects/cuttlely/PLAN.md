@@ -29,6 +29,7 @@
 ## Next concrete tasks
 
 1. **Orchestrate live test.** The `external_chat` route is built (D97). The live tenant check in the architect's section 2.12 is a separate run: no tunnel or IBM tenant from the PR1 builder.
+   1b. **Orchestrate A2A live test.** The A2A 0.3.0 route is built (D98). The live tenant checks A1-A4 are a separate run: no tunnel or IBM tenant from this builder. If IBM sends no `contextId`, `taskId`, or `referenceTaskIds`, record that limitation in `docs/api.md` and do not patch around it. A new Orchestrate chat on the same flow must not know Ada and must show a different `context=` hash.
 2. **After v1.0.1.** Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN). Repository settings for the release are still to turn on (OPEN).
 3. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Never invent keys; use a maintainer's test credentials.
 4. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers.

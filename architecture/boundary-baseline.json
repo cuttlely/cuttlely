@@ -190,6 +190,36 @@
             "to": "packages/server/src/commands/base.ts"
         },
         {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/routes/predictions/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/services/apikey/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/utils/rateLimit.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
             "from": "packages/server/src/controllers/chat-messages/removeAll.test.ts",
             "to": "packages/server/src/controllers/chat-messages/index.ts",
             "reason": "the test drives the inherited clear-messages handler it covers"
@@ -466,6 +496,21 @@
             "to": "packages/server/src/middlewares/errors/index.ts"
         },
         {
+            "from": "packages/server/src/routes/a2a/index.ts",
+            "to": "packages/server/src/controllers/predictions/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/routes/a2a/index.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/routes/a2a/index.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
             "from": "packages/server/src/routes/apiKeyCaseBypass.test.ts",
             "to": "packages/server/src/routes/internal-predictions/index.ts",
             "reason": "The bypass test mounts the real router, or reads the real API gate lists, behind the API gate"
@@ -616,6 +661,36 @@
         {
             "from": "packages/server/src/routes/server-settings/index.ts",
             "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/a2a/a2aEncoder.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.test.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.ts",
+            "to": "packages/server/src/services/predictions/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
         {
             "from": "packages/server/src/services/builder/index.ts",
