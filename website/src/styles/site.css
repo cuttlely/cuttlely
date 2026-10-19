@@ -239,9 +239,6 @@
     font-weight: 600;
 }
 .cl-hero-proof a {
-    display: inline-block;
-    margin-left: 0.35rem;
-    font-weight: 700;
     color: var(--sl-color-text-accent);
     text-decoration: none;
 }
@@ -361,26 +358,37 @@
     }
 }
 
-/* ---------- home: proof strip ---------- */
-.cl-proof {
+/* ---------- home: three pillars ---------- */
+.cl-pillars {
     list-style: none;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.75rem 2rem;
+    display: grid;
+    gap: 1rem;
     margin: 0 0 2.5rem;
-    padding: 1rem 0;
-    color: var(--sl-color-gray-2);
+    padding: 0;
+}
+@media (min-width: 60rem) {
+    .cl-pillars {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1.25rem;
+    }
+}
+.cl-pillars li {
+    margin: 0;
+    padding: 1.2rem 1.3rem 1.3rem;
+    border-radius: 0.9rem;
+    border: 1px solid var(--cuttlely-border);
+    background: var(--cuttlely-surface);
     font-size: var(--sl-text-sm);
-    font-weight: 600;
+    line-height: 1.6;
+    color: var(--sl-color-gray-2);
 }
-.cl-proof li {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-.cl-proof svg {
-    color: var(--sl-color-text-accent);
+.cl-pillars strong {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-family: var(--cuttlely-font-display);
+    font-size: var(--sl-text-lg);
+    font-weight: 800;
+    color: var(--sl-color-white);
 }
 
 /* ---------- home: showcase ---------- */
@@ -1283,8 +1291,19 @@
     background: var(--cuttlely-chip);
     color: var(--cuttlely-chip-ink);
 }
-:root[data-theme='light'] .cl-proof svg {
-    color: var(--cuttlely-chip-ink);
+:root[data-theme='light'] .cl-pillars li {
+    position: relative;
+    overflow: hidden;
+    border-color: var(--cuttlely-card-border);
+    background: var(--cuttlely-surface);
+    box-shadow: var(--cuttlely-card-shadow);
+}
+:root[data-theme='light'] .cl-pillars li::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    background: var(--cuttlely-gradient-mark);
 }
 :root[data-theme='light'] .cl-steps li::before {
     background: linear-gradient(135deg, #6a3df2 0%, #4b4fea 100%);

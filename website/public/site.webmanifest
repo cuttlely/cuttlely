@@ -1,7 +1,7 @@
 {
     "name": "Cuttlely",
     "short_name": "Cuttlely",
-    "description": "The open-source agent platform for applications.",
+    "description": "Open-source visual agent builder, ready for production: drafts, Compare and rollback, a scoped SQL analyst, and Flowise import. Apache-2.0, self-hosted.",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#0C0F26",

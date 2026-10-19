@@ -909,12 +909,12 @@ test('the demo follows the hero, the case study follows the demo, then the A/B s
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
     assert.match(src, /<h2 id="test-every-change-title" class="cl-display">A\/B test every change before it goes live<\/h2>/)
     assert.match(src, /<h2 id="case-title" class="cl-display">Not the obvious answer<\/h2>/)
-    const proof = src.indexOf('class="cl-proof"')
+    const proof = src.indexOf('class="cl-pillars"')
     const demo = src.indexOf('<section id="watch-a-team-resolve-a-complaint"')
     const caseStudy = src.indexOf('<section id="one-complaint-three-specialists"')
     const ab = src.indexOf('<section id="ab-test-every-change-before-it-goes-live"')
     assert.ok(proof < demo && demo < caseStudy && caseStudy < ab)
-    assert.equal(src.slice(proof, demo).match(/<section/g), null, 'nothing sits between the proof row and the demo')
+    assert.equal(src.slice(proof, demo).match(/<section/g), null, 'nothing sits between the pillars and the demo')
     assert.equal(src.slice(demo + 1, caseStudy).match(/<section/g), null, 'nothing sits between the demo and the case study')
     assert.equal(src.slice(caseStudy + 1, ab).match(/<section/g), null, 'nothing sits between the case study and the A/B section')
     const showcase = src.slice(demo, caseStudy)
@@ -1051,17 +1051,21 @@ test('the light hero headline gradient keeps 3.5:1 on the darkest point of the h
     )
 })
 
-test('the hero paragraph, the page description and the README intro say the same thing', () => {
-    const lead =
-        'Cuttlely is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.'
+test('the home page hero uses the production message house', () => {
+    const lead = 'Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.'
+    const lineage = 'Cuttlely picks up where Flowise left off... built on its Apache-2.0 code, with the production layer on top.'
     const hero = readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
     const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
-    const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
     const heroLead = hero.slice(hero.indexOf('<p class="cl-hero-lead">') + 24, hero.indexOf('</p>', hero.indexOf('cl-hero-lead')))
+    assert.match(hero, /The visual agent builder,/)
+    assert.match(hero, /ready for production\./)
     assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
-    assert.match(hero, /Each agent sees only what its job needs, and every run shows the tokens it used\./)
-    assert.ok(page.includes(`'${lead}'`))
-    assert.ok(readme.includes(`**Your applications deserve agents.**\n\n${lead}\n`))
+    assert.ok(hero.includes(lineage))
+    assert.ok(hero.includes('href="/docs/bring-your-flows/"'))
+    assert.ok(page.includes(`title: 'Cuttlely: the visual agent builder, ready for production'`))
+    assert.match(page, /Ship changes safely\./)
+    assert.match(page, /Keep context small\./)
+    assert.match(page, /Bring your flows\./)
 })
 
 test('the home page ends with the sign-off line below the site footer, and other pages do not', () => {

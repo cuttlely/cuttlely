@@ -41,7 +41,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'knowledge-pipelines',
             length: '0:35',
-            label: 'A knowledge pipeline on a real Cuttlely server: the first run embeds 33 products and goes from the click to indexed in under a second, with no provider keys and embeddings that ran locally.'
+            label: 'A knowledge pipeline canvas on a real Cuttlely server, from the first run click to products indexed.'
         }
     },
     {
@@ -51,7 +51,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'chatflows',
             length: '0:35',
-            label: 'A bakery chatflow on a real Cuttlely server: median of 20 runs, 1.1 seconds to first words after two model calls and the calculator, 1.3 seconds to the full answer on the first question, and 1.3 seconds for the follow-up answer, with the order kept.'
+            label: 'A bakery chatflow on a real Cuttlely server answering an order, with first words after two model calls and the calculator.'
         }
     },
     {
@@ -61,7 +61,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'agentflows',
             length: '0:30',
-            label: 'A bakery order desk workflow on a real Cuttlely server: median of 20 runs of an equivalent flow with the same branches and questions, not the recorded canvas, 0.9 seconds to first words on the care branch after classifying the message, 1.2 seconds to the full care answer, and 0.8 seconds to first words on the order branch.'
+            label: 'A bakery order desk workflow on a real Cuttlely server classifying a message, then answering on the care branch and the order branch.'
         }
     },
     {
@@ -71,7 +71,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'harnesses',
             length: '0:48',
-            label: 'A bakery agent team on a real Cuttlely server: the run finishes in 4.2 seconds, routing takes 855 milliseconds, and at turn 92 the analyst\'s prompt is 3.7 times smaller than a single chatbot\'s, 2,114 versus 7,719 tokens, the first model call of each turn.'
+            label: 'A bakery agent team on a real Cuttlely server: Harness Prime routes the question and the analyst answers from ticked tables.'
         }
     },
     {
@@ -81,7 +81,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'build-with-ai',
             length: '0:31',
-            label: 'Build with AI on a real Cuttlely server: a bakery team is described in plain words, built and saved in 5.3 seconds, and its first starter question finishes in 4.0 seconds with both specialists, the menu expert in 701 milliseconds.'
+            label: 'Build with AI on a real Cuttlely server: a bakery team is described in plain words, then built and saved on the canvas.'
         }
     },
     {
@@ -91,7 +91,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'share-and-embed',
             length: '0:27',
-            label: 'Share and embed on a real Cuttlely server: median of 20 runs, 0.4 seconds to first words on the shared link, 0.8 seconds to the full table, and 0.4 seconds to first words in the embed widget.'
+            label: 'Share and embed on a real Cuttlely server: a shared chat link and the embed widget answering with a table.'
         }
     }
 ]
@@ -129,7 +129,7 @@ const teamFeatures = [
     },
     {
         title: 'On your own servers',
-        text: 'Docker, Render or from source, with SQLite, Postgres, MySQL or MariaDB.',
+        text: 'Docker, Render or from source, with SQLite or Postgres.',
         href: '/docs/how-to/docker/',
         icon: 'server'
     }
@@ -163,21 +163,30 @@ const installs = [
 
 <StarlightPage
     frontmatter={{
-        title: 'Your applications deserve agents.',
+        title: 'Cuttlely: the visual agent builder, ready for production',
         description:
-            'Cuttlely is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.',
+            'Open-source visual agent builder, ready for production: drafts, Compare and rollback, a scoped SQL analyst, and Flowise import. Apache-2.0, self-hosted.',
         template: 'splash',
-        hero: { tagline: 'The open-source agent platform for applications.', actions: [] },
+        hero: { tagline: 'Open source · Apache-2.0', actions: [] },
+        head: [{ tag: 'title', content: 'Cuttlely: the visual agent builder, ready for production' }],
         pagefind: false,
         tableOfContents: false
     }}
     hasSidebar={false}
 >
     <div class="cl-home not-content">
-        <ul class="cl-proof" aria-label="At a glance">
-            <li><Icon name="open-book" /> Open source under Apache 2.0</li>
-            <li><Icon name="laptop" /> Docker, Render or from source</li>
-            <li><Icon name="rocket" /> The demo shows a team at work in about a minute</li>
+        <ul class="cl-pillars" aria-label="What Cuttlely gives you">
+            <li>
+                <strong>Ship changes safely.</strong> Edits to flows and agent teams go to a draft. Compare it with Live, gate Publish on a test set, and roll
+                Live back at once. Roles, an audit log, and API keys that only run the harnesses you tick.
+            </li>
+            <li>
+                <strong>Keep context small.</strong> A team splits each question so every specialist gets a self-contained task, not the whole chat. The
+                analyst sees only the tables you tick. Every run shows its tokens.
+            </li>
+            <li>
+                <strong>Bring your flows.</strong> Import your Flowise JSON and it opens node for node. No rebuild.
+            </li>
         </ul>
 
         <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
@@ -447,10 +456,8 @@ const installs = [
                 </ul>
                 <p class="cl-callout-proof">
                     <span class="cl-pair-label">Bakery demo</span>
-                    On the made-up bakery database, it used about a quarter of the prompt tokens of pasting in the whole schema, and answered 5 of 5 questions
-                    correctly in a <a href="/docs/how-to/analyst/#real-model-check">real-model test</a>. With
-                    <a href="/docs/how-to/analyst/#several-analysts-in-one-harness">two analysts in one harness</a>, 9 of 9 questions went to the right
-                    analyst and came back correct.
+                    On a made-up bakery database, ticking 6 of 20 relations took the analyst's prompt from 2,562 to 663 tokens. Rerun it with
+                    <a href={`${REPO_URL}/blob/main/scripts/analyst-schema-tokens.mjs`}>scripts/analyst-schema-tokens.mjs</a>.
                 </p>
                 <a class="cl-link-arrow" href="/docs/how-to/analyst/">Analyst guide <Icon name="right-arrow" /></a>
             </aside>
@@ -559,7 +566,7 @@ const installs = [
             <p class="cl-center">
                 <a class="cl-link-arrow" href="/docs/how-to/context-and-tokens/">How Cuttlely keeps context small <Icon name="right-arrow" /></a>
             </p>
-            <p class="cl-center">In our internal benchmarks: a third of the tokens, zero failed runs.</p>
+            <p class="cl-center">Lean context: fewer tokens in our internal benchmarks.</p>
         </section>
 
         <section id="tools-your-teams-use" class="cl-section" aria-labelledby="tools-title">

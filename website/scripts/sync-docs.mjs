@@ -32,6 +32,19 @@ export function docOutPath(repoPath) {
     return repoPath.replace(/(^|\/)README\.md$/, '$1index.md')
 }
 
+/** Doc routes that stay off the generated sidebar (the page still exists). */
+export const SIDEBAR_OMIT = new Set(['/docs/langflow-import/'])
+
+const WHITEPAPER_MARK = 'The benchmark whitepaper is on the website at `/whitepaper/`'
+
+/** Drop the 1.3.0 whitepaper line from the changelog page. Does not edit CHANGELOG.md. */
+export function filterChangelogForSite(markdown) {
+    return markdown
+        .split('\n')
+        .filter((line) => !line.includes(WHITEPAPER_MARK))
+        .join('\n')
+}
+
 /** Splits Markdown into lines tagged with whether they sit inside a fenced code block. */
 function taggedLines(markdown) {
     let fence = null
@@ -296,7 +309,8 @@ export function sync({ check = true, write = true } = {}) {
         ['FAQ.md', '/faq/', 'FAQ'],
         ['SECURITY.md', '/security/', 'Security']
     ]) {
-        const { title, description, body } = splitPage(read(rel))
+        const source = rel === 'CHANGELOG.md' ? filterChangelogForSite(read(rel)) : read(rel)
+        const { title, description, body } = splitPage(source)
         titles[route] = label
         writePage(
             route.slice(1, -1) + '.md',
@@ -353,7 +367,7 @@ export function sync({ check = true, write = true } = {}) {
     }
     // Any doc page the index does not link still gets a place in the sidebar.
     const all = new Set([...start.items, ...groups.flatMap((g) => g.items), ...project.items].map((i) => i.link))
-    const more = docs.map(docRoute).filter((r) => !all.has(r))
+    const more = docs.map(docRoute).filter((r) => !all.has(r) && !SIDEBAR_OMIT.has(r))
     if (more.length) project.items.unshift(...more.map((link) => ({ label: titles[link], link })))
     const sidebar = [start, ...groups, project].filter((g) => g.items.length)
     if (write) fs.writeFileSync(path.join(GEN, 'sidebar.json'), JSON.stringify(sidebar, null, 2) + '\n')

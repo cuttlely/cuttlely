@@ -1,6 +1,6 @@
 # Flowise migration wizard
 
-Import Flowise JSON, in the **Import** menu on Chatflows and on the canvas gear, opens this wizard. Import Langflow JSON is a separate item in the same menu and still follows `docs/langflow-import.md`.
+Import Flowise JSON, in the **Import** menu on Chatflows and on the canvas gear, opens this wizard. A second JSON import item in the same menu follows a different guide.
 
 ## Steps
 
@@ -20,7 +20,7 @@ Import Flowise JSON, in the **Import** menu on Chatflows and on the canvas gear,
 -   An edge whose source or target is missing is dropped.
 -   A chatflow with no Chain, Agent, or Engine still opens. The result says it cannot chat yet.
 -   A workspace bundle (`ChatFlow`, `AgentFlow`, and the other export tables) is refused. Import one chatflow.
--   A Langflow file is refused with the Langflow button name. It is not converted here.
+-   A file meant for that other import item is refused here. It is not converted.
 
 The canvas route follows the graph: a Harness Prime or specialist node opens the harness canvas, an Agent Flows node opens agentflow v2, a sequential or multi-agent graph opens the legacy agentflow canvas (it still runs and saves, but the app no longer offers it for new work), `type: ETL` opens the ETL canvas, and everything else opens the chatflow canvas.
 
