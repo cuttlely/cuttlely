@@ -113,6 +113,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'grafana-dashboard.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
+            path.join(ROOT, 'website', 'scripts', 'faq-nav.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
             path.join(ROOT, 'scripts', 'permission-keys.test.mjs'),
             path.join(ROOT, 'packages', 'ui', 'src', 'ui-component', 'markdown', 'math.test.mjs')
@@ -142,7 +143,7 @@ const STEPS = [
         ]
     },
     {
-        // Every link in docs/, the README quickstart, CHANGELOG, SECURITY and CREDITS resolves for the website.
+        // Every link in docs/, the README quickstart, CHANGELOG, FAQ, SECURITY and CREDITS resolves for the website.
         // Network-free and writes nothing; the full site build is `npm run build` in website/.
         name: 'website-docs',
         fast: true,
