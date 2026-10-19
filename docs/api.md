@@ -584,6 +584,7 @@ The routes above are how an app asks a published flow. These management routes a
 -   `POST /api/v1/account/invite` with `link: true`, and `POST /api/v1/users/:id/reset-link`, return a one-time URL. An invited person is pending until they open their own invite link; a sign-in with a matching email alone never activates them. With AuthKit on, an invite always returns or emails the link. [One-time links](./reference/auth-api.md#one-time-links).
 -   `POST /api/v1/users/:id/disable`, `POST /api/v1/users/:id/enable`, and `GET /api/v1/users/:id/sessions` manage local users. [Local users, roles, and sessions](./reference/local-directory-api.md).
 -   `GET /api/v1/audit` lists sign-in, role, and settings events. [Audit API](./reference/audit-api.md).
+-   `POST /api/v1/mcp/:id` exposes a published chatflow as a Streamable HTTP MCP server. [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md).
 
 ## When to use the chat widget instead
 

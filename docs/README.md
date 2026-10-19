@@ -26,6 +26,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Fail a build when answers change](./how-to/ci-gate.md). `cuttlely check` runs the Publish check and can fail the build when an answer comes back Changed, or when the server's verdict is failed. The example workflows are in `examples/ci/`.
 -   [Share and embed a chat](./how-to/share-and-embed.md). A public link for any chatflow, a chat button or full-page chat on your website, how the share settings change the look, and the [`@cuttlely/chat`](./how-to/share-and-embed.md#embed-with-cuttlelychat) package.
 -   [Use the API in your own web app](./api.md). API keys, calling chatflows, agentflows and harnesses, streaming, conversation memory, uploads, errors and allowed origins, with a runnable [example app](../examples/web-app).
+-   [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md). Register `/api/v1/mcp/:id` as a remote MCP toolkit in IBM watsonx Orchestrate.
 
 ## Install and sign in
 

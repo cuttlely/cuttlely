@@ -8,6 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Docs: how to register a published chatflow as a remote MCP toolkit in IBM watsonx Orchestrate (`POST /api/v1/mcp/:id`). The ADK sample is `samples/orchestrate/bakery-hours.toolkit.yaml`. [Use a chatflow as an Orchestrate toolkit](./docs/how-to/orchestrate-mcp.md).
 -   The website has an FAQ at `/faq/`, linked from the header, the footer, and the docs sidebar.
 -   The website has a Flowise migration page at `/flowise/`, with `/migrate/` as an alias. It is linked from the home hero, the header, and the footer.
 -   After the first successful run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.
