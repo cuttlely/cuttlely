@@ -6,7 +6,7 @@ name: cuttlely_orders
 title: Cuttlely orders
 nickname: cuttlely_orders
 provider: external_chat
-description: Cuttlely chatflow Harbor bakery hours
+description: Cuttlely chatflow Larkfield Home orders
 tags:
     - cuttlely
 api_url: 'https://YOUR_HOST/api/v1/orchestrate/YOUR_FLOW_ID'

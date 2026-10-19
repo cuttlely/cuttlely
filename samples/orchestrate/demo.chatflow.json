@@ -1,8 +1,259 @@
 {
-    "name": "Harbor bakery hours",
-    "type": "CHATFLOW",
-    "deployed": false,
-    "isPublic": false,
-    "flowData": "{\"nodes\":[{\"id\":\"chatXAI_0\",\"type\":\"customNode\",\"position\":{\"x\":40,\"y\":40},\"data\":{\"id\":\"chatXAI_0\",\"selected\":false,\"label\":\"xAI Grok\",\"name\":\"chatXAI\",\"version\":2,\"type\":\"ChatXAI\",\"category\":\"Chat Models\",\"inputs\":{\"modelName\":\"grok-4.7\",\"temperature\":0.7,\"streaming\":true}},\"positionAbsolute\":{\"x\":40,\"y\":40}},{\"id\":\"bufferMemory_0\",\"type\":\"customNode\",\"position\":{\"x\":40,\"y\":360},\"data\":{\"id\":\"bufferMemory_0\",\"selected\":false,\"label\":\"Buffer Memory\",\"name\":\"bufferMemory\",\"version\":2,\"type\":\"BufferMemory\",\"category\":\"Memory\",\"inputs\":{\"memoryKey\":\"chat_history\"}},\"positionAbsolute\":{\"x\":40,\"y\":360}},{\"id\":\"conversationChain_0\",\"type\":\"customNode\",\"position\":{\"x\":420,\"y\":40},\"data\":{\"id\":\"conversationChain_0\",\"selected\":false,\"label\":\"Conversation Chain\",\"name\":\"conversationChain\",\"version\":3,\"type\":\"ConversationChain\",\"category\":\"Chains\",\"inputs\":{\"model\":\"{{chatXAI_0.data.instance}}\",\"memory\":\"{{bufferMemory_0.data.instance}}\",\"systemMessagePrompt\":\"You are the Harbor bakery hours helper. Harbor bakery is a made-up neighborhood bakery. Saturday: open 7:00 to 15:00. Sunday: closed. Monday to Friday: open 7:00 to 17:00. Answer from these hours only. If you do not know, say so.\"}},\"positionAbsolute\":{\"x\":420,\"y\":40}}],\"edges\":[{\"id\":\"chatXAI_0-conversationChain_0-model\",\"source\":\"chatXAI_0\",\"target\":\"conversationChain_0\",\"targetHandle\":\"conversationChain_0-input-model\"},{\"id\":\"bufferMemory_0-conversationChain_0-memory\",\"source\":\"bufferMemory_0\",\"target\":\"conversationChain_0\",\"targetHandle\":\"conversationChain_0-input-memory\"}],\"viewport\":{\"x\":24,\"y\":24,\"zoom\":0.85}}",
-    "description": "Cuttlely chatflow Harbor bakery hours"
+  "nodes": [
+    {
+      "id": "chatXAI_0",
+      "type": "customNode",
+      "position": {
+        "x": 0,
+        "y": 40
+      },
+      "data": {
+        "id": "chatXAI_0",
+        "label": "xAI Grok",
+        "name": "chatXAI",
+        "version": 2,
+        "type": "ChatXAI",
+        "category": "Chat Models",
+        "baseClasses": [
+          "ChatXAI",
+          "ChatXAI",
+          "ChatOpenAICompletions",
+          "BaseChatOpenAI",
+          "BaseChatModel",
+          "BaseLanguageModel",
+          "Runnable"
+        ],
+        "inputs": {
+          "modelName": "grok-4.20-0309-non-reasoning",
+          "temperature": 0.2,
+          "streaming": true,
+          "allowImageUploads": false,
+          "maxTokens": 200,
+          "cache": "",
+          "credential": ""
+        },
+        "inputAnchors": [
+          {
+            "label": "Cache",
+            "name": "cache",
+            "type": "BaseCache",
+            "id": "chatXAI_0-input-cache-BaseCache"
+          }
+        ],
+        "inputParams": [
+          {
+            "label": "Model",
+            "name": "modelName",
+            "type": "asyncOptions",
+            "loadMethod": "listModels",
+            "default": "grok-4.7",
+            "description": "Pick a model from the list, or type any model name your xAI account offers.",
+            "freeSolo": true,
+            "id": "chatXAI_0-input-modelName-asyncOptions"
+          },
+          {
+            "label": "Temperature",
+            "name": "temperature",
+            "type": "number",
+            "step": 0.1,
+            "default": 0.9,
+            "optional": true,
+            "id": "chatXAI_0-input-temperature-number"
+          },
+          {
+            "label": "Streaming",
+            "name": "streaming",
+            "type": "boolean",
+            "default": true,
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatXAI_0-input-streaming-boolean"
+          },
+          {
+            "label": "Allow Image Uploads",
+            "name": "allowImageUploads",
+            "type": "boolean",
+            "description": "Allow image input. Refer to the <a href=\"https://github.com/cuttlely/cuttlely/blob/main/README.md#prediction-uploads\" target=\"_blank\">docs</a> for more details.",
+            "default": false,
+            "optional": true,
+            "id": "chatXAI_0-input-allowImageUploads-boolean"
+          },
+          {
+            "label": "Max Tokens",
+            "name": "maxTokens",
+            "type": "number",
+            "step": 1,
+            "optional": true,
+            "additionalParams": true,
+            "id": "chatXAI_0-input-maxTokens-number"
+          }
+        ],
+        "outputAnchors": [
+          {
+            "id": "chatXAI_0-output-chatXAI-ChatXAI|ChatXAI|ChatOpenAICompletions|BaseChatOpenAI|BaseChatModel|BaseLanguageModel|Runnable",
+            "name": "chatXAI",
+            "label": "ChatXAI",
+            "type": "ChatXAI | ChatXAI | ChatOpenAICompletions | BaseChatOpenAI | BaseChatModel | BaseLanguageModel | Runnable"
+          }
+        ],
+        "outputs": {}
+      }
+    },
+    {
+      "id": "bufferMemory_0",
+      "type": "customNode",
+      "position": {
+        "x": 0,
+        "y": 40
+      },
+      "data": {
+        "id": "bufferMemory_0",
+        "label": "Buffer Memory",
+        "name": "bufferMemory",
+        "version": 2,
+        "type": "BufferMemory",
+        "category": "Memory",
+        "baseClasses": [
+          "BufferMemory",
+          "BaseChatMemory",
+          "BaseMemory"
+        ],
+        "inputs": {
+          "sessionId": "",
+          "memoryKey": "chat_history"
+        },
+        "inputAnchors": [],
+        "inputParams": [
+          {
+            "label": "Session Id",
+            "name": "sessionId",
+            "type": "string",
+            "description": "If not specified, a random id will be used.",
+            "default": "",
+            "additionalParams": true,
+            "optional": true,
+            "id": "bufferMemory_0-input-sessionId-string"
+          },
+          {
+            "label": "Memory Key",
+            "name": "memoryKey",
+            "type": "string",
+            "default": "chat_history",
+            "additionalParams": true,
+            "id": "bufferMemory_0-input-memoryKey-string"
+          }
+        ],
+        "outputAnchors": [
+          {
+            "id": "bufferMemory_0-output-bufferMemory-BufferMemory|BaseChatMemory|BaseMemory",
+            "name": "bufferMemory",
+            "label": "BufferMemory",
+            "type": "BufferMemory | BaseChatMemory | BaseMemory"
+          }
+        ],
+        "outputs": {}
+      }
+    },
+    {
+      "id": "conversationChain_0",
+      "type": "customNode",
+      "position": {
+        "x": 400,
+        "y": 40
+      },
+      "data": {
+        "id": "conversationChain_0",
+        "label": "Conversation Chain",
+        "name": "conversationChain",
+        "version": 3,
+        "type": "ConversationChain",
+        "category": "Chains",
+        "baseClasses": [
+          "ConversationChain",
+          "LLMChain",
+          "BaseChain",
+          "Runnable"
+        ],
+        "inputs": {
+          "model": "{{chatXAI_0.data.instance}}",
+          "memory": "{{bufferMemory_0.data.instance}}",
+          "chatPromptTemplate": "",
+          "inputModeration": "",
+          "systemMessagePrompt": "You are the order helper for Larkfield Home, a made-up home goods store. Answer in one or two short sentences. Known orders: LH-30112: walnut side table, arriving Oct 21. LH-30118: oak bookshelf, shipped, arriving Oct 23. LH-30125: linen throw, processing. If an order id is not listed, say you can't find it. Remember what the customer tells you in this conversation, such as their name and which orders they asked about. If you don't know something, say so; never invent details."
+        },
+        "inputAnchors": [
+          {
+            "label": "Chat Model",
+            "name": "model",
+            "type": "BaseChatModel",
+            "id": "conversationChain_0-input-model-BaseChatModel"
+          },
+          {
+            "label": "Memory",
+            "name": "memory",
+            "type": "BaseMemory",
+            "id": "conversationChain_0-input-memory-BaseMemory"
+          },
+          {
+            "label": "Chat Prompt Template",
+            "name": "chatPromptTemplate",
+            "type": "ChatPromptTemplate",
+            "id": "conversationChain_0-input-chatPromptTemplate-ChatPromptTemplate"
+          },
+          {
+            "label": "Input Moderation",
+            "name": "inputModeration",
+            "type": "Moderation",
+            "id": "conversationChain_0-input-inputModeration-Moderation"
+          }
+        ],
+        "inputParams": [
+          {
+            "label": "System Message",
+            "name": "systemMessagePrompt",
+            "type": "string",
+            "rows": 4,
+            "description": "If Chat Prompt Template is provided, this will be ignored",
+            "additionalParams": true,
+            "optional": true,
+            "default": "The following is a friendly conversation between a human and an AI. The AI is talkative and provides lots of specific details from its context. If the AI does not know the answer to a question, it truthfully says it does not know.",
+            "placeholder": "The following is a friendly conversation between a human and an AI. The AI is talkative and provides lots of specific details from its context. If the AI does not know the answer to a question, it truthfully says it does not know.",
+            "id": "conversationChain_0-input-systemMessagePrompt-string"
+          }
+        ],
+        "outputAnchors": [
+          {
+            "id": "conversationChain_0-output-conversationChain-ConversationChain|LLMChain|BaseChain|Runnable",
+            "name": "conversationChain",
+            "label": "ConversationChain",
+            "type": "ConversationChain | LLMChain | BaseChain | Runnable"
+          }
+        ],
+        "outputs": {}
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "chatXAI_0",
+      "sourceHandle": "chatXAI_0-output-chatXAI-ChatXAI|ChatXAI|ChatOpenAICompletions|BaseChatOpenAI|BaseChatModel|BaseLanguageModel|Runnable",
+      "target": "conversationChain_0",
+      "targetHandle": "conversationChain_0-input-model-BaseChatModel",
+      "type": "buttonedge",
+      "id": "e1"
+    },
+    {
+      "source": "bufferMemory_0",
+      "sourceHandle": "bufferMemory_0-output-bufferMemory-BufferMemory|BaseChatMemory|BaseMemory",
+      "target": "conversationChain_0",
+      "targetHandle": "conversationChain_0-input-memory-BaseMemory",
+      "type": "buttonedge",
+      "id": "e2"
+    }
+  ],
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  }
 }

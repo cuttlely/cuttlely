@@ -1,10 +1,10 @@
 # Record the Orchestrate demo
 
-This runbook imports the Harbor bakery hours chatflow, registers it as an IBM watsonx Orchestrate `external_chat` collaborator named `cuttlely_orders`, adds that collaborator to the native agent `larkfield_router`, runs checks L1–L4, then records the screenshots for the how-to. Teardown stops the tunnel, so **record after L1–L4 and before teardown**.
+This runbook imports the Larkfield Home orders chatflow, registers it as an IBM watsonx Orchestrate `external_chat` collaborator named `cuttlely_orders`, adds that collaborator to the native agent `larkfield_router`, runs checks L1–L4, then records the screenshots for the how-to. Teardown stops the tunnel, so **record after L1–L4 and before teardown**.
 
 Captions below still say `[LIVE-TEST]` until tonight's live tenant run fills them in. Do not commit screenshot files until those frames exist.
 
-The chatflow uses a Grok model (`grok-4.7`) with an xAI credential. Add the credential off-screen. Show no keys on screen: not in Credentials, not in the API key dialog, not in IBM's token field.
+The chatflow uses a Grok model (`grok-4.20-0309-non-reasoning`) with an xAI credential. Add the credential off-screen. Show no keys on screen: not in Credentials, not in the API key dialog, not in IBM's token field.
 
 How the routes work is [Call a chatflow from IBM watsonx Orchestrate](./orchestrate.md).
 
@@ -17,13 +17,13 @@ How the routes work is [Call a chatflow from IBM watsonx Orchestrate](./orchestr
 | [`samples/orchestrate/a2a.agent.yaml`](../../samples/orchestrate/a2a.agent.yaml)                     | IBM A2A 0.3.0 template (`name: cuttlely_a2a_test`). Same copy-then-fill rule. Registration path is an open item.    |
 | [`scripts/orchestrate-live-proxy.mjs`](../../scripts/orchestrate-live-proxy.mjs)                     | Forwards only `POST /api/v1/orchestrate/*` to the local server. Does not reach A2A.                                 |
 
-Harbor bakery is made-up. Saturday hours are 7:00 to 15:00, Sunday is closed, weekdays are 7:00 to 17:00.
+Larkfield Home is a made-up home goods store. Known demo orders: LH-30112 walnut side table, arriving Oct 21; LH-30118 oak bookshelf, shipped, arriving Oct 23; LH-30125 linen throw, processing.
 
 ## Setup
 
 1. Sign in to Cuttlely.
-2. **Chatflows** → **Add Chatflow** → **Import Chatflow** and choose `samples/orchestrate/demo.chatflow.json`. The flow name is **Harbor bakery hours**.
-3. Add an xAI credential off-screen: **Credentials** → add **xAI API**, name it something like `xAI demo`, paste the key, save. Then open the canvas, select the **xAI Grok** card, and pick that credential. The imported JSON has no credential field. Do not photograph the paste dialog or any secret value.
+2. **Chatflows** → **Import** → **Import Flowise JSON** and choose `samples/orchestrate/demo.chatflow.json`. Save the flow as **Larkfield Home orders**.
+3. Add an xAI credential off-screen: **Credentials** → add **xAI API**, name it something like `xAI demo`, paste the key, save. Then open the canvas, select the **xAI Grok** card, and pick that credential. The imported JSON has an empty credential field. Do not photograph the paste dialog or any secret value.
 4. Create an API key (name it `orchestrate-demo`) and bind it to the flow in **API Endpoint**. Copy the key once; the UI will not show it again. Do not photograph the key.
 5. Publish the flow if you work with drafts. The Orchestrate route answers the published chatflow that has the bound key.
 6. Start Cuttlely. In another terminal start the live proxy, then put a public HTTPS tunnel in front of the proxy only (not the Cuttlely port):
@@ -44,7 +44,7 @@ Run these against the live tenant before you record. Note the Cuttlely log line 
 
 **L1 Register.** The external agent `cuttlely_orders` is under **AI Gateway** → **Agent directory**. The native agent `larkfield_router` lists `cuttlely_orders` as a collaborator. `[LIVE-TEST]`
 
-**L2 Streaming call.** In Orchestrate, chat with **`larkfield_router`** (not the external agent): `What time do you open on Saturday?` Pass: the answer shows (Harbor bakery opens at 7:00 on Saturday); Cuttlely's log has `stream=true status=200` from `chat_with_collaborator`. Record `path`, `fields`, whether the answer rendered while streaming, and whether Orchestrate handled the close. `[LIVE-TEST]`
+**L2 Streaming call.** In Orchestrate, chat with **`larkfield_router`** (not the external agent): `What is the status of order LH-30112?` Pass: the answer shows (walnut side table, arriving Oct 21); Cuttlely's log has `stream=true status=200` from `chat_with_collaborator`. Record `path`, `fields`, whether the answer rendered while streaming, and whether Orchestrate handled the close. `[LIVE-TEST]`
 
 **L3 Thread continuity.** In the same chat: `My name is Ada.` then `What is my name?` Pass: the answer says Ada. In a new chat, `What is my name?` Pass: it does not know.
 
@@ -67,14 +67,14 @@ Show no keys. Captions name the credential (`xAI demo`) and the API key (`orches
 | #   | Shot                           | Who records | Must show                                                                                                                                                                                                                                                                                                                                             | Result        |
 | --- | ------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
 | 1   | Cuttlely Chatflows page        | Cuttlely    | Signed-in list. No keys.                                                                                                                                                                                                                                                                                                                              | `[LIVE-TEST]` |
-| 2   | Import the demo flow           | Cuttlely    | `demo.chatflow.json` / **Harbor bakery hours**.                                                                                                                                                                                                                                                                                                       | `[LIVE-TEST]` |
-| 3   | Canvas with the Grok card      | Cuttlely    | Conversation Chain, **xAI Grok** (`grok-4.7`), Buffer Memory. Credential already picked; the paste dialog is not in frame.                                                                                                                                                                                                                            | `[LIVE-TEST]` |
+| 2   | Import the demo flow           | Cuttlely    | `demo.chatflow.json` / **Larkfield Home orders**.                                                                                                                                                                                                                                                                                                     | `[LIVE-TEST]` |
+| 3   | Canvas with the Grok card      | Cuttlely    | Conversation Chain, **xAI Grok** (`grok-4.20-0309-non-reasoning`), Buffer Memory. Credential already picked; the paste dialog is not in frame.                                                                                                                                                                                                        | `[LIVE-TEST]` |
 | 4   | Credentials page               | Cuttlely    | Credential **name** only (`xAI demo`). No key material.                                                                                                                                                                                                                                                                                               | `[LIVE-TEST]` |
 | 5   | API key dialog                 | Cuttlely    | Key **name** only (`orchestrate-demo`). No key material.                                                                                                                                                                                                                                                                                              | `[LIVE-TEST]` |
 | 6   | IBM external agent create      | Orchestrate | **AI Gateway** → **Agent directory** → **Add agent**. External agent `cuttlely_orders`, `external_chat`, `api_url` `$CUTTLELY_URL/api/v1/orchestrate/<flow id>`, streaming on, CoT off. Token field hidden or empty in the frame.                                                                                                                     | `[LIVE-TEST]` |
 | 7   | Request / thread header        | Cuttlely    | **`X-IBM-THREAD-ID`** on the Orchestrate request (Cuttlely log `thread=` hash, or IBM's header view). Fallback: if IBM sends no header, caption `thread=none`. This shot records whether the header was present. It does not settle the open item of whether memory comes from that header or from Orchestrate resending earlier turns. `[LIVE-TEST]` | `[LIVE-TEST]` |
-| 8   | First Orchestrate chat         | Orchestrate | Chat is with **`larkfield_router`**, which has `cuttlely_orders` as a collaborator (`chat_with_collaborator`). Made-up Saturday hours question; the answer visible. Streaming behaviour `[LIVE-TEST]`.                                                                                                                                                | `[LIVE-TEST]` |
-| 9   | Follow-up in the same thread   | Orchestrate | Continuity (Ada, or a second Saturday-hours follow-up). Record `thread=` the same as shot 7, or `thread=none` with the same fallback as shot 7. Do not caption a memory mechanism. `[LIVE-TEST]`                                                                                                                                                      | `[LIVE-TEST]` |
+| 8   | First Orchestrate chat         | Orchestrate | Chat is with **`larkfield_router`**, which has `cuttlely_orders` as a collaborator (`chat_with_collaborator`). Made-up order status question (LH-30112); the answer visible. Streaming behaviour `[LIVE-TEST]`.                                                                                                                                       | `[LIVE-TEST]` |
+| 9   | Follow-up in the same thread   | Orchestrate | Continuity (Ada, or a second order follow-up). Record `thread=` the same as shot 7, or `thread=none` with the same fallback as shot 7. Do not caption a memory mechanism. `[LIVE-TEST]`                                                                                                                                                               | `[LIVE-TEST]` |
 | 10  | Native agent collaborator list | Orchestrate | `larkfield_router` lists collaborator `cuttlely_orders`. People chat here, not on the external agent.                                                                                                                                                                                                                                                 | `[LIVE-TEST]` |
 
 Do not add Markdown image links until the PNG files are in `docs/images/`. A missing file fails the docs link check.
@@ -93,4 +93,4 @@ Do this last, after the shots are saved:
 1. Stop the tunnel.
 2. Stop the live proxy.
 3. In Orchestrate, disable or delete the demo agents (`cuttlely_orders`, `larkfield_router`) and the connection that held the demo key.
-4. In Cuttlely you can leave the Harbor bakery flow, or delete the bound key so the route refuses (`403` `keyless_flow`).
+4. In Cuttlely you can leave the Larkfield Home orders flow, or delete the bound key so the route refuses (`403` `keyless_flow`).

@@ -4,10 +4,10 @@
 spec_version: v1
 kind: external
 name: cuttlely_a2a_test
-title: Harbor bakery hours
+title: Larkfield Home orders
 nickname: cuttlely_a2a_test
 provider: external_chat/A2A/0.3.0
-description: Cuttlely chatflow Harbor bakery hours
+description: Cuttlely chatflow Larkfield Home orders
 tags:
     - cuttlely
 api_url: 'https://YOUR_HOST/api/v1/a2a/YOUR_FLOW_ID'

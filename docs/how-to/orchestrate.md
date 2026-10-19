@@ -1,6 +1,6 @@
 # Call a chatflow from IBM watsonx Orchestrate
 
-A published Cuttlely chatflow can answer as a collaborator for an IBM watsonx Orchestrate native agent. Bind an API key to the chatflow, then register an external agent whose `api_url` points at that flow. This page covers IBM's `external_chat` contract (OpenAI-style chat completions) and IBM's A2A 0.3.0 contract. The Harbor bakery hours demo, including the sample YAML, is in [Record the Orchestrate demo](./orchestrate-demo.md).
+A published Cuttlely chatflow can answer as a collaborator for an IBM watsonx Orchestrate native agent. Bind an API key to the chatflow, then register an external agent whose `api_url` points at that flow. This page covers IBM's `external_chat` contract (OpenAI-style chat completions) and IBM's A2A 0.3.0 contract. The Larkfield Home orders demo, including the sample YAML, is in [Record the Orchestrate demo](./orchestrate-demo.md).
 
 Copy each sample YAML, fill in the host, flow id and API key, and import **that filled-in copy**. Do not import the files from this repository: they hold placeholders, not a working agent.
 
@@ -8,11 +8,11 @@ IBM's agent YAML shape is in [Connect to an external agent](https://developer.wa
 
 The made-up `external_chat` setup on this page uses:
 
-| Role in Orchestrate               | Name                |
-| --------------------------------- | ------------------- |
-| External Cuttlely agent           | `cuttlely_orders`   |
-| Native agent people chat with     | `larkfield_router`  |
-| Cuttlely chatflow (imported demo) | Harbor bakery hours |
+| Role in Orchestrate               | Name                  |
+| --------------------------------- | --------------------- |
+| External Cuttlely agent           | `cuttlely_orders`     |
+| Native agent people chat with     | `larkfield_router`    |
+| Cuttlely chatflow (imported demo) | Larkfield Home orders |
 
 People chat with `larkfield_router`. That native agent has `cuttlely_orders` as a collaborator. Orchestrate then calls the Cuttlely flow through `chat_with_collaborator`.
 
@@ -24,7 +24,7 @@ You need:
 -   A chatflow that already answers in the canvas chat. Its id is in the address bar and in **API Endpoint** (`</>`).
 -   An API key bound to that chatflow. A flow with no bound key is refused (`403` `keyless_flow`). `deployed` is not the gate; the bound key is, the same as [`POST /api/v1/prediction/:id`](../api.md#ask-a-chatflow).
 
-The demo flow uses a Grok chat model (`chatXAI`, default `grok-4.7`) with an xAI credential. Add that credential in **Credentials** off-screen, then pick it on the Grok card. Do not put a key in the imported JSON, in the YAML, or in a screenshot.
+The demo flow uses a Grok chat model (`chatXAI`, `grok-4.20-0309-non-reasoning`) with an xAI credential. Add that credential in **Credentials** off-screen, then pick it on the Grok card. Do not put a key in the imported JSON, in the YAML, or in a screenshot.
 
 ## Register an `external_chat` agent
 
@@ -39,7 +39,7 @@ name: cuttlely_orders
 title: Cuttlely orders
 nickname: cuttlely_orders
 provider: external_chat
-description: Cuttlely chatflow Harbor bakery hours
+description: Cuttlely chatflow Larkfield Home orders
 tags:
     - cuttlely
 api_url: 'https://YOUR_HOST/api/v1/orchestrate/YOUR_FLOW_ID'
@@ -79,7 +79,7 @@ A2A continuity uses A2A `contextId`, not `X-IBM-THREAD-ID`. Do not send `X-IBM-T
 
 Set `A2A_PUBLIC_BASE_URL` to the public origin (scheme and host, no path, no trailing slash) so the card's `url` matches the address Orchestrate would call.
 
-The card `name` is the flow name. The card `description` and each skill description are the fixed sentence `Cuttlely chatflow <flow name>`. For the Harbor bakery demo that is `Cuttlely chatflow Harbor bakery hours`.
+The card `name` is the flow name. The card `description` and each skill description are the fixed sentence `Cuttlely chatflow <flow name>`. For the Larkfield Home orders demo that is `Cuttlely chatflow Larkfield Home orders`.
 
 The sample YAML uses these names:
 
@@ -89,7 +89,7 @@ The sample YAML uses these names:
 | External A2A agent       | `cuttlely_a2a_test`   |
 | Native router            | `cuttlely_a2a_router` |
 
-Copy [`samples/orchestrate/a2a.agent.yaml`](../../samples/orchestrate/a2a.agent.yaml), fill in the host, flow id and key, and import **that copy**. The sample pins `api_url` at `https://YOUR_HOST/api/v1/a2a/YOUR_FLOW_ID`, names the agent `cuttlely_a2a_test`, and uses the card description `Cuttlely chatflow Harbor bakery hours`. `chat_params.pushNotifications` is `false`.
+Copy [`samples/orchestrate/a2a.agent.yaml`](../../samples/orchestrate/a2a.agent.yaml), fill in the host, flow id and key, and import **that copy**. The sample pins `api_url` at `https://YOUR_HOST/api/v1/a2a/YOUR_FLOW_ID`, names the agent `cuttlely_a2a_test`, and uses the card description `Cuttlely chatflow Larkfield Home orders`. `chat_params.pushNotifications` is `false`.
 
 A2A JSON-RPC errors use HTTP 200 with a JSON-RPC error object (`-32700` parse, `-32600` invalid request, `-32602` invalid params, `-32603` internal). HTTP refusals (401, 403, 404, 409, 413, 415, 429) keep the same bodies as the Orchestrate routes.
 

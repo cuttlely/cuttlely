@@ -101,7 +101,7 @@ IBM watsonx Orchestrate can call a published chatflow as an `external_chat` coll
 
 ```text
 event: thread.message.delta
-data: {"id":"chatcmpl-…","object":"thread.message.delta","thread_id":"…","model":"…","created":1792430000,"choices":[{"delta":{"role":"assistant","content":"We open at 7:00."}}]}
+data: {"id":"chatcmpl-…","object":"thread.message.delta","thread_id":"…","model":"…","created":1792430000,"choices":[{"delta":{"role":"assistant","content":"LH-30112 is a walnut side table."}}]}
 ```
 
 Without `"stream": true` the body is a `chat.completion` object whose `choices[0].message.content` is the answer.
@@ -112,7 +112,7 @@ Without `"stream": true` the body is a `chat.completion` object whose `choices[0
 curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
   -H "Authorization: Bearer $CUTTLELY_API_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"any","messages":[{"role":"user","content":"What time do you open on Saturday?"}]}'
+  -d '{"model":"any","messages":[{"role":"user","content":"What is the status of order LH-30112?"}]}'
 ```
 
 ```json
@@ -121,7 +121,13 @@ curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
     "object": "chat.completion",
     "created": 1792430000,
     "model": "any",
-    "choices": [{ "index": 0, "message": { "role": "assistant", "content": "We open at 7:00 on Saturday." }, "finish_reason": "stop" }]
+    "choices": [
+        {
+            "index": 0,
+            "message": { "role": "assistant", "content": "LH-30112 is a walnut side table, arriving Oct 21." },
+            "finish_reason": "stop"
+        }
+    ]
 }
 ```
 
