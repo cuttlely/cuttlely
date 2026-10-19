@@ -314,10 +314,10 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     const owner = await ctx.store.findSuperUser()
     const bcryptPresent = await ctx.store.hasBcryptCredential()
     if (!owner || owner.email.toLowerCase() !== email.toLowerCase()) {
-        await verifyPassword(password, hashForLoginCompare(false, owner ? owner.credential : null, bcryptPresent))
+        await verifyPassword(password, hashForLoginCompare(false, owner ? owner.credential : null, bcryptPresent), bcryptPresent)
         return fail()
     }
-    if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent)))) return fail()
+    if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
     await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
     const token = randomToken()
@@ -505,7 +505,11 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
     const open = await ctx.store.localAccountOpen(user ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
     const eligible = Boolean(user && open && user.credential)
     const bcryptPresent = await ctx.store.hasBcryptCredential()
-    const passwordOk = await verifyPassword(fields.password, hashForLoginCompare(eligible, user ? user.credential : null, bcryptPresent))
+    const passwordOk = await verifyPassword(
+        fields.password,
+        hashForLoginCompare(eligible, user ? user.credential : null, bcryptPresent),
+        bcryptPresent
+    )
     if (!user || !eligible || !passwordOk) {
         await ctx.store.deleteLocalSessionsForUser(user && !open ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
         await ctx.rateLimit.recordFailure(ctx.ip, fields.email, ctx.now)

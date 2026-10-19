@@ -78,24 +78,42 @@ export async function hashPassword(password: string): Promise<string> {
     return `${PREFIX}$${salt}$${key.toString('base64')}`
 }
 
-export async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
-    if (!stored) return false
+async function compareScrypt(password: string, stored: string): Promise<boolean> {
+    const parts = stored.split('$')
+    if (parts.length !== 3) return false
+    const salt = parts[1]
+    const expected = Buffer.from(parts[2], 'base64')
+    const actual = (await scryptAsync(password, salt, expected.length)) as Buffer
+    if (actual.length !== expected.length) return false
+    return timingSafeEqual(actual, expected)
+}
+
+async function compareBcrypt(password: string, stored: string): Promise<boolean> {
+    try {
+        return await bcrypt.compare(password, stored)
+    } catch {
+        return false
+    }
+}
+
+/**
+ * When `bcryptPresent` is set, a failed scrypt compare also runs dummy bcrypt so a known scrypt
+ * mailbox is not faster than an unknown miss during the migration window.
+ */
+export async function verifyPassword(password: string, stored: string | null, bcryptPresent = false): Promise<boolean> {
+    if (!stored) {
+        if (bcryptPresent) await compareBcrypt(password, DUMMY_BCRYPT_HASH)
+        return false
+    }
     if (isScryptHash(stored)) {
-        const parts = stored.split('$')
-        if (parts.length !== 3) return false
-        const salt = parts[1]
-        const expected = Buffer.from(parts[2], 'base64')
-        const actual = (await scryptAsync(password, salt, expected.length)) as Buffer
-        if (actual.length !== expected.length) return false
-        return timingSafeEqual(actual, expected)
+        const ok = await compareScrypt(password, stored)
+        if (!ok && bcryptPresent) await compareBcrypt(password, DUMMY_BCRYPT_HASH)
+        return ok
     }
     if (isBcryptHash(stored)) {
-        try {
-            return await bcrypt.compare(password, stored)
-        } catch {
-            return false
-        }
+        return await compareBcrypt(password, stored)
     }
+    if (bcryptPresent) await compareBcrypt(password, DUMMY_BCRYPT_HASH)
     return false
 }
 

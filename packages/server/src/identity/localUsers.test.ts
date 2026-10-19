@@ -804,6 +804,26 @@ describe('local users mode', () => {
         compare.mockRestore()
     })
 
+    it('runs dummy bcrypt after a wrong password on an eligible scrypt account while any bcrypt hash remains', async () => {
+        const { store } = await seed()
+        const other = store.users.find((u) => u.id === 'user-b')
+        if (!other) throw new Error('missing user-b')
+        other.credential = bcrypt.hashSync(OTHER, 10)
+        const compare = jest.spyOn(bcrypt, 'compare')
+        const memberWrong = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } })))
+        expect(memberWrong.status).toBe(401)
+        expect(compare).toHaveBeenCalled()
+        expect(compare.mock.calls.some((call) => call[1] === DUMMY_BCRYPT_HASH)).toBe(true)
+        const ownerWrong = json(
+            await handleLoginPost(
+                ctx({ store, localAdmin: true, internal: true, body: { email: 'owner@example.com', password: 'Wrong-Pass1!' } })
+            )
+        )
+        expect(ownerWrong.status).toBe(401)
+        expect(compare.mock.calls[compare.mock.calls.length - 1][1]).toBe(DUMMY_BCRYPT_HASH)
+        compare.mockRestore()
+    })
+
     it('keeps the scrypt dummy for an unknown or disabled miss when no bcrypt hash remains', async () => {
         const { store } = await seed()
         const compare = jest.spyOn(bcrypt, 'compare')

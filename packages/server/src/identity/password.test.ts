@@ -118,4 +118,22 @@ describe('verifyPassword', () => {
         expect(await verifyPassword(GOOD, hashed)).toBe(false)
         compare.mockRestore()
     })
+
+    it('runs dummy bcrypt after a failed scrypt compare while any bcrypt hash remains', async () => {
+        const scrypt = await hashPassword(GOOD)
+        const compare = jest.spyOn(bcrypt, 'compare')
+        expect(await verifyPassword(OTHER, scrypt, true)).toBe(false)
+        expect(compare).toHaveBeenCalledTimes(1)
+        expect(compare.mock.calls[0][1]).toBe(DUMMY_BCRYPT_HASH)
+        compare.mockRestore()
+    })
+
+    it('does not run dummy bcrypt after a matching scrypt compare, or when no bcrypt hash remains', async () => {
+        const scrypt = await hashPassword(GOOD)
+        const compare = jest.spyOn(bcrypt, 'compare')
+        expect(await verifyPassword(GOOD, scrypt, true)).toBe(true)
+        expect(await verifyPassword(OTHER, scrypt, false)).toBe(false)
+        expect(compare).not.toHaveBeenCalled()
+        compare.mockRestore()
+    })
 })
