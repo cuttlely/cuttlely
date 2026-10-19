@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import mcpEndpointController from '../../controllers/mcp-endpoint'
+import { MCP_ENDPOINT_METHODS } from './http'
 
 const router = express.Router()
 
@@ -21,7 +22,8 @@ const mcpCorsOptions: cors.CorsOptions = {
               // Browser origin → deny (no allowed list configured)
               callback(null, !origin)
           },
-    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    // Match Allow on 405: GET is not a supported method (no server-initiated streams).
+    methods: [...MCP_ENDPOINT_METHODS],
     allowedHeaders: ['Content-Type', 'Authorization'],
     maxAge: 86400
 }
@@ -31,6 +33,9 @@ router.options('/:chatflowId', cors(mcpCorsOptions))
 
 // MCP Streamable HTTP protocol routes (protocol version 2025-03-26)
 // Auth: token must be provided via Authorization: Bearer <token> header
+// GET — no SSE stream; 405 with Allow listing the methods that are supported
+router.get('/:chatflowId', mcpEndpointController.handleGet)
+
 // POST — JSON-RPC messages (initialize, tools/list, tools/call, etc.)
 router.post(
     '/:chatflowId',

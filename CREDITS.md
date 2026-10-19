@@ -4,7 +4,7 @@ Cuttlely builds on open-source work by other projects. This page says what comes
 
 ## Flowise
 
-Cuttlely's visual canvas editor and workflow engine come from Flowise, including the node catalog and the prediction API.
+Cuttlely's visual canvas editor, workflow engine, node catalog and prediction API include code from Flowise.
 
 -   Project: [FlowiseAI/Flowise](https://github.com/FlowiseAI/Flowise)
 -   License: Apache License 2.0

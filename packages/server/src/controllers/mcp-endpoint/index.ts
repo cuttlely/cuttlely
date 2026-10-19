@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import mcpEndpointService from '../../services/mcp-endpoint'
+import { sendMcpMethodNotAllowed } from '../../routes/mcp-endpoint/http'
 import { RateLimiterManager } from '../../utils/rateLimit'
 import logger from '../../utils/logger'
 
@@ -44,6 +45,14 @@ const getRateLimiterMiddleware = async (req: Request, res: Response, next: NextF
 }
 
 /**
+ * Handle GET /api/v1/mcp/:chatflowId — Streamable HTTP has no SSE stream here.
+ * The spec allows GET only for server-initiated streams; without those, answer 405.
+ */
+const handleGet = (_req: Request, res: Response) => {
+    sendMcpMethodNotAllowed(res)
+}
+
+/**
  * Handle POST /api/v1/mcp/:chatflowId — MCP JSON-RPC messages
  * Auth: token must be in Authorization: Bearer <token> header
  */
@@ -73,6 +82,7 @@ const handleDelete = async (req: Request, res: Response, next: NextFunction) => 
 
 export default {
     authenticateToken,
+    handleGet,
     handlePost,
     handleDelete,
     getRateLimiterMiddleware

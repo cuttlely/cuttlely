@@ -48,6 +48,7 @@ function mockRes(): Response {
     const res: any = {
         status: jest.fn().mockReturnThis(),
         json: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
         locals: {}
     }
     return res as Response
@@ -112,6 +113,25 @@ describe('MCP Endpoint Controller', () => {
             expect(res.locals.token).toBe('my-secret-token')
             expect(next).toHaveBeenCalled()
             expect(res.status).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('handleGet', () => {
+        it('returns 405 with Allow listing POST, DELETE and OPTIONS', () => {
+            const req = mockReq()
+            const res = mockRes()
+
+            mcpEndpointController.handleGet(req, res)
+
+            expect(res.status).toHaveBeenCalledWith(405)
+            expect(res.set).toHaveBeenCalledWith('Allow', 'POST, DELETE, OPTIONS')
+            expect(res.json).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    jsonrpc: '2.0',
+                    error: expect.objectContaining({ code: -32000, message: expect.stringMatching(/Method Not Allowed/i) }),
+                    id: null
+                })
+            )
         })
     })
 
