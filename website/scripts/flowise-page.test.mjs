@@ -21,19 +21,17 @@ describe('Flowise import page wiring', () => {
         assert.match(hero, /Coming from Flowise\?/)
     })
 
-    it('keeps the approved title, lineage, pillars, buttons, quickstart, paths, disclaimer, and issue link, and leaves waitlist, unchanged-flows, sequential-agent, and whole-install claims out', () => {
+    it('keeps the approved title, pillars, buttons, quickstart, paths, disclaimer, and issue link, and leaves waitlist, unchanged-flows, sequential-agent, and whole-install claims out', () => {
         const page = read('src/pages/flowise.astro')
         assert.match(page, /Bring your Flowise flows: import, no rebuild \| Cuttlely/)
         assert.match(page, /The visual agent builder, ready for production\./)
         assert.match(page, /Bring your Flowise flows\./)
         assert.match(page, /Drag-and-drop agents with real governance and lean context\. Open source, Apache-2\.0\./)
-        assert.match(
-            page,
-            /Cuttlely picks up where Flowise left off\.\.\. the next generation of the visual builder\. Import opens your flows node for node\./
-        )
-        assert.match(page, /Ship changes safely\./)
-        assert.match(page, /Keep context small\./)
-        assert.match(page, /Bring your flows\./)
+        assert.match(page, /Import Flowise JSON opens a chatflow or agentflow on the canvas, node for node\./)
+        assert.doesNotMatch(page, /picks up where|next generation/i)
+        assert.match(page, /Governance\./)
+        assert.match(page, /Lean context\./)
+        assert.match(page, /Build agent teams\./)
         assert.match(page, /Import a flow \(2-min guide\)/)
         assert.match(page, /href="\/docs\/bring-your-flows\/"/)
         assert.match(page, /Star on GitHub/)
