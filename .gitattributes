@@ -1,0 +1,2 @@
+# Vendored Python agent runtime: keep it out of the GitHub language bar.
+hermes/** linguist-vendored
