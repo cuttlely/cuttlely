@@ -13,7 +13,7 @@
  * database that already applied them does not run them again.
  */
 import type { QueryRunner } from 'typeorm'
-import { unsupportedFlowiseUpgradeError } from '../startup/flowiseUpgradeGuard'
+import { unsupportedFlowiseUpgradeError, WORKSPACE_SCOPED_TABLES } from '../startup/flowiseUpgradeGuard'
 
 type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mariadb'
 
@@ -442,19 +442,6 @@ export async function authTablesDown(runner: QueryRunner): Promise<void> {
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'user')}`)
 }
 
-const WORKSPACE_ID_TABLES = [
-    'assistant',
-    'chat_flow',
-    'credential',
-    'dataset',
-    'document_store',
-    'evaluation',
-    'evaluator',
-    'tool',
-    'variable',
-    'custom_template'
-] as const
-
 export async function workspaceUp(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
     if (!(await tableExists(runner, dialect, 'workspace'))) {
@@ -507,20 +494,18 @@ export async function workspaceUp(runner: QueryRunner): Promise<void> {
             )
         }
     }
-    for (const table of WORKSPACE_ID_TABLES) {
-        if (await tableExists(runner, dialect, table)) {
-            await addColumn(runner, dialect, table, 'workspaceId', workspaceIdType(dialect, table))
+    for (const table of WORKSPACE_SCOPED_TABLES) {
+        if (!(await tableExists(runner, dialect, table))) continue
+        await addColumn(runner, dialect, table, 'workspaceId', workspaceIdType(dialect, table))
+        if (table === 'apikey' && dialect === 'sqlite') {
+            await addColumn(runner, dialect, 'apikey', 'createdDate', `datetime NOT NULL DEFAULT (datetime('now'))`)
         }
-    }
-    if (await tableExists(runner, dialect, 'apikey')) {
-        await addColumn(runner, dialect, 'apikey', 'workspaceId', workspaceIdType(dialect, 'apikey'))
-        if (dialect === 'sqlite') await addColumn(runner, dialect, 'apikey', 'createdDate', `datetime NOT NULL DEFAULT (datetime('now'))`)
     }
 }
 
 export async function workspaceDown(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
-    for (const table of [...WORKSPACE_ID_TABLES, 'apikey']) {
+    for (const table of WORKSPACE_SCOPED_TABLES) {
         await dropColumn(runner, dialect, table, 'workspaceId')
     }
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'workspace')}`)

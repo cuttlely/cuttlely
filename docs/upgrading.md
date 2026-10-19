@@ -77,7 +77,7 @@ To move to a specific release instead of the newest `main`, run `git checkout vX
 
 **Render.** Every push to `main` deploys. To move to a release, deploy that release's commit.
 
-On the first start, Cuttlely updates its database by itself. That start can take a little longer. Do not stop it part way. A Flowise database older than `3.1.4` is refused first, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is not changed. Upgrade it in Flowise `3.1.4` first, then move it: [Move a whole install](./bring-your-flows.md#move-a-whole-install).
+On the first start, Cuttlely updates its database by itself. That start can take a little longer. Do not stop it part way. A Flowise database that already has application data but not the `3.1.4` workspace schema is refused first, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is not changed. Upgrade it in Flowise `3.1.4` first, then move it: [Move a whole install](./bring-your-flows.md#move-a-whole-install). A database with no application data, including a first start that stopped part way, continues migrating.
 
 ## 3. Check
 

@@ -10,7 +10,20 @@ const DOCS_LINK = 'docs/bring-your-flows.md#move-a-whole-install'
 /** TypeORM names recorded by Flowise 3.1.4 for the workspace/identity schema, all dialects. */
 const FLOWISE_314_MIGRATION_NAMES = ['AddWorkspace1720230151484', 'AddWorkspace1725437498242', 'RefactorEnterpriseDatabase1737076223692']
 
-const APP_TABLES = ['chat_flow', 'credential', 'tool'] as const
+/** Tables AddWorkspace / workspaceUp give a nullable workspaceId. Any row here is imported app data. */
+export const WORKSPACE_SCOPED_TABLES = [
+    'assistant',
+    'chat_flow',
+    'credential',
+    'dataset',
+    'document_store',
+    'evaluation',
+    'evaluator',
+    'tool',
+    'variable',
+    'custom_template',
+    'apikey'
+] as const
 
 function dialectOf(runner: QueryRunner): Dialect {
     const type = runner.connection.options.type
@@ -89,9 +102,9 @@ async function tableHasRows(runner: QueryRunner, table: string): Promise<boolean
     return list.length > 0
 }
 
-/** True when a Flowise (or other) install already stored flows, credentials, or tools. */
+/** True when a Flowise (or other) install already stored a row in a workspace-scoped table. */
 async function hasImportedAppRows(runner: QueryRunner): Promise<boolean> {
-    for (const table of APP_TABLES) {
+    for (const table of WORKSPACE_SCOPED_TABLES) {
         if (await tableHasRows(runner, table)) return true
     }
     return false
@@ -130,8 +143,9 @@ async function migrationsRecord314(runner: QueryRunner): Promise<boolean> {
 async function has314WorkspaceSchema(runner: QueryRunner): Promise<boolean> {
     if (!(await tableExists(runner, 'workspace'))) return false
     if (!(await tableExists(runner, 'workspace_user')) && !(await tableExists(runner, 'role'))) return false
-    if ((await tableExists(runner, 'chat_flow')) && !(await columnExists(runner, 'chat_flow', 'workspaceId'))) return false
-    if ((await tableExists(runner, 'credential')) && !(await columnExists(runner, 'credential', 'workspaceId'))) return false
+    for (const table of WORKSPACE_SCOPED_TABLES) {
+        if ((await tableExists(runner, table)) && !(await columnExists(runner, table, 'workspaceId'))) return false
+    }
     return true
 }
 

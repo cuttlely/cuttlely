@@ -9,6 +9,7 @@ import fs from 'fs'
 import path from 'path'
 import {
     UNSUPPORTED_FLOWISE_UPGRADE,
+    WORKSPACE_SCOPED_TABLES,
     assertSupportedFlowiseUpgrade,
     ensureFlowiseUpgradeSupported,
     logUnsupportedFlowiseUpgrade,
@@ -331,6 +332,47 @@ describe.each(backends)('Flowise pre-3.1.4 upgrade guard on %s', (_name, open, e
         await expect(runSupportedMigrations(ds)).rejects.toThrow(UNSUPPORTED_FLOWISE_UPGRADE)
         expect(queries).toEqual([])
     })
+
+    maybe('refuses a pre-3.1.4 database whose only app data is a document_store row', async () => {
+        await store.exec(`CREATE TABLE migrations (id integer PRIMARY KEY NOT NULL, timestamp bigint NOT NULL, name varchar NOT NULL)`)
+        await store.exec(`INSERT INTO migrations (id, timestamp, name) VALUES (?, ?, ?)`, [1, 1693835579790, 'Init1693835579790'])
+        await store.exec(
+            `CREATE TABLE document_store (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL, status varchar NOT NULL, loaders text)`
+        )
+        await store.exec(`INSERT INTO document_store (id, name, status, loaders) VALUES (?, ?, ?, ?)`, [
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee11',
+            'Harbor bakery recipes',
+            'EMPTY',
+            '[]'
+        ])
+        const before = await store.snapshot()
+        let migrated = false
+        const ds = dataSourceFor(store, async () => {
+            migrated = true
+        })
+        await expect(runSupportedMigrations(ds)).rejects.toThrow(UNSUPPORTED_FLOWISE_UPGRADE)
+        expect(migrated).toBe(false)
+        expect(await store.snapshot()).toBe(before)
+    })
+
+    maybe('refuses a pre-3.1.4 database whose only app data is a variable row', async () => {
+        await store.exec(`CREATE TABLE migrations (id integer PRIMARY KEY NOT NULL, timestamp bigint NOT NULL, name varchar NOT NULL)`)
+        await store.exec(`INSERT INTO migrations (id, timestamp, name) VALUES (?, ?, ?)`, [1, 1693835579790, 'Init1693835579790'])
+        await store.exec(`CREATE TABLE variable (id varchar PRIMARY KEY NOT NULL, name text NOT NULL, value text NOT NULL)`)
+        await store.exec(`INSERT INTO variable (id, name, value) VALUES (?, ?, ?)`, [
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee12',
+            'harbor_bakery_hours',
+            'Tue-Sun 07:00-16:00'
+        ])
+        const before = await store.snapshot()
+        let migrated = false
+        const ds = dataSourceFor(store, async () => {
+            migrated = true
+        })
+        await expect(runSupportedMigrations(ds)).rejects.toThrow(UNSUPPORTED_FLOWISE_UPGRADE)
+        expect(migrated).toBe(false)
+        expect(await store.snapshot()).toBe(before)
+    })
 })
 
 describe('unsupported Flowise upgrade log', () => {
@@ -350,5 +392,25 @@ describe('unsupported Flowise upgrade log', () => {
         for (const file of ['index.ts', 'commands/start.ts', 'commands/worker.ts', 'commands/user.ts']) {
             expect(fs.readFileSync(path.join(here, file), 'utf8')).toContain('logUnsupportedFlowiseUpgrade')
         }
+    })
+
+    it('shares the workspace-scoped table list with AddWorkspace / workspaceUp', () => {
+        expect([...WORKSPACE_SCOPED_TABLES]).toEqual([
+            'assistant',
+            'chat_flow',
+            'credential',
+            'dataset',
+            'document_store',
+            'evaluation',
+            'evaluator',
+            'tool',
+            'variable',
+            'custom_template',
+            'apikey'
+        ])
+        const schema = fs.readFileSync(path.join(__dirname, '../database/identitySchema.ts'), 'utf8')
+        expect(schema).toContain('WORKSPACE_SCOPED_TABLES')
+        expect(schema).not.toMatch(/const WORKSPACE_ID_TABLES/)
+        expect(schema).toMatch(/for \(const table of WORKSPACE_SCOPED_TABLES\)/)
     })
 })
