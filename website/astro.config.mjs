@@ -1,5 +1,5 @@
 // cuttlely.com: the home page plus the repository docs, built with Astro and Starlight.
-// scripts/sync-docs.mjs copies ../docs (and the README quickstart, CHANGELOG, SECURITY, CREDITS) into
+// scripts/sync-docs.mjs copies ../docs (and the README quickstart, CHANGELOG, FAQ, SECURITY, CREDITS) into
 // src/content/docs before every build, so the repository stays the single source of truth.
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'

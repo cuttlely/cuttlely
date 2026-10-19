@@ -303,9 +303,10 @@ export function sync({ check = true, write = true } = {}) {
         write
     )
 
-    // Changelog, Security, Credits (with the NOTICE text and the license).
+    // Changelog, FAQ, Security, Credits (with the NOTICE text and the license).
     for (const [rel, route, label] of [
         ['CHANGELOG.md', '/changelog/', 'Changelog'],
+        ['FAQ.md', '/faq/', 'FAQ'],
         ['SECURITY.md', '/security/', 'Security']
     ]) {
         const source = rel === 'CHANGELOG.md' ? filterChangelogForSite(read(rel)) : read(rel)
@@ -358,6 +359,7 @@ export function sync({ check = true, write = true } = {}) {
     const project = { label: 'Project', items: [] }
     for (const [link, label] of [
         ['/changelog/', 'Changelog'],
+        ['/faq/', 'FAQ'],
         ['/security/', 'Security'],
         ['/credits/', 'Credits and license']
     ]) {
@@ -372,7 +374,7 @@ export function sync({ check = true, write = true } = {}) {
 
     const images = walk(path.join(REPO, 'docs', 'images')).length
     const verb = write ? 'wrote' : 'checked'
-    console.log(`sync-docs: ${verb} ${docs.length} docs pages, 4 project pages, ${images} images in ${Date.now() - started}ms`)
+    console.log(`sync-docs: ${verb} ${docs.length} docs pages, 5 project pages, ${images} images in ${Date.now() - started}ms`)
     if (problems.length) {
         for (const p of problems) console.error(`sync-docs: ${p}`)
         if (check) {

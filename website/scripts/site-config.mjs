@@ -6,6 +6,7 @@ export const BRANCH = 'main'
 // Repository files that become their own site pages. Everything under docs/ is rendered too.
 export const ROOT_PAGES = {
     'CHANGELOG.md': '/changelog/',
+    'FAQ.md': '/faq/',
     'SECURITY.md': '/security/',
     'CREDITS.md': '/credits/',
     NOTICE: '/credits/#notice'

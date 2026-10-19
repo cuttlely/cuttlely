@@ -204,6 +204,7 @@ export function checkSite(dist, { csp = null } = {}) {
         '404.html',
         'quickstart/index.html',
         'docs/index.html',
+        'faq/index.html',
         'robots.txt',
         'sitemap-index.xml',
         '.well-known/security.txt',
