@@ -754,6 +754,23 @@ describe('A2A abort classification, get, and cancel', () => {
             process.env.MODE = previous
         }
     })
+
+    it('does not leak a task when queue subscribe rejects', async () => {
+        const previous = process.env.MODE
+        process.env.MODE = MODE.QUEUE
+        mockRedis.subscribe.mockRejectedValueOnce(new Error('redis down'))
+        try {
+            expectRpcError(await post(K, sendBody('Hi', { contextId: 'queue-send-fail' }), withKey()), A2A_RPC_CODES.internal)
+            expect(listA2aTasksForTests()).toHaveLength(0)
+            mockRedis.subscribe.mockRejectedValueOnce(new Error('redis down'))
+            const streamed = await streamRequest(K, streamBody('Hi', { contextId: 'queue-stream-fail' }), withKey())
+            const events = parseA2aEvents(String(streamed.body))
+            expect(events.some((event) => event.result?.kind === 'status-update' && event.result.status?.state === 'failed')).toBe(true)
+            expect(listA2aTasksForTests()[0].task.status.state).toBe('failed')
+        } finally {
+            process.env.MODE = previous
+        }
+    })
 })
 
 describe('A2A error codes', () => {
@@ -979,6 +996,12 @@ describe('A2A busy context, queue, limits, and logs', () => {
         expect(lines).not.toContain(QUESTION)
         expect(lines).not.toContain('raw-context-id')
         expect(lines).not.toContain('Authorization')
+        mockLogger.info.mockClear()
+        await post(K, rpc('nope\n[a2a] forged SECRET_QUESTION_XYZ', { message: userMessage('Hi') }), withKey())
+        const methodLines = JSON.stringify(mockLogger.info.mock.calls)
+        expect(methodLines).toContain('method=unknown')
+        expect(methodLines).not.toContain('SECRET_QUESTION_XYZ')
+        expect(methodLines).not.toContain('[a2a] forged')
     })
 })
 

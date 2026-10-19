@@ -24,7 +24,7 @@ import {
     jsonRpcResult,
     parseMessageParams
 } from './rpc'
-import { A2aMessage, A2aStoredTask, A2aTask, a2aCallerKey, a2aTaskStore, isoNow } from './taskStore'
+import { A2A_FINAL_STATES, A2aMessage, A2aStoredTask, A2aTask, a2aCallerKey, a2aTaskStore, isoNow } from './taskStore'
 
 export type A2aLogState = {
     method: string
@@ -265,10 +265,30 @@ export async function executeMessage(opts: {
         }
         applyOutcome({ row, outcome, sentToken, stream: opts.stream, res: opts.res, rpcId: opts.rpcId, signal })
         if (opts.log.rpc === '-') opts.log.rpc = 'ok'
+    } catch (error) {
+        if (!A2A_FINAL_STATES.has(row.task.status.state)) {
+            if (!opts.res.headersSent) {
+                a2aTaskStore.remove(opts.chatflow.id, caller, row.task.id)
+                throw error
+            }
+            applyOutcome({
+                row,
+                outcome: classifyOutcome({ row, signal, error }),
+                sentToken,
+                stream: opts.stream,
+                res: opts.res,
+                rpcId: opts.rpcId,
+                signal
+            })
+        }
     } finally {
         stopWatchingClient()
         if (isQueueMode) {
-            await getRunningExpressApp().redisSubscriber.unsubscribe(boundIds.chatId)
+            try {
+                await getRunningExpressApp().redisSubscriber.unsubscribe(boundIds.chatId)
+            } catch {
+                // Subscribe may have failed; still drop the client slot.
+            }
         }
         sseStreamer.removeClient(boundIds.chatId)
     }

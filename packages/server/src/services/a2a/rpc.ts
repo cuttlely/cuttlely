@@ -148,6 +148,22 @@ export function parseTaskIdParams(params: Record<string, unknown>): string {
     return params.id
 }
 
+const A2A_LOG_METHODS = new Set([
+    'message/send',
+    'message/stream',
+    'tasks/get',
+    'tasks/cancel',
+    'tasks/resubscribe',
+    'agent/getAuthenticatedExtendedCard'
+])
+
+export function a2aLogMethod(method?: string): string {
+    if (!method) return '-'
+    if (A2A_LOG_METHODS.has(method)) return method
+    if (method.startsWith('tasks/pushNotificationConfig')) return 'tasks/pushNotificationConfig'
+    return 'unknown'
+}
+
 export function methodError(method: string): A2aRpcError | undefined {
     if (method.startsWith('tasks/pushNotificationConfig')) {
         return new A2aRpcError(A2A_RPC_CODES.pushNotSupported, 'Push notifications are not supported')

@@ -1,4 +1,4 @@
-import { A2A_RPC_CODES, errorResponseId, methodError, parseEnvelope, parseMessageParams, parseTaskIdParams } from './rpc'
+import { A2A_RPC_CODES, a2aLogMethod, errorResponseId, methodError, parseEnvelope, parseMessageParams, parseTaskIdParams } from './rpc'
 
 describe('A2A JSON-RPC envelope', () => {
     it('returns -32600 with a null id for a bad envelope', () => {
@@ -92,6 +92,13 @@ describe('A2A methods and params', () => {
         expect(methodError('agent/getAuthenticatedExtendedCard')?.code).toBe(A2A_RPC_CODES.extendedCard)
         expect(methodError('foo')?.code).toBe(A2A_RPC_CODES.methodNotFound)
         expect(methodError('message/send')).toBeUndefined()
+    })
+
+    it('logs only known methods', () => {
+        expect(a2aLogMethod(undefined)).toBe('-')
+        expect(a2aLogMethod('message/send')).toBe('message/send')
+        expect(a2aLogMethod('tasks/pushNotificationConfig/set')).toBe('tasks/pushNotificationConfig')
+        expect(a2aLogMethod('nope\n[a2a] forged secret-raw-message-xyz')).toBe('unknown')
     })
 
     it('requires a string task id', () => {

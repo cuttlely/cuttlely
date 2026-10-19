@@ -10,6 +10,7 @@ import {
     errorResponseId,
     jsonRpcError,
     jsonRpcResult,
+    a2aLogMethod,
     methodError,
     parseEnvelope,
     parseTaskIdParams
@@ -56,7 +57,7 @@ const handleRpc = async (req: A2aRequest, res: Response, next: NextFunction) => 
 
         const parsed = parseEnvelope(req.orchestrate)
         res.locals.a2aRpcId = parsed.ok ? parsed.id : parsed.id
-        log.method = parsed.method || '-'
+        log.method = a2aLogMethod(parsed.method)
         log.stream = parsed.method === 'message/stream'
 
         if (!parsed.ok) {
