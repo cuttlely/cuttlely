@@ -17,7 +17,7 @@
 import express, { Request, Response } from 'express'
 import request from 'supertest'
 import { DataSource } from 'typeorm'
-import { apiV1Auth, ApiV1AuthDeps, normalizeApiPath, withoutDenylisted } from './apiGate'
+import { apiV1Auth, ApiV1AuthDeps, isMcpEndpointPath, normalizeApiPath, withoutDenylisted } from './apiGate'
 
 const validKey = {
     isValid: true,
@@ -142,6 +142,16 @@ describe('apiV1Auth', () => {
         expect(normalizeApiPath('/API/v1//Public-ChatbotConfig')).toBe('/api/v1/public-chatbotconfig')
         expect(normalizeApiPath('/api/v1/chatflows/api\u212Aey/')).toBe('/api/v1/chatflows/api\u212Aey/')
         expect(normalizeApiPath('/api/v1/\u0130tems')).toBe('/api/v1/\u0130tems')
+    })
+
+    it('recognizes remote MCP Streamable HTTP paths and not mcp-server', () => {
+        expect(isMcpEndpointPath('/api/v1/mcp')).toBe(true)
+        expect(isMcpEndpointPath('/api/v1/mcp/')).toBe(true)
+        expect(isMcpEndpointPath('/api/v1/mcp/flow-123')).toBe(true)
+        expect(isMcpEndpointPath('/API/v1//MCP/flow-123')).toBe(true)
+        expect(isMcpEndpointPath('/api/v1/mcp-server/flow-123')).toBe(false)
+        expect(isMcpEndpointPath('/api/v1/prediction/flow-123')).toBe(false)
+        expect(isMcpEndpointPath('/chatflows')).toBe(false)
     })
 
     it('treats an entry in readOnlyWhitelistURLs as public for GET and HEAD only', async () => {
