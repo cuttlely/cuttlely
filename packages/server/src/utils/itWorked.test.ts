@@ -17,6 +17,8 @@ describe('itWorked one-time log marker', () => {
 
     afterEach(() => {
         process.env = ORIGINAL_ENV
+        jest.unmock('../settings/lock')
+        jest.unmock('../settings/store')
         try {
             fs.rmSync(dataDir, { recursive: true, force: true })
         } catch {
@@ -91,8 +93,10 @@ describe('itWorked one-time log marker', () => {
     })
 
     test('notifyFirstSuccess is fire-and-forget and never throws', async () => {
+        const info = jest.spyOn(console, 'info').mockImplementation(() => undefined)
         const { notifyFirstSuccess } = await import('./itWorked')
         expect(() => notifyFirstSuccess()).not.toThrow()
+        info.mockRestore()
     })
 
     test('respects CUTTLELY_DISABLE_IT_WORKED', async () => {
@@ -101,5 +105,27 @@ describe('itWorked one-time log marker', () => {
         const marker = path.join(dataDir, 'settings', 'it-worked.json')
         maybeLogFirstSuccess()
         expect(fs.existsSync(marker)).toBe(false)
+    })
+
+    test('does not log when the marker write fails after the lock', async () => {
+        const writeFileAtomic = jest.fn(() => {
+            throw new Error('ENOSPC')
+        })
+        jest.doMock('../settings/lock', () => ({
+            tryNamedLockSync: (_dir: string, _name: string, fn: () => void) => fn()
+        }))
+        jest.doMock('../settings/store', () => ({
+            settingsDir: (env: NodeJS.ProcessEnv = process.env) => path.join(String(env.CUTTLELY_DATA_DIR || ''), 'settings'),
+            writeFileAtomic
+        }))
+        const info = jest.spyOn(console, 'info').mockImplementation(() => undefined)
+
+        const { maybeLogFirstSuccess } = await import('./itWorked')
+        maybeLogFirstSuccess()
+        maybeLogFirstSuccess()
+        expect(writeFileAtomic).toHaveBeenCalledTimes(1)
+        expect(info).not.toHaveBeenCalled()
+        expect(fs.existsSync(path.join(dataDir, 'settings', 'it-worked.json'))).toBe(false)
+        info.mockRestore()
     })
 })

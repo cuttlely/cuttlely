@@ -8,19 +8,29 @@ const DISMISSED_KEY = 'cuttlely.itWorked.dismissed'
 
 export const itWorkedUrl = IT_WORKED_URL
 
-let storageReader = (key) => {
+const defaultStorageReader = (key) => {
     if (typeof localStorage === 'undefined') return null
     return localStorage.getItem(key)
 }
 
+const defaultStorageWriter = (key, value) => {
+    if (typeof localStorage === 'undefined') {
+        throw new Error('localStorage is not available')
+    }
+    localStorage.setItem(key, value)
+}
+
+let storageReader = defaultStorageReader
+let storageWriter = defaultStorageWriter
+
 /** Test hook: replace the storage reader. Pass null to restore the default. */
 export function setItWorkedStorageReader(reader) {
-    storageReader =
-        reader ||
-        ((key) => {
-            if (typeof localStorage === 'undefined') return null
-            return localStorage.getItem(key)
-        })
+    storageReader = reader || defaultStorageReader
+}
+
+/** Test hook: replace the storage writer. Pass null to restore the default. */
+export function setItWorkedStorageWriter(writer) {
+    storageWriter = writer || defaultStorageWriter
 }
 
 export function readItWorkedStorage(key) {
@@ -29,6 +39,10 @@ export function readItWorkedStorage(key) {
 
 function storageGet(key) {
     return readItWorkedStorage(key)
+}
+
+function storageSet(key, value) {
+    storageWriter(key, value)
 }
 
 export function shouldShowItWorked(config = {}, options = {}) {
@@ -46,20 +60,29 @@ export function shouldShowItWorked(config = {}, options = {}) {
     }
 }
 
+/** Persist the shown marker. Returns true only when the marker is stored. */
 export function markItWorkedShown() {
     try {
-        localStorage.setItem(SHOWN_KEY, 'true')
+        storageSet(SHOWN_KEY, 'true')
+        return storageGet(SHOWN_KEY) === 'true'
     } catch {
-        // ignore storage errors
+        return false
     }
 }
 
 export function dismissItWorked() {
     try {
-        localStorage.setItem(DISMISSED_KEY, 'true')
+        storageSet(DISMISSED_KEY, 'true')
+        return storageGet(DISMISSED_KEY) === 'true'
     } catch {
-        // ignore storage errors
+        return false
     }
+}
+
+/** True only when the toast may show and the shown marker actually persisted. */
+export function claimItWorkedShown(config, options) {
+    if (!shouldShowItWorked(config, options)) return false
+    return markItWorkedShown()
 }
 
 /** A stream toasts only when it produced a result and never saw error or abort. */
@@ -74,8 +97,7 @@ export function useItWorkedNotice() {
     const onSuccess = useCallback(() => {
         try {
             const settingsFailed = !loading && (!config || !Object.prototype.hasOwnProperty.call(config, 'IT_WORKED_DISABLED'))
-            if (!shouldShowItWorked(config, { configLoading: loading, configFailed: settingsFailed })) return
-            markItWorkedShown()
+            if (!claimItWorkedShown(config, { configLoading: loading, configFailed: settingsFailed })) return
             const key = Date.now() + Math.random()
             enqueueSnackbar('It worked! If Cuttlely helped, a GitHub star helps others find it.', {
                 key,

@@ -10,9 +10,11 @@ jest.mock('notistack', () => ({
 }))
 
 import {
+    claimItWorkedShown,
     dismissItWorked,
     markItWorkedShown,
     setItWorkedStorageReader,
+    setItWorkedStorageWriter,
     shouldShowItWorked,
     shouldToastOnStreamEnd,
     itWorkedUrl
@@ -21,6 +23,13 @@ import {
 describe('itWorked UI helpers', () => {
     beforeEach(() => {
         localStorage.clear()
+        setItWorkedStorageReader(null)
+        setItWorkedStorageWriter(null)
+    })
+
+    afterEach(() => {
+        setItWorkedStorageReader(null)
+        setItWorkedStorageWriter(null)
     })
 
     test('URL constant points to GitHub', () => {
@@ -65,6 +74,21 @@ describe('itWorked UI helpers', () => {
         } finally {
             setItWorkedStorageReader(null)
         }
+    })
+
+    test('does not claim a toast when the shown marker cannot persist', () => {
+        const cfg = { IT_WORKED_DISABLED: false }
+        const writer = jest.fn(() => {
+            throw new Error('quota')
+        })
+        setItWorkedStorageWriter(writer)
+        expect(shouldShowItWorked(cfg)).toBe(true)
+        expect(markItWorkedShown()).toBe(false)
+        expect(claimItWorkedShown(cfg)).toBe(false)
+        expect(claimItWorkedShown(cfg)).toBe(false)
+        expect(shouldShowItWorked(cfg)).toBe(true)
+        expect(writer).toHaveBeenCalled()
+        expect(localStorage.getItem('cuttlely.itWorked.shown')).toBe(null)
     })
 
     test('stream toast only after a real result with no error or abort', () => {

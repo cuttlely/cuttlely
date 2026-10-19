@@ -46,8 +46,18 @@ export function maybeLogFirstSuccess(): void {
                 loggedThisProcess = true
                 return
             }
+            try {
+                writeFileAtomic(dir, MARKER_FILE, JSON.stringify({ shown: true }) + '\n')
+            } catch {
+                // Persist failed. Skip the log so a later success cannot repeat it.
+                loggedThisProcess = true
+                return
+            }
+            if (!markerShown(file)) {
+                loggedThisProcess = true
+                return
+            }
             console.info(`⭐ It worked! If Cuttlely helped, a GitHub star helps others find it: ${IT_WORKED_URL}`)
-            writeFileAtomic(dir, MARKER_FILE, JSON.stringify({ shown: true }) + '\n')
             loggedThisProcess = true
         })
     } catch {
