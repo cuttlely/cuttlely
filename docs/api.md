@@ -127,7 +127,7 @@ curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
 
 Cuttlely accepts optional `X-IBM-THREAD-ID` on these Orchestrate routes only, not on A2A. When the header is present, a flow that uses Buffer Memory can continue from stored turns. When it is omitted, earlier `user` and `assistant` turns in `messages` become history if the flow reads them. Whether Orchestrate actually sends that header, or instead resends earlier turns, is an open item in the how-to until the A2A live test.
 
-The how-to is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md). The Harbor bakery demo is [Record the Orchestrate demo](./how-to/orchestrate-demo.md).
+The how-to is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md). The Larkfield Home orders demo is [Record the Orchestrate demo](./how-to/orchestrate-demo.md).
 
 ## MCP endpoint
 
