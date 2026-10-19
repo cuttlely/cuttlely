@@ -53,22 +53,22 @@ describe('isBcryptHash', () => {
 })
 
 describe('hashForLoginCompare', () => {
-    it('returns the real hash when eligible and dummy bcrypt when a bcrypt hash is ineligible', () => {
+    it('returns the real hash when eligible and the scrypt dummy on every miss', () => {
         const scrypt = 'scrypt$salt$key'
         const bcryptHash = `$2a$10$${BCRYPT_TAIL}`
         expect(hashForLoginCompare(true, scrypt)).toBe(scrypt)
         expect(hashForLoginCompare(true, bcryptHash)).toBe(bcryptHash)
-        expect(hashForLoginCompare(false, bcryptHash)).toBe(DUMMY_BCRYPT_HASH)
+        expect(hashForLoginCompare(false, bcryptHash)).toBe(DUMMY_PASSWORD_HASH)
         expect(hashForLoginCompare(false, scrypt)).toBe(DUMMY_PASSWORD_HASH)
         expect(hashForLoginCompare(true, `$2a$31$${BCRYPT_TAIL}`)).toBe(DUMMY_PASSWORD_HASH)
         expect(hashForLoginCompare(false, null)).toBe(DUMMY_PASSWORD_HASH)
     })
 
-    it('uses dummy bcrypt for a null or ineligible miss while any bcrypt hash is still stored', () => {
+    it('keeps the scrypt dummy for a null or ineligible miss while any bcrypt hash is still stored', () => {
         const scrypt = 'scrypt$salt$key'
-        expect(hashForLoginCompare(false, null, true)).toBe(DUMMY_BCRYPT_HASH)
-        expect(hashForLoginCompare(false, scrypt, true)).toBe(DUMMY_BCRYPT_HASH)
-        expect(hashForLoginCompare(false, '', true)).toBe(DUMMY_BCRYPT_HASH)
+        expect(hashForLoginCompare(false, null, true)).toBe(DUMMY_PASSWORD_HASH)
+        expect(hashForLoginCompare(false, scrypt, true)).toBe(DUMMY_PASSWORD_HASH)
+        expect(hashForLoginCompare(false, '', true)).toBe(DUMMY_PASSWORD_HASH)
         expect(hashForLoginCompare(true, scrypt, true)).toBe(scrypt)
         expect(hashForLoginCompare(false, null, false)).toBe(DUMMY_PASSWORD_HASH)
     })
@@ -125,6 +125,18 @@ describe('verifyPassword', () => {
         expect(await verifyPassword(OTHER, scrypt, true)).toBe(false)
         expect(compare).toHaveBeenCalledTimes(1)
         expect(compare.mock.calls[0][1]).toBe(DUMMY_BCRYPT_HASH)
+        compare.mockRestore()
+    })
+
+    it('runs the same dummy bcrypt pad for a miss hash as for a failed eligible scrypt compare', async () => {
+        const scrypt = await hashPassword(GOOD)
+        const miss = hashForLoginCompare(false, null, true)
+        expect(miss).toBe(DUMMY_PASSWORD_HASH)
+        const compare = jest.spyOn(bcrypt, 'compare')
+        expect(await verifyPassword(OTHER, miss, true)).toBe(false)
+        expect(await verifyPassword(OTHER, scrypt, true)).toBe(false)
+        expect(compare).toHaveBeenCalledTimes(2)
+        expect(compare.mock.calls.every((call) => call[1] === DUMMY_BCRYPT_HASH)).toBe(true)
         compare.mockRestore()
     })
 

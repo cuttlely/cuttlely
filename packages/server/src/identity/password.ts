@@ -32,9 +32,8 @@ const BCRYPT_MAX_COST = 12
 export const DUMMY_PASSWORD_HASH = 'scrypt$AAECAwQFBgcICQoLDA0ODw==$AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA='
 
 /**
- * Well-formed bcrypt string at cost 10. Used on the miss or ineligible path when this hash is bcrypt,
- * or when any accepted bcrypt hash is still stored, so a migrated mailbox is not distinguishable by work.
- * Not a password anyone can sign in with.
+ * Well-formed bcrypt string at cost 10. Used to pad a failed or dummy scrypt compare
+ * while any accepted bcrypt hash is still stored. Not a password anyone can sign in with.
  */
 export const DUMMY_BCRYPT_HASH = '$2a$10$izJQJlD9yogrwzhiB6CQA.X0TmTi5UTGyQsoXeQpetpnyAGhVJWJO'
 
@@ -51,12 +50,12 @@ export function bcryptCost(stored: string): number | null {
 
 /**
  * Real hash only when this account may sign in.
- * A miss uses dummy bcrypt when this credential is bcrypt, or when any accepted bcrypt hash is still stored,
- * so an unknown or disabled mailbox is not faster than a migrated one. Scrypt-only installs keep the scrypt dummy.
+ * A miss always uses the scrypt dummy. When any accepted bcrypt hash is still stored,
+ * verifyPassword then pads dummy bcrypt, so unknown, disabled, and a wrong scrypt password
+ * do the same work. Scrypt-only installs stay on the scrypt dummy.
  */
-export function hashForLoginCompare(eligible: boolean, credential: string | null, bcryptPresent = false): string {
+export function hashForLoginCompare(eligible: boolean, credential: string | null, _bcryptPresent = false): string {
     if (eligible && credential && (isScryptHash(credential) || isBcryptHash(credential))) return credential
-    if ((credential && isBcryptHash(credential)) || bcryptPresent) return DUMMY_BCRYPT_HASH
     return DUMMY_PASSWORD_HASH
 }
 
@@ -97,23 +96,24 @@ async function compareBcrypt(password: string, stored: string): Promise<boolean>
 }
 
 /**
- * When `bcryptPresent` is set, a failed scrypt compare also runs dummy bcrypt so a known scrypt
- * mailbox is not faster than an unknown miss during the migration window.
+ * When `bcryptPresent` is set, a failed compare also runs the other dummy so unknown,
+ * disabled, and wrong-password paths pay both scrypt and bcrypt work.
  */
 export async function verifyPassword(password: string, stored: string | null, bcryptPresent = false): Promise<boolean> {
-    if (!stored) {
-        if (bcryptPresent) await compareBcrypt(password, DUMMY_BCRYPT_HASH)
-        return false
-    }
-    if (isScryptHash(stored)) {
+    if (stored && isScryptHash(stored)) {
         const ok = await compareScrypt(password, stored)
         if (!ok && bcryptPresent) await compareBcrypt(password, DUMMY_BCRYPT_HASH)
         return ok
     }
-    if (isBcryptHash(stored)) {
-        return await compareBcrypt(password, stored)
+    if (stored && isBcryptHash(stored)) {
+        const ok = await compareBcrypt(password, stored)
+        if (!ok && bcryptPresent) await compareScrypt(password, DUMMY_PASSWORD_HASH)
+        return ok
     }
-    if (bcryptPresent) await compareBcrypt(password, DUMMY_BCRYPT_HASH)
+    if (bcryptPresent) {
+        await compareScrypt(password, DUMMY_PASSWORD_HASH)
+        await compareBcrypt(password, DUMMY_BCRYPT_HASH)
+    }
     return false
 }
 

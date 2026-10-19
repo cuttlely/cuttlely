@@ -236,25 +236,27 @@ export class SqlIdentityStore implements IdentityStore {
     async hasBcryptCredential(): Promise<boolean> {
         return this.withRunner(async (runner) => {
             const d = dialectOf(runner)
-            // LIKE $2x$% also matches cost-31 and other rejected shapes. Page until
-            // isBcryptHash hits so a later accepted hash is not hidden by the first page.
+            // LIKE $2x$% also matches cost-31 and other rejected shapes. Keyset by id
+            // (no OFFSET) until isBcryptHash hits so a later accepted hash is not hidden.
             const page = 32
-            let offset = 0
+            let after: string | null = null
             for (;;) {
+                const keyset = after ? ` AND ${quote(d, 'id')} > ?` : ''
                 const rows = await query(
                     runner,
-                    `SELECT ${quote(d, 'credential')} AS ${quote(d, 'credential')} FROM ${quote(d, 'user')}
-                     WHERE ${quote(d, 'credential')} LIKE '$2a$%'
+                    `SELECT ${quote(d, 'id')} AS ${quote(d, 'id')}, ${quote(d, 'credential')} AS ${quote(d, 'credential')}
+                     FROM ${quote(d, 'user')}
+                     WHERE (${quote(d, 'credential')} LIKE '$2a$%'
                         OR ${quote(d, 'credential')} LIKE '$2b$%'
-                        OR ${quote(d, 'credential')} LIKE '$2y$%'
+                        OR ${quote(d, 'credential')} LIKE '$2y$%')${keyset}
                      ORDER BY ${quote(d, 'id')}
-                     LIMIT ? OFFSET ?`,
-                    [page, offset]
+                     LIMIT ?`,
+                    after ? [after, page] : [page]
                 )
                 if (!rows.length) return false
                 if (rows.some((row) => isBcryptHash(text(cell(row, 'credential'))))) return true
                 if (rows.length < page) return false
-                offset += rows.length
+                after = text(cell(rows[rows.length - 1], 'id'))
             }
         })
     }

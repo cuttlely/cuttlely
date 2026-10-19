@@ -143,7 +143,9 @@ it('finds an accepted bcrypt hash after more than one page of rejected $2x$ pref
         );
         INSERT INTO "user" (id, credential) VALUES ${values};
     `)
+    const statements: string[] = []
     const run = async (statement: string, params: unknown[] = []) => {
+        statements.push(statement)
         const prepared = db.prepare(statement)
         if (/^\s*(select|with)\b/i.test(statement)) return prepared.all(...params)
         prepared.run(...params)
@@ -161,6 +163,8 @@ it('finds an accepted bcrypt hash after more than one page of rejected $2x$ pref
         expect(await store.hasBcryptCredential()).toBe(false)
         await run('INSERT INTO "user" (id, credential) VALUES (?, ?)', ['zz-valid', OLD_BCRYPT])
         expect(await store.hasBcryptCredential()).toBe(true)
+        expect(statements.some((sql) => /\bOFFSET\b/i.test(sql))).toBe(false)
+        expect(statements.some((sql) => /"id"\s*>\s*\?/.test(sql))).toBe(true)
     } finally {
         db.close()
     }
@@ -220,17 +224,23 @@ livePg('finds an accepted bcrypt hash after more than one page of rejected $2x$ 
         for (const id of rejected) {
             await db.query(`INSERT INTO "user" (id, credential) VALUES ($1, $2)`, [id, REJECTED_BCRYPT])
         }
+        const statements: string[] = []
         const runner = {
             connection: { options: { type: 'postgres' } },
             connect: async () => undefined,
             release: async () => undefined,
-            query: async (text: string, params?: unknown[]) => (await db.query(text, params)).rows
+            query: async (text: string, params?: unknown[]) => {
+                statements.push(text)
+                return (await db.query(text, params)).rows
+            }
         }
         const store = new SqlIdentityStore({ createQueryRunner: () => runner } as unknown as DataSource)
         expect(rejected.length).toBeGreaterThan(32)
         expect(await store.hasBcryptCredential()).toBe(false)
         await db.query(`INSERT INTO "user" (id, credential) VALUES ($1, $2)`, ['ffffffff-ffff-4fff-bfff-ffffffffffff', OLD_BCRYPT])
         expect(await store.hasBcryptCredential()).toBe(true)
+        expect(statements.some((sql) => /\bOFFSET\b/i.test(sql))).toBe(false)
+        expect(statements.some((sql) => /"id"\s*>/.test(sql))).toBe(true)
     } finally {
         await db.end()
         const drop = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: 'postgres' })
