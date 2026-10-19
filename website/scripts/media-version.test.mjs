@@ -68,17 +68,38 @@ test('every homepage video and poster URL carries that file content hash', () =>
 test('mediaHrefs skips file paths, mediaUrl() calls, and other hosts', () => {
     const text = [
         'https://cuttlely.com/media/products/testing.mp4',
+        'https://www.cuttlely.com/media/products/testing.mp4',
         'https://example.com/media/video.mp4',
         'src="./website/public/media/products/testing-poster.webp"',
         "poster={mediaUrl('/media/products/testing-poster.webp')}"
     ].join('\n')
-    assert.deepEqual(mediaHrefs(text), ['https://cuttlely.com/media/products/testing.mp4'])
+    assert.deepEqual(mediaHrefs(text), [
+        'https://cuttlely.com/media/products/testing.mp4',
+        'https://www.cuttlely.com/media/products/testing.mp4'
+    ])
 })
 
-test('localMediaHref drops only the site origin, not a lookalike host', () => {
+test('mediaHrefs ignores lookalike hosts', () => {
+    const text = [
+        'https://cuttlely.com/media/clip.mp4',
+        'https://evilcuttlely.com/media/clip.mp4',
+        'https://cuttlely.com.evil.io/media/clip.mp4',
+        '/media/clip.mp4'
+    ].join('\n')
+    assert.deepEqual(mediaHrefs(text), ['https://cuttlely.com/media/clip.mp4', '/media/clip.mp4'])
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-lookalike-'))
+    fs.mkdirSync(path.join(dir, 'media'))
+    fs.writeFileSync(path.join(dir, 'media', 'clip.mp4'), 'frame-bytes')
+    assert.deepEqual(mediaHrefProblems('https://evilcuttlely.com/media/clip.mp4?v=deadbeef', dir), [])
+    assert.deepEqual(mediaHrefProblems('https://cuttlely.com.evil.io/media/clip.mp4?v=deadbeef', dir), [])
+})
+
+test('localMediaHref keeps only the site host, not a lookalike host', () => {
     assert.equal(localMediaHref('https://cuttlely.com/media/clip.mp4?v=abcd1234'), '/media/clip.mp4?v=abcd1234')
+    assert.equal(localMediaHref('https://www.cuttlely.com/media/clip.mp4?v=abcd1234'), '/media/clip.mp4?v=abcd1234')
     assert.equal(localMediaHref('/media/clip.mp4?v=abcd1234'), '/media/clip.mp4?v=abcd1234')
-    assert.equal(localMediaHref('https://cuttlely.com.example/media/clip.mp4'), 'https://cuttlely.com.example/media/clip.mp4')
+    assert.equal(localMediaHref('https://evilcuttlely.com/media/clip.mp4'), 'https://evilcuttlely.com/media/clip.mp4')
+    assert.equal(localMediaHref('https://cuttlely.com.evil.io/media/clip.mp4'), 'https://cuttlely.com.evil.io/media/clip.mp4')
 })
 
 test('mediaHrefProblems fails a missing or stale hash and accepts the file hash', () => {
@@ -90,11 +111,17 @@ test('mediaHrefProblems fails a missing or stale hash and accepts the file hash'
     assert.deepEqual(mediaHrefProblems(`<a href="/media/clip.mp4?v=deadbeef">`, dir), ['/media/clip.mp4?v=deadbeef'])
     assert.deepEqual(mediaHrefProblems(`<a href="${hashed}">`, dir), [])
     assert.deepEqual(mediaHrefProblems(`<a href="https://cuttlely.com${hashed}">`, dir), [])
-    assert.deepEqual(mediaHrefProblems(`<a href="/media/missing.mp4?v=deadbeef">`, dir), ['/media/missing.mp4?v=deadbeef'])
-    assert.deepEqual(mediaHrefProblems(`<a href="https://cuttlely.com/media/missing.mp4?v=deadbeef">`, dir), [
+    assert.deepEqual(mediaHrefProblems(`<a href="https://www.cuttlely.com${hashed}">`, dir), [])
+    assert.deepEqual(mediaHrefProblems(`<a href="https://example.com/media/video.mp4">`, dir), [])
+})
+
+test('mediaHrefProblems fails a hashed link whose public file is missing', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'media-missing-'))
+    fs.mkdirSync(path.join(dir, 'media'))
+    assert.deepEqual(mediaHrefProblems('<a href="/media/missing.mp4?v=deadbeef">', dir), ['/media/missing.mp4?v=deadbeef'])
+    assert.deepEqual(mediaHrefProblems('<a href="https://cuttlely.com/media/missing.mp4?v=deadbeef">', dir), [
         'https://cuttlely.com/media/missing.mp4?v=deadbeef'
     ])
-    assert.deepEqual(mediaHrefProblems(`<a href="https://example.com/media/video.mp4">`, dir), [])
 })
 
 test('repository markdown media links carry the hash of the public file', () => {
