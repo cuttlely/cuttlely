@@ -622,7 +622,7 @@ test('the home page hero uses the production message house', () => {
     assert.match(page, /Governance\./)
     assert.match(page, /Lean context\./)
     assert.match(page, /Build agent teams\./)
-    assert.match(page, /Import your Flowise JSON/)
+    assert.doesNotMatch(page, /Import your Flowise JSON/)
 })
 
 test('the home page ends with the sign-off line below the site footer, and other pages do not', () => {
