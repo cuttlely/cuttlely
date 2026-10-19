@@ -188,7 +188,7 @@ services:
             CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: ${CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS:-}
 ```
 
-Then set them in your `.env` and restart:
+Then set them in your `.env` and restart. The rest of this example is for Compose or `docker run -v` only. Those commands can bind-mount a host script and a data directory. `npx cuttlely start` cannot: it only mounts the named volume `cuttlely-data` at `/var/cuttlely`, it has no extra volume flags, and there is no easy way to put host files into that volume. If you need a custom stdio script, switch to Compose or `docker run` with `-v`. `--env-file` still works on the CLI for environment variables; it does not add mounts.
 
 ```bash
 CUSTOM_MCP_PROTOCOL=stdio
@@ -197,7 +197,7 @@ CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS=/opt/mcp/servers/fs-server.js
 CUSTOM_MCP_ALLOWED_ENV_VARS=
 ```
 
-The image does not include `/opt/mcp/servers/fs-server.js` or a `/data` directory. Bind-mount them from the host, or put the script and its data under the existing data volume at `/var/cuttlely`. With Compose, add volumes next to the one already in the file:
+The image does not include `/opt/mcp/servers/fs-server.js` or a `/data` directory. With Compose, add bind mounts next to the volume already in the file:
 
 ```yaml
 services:
@@ -208,11 +208,9 @@ services:
             - ./mcp-data:/data
 ```
 
-Put the server file on the host at `./mcp/fs-server.js`. That path is `/opt/mcp/servers/fs-server.js` in the container. `./mcp-data` is `/data`. To keep everything on the data volume instead, copy the script into `/var/cuttlely` (for example `/var/cuttlely/mcp/fs-server.js`) and allow-list that path.
+Put the server file on the host at `./mcp/fs-server.js`. That path is `/opt/mcp/servers/fs-server.js` in the container. `./mcp-data` is `/data`. The same paths work with `docker run -v ./mcp:/opt/mcp/servers:ro -v ./mcp-data:/data`.
 
-Alternatively, `npx cuttlely start --env-file .env` passes that file to `docker run`. The CLI does not take extra volume flags. It only mounts the `cuttlely-data` volume at `/var/cuttlely`. Put the script under that path, or start with Compose or `docker run -v` if you need another bind mount.
-
-Then use this config on the Custom MCP node (paths must exist in the container):
+Then use this config on the Custom MCP node (paths exist only after those mounts):
 
 ```json
 {
