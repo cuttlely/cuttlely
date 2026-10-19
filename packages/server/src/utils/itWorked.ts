@@ -1,13 +1,13 @@
 import fs from 'fs'
 import path from 'path'
-import logger from './logger'
-import { IT_WORKED_DISABLE_ENV, IT_WORKED_URL } from './constants'
 import { settingsDir, writeFileAtomic } from '../settings/store'
 import { tryNamedLockSync } from '../settings/lock'
 
 let loggedThisProcess = false
 const MARKER_FILE = 'it-worked.json'
 const LOCK_FILE = '.it-worked.lock'
+const IT_WORKED_DISABLE_ENV = 'CUTTLELY_DISABLE_IT_WORKED'
+export const IT_WORKED_URL = 'https://github.com/cuttlely/cuttlely'
 
 function isDisabled(env: Record<string, string | undefined> = process.env): boolean {
     return String(env[IT_WORKED_DISABLE_ENV] ?? '').trim() === 'true'
@@ -46,7 +46,7 @@ export function maybeLogFirstSuccess(): void {
                 loggedThisProcess = true
                 return
             }
-            logger.info(`⭐ It worked! If Cuttlely helped, a GitHub star helps others find it: ${IT_WORKED_URL}`)
+            console.info(`⭐ It worked! If Cuttlely helped, a GitHub star helps others find it: ${IT_WORKED_URL}`)
             writeFileAtomic(dir, MARKER_FILE, JSON.stringify({ shown: true }) + '\n')
             loggedThisProcess = true
         })
@@ -63,5 +63,3 @@ export function notifyFirstSuccess(): void {
         // never fail the run on this
     }
 }
-
-export { IT_WORKED_URL }

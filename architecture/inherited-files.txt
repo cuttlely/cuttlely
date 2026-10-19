@@ -1438,8 +1438,6 @@ packages/server/src/utils/hub.ts
 packages/server/src/utils/index.ts
 packages/server/src/utils/ipValidation.test.ts
 packages/server/src/utils/ipValidation.ts
-packages/server/src/utils/itWorked.test.ts
-packages/server/src/utils/itWorked.ts
 packages/server/src/utils/logger.test.ts
 packages/server/src/utils/logger.ts
 packages/server/src/utils/mockRequest.test.ts

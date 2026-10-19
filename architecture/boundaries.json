@@ -129,6 +129,8 @@
             "packages/ui/src/api/serverSettings.js",
             "packages/ui/src/api/serverSetup.js",
             "packages/server/src/commands/settings.ts",
+            "packages/server/src/utils/itWorked.ts",
+            "packages/server/src/utils/itWorked.test.ts",
             "packages/server/src/utils/authorize*",
             "packages/server/src/utils/sessionOwnership*",
             "packages/server/src/utils/fileLinkSignature*",
@@ -706,9 +708,12 @@
                 "packages/ui/src/views/serversetup/**",
                 "packages/ui/src/api/serverSettings.js",
                 "packages/ui/src/api/serverSetup.js",
-                "packages/server/src/commands/settings.ts"
+                "packages/server/src/commands/settings.ts",
+                "packages/server/src/utils/itWorked.ts",
+                "packages/server/src/utils/itWorked.test.ts"
             ],
             "entryPoints": [
+                "packages/server/src/utils/itWorked.ts",
                 "packages/server/src/routes/server-settings/index.ts",
                 "packages/server/src/routes/server-setup/index.ts",
                 "packages/server/src/settings/bootstrap.ts",
