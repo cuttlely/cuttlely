@@ -10,6 +10,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   After the first successful run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.
 
+### Changed
+
+-   The project site home page shows a poster for each video until you click play, so the first load does not fetch the files. Product-tile silent loops start only after that click, one at a time, and not when Save-Data is on. The media files are smaller, hashed `/media`, `/social` and `/_astro` assets are cached for a year, and the site build uses Astro 7.4.0.
+
 ### Fixed
 
 -   A Flowise database older than `3.1.4` is refused before any migration, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is left unchanged. That includes application data in document stores, variables, and the other tables that gain a workspace id, not only flows, credentials, and tools. An older enterprise identity schema is refused even when those application tables are empty. A database with no application data, including a first start that stopped part way, still migrates. Upgrade it in Flowise `3.1.4` first, then move it. [Move a whole install](./docs/bring-your-flows.md#move-a-whole-install).

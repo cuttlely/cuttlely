@@ -56,6 +56,12 @@ services:
           - path: /fonts/*
             name: Cache-Control
             value: public, max-age=31536000, immutable
+          - path: /media/*
+            name: Cache-Control
+            value: public, max-age=31536000, immutable
+          - path: /social/*
+            name: Cache-Control
+            value: public, max-age=31536000, immutable
       routes:
           - type: redirect
             source: /github
