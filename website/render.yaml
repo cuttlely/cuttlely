@@ -19,7 +19,7 @@ services:
           paths:
               - website/**
               - docs/**
-              - assets/whitepaper/**
+              - FAQ.md
               - README.md
               - CHANGELOG.md
               - SECURITY.md
