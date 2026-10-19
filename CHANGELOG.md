@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.1] - Unreleased
+
+### Fixed
+
+-   A Flowise database older than `3.1.4` is refused before any migration, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is left unchanged. Upgrade it in Flowise `3.1.4` first, then move it. [Move a whole install](./docs/bring-your-flows.md#move-a-whole-install).
+
 ## [1.3.0] - 2026-10-18
 
 ### Added

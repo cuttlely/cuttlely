@@ -14,7 +14,7 @@ import '../settings/bootstrap'
 import { Args, Flags } from '@oclif/core'
 import * as DataSource from '../DataSource'
 import { runUserCli } from '../identity/cli'
-import { runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
+import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
 import { localAdminEnabled } from '../identity/constants'
 import { SqlIdentityStore } from '../identity/sqlStore'
 import logger from '../utils/logger'
@@ -53,7 +53,9 @@ export default class user extends BaseCommand {
             }
             if (!result.ok) return this.failExit()
         } catch (error) {
-            logger.error(error instanceof Error ? error.name : 'user command failed')
+            if (!logUnsupportedFlowiseUpgrade(error, logger)) {
+                logger.error(error instanceof Error ? error.name : 'user command failed')
+            }
             return this.failExit()
         }
         return this.gracefullyExit()

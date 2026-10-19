@@ -5,6 +5,7 @@ import * as DataSource from '../DataSource'
 import logger from '../utils/logger'
 import { RESTART_EXIT_CODE, SETTINGS_FAILED_EXIT_CODE, setRestartHandler } from '../settings/restart'
 import { StartOutcome, finishStart } from '../settings/safeboot'
+import { logUnsupportedFlowiseUpgrade } from '../startup/flowiseUpgradeGuard'
 import { BaseCommand, startState } from './base'
 
 export default class Start extends BaseCommand {
@@ -54,7 +55,7 @@ export default class Start extends BaseCommand {
     }
 
     async catch(error: Error) {
-        if (error.stack) logger.error(error.stack)
+        if (!logUnsupportedFlowiseUpgrade(error, logger) && error.stack) logger.error(error.stack)
         await new Promise((resolve) => {
             setTimeout(resolve, 1000)
         })

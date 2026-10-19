@@ -50,7 +50,7 @@ import { announceFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
 import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
-import { runSupportedMigrations } from './startup/flowiseUpgradeGuard'
+import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from './startup/flowiseUpgradeGuard'
 
 declare global {
     namespace Express {
@@ -102,10 +102,6 @@ export class App {
         try {
             setBootStep('Opening the database')
             await this.AppDataSource.initialize()
-            if (this.AppDataSource.options.type === 'sqlite') {
-                // WAL keeps every commit from waiting on a full fsync.
-                await this.AppDataSource.query('PRAGMA synchronous = NORMAL')
-            }
             logger.info('📦 [server]: Data Source initialized successfully')
 
             // Run Migrations Scripts
@@ -198,7 +194,9 @@ export class App {
             logger.info('🎉 [server]: All initialization steps completed successfully!')
         } catch (error) {
             this.initError = error
-            logger.error('❌ [server]: Error during Data Source initialization:', error)
+            if (!logUnsupportedFlowiseUpgrade(error, logger)) {
+                logger.error('❌ [server]: Error during Data Source initialization:', error)
+            }
         }
     }
 

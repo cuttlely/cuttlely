@@ -4,7 +4,7 @@ import logger from '../utils/logger'
 import { QueueManager } from '../queue/QueueManager'
 import { BaseCommand } from './base'
 import { getDataSource } from '../DataSource'
-import { runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
+import { logUnsupportedFlowiseUpgrade, runSupportedMigrations } from '../startup/flowiseUpgradeGuard'
 import { Telemetry } from '../utils/telemetry'
 import { NodesPool } from '../NodesPool'
 import { CachePool } from '../CachePool'
@@ -107,7 +107,7 @@ export default class Worker extends BaseCommand {
     }
 
     async catch(error: Error) {
-        if (error.stack) logger.error(error.stack)
+        if (!logUnsupportedFlowiseUpgrade(error, logger) && error.stack) logger.error(error.stack)
         await new Promise((resolve) => {
             setTimeout(resolve, 1000)
         })

@@ -7,8 +7,8 @@ export const UNSUPPORTED_FLOWISE_UPGRADE = 'unsupported upgrade path, upgrade vi
 
 const DOCS_LINK = 'docs/bring-your-flows.md#move-a-whole-install'
 
-/** TypeORM names recorded by Flowise 3.1.4 for the workspace/identity schema. */
-const FLOWISE_314_MIGRATION_NAMES = ['AddWorkspace1720230151484', 'RefactorEnterpriseDatabase1737076223692']
+/** TypeORM names recorded by Flowise 3.1.4 for the workspace/identity schema, all dialects. */
+const FLOWISE_314_MIGRATION_NAMES = ['AddWorkspace1720230151484', 'AddWorkspace1725437498242', 'RefactorEnterpriseDatabase1737076223692']
 
 const APP_TABLES = ['chat_flow', 'credential', 'tool'] as const
 
@@ -83,9 +83,16 @@ async function columnExists(runner: QueryRunner, table: string, column: string):
     return list.length > 0
 }
 
-async function hasAppData(runner: QueryRunner): Promise<boolean> {
+async function tableHasRows(runner: QueryRunner, table: string): Promise<boolean> {
+    if (!(await tableExists(runner, table))) return false
+    const list = await rows(runner, `SELECT 1 AS present FROM ${q(dialectOf(runner), table)} LIMIT 1`)
+    return list.length > 0
+}
+
+/** True when a Flowise (or other) install already stored flows, credentials, or tools. */
+async function hasImportedAppRows(runner: QueryRunner): Promise<boolean> {
     for (const table of APP_TABLES) {
-        if (await tableExists(runner, table)) return true
+        if (await tableHasRows(runner, table)) return true
     }
     return false
 }
@@ -106,13 +113,18 @@ async function legacyIdentityPresent(runner: QueryRunner): Promise<boolean> {
     return false
 }
 
-async function migrationsRecord314(runner: QueryRunner): Promise<boolean> {
-    if (!(await tableExists(runner, 'migrations'))) return false
+async function migrationNames(runner: QueryRunner): Promise<string[]> {
+    if (!(await tableExists(runner, 'migrations'))) return []
     const list = await rows(runner, `SELECT name FROM ${q(dialectOf(runner), 'migrations')}`)
-    return list.some((row) => {
-        const name = String(row.name ?? row.NAME ?? '')
-        return FLOWISE_314_MIGRATION_NAMES.some((marker) => name.includes(marker))
-    })
+    return list.map((row) => String(row.name ?? row.NAME ?? ''))
+}
+
+function nameMatches(names: string[], markers: string[]): boolean {
+    return names.some((name) => markers.some((marker) => name.includes(marker)))
+}
+
+async function migrationsRecord314(runner: QueryRunner): Promise<boolean> {
+    return nameMatches(await migrationNames(runner), FLOWISE_314_MIGRATION_NAMES)
 }
 
 async function has314WorkspaceSchema(runner: QueryRunner): Promise<boolean> {
@@ -123,18 +135,37 @@ async function has314WorkspaceSchema(runner: QueryRunner): Promise<boolean> {
     return true
 }
 
+export function unsupportedFlowiseUpgradeMessage(): string {
+    return `${UNSUPPORTED_FLOWISE_UPGRADE}. See ${DOCS_LINK}`
+}
+
 export function unsupportedFlowiseUpgradeError(): Error {
-    const error = new Error(`${UNSUPPORTED_FLOWISE_UPGRADE}. See ${DOCS_LINK}`)
+    const error = new Error(unsupportedFlowiseUpgradeMessage())
     ;(error as Error & { code?: string }).code = 'UNSUPPORTED_FLOWISE_UPGRADE'
     return error
 }
 
+export function isUnsupportedFlowiseUpgrade(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false
+    const code = (error as { code?: string }).code
+    const message = error instanceof Error ? error.message : String((error as { message?: string }).message || '')
+    return code === 'UNSUPPORTED_FLOWISE_UPGRADE' || message.includes(UNSUPPORTED_FLOWISE_UPGRADE)
+}
+
+/** Print the documented stop line and docs link. Returns true when this error is that refusal. */
+export function logUnsupportedFlowiseUpgrade(error: unknown, log: { error: (line: string) => void }): boolean {
+    if (!isUnsupportedFlowiseUpgrade(error)) return false
+    const message = error instanceof Error ? error.message : unsupportedFlowiseUpgradeMessage()
+    log.error(message.includes(UNSUPPORTED_FLOWISE_UPGRADE) ? message : unsupportedFlowiseUpgradeMessage())
+    return true
+}
+
 /**
- * Read-only check: an existing Flowise/Cuttlely database that never reached 3.1.4 is refused.
- * Empty databases are allowed so a first start can still run migrations.
+ * Read-only check: an existing Flowise database that never reached 3.1.4 is refused.
+ * Empty databases, and a Cuttlely first start that died after Init, can still migrate.
  */
 export async function assertSupportedFlowiseUpgrade(runner: QueryRunner): Promise<void> {
-    if (!(await hasAppData(runner))) return
+    if (!(await hasImportedAppRows(runner))) return
     if (await legacyIdentityPresent(runner)) throw unsupportedFlowiseUpgradeError()
     if (await has314WorkspaceSchema(runner)) return
     if (await migrationsRecord314(runner)) return
@@ -153,8 +184,15 @@ export async function ensureFlowiseUpgradeSupported(dataSource: DataSource): Pro
     }
 }
 
-/** Guard, then TypeORM migrations. Used at boot so a refused database never reaches runMigrations. */
+async function applySqliteJournalAfterGuard(dataSource: DataSource): Promise<void> {
+    if (dataSource.options?.type !== 'sqlite') return
+    await dataSource.query('PRAGMA journal_mode = WAL')
+    await dataSource.query('PRAGMA synchronous = NORMAL')
+}
+
+/** Guard, then SQLite WAL, then TypeORM migrations. A refused database never reaches a write. */
 export async function runSupportedMigrations(dataSource: DataSource): Promise<void> {
     await ensureFlowiseUpgradeSupported(dataSource)
+    await applySqliteJournalAfterGuard(dataSource)
     await dataSource.runMigrations({ transaction: 'each' })
 }

@@ -5,11 +5,16 @@
  */
 import type { DataSource, QueryRunner } from 'typeorm'
 import { randomUUID } from 'crypto'
+import fs from 'fs'
+import path from 'path'
 import {
     UNSUPPORTED_FLOWISE_UPGRADE,
     assertSupportedFlowiseUpgrade,
     ensureFlowiseUpgradeSupported,
-    runSupportedMigrations
+    logUnsupportedFlowiseUpgrade,
+    runSupportedMigrations,
+    unsupportedFlowiseUpgradeError,
+    unsupportedFlowiseUpgradeMessage
 } from './flowiseUpgradeGuard'
 
 const { DatabaseSync } = require('node:sqlite') as {
@@ -120,13 +125,18 @@ function runnerFor(store: Store): QueryRunner {
     } as unknown as QueryRunner
 }
 
-function dataSourceFor(store: Store, onMigrate: () => Promise<void>): DataSource {
+function dataSourceFor(store: Store, onMigrate: () => Promise<void>, queries: string[] = []): DataSource {
     const runner = runnerFor(store)
     return {
+        options: { type: store.dialect },
         createQueryRunner: () => ({
             ...runner,
             release: async () => undefined
         }),
+        query: async (sql: string) => {
+            queries.push(sql)
+            return []
+        },
         runMigrations: async () => {
             await onMigrate()
             return []
@@ -273,5 +283,72 @@ describe.each(backends)('Flowise pre-3.1.4 upgrade guard on %s', (_name, open, e
         })
         await expect(runSupportedMigrations(ds)).resolves.toBeUndefined()
         expect(migrated).toBe(true)
+    })
+
+    maybe('allows a MariaDB 3.1.4 AddWorkspace name', async () => {
+        await seedPre314(store)
+        await store.exec(`INSERT INTO migrations (id, timestamp, name) VALUES (?, ?, ?)`, [2, 1725437498242, 'AddWorkspace1725437498242'])
+        let migrated = false
+        const ds = dataSourceFor(store, async () => {
+            migrated = true
+        })
+        await expect(runSupportedMigrations(ds)).resolves.toBeUndefined()
+        expect(migrated).toBe(true)
+    })
+
+    maybe('resumes a Cuttlely first start that recorded Init then stopped before AddWorkspace', async () => {
+        const time = store.dialect === 'postgres' ? 'TIMESTAMP' : 'datetime'
+        await store.exec(
+            `CREATE TABLE chat_flow (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL, "flowData" text NOT NULL, "createdDate" ${time})`
+        )
+        await store.exec(
+            `CREATE TABLE credential (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL, "credentialName" varchar NOT NULL, "encryptedData" text NOT NULL)`
+        )
+        await store.exec(`CREATE TABLE migrations (id integer PRIMARY KEY NOT NULL, timestamp bigint NOT NULL, name varchar NOT NULL)`)
+        await store.exec(`INSERT INTO migrations (id, timestamp, name) VALUES (?, ?, ?)`, [1, 1693835579790, 'Init1693835579790'])
+        let migrated = false
+        const queries: string[] = []
+        const ds = dataSourceFor(
+            store,
+            async () => {
+                migrated = true
+            },
+            queries
+        )
+        await expect(runSupportedMigrations(ds)).resolves.toBeUndefined()
+        expect(migrated).toBe(true)
+        if (store.dialect === 'sqlite') {
+            expect(queries).toEqual(['PRAGMA journal_mode = WAL', 'PRAGMA synchronous = NORMAL'])
+        } else {
+            expect(queries).toEqual([])
+        }
+    })
+
+    maybe('does not switch SQLite to WAL when a 2.2.8-style database is refused', async () => {
+        await seedPre314(store)
+        const queries: string[] = []
+        const ds = dataSourceFor(store, async () => undefined, queries)
+        await expect(runSupportedMigrations(ds)).rejects.toThrow(UNSUPPORTED_FLOWISE_UPGRADE)
+        expect(queries).toEqual([])
+    })
+})
+
+describe('unsupported Flowise upgrade log', () => {
+    it('prints the documented stop line and the docs link for start, worker, and user', () => {
+        const lines: string[] = []
+        const log = { error: (line: string) => lines.push(line) }
+        expect(logUnsupportedFlowiseUpgrade(unsupportedFlowiseUpgradeError(), log)).toBe(true)
+        expect(lines).toEqual([unsupportedFlowiseUpgradeMessage()])
+        expect(lines[0]).toContain(UNSUPPORTED_FLOWISE_UPGRADE)
+        expect(lines[0]).toContain('docs/bring-your-flows.md#move-a-whole-install')
+        expect(logUnsupportedFlowiseUpgrade(new Error('other'), log)).toBe(false)
+        expect(lines).toHaveLength(1)
+    })
+
+    it('is wired from start, worker, and user so each prints that line', () => {
+        const here = path.join(__dirname, '..')
+        for (const file of ['index.ts', 'commands/start.ts', 'commands/worker.ts', 'commands/user.ts']) {
+            expect(fs.readFileSync(path.join(here, file), 'utf8')).toContain('logUnsupportedFlowiseUpgrade')
+        }
     })
 })
