@@ -28,7 +28,16 @@ import {
     unavailablePage
 } from './constants'
 import { INVITE_LINK_INVALID, isActiveStatus, linkFailureMessage, linkWorkosUser } from './link'
-import { hashForLoginCompare, hashPassword, hashSessionToken, passwordErrors, randomToken, tokensEqual, verifyPassword } from './password'
+import {
+    hashForLoginCompare,
+    hashPassword,
+    hashSessionToken,
+    passwordErrors,
+    randomToken,
+    tokensEqual,
+    verifyPassword,
+    isBcryptHash
+} from './password'
 import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
 import { isLoopbackAddress } from './sessionGuard'
@@ -295,6 +304,14 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     const owner = await ctx.store.findSuperUser()
     if (!owner || owner.email.toLowerCase() !== email.toLowerCase()) return fail()
     if (!(await verifyPassword(password, owner.credential))) return fail()
+    // Rehash a migrated bcrypt password to the current scrypt scheme after the first successful sign-in.
+    if (owner.credential && isBcryptHash(owner.credential)) {
+        try {
+            await ctx.store.setCredential(owner.id, await hashPassword(password))
+        } catch {
+            // Best-effort: sign-in can proceed even if the rehash fails.
+        }
+    }
 
     const token = randomToken()
     const limits = sessionLimitsMs()
@@ -488,6 +505,14 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
         await noteSignIn(ctx, 'sign_in_failure', userId, 'local')
         if (await ctx.rateLimit.blocked(ctx.ip, fields.email, ctx.now)) await noteSignIn(ctx, 'lockout', userId, 'local')
         return json(401, { message: INVALID_LOGIN })
+    }
+    // Rehash a migrated bcrypt password to the current scrypt scheme after the first successful sign-in.
+    if (user.credential && isBcryptHash(user.credential)) {
+        try {
+            await ctx.store.setCredential(user.id, await hashPassword(fields.password))
+        } catch {
+            // Best-effort: proceed even if the rehash fails.
+        }
     }
 
     const issued = await issueLocalSession(ctx, user.id)

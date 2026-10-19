@@ -16,9 +16,11 @@
 
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'crypto'
 import { promisify } from 'util'
+import bcrypt from 'bcryptjs'
 
 const scryptAsync = promisify(scrypt)
 const PREFIX = 'scrypt'
+const BCRYPT_REGEX = /^\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}$/
 
 /**
  * Well-formed scrypt string used when the account cannot be checked.
@@ -29,7 +31,7 @@ export const DUMMY_PASSWORD_HASH = 'scrypt$AAECAwQFBgcICQoLDA0ODw==$AQIDBAUGBwgJ
 
 /** Real hash only when this account may sign in. Every other case uses the dummy so scrypt still runs. */
 export function hashForLoginCompare(eligible: boolean, credential: string | null): string {
-    if (eligible && credential && credential.startsWith(`${PREFIX}$`)) return credential
+    if (eligible && credential && (credential.startsWith(`${PREFIX}$`) || isBcryptHash(credential))) return credential
     return DUMMY_PASSWORD_HASH
 }
 
@@ -52,14 +54,28 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyPassword(password: string, stored: string | null): Promise<boolean> {
-    if (!stored || !stored.startsWith(`${PREFIX}$`)) return false
-    const parts = stored.split('$')
-    if (parts.length !== 3) return false
-    const salt = parts[1]
-    const expected = Buffer.from(parts[2], 'base64')
-    const actual = (await scryptAsync(password, salt, expected.length)) as Buffer
-    if (actual.length !== expected.length) return false
-    return timingSafeEqual(actual, expected)
+    if (!stored) return false
+    if (stored.startsWith(`${PREFIX}$`)) {
+        const parts = stored.split('$')
+        if (parts.length !== 3) return false
+        const salt = parts[1]
+        const expected = Buffer.from(parts[2], 'base64')
+        const actual = (await scryptAsync(password, salt, expected.length)) as Buffer
+        if (actual.length !== expected.length) return false
+        return timingSafeEqual(actual, expected)
+    }
+    if (isBcryptHash(stored)) {
+        try {
+            return await bcrypt.compare(password, stored)
+        } catch {
+            return false
+        }
+    }
+    return false
+}
+
+export function isBcryptHash(stored: string): boolean {
+    return BCRYPT_REGEX.test(stored)
 }
 
 export function tokensEqual(left: string, right: string): boolean {

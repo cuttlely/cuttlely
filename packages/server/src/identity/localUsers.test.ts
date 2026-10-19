@@ -20,6 +20,7 @@ import cookieParser from 'cookie-parser'
 import express, { Request } from 'express'
 import request from 'supertest'
 import type { DataSource } from 'typeorm'
+import bcrypt from 'bcryptjs'
 import { ABSOLUTE_MS, IDLE_MS, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, localAdminEnabled, localUsersMode } from './constants'
 import { apiV1Auth } from './apiGate'
 import { identityAuthRouter } from './http'
@@ -578,6 +579,39 @@ describe('local users mode', () => {
         expect(longPassword.status).toBe(400)
         expect(rateLimit.retained()).toBe(0)
         expect(store.users.find((user) => user.id === 'user-a')?.credential).not.toBeNull()
+    })
+
+    it('accepts a migrated bcrypt password on local login and rehashes to scrypt after success', async () => {
+        const { store } = await seed()
+        const bcryptHash = bcrypt.hashSync(OTHER, 10)
+        const target = store.users.find((u) => u.id === 'user-a')
+        if (!target) throw new Error('missing user-a')
+        target.credential = bcryptHash
+        const before = target.credential
+        const ok = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        expect(ok.status).toBe(200)
+        const after = store.users.find((u) => u.id === 'user-a')?.credential || ''
+        expect(after).toMatch(/^scrypt\$/)
+        expect(after).not.toBe(before)
+        // Wrong password still fails
+        const wrong = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } })))
+        expect(wrong.status).toBe(401)
+    })
+
+    it('accepts a migrated bcrypt owner password and rehashes to scrypt on success', async () => {
+        const { store } = await seed()
+        const bcryptHash = bcrypt.hashSync(GOOD, 10)
+        const owner = store.users.find((u) => u.id === 'owner')
+        if (!owner) throw new Error('missing owner')
+        owner.credential = bcryptHash
+        const before = owner.credential
+        const out = json(
+            await handleLoginPost(ctx({ store, localAdmin: true, internal: true, body: { email: 'owner@example.com', password: GOOD } }))
+        )
+        expect(out.status).toBe(200)
+        const after = store.users.find((u) => u.id === 'owner')?.credential || ''
+        expect(after).toMatch(/^scrypt\$/)
+        expect(after).not.toBe(before)
     })
 
     it('logs out idempotently and refuses a missing or invalid CSRF header', async () => {
