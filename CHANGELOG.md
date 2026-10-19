@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.1] - Unreleased
+
+### Security
+
+-   Path validation no longer rejects Windows-style absolute path strings on non-Windows systems. Imported flows from Flowise can include Windows-looking placeholders (for example on a memory or vector store path); these are now treated as ordinary file names on Linux and macOS and contained under the application data directory. Absolute-path protection remains intact: Unix absolute paths outside allowed base directories are still refused, and Windows-only absolute and UNC forms remain blocked on Windows.
+
 ## [1.3.0] - 2026-10-18
 
 ### Added

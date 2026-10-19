@@ -325,15 +325,25 @@ describe('validateVectorStorePath', () => {
         it.each([
             ['/etc/passwd', 'Unix absolute path'],
             ['/var/www/html', 'Web root path'],
-            ['/tmp/../../../etc/passwd', 'Absolute with traversal'],
-            ['C:\\Windows\\System32', 'Windows absolute path'],
-            ['C:\\Users\\Administrator', 'Windows user path'],
-            ['\\\\server\\share', 'UNC path'],
-            ['\\\\?\\C:\\Windows', 'Extended-length path']
+            ['/tmp/../../../etc/passwd', 'Absolute with traversal']
         ])('should reject absolute path outside allowed directories: %s (%s)', (maliciousPath, _description) => {
             expect(() => {
                 validateVectorStorePath(maliciousPath)
             }).toThrow(/Invalid path:/)
+        })
+
+        it.each([
+            ['C:\\Windows\\System32', 'Windows absolute path'],
+            ['C:\\Users\\Administrator', 'Windows user path'],
+            ['\\\\server\\share', 'UNC path'],
+            ['\\\\?\\C:\\Windows', 'Extended-length path']
+        ])('Windows-style paths are rejected on Windows, contained on Unix-like systems: %s (%s)', (windowsPath) => {
+            if (process.platform === 'win32') {
+                expect(() => validateVectorStorePath(windowsPath)).toThrow(/Invalid path:/)
+            } else {
+                const result = validateVectorStorePath(windowsPath)
+                expect(result.startsWith(path.join(userHome, '.cuttlely'))).toBe(true)
+            }
         })
     })
 
@@ -564,14 +574,24 @@ describe('validateSQLitePath', () => {
     })
 
     describe('disallowed absolute paths', () => {
-        it('should reject Windows absolute path (C:\\)', () => {
-            expect(() => validateSQLitePath('C:\\Windows\\System32\\db.sqlite')).toThrow(
-                'Invalid SQLite path: Windows absolute paths are not allowed'
-            )
+        it('handles Windows absolute path (C:\\) platform-specifically', () => {
+            if (process.platform === 'win32') {
+                expect(() => validateSQLitePath('C:\\Windows\\System32\\db.sqlite')).toThrow(
+                    'Invalid SQLite path: Windows absolute paths are not allowed'
+                )
+            } else {
+                const result = validateSQLitePath('C:\\Windows\\System32\\db.sqlite')
+                expect(result.startsWith(path.join(defaultFlowiseDir))).toBe(true)
+            }
         })
 
-        it('should reject UNC path (\\\\server\\share)', () => {
-            expect(() => validateSQLitePath('\\\\server\\share\\db.sqlite')).toThrow('Invalid SQLite path: UNC paths are not allowed')
+        it('handles UNC path (\\\\server\\share) platform-specifically', () => {
+            if (process.platform === 'win32') {
+                expect(() => validateSQLitePath('\\\\server\\share\\db.sqlite')).toThrow('Invalid SQLite path: UNC paths are not allowed')
+            } else {
+                const result = validateSQLitePath('\\\\server\\share\\db.sqlite')
+                expect(result.startsWith(path.join(defaultFlowiseDir))).toBe(true)
+            }
         })
 
         it('should reject /etc paths (RCE attack vector)', () => {

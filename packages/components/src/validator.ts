@@ -244,16 +244,18 @@ export const validateVectorStorePath = (userProvidedPath: string | undefined): s
         throw new Error('Invalid path: null bytes or control characters detected')
     }
 
-    // Check for Windows-specific absolute paths and UNC paths (even on Unix systems)
-    // This prevents cross-platform attack vectors
-    if (/^[a-zA-Z]:\\/.test(basePath)) {
-        throw new Error('Invalid path: Windows absolute paths are not allowed')
-    }
-    if (/^\\\\[^\\]/.test(basePath)) {
-        throw new Error('Invalid path: UNC paths are not allowed')
-    }
-    if (/^\\\\\?\\/.test(basePath)) {
-        throw new Error('Invalid path: Extended-length paths are not allowed')
+    // Windows-specific absolute path forms are only meaningful on Windows.
+    // On Unix-like systems treat backslashes as plain characters and contain the path under ~/.cuttlely.
+    if (process.platform === 'win32') {
+        if (/^[a-zA-Z]:\\/.test(basePath)) {
+            throw new Error('Invalid path: Windows absolute paths are not allowed')
+        }
+        if (/^\\\\[^\\]/.test(basePath)) {
+            throw new Error('Invalid path: UNC paths are not allowed')
+        }
+        if (/^\\\\\?\\/.test(basePath)) {
+            throw new Error('Invalid path: Extended-length paths are not allowed')
+        }
     }
 
     // Resolve to absolute path
@@ -345,9 +347,13 @@ export const validateSQLitePath = (userProvidedPath: string | undefined): string
     // eslint-disable-next-line no-control-regex
     if (/\0/.test(basePath) || /[\x00-\x1f]/.test(basePath))
         throw new Error('Invalid SQLite path: null bytes or control characters detected')
-    if (/^[a-zA-Z]:\\/.test(basePath)) throw new Error('Invalid SQLite path: Windows absolute paths are not allowed')
-    if (/^\\\\[^\\]/.test(basePath)) throw new Error('Invalid SQLite path: UNC paths are not allowed')
-    if (/^\\\\\?\\/.test(basePath)) throw new Error('Invalid SQLite path: extended-length paths are not allowed')
+    // Windows-specific absolute path forms are only meaningful on Windows.
+    // On Unix-like systems treat backslashes as plain characters and contain the path under ~/.cuttlely.
+    if (process.platform === 'win32') {
+        if (/^[a-zA-Z]:\\/.test(basePath)) throw new Error('Invalid SQLite path: Windows absolute paths are not allowed')
+        if (/^\\\\[^\\]/.test(basePath)) throw new Error('Invalid SQLite path: UNC paths are not allowed')
+        if (/^\\\\\?\\/.test(basePath)) throw new Error('Invalid SQLite path: extended-length paths are not allowed')
+    }
 
     const resolvedPath = path.isAbsolute(basePath) ? path.resolve(basePath) : path.resolve(path.join(defaultDir, basePath))
 
