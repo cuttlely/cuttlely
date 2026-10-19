@@ -78,14 +78,24 @@ const after = [
             </a>
         </div>
 
-        <div class="cl-terminal" role="group" aria-label="Start Cuttlely, then import Flowise JSON">
-            <div class="cl-terminal-bar">
-                <span class="cl-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span class="cl-terminal-title">Node 20+ and Docker, then Import Flowise JSON</span>
-                <CopyButton target="cl-flowise-start" />
+        <div class="cl-flowise-starts">
+            <div class="cl-terminal" role="group" aria-label="Start with npx">
+                <div class="cl-terminal-bar">
+                    <span class="cl-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="cl-terminal-title">Node 20+ and Docker</span>
+                    <CopyButton target="cl-flowise-npx" label="Copy npx command" />
+                </div>
+                <pre id="cl-flowise-npx"><code><span class="cl-prompt" aria-hidden="true">$ </span>npx cuttlely start</code></pre>
             </div>
-            <pre id="cl-flowise-start"><code><span class="cl-prompt" aria-hidden="true">$ </span>npx cuttlely start
-<span class="cl-prompt" aria-hidden="true">$ </span>git clone https://github.com/cuttlely/cuttlely && cd cuttlely && docker compose up -d</code></pre>
+            <p class="cl-note cl-flowise-or">or</p>
+            <div class="cl-terminal" role="group" aria-label="Start with Docker Compose">
+                <div class="cl-terminal-bar">
+                    <span class="cl-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="cl-terminal-title">Clone and Compose</span>
+                    <CopyButton target="cl-flowise-compose" label="Copy Compose command" />
+                </div>
+                <pre id="cl-flowise-compose"><code><span class="cl-prompt" aria-hidden="true">$ </span>git clone https://github.com/cuttlely/cuttlely && cd cuttlely && docker compose up -d</code></pre>
+            </div>
         </div>
         <p class="cl-note cl-flowise-open">
             Then open <code>http://localhost:43117</code>, go to <strong>Chatflows</strong>, and select <strong>Import</strong> → <strong>Import Flowise JSON</strong>.
@@ -209,7 +219,9 @@ const after = [
 
         <section id="what-you-get-after" class="cl-section" aria-labelledby="after-title">
             <h2 id="after-title" class="cl-display">What you get after</h2>
-            <p>The import opens a draft of that flow. From there you get:</p>
+            <p>
+                Nothing is saved until you select <strong>Save</strong>. The first Save publishes the flow; the next canvas save is a draft. After that you get:
+            </p>
             <ul class="cl-after">
                 {
                     after.map((item) => (

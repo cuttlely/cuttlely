@@ -1428,6 +1428,17 @@
 .cl-flowise .cl-pillars {
     margin-top: 0.5rem;
 }
+.cl-flowise-starts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 36rem;
+}
+.cl-flowise-or {
+    margin: 0;
+    text-align: center;
+    font-weight: 700;
+}
 .cl-flowise-open {
     margin: 1rem 0 2rem;
 }

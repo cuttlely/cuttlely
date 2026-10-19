@@ -205,6 +205,11 @@ describe('check-site message house', () => {
             'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Cuttlely runs your flows unchanged</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
         })
         assert.match(checkSite(unchanged).problems.join('\n'), /unchanged/)
+        const draft = site({
+            ...base,
+            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>The import opens a draft of that flow.</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
+        })
+        assert.match(checkSite(draft).problems.join('\n'), /opens a draft/)
     })
 
     it('skips social tags on a static redirect page', () => {

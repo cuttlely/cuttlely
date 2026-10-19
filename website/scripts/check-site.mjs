@@ -259,6 +259,7 @@ export function checkSite(dist, { csp = null } = {}) {
         }
         if (/waitlist/i.test(flowiseText)) problems.push('flowise/index.html: shows waitlist copy')
         if (/runs your flows unchanged/i.test(flowiseText)) problems.push('flowise/index.html: claims flows run unchanged')
+        if (/opens a draft/i.test(flowiseText)) problems.push('flowise/index.html: says the import opens a draft')
     }
     return { pages: pages.length, links, problems }
 }
