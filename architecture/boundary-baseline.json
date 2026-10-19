@@ -1776,6 +1776,16 @@
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
             "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
+        },
+        {
+            "from": "packages/server/src/utils/itWorked.ts",
+            "to": "packages/server/src/settings/lock.ts",
+            "reason": "the community prompt persists a local marker through the settings folder lock and store"
+        },
+        {
+            "from": "packages/server/src/utils/itWorked.ts",
+            "to": "packages/server/src/settings/store.ts",
+            "reason": "the community prompt persists a local marker through the settings folder lock and store"
         }
     ],
     "r5Edges": [
