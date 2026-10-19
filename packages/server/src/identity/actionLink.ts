@@ -716,7 +716,9 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         return json(400, { message: LINK_INVALID })
     }
     const target = await loadTarget(sql.query, sql, found.organizationId, found.workspaceId, found.userId)
-    const blocked = blockReason(target, found.purpose as LinkPurpose)
+    // With AuthKit on, a live owner invite reaches the AuthKit refusal below, which never sets a password.
+    const authKitInvite = found.purpose === 'invite' && workosConfigured(deps.env)
+    const blocked = blockReason(target, found.purpose as LinkPurpose, authKitInvite)
     if (blocked) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         await rejectAudit(sql, found, blocked, input.now)
@@ -724,7 +726,7 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
     }
     // With AuthKit on, only the AuthKit callback may use an invite: it checks the verified email and binds the sign-in.
     // Checked last, so a used, expired, or revoked token gets the same answer as any other invalid link.
-    if (found.purpose === 'invite' && workosConfigured(deps.env)) {
+    if (authKitInvite) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         await rejectAudit(sql, found, 'authkit-only', input.now)
         return json(400, { message: INVITE_NEEDS_AUTHKIT })

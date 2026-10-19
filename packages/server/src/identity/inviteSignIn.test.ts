@@ -627,6 +627,47 @@ describe.each(backends)('AuthKit sign-in for a pending invite on %s', (_name, op
         }
     )
 
+    maybe('a live owner invite on the password route: WorkOS message with AuthKit on, unchanged refusal without it', async () => {
+        const ownerInvite = async (email: string, env: NodeJS.ProcessEnv) => {
+            const created = await inviteAccount(
+                db.sql,
+                owner,
+                { user: { name: 'Pat Moreno', email }, workspace: { id: TEAM }, role: { id: OWNER_ROLE_ID }, link: true },
+                deps(NOW, env)
+            )
+            return { id: created.id, token: tokenOf(created.link) }
+        }
+        const state = async (id: string) => ({
+            user: await db.rows(`SELECT status, credential, "externalId" AS "externalId" FROM "user" WHERE id = ?`, [id]),
+            link: await db.rows(`SELECT "usedAt" AS "usedAt" FROM identity_action_link WHERE "userId" = ?`, [id])
+        })
+        const unchanged = { user: [{ status: 'invited', credential: null, externalId: null }], link: [{ usedAt: null }] }
+
+        const withAuthKit = await ownerInvite('pat@example.com', { ...AUTHKIT_ENV })
+        const refused = await acceptLocalPassword(
+            db.sql,
+            { body: { token: withAuthKit.token, password: GOOD }, query: {}, ip: '203.0.113.9', now: NOW },
+            deps()
+        )
+        expect(refused).toEqual({ type: 'json', status: 400, body: { message: INVITE_NEEDS_AUTHKIT } })
+        expect(await state(withAuthKit.id)).toEqual(unchanged)
+        expect(await rejections()).toEqual(['authkit-only'])
+        expect(await signIn('pat@example.com', withAuthKit.token)).toMatchObject({
+            ok: true,
+            user: { id: withAuthKit.id, status: 'active' }
+        })
+
+        const local = await ownerInvite('quinn@example.com', {})
+        const localResult = await acceptLocalPassword(
+            db.sql,
+            { body: { token: local.token, password: GOOD }, query: {}, ip: '203.0.113.9', now: NOW },
+            deps(NOW, {})
+        )
+        expect(localResult).toEqual({ type: 'json', status: 400, body: { message: 'This link is not valid.' } })
+        expect(await state(local.id)).toEqual(unchanged)
+        expect((await rejections()).sort()).toEqual(['authkit-only', 'owner'])
+    })
+
     maybe('an owner can send a new link for a pending owner invite; anyone else cannot', async () => {
         const created = await inviteAccount(
             db.sql,
