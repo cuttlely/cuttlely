@@ -80,6 +80,7 @@ import ttsApi from '@/api/tts'
 // Hooks
 import useApi from '@/hooks/useApi'
 import { flowContext } from '@/store/context/ReactFlowContext'
+import { useItWorkedNotice } from '@/utils/itWorked'
 
 // Const
 import { baseURL, maxScroll } from '@/store/constant'
@@ -215,6 +216,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
     useNotifier()
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
     const closeSnackbar = (...args) => dispatch(closeSnackbarAction(...args))
+    const itWorkedNotice = useItWorkedNotice()
 
     const [userInput, setUserInput] = useState('')
     const [loading, setLoading] = useState(false)
@@ -1187,6 +1189,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         inputRef.current?.focus()
                         scrollToBottom()
                     }, 100)
+                    // One-time friendly toast after the first successful run.
+                    itWorkedNotice.onSuccess()
                 }
             }
         } catch (error) {
@@ -1354,6 +1358,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         finalizeThinking()
                         setLocalStorageChatflow(chatflowid, chatId)
                         closeResponse()
+                        // One-time friendly toast after the first successful streamed run.
+                        itWorkedNotice.onSuccess()
                         break
                 }
             },
