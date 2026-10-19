@@ -42,7 +42,7 @@ chief-of-staff 里的分析员先保持关闭，直到你把 `CUTTLELY_ANALYST` 
 
 每次编辑都先保存为草稿，Live 版本继续服务你的应用。发布（Publish）对话框里的 Compare 会把真实问题在 Live 和草稿上各问一遍，把每个回答标为 Same、Changed 或 Error，让你在发布前就看到差异。打开“通过测试集”（passing test set）之后，草稿要先通过测试集才能发布。目前最多可用 100 组问答来测试，更多容量已列入规划。
 
-[观看测试演示（56 秒，有声音，英文）](https://cuttlely.com/media/products/testing.mp4) · [用 Compare 做 A/B 测试（英文指南）](../docs/how-to/ab-testing.md)
+[观看测试演示（56 秒，有声音，英文）](https://cuttlely.com/media/products/testing.mp4?v=d1873063) · [用 Compare 做 A/B 测试（英文指南）](../docs/how-to/ab-testing.md)
 
 ## 快速开始
 

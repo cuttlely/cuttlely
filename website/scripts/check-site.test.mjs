@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it } from 'node:test'
 import { checkSite, visibleText, homeFirstLoadBytes } from './check-site.mjs'
+import { mediaUrl } from './media-version.mjs'
 
 function site(files) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-site-'))
@@ -78,6 +79,28 @@ describe('check-site', () => {
     it('flags the section mark', () => {
         const dir = site({ ...base, 'quickstart/index.html': `<html><head>${head}</head><body>See \u00a7 2</body></html>` })
         assert.match(checkSite(dir).problems.join('\n'), /section mark/)
+    })
+
+    it('fails an unhashed /media/ link in built HTML', () => {
+        const dir = site({
+            ...base,
+            'docs/index.html': `<html><head>${head}</head><body><h2 id="build">Build</h2><a href="https://cuttlely.com/media/products/testing.mp4">Watch</a></body></html>`
+        })
+        assert.match(checkSite(dir).problems.join('\n'), /unhashed or stale media link/)
+    })
+
+    it('accepts a /media/ link hashed to the public file', () => {
+        const hashed = `https://cuttlely.com${mediaUrl('/media/products/testing.mp4')}`
+        const dir = site({
+            ...base,
+            'docs/index.html': `<html><head>${head}</head><body><h2 id="build">Build</h2><a href="${hashed}">Watch</a></body></html>`
+        })
+        assert.equal(
+            checkSite(dir)
+                .problems.filter((p) => p.includes('media link'))
+                .join('\n'),
+            ''
+        )
     })
 })
 

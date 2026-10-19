@@ -4,9 +4,9 @@ A question someone asked, and the rating they left on the answer, can become a r
 
 Test with up to 100 question-and-answer pairs, with more on the roadmap. That is the default question cap, `CUTTLELY_CHECK_COUNT_MAX`. A dataset can hold more rows, and the check asks the first of those, up to that cap, in order.
 
-[![The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish. Narrated run of a draft compared with Live, scored on a test set, and published after it passes, 56 seconds with captions.](../images/evaluations/testing-video-poster.png)](https://cuttlely.com/media/products/testing.mp4)
+[![The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish. Narrated run of a draft compared with Live, scored on a test set, and published after it passes, 56 seconds with captions.](../images/evaluations/testing-video-poster.png)](https://cuttlely.com/media/products/testing.mp4?v=d1873063)
 
-[Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4)
+[Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4?v=d1873063)
 
 The examples use a made-up bakery chatflow, **Bakery helper**, and a dataset named **Counter answers**. The messages are sample text, not a real conversation.
 

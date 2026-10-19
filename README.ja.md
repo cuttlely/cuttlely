@@ -41,9 +41,9 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 <a id="watch-a-team-resolve-a-complaint"></a>
 
 <p align="center">
-<a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo のカスタマーケアチームの実行を、ナレーション付きで見られます（78 秒、字幕あり）。タイトルカードには、ロゴの横で手を振る Cuttlely のマスコットと、Your applications deserve agents という一文が映っています。" width="880"></a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Try the demo のカスタマーケアチームの実行を、ナレーション付きで見られます（78 秒、字幕あり）。タイトルカードには、ロゴの横で手を振る Cuttlely のマスコットと、Your applications deserve agents という一文が映っています。" width="880"></a>
 <br>
-<a href="https://cuttlely.com/media/customer-care-demo.mp4">ナレーション付きの実行を見る（78 秒、音声あり）</a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722">ナレーション付きの実行を見る（78 秒、音声あり）</a>
 </p>
 
 ある顧客が、注文の遅れについて問い合わせてきます。カスタマースペシャリストがアカウントを読み、オペレーションスペシャリストが荷物が倉庫から一度も出ていないことを突き止め、オペレーションの作業が終わるとポリシースペシャリストが文書化されたポリシーを確認します。それぞれが自分のデータとツールを持っています。Harness Prime が判断、返信、アクションを、根拠とともに書きます。[Try the demo](./docs/how-to/try-the-demo.md) を使うと、このチームがあなた自身のモデルキーで開きます。
@@ -57,9 +57,9 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 編集はすべて下書きに保存され、その間も Live はアプリへの応答を続けます。Publish ダイアログの Compare は、実際の質問を Live と下書きの両方に投げ、公開する前にそれぞれの答えに Same、Changed、Error のいずれかの印を付けます。passing test set（合格が必要なテストセット）をオンにすると、Publish は下書きが合格するまで待ちます。テストには最大 100 組の質問と回答のペアを使えます。さらに増やすことはロードマップにあります。
 
 <p align="center">
-<a href="https://cuttlely.com/media/products/testing.mp4"><img src="./website/public/media/products/testing-poster.webp" alt="テスト動画のタイトルカード。Cuttlely のマスコットがクリップボードと虫眼鏡を持ち、その横に Cuttlely のロゴ、Testing という文字、Compare, score, then publish という一文があります。" width="880"></a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="テスト動画のタイトルカード。Cuttlely のマスコットがクリップボードと虫眼鏡を持ち、その横に Cuttlely のロゴ、Testing という文字、Compare, score, then publish という一文があります。" width="880"></a>
 <br>
-<a href="https://cuttlely.com/media/products/testing.mp4">テストの実行を見る（56 秒、音声あり）</a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063">テストの実行を見る（56 秒、音声あり）</a>
 </p>
 
 ![Bakery helper の設定にある passing test set。Require a passing test set before Publish がオンで、データセットは Saturday hours、Pass at は 100、Mentions rye と Short answer にチェックが入っています。](./docs/images/evaluations/publish-gate-settings.png)

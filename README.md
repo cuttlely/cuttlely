@@ -39,9 +39,9 @@ Cuttlely is an open-source visual graph editor for building and orchestrating AI
 ## Watch a team resolve a complaint
 
 <p align="center">
-<a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Watch a narrated run of the customer care team in Try the demo, 78 seconds with captions. The title card shows the Cuttlely mascot waving next to the logo and the line Your applications deserve agents." width="880"></a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Watch a narrated run of the customer care team in Try the demo, 78 seconds with captions. The title card shows the Cuttlely mascot waving next to the logo and the line Your applications deserve agents." width="880"></a>
 <br>
-<a href="https://cuttlely.com/media/customer-care-demo.mp4">Watch the narrated run (78 seconds, sound on)</a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4?v=8ec56722">Watch the narrated run (78 seconds, sound on)</a>
 </p>
 
 A customer writes in about a late order. A customer specialist reads the account, an operations specialist finds that the parcel never left the warehouse, and a policy specialist checks the written policy once operations is done, each with its own data and tools. Harness Prime writes the decision, the reply and the actions, with the evidence. [Try the demo](./docs/how-to/try-the-demo.md) opens this team on your own model key.
@@ -54,9 +54,9 @@ A customer writes in about a late order. A customer specialist reads the account
 Every edit saves to a draft while Live keeps serving your app. Compare, in the Publish dialog, asks real questions on Live and on the draft and marks each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes. Test with up to 100 question-and-answer pairs, with more on the roadmap.
 
 <p align="center">
-<a href="https://cuttlely.com/media/products/testing.mp4"><img src="./website/public/media/products/testing-poster.webp" alt="The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish." width="880"></a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063"><img src="./website/public/media/products/testing-poster.webp" alt="The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish." width="880"></a>
 <br>
-<a href="https://cuttlely.com/media/products/testing.mp4">Watch the testing run (56 seconds, sound on)</a>
+<a href="https://cuttlely.com/media/products/testing.mp4?v=d1873063">Watch the testing run (56 seconds, sound on)</a>
 </p>
 
 ![Passing test set in the Bakery helper configuration. Require a passing test set before Publish is on, the dataset is Saturday hours, Pass at is 100, and Mentions rye and Short answer are ticked.](./docs/images/evaluations/publish-gate-settings.png)
