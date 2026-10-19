@@ -10,6 +10,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   After the first successful run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.
 
+### Security
+
+-   On Linux and macOS, a Windows drive path, UNC path, or extended-length path in a flow field is remapped to that path's basename under the application data directory, so the Agent Memory placeholder `C:\Users\User\.cuttlely\database.sqlite` from a Flowise import becomes `~/.cuttlely/database.sqlite`. A remap whose basename is empty, `.`, or `..` is refused. Traversal, encoding, and null-byte checks still run first, and the result must still fall inside the allowed directories. On Windows those absolute and UNC forms remain blocked. Unix absolute paths outside the allowlist remain refused.
+
 ## [1.3.0] - 2026-10-18
 
 ### Added

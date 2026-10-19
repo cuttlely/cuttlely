@@ -170,3 +170,63 @@ Copy `.env.example` to `.env` only to change a default. `.env` is gitignored.
 Queue files under `docker/` are not this install. They build this repository and do not pull an image. See [docker/README.md](../../docker/README.md).
 
 Create the first account with [sign-in.md](./sign-in.md). SQLite is the default above. A Postgres server you already run uses the variables in [from-source.md](./from-source.md). A hosted Postgres install is [render.md](./render.md). Analyst mode, including QUERY and a read-only URL, is [analyst.md](./analyst.md).
+
+## Custom MCP servers (stdio)
+
+Local (stdio) MCP servers are off by default. The Custom MCP node connects over SSE/HTTP unless you explicitly opt into stdio and allow the command and script path.
+
+To enable a local stdio MCP server in Docker, you must pass the `CUSTOM_MCP_*` variables through to the container. The root `docker-compose.yml` does not forward these by default. Its `environment` block is a mapping (`KEY: value`), so add matching lines there:
+
+```yaml
+services:
+    cuttlely:
+        environment:
+            CUSTOM_MCP_SECURITY_CHECK: ${CUSTOM_MCP_SECURITY_CHECK:-}
+            CUSTOM_MCP_PROTOCOL: ${CUSTOM_MCP_PROTOCOL:-}
+            CUSTOM_MCP_ALLOWED_ENV_VARS: ${CUSTOM_MCP_ALLOWED_ENV_VARS:-}
+            CUSTOM_MCP_ALLOWED_COMMANDS: ${CUSTOM_MCP_ALLOWED_COMMANDS:-}
+            CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS: ${CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS:-}
+```
+
+Then set them in your `.env` and restart. The rest of this example is for Compose or `docker run -v` only. Those commands can bind-mount a host script and a data directory. `npx cuttlely start` cannot: it only mounts the named volume `cuttlely-data` at `/var/cuttlely`, it has no extra volume flags, and there is no easy way to put host files into that volume. If you need a custom stdio script, switch to Compose or `docker run` with `-v`. `--env-file` still works on the CLI for environment variables; it does not add mounts.
+
+```bash
+CUSTOM_MCP_PROTOCOL=stdio
+CUSTOM_MCP_ALLOWED_COMMANDS=node
+CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS=/opt/mcp/servers/fs-server.js
+CUSTOM_MCP_ALLOWED_ENV_VARS=
+```
+
+The image does not include `/opt/mcp/servers/fs-server.js` or a `/data` directory. With Compose, add bind mounts next to the volume already in the file:
+
+```yaml
+services:
+    cuttlely:
+        volumes:
+            - cuttlely-data:/var/cuttlely
+            - ./mcp:/opt/mcp/servers:ro
+            - ./mcp-data:/data
+```
+
+Put the server file on the host at `./mcp/fs-server.js`. That path is `/opt/mcp/servers/fs-server.js` in the container. `./mcp-data` is `/data`. The same paths work with `docker run -v ./mcp:/opt/mcp/servers:ro -v ./mcp-data:/data`.
+
+Then use this config on the Custom MCP node (paths exist only after those mounts):
+
+```json
+{
+    "command": "node",
+    "args": ["/opt/mcp/servers/fs-server.js", "/data"]
+}
+```
+
+Rules that apply in 1.3.0:
+
+-   The command must be in CUSTOM_MCP_ALLOWED_COMMANDS.
+-   If any args are present, the first must match a path listed in CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS. List absolute paths you control. Relative paths are strongly discouraged and only work if you explicitly allow-list that exact relative path.
+-   Dangerous flags are blocked. Examples:
+    -   npx: `-y`, `--yes`, `-c`, `--call`, `--shell-auto-fallback`, `--node-options`
+    -   node: `-e`, `--eval`, `-p`, `--print`, `--inspect`, `--inspect-brk`, `--experimental-policy`, `-r`, `--require`, `--loader`, `--experimental-loader`, `--import`, `--env-file`
+    -   python/python3: `-c`, `-m`
+    -   docker: subcommands `run`, `build`, `exec`, `compose`, and flags `-v`, `--volume`, `--mount`, `--volumes-from`, `--privileged`, `--cap-add`, `--security-opt`, `--device`, `--entrypoint`, `--network`, `--pid`, `--ipc`, `--env-file`
+
+Prefer SSE/HTTP when possible. See the [FAQ](../faq.md#are-stdio-mcp-servers-enabled-by-default) for more detail and examples.

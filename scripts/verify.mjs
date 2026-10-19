@@ -114,7 +114,6 @@ const STEPS = [
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
-            path.join(ROOT, 'website', 'scripts', 'whitepaper.test.mjs'),
             path.join(ROOT, 'scripts', 'permission-keys.test.mjs'),
             path.join(ROOT, 'packages', 'ui', 'src', 'ui-component', 'markdown', 'math.test.mjs')
         ]

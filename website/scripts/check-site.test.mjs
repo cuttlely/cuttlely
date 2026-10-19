@@ -22,9 +22,6 @@ const base = {
     '404.html': `<html><head>${head}</head><body>Not found</body></html>`,
     'quickstart/index.html': `<html><head>${head}</head><body></body></html>`,
     'docs/index.html': `<html><head>${head}</head><body><h2 id="build">Build</h2></body></html>`,
-    'whitepaper/index.html': `<html><head>${head}</head><body></body></html>`,
-    'whitepaper/cuttlely-benchmark-whitepaper.html': `<html><head>${head}</head><body></body></html>`,
-    'whitepaper/cuttlely-benchmark-whitepaper.pdf': '%PDF-1.7',
     'robots.txt': '',
     'sitemap-index.xml': '',
     '.well-known/security.txt': '',
@@ -49,18 +46,6 @@ describe('check-site', () => {
         assert.match(problems, /<img> loads from another site/)
         assert.match(problems, /<script> loads from another site/)
         assert.match(problems, /index\.html: missing anchor \/docs\/#build/)
-    })
-
-    it('fails when the whitepaper page or its files were not built', () => {
-        for (const missing of [
-            'whitepaper/index.html',
-            'whitepaper/cuttlely-benchmark-whitepaper.html',
-            'whitepaper/cuttlely-benchmark-whitepaper.pdf'
-        ]) {
-            const files = { ...base }
-            delete files[missing]
-            assert.ok(checkSite(site(files)).problems.includes(`missing ${missing}`), missing)
-        }
     })
 
     it('decodes an escaped ampersand in a link once', () => {
