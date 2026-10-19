@@ -9,6 +9,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Added
 
 -   The website has an FAQ at `/faq/`, linked from the header, the footer, and the docs sidebar.
+-   After the first successful run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.
 
 ### Fixed
 

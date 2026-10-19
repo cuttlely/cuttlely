@@ -8,6 +8,10 @@
 
 Only the owner, the first account (shown as **Super User**), signed in in a browser. Other people don't see the menu item, and the server refuses everyone else, including API keys. Before any account exists the page is closed; see [Sign in](./sign-in.md#create-the-first-account), or [When nobody can sign in yet](./sign-in.md#when-nobody-can-sign-in-yet) for a server with no sign-in method.
 
+### Community prompt
+
+After the first successful flow run on an install, Cuttlely may show a local-only "It worked!" prompt: one line in the server log and a dismissible UI toast with a link to the project on GitHub. It never calls out on its own — the link opens only when you click it — and it shows at most once per install or user. Set `CUTTLELY_DISABLE_IT_WORKED=true` to turn it off everywhere.
+
 ## Set up your server
 
 A fresh server shows three optional first steps at the top: **Sign-in for your team** (AuthKit), **Analyst**, and **A model key** (Credentials). Each opens the same section of the page. **Skip for now** hides them; nothing waits on them.
