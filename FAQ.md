@@ -26,7 +26,7 @@ A visual agent builder you run yourself, built around three things:
 
 ### Is it really open source?
 
-Everything stays open source under Apache-2.0.
+Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (MIT). Other packages keep the licenses their owners gave them. See [CREDITS.md](CREDITS.md).
 
 ### Does it send telemetry?
 
@@ -43,9 +43,9 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 Full notes: [v1.3.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.3.0).
 
-## Coming from Flowise
+## Importing existing flows
 
-### Can I bring my Flowise flows?
+### Can I bring my existing flows?
 
 Yes. Go to **Chatflows** → **Import** → **Import Flowise JSON**. It opens a chatflow or agentflow node for node; about 300 nodes open with their settings. A chatflow's prediction API takes the same request body. API keys, passwords and credential ids are removed from the file, so you pick a credential on each card.
 
@@ -61,10 +61,10 @@ The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix and AssemblyAI 
 
 We read the code at v1.3.0 against the six advisories on Flowise 3.1.4 that list no patched release:
 
--   Five don't apply. The chat-message ([GHSA-ppmg-4cx6-95hh](https://github.com/advisories/GHSA-ppmg-4cx6-95hh)), upsert-history ([GHSA-jvx3-mjpw-r4gh](https://github.com/advisories/GHSA-jvx3-mjpw-r4gh)) and credential ([GHSA-27w2-26m5-x82c](https://github.com/advisories/GHSA-27w2-26m5-x82c)) routes check permissions and team. The BullMQ dashboard isn't mounted ([GHSA-rpcc-gw54-mfgx](https://github.com/advisories/GHSA-rpcc-gw54-mfgx)). There's no multi-provider SSO ([GHSA-cffm-583c-vffr](https://github.com/advisories/GHSA-cffm-583c-vffr)).
--   The sixth, invites activated by an email match ([GHSA-vf3j-89vf-r697](https://github.com/advisories/GHSA-vf3j-89vf-r697)), is fixed in 1.3.0. A pending invite needs its one-time link. One caveat: someone added with **Add User** before 1.3.0 was stored as active and can still join by email match, so remove and re-invite them to require the link.
+-   Five don't apply. The chat-message ([GHSA-ppmg-4cx6-95hh](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-ppmg-4cx6-95hh)), upsert-history ([GHSA-jvx3-mjpw-r4gh](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-jvx3-mjpw-r4gh)) and credential ([GHSA-27w2-26m5-x82c](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-27w2-26m5-x82c)) routes check permissions and team. The BullMQ dashboard isn't mounted ([GHSA-rpcc-gw54-mfgx](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-rpcc-gw54-mfgx)). There's no multi-provider SSO ([GHSA-cffm-583c-vffr](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-cffm-583c-vffr)).
+-   The sixth, invites activated by an email match ([GHSA-vf3j-89vf-r697](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-vf3j-89vf-r697)), is fixed in 1.3.0. A pending invite needs its one-time link. One caveat: someone added with **Add User** before 1.3.0 was stored as active and can still join by email match, so remove and re-invite them to require the link.
 
-We also checked the file-write advisory [GHSA-8vvx-qvq9-5948](https://github.com/advisories/GHSA-8vvx-qvq9-5948). The storage helpers it names sanitize the file name in every storage provider.
+We also checked an older file-write advisory, [GHSA-8vvx-qvq9-5948](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-8vvx-qvq9-5948), for Flowise 2.2.7 and earlier. The storage helpers it names sanitize the file name in every storage provider.
 
 This is a code read, not a pen test. If you find something, please report it privately through [SECURITY.md](SECURITY.md).
 
