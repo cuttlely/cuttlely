@@ -355,6 +355,65 @@ describe.each(backends)('Flowise pre-3.1.4 upgrade guard on %s', (_name, open, e
         expect(await store.snapshot()).toBe(before)
     })
 
+    maybe('refuses an older enterprise identity schema even when application tables are empty', async () => {
+        await store.exec(`CREATE TABLE roles (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL)`)
+        await store.exec(`INSERT INTO roles (id, name) VALUES (?, ?)`, ['aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee21', 'Harbor owner'])
+        const before = await store.snapshot()
+        let migrated = false
+        const ds = dataSourceFor(store, async () => {
+            migrated = true
+        })
+        await expect(runSupportedMigrations(ds)).rejects.toThrow(UNSUPPORTED_FLOWISE_UPGRADE)
+        expect(migrated).toBe(false)
+        expect(await store.snapshot()).toBe(before)
+    })
+
+    maybe('refuses legacy user identity columns even when application tables are empty', async () => {
+        await store.exec(
+            `CREATE TABLE "user" (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL, "activeWorkspaceId" varchar, user_type varchar)`
+        )
+        await store.exec(`INSERT INTO "user" (id, name, "activeWorkspaceId", user_type) VALUES (?, ?, ?, ?)`, [
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee22',
+            'Harbor owner',
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee23',
+            'PLATFORM'
+        ])
+        const before = await store.snapshot()
+        let migrated = false
+        const ds = dataSourceFor(store, async () => {
+            migrated = true
+        })
+        await expect(runSupportedMigrations(ds)).rejects.toThrow(UNSUPPORTED_FLOWISE_UPGRADE)
+        expect(migrated).toBe(false)
+        expect(await store.snapshot()).toBe(before)
+    })
+
+    maybe('allows a current Cuttlely identity schema with empty application tables', async () => {
+        await store.exec(`CREATE TABLE "user" (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL, email varchar NOT NULL)`)
+        await store.exec(`CREATE TABLE organization (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL)`)
+        await store.exec(`CREATE TABLE role (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL)`)
+        await store.exec(`CREATE TABLE workspace (id varchar PRIMARY KEY NOT NULL, name varchar NOT NULL)`)
+        await store.exec(`CREATE TABLE workspace_user ("workspaceId" varchar NOT NULL, "userId" varchar NOT NULL)`)
+        await store.exec(`INSERT INTO "user" (id, name, email) VALUES (?, ?, ?)`, [
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee31',
+            'Harbor baker',
+            'baker@harbor.example'
+        ])
+        await store.exec(`INSERT INTO organization (id, name) VALUES (?, ?)`, ['aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee32', 'Harbor Bakery'])
+        await store.exec(`INSERT INTO role (id, name) VALUES (?, ?)`, ['aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee33', 'Owner'])
+        await store.exec(`INSERT INTO workspace (id, name) VALUES (?, ?)`, ['aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee34', 'Harbor counter'])
+        await store.exec(`INSERT INTO workspace_user ("workspaceId", "userId") VALUES (?, ?)`, [
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee34',
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeee31'
+        ])
+        let migrated = false
+        const ds = dataSourceFor(store, async () => {
+            migrated = true
+        })
+        await expect(runSupportedMigrations(ds)).resolves.toBeUndefined()
+        expect(migrated).toBe(true)
+    })
+
     maybe('refuses a pre-3.1.4 database whose only app data is a variable row', async () => {
         await store.exec(`CREATE TABLE migrations (id integer PRIMARY KEY NOT NULL, timestamp bigint NOT NULL, name varchar NOT NULL)`)
         await store.exec(`INSERT INTO migrations (id, timestamp, name) VALUES (?, ?, ?)`, [1, 1693835579790, 'Init1693835579790'])

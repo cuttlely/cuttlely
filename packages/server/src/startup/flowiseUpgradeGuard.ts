@@ -177,10 +177,11 @@ export function logUnsupportedFlowiseUpgrade(error: unknown, log: { error: (line
 /**
  * Read-only check: an existing Flowise database that never reached 3.1.4 is refused.
  * Empty databases, and a Cuttlely first start that died after Init, can still migrate.
+ * Legacy enterprise identity is refused even when application tables are empty.
  */
 export async function assertSupportedFlowiseUpgrade(runner: QueryRunner): Promise<void> {
-    if (!(await hasImportedAppRows(runner))) return
     if (await legacyIdentityPresent(runner)) throw unsupportedFlowiseUpgradeError()
+    if (!(await hasImportedAppRows(runner))) return
     if (await has314WorkspaceSchema(runner)) return
     if (await migrationsRecord314(runner)) return
     throw unsupportedFlowiseUpgradeError()
