@@ -1,6 +1,6 @@
 // Docs and sample for registering /api/v1/mcp/:id as an Orchestrate remote toolkit.
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -21,6 +21,7 @@ test('the Orchestrate MCP page has an H1 and is indexed', () => {
     assert.match(page, /^# Use a chatflow as an Orchestrate toolkit\n/m)
     assert.match(read(INDEX), /how-to\/orchestrate-mcp\.md/)
     assert.match(read(API), /how-to\/orchestrate-mcp\.md/)
+    assert.match(read(API), /published chatflow or agentflow/)
 })
 
 test('the page points at IBM external-agent docs, not a local Orchestrate page', () => {
@@ -43,14 +44,27 @@ test('DELETE is 405 from the app, and buildChatflow is not cited by line', () =>
     assert.match(page, /`DELETE`/)
     assert.match(page, /\*\*405\*\* from the app/)
     assert.match(page, /Session termination is not supported in stateless mode/)
-    assert.match(page, /utilBuildChatflow/)
+    assert.match(page, /the same way the prediction API does/)
     assert.doesNotMatch(page, /buildChatflow\.ts:\d+/)
+    assert.doesNotMatch(page, /utilBuildChatflow/)
 })
 
 test('MCP_CORS_ORIGINS is an origin list, not a method list', () => {
     const page = read(PAGE)
-    assert.match(page, /`MCP_CORS_ORIGINS` is the origin list/)
+    assert.match(page, /`MCP_CORS_ORIGINS` sets which browser origins may call/)
     assert.doesNotMatch(page, /Allowed methods are whatever `MCP_CORS_ORIGINS`/)
+})
+
+test('relative Next steps links resolve', () => {
+    const page = read(PAGE)
+    assert.match(page, /\]\(\.\.\/\.\.\/README\.md#your-first-10-minutes\)/)
+    assert.match(page, /\]\(\.\/share-and-embed\.md\)/)
+    assert.match(page, /\]\(\.\/harnesses\.md\)/)
+    assert.match(page, /\]\(\.\.\/api\.md\)/)
+    assert.equal(existsSync(join(ROOT, 'README.md')), true)
+    assert.equal(existsSync(join(ROOT, 'docs', 'how-to', 'share-and-embed.md')), true)
+    assert.equal(existsSync(join(ROOT, 'docs', 'how-to', 'harnesses.md')), true)
+    assert.equal(existsSync(join(ROOT, 'docs', 'api.md')), true)
 })
 
 test('the sample toolkit YAML is public-safe and names the expected server', () => {

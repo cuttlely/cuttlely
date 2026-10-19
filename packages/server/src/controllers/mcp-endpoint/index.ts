@@ -36,7 +36,8 @@ const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
  */
 const getRateLimiterMiddleware = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return RateLimiterManager.getInstance().getRateLimiter()(req, res, next)
+        const chatflowId = typeof req.params.chatflowId === 'string' ? req.params.chatflowId : ''
+        return RateLimiterManager.getInstance().getRateLimiterById(chatflowId)(req, res, next)
     } catch (error) {
         next(error)
     }

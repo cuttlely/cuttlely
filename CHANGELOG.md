@@ -21,6 +21,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   MCP `POST /api/v1/mcp/:chatflowId` applies that flow's **Rate Limit** from Configuration. The limiter looks up the id from `:chatflowId`.
 -   A Flowise database older than `3.1.4` is refused before any migration, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is left unchanged. That includes application data in document stores, variables, and the other tables that gain a workspace id, not only flows, credentials, and tools. An older enterprise identity schema is refused even when those application tables are empty. A database with no application data, including a first start that stopped part way, still migrates. Upgrade it in Flowise `3.1.4` first, then move it. [Move a whole install](./docs/bring-your-flows.md#move-a-whole-install).
 
 ### Security

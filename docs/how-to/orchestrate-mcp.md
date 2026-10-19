@@ -6,6 +6,8 @@ This is not the same as registering the flow as a collaborator agent. That path 
 
 The examples use a made-up bakery, Crumb & Co., and a published chatflow named **Bakery hours**.
 
+New to Cuttlely? [Get started](../../README.md#your-first-10-minutes) first: three commands and one model key, then publish a chatflow.
+
 ## Before you start
 
 You need:
@@ -35,7 +37,7 @@ $CUTTLELY_URL/api/v1/mcp/$FLOW_ID
 
 The token is not an API key. It authenticates MCP JSON-RPC only. A request without `Authorization: Bearer <token>`, or with the wrong token, is `401`.
 
-If the flow has a **Harness** card, bind an API key whose **Harnesses this key may run** list includes that harness, the same rule as the prediction API. The MCP call still sends the MCP token, not that API key. Cuttlely looks up the flow's bound key when the tool runs. A flow with no bound key runs its Harness cards for anyone who can call MCP.
+If the flow has a **Harness** card, bind an API key whose **Harnesses this key may run** list includes that harness, the same rule as the prediction API. The MCP call still sends the MCP token, not that API key. Cuttlely looks up the flow's bound key when the tool runs. A flow with no bound key runs its Harness cards for anyone who has the MCP token.
 
 ## What Orchestrate sees
 
@@ -101,12 +103,12 @@ The `initialize` result includes `serverInfo.name`. For **Bakery hours** that is
 
 The MCP router is stateless. It does not keep a session id.
 
-| Method    | What Cuttlely does                                                                                                                                                                                                                     |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST`    | JSON-RPC: `initialize`, `tools/list`, `tools/call`, and the other Streamable HTTP messages. Needs the Bearer token. Body at most 1 MB.                                                                                                 |
-| `DELETE`  | **405** from the app, with `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Session termination is not supported in stateless mode."},"id":null}`. This is not an SDK fallback. Orchestrate can ignore it.                          |
-| `OPTIONS` | CORS preflight. Allowed methods are always `GET`, `POST`, `DELETE`, and `OPTIONS`. `MCP_CORS_ORIGINS` is the origin list (`*` or comma-separated origins), not the method list. Desktop and server clients that send no `Origin` pass. |
-| `GET`     | This app does not open an SSE stream on GET. [LIVE-TEST]: confirm what Orchestrate sends on GET during import, and whether it accepts the response. Streamable HTTP allows 405 when the server has no stream.                          |
+| Method    | What Cuttlely does                                                                                                                                                                                                                                                         |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST`    | JSON-RPC: `initialize`, `tools/list`, `tools/call`, and the other Streamable HTTP messages. Needs the Bearer token. Body at most 1 MB.                                                                                                                                     |
+| `DELETE`  | **405** from the app, with `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Session termination is not supported in stateless mode."},"id":null}`. This is not an SDK fallback. Orchestrate can ignore it.                                                              |
+| `OPTIONS` | CORS preflight for `GET`, `POST`, `DELETE` and `OPTIONS`. `MCP_CORS_ORIGINS` sets which browser origins may call; clients that send no `Origin`, such as desktop and server clients, pass.                                                                                 |
+| `GET`     | This app has no GET handler on this path, so it never opens an SSE stream. [LIVE-TEST]: confirm the status a GET returns, whether Orchestrate sends one during import, and whether it accepts the response. (Streamable HTTP allows 405 when the server offers no stream.) |
 
 A browser CORS client needs `MCP_CORS_ORIGINS` (or **Sites that may call the MCP endpoint** in Server settings). Orchestrate's ADK is a server client and sends no `Origin`.
 
@@ -114,7 +116,7 @@ The flow's **Rate Limit** in **Configuration** still applies to MCP `POST`.
 
 ## When a tool call fails
 
-`tools/call` runs the published flow through the same prediction path a chat uses (`utilBuildChatflow`). If that run throws, the MCP tool result is not a JSON-RPC transport error. The tool returns:
+`tools/call` runs the published flow the same way the prediction API does. If that run throws, the MCP tool result is not a JSON-RPC transport error. The tool returns:
 
 ```text
 An error occurred while executing the tool. Please try again later.
@@ -127,3 +129,11 @@ A missing flow, a disabled MCP server, or a wrong token is a JSON-RPC error on t
 ## Sample files
 
 [`samples/orchestrate/`](../../samples/orchestrate/) has the ADK toolkit YAML for **Bakery hours** and a short README. The YAML uses made-up hosts and ids. Copy it, fill in your URL and flow id, and keep the token in the connection, not in the file.
+
+## Next steps
+
+-   [Get started](../../README.md#your-first-10-minutes)
+-   IBM's [Importing remote MCP toolkits](https://developer.watson-orchestrate.ibm.com/tools/toolkits/remote_mcp_toolkits)
+-   [Share and embed a chat](./share-and-embed.md)
+-   [Harnesses](./harnesses.md), noting that you bind a key that lists the harness
+-   [Use the API in your own web app](../api.md)
