@@ -609,20 +609,20 @@ test('the light hero headline gradient keeps 3.5:1 on the darkest point of the h
 
 test('the home page hero uses the production message house', () => {
     const lead = 'Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.'
-    const lineage = 'Cuttlely picks up where Flowise left off... built on its Apache-2.0 code, with the production layer on top.'
     const hero = readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
     const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const heroLead = hero.slice(hero.indexOf('<p class="cl-hero-lead">') + 24, hero.indexOf('</p>', hero.indexOf('cl-hero-lead')))
     assert.match(hero, /The visual agent builder,/)
     assert.match(hero, /ready for production\./)
     assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
-    assert.ok(hero.includes(lineage))
+    assert.ok(!/picks up where|next generation/i.test(hero))
     assert.ok(hero.includes('href="/flowise/"'))
     assert.ok(hero.includes('Coming from Flowise?'))
     assert.ok(page.includes(`title: 'Cuttlely: the visual agent builder, ready for production'`))
-    assert.match(page, /Ship changes safely\./)
-    assert.match(page, /Keep context small\./)
-    assert.match(page, /Bring your flows\./)
+    assert.match(page, /Governance\./)
+    assert.match(page, /Lean context\./)
+    assert.match(page, /Build agent teams\./)
+    assert.doesNotMatch(page, /Import your Flowise JSON/)
 })
 
 test('the home page ends with the sign-off line below the site footer, and other pages do not', () => {

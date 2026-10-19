@@ -165,7 +165,7 @@ const installs = [
     frontmatter={{
         title: 'Cuttlely: the visual agent builder, ready for production',
         description:
-            'Open-source visual agent builder, ready for production: drafts, Compare and rollback, a scoped SQL analyst, and Flowise import. Apache-2.0, self-hosted.',
+            'Open-source visual agent builder, ready for production: governance with drafts and side-by-side replay, lean context, and agent teams. Apache-2.0, self-hosted.',
         template: 'splash',
         hero: { tagline: 'Open source · Apache-2.0', actions: [] },
         head: [{ tag: 'title', content: 'Cuttlely: the visual agent builder, ready for production' }],
@@ -177,15 +177,17 @@ const installs = [
     <div class="cl-home not-content">
         <ul class="cl-pillars" aria-label="What Cuttlely gives you">
             <li>
-                <strong>Ship changes safely.</strong> Edits to flows and agent teams go to a draft. Compare it with Live, gate Publish on a test set, and roll
-                Live back at once. Roles, an audit log, and API keys that only run the harnesses you tick.
+                <strong>Governance.</strong> Every edit waits in a draft while Live keeps serving. Before you publish, replay recent real questions on Live and
+                the draft, side by side. Gate Publish on a test set and roll Live back in one step. Roles, an audit log, and API keys that only run the teams
+                you tick.
             </li>
             <li>
-                <strong>Keep context small.</strong> A team splits each question so every specialist gets a self-contained task, not the whole chat. The
-                analyst sees only the tables you tick. Every run shows its tokens.
+                <strong>Lean context.</strong> Each specialist gets a self-contained task, not the whole chat, and the analyst sees only the tables you tick.
+                Fewer tokens in our internal benchmarks, and every run shows what it used.
             </li>
             <li>
-                <strong>Bring your flows.</strong> Import your Flowise JSON and it opens node for node. No rebuild.
+                <strong>Build agent teams.</strong> Describe a team and Build with AI puts a first version on the canvas, with every part and connection checked.
+                Call it from your app with a scoped API key, or put it on a schedule.
             </li>
         </ul>
 

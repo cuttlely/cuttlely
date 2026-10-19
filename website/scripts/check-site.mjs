@@ -28,7 +28,9 @@ const RETIRED_COPY = [
     { needle: '3.7 times', why: 'a ratio-style benchmark claim' },
     { needle: '2,114', why: 'a ratio-style token count' },
     { needle: '7,719', why: 'a ratio-style token count' },
-    { needle: 'whitepaper', why: 'a removed whitepaper' }
+    { needle: 'whitepaper', why: 'a removed whitepaper' },
+    { re: /picks up where|next generation of the visual builder/i, why: 'retired successor copy' },
+    { needle: 'production layer on top', why: 'retired successor copy' }
 ]
 
 const RATIO_CLAIMS = [
@@ -176,9 +178,14 @@ export function checkSite(dist, { csp = null } = {}) {
             const hit = text.match(re) || html.match(re)
             if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)
         }
-        for (const { needle, why } of RETIRED_COPY) {
-            if (needle !== 'whitepaper' && isChangelog(page)) continue
-            if (haystack.includes(needle)) problems.push(`${page}: shows ${why} ("${needle}")`)
+        for (const item of RETIRED_COPY) {
+            if (item.needle !== 'whitepaper' && isChangelog(page)) continue
+            if (item.re) {
+                const hit = haystack.match(item.re)
+                if (hit) problems.push(`${page}: shows ${item.why} ("${hit[0]}")`)
+            } else if (item.needle && haystack.includes(item.needle)) {
+                problems.push(`${page}: shows ${item.why} ("${item.needle}")`)
+            }
         }
         for (const { re, why } of RATIO_CLAIMS) {
             if (isChangelog(page)) continue
@@ -243,10 +250,10 @@ export function checkSite(dist, { csp = null } = {}) {
     for (const line of HOME_LINES) {
         if (!homeText.includes(line) && !home.includes(line)) problems.push(`index.html: missing "${line}"`)
     }
-    if (/picks up where/.test(home) && !home.includes('href="/flowise/"')) {
-        problems.push('index.html: lineage line should point at /flowise/')
+    if (!home.includes('href="/flowise/"')) {
+        problems.push('index.html: missing href="/flowise/"')
     }
-    if (/picks up where/.test(home) && !home.includes('Coming from Flowise?')) {
+    if (!home.includes('Coming from Flowise?')) {
         problems.push('index.html: missing "Coming from Flowise?"')
     }
     const flowiseFile = path.join(dist, 'flowise/index.html')

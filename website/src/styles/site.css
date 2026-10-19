@@ -228,7 +228,7 @@
     line-height: 1.6;
     color: var(--sl-color-gray-2);
     max-width: 38rem;
-    margin: 0 0 1rem;
+    margin: 0 0 2rem;
 }
 .cl-hero-proof {
     max-width: 38rem;
@@ -1421,6 +1421,9 @@
 .cl-flowise .cl-hero {
     grid-template-columns: minmax(0, 1fr);
     padding-bottom: 1.5rem;
+}
+.cl-flowise .cl-hero-lead {
+    margin-bottom: 1rem;
 }
 .cl-flowise .cl-hero-proof {
     margin-bottom: 0;
