@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { canAutoplay, initDemoVideo, initVideoDialogs } from '../src/scripts/demo-video.mjs'
+import { canAutoplay, initClipSlots, initDemoVideo, initVideoDialogs } from '../src/scripts/demo-video.mjs'
 
 function fakes({ reduced = false, small = false, saveData = false, videos = 1, hasObserver = true } = {}) {
     const calls = []
@@ -617,7 +617,8 @@ test('the home page hero uses the production message house', () => {
     assert.match(hero, /ready for production\./)
     assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
     assert.ok(hero.includes(lineage))
-    assert.ok(hero.includes('href="/docs/bring-your-flows/"'))
+    assert.ok(hero.includes('href="/flowise/"'))
+    assert.ok(hero.includes('Coming from Flowise?'))
     assert.ok(page.includes(`title: 'Cuttlely: the visual agent builder, ready for production'`))
     assert.match(page, /Ship changes safely\./)
     assert.match(page, /Keep context small\./)
@@ -1888,4 +1889,147 @@ test('the Watch with sound chip and its length read at 5:1 or better on the hove
     const contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05)
     assert.ok(contrast(rgb(label), rgb(fill)) >= 5, 'chip label on the hover fill')
     assert.ok(contrast(blend(rgb(label), rgb(fill), lengthOpacity), rgb(fill)) >= 5, 'length on the hover fill')
+})
+
+test('a clip slot with no source stays on the poster until play has files to fetch', () => {
+    const button = { disabled: false, addEventListener() {} }
+    const poster = { hidden: false }
+    const video = {
+        hidden: true,
+        dataset: { srcWebm: '', srcMp4: '' },
+        querySelector: () => null,
+        appendChild() {},
+        ownerDocument: { querySelectorAll: () => [], createElement: () => ({}) }
+    }
+    const stage = {
+        matches: () => false,
+        querySelector(sel) {
+            if (sel === 'video') return video
+            if (sel === '[data-play-with-sound]') return button
+            if (sel === '[data-clip-poster]') return poster
+            return null
+        }
+    }
+    const doc = { querySelectorAll: () => [stage], createElement: () => ({}) }
+    assert.equal(initClipSlots(doc), 0)
+    assert.equal(button.disabled, true)
+    assert.equal(poster.hidden, false)
+})
+
+test('a clip slot attaches sources and plays only after click', () => {
+    const listeners = {}
+    const sources = []
+    const button = {
+        disabled: true,
+        addEventListener(type, fn) {
+            listeners[type] = fn
+        }
+    }
+    const poster = { hidden: false }
+    const video = {
+        hidden: true,
+        dataset: { srcWebm: '/media/clip.webm', srcMp4: '/media/clip.mp4' },
+        querySelector: (sel) => (sel === 'source' ? sources[0] || null : null),
+        querySelectorAll: (sel) => (sel === 'source' ? sources : []),
+        appendChild(node) {
+            sources.push(node)
+        },
+        ownerDocument: null,
+        loop: true,
+        defaultMuted: true,
+        muted: true,
+        controls: false,
+        currentTime: 0,
+        play() {
+            return Promise.resolve()
+        },
+        addEventListener() {}
+    }
+    const doc = {
+        querySelectorAll: (sel) => {
+            if (sel === '[data-clip-slot]') return [stage]
+            if (sel === 'video') return [video]
+            return []
+        },
+        createElement: () => ({ src: '', type: '' })
+    }
+    video.ownerDocument = doc
+    const stage = {
+        matches: () => false,
+        querySelector(sel) {
+            if (sel === 'video') return video
+            if (sel === '[data-play-with-sound]') return button
+            if (sel === '[data-clip-poster]') return poster
+            return null
+        }
+    }
+    assert.equal(initClipSlots(doc), 1)
+    assert.equal(button.disabled, false)
+    assert.equal(sources.length, 0)
+    listeners.click()
+    assert.equal(sources.length, 2)
+    assert.equal(poster.hidden, true)
+    assert.equal(video.hidden, false)
+})
+
+test('a clip slot with parked sources still counts as ready to play', () => {
+    const listeners = {}
+    const source = {
+        removed: false,
+        remove() {
+            this.removed = true
+        }
+    }
+    const button = {
+        disabled: true,
+        addEventListener(type, fn) {
+            listeners[type] = fn
+        }
+    }
+    const video = {
+        hidden: false,
+        dataset: {},
+        querySelector: (sel) => (sel === 'source' && !source.removed ? source : null),
+        querySelectorAll: (sel) => (sel === 'source' && !source.removed ? [source] : []),
+        appendChild() {
+            source.removed = false
+        },
+        ownerDocument: null,
+        preload: 'none',
+        loop: true,
+        defaultMuted: true,
+        muted: true,
+        controls: false,
+        currentTime: 0,
+        readyState: 0,
+        load() {},
+        play() {
+            return Promise.resolve()
+        },
+        pause() {},
+        addEventListener() {}
+    }
+    const doc = {
+        querySelectorAll: (sel) => {
+            if (sel === '[data-clip-slot]') return [stage]
+            if (sel === 'video') return [video]
+            return []
+        },
+        createElement: () => ({ src: '', type: '' })
+    }
+    video.ownerDocument = doc
+    const stage = {
+        matches: () => false,
+        querySelector(sel) {
+            if (sel === 'video') return video
+            if (sel === '[data-play-with-sound]') return button
+            return null
+        }
+    }
+    assert.equal(initDemoVideo(doc, {}), false)
+    assert.equal(source.removed, true)
+    assert.equal(initClipSlots(doc), 1)
+    assert.equal(button.disabled, false)
+    listeners.click()
+    assert.equal(source.removed, false)
 })

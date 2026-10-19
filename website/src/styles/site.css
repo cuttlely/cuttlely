@@ -252,6 +252,9 @@
     gap: 0.85rem;
     margin-bottom: 2rem;
 }
+.cl-hero-from {
+    margin: -1.15rem 0 2rem;
+}
 .cl-actions-center {
     justify-content: center;
 }
@@ -489,6 +492,9 @@
 .cl-play-overlay:hover {
     background: var(--cuttlely-fill-hover);
     color: var(--cuttlely-fill-label);
+}
+.cl-play-overlay:disabled {
+    display: none;
 }
 .cl-play-overlay:focus-visible {
     outline: 3px solid #ffffff;
@@ -1409,6 +1415,89 @@
     margin: 0;
     color: var(--sl-color-gray-3);
     font-size: var(--sl-text-xs);
+}
+
+/* ---------- Flowise import page ---------- */
+.cl-flowise .cl-hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 1.5rem;
+}
+.cl-flowise .cl-hero-proof {
+    margin-bottom: 0;
+}
+.cl-flowise .cl-pillars {
+    margin-top: 0.5rem;
+}
+.cl-flowise-starts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 36rem;
+}
+.cl-flowise-or {
+    margin: 0;
+    text-align: center;
+    font-weight: 700;
+}
+.cl-flowise-open {
+    margin: 1rem 0 2rem;
+}
+.cl-flowise-clip {
+    margin: 0 0 1rem;
+}
+.cl-flowise .cl-video-stage .cl-demo-video[hidden] {
+    display: none;
+}
+.cl-flowise-paths {
+    margin-top: 1.5rem;
+}
+.cl-flowise-diff {
+    max-width: 52rem;
+    margin: 2rem auto 0;
+}
+.cl-flowise-list {
+    margin: 0 0 1.5rem;
+    padding-left: 1.2rem;
+}
+.cl-flowise-list li {
+    margin: 0.35rem 0;
+}
+.cl-flowise .cl-band h3 {
+    margin-top: 1.75rem;
+}
+.cl-after {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 0.75rem;
+    list-style: none;
+    margin: 1.25rem 0 0;
+    padding: 0;
+}
+.cl-after a {
+    display: inline-flex;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--cuttlely-border);
+    background: var(--cuttlely-surface);
+    color: var(--sl-color-white);
+    text-decoration: none;
+    font-weight: 700;
+    font-size: var(--sl-text-sm);
+}
+.cl-after a:hover {
+    border-color: var(--sl-color-text-accent);
+    color: var(--sl-color-text-accent);
+}
+.cl-disclaimer {
+    margin: 2rem 0 0;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+    text-align: center;
+}
+.cl-flowise .cl-link-arrow + .cl-link-arrow {
+    margin-inline-start: 1.25rem;
 }
 .cl-signoff {
     margin: 2rem 0 0;

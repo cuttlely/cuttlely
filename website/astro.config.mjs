@@ -18,6 +18,10 @@ const sidebar = fs.existsSync(sidebarFile) ? JSON.parse(fs.readFileSync(sidebarF
 export default defineConfig({
     site: SITE_URL,
     trailingSlash: 'always',
+    redirects: {
+        // trailingSlash is always, so /migrate and /migrate/ are one route. Render still lists both.
+        '/migrate/': '/flowise/'
+    },
     // No telemetry, analytics or outside requests from the build or the pages.
     devToolbar: { enabled: false },
     integrations: [
@@ -76,7 +80,8 @@ export default defineConfig({
                 SocialIcons: './src/components/HeaderLinks.astro',
                 Footer: './src/components/Footer.astro',
                 MarkdownContent: './src/components/MarkdownContent.astro',
-                Hero: './src/components/Hero.astro'
+                Hero: './src/components/Hero.astro',
+                PageTitle: './src/components/PageTitle.astro'
             },
             disable404Route: true,
             lastUpdated: false,
