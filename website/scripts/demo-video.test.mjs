@@ -609,7 +609,7 @@ test('the light hero headline gradient keeps 3.5:1 on the darkest point of the h
     )
 })
 
-test('the home Integrations section follows the pillars, leads with Orchestrate, links both guides, and names no Flowise', () => {
+test('the home Integrations section follows the pillars, leads with Orchestrate, links the external agent guide, and names no Flowise', () => {
     const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const start = page.indexOf('<section id="integrations"')
     assert.ok(start > page.indexOf('<strong>Build agent teams.</strong>'), 'Integrations section sits after the pillars')
