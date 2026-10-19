@@ -45,7 +45,7 @@ Node names and inputs are unchanged. A from-source install (`pnpm install` at th
 
 Security note for Custom MCP
 
-- Local (stdio) MCP servers are off by default. To enable them safely you must explicitly allow commands and absolute script paths; otherwise the server refuses the config. See the FAQ entry “Are stdio MCP servers enabled by default?” for the required environment variables and examples.
+-   Local (stdio) MCP servers are off by default. To enable them safely you must explicitly allow commands and script paths; otherwise the server refuses the config. See the [FAQ](../faq.md#are-stdio-mcp-servers-enabled-by-default) for the required environment variables and examples.
 
 A credential that another node still uses stays in `packages/components/credentials`. Postgres, Zep, Redis, MongoDB and AWS credentials are in that set. Zep, Redis and MongoDB credentials stay because vector store nodes still use them. Brave Search, GitHub, Google Drive, Google Sheets, Jira, SearchApi and Serp API credentials stay because a document loader still uses them. OpenAI, Azure OpenAI, Cohere, AWS, Google Vertex, Fireworks, Together, Hugging Face, IBM Watsonx and SambaNova credentials stay too, because a chat model or an embeddings node still uses each one. The Replicate API credential is used only by the completion model node, so it lives in the legacy chains pack. The E2B client stays on `@cuttlely/components` because in-process code execution loads it.
 

@@ -175,7 +175,21 @@ Create the first account with [sign-in.md](./sign-in.md). SQLite is the default 
 
 Local (stdio) MCP servers are off by default. The Custom MCP node connects over SSE/HTTP unless you explicitly opt into stdio and allow the command and script path.
 
-To enable a local stdio MCP server in Docker, set these in your `.env` (or Compose environment) and restart:
+To enable a local stdio MCP server in Docker, you must pass the CUSTOM*MCP*\* variables through to the container. The root `docker-compose.yml` does not forward these by default. Add them under `services.cuttlely.environment`:
+
+```yaml
+services:
+    cuttlely:
+        environment:
+            # MCP stdio security controls — pass-through from your .env
+            - CUSTOM_MCP_SECURITY_CHECK=${CUSTOM_MCP_SECURITY_CHECK:-}
+            - CUSTOM_MCP_PROTOCOL=${CUSTOM_MCP_PROTOCOL:-}
+            - CUSTOM_MCP_ALLOWED_ENV_VARS=${CUSTOM_MCP_ALLOWED_ENV_VARS:-}
+            - CUSTOM_MCP_ALLOWED_COMMANDS=${CUSTOM_MCP_ALLOWED_COMMANDS:-}
+            - CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS=${CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS:-}
+```
+
+Then set them in your `.env` and restart:
 
 ```bash
 CUSTOM_MCP_PROTOCOL=stdio
@@ -184,19 +198,29 @@ CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS=/opt/mcp/servers/fs-server.js
 CUSTOM_MCP_ALLOWED_ENV_VARS=
 ```
 
-Then use this on the Custom MCP node:
+Alternatively, the CLI supports passing an env file directly to `docker run`:
+
+```bash
+npx cuttlely start --env-file .env
+```
+
+Then use this config on the Custom MCP node:
 
 ```json
 {
-  "command": "node",
-  "args": ["/opt/mcp/servers/fs-server.js", "/data"]
+    "command": "node",
+    "args": ["/opt/mcp/servers/fs-server.js", "/data"]
 }
 ```
 
 Rules that apply in 1.3.0:
 
-- The command must be in CUSTOM_MCP_ALLOWED_COMMANDS.
-- If any args are present, the first must be an absolute path listed in CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS.
-- Dangerous flags are blocked; for example, npx -y is refused even if npx is allow-listed.
+-   The command must be in CUSTOM_MCP_ALLOWED_COMMANDS.
+-   If any args are present, the first must match a path listed in CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS. List absolute paths you control. Relative paths are strongly discouraged and only work if you explicitly allow-list that exact relative path.
+-   Dangerous flags are blocked. Examples:
+    -   npx: `-y`, `--yes`, `-c`, `--call`, `--shell-auto-fallback`, `--node-options`
+    -   node: `-e`, `--eval`, `-p`, `--print`, `--inspect`, `--inspect-brk`, `--experimental-policy`, `-r`, `--require`, `--loader`, `--experimental-loader`, `--import`, `--env-file`
+    -   python/python3: `-c`, `-m`
+    -   docker: subcommands `run`, `build`, `exec`, `compose`, and flags `-v`, `--volume`, `--mount`, `--volumes-from`, `--privileged`, `--cap-add`, `--security-opt`, `--device`, `--entrypoint`, `--network`, `--pid`, `--ipc`, `--env-file`
 
-Prefer SSE/HTTP when possible. See the FAQ entry “Are stdio MCP servers enabled by default?” for more detail and examples.
+Prefer SSE/HTTP when possible. See the [FAQ](../faq.md#are-stdio-mcp-servers-enabled-by-default) for more detail and examples.
