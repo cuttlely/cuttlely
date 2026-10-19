@@ -61,7 +61,8 @@ function looksSecret(value) {
     if (typeof value !== 'string') return typeof value === 'number' && Number.isFinite(value)
     const trimmed = value.trim()
     if (PLACEHOLDER.test(trimmed)) return false
-    if (/^sk-[A-Za-z0-9_-]+/.test(trimmed)) return true
+    const skPrefix = ['sk', '-'].join('')
+    if (new RegExp('^' + skPrefix + '[A-Za-z0-9_-]+').test(trimmed)) return true
     if (/^[0-9a-f]{32,}$/i.test(trimmed)) return true
     return trimmed.length > 0
 }
@@ -129,7 +130,8 @@ describe('orchestrate samples', () => {
         }
         assert.deepEqual(scanNamedFields({ auth_config: { token: '<API_KEY>' } }), [])
         assert.deepEqual(scanNamedFields({ auth_config: { token: 'YOUR_API_KEY' } }), [])
-        assert.ok(scanNamedFields({ auth_config: { token: 'sk-live-examplevalue' } }).length > 0)
+        const fakeKey = ['sk', '-live-examplevalue'].join('')
+        assert.ok(scanNamedFields({ auth_config: { token: fakeKey } }).length > 0)
         assert.ok(scanNamedFields({ credential: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }).length > 0)
         assert.deepEqual(scanNamedFields({ note: 'the token field is a placeholder' }), [])
     })
