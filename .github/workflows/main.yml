@@ -3,7 +3,7 @@ on:
     pull_request:
         branches:
             - '**'
-        types: [opened, synchronize, reopened, ready_for_review]
+        types: [opened, synchronize, reopened, ready_for_review, edited]
     schedule:
         # Daily full run on main (UTC). There are no push-to-main runs.
         - cron: '17 9 * * *'
@@ -33,6 +33,7 @@ jobs:
               run: node scripts/media-size.mjs
             # Checked-in list in scripts/pr-text-banned.mjs. Not PR_TEXT_BANNED, not a secret.
             # fetch-depth stays 2: this step reads the pull request title and body only.
+            # pull_request.types includes edited so a title or body change is checked again.
             - name: PR text banned words
               if: github.event_name == 'pull_request'
               env:

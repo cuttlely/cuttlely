@@ -2,9 +2,9 @@
 # Do not import this repository file into Orchestrate: the placeholders are not a working agent.
 spec_version: v1
 kind: external
-name: harbor_bakery_hours
-title: Harbor bakery hours
-nickname: harbor_bakery_hours
+name: cuttlely_orders
+title: Cuttlely orders
+nickname: cuttlely_orders
 provider: external_chat
 description: Cuttlely chatflow Harbor bakery hours
 tags:
