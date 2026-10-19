@@ -203,6 +203,45 @@ const getAllowedVectorStoreBaseDirs = (): string[] => {
     return allowedDirs
 }
 
+const WINDOWS_DRIVE_ABS = /^[a-zA-Z]:[\\/]/
+const WINDOWS_DRIVE_BACKSLASH = /^[a-zA-Z]:\\/
+const WINDOWS_EXTENDED = /^\\\\\?\\/
+const WINDOWS_UNC = /^\\\\[^\\]/
+
+const isWindowsStyleAbsolutePath = (p: string): boolean => WINDOWS_DRIVE_ABS.test(p) || WINDOWS_EXTENDED.test(p) || WINDOWS_UNC.test(p)
+
+/**
+ * On Windows, refuse Windows drive, UNC, and extended-length absolute paths.
+ * On other platforms, remap those forms to defaultDir/<basename> so a Flowise
+ * placeholder such as C:\Users\User\.cuttlely\database.sqlite becomes
+ * ~/.cuttlely/database.sqlite. A basename that is empty, '.' or '..' is refused.
+ *
+ * Returns the remapped absolute path, or undefined when the input is not a
+ * Windows-style absolute path (the caller continues with relative/absolute logic).
+ */
+const remapWindowsStyleAbsolutePath = (basePath: string, defaultDir: string, kind: 'path' | 'sqlite'): string | undefined => {
+    if (!isWindowsStyleAbsolutePath(basePath)) return undefined
+
+    const prefix = kind === 'sqlite' ? 'Invalid SQLite path' : 'Invalid path'
+    const extendedMessage = kind === 'sqlite' ? 'extended-length paths are not allowed' : 'Extended-length paths are not allowed'
+
+    if (process.platform === 'win32') {
+        // Extended-length (\\?\) is also a UNC prefix; check it first so the message is exact.
+        if (WINDOWS_DRIVE_BACKSLASH.test(basePath)) throw new Error(`${prefix}: Windows absolute paths are not allowed`)
+        if (WINDOWS_EXTENDED.test(basePath)) throw new Error(`${prefix}: ${extendedMessage}`)
+        if (WINDOWS_UNC.test(basePath)) throw new Error(`${prefix}: UNC paths are not allowed`)
+        // C:/... on Windows is a real absolute path; leave it for isAbsolute + the allowlist.
+        return undefined
+    }
+
+    const name = path.basename(basePath.replace(/\\/g, '/'))
+    if (!name || name === '.' || name === '..') {
+        throw new Error(`${prefix}: empty or relative filename is not allowed`)
+    }
+
+    return path.resolve(path.join(defaultDir, name))
+}
+
 /**
  * Validates and sanitizes a vector store base path to prevent path traversal attacks
  *
@@ -244,27 +283,20 @@ export const validateVectorStorePath = (userProvidedPath: string | undefined): s
         throw new Error('Invalid path: null bytes or control characters detected')
     }
 
-    // Check for Windows-specific absolute paths and UNC paths (even on Unix systems)
-    // This prevents cross-platform attack vectors
-    if (/^[a-zA-Z]:\\/.test(basePath)) {
-        throw new Error('Invalid path: Windows absolute paths are not allowed')
-    }
-    if (/^\\\\[^\\]/.test(basePath)) {
-        throw new Error('Invalid path: UNC paths are not allowed')
-    }
-    if (/^\\\\\?\\/.test(basePath)) {
-        throw new Error('Invalid path: Extended-length paths are not allowed')
-    }
+    const defaultDir = path.join(getUserHome(), '.cuttlely')
+    const remapped = remapWindowsStyleAbsolutePath(basePath, defaultDir, 'path')
 
     // Resolve to absolute path
     // If path is relative, resolve it relative to the .cuttlely directory (safe default)
     // If path is already absolute, keep it as-is
     let resolvedPath: string
-    if (path.isAbsolute(basePath)) {
+    if (remapped) {
+        resolvedPath = remapped
+    } else if (path.isAbsolute(basePath)) {
         resolvedPath = path.resolve(basePath)
     } else {
         // Relative paths are resolved within the .cuttlely directory for safety
-        resolvedPath = path.resolve(path.join(getUserHome(), '.cuttlely', basePath))
+        resolvedPath = path.resolve(path.join(defaultDir, basePath))
     }
 
     // Verify the resolved path doesn't contain '..' after resolution
@@ -345,11 +377,9 @@ export const validateSQLitePath = (userProvidedPath: string | undefined): string
     // eslint-disable-next-line no-control-regex
     if (/\0/.test(basePath) || /[\x00-\x1f]/.test(basePath))
         throw new Error('Invalid SQLite path: null bytes or control characters detected')
-    if (/^[a-zA-Z]:\\/.test(basePath)) throw new Error('Invalid SQLite path: Windows absolute paths are not allowed')
-    if (/^\\\\[^\\]/.test(basePath)) throw new Error('Invalid SQLite path: UNC paths are not allowed')
-    if (/^\\\\\?\\/.test(basePath)) throw new Error('Invalid SQLite path: extended-length paths are not allowed')
 
-    const resolvedPath = path.isAbsolute(basePath) ? path.resolve(basePath) : path.resolve(path.join(defaultDir, basePath))
+    const remapped = remapWindowsStyleAbsolutePath(basePath, defaultDir, 'sqlite')
+    const resolvedPath = remapped ?? (path.isAbsolute(basePath) ? path.resolve(basePath) : path.resolve(path.join(defaultDir, basePath)))
 
     if (resolvedPath.includes('..')) throw new Error('Invalid SQLite path: path traversal detected in resolved path')
 

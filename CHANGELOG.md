@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.1] - Unreleased
+
+### Security
+
+-   On Linux and macOS, a Windows drive path, UNC path, or extended-length path in a flow field is remapped to that path's basename under the application data directory, so the Agent Memory placeholder `C:\Users\User\.cuttlely\database.sqlite` from a Flowise import becomes `~/.cuttlely/database.sqlite`. A remap whose basename is empty, `.`, or `..` is refused. Traversal, encoding, and null-byte checks still run first, and the result must still fall inside the allowed directories. On Windows those absolute and UNC forms remain blocked. Unix absolute paths outside the allowlist remain refused.
+
 ## [1.3.0] - 2026-10-18
 
 ### Added
