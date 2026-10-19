@@ -87,10 +87,6 @@ function isChangelog(page) {
     return p === '/changelog/' || p === '/changelog' || p.startsWith('/changelog/')
 }
 
-function isAnalystGuide(page) {
-    return sitePath(page).startsWith('/docs/how-to/analyst/')
-}
-
 function skipCompetitorNames(page) {
     const p = sitePath(page)
     return p.startsWith('/docs/reference/') || p.includes('langflow-import')
@@ -185,7 +181,7 @@ export function checkSite(dist, { csp = null } = {}) {
             const hit = haystack.match(re)
             if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)
         }
-        if (!isChangelog(page) && !isAnalystGuide(page)) {
+        if (!isChangelog(page)) {
             for (const { re, why } of SCORE_CLAIMS) {
                 const hit = haystack.match(re)
                 if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)

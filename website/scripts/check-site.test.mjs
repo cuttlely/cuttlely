@@ -188,11 +188,11 @@ describe('check-site message house', () => {
         assert.match(checkSite(withPaper).problems.join('\n'), /removed whitepaper/)
     })
 
-    it('skips 9 of 9 on the analyst guide', () => {
+    it('scans the analyst guide for score-style claims', () => {
         const dir = site({
             ...base,
             'docs/how-to/analyst/index.html': `<html><head>${head}</head><body>gpt-4.1 passed 9 of 9</body></html>`
         })
-        assert.deepEqual(checkSite(dir).problems, [])
+        assert.match(checkSite(dir).problems.join('\n'), /score-style benchmark/)
     })
 })

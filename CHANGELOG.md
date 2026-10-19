@@ -13,7 +13,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   The public website leads with "The visual agent builder, ready for production," three pillars (drafts and Publish, lean context, Flowise import), and a Flowise lineage line. Home-page benchmark copy states the bakery analyst prompt sizes (2,562 to 663 tokens on a made-up bakery database) without score ratios. Made for real teams names SQLite or Postgres; Server Settings still accepts only those two. The site changelog omits the 1.3.0 paper-page line.
+-   The public website leads with "The visual agent builder, ready for production," three pillars (drafts and Publish, lean context, Flowise import), and a Flowise lineage line. Home-page benchmark copy states the bakery analyst prompt sizes (2,562 to 663 tokens on a made-up bakery database) without score ratios. The Analyst guide's rules-check table says "all passed" instead of a score. Made for real teams names SQLite or Postgres; Server Settings still accepts only those two. The site changelog omits the 1.3.0 paper-page line.
 
 ### Fixed
 

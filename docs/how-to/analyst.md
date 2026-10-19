@@ -403,8 +403,8 @@ On 2026-10-17 the `rules` check ran against real models on the made-up bakery da
 | ------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------: | ---------------: | -------------------- |
 | Empty (`CUTTLELY_CHECK_RULES=off`)                                                          | `gpt-4.1`, temperature 0                  |             3 |           0 of 9 | not recorded         |
 | The rules above, with `Describe a view before the first query against it.` as the last rule | `gpt-4.1`, temperature 0                  |             4 |          2 of 12 | not recorded         |
-| The rules above                                                                             | `gpt-4.1`, temperature 0                  |             3 |           9 of 9 | 2.3 to 4.0           |
-| The rules above                                                                             | `gpt-5.6-luna`, `reasoning_effort` `none` |             3 |           9 of 9 | 2.5 to 4.9           |
+| The rules above                                                                             | `gpt-4.1`, temperature 0                  |             3 |       all passed | 2.3 to 4.0           |
+| The rules above                                                                             | `gpt-5.6-luna`, `reasoning_effort` `none` |             3 |       all passed | 2.5 to 4.9           |
 
 With the box empty, every figure was correct, but none of the 9 questions passed the describe check: without a rule, the model queries a view without describing it first. The earlier, softer wording of the last rule was not enough either, at 2 of 12. Worded as a direct order with no room to skip it, the same rule passed every question on both models.
 
