@@ -154,8 +154,8 @@ class MemoryStore implements IdentityStore {
         if (!user) throw new Error('missing')
         user.credential = credential
     }
-    async activateUser(): Promise<UserRow | null> {
-        return null
+    async acceptInvite(): Promise<'accepted' | 'invalid'> {
+        return 'invalid'
     }
     async createOwner(): Promise<UserRow> {
         throw new Error('unused')

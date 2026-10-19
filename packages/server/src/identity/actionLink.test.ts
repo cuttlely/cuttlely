@@ -229,7 +229,7 @@ describe('invite and reset links', () => {
         expect(created).not.toHaveProperty('link')
         expect(sent).toEqual([])
         const row = db.prepare('SELECT credential, status FROM "user" WHERE email = ?').all('ada@example.com')
-        expect(row).toEqual([{ credential: null, status: 'active' }])
+        expect(row).toEqual([{ credential: null, status: 'invited' }])
         expect(db.prepare('SELECT id FROM identity_action_link').all()).toEqual([])
     })
 
@@ -279,10 +279,24 @@ describe('invite and reset links', () => {
         expect(sent).toHaveLength(1)
     })
 
-    it('refuses a link when the caller cannot manage users, and refuses a role they cannot grant', async () => {
+    it('lets workspace:add-user send an invite link only into their own team, and refuses a role they cannot grant', async () => {
         const { sql } = memoryDb()
         const adder: DirectoryActor = { ...manager, permissions: ['workspace:add-user'] }
-        await expect(inviteAccount(sql, adder, { ...inviteBody(), link: true }, deps())).rejects.toMatchObject({ status: 403 })
+        const linked = await inviteAccount(sql, adder, { ...inviteBody(), link: true }, deps())
+        expect(linked.link).toContain('#token=')
+        await expect(
+            inviteAccount(sql, adder, { ...inviteBody('kitchen@example.com'), workspace: { id: 'team-2' }, link: true }, deps())
+        ).rejects.toMatchObject({ status: 403 })
+        await expect(
+            inviteAccount(sql, adder, { ...inviteBody('kitchen@example.com'), workspace: { id: 'team-2' } }, deps())
+        ).rejects.toMatchObject({ status: 404 })
+        await expect(
+            inviteAccount(sql, adder, { ...inviteBody('wide-adder@example.com'), link: true, role: { id: 'role-wide' } }, deps())
+        ).rejects.toMatchObject({ status: 403, message: 'You cannot grant this role' })
+        const lookingOnly: DirectoryActor = { ...manager, permissions: ['chatflows:view'] }
+        await expect(inviteAccount(sql, lookingOnly, { ...inviteBody('nobody@example.com'), link: true }, deps())).rejects.toMatchObject({
+            status: 403
+        })
         const plain = await inviteAccount(sql, adder, inviteBody('kept@example.com'), deps())
         expect(plain).toEqual({ id: expect.any(String) })
         await expect(
@@ -300,6 +314,29 @@ describe('invite and reset links', () => {
         expect(granted.link).toContain('#token=')
         const owned = await inviteAccount(sql, owner, { ...inviteBody('own@example.com'), role: { id: 'role-owner' } }, deps())
         expect(owned.id).toEqual(expect.any(String))
+    })
+
+    it('with AuthKit on, gives workspace:add-user the invite link for their own team and nothing beyond it', async () => {
+        const { sql, db } = memoryDb()
+        const env = { WORKOS_API_KEY: 'sk_test_example', WORKOS_CLIENT_ID: 'client_example' }
+        const adder: DirectoryActor = { ...manager, permissions: ['workspace:add-user'] }
+        const created = await inviteAccount(sql, adder, inviteBody('ada@example.com'), deps({ env }))
+        expect(created.link).toContain('#token=')
+        expect(db.prepare('SELECT status FROM "user" WHERE email = ?').all('ada@example.com')).toEqual([{ status: 'invited' }])
+        await expect(
+            inviteAccount(sql, adder, { ...inviteBody('kitchen@example.com'), workspace: { id: 'team-2' } }, deps({ env }))
+        ).rejects.toMatchObject({ status: 403 })
+        await expect(
+            inviteAccount(sql, adder, { ...inviteBody('wide@example.com'), role: { id: 'role-wide' } }, deps({ env }))
+        ).rejects.toMatchObject({ status: 403, message: 'You cannot grant this role' })
+        await expect(
+            inviteAccount(sql, adder, { ...inviteBody('boss@example.com'), role: { id: 'role-owner' } }, deps({ env }))
+        ).rejects.toMatchObject({ status: 403 })
+        expect(
+            db
+                .prepare('SELECT email FROM "user" WHERE email IN (?, ?, ?)')
+                .all('kitchen@example.com', 'wide@example.com', 'boss@example.com')
+        ).toEqual([])
     })
 
     it('uses the configured lifetime and falls back when the setting is unusable', () => {

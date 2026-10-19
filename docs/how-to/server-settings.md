@@ -137,7 +137,7 @@ A lifetime outside the range is refused on this page. An environment value below
 | **Mail user**            | `SMTP_USER`                           | Not set            | The SMTP account name                            |
 | **Sender address**       | `SENDER_EMAIL`                        | Not set            | One email address                                |
 
-**Invite delivery** applies when `POST /api/v1/account/invite` omits `link`. Follow the request keeps the previous response, an id only. Copy link returns the one-time URL. Email sends it and does not return it. A request that sets `link` still wins. Reset links are unchanged: omitting `link` returns the URL.
+**Invite delivery** applies when `POST /api/v1/account/invite` omits `link`. Follow the request keeps the previous response, an id only, while AuthKit is off. With AuthKit on it returns the one-time URL, because a pending invite can join only through that link. Copy link returns the one-time URL. Email sends it and does not return it. A request that sets `link` still wins. Reset links are unchanged: omitting `link` returns the URL.
 
 **Mail password** (`SMTP_PASSWORD`) stays in the environment. The invite field shows **Set** or **Not set** and does not accept a value. The same key is on the read-only status list as `env` when it is set and `unset` when it is not. That row does not include the password. `SMTP_STARTTLS` stays in the environment too. Mail is configured when the mail server and the sender address are both set. The sign-in page still has no Forgot password form.
 

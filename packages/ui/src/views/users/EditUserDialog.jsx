@@ -36,6 +36,18 @@ const statuses = [
     }
 ]
 
+// A pending invite becomes active only through its invite link, so it is offered only kept as is or disabled.
+const pendingStatuses = [
+    {
+        label: 'Invited (pending)',
+        name: 'invited'
+    },
+    {
+        label: 'Inactive',
+        name: 'inactive'
+    }
+]
+
 const EditUserDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const portalElement = document.getElementById('portal')
     const currentUser = useSelector((state) => state.auth.user)
@@ -57,7 +69,8 @@ const EditUserDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =>
             setUser(dialogProps.data.user)
             setUserEmail(dialogProps.data.user.email)
             setUserName(dialogProps.data.user.name)
-            setStatus(dialogProps.data.user.status)
+            const rowStatus = (dialogProps.data.status || dialogProps.data.user.status || '').toLowerCase()
+            setStatus(rowStatus === 'disable' ? 'inactive' : rowStatus)
         }
 
         return () => {
@@ -183,7 +196,7 @@ const EditUserDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) =>
                         key={status}
                         name='status'
                         disabled={dialogProps?.data?.isOrgOwner}
-                        options={statuses}
+                        options={user?.status?.toLowerCase() === 'invited' ? pendingStatuses : statuses}
                         onSelect={(newValue) => setStatus(newValue)}
                         value={status ?? 'choose an option'}
                         id='dropdown_status'

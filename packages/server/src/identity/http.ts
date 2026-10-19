@@ -24,6 +24,7 @@ import { runtimeNumber } from '../settings/runtime'
 import {
     TOO_MANY,
     handleCallback,
+    handleInviteStart,
     handleLocalLogin,
     handleLocalLogout,
     handleLocalPassword,
@@ -209,6 +210,7 @@ identityAuthRouter.post('/local/accept', acceptLinkLimit, (req, res) => {
             if (!res.headersSent) res.status(500).json({ message: 'Internal Server Error' })
         })
 })
+identityAuthRouter.post('/invite/start', (req, res, next) => void dispatch(req, res, next, handleInviteStart))
 identityAuthRouter.post('/refreshToken', (req, res, next) => void dispatch(req, res, next, handleRefresh))
 identityAuthRouter.post('/resolve', (req, res, next) => void dispatch(req, res, next, handleResolve))
 

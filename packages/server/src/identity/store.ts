@@ -15,7 +15,7 @@
  */
 
 import { AuthKitSwitchApply, AuthKitSwitchState } from './authKitSwitch'
-import { CreateOwnerInput, LocalSession, SessionUser, UserRow } from './types'
+import { CreateOwnerInput, InviteSignIn, LocalSession, SessionUser, UserRow } from './types'
 
 export interface IdentityStore {
     countUsers(): Promise<number>
@@ -26,8 +26,12 @@ export interface IdentityStore {
     findSuperUser(): Promise<UserRow | null>
     setCredential(userId: string, credential: string): Promise<void>
     createOwner(input: CreateOwnerInput): Promise<UserRow>
-    /** Sets an `invited` user to `active`. Returns null unless the row is active afterwards. */
-    activateUser(userId: string): Promise<UserRow | null>
+    /**
+     * Uses one invite token for this pending user: the token must be an unused, unexpired invite for that user and
+     * that mailbox, and the invite must still stand. In one transaction it marks the token used, sets the user
+     * `active`, and binds the AuthKit id. Anything else leaves the user and the token unchanged.
+     */
+    acceptInvite(input: InviteSignIn): Promise<'accepted' | 'invalid'>
     sessionFor(userId: string, preferredWorkspaceId?: string | null): Promise<SessionUser | null>
     touchLastLogin(userId: string, workspaceId: string | null, at: Date): Promise<void>
     insertLocalSession(row: LocalSession): Promise<void>

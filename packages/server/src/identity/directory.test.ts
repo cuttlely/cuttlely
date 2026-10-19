@@ -82,6 +82,10 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
         CREATE TABLE identity_local_session (
             id text primary key, userId text, token text, expiresAt text, absoluteExpiresAt text
         );
+        CREATE TABLE identity_action_link (
+            id text primary key, tokenHash text unique, purpose text, organizationId text, workspaceId text,
+            userId text, expiresAt text, usedAt text, consumeId text, createdBy text, createdDate text
+        );
     `)
     const query = async (statement: string, params: unknown[] = []) => {
         const prepared = db.prepare(statement)
@@ -110,7 +114,7 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
 const actor = { id: OWNER, organizationId: ORG, workspaceId: TEAM }
 
 describe('directory users', () => {
-    it('creates an active email-only user and does not store a password', async () => {
+    it('creates a pending email-only user and does not store a password', async () => {
         const { sql, db } = memorySql()
         const created = await createEmailUser(sql, actor, {
             user: { name: 'Ada Lovelace', email: 'ada@example.com', credential: 'Throwaway-1!' },
@@ -118,14 +122,14 @@ describe('directory users', () => {
             role: { id: ROLE }
         })
         const rows = db.prepare('SELECT email, status, credential FROM "user" WHERE id = ?').all(created.id)
-        expect(rows).toEqual([{ email: 'ada@example.com', status: 'active', credential: null }])
+        expect(rows).toEqual([{ email: 'ada@example.com', status: 'invited', credential: null }])
         const org = db.prepare('SELECT status FROM organization_user WHERE "userId" = ?').all(created.id)
         const team = db.prepare('SELECT status FROM workspace_user WHERE "userId" = ?').all(created.id)
         expect(org).toEqual([{ status: 'active' }])
         expect(team).toEqual([{ status: 'active' }])
         const listed = await listOrganizationUsers(sql, actor, ORG)
         expect(listed.find((row) => row.user.email === 'ada@example.com')).toMatchObject({
-            status: 'active',
+            status: 'invited',
             isOrgOwner: false,
             user: { email: 'ada@example.com' }
         })

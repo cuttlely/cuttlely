@@ -183,6 +183,11 @@ jobs:
                   PGPASSWORD: postgres
                   CUTTLELY_TEST_PG_REQUIRED: '1'
               run: node --test scripts/analyst-relations.test.mjs
+            - name: Invite sign-in tests
+              env:
+                  PGPASSWORD: postgres
+                  CUTTLELY_TEST_PG_REQUIRED: '1'
+              run: pnpm --filter @cuttlely/server exec jest --verbose src/identity/inviteSignIn.test.ts src/identity/sqlStore.test.ts
 
     # Cypress end-to-end (advisory, not in the required set): same gating as build. Its own job so a Cypress failure
     # shows as a red "cypress" check without blocking the merge.

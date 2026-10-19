@@ -125,6 +125,19 @@ Ignoring a host value outside its range, instead of pulling it into range, is in
 
 A server that already has local password sessions ends those sessions the first time it starts with AuthKit configured (`WORKOS_API_KEY` and `WORKOS_CLIENT_ID` both set). That includes the owner break-glass session. The owner signs in again with the owner password when `CUTTLELY_LOCAL_ADMIN=true`. Everyone else signs in with AuthKit. A verified AuthKit email links the one existing user with that mailbox. Two users with the same mailbox are not linked. A later restart of the web server does not end sessions created after the switch. A queue worker that does not have the AuthKit environment does not record the switch as off. [Turn AuthKit on](./how-to/users-without-authkit.md#turn-authkit-on).
 
+## Invites after 1.3.0
+
+From 1.3.0 an invited person joins only through their own one-time invite link. The link is single use, expires after the invite link lifetime (72 hours by default), works only for that person and the email it was sent to, and stops working when a newer link replaces it or the person is disabled or removed from the team or the organization. A sign-in whose email matches a pending invite never activates it, even when the email is verified, and shows `You have a pending invite. Open the invite link from your email to join.`
+
+Check the people who had not joined yet when you upgraded:
+
+-   **Listed as `invited`.** They are pending. An invite link they already have still works until it expires. Otherwise make a new one with `POST /api/v1/users/:id/reset-link` from their team and send it to them.
+-   **Added with Add User before 1.3.0 and never signed in.** Those were stored as `active`, so they are not pending and can still join by email match. To make them use a link, remove them and add them again. The new invite shows the link.
+
+An invite link issued before the upgrade keeps working until it expires (at most 168 hours). Without AuthKit it still sets a password. With AuthKit on, open it and select **Accept invite with WorkOS**; it can no longer set a password.
+
+The full rules are in [Invite people](./how-to/sign-in.md#invite-people) and [Security](../SECURITY.md#invites).
+
 ## How upgrades are tested
 
 Every full `pnpm verify` runs an upgrade check. It starts the current server on data written by an older cuttlely: a chatflow with two saved versions, an agentflow, a harness with two specialists, and a credential. It then checks that each of these survived, and that a question to the chatflow still gets an answer, which proves the credential still decrypts. It also checks that a new save records a version and that a second start works. Run it on its own with `pnpm upgrade:check`.

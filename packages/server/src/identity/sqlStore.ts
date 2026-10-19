@@ -23,7 +23,9 @@ import { AuthKitSwitchApply, AuthKitSwitchState, nextAuthKitSwitch } from './aut
 import { utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { IdentityStore } from './store'
-import { CreateOwnerInput, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
+import { CreateOwnerInput, InviteSignIn, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
+import { acceptAuthKitInvite } from './actionLink'
+import { sqlFromDataSource } from './directory'
 
 type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mariadb'
 
@@ -208,20 +210,8 @@ export class SqlIdentityStore implements IdentityStore {
         })
     }
 
-    async activateUser(userId: string): Promise<UserRow | null> {
-        return this.withRunner(async (runner) => {
-            const d = dialectOf(runner)
-            await query(
-                runner,
-                `UPDATE ${quote(d, 'user')} SET ${quote(d, 'status')} = ?, ${quote(d, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${quote(d, 'id')} = ? AND LOWER(${quote(d, 'status')}) = 'invited'`,
-                ['active', userId]
-            )
-            const rows = await query(runner, `SELECT ${selectUser(d)} FROM ${quote(d, 'user')} WHERE ${quote(d, 'id')} = ?`, [userId])
-            const user = rows[0] ? userFrom(rows[0]) : null
-            if (!user || !isActive(user.status)) return null
-            return user
-        })
+    async acceptInvite(input: InviteSignIn): Promise<'accepted' | 'invalid'> {
+        return acceptAuthKitInvite(sqlFromDataSource(this.dataSource), input)
     }
 
     async createOwner(input: CreateOwnerInput): Promise<UserRow> {

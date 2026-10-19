@@ -88,7 +88,7 @@ Roles, separate teams, sign-in and an audit log, on a server you run.
 
 -   [Roles and permissions](./docs/how-to/roles-and-permissions.md). Teams, the built-in roles, and the permission key for each page and route.
 -   [Sign in](./docs/how-to/sign-in.md). Create the first account. A team can sign in with local users (`CUTTLELY_LOCAL_USERS`) and no AuthKit. AuthKit can be turned on later, and a verified email links to an existing local user.
--   [Users without AuthKit](./docs/how-to/users-without-authkit.md). Local users, invite and reset links, the built-in Owner, Admin, Builder, and Viewer roles, and sessions.
+-   [Users without AuthKit](./docs/how-to/users-without-authkit.md). Local users, invite and reset links, the built-in Owner, Admin, Builder, and Viewer roles, and sessions. An invited person joins only through their own one-time invite link, with or without AuthKit: [Invite people](./docs/how-to/sign-in.md#invite-people).
 -   [Audit log](./docs/how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, and settings changes.
 -   [Server settings](./docs/how-to/server-settings.md). Change sign-in, the database, storage and more from **Admin**. Runtime settings apply without a restart: Testing and Limits, security limits, invite and reset expiry, the SMTP host, port, secure flag, and user, `SENDER_EMAIL`, invite delivery, the settings-history cap, and `CUTTLELY_AUDIT_RETENTION_DAYS`. Env-only values, including secrets, `PORT`, the data folder, and the SMTP password, show only Set or Not set. The list is [Startup options](./docs/reference/startup-options.md).
 

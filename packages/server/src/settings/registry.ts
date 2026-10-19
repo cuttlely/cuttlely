@@ -210,7 +210,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'signin',
         group: 'Invite and reset',
         label: 'Invite delivery',
-        help: 'When an invite omits link, Copy link returns the URL and Email sends it. Follow the request keeps an id only. A request that sets link still wins. A value saved here overrides the environment and applies to the next invite.',
+        help: 'When an invite omits link, Copy link returns the URL and Email sends it. Follow the request keeps an id only, except with AuthKit on, where the invite link is the only way to join and is returned. A request that sets link still wins. A value saved here overrides the environment and applies to the next invite.',
         type: 'select',
         options: [
             { value: 'request', label: 'Follow the request' },

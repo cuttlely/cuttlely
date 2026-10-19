@@ -144,11 +144,34 @@ Use WorkOS when several people sign in. Cuttlely sends the browser to WorkOS Aut
 
 With the local flag also on, the page shows both the WorkOS button and the password form.
 
-To add people, open **Admin**, then **Users**, and select **Add User**. Give each person a name and an email. Cuttlely doesn't send an invitation, so send them the sign-in link yourself. If AuthKit public sign-up is off, also create them in the WorkOS Users directory. Roles, teams, and the permission each page checks are in [Roles and permissions](./roles-and-permissions.md).
+To add people, see [Invite people](#invite-people). Roles, teams, and the permission each page checks are in [Roles and permissions](./roles-and-permissions.md).
 
 The owner can also do steps 1 and 2 in the browser: open **Admin**, then **Server Settings**, then **Sign-in**, and select **Set up AuthKit**. It fills in the redirect addresses, makes the session seal, and runs a real test sign-in with the new values before anything is saved. Password sign-in can be turned off only after that test passes. The values apply when Cuttlely restarts.
 
 Field-by-field setup, redirect URIs, and WorkOS troubleshooting are in [WorkOS AuthKit setup](../identity/workos-authkit-setup.md).
+
+### Invite people
+
+An invited person joins only through their own invite link. Signing in with WorkOS with the invited email is not enough, even when WorkOS has verified that email.
+
+1. Open **Admin**, then **Users**, and select **Add User**. Give the person a name, an email, a team and a role, then select **Create User**.
+2. The dialog shows a one-time invite link, once. Select **Copy link** and send it to that person. When the mail server is set in **Server Settings**, Cuttlely also emails it. With **Invite delivery** set to **Email**, Cuttlely only emails it and the dialog closes.
+3. The person opens the link, selects **Accept invite with WorkOS**, and signs in with the email the invite was sent to.
+
+That first sign-in through the link makes the person active and binds their WorkOS account to them. After that they use **Sign in with WorkOS** like everyone else. If AuthKit public sign-up is off, also create them in the WorkOS Users directory.
+
+Until they accept, the person is a pending invite: the Users list shows them as `invited`, and they have no access to any team. Signing in with WorkOS without the link shows `You have a pending invite. Open the invite link from your email to join.` and leaves them pending.
+
+An invite link:
+
+-   works once;
+-   lasts 72 hours, or the **Invite link lifetime** in **Server Settings** (1 to 168 hours);
+-   works only for the person it was made for, signed in with that email;
+-   stops working when a newer link is made for that person, when they are disabled, and when they are removed from the team or the organization. Adding them back does not bring the old link back.
+
+With WorkOS on, the link cannot be used to set a password instead: the password route refuses an invite token and leaves it unused. A link that fails any of these shows `This invite link is not valid. Ask for a new invite.` To make a new link for someone who is still pending, call `POST /api/v1/users/:id/reset-link` from their team. For a pending invite it returns a new invite link and the older one stops working. On the Users page, editing a pending person offers **Invited (pending)** or **Inactive**. Turning a disabled pending invite back on with **Invited (pending)** does not make them active: they still need a new link.
+
+Field names and status codes are in [One-time links](../reference/auth-api.md#one-time-links).
 
 ## Troubleshooting
 
@@ -162,3 +185,5 @@ Field-by-field setup, redirect URIs, and WorkOS troubleshooting are in [WorkOS A
 | `Error in registering account: Not Found` on **Setup Account**     | An account already exists. Sign in instead.                                                                                                          |
 | `Open the setup link from the server log ...` on **Setup Account** | You're not on the server itself, for example through Docker's published port. Open the link from `docker compose logs cuttlely`, or use `pnpm user`. |
 | `First-user setup is not available.` after WorkOS sign-in          | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Set it to your email and restart.           |
+| `You have a pending invite. Open the invite link from ...`         | You were invited and have not accepted yet. Open the invite link you were sent and select **Accept invite with WorkOS**.                             |
+| `This invite link is not valid. Ask for a new invite.`             | The link was already used, expired, replaced by a newer one, or revoked, or you signed in with a different email. Ask an admin for a new invite.     |

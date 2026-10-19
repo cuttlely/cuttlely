@@ -39,6 +39,8 @@ The script starts its own servers on empty data directories, in a headless brows
 
 `DOCS_SHOTS=testing` takes only the Testing and Limits picture. The server is started with one in-range publish-check limit set on the host so that field shows as set by the host. Host-only rows show set or not set and never a value.
 
+`DOCS_SHOTS=roles` takes only the roles guide's Add User dialog and its Users list, where the new user shows as INVITED (a pending invite). The other roles frames are left as they are.
+
 `DOCS_SHOTS=local-users` takes the Users list, the sessions drawer, and the audit log. It uses local password sign-in, example.com addresses, and a one-time invite link that the script does not print. Those three frames, and the Users list in the roles set, are 1440 by 1400 so the whole Admin menu shows. The script fails if the sidebar does not show Users, Teams, Roles, Server Settings, Logs, Audit log, and Version History, in that order.
 
 Sample files for the import frames are `examples/imports/bakery-helper.json` and `examples/imports/bakery-greeter.json`. That directory is in `.dockerignore` with this one. The image does not read those files.

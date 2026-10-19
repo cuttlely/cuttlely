@@ -201,6 +201,13 @@ function redactLoggedQuery(query: any): any {
     return sanitized
 }
 
+// Session cookies, the sealed AuthKit session, and the one-time invite token. Names are matched without letter case.
+const REDACTED_COOKIES = /(^|;\s*)(cuttlely_session|cuttlely-local-session|cuttlely-invite|wos-session)=[^;]*/gi
+
+export function redactLoggedCookies(header: string): string {
+    return header.replace(REDACTED_COOKIES, (_match, lead: string, name: string) => `${lead}${name}=[redacted]`)
+}
+
 export function expressRequestLogger(req: Request, res: Response, next: NextFunction): void {
     const unwantedLogURLs = ['/api/v1/node-icon/', '/api/v1/components-credentials-icon/', '/api/v1/ping']
 
@@ -228,11 +235,7 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
                 }
             })
             if (sanitizedHeaders['x-cuttlely-session-token']) sanitizedHeaders['x-cuttlely-session-token'] = '[redacted]'
-            if (typeof sanitizedHeaders.cookie === 'string') {
-                sanitizedHeaders.cookie = sanitizedHeaders.cookie
-                    .replace(/cuttlely_session=[^;]*/gi, 'cuttlely_session=[redacted]')
-                    .replace(/cuttlely-local-session=[^;]*/gi, 'cuttlely-local-session=[redacted]')
-            }
+            if (typeof sanitizedHeaders.cookie === 'string') sanitizedHeaders.cookie = redactLoggedCookies(sanitizedHeaders.cookie)
 
             // Server settings bodies can hold secrets (database password, API keys). Never log them, even at debug.
             requestMetadata.request.body = isServerSettingsUrl(req.url) ? '[redacted]' : sanitizedBody

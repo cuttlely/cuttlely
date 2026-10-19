@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { builtInPermissionJson, builtInPermissionKeys, builtInRoleName, isReservedRoleName, permissionsLowered } from './builtInRoles'
 import { DEFAULT_WORKSPACE, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
+import { utcDbTime } from './dbTime'
 import { likeEscapeClause } from './likeEscape'
 import { isCatalogPermission } from './permissionsCatalog'
 import { safeRecordAudit } from './auditLog'
@@ -156,6 +157,22 @@ export async function endLocalSessions(query: QueryFn, sql: Sql, userId: string)
         [userId]
     )
     await query(`DELETE FROM ${q(sql, 'identity_local_session')} WHERE ${q(sql, 'userId')} = ?`, [userId])
+}
+
+/** Marks open invite links used, so adding the person back later does not bring an old link back to life. */
+export async function revokeInviteLinks(
+    query: QueryFn,
+    sql: Sql,
+    userId: string,
+    scope: { workspaceId: string } | { organizationId: string },
+    now = Date.now()
+): Promise<void> {
+    const where = 'workspaceId' in scope ? `${q(sql, 'workspaceId')} = ?` : `${q(sql, 'organizationId')} = ?`
+    await query(
+        `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
+         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'usedAt')} IS NULL AND ${where}`,
+        [utcDbTime(sql.type, now), 'revoked', userId, 'invite', 'workspaceId' in scope ? scope.workspaceId : scope.organizationId]
+    )
 }
 
 function storedPermissions(value: unknown): string[] {
@@ -376,7 +393,10 @@ async function workspaceInOrg(query: QueryFn, sql: Sql, workspaceId: string, org
     return row
 }
 
-/** Create an active user with no local password. A repeated email is refused and the stored credential is left alone. */
+/**
+ * Create a pending (`invited`) user with no local password. Only that person's invite link makes the user active.
+ * A repeated email is refused and the stored credential is left alone.
+ */
 export async function createEmailUser(
     sql: Sql,
     actor: DirectoryActor,
@@ -415,7 +435,7 @@ export async function createEmailUser(
                 `INSERT INTO ${q(sql, 'user')} (${q(sql, 'id')}, ${q(sql, 'name')}, ${q(sql, 'email')}, ${q(sql, 'credential')},
                     ${q(sql, 'status')}, ${q(sql, 'createdBy')}, ${q(sql, 'updatedBy')})
                  VALUES (?, ?, ?, NULL, ?, ?, ?)`,
-                [userId, invite.name, invite.email, 'active', actor.id, actor.id]
+                [userId, invite.name, invite.email, 'invited', actor.id, actor.id]
             )
         } catch (error) {
             if (isUnique(error)) throw new DirectoryError(409, 'A user with this email already exists')
@@ -559,6 +579,7 @@ export async function deleteOrganizationUser(
                 (SELECT ${q(sql, 'id')} FROM ${q(sql, 'workspace')} WHERE ${q(sql, 'organizationId')} = ?)`,
             [userId, organizationId]
         )
+        await revokeInviteLinks(query, sql, userId, { organizationId })
         const remaining = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'organization_user')} WHERE ${q(sql, 'userId')} = ?`, [
             userId
         ])
@@ -582,7 +603,14 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
     const requested = text(record.status).trim().toLowerCase()
     sameOrg(actor, organizationId)
     if (!userId) throw new DirectoryError(400, 'User is required')
-    const status = requested === 'active' ? 'active' : requested === 'inactive' || requested === 'disable' ? 'disable' : ''
+    const status =
+        requested === 'active'
+            ? 'active'
+            : requested === 'inactive' || requested === 'disable'
+            ? 'disable'
+            : requested === 'invited'
+            ? 'invited'
+            : ''
     if (!status) throw new DirectoryError(400, 'Status must be active or inactive')
     return sql.transaction(async (query) => {
         await assertSharedActiveTeam(query, sql, actor, userId)
@@ -593,6 +621,19 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
             [organizationId, userId]
         )
         if (!still.length) throw new DirectoryError(404, 'User not found')
+        if (status === 'invited') {
+            // Keeps a pending user pending and enabled. It never sets anyone to invited and never activates the user.
+            const current = await query(`SELECT ${q(sql, 'status')} AS status FROM ${q(sql, 'user')} WHERE ${q(sql, 'id')} = ?`, [userId])
+            if (text(cell(current[0] || {}, 'status')).toLowerCase() !== 'invited') {
+                throw new DirectoryError(400, 'Status must be active or inactive')
+            }
+            await query(
+                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                ['active', organizationId, userId]
+            )
+            return { id: userId }
+        }
         if (status === 'disable') {
             const kept = await refuseLastOwnerDisable(query, sql, organizationId, userId)
             if (kept === 'last') throw new DirectoryError(409, 'The last owner cannot be removed')
@@ -601,6 +642,14 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
                  WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) = 'active'`,
                 ['disable', userId]
             )
+            // A pending invite stays pending. Disabling it closes the membership and its open invite links.
+            await query(
+                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?
+                   AND EXISTS (SELECT 1 FROM ${q(sql, 'user')} u WHERE u.${q(sql, 'id')} = ? AND LOWER(u.${q(sql, 'status')}) = 'invited')`,
+                ['disable', organizationId, userId, userId]
+            )
+            await revokeInviteLinks(query, sql, userId, { organizationId })
             await endLocalSessions(query, sql, userId)
             return { id: userId }
         }
@@ -609,9 +658,10 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
             [status, organizationId, userId]
         )
+        // Enabling never activates a pending invite. Only that person's invite link does.
         await query(
             `UPDATE ${q(sql, 'user')} SET ${q(sql, 'status')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-             WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) IN ('invited', 'disable')`,
+             WHERE ${q(sql, 'id')} = ? AND LOWER(${q(sql, 'status')}) = 'disable'`,
             ['active', userId]
         )
         return { id: userId }
@@ -746,6 +796,7 @@ export async function deleteWorkspaceUser(sql: Sql, actor: DirectoryActor, works
             workspaceId,
             userId
         ])
+        await revokeInviteLinks(query, sql, userId, { workspaceId })
         await endLocalSessions(query, sql, userId)
         return { id: userId }
     })
