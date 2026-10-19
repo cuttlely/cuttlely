@@ -17,7 +17,7 @@ function site(files) {
 
 const head =
     '<link rel="canonical" href="https://cuttlely.com/"><meta property="og:image" content="https://cuttlely.com/social/og-light.png">'
-const home = `<html><head>${head}</head><body><h1>The visual agent builder, <span>ready for production.</span></h1><p>Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/flowise/">Coming from Flowise? Bring your flows</a><a href="/docs/#build">Docs</a></body></html>`
+const home = `<html><head>${head}</head><body><h1>The visual agent builder, <span>ready for production.</span></h1><p>Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/flowise/">Coming from Flowise? Bring your flows</a><a href="/docs/#build">Docs</a><section id="integrations"></section></body></html>`
 const base = {
     'index.html': home,
     '404.html': `<html><head>${head}</head><body>Not found</body></html>`,
@@ -266,6 +266,18 @@ describe('check-site message house', () => {
         const problems = checkSite(dir).problems.join('\n')
         assert.match(problems, /missing href="\/flowise\/"/)
         assert.match(problems, /Coming from Flowise\?/)
+    })
+
+    it('requires the Integrations section on the home page', () => {
+        const missing = home.replace('<section id="integrations"></section>', '')
+        const dir = site({ ...base, 'index.html': missing })
+        assert.match(checkSite(dir).problems.join('\n'), /missing the Integrations section/)
+    })
+
+    it('fails when the Integrations section names Flowise', () => {
+        const named = home.replace('<section id="integrations"></section>', '<section id="integrations">Flowise</section>')
+        const dir = site({ ...base, 'index.html': named })
+        assert.match(checkSite(dir).problems.join('\n'), /the Integrations section names Flowise/)
     })
 
     it('fails waitlist copy and an unchanged-flows claim on the Flowise import page', () => {
