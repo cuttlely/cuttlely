@@ -1,0 +1,10 @@
+{
+    "$comment": "IBM external_agent/spec.yaml toolkit commit ef50cc58ae. The spec requires model; this route also accepts a body without it.",
+    "model": "any",
+    "stream": true,
+    "messages": [
+        { "role": "user", "content": "Hi" },
+        { "role": "assistant", "content": "Hello" },
+        { "role": "user", "content": "Next?" }
+    ]
+}

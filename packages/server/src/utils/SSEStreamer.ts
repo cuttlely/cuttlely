@@ -1,6 +1,18 @@
 import { Response } from 'express'
 import { IServerSideEventStreamer } from '@cuttlely/components'
 
+export type SSEFrame =
+    | { kind: 'event'; payload: Record<string, unknown> } // every stream*Event object, all keys
+    | { kind: 'comment'; text: string } // heartbeat
+    | { kind: 'final'; payload: Record<string, unknown> } // removeClient end frame, TTS abort frame
+
+export type SSEEncoder = (frame: SSEFrame) => string | null // null writes nothing
+
+export const defaultSSEEncoder: SSEEncoder = (frame) => {
+    if (frame.kind === 'comment') return `:${frame.text}\n\n`
+    return 'message:\ndata:' + JSON.stringify(frame.payload) + '\n\n'
+}
+
 // define a new type that has a client type (INTERNAL or EXTERNAL) and Response type
 type Client = {
     // future use
@@ -8,6 +20,7 @@ type Client = {
     response: Response
     // optional property with default value
     started?: boolean
+    encoder?: SSEEncoder
 }
 
 export class SSEStreamer implements IServerSideEventStreamer {
@@ -50,42 +63,59 @@ export class SSEStreamer implements IServerSideEventStreamer {
         this.observers.delete(sourceChatId)
     }
 
-    addExternalClient(chatId: string, res: Response) {
-        this.clients.set(chatId, { clientType: 'EXTERNAL', response: res, started: false })
+    addExternalClient(chatId: string, res: Response, encoder?: SSEEncoder) {
+        this.clients.set(chatId, { clientType: 'EXTERNAL', response: res, started: false, encoder })
+    }
+
+    tryAddExternalClient(chatId: string, res: Response, encoder: SSEEncoder): boolean {
+        if (this.clients.has(chatId)) return false
+        this.addExternalClient(chatId, res, encoder)
+        return true
     }
 
     addClient(chatId: string, res: Response) {
         this.clients.set(chatId, { clientType: 'INTERNAL', response: res, started: false })
     }
 
+    private writeEncoded(client: Client, encoded: string): boolean {
+        try {
+            client.response.write(encoded)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /**
-     * Safely write data to a client's response. If the write fails (e.g., client already disconnected),
-     * the client is automatically removed to prevent further writes to a dead connection.
-     * Also fans out to any registered observers of `chatId`.
+     * Write `frame` to the source client with that client's encoder (default when none).
+     * A string is written and emit returns whether the write succeeded (as safeWrite does today).
+     * null writes nothing and returns true, so streamStartEvent still sets client.started exactly
+     * once and never retries a suppressed start frame. Observers always get the default encoding.
      */
-    private safeWrite(chatId: string, data: string): boolean {
+    private emit(chatId: string, frame: SSEFrame): boolean {
         const client = this.clients.get(chatId)
         let ok = false
         if (client) {
-            try {
-                client.response.write(data)
+            const encoded = (client.encoder ?? defaultSSEEncoder)(frame)
+            if (encoded === null) {
                 ok = true
-            } catch {
+            } else if (this.writeEncoded(client, encoded)) {
+                ok = true
+            } else {
                 this.clients.delete(chatId)
             }
         }
 
+        const observerBytes = defaultSSEEncoder(frame)
         const observerSet = this.observers.get(chatId)
-        if (observerSet && observerSet.size > 0) {
+        if (observerBytes !== null && observerSet && observerSet.size > 0) {
             for (const observerId of Array.from(observerSet)) {
                 const observer = this.clients.get(observerId)
                 if (!observer) {
                     observerSet.delete(observerId)
                     continue
                 }
-                try {
-                    observer.response.write(data)
-                } catch {
+                if (!this.writeEncoded(observer, observerBytes)) {
                     this.clients.delete(observerId)
                     observerSet.delete(observerId)
                 }
@@ -100,11 +130,12 @@ export class SSEStreamer implements IServerSideEventStreamer {
         const client = this.clients.get(chatId)
         if (client) {
             try {
-                const clientResponse = {
+                const payload = {
                     event: 'end',
                     data: '[DONE]'
                 }
-                client.response.write('message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+                const encoded = (client.encoder ?? defaultSSEEncoder)({ kind: 'final', payload })
+                if (encoded !== null) client.response.write(encoded)
                 client.response.end()
             } catch {
                 // Client already disconnected, ignore write errors
@@ -122,7 +153,7 @@ export class SSEStreamer implements IServerSideEventStreamer {
                 if (!observer) continue
                 try {
                     const payload = { event: 'executionEnd', data: { chatId } }
-                    observer.response.write('message:\ndata:' + JSON.stringify(payload) + '\n\n')
+                    observer.response.write(defaultSSEEncoder({ kind: 'event', payload }) as string)
                 } catch {
                     this.clients.delete(observerId)
                 }
@@ -141,135 +172,66 @@ export class SSEStreamer implements IServerSideEventStreamer {
     }
 
     streamCustomEvent(chatId: string, eventType: string, data: any) {
-        const clientResponse = {
-            event: eventType,
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: eventType, data: data } })
     }
 
     streamStartEvent(chatId: string, data: string) {
         const client = this.clients.get(chatId)
         // prevent multiple start events being streamed to the client
         if (client && !client.started) {
-            const clientResponse = {
-                event: 'start',
-                data: data
-            }
-            if (this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')) {
+            if (this.emit(chatId, { kind: 'event', payload: { event: 'start', data: data } })) {
                 client.started = true
             }
         }
     }
 
     streamTokenEvent(chatId: string, data: string) {
-        const clientResponse = {
-            event: 'token',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'token', data: data } })
     }
 
     streamThinkingEvent(chatId: string, data: string, duration?: number) {
-        const clientResponse = {
-            event: 'thinking',
-            data: data,
-            duration: duration
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'thinking', data: data, duration: duration } })
     }
 
     streamSourceDocumentsEvent(chatId: string, data: any) {
-        const clientResponse = {
-            event: 'sourceDocuments',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'sourceDocuments', data: data } })
     }
     streamArtifactsEvent(chatId: string, data: any) {
-        const clientResponse = {
-            event: 'artifacts',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'artifacts', data: data } })
     }
     streamUsedToolsEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'usedTools',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'usedTools', data: data } })
     }
     streamCalledToolsEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'calledTools',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'calledTools', data: data } })
     }
     streamFileAnnotationsEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'fileAnnotations',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'fileAnnotations', data: data } })
     }
     streamToolEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'tool',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'tool', data: data } })
     }
     streamAgentReasoningEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'agentReasoning',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'agentReasoning', data: data } })
     }
     streamNextAgentEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'nextAgent',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'nextAgent', data: data } })
     }
     streamAgentFlowEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'agentFlowEvent',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'agentFlowEvent', data: data } })
     }
     streamAgentFlowExecutedDataEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'agentFlowExecutedData',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'agentFlowExecutedData', data: data } })
     }
     streamNextAgentFlowEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'nextAgentFlow',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'nextAgentFlow', data: data } })
     }
     streamActionEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'action',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'action', data: data } })
     }
 
     streamAbortEvent(chatId: string): void {
-        const clientResponse = {
-            event: 'abort',
-            data: '[DONE]'
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'abort', data: '[DONE]' } })
     }
 
     streamEndEvent(_: string) {
@@ -280,13 +242,13 @@ export class SSEStreamer implements IServerSideEventStreamer {
     streamErrorEvent(chatId: string, msg: string, details?: { status: number; code: string; retryAfter?: number }) {
         if (msg.includes('401 Incorrect API key provided'))
             msg = '401 Unauthorized – check your API key and ensure it has access to the requested model.'
-        const clientResponse = {
+        const payload: Record<string, unknown> = {
             event: 'error',
             data: msg,
             ...(details ? { status: details.status, code: details.code } : {}),
             ...(details?.retryAfter ? { retryAfter: details.retryAfter } : {})
         }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload })
     }
 
     // `options.sessionToken` adds the caller's session token. Only the public prediction route sets it: a browser
@@ -328,46 +290,31 @@ export class SSEStreamer implements IServerSideEventStreamer {
     }
 
     streamUsageMetadataEvent(chatId: string, data: any): void {
-        const clientResponse = {
-            event: 'usageMetadata',
-            data: data
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'usageMetadata', data: data } })
     }
 
     streamTTSStartEvent(chatId: string, chatMessageId: string, format: string): void {
-        const clientResponse = {
-            event: 'tts_start',
-            data: { chatMessageId, format }
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'tts_start', data: { chatMessageId, format } } })
     }
 
     streamTTSDataEvent(chatId: string, chatMessageId: string, audioChunk: string): void {
-        const clientResponse = {
-            event: 'tts_data',
-            data: { chatMessageId, audioChunk }
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'tts_data', data: { chatMessageId, audioChunk } } })
     }
 
     streamTTSEndEvent(chatId: string, chatMessageId: string): void {
-        const clientResponse = {
-            event: 'tts_end',
-            data: { chatMessageId }
-        }
-        this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+        this.emit(chatId, { kind: 'event', payload: { event: 'tts_end', data: { chatMessageId } } })
     }
 
     streamTTSAbortEvent(chatId: string, chatMessageId: string): void {
         const client = this.clients.get(chatId)
         if (client) {
             try {
-                const clientResponse = {
+                const payload = {
                     event: 'tts_abort',
                     data: { chatMessageId }
                 }
-                client.response.write('message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
+                const encoded = (client.encoder ?? defaultSSEEncoder)({ kind: 'final', payload })
+                if (encoded !== null) client.response.write(encoded)
                 client.response.end()
             } catch {
                 // Client already disconnected, ignore write errors
@@ -381,7 +328,7 @@ export class SSEStreamer implements IServerSideEventStreamer {
         this.heartbeatInterval = setInterval(() => {
             for (const chatId of this.clients.keys()) {
                 // SSE comment line — ignored by clients but keeps the connection alive through ALB/proxies
-                this.safeWrite(chatId, ':heartbeat\n\n')
+                this.emit(chatId, { kind: 'comment', text: 'heartbeat' })
             }
         }, intervalMs)
     }
