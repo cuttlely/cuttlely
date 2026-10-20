@@ -463,11 +463,37 @@ describe('public display fields', () => {
         expect(JSON.stringify(result)).not.toContain('user:pw@')
     })
 
-    it('leaves an image address out when user info is present and does not keep a query', () => {
+    it('writes an address back as scheme, host, and path', () => {
         expect(rebuildHttpUrl('https://img.example/a.png?utm_apikey=FAKE_MARKER_Q#x')).toBe('https://img.example/a.png')
+        expect(rebuildHttpUrl('https://cdn.example:8443/a.png?x=1')).toBe('https://cdn.example/a.png')
+        expect(rebuildHttpUrl('https:example.com/a?x=FAKE_MARKER_Q')).toBe('https://example.com/a')
+        expect(rebuildHttpUrl('https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png')).toBe(
+            'https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png'
+        )
         expect(rebuildHttpUrl('https://user:pw@img.example/a.png')).toBeUndefined()
+        expect(rebuildHttpUrl('//user:FAKE_MARKER_Q@host')).toBeUndefined()
+        expect(rebuildHttpUrl('//cdn.example/a?utm_apikey=FAKE_MARKER_Q')).toBeUndefined()
+        expect(rebuildHttpUrl('//cdn.example/a#FAKE_MARKER_Q')).toBeUndefined()
+        expect(rebuildHttpUrl('path/user:FAKE_MARKER_Q@files.example')).toBeUndefined()
+        expect(rebuildHttpUrl('https://cdn.example/user%3AFAKE_MARKER_Q%40host')).toBeUndefined()
+        expect(rebuildHttpUrl('https://cdn.example/%ZZ')).toBeUndefined()
         expect(rebuildHttpUrl('http://files.example/logo.png')).toBe('http://files.example/logo.png')
         expect(rebuildHttpUrl('javascript:alert(1)')).toBeUndefined()
+        const { inputs } = sanitizeNodeInputs(
+            { basePath: 'path/user:FAKE_MARKER_Q@files.example', baseURL: 'https://models.example:9443/root?q=1#h' },
+            [...schemaParams, { name: 'baseURL', type: 'string' }] as any
+        )
+        expect(inputs).toEqual({ baseURL: 'https://models.example/root' })
+        expect(JSON.stringify(inputs)).not.toContain('FAKE_MARKER_')
+        expect(
+            publicChatbotDisplayConfig({
+                titleAvatarSrc: 'https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png',
+                botMessage: { avatarSrc: 'https://cdn.example:8443/images/a.png?utm_apikey=FAKE_MARKER_Q#x' }
+            })
+        ).toEqual({
+            titleAvatarSrc: 'https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png',
+            botMessage: { avatarSrc: 'https://cdn.example/images/a.png' }
+        })
         const summary = publicChatflowSummary({
             id: 'f1',
             name: 'Bot',

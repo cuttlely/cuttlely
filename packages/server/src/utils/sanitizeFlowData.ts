@@ -239,21 +239,28 @@ const isNodeReference = (value: unknown): boolean => {
     return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && NODE_REFERENCE.test(item))
 }
 
-/** scheme, host, and path only. User info or a non-http(s) address is left out. */
+/** http or https, written back as scheme, host, and path. No user info, port, query, or fragment. */
 export const rebuildHttpUrl = (value: unknown): string | undefined => {
     if (typeof value !== 'string' || !value.trim()) return undefined
-    const trimmed = value.trim()
     let url: URL
     try {
-        url = new URL(trimmed)
+        url = new URL(value.trim())
     } catch {
         return undefined
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined
-    if (url.username || url.password || /@/.test(url.host)) return undefined
-    if (/^[a-z][a-z0-9+.-]*:\/\/[^/]*@/i.test(trimmed)) return undefined
-    const path = url.pathname === '/' ? '' : url.pathname
-    return `${url.protocol}//${url.host}${path}`
+    if (url.username || url.password || !url.hostname) return undefined
+    for (const segment of url.pathname.split('/')) {
+        if (!segment) continue
+        let decoded: string
+        try {
+            decoded = decodeURIComponent(segment)
+        } catch {
+            return undefined
+        }
+        if (decoded.includes('@') || decoded.includes(':')) return undefined
+    }
+    return `${url.protocol}//${url.hostname}${url.pathname}`
 }
 
 const keepString = (value: unknown): string | undefined => (stringIsSafe(value) ? value : undefined)
