@@ -64,6 +64,9 @@ describe('missing required model credential', () => {
     it('accepts a provider key on the node inputs (override config) without a stored credential id', () => {
         expect(inputsProvideModelSecret({ inputs: { openAIApiKey: 'not-a-real-key' } })).toBe(true)
         expect(inputsProvideModelSecret({ inputs: { openRouterApiKey: 'not-a-real-key' } })).toBe(true)
+        expect(inputsProvideModelSecret({ inputs: { cloudflareApiToken: 'not-a-real-token' } })).toBe(true)
+        expect(inputsProvideModelSecret({ inputs: { watsonxAIBearerToken: 'not-a-real-token' } })).toBe(true)
+        expect(inputsProvideModelSecret({ inputs: { maxTokens: '256' } })).toBe(false)
         expect(inputsProvideModelSecret({ inputs: { modelName: 'gpt-4.1' } })).toBe(false)
         expect(() =>
             assertRequiredModelCredential(requiredChat, { label: 'OpenAI', inputs: { openAIApiKey: 'not-a-real-key' } })

@@ -699,7 +699,7 @@ export function credentialIsOptional(definition?: { optional?: boolean | object 
     return definition?.optional === true
 }
 
-const INPUT_SECRET_KEY = /api[_-]?key|access[_-]?token|secret(?:key)?$/i
+const INPUT_SECRET_KEY = /api[_-]?(?:key|token)|(?:access|bearer)[_-]?token|secret(?:key)?$/i
 
 /**
  * Override config and some tests put the provider key on the node inputs instead of selecting a stored credential.
