@@ -137,15 +137,15 @@ More about the local account: [Sign in](./sign-in.md).
 
 ## Troubleshooting
 
-| You see                                                    | What to do                                                                                                                                                                                        |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The health check stays red                                 | Check the service logs. Usually the instance ran out of memory, or Postgres isn't reachable. A browser specialist starts Chromium on the same instance.                                           |
-| `Sign-in is not configured.`                               | On a server that already has accounts, `WORKOS_API_KEY` or `WORKOS_CLIENT_ID` is empty. A server with no account opens `/setup`. The setup code is in the service logs, on the line `Setup code`. |
-| WorkOS shows a redirect URI error                          | The redirect URI in WorkOS and `WORKOS_REDIRECT_URI` must match exactly, including `https://` and `/api/v1/auth/callback`.                                                                        |
-| `First-user setup is not available.`                       | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Fix it on the **Environment** page.                                                      |
-| A WorkOS variable is empty after you changed the Blueprint | Render asks for `sync: false` values only when the Blueprint is created. Set them on the **Environment** page.                                                                                    |
-| A Dashboard change to a variable came back after a sync    | The variable has a value in `render.yaml`, and the sync set it back. Change it in the file.                                                                                                       |
-| Analyst mode stops with a role error                       | `cuttlely-db` can't create roles. Set `CUTTLELY_POSTGRES_URL` to a separate database. See [Analyst database](#analyst-database).                                                                  |
-| Stored credentials stop working                            | `FLOWISE_SECRETKEY_OVERWRITE` changed. Put the original value back.                                                                                                                               |
+| You see                                                    | What to do                                                                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The health check stays red                                 | Check the service logs. Usually the instance ran out of memory, or Postgres isn't reachable. A browser specialist starts Chromium on the same instance. |
+| `Sign-in is not configured.`                               | No account opens `/setup`. The code is the log line `Setup code`. With accounts, set both WorkOS values on **Environment**.                             |
+| WorkOS shows a redirect URI error                          | The redirect URI in WorkOS and `WORKOS_REDIRECT_URI` must match exactly, including `https://` and `/api/v1/auth/callback`.                              |
+| `First-user setup is not available.`                       | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Fix it on the **Environment** page.            |
+| A WorkOS variable is empty after you changed the Blueprint | Render asks for `sync: false` values only when the Blueprint is created. Set them on the **Environment** page.                                          |
+| A Dashboard change to a variable came back after a sync    | The variable has a value in `render.yaml`, and the sync set it back. Change it in the file.                                                             |
+| Analyst mode stops with a role error                       | `cuttlely-db` can't create roles. Set `CUTTLELY_POSTGRES_URL` to a separate database. See [Analyst database](#analyst-database).                        |
+| Stored credentials stop working                            | `FLOWISE_SECRETKEY_OVERWRITE` changed. Put the original value back.                                                                                     |
 
 WorkOS setup field by field: [WorkOS AuthKit setup](../identity/workos-authkit-setup.md).

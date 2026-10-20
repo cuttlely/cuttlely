@@ -178,16 +178,16 @@ Field names and status codes are in [One-time links](../reference/auth-api.md#on
 
 ## Troubleshooting
 
-| You see                                                        | What to do                                                                                                                                       |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Sign-in is not configured.`                                   | Neither the local account nor WorkOS is on. Start the server with `CUTTLELY_LOCAL_ADMIN=true`, or set the WorkOS variables.                      |
-| `Invalid email or password.`                                   | Check the email. To set a new password, run `pnpm user --email` with that email.                                                                 |
-| `Too many sign-in attempts. Try again later.`                  | 10 failed tries in 15 minutes. Wait 15 minutes.                                                                                                  |
-| `Refusing to create a user while the local admin flag is off.` | Run `pnpm user` with `CUTTLELY_LOCAL_ADMIN=true`.                                                                                                |
-| `No account exists for ...`                                    | The install already has an owner, and the terminal only creates the first account. Use the owner's email to reset it, or add people with WorkOS. |
-| `Not Found` while creating the first account                   | An account already exists. Sign in instead.                                                                                                      |
-| `Open the setup link from the server log ...`                  | The setup code was missing or wrong. Run `docker compose logs cuttlely` and look for `Setup code`, or use `pnpm user`.                           |
-| `First-user setup is not available.` after WorkOS sign-in      | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Set it to your email and restart.       |
-| `You have a pending invite. Open the invite link from ...`     | You were invited and have not accepted yet. Open the invite link you were sent and select **Accept invite with WorkOS**.                         |
-| `This invite link is not valid. Ask for a new invite.`         | The link was already used, expired, replaced by a newer one, or revoked, or you signed in with a different email. Ask an admin for a new invite. |
-| After moving a Flowise `3.1.4` install you cannot sign in      | Passwords from that install are accepted (bcrypt). Sign in once, or reset the owner with `pnpm user --email you@example.com`.                    |
+| You see                                                            | What to do                                                                                                                                           |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Sign-in is not configured.`                                       | Neither the local account nor WorkOS is on. Start the server with `CUTTLELY_LOCAL_ADMIN=true`, or set the WorkOS variables.                          |
+| `Invalid email or password.`                                       | Check the email. To set a new password, run `pnpm user --email` with that email.                                                                     |
+| `Too many sign-in attempts. Try again later.`                      | 10 failed tries in 15 minutes. Wait 15 minutes.                                                                                                      |
+| `Refusing to create a user while the local admin flag is off.`     | Run `pnpm user` with `CUTTLELY_LOCAL_ADMIN=true`.                                                                                                    |
+| `No account exists for ...`                                        | The install already has an owner, and the terminal only creates the first account. Use the owner's email to reset it, or add people with WorkOS.     |
+| `Not Found` while creating the first account                       | An account already exists. Sign in instead.                                                                                                          |
+| `Open the setup link from the server log ...` on **Setup Account** | The setup code was missing or wrong. Look for `Setup code` in `docker compose logs cuttlely`, or create the first account with `pnpm user` this way. |
+| `First-user setup is not available.` after WorkOS sign-in          | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Set it to your email and restart.           |
+| `You have a pending invite. Open the invite link from ...`         | You were invited and have not accepted yet. Open the invite link you were sent and select **Accept invite with WorkOS**.                             |
+| `This invite link is not valid. Ask for a new invite.`             | The link was already used, expired, replaced by a newer one, or revoked, or you signed in with a different email. Ask an admin for a new invite.     |
+| After moving a Flowise `3.1.4` install you cannot sign in          | Passwords from that install are accepted (bcrypt). Sign in once, or reset the owner with `pnpm user --email you@example.com`.                        |
