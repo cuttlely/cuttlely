@@ -1,16 +1,30 @@
-// Forward only POST /api/v1/orchestrate/* to a local Cuttlely server. Used by the Orchestrate live test
+// Forward only Orchestrate and A2A routes to a local Cuttlely server. Used by the live test
 // so the tunnel never reaches the admin UI or any other route.
 import http from 'node:http'
 import { pathToFileURL } from 'node:url'
 
-const PREFIX = '/api/v1/orchestrate/'
-const PASS = ['authorization', 'x-api-key', 'x-ibm-thread-id', 'content-type']
+const ORCH_PREFIX = '/api/v1/orchestrate/'
+const A2A_PREFIX = '/api/v1/a2a/'
+const PASS = ['authorization', 'x-api-key', 'x-ibm-thread-id', 'content-type', 'accept']
+
+function allowed(method, path) {
+    if (method === 'POST' && path.startsWith(ORCH_PREFIX) && path.length > ORCH_PREFIX.length) return true
+    if (method === 'POST' && path.startsWith(A2A_PREFIX)) {
+        const rest = path.slice(A2A_PREFIX.length).split('?')[0]
+        return rest.length > 0 && !rest.includes('/')
+    }
+    if (method === 'GET' && path.startsWith(A2A_PREFIX)) {
+        const rest = path.slice(A2A_PREFIX.length).split('?')[0]
+        return /^[^/]+\/\.well-known\/agent-card\.json$/.test(rest)
+    }
+    return false
+}
 
 export function createOrchestrateProxy(target) {
     const dest = new URL(target)
     return http.createServer((req, res) => {
         const path = req.url || '/'
-        if (req.method !== 'POST' || !path.startsWith(PREFIX)) {
+        if (!allowed(req.method, path)) {
             res.statusCode = 404
             res.end()
             return
@@ -28,7 +42,7 @@ export function createOrchestrateProxy(target) {
                 hostname: dest.hostname,
                 port: dest.port,
                 path,
-                method: 'POST',
+                method: req.method,
                 headers
             },
             (up) => {

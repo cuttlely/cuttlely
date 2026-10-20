@@ -192,7 +192,7 @@ describe('orchestrate samples', () => {
         assert.match(demo, /7\s+\| Request \/ thread header[\s\S]*X-IBM-THREAD-ID/)
         assert.match(demo, /9\s+\| Follow-up in the same thread[\s\S]*X-IBM-THREAD-ID/)
         assert.match(demo, /thread=none/)
-        assert.match(demo, /Does not reach A2A/)
+        assert.match(demo, /forwards A2A/)
         assert.doesNotMatch(how, /!\[[^\]]*\]\([^)]+\)/)
         assert.doesNotMatch(demo, /!\[[^\]]*\]\([^)]+\)/)
         assert.ok(read('docs/README.md').includes('how-to/orchestrate.md'))

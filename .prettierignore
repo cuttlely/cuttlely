@@ -13,3 +13,6 @@ LICENSE.md
 
 # Canvas export kept at 2-space indent.
 samples/orchestrate/demo.chatflow.json
+
+# Vendored A2A v0.3.0 JSON Schema. Keep the upstream bytes.
+packages/server/src/services/a2a/__fixtures__/a2a-v0.3.0.json

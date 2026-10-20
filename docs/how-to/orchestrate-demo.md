@@ -15,7 +15,7 @@ How the routes work is [Call a chatflow from IBM watsonx Orchestrate](./orchestr
 | [`samples/orchestrate/demo.chatflow.json`](../../samples/orchestrate/demo.chatflow.json)             | Conversation Chain + xAI Grok + Buffer Memory. No credential id.                                                    |
 | [`samples/orchestrate/external-chat.agent.yaml`](../../samples/orchestrate/external-chat.agent.yaml) | IBM `external_chat` template (`name: cuttlely_orders`). Copy, fill in, import the copy. Never import the repo file. |
 | [`samples/orchestrate/a2a.agent.yaml`](../../samples/orchestrate/a2a.agent.yaml)                     | IBM A2A 0.3.0 template (`name: cuttlely_a2a_test`). Same copy-then-fill rule. Registration path is an open item.    |
-| [`scripts/orchestrate-live-proxy.mjs`](../../scripts/orchestrate-live-proxy.mjs)                     | Forwards only `POST /api/v1/orchestrate/*` to the local server. Does not reach A2A.                                 |
+| [`scripts/orchestrate-live-proxy.mjs`](../../scripts/orchestrate-live-proxy.mjs)                     | Forwards `POST /api/v1/orchestrate/*` and A2A (`GET` card and `POST /api/v1/a2a/<flow id>`) to the local server.    |
 
 Larkfield Home is a made-up home goods store. Known demo orders: LH-30112 walnut side table, arriving Oct 21; LH-30118 oak bookshelf, shipped, arriving Oct 23; LH-30125 linen throw, processing.
 
@@ -60,7 +60,7 @@ On Oct 19, 2026 conversation memory carried across turns: it remembered the cust
 
 **L4 Bad key refused.** Send a wrong key. Pass: no flow answer, log `status=401`, no new message in the flow's chat history. Restore the key; L2 passes again.
 
-A2A checks A1–A4 (register `cuttlely_a2a_test` / `cuttlely_a2a_router` / connection `cuttlely_a2a_key`, stream, `contextId` continuity, bad key) are **not yet tested** (open until the A2A live test). **Open item: A2A registration path** — do not state the UI or CLI path as fact. The live proxy in this runbook does not forward A2A (`GET` card or `POST /api/v1/a2a/*`); those checks need a tunnel that can reach A2A routes. A2A logs `context=`, not `thread=`, and never uses `X-IBM-THREAD-ID`. `[LIVE-TEST]`
+A2A checks A1–A4 (register `cuttlely_a2a_test` / `cuttlely_a2a_router` / connection `cuttlely_a2a_key`, stream, `contextId` continuity, bad key) are **not yet tested** (open until the A2A live test). **Open item: A2A registration path** — do not state the UI or CLI path as fact. The live proxy in this runbook forwards A2A (`GET` card and `POST /api/v1/a2a/<flow id>`) as well as Orchestrate `external_chat`. A2A logs `context=`, not `thread=`, and never uses `X-IBM-THREAD-ID`. `[LIVE-TEST]`
 
 ## Record
 

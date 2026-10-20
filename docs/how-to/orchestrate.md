@@ -20,7 +20,7 @@ People chat with `larkfield_router`. That native agent has `cuttlely_orders` as 
 
 You need:
 
--   A Cuttlely server that Orchestrate can reach (`$CUTTLELY_URL`). A local server needs a public HTTPS URL in front of it; the demo runbook starts `scripts/orchestrate-live-proxy.mjs` so the tunnel only forwards Orchestrate `external_chat` routes.
+-   A Cuttlely server that Orchestrate can reach (`$CUTTLELY_URL`). A local server needs a public HTTPS URL in front of it; the demo runbook starts `scripts/orchestrate-live-proxy.mjs` so the tunnel only forwards Orchestrate `external_chat` and A2A routes.
 -   A chatflow that already answers in the canvas chat. Its id is in the address bar and in **API Endpoint** (`</>`).
 -   An API key bound to that chatflow. A flow with no bound key is refused (`403` `keyless_flow`). `deployed` is not the gate; the bound key is, the same as [`POST /api/v1/prediction/:id`](../api.md#ask-a-chatflow).
 
@@ -95,7 +95,7 @@ A2A JSON-RPC errors use HTTP 200 with a JSON-RPC error object (`-32700` parse, `
 
 **Open item: A2A registration path.** How you register that agent in Orchestrate (the same **AI Gateway** → **Agent directory** → **Add agent** path, IBM's `orchestrate agents discover` CLI, or another IBM flow) is not confirmed. Do not treat any registration path as fact until the A2A live test. The `external_chat` UI path above is confirmed for `cuttlely_orders` only.
 
-The live `external_chat` proxy in the demo runbook forwards only `POST /api/v1/orchestrate/*`. It does not reach A2A routes.
+The live proxy in the demo runbook forwards `POST /api/v1/orchestrate/*` and A2A (`GET` card and `POST /api/v1/a2a/<flow id>`). A2A is not yet tested against a live Orchestrate tenant.
 
 ## MCP instead of an external agent
 
