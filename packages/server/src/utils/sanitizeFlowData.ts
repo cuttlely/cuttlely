@@ -18,10 +18,8 @@ const TOKEN_COUNT_WORD = /(token[_-]?limit|tokens)/gi
 const DECLARED_SECRET_NAME = /(credential|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret|passw)/i
 // Token-named declared inputs are dropped unless they hold a plain URL (accessTokenUrl, tokenUrl).
 const DECLARED_TOKEN_NAME = /token/i
-// Query or fragment parameter names that carry credentials inside a URL.
-const URL_SECRET_PARAM = /(token|key|secret|sig|passw)/i
-// Exact query or fragment parameter names that mark a URL as carrying a credential.
-const URL_CREDENTIAL_PARAM = /^(api[_-]?key|apikey|access[_-]?token|token|key|secret|password|sig|signature|client[_-]?secret)$/i
+// Query or fragment parameter names that carry credentials inside a URL (case-insensitive substring match).
+const URL_CREDENTIAL_PARAM = /(token|key|secret|sig|passw|auth|credential)/i
 // Declared inputs dropped by name alone.
 const DECLARED_AUTH_NAME = /^(authorization|auth)$/i
 
@@ -51,7 +49,7 @@ const isPlainUrl = (value: unknown): boolean => {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
     if (url.username || url.password) return false
     const params = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.replace(/^#/, '')).keys()]
-    return !params.some((name) => URL_SECRET_PARAM.test(name))
+    return !params.some((name) => URL_CREDENTIAL_PARAM.test(name))
 }
 
 /** Name rule for declared, non-password inputs; token-count words are ignored. */
@@ -87,7 +85,7 @@ const isSecretNestedName = (name: string): boolean => isSecretInputName(name) ||
 export const isSecretHeaderName = (name: string): boolean => SECRET_HEADER_NAME.test(name)
 
 const DROP = Symbol('drop')
-const HEADERS_KEY = /^headers$/i
+const HEADERS_KEY = /headers$/i
 
 /**
  * Removes credential-carrying header entries at every depth of a headers value: { key, value } pairs and object
@@ -117,6 +115,9 @@ const scrubHeaderTree = (value: unknown, depth = 0): unknown => {
         return out
     }
     if (value && typeof value === 'object') {
+        // A single { key, value } pair is judged like an array item.
+        const pairKey = (value as Record<string, unknown>).key
+        if (typeof pairKey === 'string' && isSecretHeaderName(pairKey)) return DROP
         const out: Record<string, unknown> = {}
         for (const [name, item] of Object.entries(value as Record<string, unknown>)) {
             if (name !== 'key' && name !== 'value' && isSecretHeaderName(name)) continue
@@ -168,6 +169,9 @@ const scrubValue = (value: unknown, depth = 0): unknown => {
         return out
     }
     if (value && typeof value === 'object') {
+        // A single { key, value } pair is judged like an array item.
+        const pairKey = (value as Record<string, unknown>).key
+        if (typeof pairKey === 'string' && (isSecretNestedName(pairKey) || isSecretHeaderName(pairKey))) return DROP
         const out: Record<string, unknown> = {}
         for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
             // "key" here is the label of a { key, value } pair; the pair itself is checked in the array branch.
@@ -231,7 +235,7 @@ export const sanitizeNodeInputs = (
         const value = inputs[key]
         // Declared inputs still drop clear credential names (and token names unless the value is a plain URL).
         if (param ? isDeclaredSecretInput(key, value) : isSecretInputName(key)) continue
-        const kept = key === 'headers' && value ? sanitizeHeaders(value) : scrubSecrets(value)
+        const kept = HEADERS_KEY.test(key) && value ? sanitizeHeaders(value) : scrubSecrets(value)
         if (kept !== undefined) result[key] = kept
     }
     return result

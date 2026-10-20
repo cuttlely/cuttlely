@@ -533,6 +533,69 @@ describe('public config follow-up rules', () => {
         })
     })
 
+    describe('broader credential patterns', () => {
+        const params = [
+            { name: 'callbackUrl', type: 'string' },
+            { name: 'hookUrl', type: 'string' },
+            { name: 'docsUrl', type: 'string' },
+            { name: 'requestsGetHeaders', type: 'json' },
+            { name: 'headers', type: 'json' },
+            { name: 'extras', type: 'json' }
+        ] as any
+
+        it.each([
+            'https://example.com/cb?refresh_token=FAKE-URL-1',
+            'https://example.com/cb?X-Amz-Signature=FAKE-URL-2',
+            'https://example.com/cb?Auth=FAKE-URL-3',
+            'https://example.com/cb#client_credential=FAKE-URL-4',
+            'https://example.com/cb?userPassword=FAKE-URL-5',
+            'https://example.com/cb?subscriptionKey=FAKE-URL-6',
+            'https://user:pw@example.com/cb'
+        ])('drops a URL carrying a credential parameter: %s', (url) => {
+            expect(sanitizeNodeInputs({ callbackUrl: url }, params)).toEqual({})
+            expect(sanitizeNodeInputs({ extras: { url } }, params)).toEqual({ extras: {} })
+        })
+
+        it('keeps URLs with ordinary query parameters', () => {
+            const docsUrl = 'https://example.com/search?q=cakes&page=2&sort=asc&lang=en#results'
+            expect(sanitizeNodeInputs({ docsUrl, hookUrl: 'https://example.com/hook?id=7' }, params)).toEqual({
+                docsUrl,
+                hookUrl: 'https://example.com/hook?id=7'
+            })
+        })
+
+        it('applies the header-name rule to any input ending in headers', () => {
+            const result = sanitizeNodeInputs(
+                {
+                    requestsGetHeaders: { 'X-Custom-Auth': 'FAKE-HDR-1', Accept: 'application/json' },
+                    extras: { proxyHeaders: { 'X-Session-Id': 'FAKE-HDR-2', 'X-Trace': 't1' } }
+                },
+                params
+            )
+            expect(result).toEqual({ requestsGetHeaders: { Accept: 'application/json' }, extras: { proxyHeaders: { 'X-Trace': 't1' } } })
+        })
+
+        it('checks a single { key, value } object like an array item', () => {
+            expect(sanitizeNodeInputs({ headers: { key: 'X-Custom-Auth', value: 'FAKE-PAIR-1' } }, params)).toEqual({})
+            expect(sanitizeNodeInputs({ extras: { key: 'apiKey', value: 'FAKE-PAIR-2' } }, params)).toEqual({})
+            expect(sanitizeNodeInputs({ extras: { nested: { key: 'X-Custom-Auth', value: 'FAKE-PAIR-3' }, ok: 1 } }, params)).toEqual({
+                extras: { ok: 1 }
+            })
+            expect(sanitizeNodeInputs({ headers: { key: 'Accept', value: 'text/plain' } }, params)).toEqual({
+                headers: { key: 'Accept', value: 'text/plain' }
+            })
+        })
+
+        it('drops credential URLs from public display fields and keeps ordinary ones', () => {
+            const display = publicChatbotDisplayConfig({
+                titleAvatarSrc: 'https://img.example/a.png?refresh_token=FAKE-DISP-URL',
+                welcomeMessage: 'https://example.com/help?q=hours&page=1',
+                botMessage: { avatarSrc: 'https://img.example/b.png?X-Amz-Signature=FAKE-DISP-SIG' }
+            })
+            expect(display).toEqual({ welcomeMessage: 'https://example.com/help?q=hours&page=1', botMessage: {} })
+        })
+    })
+
     it('keeps a prompt that mentions Bearer but drops a real bearer token', () => {
         expect(looksLikeSecretValue('Send it as Bearer x in the header')).toBe(false)
         expect(looksLikeSecretValue('Bearer abcdefghijABCDEFGHIJ0123')).toBe(true)
