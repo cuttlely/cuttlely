@@ -6,6 +6,7 @@ Bakery outputs on this page come from real runs against a local Cuttlely server 
 
 -   [Before you start](#before-you-start)
 -   [Create an API key](#create-an-api-key)
+-   [Create a key from a script](#create-a-key-from-a-script)
 -   [Ask a chatflow](#ask-a-chatflow)
 -   [Call a chatflow from Orchestrate](#call-a-chatflow-from-orchestrate)
 -   [MCP endpoint](#mcp-endpoint)
@@ -63,6 +64,38 @@ To check a key without asking a flow, send it in the same header to `GET /api/v1
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/verify/apikey" -H "Authorization: Bearer $CUTTLELY_API_KEY"
 ```
+
+## Create a key from a script
+
+On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=true`, see [Build from source](./how-to/from-source.md)), you can set up without the UI.
+
+1. Create the owner account. Type the password at the prompt:
+
+    ```bash
+    CUTTLELY_LOCAL_ADMIN=true pnpm user --email you@example.com
+    ```
+
+2. Sign in and keep the session cookie. The `x-request-from: internal` header is required. Without it, sign-in answers `401 {"message":"Unauthorized"}` even when the password is right. If the server isn't running with `CUTTLELY_LOCAL_ADMIN=true`, the route answers 404.
+
+    ```bash
+    curl -s -c cookies.txt "$CUTTLELY_URL/api/v1/auth/login" \
+      -H 'x-request-from: internal' \
+      -H 'Content-Type: application/json' \
+      -d "{\"email\":\"you@example.com\",\"password\":\"$CUTTLELY_PASSWORD\"}"
+    ```
+
+3. Create the key with that session. `permissions` must list at least one permission:
+
+    ```bash
+    curl -s -b cookies.txt "$CUTTLELY_URL/api/v1/apikey" \
+      -H 'x-request-from: internal' \
+      -H 'Content-Type: application/json' \
+      -d '{"keyName":"Bakery script","permissions":["chatflows:view"]}'
+    ```
+
+    The answer lists your keys. The new one includes its `apiKey` in plain text. That's the only time you see it, so store it as `$CUTTLELY_API_KEY`. To let the key run harnesses, add `"harnesses": ["<harness name>"]` (see [Let the key run the harness](#let-the-key-run-the-harness)).
+
+Then bind the key to a flow in **API Endpoint**, as in [Create an API key](#create-an-api-key). Delete `cookies.txt` when you're done.
 
 ## Ask a chatflow
 
