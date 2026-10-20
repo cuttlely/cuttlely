@@ -244,6 +244,11 @@
             "reason": "the test mounts the inherited verify router to check the API-key routes"
         },
         {
+            "from": "packages/server/src/controllers/chatflows/publicChatflow.test.ts",
+            "to": "packages/server/src/controllers/chatflows/index.ts",
+            "reason": "tests for inherited public config endpoints and template saving"
+        },
+        {
             "from": "packages/server/src/controllers/demo/index.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
@@ -1036,6 +1041,16 @@
             "from": "packages/server/src/services/harnesses/schedules.ts",
             "to": "packages/server/src/utils/logger.ts",
             "reason": "The harness scheduler logs each due time with the shared server logger, and the Schedule card uses the shared permission button and role check like the harness page beside it."
+        },
+        {
+            "from": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
+            "to": "packages/server/src/services/chatflows/index.ts",
+            "reason": "tests for inherited public config endpoints and template saving"
+        },
+        {
+            "from": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
+            "to": "packages/server/src/services/marketplaces/index.ts",
+            "reason": "tests for inherited public config endpoints and template saving"
         },
         {
             "from": "packages/server/src/services/orchestrate/ibmEncoder.ts",
