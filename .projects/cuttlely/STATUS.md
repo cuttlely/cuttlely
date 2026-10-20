@@ -1,6 +1,6 @@
 # Status
 
-Last refreshed 2026-10-20. Check `git log origin/main` for anything newer. The 1.3.1 Unreleased notes include the aiohttp 3.14.4 and ajv 8.18.0 pins. Main includes the Orchestrate `external_chat` route (D101) and the pronunciation note. After the merge of `main`, `.gitattributes` is core-shared, so it is off the inherited-files list. The home hero import link on this branch reads Already have flows? Bring them over (D102). The live tenant check in the architect's section 2.12 is not part of this change.
+Last refreshed 2026-10-20. Check `git log origin/main` for anything newer. The 1.3.1 Unreleased notes include the aiohttp 3.14.4 and ajv 8.18.0 pins. Main includes the Orchestrate `external_chat` route (D101), A2A 0.3.0 send/stream/cancel (D103; shipped, not yet tested live with Orchestrate), and the pronunciation note. After the merge of `main`, `.gitattributes` is core-shared, so it is off the inherited-files list. The home hero import link on this branch reads Already have flows? Bring them over (D102). Main also has the Orchestrate how-to, Larkfield Home orders demo samples, and a checked-in pull request banned-phrase check on `edited` (D104).
 
 ## What works on `main`
 

@@ -1,0 +1,20 @@
+# Copy this file, replace YOUR_HOST, YOUR_FLOW_ID and <API_KEY>, then import the copy.
+# Do not import this repository file into Orchestrate: the placeholders are not a working agent.
+spec_version: v1
+kind: external
+name: cuttlely_orders
+title: Cuttlely orders
+nickname: cuttlely_orders
+provider: external_chat
+description: Cuttlely chatflow Larkfield Home orders
+tags:
+    - cuttlely
+api_url: 'https://YOUR_HOST/api/v1/orchestrate/YOUR_FLOW_ID'
+auth_scheme: API_KEY
+auth_config:
+    token: '<API_KEY>'
+chat_params:
+    stream: true
+config:
+    hidden: false
+    enable_cot: false
