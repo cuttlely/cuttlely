@@ -253,8 +253,8 @@ export function checkSite(dist, { csp = null } = {}) {
     if (!home.includes('href="/flowise/"')) {
         problems.push('index.html: missing href="/flowise/"')
     }
-    if (!home.includes('Coming from Flowise?')) {
-        problems.push('index.html: missing "Coming from Flowise?"')
+    if (!home.includes('Already have flows? Bring them over')) {
+        problems.push('index.html: missing Already have flows? Bring them over home link')
     }
     const flowiseFile = path.join(dist, 'flowise/index.html')
     if (fs.existsSync(flowiseFile)) {
