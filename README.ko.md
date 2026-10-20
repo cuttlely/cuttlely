@@ -210,6 +210,8 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
     이 명령은 `ghcr.io/cuttlely/cuttlely`를 가져오고, 준비되면 [http://localhost:43117](http://localhost:43117)을 엽니다. `stop`, `status`, `logs`, `upgrade`는 [npm으로 설치하기](./docs/how-to/docker.md#install-with-npm)에 있습니다.
 
+    Docker가 없다면 Node 24로 [소스에서 빌드하기](./docs/how-to/from-source.md)를 사용할 수 있습니다(`.nvmrc`는 24.15.0으로 고정되어 있습니다).
+
 2. 실행되면 서버가 일회용 설정 링크를 출력합니다. 다음 명령으로 확인합니다.
 
     ```bash
