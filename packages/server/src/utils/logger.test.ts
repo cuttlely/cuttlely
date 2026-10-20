@@ -436,6 +436,30 @@ describe('logger.ts', () => {
             expressRequestLogger(req, {} as any, next)
             expect(next).toHaveBeenCalled()
         })
+
+        it('always redacts Authorization, X-API-Key, and X-IBM-THREAD-ID in the debug request log', () => {
+            process.env.DEBUG = 'true'
+            delete process.env.LOG_SANITIZE_HEADER_FIELDS
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            const req = {
+                url: '/api/v1/orchestrate/flow-1',
+                method: 'POST',
+                params: {},
+                body: { messages: [{ role: 'user', content: 'Hi' }] },
+                query: {},
+                headers: {
+                    authorization: 'Bearer bakery-orchestrate-key',
+                    'x-api-key': 'bakery-orchestrate-key',
+                    'x-ibm-thread-id': 'Ada-thread-01'
+                }
+            } as any
+            expressRequestLogger(req, {} as any, next)
+            const logged = JSON.stringify(infoSpy.mock.calls)
+            expect(logged).not.toContain('bakery-orchestrate-key')
+            expect(logged).not.toContain('Ada-thread-01')
+            expect(logged).toContain('[redacted]')
+            infoSpy.mockRestore()
+        })
     })
 
     describe('exports', () => {

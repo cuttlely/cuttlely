@@ -166,4 +166,13 @@ describe('API key gate on the real API router', () => {
         expect(res.status).toBe(401)
         expect(mockNim.preload).not.toHaveBeenCalled()
     })
+
+    it('keeps the Orchestrate prefix public so the route answers, not the session gate', async () => {
+        const res = await app()
+            .post('/api/v1/orchestrate/11111111-1111-4111-8111-111111111111')
+            .set('Content-Type', 'application/json')
+            .send({ messages: [{ role: 'user', content: 'Hi' }] })
+        expect(res.body).not.toEqual({ error: 'Unauthorized Access' })
+        expect(res.body.error).toEqual(expect.objectContaining({ code: expect.any(String) }))
+    })
 })
