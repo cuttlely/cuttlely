@@ -18,7 +18,7 @@
 import crypto from 'crypto'
 import { cookiePasswordOk, localAdminEnabled, workosConfigured } from './constants'
 
-// A fresh install with no account accepts Setup Account from this machine (loopback). Through Docker's published
+// A fresh install with no account accepts the first account from this machine (loopback). Through Docker's published
 // port the request comes from the container network instead, so the server prints a one-time link with this code
 // in its log. The code lives in memory only, changes on every start, and is useless once the first account exists.
 let code: string | undefined
@@ -38,8 +38,22 @@ export function setupCodeMatches(candidate: unknown): boolean {
     return given.length === expected.length && crypto.timingSafeEqual(given, expected)
 }
 
-export function firstRunSetupLink(port: number | string): string {
-    return `http://localhost:${port}/organization-setup?code=${firstRunSetupCode()}`
+const SERVICE_NAME = /^[A-Za-z0-9_.-]+$/
+
+/** Compose service name for the setup-code help line. A bad value falls back to the published service name. */
+export function setupServiceName(env: NodeJS.ProcessEnv = process.env): string {
+    const raw = (env.CUTTLELY_SERVICE_NAME ?? '').trim()
+    if (raw && raw.length <= 64 && SERVICE_NAME.test(raw)) return raw
+    return 'cuttlely'
+}
+
+/** One address for the setup page. The code rides in the fragment, so the browser does not send it. */
+export function setupPageLink(port: number | string, env: NodeJS.ProcessEnv = process.env): string {
+    return `${publicOrigin(port, env)}/setup#code=${encodeURIComponent(firstRunSetupCode())}`
+}
+
+export function firstRunSetupLink(port: number | string, env: NodeJS.ProcessEnv = process.env): string {
+    return setupPageLink(port, env)
 }
 
 /** The setup link has been used. Its code stops working at once. */
@@ -77,17 +91,36 @@ export function publicOrigin(port: number | string, env: NodeJS.ProcessEnv = pro
     return `http://localhost:${port}`
 }
 
-/** The one-time link that opens Sign-in & identity when no sign-in method is on. */
+/** The one-time link that opens setup when no sign-in method is on. Same address as the local-admin link. */
 export function serverSetupLink(port: number | string, env: NodeJS.ProcessEnv = process.env): string {
-    return `${publicOrigin(port, env)}/server-setup?code=${firstRunSetupCode()}`
+    return setupPageLink(port, env)
 }
 
+export const SETUP_READY_REPRINT_MS = 5 * 60 * 1000
+
+const READY_RULE = '─'.repeat(62)
+
+/** The ready block printed while the first account still has to be created. */
+export function setupReadyBlock(port: number | string, env: NodeJS.ProcessEnv = process.env): string[] {
+    const code = firstRunSetupCode()
+    const link = `${publicOrigin(port, env)}/setup#code=${encodeURIComponent(code)}`
+    return [
+        READY_RULE,
+        '✅ Cuttlely is ready — finish setup:',
+        `   ${link}      ← open on this machine`,
+        `   Setup code: ${code}   (valid 60 min, works once)`,
+        `   Remote/Docker? Open http://<your-host>:${port}/setup and paste the code.`,
+        READY_RULE
+    ]
+}
+
+export type FirstRunAnnounce = 'setup' | 'recover' | 'none'
+
 /**
- * On a fresh install with no account yet, prints where to start. With the local account on, the link creates the
- * first account. With no sign-in method at all (for example Render without AuthKit), the link opens only
- * Sign-in & identity, works once, and stops working when the first account exists. Either link carries the
- * one-time code, so it also works through Docker's published port. When accounts exist but no sign-in method is on,
- * it prints how to turn one back on instead.
+ * On a fresh install with no account yet, prints the ready block (the link and the setup code). With the local
+ * account on, that link creates the first account. With no sign-in method at all (for example Render without
+ * AuthKit), the same link opens the sign-in choice. When accounts exist but no sign-in method is on, it prints how
+ * to turn one back on instead, and does not print a code.
  */
 export async function announceFirstRunSetup(
     port: number | string,
@@ -95,20 +128,41 @@ export async function announceFirstRunSetup(
     log: (line: string) => void,
     localAdmin: boolean,
     env: NodeJS.ProcessEnv = process.env
-): Promise<boolean> {
-    if (!localAdmin && !noSignInMethod(env)) return false
+): Promise<FirstRunAnnounce> {
+    if (!localAdmin && !noSignInMethod(env)) return 'none'
     if ((await countUsers()) > 0) {
-        if (localAdmin) return false
+        if (localAdmin) return 'none'
         // Accounts exist but nothing lets them in, for example a .env that lost CUTTLELY_LOCAL_ADMIN. Say how to get back.
         log(
             '🔑 [server]: No sign-in method is on, so nobody can sign in. Turn on the password sign-in (CUTTLELY_LOCAL_ADMIN=true) or AuthKit on the host, then restart.'
         )
-        return true
+        return 'recover'
     }
-    if (localAdmin) {
-        log(`👋 [server]: No account yet. Open ${firstRunSetupLink(port)} to create yours.`)
-        return true
-    }
-    log(`🔑 [server]: No sign-in method is on yet. Open ${serverSetupLink(port, env)} to set one up. The link works once.`)
-    return true
+    for (const line of setupReadyBlock(port, env)) log(line)
+    return 'setup'
+}
+
+/**
+ * Prints the ready block again every few minutes while setup is still open, so later warnings do not hide it.
+ * Stops once announce is no longer the setup block. Returns a function that stops the reminder.
+ */
+export function watchFirstRunSetup(
+    port: number | string,
+    countUsers: () => Promise<number>,
+    log: (line: string) => void,
+    localAdmin: boolean,
+    env: NodeJS.ProcessEnv = process.env,
+    everyMs: number = SETUP_READY_REPRINT_MS
+): () => void {
+    const timer = setInterval(() => {
+        announceFirstRunSetup(port, countUsers, log, localAdmin, env)
+            .then((kind) => {
+                if (kind !== 'setup') clearInterval(timer)
+            })
+            .catch(() => {
+                // A reminder that fails stays quiet. The next interval tries again.
+            })
+    }, everyMs)
+    timer.unref?.()
+    return () => clearInterval(timer)
 }

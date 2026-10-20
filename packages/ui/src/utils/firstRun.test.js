@@ -21,7 +21,7 @@ describe('first-run GitHub step', () => {
     })
 
     test('setup goes straight into the app, not to the GitHub page', () => {
-        const setup = fs.readFileSync(path.join(__dirname, '../views/organization/index.jsx'), 'utf8')
+        const setup = fs.readFileSync(path.join(__dirname, '../views/serversetup/index.jsx'), 'utf8')
         expect(setup).not.toContain('GITHUB_STEP_PATH')
         expect(setup).toContain('navigate(nextAfterSetup({ next: location.state?.path }), { replace: true })')
     })

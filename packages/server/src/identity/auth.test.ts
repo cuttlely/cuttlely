@@ -819,7 +819,8 @@ describe('identity auth', () => {
     it('resolve follows WorkOS, break-glass, and existing users', async () => {
         const empty = new MemoryStore()
         expect(json(await handleResolve(ctx({ workosConfigured: true, store: empty }))).body).toEqual({ redirectUrl: '/signin' })
-        expect(json(await handleResolve(ctx({ localAdmin: true, store: empty }))).body).toEqual({ redirectUrl: '/organization-setup' })
+        expect(json(await handleResolve(ctx({ localAdmin: true, store: empty }))).body).toEqual({ redirectUrl: '/setup' })
+        expect(json(await handleResolve(ctx({ store: new MemoryStore() }))).body).toEqual({ redirectUrl: '/setup' })
         const populated = new MemoryStore()
         populated.add(
             { id: 'user-1', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential: null },
@@ -852,6 +853,8 @@ describe('identity auth', () => {
         )
         expect(created.status).toBe(200)
         expect(created.body.id).toBe('user-1')
+        expect(created.body.email).toBe('owner@example.com')
+        expect(created.cookies?.[0]).toMatchObject({ name: 'cuttlely-local-session', options: { httpOnly: true } })
         expect(JSON.stringify(created.body)).not.toContain(GOOD)
         expect(await store.findSuperUser()).toEqual(expect.objectContaining({ email: 'owner@example.com' }))
         expect(
@@ -982,9 +985,9 @@ describe('identity auth', () => {
         // No code has been made yet, so nothing matches, not even an empty string.
         expect(json(await remote({ user, setupCode: '' })).status).toBe(400)
 
-        const link = firstRunSetupLink(43117)
-        const code = new URL(link).searchParams.get('code') as string
-        expect(link.startsWith('http://localhost:43117/organization-setup?code=')).toBe(true)
+        const link = firstRunSetupLink(43117, {})
+        const code = new URLSearchParams(new URL(link).hash.slice(1)).get('code') as string
+        expect(link.startsWith('http://localhost:43117/setup#code=')).toBe(true)
         expect(code.length).toBeGreaterThanOrEqual(16)
         expect(json(await remote({ user, setupCode: code.slice(1) })).status).toBe(400)
         expect(json(await remote({ user, setupCode: ['x'] })).status).toBe(400)
@@ -1020,11 +1023,13 @@ describe('identity auth', () => {
             WORKOS_CLIENT_ID: 'client_obviously_fake_0000',
             WORKOS_COOKIE_PASSWORD: 'x'.repeat(40)
         } as NodeJS.ProcessEnv
-        expect(await announceFirstRunSetup(43117, async () => 0, log, false, authKitOn)).toBe(false)
-        expect(await announceFirstRunSetup(43117, async () => 1, log, true)).toBe(false)
+        expect(await announceFirstRunSetup(43117, async () => 0, log, false, authKitOn)).toBe('none')
+        expect(await announceFirstRunSetup(43117, async () => 1, log, true)).toBe('none')
         expect(lines).toEqual([])
-        expect(await announceFirstRunSetup(43117, async () => 0, log, true)).toBe(true)
-        expect(lines).toEqual([expect.stringContaining(firstRunSetupLink(43117))])
+        expect(await announceFirstRunSetup(43117, async () => 0, log, true, {})).toBe('setup')
+        expect(lines.join('\n')).toContain(firstRunSetupLink(43117, {}))
+        expect(lines.join('\n')).toContain('works once')
+        expect(lines.join('\n')).toContain('/setup#code=')
         resetFirstRunSetupCode()
     })
 
@@ -1039,7 +1044,7 @@ describe('identity auth', () => {
                 false,
                 {} as NodeJS.ProcessEnv
             )
-        ).toBe(true)
+        ).toBe('recover')
         expect(lines).toHaveLength(1)
         expect(lines[0]).toContain('nobody can sign in')
         expect(lines[0]).toContain('CUTTLELY_LOCAL_ADMIN=true')

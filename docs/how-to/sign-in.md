@@ -14,19 +14,21 @@ The password form shows only when the server runs with `CUTTLELY_LOCAL_ADMIN=tru
 | Docker      | On. The start script turns it on for Docker when it is unset or blank. Set `CUTTLELY_LOCAL_ADMIN=false` in `.env`, then `docker compose up -d`, when you use WorkOS or publish the port beyond your machine. |
 | Render      | Off. Set it in the Dashboard only to recover the account, then remove it.                                                                                                                                    |
 
-With the flag off and no WorkOS, the sign-in page says `Sign-in is not configured.`
+With the flag off and no WorkOS, the sign-in page says `Sign-in is not configured.` A server with no account opens `/setup` instead of leaving you there. When accounts already exist, that page also says how to turn a sign-in method back on.
 
 ![The Sign In page. Under the Cuttlely logo and the Sign In title, the only line is Sign-in is not configured.](../images/sign-in/signin-not-configured.png)
 
 ### When nobody can sign in yet
 
-A server with no account, the password sign-in off and no AuthKit (for example Render without the WorkOS values) prints a one-time setup link when it starts:
+A server with no account, the password sign-in off and no AuthKit (for example Render without the WorkOS values) prints a ready block when it starts. The link uses Render's public address, or `APP_URL` when it is set, and the code is in the fragment:
 
 ```text
-2026-10-09 12:00:00 [INFO]: 🔑 [server]: No sign-in method is on yet. Open https://your-service.onrender.com/server-setup?code=... to set one up. The link works once.
+2026-10-09 12:00:00 [INFO]: ✅ Cuttlely is ready — finish setup:
+2026-10-09 12:00:00 [INFO]:    https://your-service.onrender.com/setup#code=madeupcode000001      ← open on this machine
+2026-10-09 12:00:00 [INFO]:    Setup code: madeupcode000001   (valid 60 min, works once)
 ```
 
-The link uses Render's public address, or `APP_URL` when it is set. It opens only **Sign-in & identity**, with two choices:
+The page reads the code, then removes it from the address. It opens **Sign-in & identity**, with two choices:
 
 -   **Use a password for now** creates the owner account and turns the password sign-in on.
 -   **Set up AuthKit** runs the same four steps as Server settings. The owner email is required, and the test sign-in must use it. Nothing is saved until the test passes.
@@ -53,21 +55,22 @@ The first account is the owner, shown as **Super User**. You can create it in th
 
 ### In the browser
 
-On a new install with the flag on, opening the app shows **Setup Account**. Fill in the name, email, and password, then select **Sign Up**. The page is pictured in [From source](./from-source.md#in-the-browser).
+On a new install, opening the app goes to `/setup`. Open the link in the ready block, or paste the setup code. The account form appears only after the code is accepted. Fill in your name, email, and password, then select **Create account**. The page is pictured in [From source](./from-source.md#in-the-browser).
 
-From the machine where Cuttlely runs, for example a from-source install opened at `localhost`, that is all. Through Docker's published port the request doesn't come from that machine, so open the setup link the server prints when it starts with no account:
+Show the block with:
 
 ```bash
-docker compose logs cuttlely | grep "No account yet"
+docker compose logs cuttlely | grep "Setup code"
 ```
 
 ```text
-2026-10-09 12:00:00 [INFO]: 👋 [server]: No account yet. Open http://localhost:43117/organization-setup?code=... to create yours.
+2026-10-09 12:00:00 [INFO]:    http://localhost:43117/setup#code=madeupcode000001      ← open on this machine
+2026-10-09 12:00:00 [INFO]:    Setup code: madeupcode000001   (valid 60 min, works once)
 ```
 
-The code in the link is new on every start and stops working once the first account exists. Without it, **Sign Up** through the published port says `Open the setup link from the server log to create the first account.`
+The code is new on every start and stops working once the first account exists. The same link works through Docker's published port: open it on that host, or open `/setup` and paste the code. Without the code, the form does not appear.
 
-After **Sign Up** you are signed in and land in Cuttlely. Keeping a copy in GitHub is optional and waits in **Version History**; see [Right after setup](./versioning.md#right-after-setup).
+After **Create account** you are signed in and land in Cuttlely. Keeping a copy in GitHub is optional and waits in **Version History**; see [Right after setup](./versioning.md#right-after-setup).
 
 ### In a terminal
 
@@ -175,16 +178,16 @@ Field names and status codes are in [One-time links](../reference/auth-api.md#on
 
 ## Troubleshooting
 
-| You see                                                            | What to do                                                                                                                                           |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Sign-in is not configured.`                                       | Neither the local account nor WorkOS is on. Start the server with `CUTTLELY_LOCAL_ADMIN=true`, or set the WorkOS variables.                          |
-| `Invalid email or password.`                                       | Check the email. To set a new password, run `pnpm user --email` with that email.                                                                     |
-| `Too many sign-in attempts. Try again later.`                      | 10 failed tries in 15 minutes. Wait 15 minutes.                                                                                                      |
-| `Refusing to create a user while the local admin flag is off.`     | Run `pnpm user` with `CUTTLELY_LOCAL_ADMIN=true`.                                                                                                    |
-| `No account exists for ...`                                        | The install already has an owner, and the terminal only creates the first account. Use the owner's email to reset it, or add people with WorkOS.     |
-| `Error in registering account: Not Found` on **Setup Account**     | An account already exists. Sign in instead.                                                                                                          |
-| `Open the setup link from the server log ...` on **Setup Account** | You're not on the server itself, for example through Docker's published port. Open the link from `docker compose logs cuttlely`, or use `pnpm user`. |
-| `First-user setup is not available.` after WorkOS sign-in          | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Set it to your email and restart.           |
-| `You have a pending invite. Open the invite link from ...`         | You were invited and have not accepted yet. Open the invite link you were sent and select **Accept invite with WorkOS**.                             |
-| `This invite link is not valid. Ask for a new invite.`             | The link was already used, expired, replaced by a newer one, or revoked, or you signed in with a different email. Ask an admin for a new invite.     |
-| After moving a Flowise `3.1.4` install you cannot sign in          | Passwords from that install are accepted (bcrypt). Sign in once, or reset the owner with `pnpm user --email you@example.com`.                        |
+| You see                                                        | What to do                                                                                                                                       |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Sign-in is not configured.`                                   | Neither the local account nor WorkOS is on. Start the server with `CUTTLELY_LOCAL_ADMIN=true`, or set the WorkOS variables.                      |
+| `Invalid email or password.`                                   | Check the email. To set a new password, run `pnpm user --email` with that email.                                                                 |
+| `Too many sign-in attempts. Try again later.`                  | 10 failed tries in 15 minutes. Wait 15 minutes.                                                                                                  |
+| `Refusing to create a user while the local admin flag is off.` | Run `pnpm user` with `CUTTLELY_LOCAL_ADMIN=true`.                                                                                                |
+| `No account exists for ...`                                    | The install already has an owner, and the terminal only creates the first account. Use the owner's email to reset it, or add people with WorkOS. |
+| `Not Found` while creating the first account                   | An account already exists. Sign in instead.                                                                                                      |
+| `Open the setup link from the server log ...`                  | The setup code was missing or wrong. Run `docker compose logs cuttlely` and look for `Setup code`, or use `pnpm user`.                           |
+| `First-user setup is not available.` after WorkOS sign-in      | On an empty database, `CUTTLELY_BOOTSTRAP_EMAIL` is unset or doesn't match the email you signed in with. Set it to your email and restart.       |
+| `You have a pending invite. Open the invite link from ...`     | You were invited and have not accepted yet. Open the invite link you were sent and select **Accept invite with WorkOS**.                         |
+| `This invite link is not valid. Ask for a new invite.`         | The link was already used, expired, replaced by a newer one, or revoked, or you signed in with a different email. Ask an admin for a new invite. |
+| After moving a Flowise `3.1.4` install you cannot sign in      | Passwords from that install are accepted (bcrypt). Sign in once, or reset the owner with `pnpm user --email you@example.com`.                    |

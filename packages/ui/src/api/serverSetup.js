@@ -8,6 +8,8 @@ const client = axios.create({
     withCredentials: true
 })
 
+const hint = () => client.get('/hint')
+const begin = (code) => client.post('/begin', { code })
 const open = (code) => client.post('/open', { code })
 const getState = () => client.get('/state')
 const createOwner = (owner) => client.post('/owner', owner)
@@ -17,4 +19,4 @@ const startAuthKitTest = (values) => client.post('/authkit/test', { values })
 const authKitTestStatus = () => client.get('/authkit/test')
 const applyAuthKitTest = () => client.post('/authkit/apply', {})
 
-export default { open, getState, createOwner, checkAuthKit, startAuthKitTest, authKitTestStatus, applyAuthKitTest }
+export default { hint, begin, open, getState, createOwner, checkAuthKit, startAuthKitTest, authKitTestStatus, applyAuthKitTest }

@@ -2,7 +2,9 @@
 // the code from the link opens a short setup session, and the session only reaches Sign-in & identity. Everything
 // answers 410 once the link has been used, a sign-in method is on, or the first account exists.
 import express, { NextFunction, Request, Response } from 'express'
+import { localAdminEnabled } from '../../identity/constants'
 import { cookieMutationAllowed } from '../../identity/sessionGuard'
+import { firstRunSetupCodeRetired, noSignInMethod, setupCodeMatches, setupServiceName } from '../../identity/setupCode'
 import { Principal, applyAuthKitTest, authKitTestStatus, checkAuthKit, requestOrigin, startAuthKitTest } from '../../settings/authkit'
 import { TestInputError } from '../../settings/connection'
 import { SettingsError } from '../../settings/service'
@@ -58,6 +60,45 @@ router.use((req, res, next) => {
         return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Unauthorized' })
     }
     next()
+})
+
+const BAD_CODE_MESSAGE = 'This setup link is not right. Copy it again from the server log.'
+
+// Where to read the setup code, and whether setup is still open. The code itself stays in the server log.
+router.get('/hint', async (_req, res, next) => {
+    try {
+        const setup = deps()
+        const env = setup.service.env
+        const users = await setup.users().countUsers()
+        const open = users === 0 && !firstRunSetupCodeRetired() && (noSignInMethod(env) || localAdminEnabled(env))
+        res.json({ serviceName: setupServiceName(env), open })
+    } catch (error) {
+        next(error)
+    }
+})
+
+// Accepts the code from the fragment (or a pasted code) and says which step comes next.
+// The password-sign-in path does not open a settings session: the account call still checks the code.
+router.post('/begin', async (req, res, next) => {
+    try {
+        const setup = deps()
+        const env = setup.service.env
+        const users = await setup.users().countUsers()
+        if (users > 0 || firstRunSetupCodeRetired()) {
+            const reason = users > 0 ? 'has-account' : 'used'
+            return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE[reason] })
+        }
+        const code = (req.body as { code?: unknown })?.code
+        if (!setupCodeMatches(code)) return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
+        if (noSignInMethod(env)) {
+            openSetupSession(req, res)
+            return res.json({ next: 'choose' })
+        }
+        if (localAdminEnabled(env)) return res.json({ next: 'owner' })
+        return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE['signin-on'] })
+    } catch (error) {
+        next(error)
+    }
 })
 
 // The code from the link opens a setup session in this browser.

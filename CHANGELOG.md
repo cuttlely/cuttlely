@@ -18,6 +18,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   A new install opens one `/setup` page. The server prints a ready block with that link (`/setup#code=`) and a setup code, and prints the block again every five minutes while setup is still open. Docker and Render notes say where to read the code. Opening `/` with no account goes to `/setup`. The account form or the sign-in choice appears only after the code is accepted. Creating the owner signs that browser in on the same response.
 -   A2A stored tasks cap each question and answer at 64 KB (`A2A_TASK_TEXT_MAX_BYTES`, default 65536; a shorter cap than the `[truncated]` marker keeps the default), keep a 64 MB per-flow byte budget (`A2A_TASK_BYTES_PER_FLOW`) next to the 1000-task cap and shorten a just-finished answer if it would still exceed that budget, store the answer once, and mark the task failed when a queue subscription fails. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
 -   MCP `initialize` reports a Cuttlely server name (`cuttlely-<flow>` when the flow name has a usable slug, otherwise `cuttlely`). The name is lowercase `[a-z0-9-]`, at most 64 characters. Clients such as IBM watsonx Orchestrate show it in tool metadata.
 -   The README intro and the public FAQ note that Cuttlely is said like "cuddly".
@@ -29,6 +30,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   The setup page removes the code from the address as soon as it is read. A failed account call does not leave the page spinning, and a missing error body does not throw. The first-success toast names share via API or embed, hides after about 10 seconds, and records that it was shown only after it appears. The server log line is unchanged and is written after the run returns.
 -   MCP `POST /api/v1/mcp/:chatflowId` applies that flow's **Rate Limit** from Configuration.
 -   A2A, Orchestrate, and MCP JSON bodies over 1 MB are refused at that cap even though the global JSON parser uses the file-size limit (default 50 MB). A2A stays 413 `{ "error": { "code": "body_too_large" } }`; Orchestrate and MCP stay the global 413 body. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
 -   GET `/api/v1/mcp/:chatflowId` returns `405 Method Not Allowed` with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC error body, instead of the UI page. This server does not offer MCP server-initiated streams.

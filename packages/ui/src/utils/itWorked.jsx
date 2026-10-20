@@ -1,11 +1,14 @@
 import { Button } from '@mui/material'
 import { IT_WORKED_URL } from '@/store/constant'
+import { t } from '@/i18n'
 import { useSnackbar } from 'notistack'
 import { useCallback } from 'react'
 import { useConfig } from '@/store/context/ConfigContext'
 
 const SHOWN_KEY = 'cuttlely.itWorked.shown'
 const DISMISSED_KEY = 'cuttlely.itWorked.dismissed'
+export const IT_WORKED_HIDE_MS = 10000
+export const IT_WORKED_SHARE_EVENT = 'cuttlely-open-share'
 
 export const itWorkedUrl = IT_WORKED_URL
 
@@ -86,6 +89,57 @@ export function claimItWorkedShown(config, options) {
     return markItWorkedShown()
 }
 
+/**
+ * Shows the one-time toast. The shown marker is written only after enqueue succeeds.
+ * The share action asks the open canvas to open the API dialog. The star link is secondary.
+ */
+export function presentItWorked({ enqueueSnackbar, closeSnackbar, config, options }) {
+    if (!shouldShowItWorked(config, options)) return false
+    const key = Date.now() + Math.random()
+    enqueueSnackbar(t('itWorked.next'), {
+        key,
+        variant: 'info',
+        autoHideDuration: IT_WORKED_HIDE_MS,
+        action: (snackbarKey) => (
+            <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                    type='button'
+                    aria-label={t('itWorked.share')}
+                    style={{ color: 'white' }}
+                    onClick={() => {
+                        window.dispatchEvent(new Event(IT_WORKED_SHARE_EVENT))
+                        closeSnackbar(snackbarKey)
+                    }}
+                >
+                    {t('itWorked.share')}
+                </Button>
+                <a
+                    href={IT_WORKED_URL}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    aria-label='Star on GitHub (opens in a new tab)'
+                    style={{ color: 'white' }}
+                    onClick={() => closeSnackbar(snackbarKey)}
+                >
+                    {t('itWorked.star')}
+                </a>
+                <Button
+                    type='button'
+                    aria-label='Dismiss'
+                    style={{ color: 'white' }}
+                    onClick={() => {
+                        dismissItWorked()
+                        closeSnackbar(snackbarKey)
+                    }}
+                >
+                    {t('itWorked.dismiss')}
+                </Button>
+            </div>
+        )
+    })
+    return markItWorkedShown()
+}
+
 /** A stream toasts only when it produced a result and never saw error or abort. */
 export function shouldToastOnStreamEnd({ sawResult, sawError, sawAbort } = {}) {
     return Boolean(sawResult) && !sawError && !sawAbort
@@ -98,37 +152,11 @@ export function useItWorkedNotice() {
     const onSuccess = useCallback(() => {
         try {
             const settingsFailed = !loading && (!config || !Object.prototype.hasOwnProperty.call(config, 'IT_WORKED_DISABLED'))
-            if (!claimItWorkedShown(config, { configLoading: loading, configFailed: settingsFailed })) return
-            const key = Date.now() + Math.random()
-            enqueueSnackbar('It worked! If Cuttlely helped, a GitHub star helps others find it.', {
-                key,
-                variant: 'info',
-                persist: true,
-                action: (snackbarKey) => (
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        <a
-                            href={IT_WORKED_URL}
-                            target='_blank'
-                            rel='noopener noreferrer'
-                            aria-label='Star on GitHub (opens in a new tab)'
-                            style={{ color: 'white' }}
-                            onClick={() => closeSnackbar(snackbarKey)}
-                        >
-                            Star on GitHub
-                        </a>
-                        <Button
-                            type='button'
-                            aria-label='Dismiss'
-                            style={{ color: 'white' }}
-                            onClick={() => {
-                                dismissItWorked()
-                                closeSnackbar(snackbarKey)
-                            }}
-                        >
-                            Dismiss
-                        </Button>
-                    </div>
-                )
+            presentItWorked({
+                enqueueSnackbar,
+                closeSnackbar,
+                config,
+                options: { configLoading: loading, configFailed: settingsFailed }
             })
         } catch {
             // never throw into the chat path

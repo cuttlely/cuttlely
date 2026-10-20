@@ -391,10 +391,7 @@ export async function handleAuthKitTestCallback(deps: ServiceDeps, kit: AuthKitD
     const state = String(req.query.state ?? '')
     const record = tests.get(state)
     const back = (outcome: string) =>
-        res.redirect(
-            302,
-            record?.mode === 'setup' ? `/server-setup?authkit=${outcome}` : `/server-settings?section=signin&authkit=${outcome}`
-        )
+        res.redirect(302, record?.mode === 'setup' ? `/setup?authkit=${outcome}` : `/server-settings?section=signin&authkit=${outcome}`)
     if (!record) return back('expired')
     if (expired(record, kit.now())) {
         record.status = 'expired'

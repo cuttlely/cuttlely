@@ -118,26 +118,65 @@ describe('the setup link in the log', () => {
     it('is printed only when nobody can sign in, with the public address', async () => {
         const lines: string[] = []
         const log = (line: string) => lines.push(line)
-        expect(await announceFirstRunSetup(3000, async () => 0, log, false, env)).toBe(true)
-        expect(lines).toEqual([expect.stringContaining('https://rosas-bakery.example/server-setup?code=')])
-        expect(lines[0]).toContain(serverSetupLink(3000, env))
-        expect(lines[0]).toContain('The link works once.')
+        expect(await announceFirstRunSetup(3000, async () => 0, log, false, env)).toBe('setup')
+        const block = lines.join('\n')
+        expect(block).toContain('https://rosas-bakery.example/setup#code=')
+        expect(block).toContain(serverSetupLink(3000, env))
+        expect(block).toContain('works once')
         lines.length = 0
         // Accounts exist but nobody can sign in: no link (it would create nothing), only how to turn a method back on.
-        expect(await announceFirstRunSetup(3000, async () => 1, log, false, env)).toBe(true)
+        expect(await announceFirstRunSetup(3000, async () => 1, log, false, env)).toBe('recover')
         expect(lines).toEqual([expect.stringContaining('nobody can sign in')])
         expect(lines[0]).not.toContain('code=')
         lines.length = 0
         const authKitOn = { ...env, ...FAKE }
-        expect(await announceFirstRunSetup(3000, async () => 0, log, false, authKitOn)).toBe(false)
+        expect(await announceFirstRunSetup(3000, async () => 0, log, false, authKitOn)).toBe('none')
         expect(lines).toEqual([])
     })
 
     it('falls back to APP_URL, then this machine', () => {
         expect(serverSetupLink(3000, { APP_URL: 'https://flows.rosas-bakery.example/x' })).toMatch(
-            /^https:\/\/flows\.rosas-bakery\.example\/server-setup\?code=/
+            /^https:\/\/flows\.rosas-bakery\.example\/setup#code=/
         )
-        expect(serverSetupLink(3000, { APP_URL: 'not an address' })).toMatch(/^http:\/\/localhost:3000\/server-setup\?code=/)
+        expect(serverSetupLink(3000, { APP_URL: 'not an address' })).toMatch(/^http:\/\/localhost:3000\/setup#code=/)
+    })
+})
+
+describe('beginning setup', () => {
+    it('names the service and does not reveal the code', async () => {
+        env.CUTTLELY_SERVICE_NAME = 'bakery-web'
+        const hint = await request(server()).get('/api/v1/server-setup/hint')
+        expect(hint.status).toBe(200)
+        expect(hint.body).toEqual({ serviceName: 'bakery-web', open: true })
+        expect(JSON.stringify(hint.body)).not.toContain('code')
+        env.CUTTLELY_SERVICE_NAME = 'bad name'
+        expect((await request(server()).get('/api/v1/server-setup/hint')).body.serviceName).toBe('cuttlely')
+    })
+
+    it('opens the sign-in choice when no sign-in method is on', async () => {
+        const res = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: firstRunSetupCode() })
+        expect(res.status).toBe(200)
+        expect(res.body).toEqual({ next: 'choose' })
+        expect(String(res.headers['set-cookie'])).toContain('cuttlely-setup')
+        expect(String(res.headers['set-cookie'])).not.toContain(firstRunSetupCode())
+    })
+
+    it('opens the owner form when the password sign-in is already on, with no settings cookie', async () => {
+        env.CUTTLELY_LOCAL_ADMIN = 'true'
+        const res = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: firstRunSetupCode() })
+        expect(res.status).toBe(200)
+        expect(res.body).toEqual({ next: 'owner' })
+        expect(res.headers['set-cookie']).toBeUndefined()
+    })
+
+    it('lets a wrong code be tried again and closes once an account exists', async () => {
+        const wrong = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: 'not-the-code' })
+        expect(wrong.status).toBe(404)
+        expect(wrong.body.code).toBe('BAD_CODE')
+        created.push({ email: 'rosa@rosas-bakery.example', name: 'Rosa', credential: 'hash', externalId: null })
+        const closed = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: firstRunSetupCode() })
+        expect(closed.status).toBe(410)
+        expect(closed.body.code).toBe('SETUP_CLOSED')
     })
 })
 
@@ -256,7 +295,7 @@ describe('set up AuthKit from the link', () => {
         const testState = new URL(started.body.url).searchParams.get('state') as string
         const back = await agent.get('/api/v1/auth/callback').query({ state: testState, code: 'made-up-code' })
         expect(back.status).toBe(302)
-        expect(back.headers.location).toBe('/server-setup?authkit=done')
+        expect(back.headers.location).toBe('/setup?authkit=done')
         const status = await agent.get('/api/v1/server-setup/authkit/test')
         expect(status.body.status).toBe('passed')
         expect(status.body.steps.map((step: { label: string }) => step.label)).toContain('Becomes the owner')
@@ -287,7 +326,7 @@ describe('set up AuthKit from the link', () => {
         exchangeUser = { ...exchangeUser, email: 'rosa@rosas-bakery.example' }
         testState = new URL((await startTest(agent)).body.url).searchParams.get('state') as string
         const stranger = await request(server()).get('/api/v1/auth/callback').query({ state: testState, code: 'made-up-code' })
-        expect(stranger.headers.location).toBe('/server-setup?authkit=done')
+        expect(stranger.headers.location).toBe('/setup?authkit=done')
         status = await agent.get('/api/v1/server-setup/authkit/test')
         expect(status.body.status).toBe('failed')
         expect(readSettingsFile(dir, KEY).values.WORKOS_CLIENT_ID).toBeUndefined()

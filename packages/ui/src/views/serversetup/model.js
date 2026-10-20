@@ -1,16 +1,23 @@
-// The one-time setup page (/server-setup): what to show, and checks for the first account form.
+// The one-time setup page (/setup): what to show, and checks for the first account form.
+import { t } from '@/i18n'
 import { validatePassword } from '@/utils/validation'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** The message for a failed call: closed links and missing sessions say what to do next. */
+/** The message for a failed call. A wrong code can be tried again. A closed link cannot. */
 export function setupProblem(error) {
     const status = error?.response?.status
     const data = error?.response?.data ?? {}
     if (status === 410) return { closed: true, message: data.message || 'This setup link no longer works. Sign in instead.' }
-    if (status === 404 && data.code === 'BAD_CODE') return { closed: true, message: data.message }
+    if (status === 404 && data.code === 'BAD_CODE') return { closed: false, retry: true, message: data.message }
     if (status === 401) return { closed: true, message: data.message || 'Open the setup link from the server log again.' }
     return { closed: false, message: data.message || 'Something went wrong. Try again.' }
+}
+
+/** Where the setup page says to read the code. The service name comes from the server. */
+export function setupCodeHelp(serviceName) {
+    const service = String(serviceName || '').trim() || 'the service'
+    return t('setup.code.help').replaceAll('{service}', service)
 }
 
 /** Problems with the first account form, by field. Empty when it can be sent. */
@@ -30,9 +37,26 @@ export function fieldErrors(errors) {
     return Object.fromEntries((errors ?? []).map((error) => [error.key, error.message]))
 }
 
-/** Removes the code from the address bar once it has been used, so it isn't left in history or shared by mistake. */
+/** Removes the code from the query and the fragment, and keeps every other part of the address. */
 export function addressWithoutCode(href) {
     const url = new URL(href)
     url.searchParams.delete('code')
-    return `${url.pathname}${url.search}${url.hash}`
+    const hash = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : '')
+    hash.delete('code')
+    const hashText = hash.toString()
+    const search = url.searchParams.toString()
+    return `${url.pathname}${search ? `?${search}` : ''}${hashText ? `#${hashText}` : ''}`
+}
+
+/**
+ * Reads the setup code from the address and the address with that code removed.
+ * The fragment wins over a query code. This does not call the network.
+ */
+export function readSetupCode(href) {
+    const url = new URL(href)
+    const hash = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : '')
+    const fromHash = hash.get('code')
+    const fromQuery = url.searchParams.get('code')
+    const code = String(fromHash || fromQuery || '').trim()
+    return { code, href: addressWithoutCode(href) }
 }

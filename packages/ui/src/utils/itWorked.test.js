@@ -9,15 +9,21 @@ jest.mock('notistack', () => ({
     useSnackbar: () => ({ enqueueSnackbar: jest.fn(), closeSnackbar: jest.fn() })
 }))
 
+import fs from 'fs'
+import path from 'path'
+
 import {
     claimItWorkedShown,
     dismissItWorked,
     markItWorkedShown,
+    presentItWorked,
     setItWorkedStorageReader,
     setItWorkedStorageWriter,
     shouldShowItWorked,
     shouldToastOnStreamEnd,
-    itWorkedUrl
+    itWorkedUrl,
+    IT_WORKED_HIDE_MS,
+    IT_WORKED_SHARE_EVENT
 } from './itWorked'
 
 describe('itWorked UI helpers', () => {
@@ -113,6 +119,47 @@ describe('itWorked UI helpers', () => {
                 writable: true
             })
         }
+    })
+
+    test('does not mark the toast shown when display throws', () => {
+        const cfg = { IT_WORKED_DISABLED: false }
+        expect(() =>
+            presentItWorked({
+                enqueueSnackbar: () => {
+                    throw new Error('snackbar down')
+                },
+                closeSnackbar: () => undefined,
+                config: cfg,
+                options: {}
+            })
+        ).toThrow('snackbar down')
+        expect(localStorage.getItem('cuttlely.itWorked.shown')).toBe(null)
+        expect(shouldShowItWorked(cfg)).toBe(true)
+    })
+
+    test('names the next step, hides on its own, and marks shown only after display', () => {
+        const calls = []
+        const shown = presentItWorked({
+            enqueueSnackbar: (message, options) => calls.push({ message, options }),
+            closeSnackbar: () => undefined,
+            config: { IT_WORKED_DISABLED: false },
+            options: {}
+        })
+        expect(shown).toBe(true)
+        expect(calls[0].message).toBe('It worked! Next: share this flow via API / embed it →')
+        expect(calls[0].options.autoHideDuration).toBe(IT_WORKED_HIDE_MS)
+        expect(calls[0].options.persist).toBeUndefined()
+        expect(localStorage.getItem('cuttlely.itWorked.shown')).toBe('true')
+        const source = fs.readFileSync(path.join(__dirname, 'itWorked.jsx'), 'utf8')
+        expect(source).toContain(IT_WORKED_SHARE_EVENT)
+        expect(source).toContain('markItWorkedShown()')
+    })
+
+    test('the canvas listens for the share event', () => {
+        const header = fs.readFileSync(path.join(__dirname, '../views/canvas/CanvasHeader.jsx'), 'utf8')
+        expect(header).toContain(`'${IT_WORKED_SHARE_EVENT}'`)
+        expect(header).not.toContain("from '@/utils/itWorked'")
+        expect(header).not.toContain('from "./itWorked"')
     })
 
     test('stream toast only after a real result with no error or abort', () => {

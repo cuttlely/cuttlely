@@ -50,7 +50,7 @@ import { Telemetry } from './utils/telemetry'
 import { validateAPIKey } from './utils/validateKey'
 import { getCorsOptions, getIframeSecurityHeaders, sanitizeMiddleware, validateCorsConfig } from './utils/XSS'
 import { identityStore } from './identity/production'
-import { announceFirstRunSetup } from './identity/setupCode'
+import { announceFirstRunSetup, watchFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
 import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
@@ -393,6 +393,7 @@ function flowNodeNames(flowData: string): string[] {
 let serverApp: App | undefined
 let httpServer: http.Server | undefined
 let onInitFailed: (() => Promise<void> | void) | null = null
+let stopSetupReminder: (() => void) | undefined
 
 /** Called when initDatabase fails, before the server listens. The start command uses it for safe boot. */
 export function setInitFailureHandler(next: (() => Promise<void> | void) | null): void {
@@ -448,14 +449,36 @@ export async function start(): Promise<void> {
     server.listen(port, host, () => {
         logger.info(`⚡️ [server]: Cuttlely Server is listening at ${host ? 'http://' + host : ''}:${port}`)
         // Ready only when the start worked. A database that cannot be reached was logged by databaseHealthFor.
-        if (!serverApp?.initError) for (const line of readyBanner(port, host)) logger.info(line)
-        else if (database?.current().ok) logger.error('⚠️ [server]: Cuttlely started with the error above, so it is not ready.')
-        announceFirstRunSetup(
-            port,
-            () => identityStore().countUsers(),
-            (line) => logger.info(line),
-            localAdminEnabled()
-        ).catch((err) => logger.warn(`[server]: First-run setup check failed: ${err}`))
+        if (serverApp?.initError) {
+            if (database?.current().ok) logger.error('⚠️ [server]: Cuttlely started with the error above, so it is not ready.')
+        } else {
+            void (async () => {
+                const lines: string[] = []
+                let kind: 'setup' | 'recover' | 'none' = 'none'
+                try {
+                    kind = await announceFirstRunSetup(
+                        port,
+                        () => identityStore().countUsers(),
+                        (line) => lines.push(line),
+                        localAdminEnabled()
+                    )
+                } catch (err) {
+                    logger.warn(`[server]: First-run setup check failed: ${err}`)
+                }
+                if (kind === 'setup') {
+                    for (const line of lines) logger.info(line)
+                    stopSetupReminder = watchFirstRunSetup(
+                        port,
+                        () => identityStore().countUsers(),
+                        (line) => logger.info(line),
+                        localAdminEnabled()
+                    )
+                } else {
+                    for (const line of readyBanner(port, host)) logger.info(line)
+                    for (const line of lines) logger.info(line)
+                }
+            })()
+        }
         serverApp?.warmNodes().catch((err) => logger.warn(`[server]: Node warm-up failed: ${err}`))
         harnessesService.startHarnessRuntime()
         harnessesService.warmHarnesses()
@@ -474,6 +497,8 @@ export async function start(): Promise<void> {
  */
 export async function shutdown(limitMs: number = drainTimeoutMs()): Promise<void> {
     const started = Date.now()
+    stopSetupReminder?.()
+    stopSetupReminder = undefined
     logger.info(`🛑 [server]: Shutting down: finishing open requests (up to ${Math.round(limitMs / 1000)}s), new requests get 503.`)
     // A schedule that comes due now would start a run the drain then has to cut off.
     stopHarnessScheduler()

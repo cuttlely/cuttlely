@@ -2,7 +2,7 @@ import { loginTarget } from './resolveLogin'
 
 describe('loginTarget', () => {
     it('follows the page the server names', () => {
-        expect(loginTarget({ redirectUrl: '/organization-setup' }, null)).toBe('/organization-setup')
+        expect(loginTarget({ redirectUrl: '/setup' }, null)).toBe('/setup')
         expect(loginTarget({ redirectUrl: '/signin' }, null)).toBe('/signin')
     })
 

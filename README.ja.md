@@ -213,7 +213,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 2. 起動すると、サーバーが一回限りのセットアップリンクを出力します。次のコマンドで表示します。
 
     ```bash
-    docker compose logs cuttlely | grep "No account yet"
+    docker compose logs cuttlely | grep "Setup code"
     ```
 
     まだ何も出ませんか？まだ起動中です。数秒後にもう一度コマンドを実行してください。

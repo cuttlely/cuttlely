@@ -170,15 +170,21 @@ async function shotBox(page, locator, rel, clip) {
     console.log('wrote', rel, `${Math.round(region.width)}x${Math.round(region.height)}`)
 }
 
-async function register(page, base, person) {
-    await page.goto(`${base}/organization-setup`, { waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: 'Setup Account' }).waitFor()
-    await page.locator('input:not([type="password"])').nth(0).fill(person.name)
-    await page.getByPlaceholder('user@company.com').fill(person.email)
-    const passwords = page.locator('input[type="password"]')
-    await passwords.nth(0).fill(PASSWORD)
-    await passwords.nth(1).fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign Up' }).click()
+function setupCodeFrom(server) {
+    const joined = server.logs.join('')
+    const match = joined.match(/Setup code:\s*([A-Za-z0-9_-]+)/)
+    if (!match) throw new Error(`no setup code in the log\n${joined.slice(-1500)}`)
+    return match[1]
+}
+
+async function register(page, base, person, code) {
+    await page.goto(`${base}/setup#code=${encodeURIComponent(code)}`, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('heading', { name: 'Create the owner account' }).waitFor()
+    await page.getByTestId('setup-name').fill(person.name)
+    await page.getByTestId('setup-email').fill(person.email)
+    await page.getByTestId('setup-password').fill(PASSWORD)
+    await page.getByTestId('setup-confirm').fill(PASSWORD)
+    await page.getByTestId('setup-create-account').click()
     await page.getByRole('heading', { name: 'Chatflows' }).waitFor({ timeout: 30000 })
 }
 
@@ -286,10 +292,11 @@ async function captureRosa(browser) {
         await waitForPing(server)
         const { context, page } = await newPage(browser)
         try {
-            await page.goto(`${server.base}/organization-setup`, { waitUntil: 'domcontentloaded' })
-            await page.getByRole('heading', { name: 'Setup Account' }).waitFor()
+            const code = setupCodeFrom(server)
+            await page.goto(`${server.base}/setup#code=${encodeURIComponent(code)}`, { waitUntil: 'domcontentloaded' })
+            await page.getByRole('heading', { name: 'Create the owner account' }).waitFor()
             await shot(page, 'from-source/organization-setup.png')
-            await register(page, server.base, ROSA)
+            await register(page, server.base, ROSA, code)
             await shot(page, 'from-source/first-signed-in.png', TALL)
 
             await openAccountMenu(page)
@@ -528,7 +535,7 @@ async function captureSetup(browser) {
         console.log('setup', server.base)
         await waitForPing(server)
         const joined = server.logs.join('')
-        const link = joined.match(/https?:\/\/\S+\/server-setup\?code=[A-Za-z0-9_-]+/)
+        const link = joined.match(/https?:\/\/\S+\/setup#code=[A-Za-z0-9_-]+/)
         if (!link) throw new Error(`no setup link in the log\n${joined.slice(-1500)}`)
         const { context, page } = await newPage(browser)
         try {
@@ -546,9 +553,10 @@ async function captureSetup(browser) {
             await page.getByText('Create the owner account').waitFor()
             await shot(page, 'server-settings/setup-link-password.png')
             const bad = new URL(link[0].replace('://localhost', '://127.0.0.1'))
-            bad.searchParams.set('code', 'not-a-real-code')
+            bad.hash = 'code=not-a-real-code'
             await page.goto(bad.toString(), { waitUntil: 'domcontentloaded' })
-            await page.getByText("This setup link can't be used").waitFor()
+            await page.getByTestId('setup-code').waitFor()
+            await page.getByText('This setup link is not right').waitFor()
             await shot(page, 'server-settings/setup-link-closed.png')
         } finally {
             await context.close()
@@ -570,7 +578,7 @@ async function captureRoles(browser, only = null) {
         await waitForPing(server)
         const { context, page } = await newPage(browser)
         try {
-            await register(page, server.base, CASEY)
+            await register(page, server.base, CASEY, setupCodeFrom(server))
             await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
             await page.getByRole('button', { name: 'Add Role' }).click()
             const dialog = page.getByRole('dialog', { name: 'Create New Role' })
@@ -624,7 +632,7 @@ async function safeBoot(browser) {
         await waitForPing(first)
         const { context, page } = await newPage(browser)
         try {
-            await register(page, first.base, ROSA)
+            await register(page, first.base, ROSA, setupCodeFrom(first))
             await openSettings(page, first.base)
             await section(page, 'analyst')
             await fillNumber(page, 'CUTTLELY_ANALYST_ROW_CAP', '90')
@@ -663,13 +671,13 @@ async function safeBoot(browser) {
 async function captureTesting(browser) {
     const dataDir = mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-testing-'))
     const port = await freePort()
-    const server = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true', CUTTLELY_CHECK_MAX_SECONDS: '90', LOG_LEVEL: 'error' })
+    const server = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true', CUTTLELY_CHECK_MAX_SECONDS: '90', LOG_LEVEL: 'info' })
     try {
         console.log('testing section', server.base)
         await waitForPing(server)
         const { context, page } = await newPage(browser, TALL)
         try {
-            await register(page, server.base, ROSA)
+            await register(page, server.base, ROSA, setupCodeFrom(server))
             await page.evaluate(() => localStorage.setItem('cuttlely.serverSettings.getStartedDismissed', '1'))
             await openSettings(page, server.base)
             await section(page, 'testing')
@@ -720,14 +728,14 @@ async function captureLocalUsers(browser) {
     const server = startServer(dataDir, port, {
         CUTTLELY_LOCAL_ADMIN: 'true',
         CUTTLELY_LOCAL_USERS: 'true',
-        LOG_LEVEL: 'error'
+        LOG_LEVEL: 'info'
     })
     try {
         console.log('local users', server.base)
         await waitForPing(server)
         const { context, page } = await newPage(browser, { width: 1440, height: 1100 })
         try {
-            await register(page, server.base, ROSA)
+            await register(page, server.base, ROSA, setupCodeFrom(server))
             const signedIn = await page.evaluate(() => {
                 const raw = localStorage.getItem('user')
                 return raw ? JSON.parse(raw) : null
