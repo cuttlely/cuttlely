@@ -8,6 +8,7 @@ All outputs on this page come from real runs against a local Cuttlely server wit
 -   [Create an API key](#create-an-api-key)
 -   [Ask a chatflow](#ask-a-chatflow)
 -   [Call a chatflow from Orchestrate](#call-a-chatflow-from-orchestrate)
+-   [MCP endpoint](#mcp-endpoint)
 -   [Call a chatflow over A2A](#call-a-chatflow-over-a2a)
 -   [Agentflows and harnesses](#agentflows-and-harnesses)
 -   [Run a harness in the background](#run-a-harness-in-the-background)
@@ -128,6 +129,10 @@ curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
 A flow that uses Buffer Memory continues from stored turns when `X-IBM-THREAD-ID` is sent. A flow with no memory node answers from the `messages` history only if that flow reads it.
 
 A second Orchestrate chat on the same flow is a different conversation: it does not know a name given in the first chat, and the server log `context=` hash is different.
+
+## MCP endpoint
+
+`POST /api/v1/mcp/:id` exposes a published chatflow or agentflow as a Streamable HTTP MCP server. The path is on the public whitelist, like prediction: a caller with the MCP Bearer token does not need a signed-in session. Auth is `Authorization: Bearer <MCP token>` from **Configuration** > **MCP Server**, not an API key. GET answers **405** with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC `-32000` body. The POST body follows **Largest upload** (`CUTTLELY_FILE_SIZE_LIMIT`, 50mb by default). [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md).
 
 ## Call a chatflow over A2A
 
@@ -650,7 +655,6 @@ The routes above are how an app asks a published flow. These management routes a
 -   `POST /api/v1/account/invite` with `link: true`, and `POST /api/v1/users/:id/reset-link`, return a one-time URL. An invited person is pending until they open their own invite link; a sign-in with a matching email alone never activates them. With AuthKit on, an invite always returns or emails the link. [One-time links](./reference/auth-api.md#one-time-links).
 -   `POST /api/v1/users/:id/disable`, `POST /api/v1/users/:id/enable`, and `GET /api/v1/users/:id/sessions` manage local users. [Local users, roles, and sessions](./reference/local-directory-api.md).
 -   `GET /api/v1/audit` lists sign-in, role, and settings events. [Audit API](./reference/audit-api.md).
--   `POST /api/v1/mcp/:id` exposes a published chatflow or agentflow as a Streamable HTTP MCP server. [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md).
 
 ## When to use the chat widget instead
 

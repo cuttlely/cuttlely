@@ -19,7 +19,10 @@ function read(path) {
 test('the Orchestrate MCP page has an H1 and is indexed', () => {
     const page = read(PAGE)
     assert.match(page, /^# Use a chatflow as an Orchestrate toolkit\n/m)
-    assert.match(page, /As an external agent, the flow runs the whole conversation and keeps memory between turns/)
+    assert.match(
+        page,
+        /As an external agent, the flow runs the whole conversation and, when the flow has a Memory node, keeps memory between turns of the same Orchestrate thread/
+    )
     assert.match(page, /As an MCP toolkit, the flow is a single tool step a native agent calls, with no memory between calls/)
     assert.match(page, /Pick the MCP toolkit when the native agent owns the conversation/)
     assert.doesNotMatch(page, /A2A/)
@@ -35,11 +38,12 @@ test('the page points at IBM external-agent docs, not a local Orchestrate page',
     assert.doesNotMatch(page, /watsonx-orchestrate\.md/)
 })
 
-test('LIVE-TEST placeholders cover auth, GET, and the displayed server name', () => {
+test('LIVE-TEST placeholders cover auth and the displayed server name, not GET', () => {
     const page = read(PAGE)
     assert.match(page, /\[LIVE-TEST\].*Authorization: Bearer/)
-    assert.match(page, /\[LIVE-TEST\].*GET/)
     assert.match(page, /\[LIVE-TEST\].*name Orchestrate (?:shows|displays)/)
+    assert.doesNotMatch(page, /\[LIVE-TEST\][^\n]*GET/)
+    assert.doesNotMatch(page, /GET[^\n]*\[LIVE-TEST\]/)
     assert.doesNotMatch(page, /repeat for live/i)
 })
 
@@ -53,10 +57,41 @@ test('DELETE is 405 from the app, and buildChatflow is not cited by line', () =>
     assert.doesNotMatch(page, /utilBuildChatflow/)
 })
 
+test('GET is registered and answers 405 with Allow and a JSON-RPC -32000 body', () => {
+    const page = read(PAGE)
+    const readme = read(SAMPLE_README)
+    for (const text of [page, readme]) {
+        assert.match(text, /`GET`|GET on/)
+        assert.match(text, /\*\*405\*\*/)
+        assert.match(text, /Allow: POST, DELETE, OPTIONS/)
+        assert.match(text, /-32000/)
+    }
+    assert.match(page, /Method Not Allowed\. This MCP endpoint does not offer server-initiated streams/)
+    assert.doesNotMatch(page, /no GET handler/)
+})
+
+test('POST body follows Largest upload, not a 1 MB MCP cap', () => {
+    const page = read(PAGE)
+    assert.match(page, /\*\*Largest upload\*\*/)
+    assert.match(page, /CUTTLELY_FILE_SIZE_LIMIT/)
+    assert.match(page, /50mb/)
+    assert.doesNotMatch(page, /Body at most 1 MB/)
+})
+
 test('MCP_CORS_ORIGINS is an origin list, not a method list', () => {
     const page = read(PAGE)
     assert.match(page, /`MCP_CORS_ORIGINS` sets which browser origins may call/)
     assert.doesNotMatch(page, /Allowed methods are whatever `MCP_CORS_ORIGINS`/)
+    assert.match(page, /Access-Control-Allow-Methods` is `POST, DELETE, OPTIONS/)
+    assert.match(page, /GET is excluded/)
+})
+
+test('POST /api/v1/mcp/:id is a caller-facing endpoint, not a management route', () => {
+    const api = read(API)
+    assert.match(api, /^## MCP endpoint$/m)
+    assert.match(api, /POST \/api\/v1\/mcp\/:id/)
+    const more = api.split('## More APIs')[1] ?? ''
+    assert.doesNotMatch(more.split('## ')[0], /\/api\/v1\/mcp/)
 })
 
 test('relative Next steps links resolve', () => {
@@ -84,4 +119,6 @@ test('the sample toolkit YAML is public-safe and names the expected server', () 
     assert.doesNotMatch(yaml, /token:\s*['\"]?[0-9a-f]{32}/i)
     assert.match(readme, /orchestrate-mcp\.md/)
     assert.match(readme, /\[LIVE-TEST\]/)
+    assert.doesNotMatch(readme, /GET[^\n]*\[LIVE-TEST\]/)
+    assert.doesNotMatch(readme, /\[LIVE-TEST\][^\n]*GET/)
 })

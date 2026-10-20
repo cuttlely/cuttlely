@@ -10,4 +10,6 @@ Copy the YAML. Replace `server_url` with your Cuttlely origin and the flow id fr
 
 The expected MCP `initialize` server name for **Bakery hours** is `cuttlely-bakery-hours`. [LIVE-TEST]: confirm the name Orchestrate displays.
 
-Auth is `Authorization: Bearer` on Cuttlely. [LIVE-TEST]: Bearer Token connection vs `key_value`. GET on `/api/v1/mcp/:id` is also [LIVE-TEST].
+Auth is `Authorization: Bearer` on Cuttlely. [LIVE-TEST]: Bearer Token connection vs `key_value`.
+
+GET on `/api/v1/mcp/:id` is registered and answers **405** with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC `-32000` body. This server does not offer server-initiated streams.

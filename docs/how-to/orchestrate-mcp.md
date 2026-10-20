@@ -2,7 +2,7 @@
 
 Give your IBM watsonx Orchestrate agents a tool you build on the Cuttlely canvas. A published chatflow or agentflow answers as a [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) MCP server at `/api/v1/mcp/<flow id>`, and Orchestrate imports that URL as a [remote MCP toolkit](https://developer.watson-orchestrate.ibm.com/tools/toolkits/remote_mcp_toolkits), so a native agent calls your flow as a tool.
 
-Orchestrate can use the same published flow in two ways. As an external agent, the flow runs the whole conversation and keeps memory between turns. As an MCP toolkit, the flow is a single tool step a native agent calls, with no memory between calls. Pick the MCP toolkit when the native agent owns the conversation.
+Orchestrate can use the same published flow in two ways. As an external agent, the flow runs the whole conversation and, when the flow has a Memory node, keeps memory between turns of the same Orchestrate thread. As an MCP toolkit, the flow is a single tool step a native agent calls, with no memory between calls. Pick the MCP toolkit when the native agent owns the conversation.
 
 This is not the same as registering the flow as a collaborator agent. That path uses an OpenAI-style chat completions URL. IBM documents it under [Connect to external agents](https://developer.watson-orchestrate.ibm.com/agents/connect_agent). This page covers the toolkit (MCP) path only.
 
@@ -105,12 +105,12 @@ The `initialize` result includes `serverInfo.name`. For **Bakery hours** that is
 
 The MCP router is stateless. It does not keep a session id.
 
-| Method    | What Cuttlely does                                                                                                                                                                                                                                                         |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST`    | JSON-RPC: `initialize`, `tools/list`, `tools/call`, and the other Streamable HTTP messages. Needs the Bearer token. Body at most 1 MB.                                                                                                                                     |
-| `DELETE`  | **405** from the app, with `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Session termination is not supported in stateless mode."},"id":null}`. This is not an SDK fallback. Orchestrate can ignore it.                                                              |
-| `OPTIONS` | CORS preflight for `GET`, `POST`, `DELETE` and `OPTIONS`. `MCP_CORS_ORIGINS` sets which browser origins may call; clients that send no `Origin`, such as desktop and server clients, pass.                                                                                 |
-| `GET`     | This app has no GET handler on this path, so it never opens an SSE stream. [LIVE-TEST]: confirm the status a GET returns, whether Orchestrate sends one during import, and whether it accepts the response. (Streamable HTTP allows 405 when the server offers no stream.) |
+| Method    | What Cuttlely does                                                                                                                                                                                                                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST`    | JSON-RPC: `initialize`, `tools/list`, `tools/call`, and the other Streamable HTTP messages. Needs the Bearer token. The body follows **Largest upload** in Server settings (`CUTTLELY_FILE_SIZE_LIMIT`, 50mb by default).                                                            |
+| `DELETE`  | **405** from the app, with `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Session termination is not supported in stateless mode."},"id":null}`. This is not an SDK fallback. Orchestrate can ignore it.                                                                        |
+| `OPTIONS` | CORS preflight. `Access-Control-Allow-Methods` is `POST, DELETE, OPTIONS`. GET is excluded. `MCP_CORS_ORIGINS` sets which browser origins may call; clients that send no `Origin`, such as desktop and server clients, pass.                                                         |
+| `GET`     | Registered. **405** from the app, with `Allow: POST, DELETE, OPTIONS` and `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Method Not Allowed. This MCP endpoint does not offer server-initiated streams."},"id":null}`. This server does not offer server-initiated MCP streams. |
 
 A browser CORS client needs `MCP_CORS_ORIGINS` (or **Sites that may call the MCP endpoint** in Server settings). Orchestrate's ADK is a server client and sends no `Origin`.
 
