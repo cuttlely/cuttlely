@@ -10,12 +10,12 @@ How the routes work is [Call a chatflow from IBM watsonx Orchestrate](./orchestr
 
 ## Files
 
-| File                                                                                                 | What it is                                                                                                                                         |
-| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`samples/orchestrate/demo.chatflow.json`](../../samples/orchestrate/demo.chatflow.json)             | Conversation Chain + xAI Grok + Buffer Memory. No credential id.                                                                                   |
-| [`samples/orchestrate/external-chat.agent.yaml`](../../samples/orchestrate/external-chat.agent.yaml) | IBM `external_chat` template (`name: cuttlely_orders`). Copy, fill in, import the copy. Never import the repo file.                                |
-| [`samples/orchestrate/a2a.agent.yaml`](../../samples/orchestrate/a2a.agent.yaml)                     | IBM A2A 0.3.0 template (`name: cuttlely_a2a_test`). Same copy-then-fill rule. Registration path is an open item.                                   |
-| [`scripts/orchestrate-live-proxy.mjs`](../../scripts/orchestrate-live-proxy.mjs)                     | Forwards `POST /api/v1/orchestrate/*` and A2A (`GET` card and `POST /api/v1/a2a/<flow id>`). A2A is shipped, not yet tested live with Orchestrate. |
+| File                                                                                                 | What it is                                                                                                          |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| [`samples/orchestrate/demo.chatflow.json`](../../samples/orchestrate/demo.chatflow.json)             | Conversation Chain + xAI Grok + Buffer Memory. No credential id.                                                    |
+| [`samples/orchestrate/external-chat.agent.yaml`](../../samples/orchestrate/external-chat.agent.yaml) | IBM `external_chat` template (`name: cuttlely_orders`). Copy, fill in, import the copy. Never import the repo file. |
+| [`samples/orchestrate/a2a.agent.yaml`](../../samples/orchestrate/a2a.agent.yaml)                     | IBM A2A 0.3.0 template (`name: cuttlely_a2a_test`). Same copy-then-fill rule. Registration path is an open item.    |
+| [`scripts/orchestrate-live-proxy.mjs`](../../scripts/orchestrate-live-proxy.mjs)                     | Forwards `POST /api/v1/orchestrate/*` and A2A (`GET` card and `POST /api/v1/a2a/<flow id>`).                        |
 
 Larkfield Home is a made-up home goods store. Known demo orders: LH-30112 walnut side table, arriving Oct 21; LH-30118 oak bookshelf, shipped, arriving Oct 23; LH-30125 linen throw, processing.
 
