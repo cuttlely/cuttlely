@@ -45,11 +45,8 @@ const variantInputs = {
     ],
     temperature: 0.2
 }
-const variantLeaks = ['FAKE-NESTED', 'FAKE-ARRAY', 'FAKE-SENTENCE', 'FAKEsig', 'AIzaFAKE', 'cred-FAKE-ID', 'FAKE-HDR']
+const variantSamples = ['FAKE-NESTED', 'FAKE-ARRAY', 'FAKE-SENTENCE', 'FAKEsig', 'AIzaFAKE', 'cred-FAKE-ID', 'FAKE-HDR']
 const variantKept = {
-    config: { a: {}, keep: 'ok' },
-    list: ['fine'],
-    headers: [{ key: 'Accept', value: 'application/json' }],
     temperature: 0.2
 }
 
@@ -87,9 +84,17 @@ describe('saveCustomTemplate input filtering', () => {
 
         const stored = saved[saved.length - 1].flowData as string
         expect(stored).not.toContain('FAKE')
-        const node = JSON.parse(stored).nodes[0]
-        expect(node.data.inputs).toEqual({ modelName: 'gpt-4.1-mini', cache: '{{cache_0.data.instance}}' })
+        const parsed = JSON.parse(stored)
+        const node = parsed.nodes[0]
+        expect(node.data.inputs).toEqual({ cache: '{{cache_0.data.instance}}' })
         expect(node.data.credential).toBeUndefined()
+        expect(parsed.droppedSettings).toEqual([
+            {
+                nodeId: 'chatOpenAI_0',
+                label: 'chatOpenAI',
+                inputs: ['modelName', 'secretField', 'note', 'openAIApiKey', 'credential']
+            }
+        ])
     })
 
     it('removes each of the seven credential shapes from a saved template', async () => {
@@ -102,7 +107,15 @@ describe('saveCustomTemplate input filtering', () => {
         await marketplacesService.saveCustomTemplate({ chatflowId: 'flow-1', workspaceId: 'ws-1', name: 'T' })
 
         const stored = saved[saved.length - 1].flowData as string
-        for (const leak of variantLeaks) expect(stored).not.toContain(leak)
-        expect(JSON.parse(stored).nodes[0].data.inputs).toEqual(variantKept)
+        for (const sample of variantSamples) expect(stored).not.toContain(sample)
+        const parsed = JSON.parse(stored)
+        expect(parsed.nodes[0].data.inputs).toEqual(variantKept)
+        expect(parsed.droppedSettings).toEqual([
+            {
+                nodeId: 'n0',
+                label: 'customNode',
+                inputs: ['config', 'list', 'prompt', 'note', 'googleKey', 'credentialId', 'headers']
+            }
+        ])
     })
 })

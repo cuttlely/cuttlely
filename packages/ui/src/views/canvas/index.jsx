@@ -70,6 +70,7 @@ import {
 } from '@/utils/genericHelper'
 import { readyToFit, FIT_ON_OPEN } from '@/utils/canvasFit'
 import { templateKeyNote, templateWithYourKey } from '@/utils/yourKey'
+import { templateSettingsMessage } from '@/utils/templateSettingsNote'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { CHATFLOW_NEEDS_ENDING_NODE, chatflowCanChat } from '@/utils/chatflowReady'
@@ -1170,8 +1171,23 @@ const Canvas = () => {
 
     useEffect(() => {
         if (templateFlowData && templateFlowData.includes('"nodes":[') && templateFlowData.includes('],"edges":[')) {
+            const settingsNote = templateSettingsMessage(templateFlowData)
             if (isHarnessCanvas) loadHarnessTemplate(templateFlowData)
             else handleLoadFlow(templateFlowData)
+            if (settingsNote)
+                enqueueSnackbar({
+                    message: settingsNote,
+                    options: {
+                        key: new Date().getTime() + Math.random(),
+                        variant: 'info',
+                        persist: true,
+                        action: (key) => (
+                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                <IconX />
+                            </Button>
+                        )
+                    }
+                })
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps

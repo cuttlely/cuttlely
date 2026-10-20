@@ -11,7 +11,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { IReactFlowEdge, IReactFlowNode } from '../../Interface'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stripProtectedFields } from '../../utils/stripProtectedFields'
-import { sanitizeNodeInputs } from '../../utils/sanitizeFlowData'
+import { buildTemplateFlow } from '../../utils/sanitizeFlowData'
 import chatflowsService from '../chatflows'
 
 type ITemplate = {
@@ -235,47 +235,7 @@ const templateTypeForChatflow = (chatflowType?: string) => {
 }
 
 const _generateExportFlowData = (flowData: any) => {
-    const nodes = flowData.nodes
-    const edges = flowData.edges
-
-    const framework = 'Langchain'
-    for (let i = 0; i < nodes.length; i += 1) {
-        nodes[i].selected = false
-        const node = nodes[i]
-
-        const newNodeData = {
-            id: node.data.id,
-            label: node.data.label,
-            version: node.data.version,
-            name: node.data.name,
-            type: node.data.type,
-            color: node.data.color,
-            hideOutput: node.data.hideOutput,
-            hideInput: node.data.hideInput,
-            baseClasses: node.data.baseClasses,
-            tags: node.data.tags,
-            category: node.data.category,
-            description: node.data.description,
-            inputParams: node.data.inputParams,
-            inputAnchors: node.data.inputAnchors,
-            inputs: {},
-            outputAnchors: node.data.outputAnchors,
-            outputs: node.data.outputs,
-            selected: false
-        }
-
-        // Keep only defined, non-secret inputs
-        if (node.data.inputs && Object.keys(node.data.inputs).length) {
-            newNodeData.inputs = sanitizeNodeInputs(node.data.inputs, node.data.inputParams, node.data.inputAnchors)
-        }
-
-        nodes[i].data = newNodeData
-    }
-    const exportJson = {
-        nodes,
-        edges
-    }
-    return { exportJson, framework }
+    return { exportJson: buildTemplateFlow(flowData), framework: 'Langchain' }
 }
 
 export default {

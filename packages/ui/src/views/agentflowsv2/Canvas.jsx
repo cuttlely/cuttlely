@@ -74,6 +74,7 @@ import { usePrompt } from '@/utils/usePrompt'
 import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
 import { canvasSaveDocument } from '@/utils/canvasSave'
 import { canvasIsEmpty, missingCredentialsText, stashNewCanvas, takeLanding, withStarterQuestions } from '@/utils/buildWithAI'
+import { templateSettingsMessage } from '@/utils/templateSettingsNote'
 import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
 
 // const
@@ -880,7 +881,22 @@ const AgentflowCanvas = () => {
 
     useEffect(() => {
         if (templateFlowData && templateFlowData.includes('"nodes":[') && templateFlowData.includes('],"edges":[')) {
+            const settingsNote = templateSettingsMessage(templateFlowData)
             handleLoadFlow(templateFlowData)
+            if (settingsNote)
+                enqueueSnackbar({
+                    message: settingsNote,
+                    options: {
+                        key: new Date().getTime() + Math.random(),
+                        variant: 'info',
+                        persist: true,
+                        action: (key) => (
+                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                <IconX />
+                            </Button>
+                        )
+                    }
+                })
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -988,35 +988,50 @@ describe('getSinglePublicChatbotConfig', () => {
         expect(result).not.toHaveProperty('flowData')
         expect(result.title).toBe('Bot')
         expect(result.botMessage).toEqual({ showAvatar: true, avatarSrc: 'https://img.example/b.png', backgroundColor: '#fff' })
-        expect(result.starterPrompts).toEqual([{ prompt: 'What is new?' }])
-        for (const leak of ['SECRET-PROMPT-CANARY', 'cred-openai', 'sk-', 'allowedOrigins', 'overrideConfig', 'owner@example.com']) {
-            expect(serialized).not.toContain(leak)
+        expect(result.textInput).toEqual({ placeholder: 'Ask', sendButtonColor: '#123456' })
+        expect(result.starterPrompts).toEqual([{ prompt: 'What is new?' }, { prompt: 'use sk-FAKE-START-1 please' }])
+        for (const sample of [
+            'SECRET-PROMPT-CANARY',
+            'cred-openai',
+            'sk-FAKE-OVERRIDE',
+            'allowedOrigins',
+            'overrideConfig',
+            'owner@example.com'
+        ]) {
+            expect(serialized).not.toContain(sample)
         }
     })
 
-    it('drops display fields saved as JSON text or with a credential URL', async () => {
-        const jsonText = JSON.stringify({ apiKey: 'FAKE-SVC-KEY', text: 'hi' })
+    it('checks colours, flags, and image addresses by shape and keeps plain display text', async () => {
         mockRepo.findOneBy.mockResolvedValue({
             id: 'flow-1',
             isPublic: true,
             apikeyid: '',
             textToSpeech: null,
             chatbotConfig: JSON.stringify({
-                title: jsonText,
-                welcomeMessage: 'https://user:pw@example.com/x',
-                starterPrompts: [{ prompt: jsonText }, { prompt: 'Plain question' }],
-                botMessage: { textColor: JSON.stringify({ u: 'https://user:pw@example.com/y' }), backgroundColor: '#fff' }
+                title: 'Hello "there"',
+                welcomeMessage: 'Welcome @ café, 10% off',
+                starterPrompts: [{ prompt: 'こんにちは' }, { prompt: 'Plain question' }],
+                titleAvatarSrc: 'https://user:pw@img.example/a.png',
+                botMessage: {
+                    showAvatar: 'yes',
+                    textColor: 'blue',
+                    backgroundColor: '#fff',
+                    avatarSrc: 'https://img.example/b.png?utm_apikey=1'
+                }
             })
         })
 
         const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
         const serialized = JSON.stringify(result)
 
-        expect(result.title).toBeUndefined()
-        expect(result.welcomeMessage).toBeUndefined()
-        expect(result.starterPrompts).toEqual([{ prompt: 'Plain question' }])
-        expect(result.botMessage).toEqual({ backgroundColor: '#fff' })
-        for (const leak of ['FAKE-SVC-KEY', 'apiKey', 'user:pw@']) expect(serialized).not.toContain(leak)
+        expect(result.title).toBe('Hello "there"')
+        expect(result.welcomeMessage).toBe('Welcome @ café, 10% off')
+        expect(result.starterPrompts).toEqual([{ prompt: 'こんにちは' }, { prompt: 'Plain question' }])
+        expect(result.titleAvatarSrc).toBeUndefined()
+        expect(result.botMessage).toEqual({ backgroundColor: '#fff', avatarSrc: 'https://img.example/b.png' })
+        expect(serialized).not.toContain('user:pw@')
+        expect(serialized).not.toContain('utm_apikey')
     })
 
     it('answers 404 for a missing chatflow', async () => {

@@ -53,7 +53,7 @@ const variantInputs = {
     ],
     temperature: 0.2
 }
-const variantLeaks = ['FAKE-NESTED', 'FAKE-ARRAY', 'FAKE-SENTENCE', 'FAKEsig', 'AIzaFAKE', 'cred-FAKE-ID', 'FAKE-HDR']
+const variantSamples = ['FAKE-NESTED', 'FAKE-ARRAY', 'FAKE-SENTENCE', 'FAKEsig', 'AIzaFAKE', 'cred-FAKE-ID', 'FAKE-HDR']
 const run = async (id: string, user?: { id: string }) => {
     const res: any = {
         statusCode: 200,
@@ -103,7 +103,7 @@ describe('GET /public-chatflows/:id', () => {
         expect(res.body).not.toHaveProperty('flowData')
         expect(res.body.hasApiKey).toBe(false)
         const serialized = JSON.stringify(res.body)
-        for (const leak of [...variantLeaks, 'sk-FAKE-ORPHAN', 'cred-FAKE-0001', 'allowedOrigins', 'ws-1']) {
+        for (const leak of [...variantSamples, 'sk-FAKE-ORPHAN', 'cred-FAKE-0001', 'allowedOrigins', 'ws-1']) {
             expect(serialized).not.toContain(leak)
         }
         expect(JSON.parse(res.body.chatbotConfig)).toEqual({ title: 'Bot' })
