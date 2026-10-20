@@ -19,6 +19,10 @@ function read(path) {
 test('the Orchestrate MCP page has an H1 and is indexed', () => {
     const page = read(PAGE)
     assert.match(page, /^# Use a chatflow as an Orchestrate toolkit\n/m)
+    assert.match(page, /As an external agent, the flow runs the whole conversation and keeps memory between turns/)
+    assert.match(page, /As an MCP toolkit, the flow is a single tool step a native agent calls, with no memory between calls/)
+    assert.match(page, /Pick the MCP toolkit when the native agent owns the conversation/)
+    assert.doesNotMatch(page, /A2A/)
     assert.match(read(INDEX), /how-to\/orchestrate-mcp\.md/)
     assert.match(read(API), /how-to\/orchestrate-mcp\.md/)
     assert.match(read(API), /published chatflow or agentflow/)

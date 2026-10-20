@@ -2,6 +2,8 @@
 
 Give your IBM watsonx Orchestrate agents a tool you build on the Cuttlely canvas. A published chatflow or agentflow answers as a [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) MCP server at `/api/v1/mcp/<flow id>`, and Orchestrate imports that URL as a [remote MCP toolkit](https://developer.watson-orchestrate.ibm.com/tools/toolkits/remote_mcp_toolkits), so a native agent calls your flow as a tool.
 
+Orchestrate can use the same published flow in two ways. As an external agent, the flow runs the whole conversation and keeps memory between turns. As an MCP toolkit, the flow is a single tool step a native agent calls, with no memory between calls. Pick the MCP toolkit when the native agent owns the conversation.
+
 This is not the same as registering the flow as a collaborator agent. That path uses an OpenAI-style chat completions URL. IBM documents it under [Connect to external agents](https://developer.watson-orchestrate.ibm.com/agents/connect_agent). This page covers the toolkit (MCP) path only.
 
 The examples use a made-up bakery, Crumb & Co., and a published chatflow named **Bakery hours**.
