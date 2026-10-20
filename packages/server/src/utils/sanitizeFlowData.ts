@@ -28,10 +28,8 @@ const HEADER_NAME = /headers$/i
 const NODE_REFERENCE = /^\{\{[A-Za-z0-9_-]+\.data\.instance(?:\.[A-Za-z0-9_-]+)*\}\}$/
 const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-)/i
 const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
-const URL_WITH_QUERY = /[a-z][a-z0-9+.-]*:\/\/[^\s'"<>]*[?#]/i
-const URL_WITH_USERINFO = /[a-z][a-z0-9+.-]*:\/\/[^\s/'"<>]*@/i
-const URL_CANDIDATE = /[a-z][a-z0-9+.-]*:\/\/[^\s'"<>]+/gi
-const BARE_USERINFO = /(?:^|[\s'"`(=])[^\s/:@'"<>]{1,80}:[^\s/@'"<>]{0,80}@[^\s/@'"<>]+/
+// word: followed by a non-space character. Applied to the normalized text, not tuned per field.
+const SCHEME_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\S/
 const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
 const MAX_NORMALIZE_LAYERS = 5
 
@@ -188,29 +186,15 @@ const hasHighEntropyRun = (text: string): boolean => {
     return false
 }
 
-const hasUnsafeUrl = (text: string): boolean => {
-    if (BARE_USERINFO.test(text)) return true
-    if (URL_WITH_QUERY.test(text) || URL_WITH_USERINFO.test(text)) return true
-    URL_CANDIDATE.lastIndex = 0
-    for (const match of text.matchAll(URL_CANDIDATE)) {
-        const candidate = match[0].replace(/[),.;:!?]+$/, '')
-        if (/[?#]/.test(candidate) || /^[a-z][a-z0-9+.-]*:\/\/[^/]*@/i.test(candidate)) return true
-        try {
-            const url = new URL(candidate)
-            if (url.username || url.password || url.search || url.hash) return true
-        } catch {
-            return true
-        }
-    }
-    return false
-}
+/** //, an @ with a non-space on both sides, or a scheme-like word: immediately followed by a non-space. */
+const hasUnsafeFreeText = (text: string): boolean => text.includes('//') || /\S@\S/.test(text) || SCHEME_LIKE.test(text)
 
 /** True when a string can be kept. The original value is kept or the whole value is left out. */
 const stringIsSafe = (value: unknown): value is string => {
     if (typeof value !== 'string') return false
     const plain = plainForCheck(value)
     if (plain === undefined) return false
-    if (TOKEN_PREFIX.test(plain) || hasHighEntropyRun(plain) || hasUnsafeUrl(plain)) return false
+    if (TOKEN_PREFIX.test(plain) || hasUnsafeFreeText(plain) || hasHighEntropyRun(plain)) return false
     return true
 }
 
@@ -321,10 +305,8 @@ export const sanitizeNodeInputs = (
             }
             kept = items && items.every((item) => isListedOption(item, param)) ? value : undefined
         } else if (param.type === 'asyncOptions') kept = keepString(value)
-        else if (param.type === 'string' && URL_FIELD_NAME.test(name)) {
-            const rebuilt = rebuildHttpUrl(value)
-            kept = rebuilt !== undefined && stringIsSafe(rebuilt) ? rebuilt : undefined
-        } else if (param.type === 'string' && isSafeStringName(name)) kept = keepString(value)
+        else if (param.type === 'string' && URL_FIELD_NAME.test(name)) kept = rebuildHttpUrl(value)
+        else if (param.type === 'string' && isSafeStringName(name)) kept = keepString(value)
         else kept = undefined
         if (kept !== undefined) result[name] = kept
         else if (!isBlank(value)) dropped.push(name)
@@ -406,10 +388,7 @@ const displayValue = (value: unknown, kind: DisplayKind, field: string): unknown
     if (kind === 'color') return displayColor(value)
     if (kind === 'boolean') return typeof value === 'boolean' ? value : undefined
     if (kind === 'number') return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-    if (kind === 'image') {
-        const rebuilt = rebuildHttpUrl(value)
-        return rebuilt !== undefined && stringIsSafe(rebuilt) ? rebuilt : undefined
-    }
+    if (kind === 'image') return rebuildHttpUrl(value)
     return undefined
 }
 

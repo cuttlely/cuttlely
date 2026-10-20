@@ -96,7 +96,7 @@ const secretShapes = (marker: string) => [
 describe('template inputs', () => {
     const harmless = {
         prompt: 'Hello "world" @ café, 10% off',
-        systemMessage: 'こんにちは。See https://example.com/help',
+        systemMessage: 'こんにちは。See the help page.',
         systemMessagePrompt: 'Translate {input_language} to {output_language}.',
         description: 'Looks up the bakery hours',
         label: 'Greeting',
@@ -153,7 +153,7 @@ describe('template inputs', () => {
         expect(dropped).toEqual(['model', 'tools'])
     })
 
-    it('drops a kept string whole when the normalized text is token-shaped or a URL with a query, fragment, or user info', () => {
+    it('drops a kept string whole when the normalized text has //, an @ between non-spaces, a scheme-like word, or a token prefix', () => {
         const cases = [
             `Use sk-${MARKER}ONE`,
             `prefix pk-${MARKER}TWO`,
@@ -163,7 +163,14 @@ describe('template inputs', () => {
             `See https://example.com/cb?utm_apikey=${MARKER}SIX`,
             `See https://example.com/cb#${MARKER}SEVEN`,
             `user:${MARKER}EIGHT@files.example`,
+            `//user:${MARKER}SLASH@host`,
+            `//cdn.example/a?utm_apikey=${MARKER}QUERY`,
+            `//cdn.example/a#${MARKER}HASH`,
+            `https:example.com/a?x=${MARKER}SCHEME`,
+            `path/user:${MARKER}PATH@files.example`,
+            `hello a@b ${MARKER}AT`,
             percentEncode(`sk-${MARKER}NINE`),
+            percentEncode(`//user:${MARKER}ENC@host`),
             JSON.stringify(`pk-${MARKER}TEN`),
             `{"hidden":"sk-${MARKER}ELEVEN"}`,
             `{not json sk-${MARKER}TWELVE`,
