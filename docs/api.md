@@ -140,9 +140,9 @@ A second Orchestrate chat on the same flow is a different conversation: it does 
 
 ## MCP endpoint
 
-A published chatflow can also answer as a remote MCP server at `POST /api/v1/mcp/<flow id>`. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Send that token as `Authorization: Bearer <token>`. `DELETE /api/v1/mcp/<flow id>` does not end a session: it always answers 405 `{ "jsonrpc": "2.0", "error": { "code": -32000, "message": "Session termination is not supported in stateless mode." }, "id": null }`. The POST body is MCP JSON-RPC (1 MB cap), not the Orchestrate chat-completions body. A body over 1 MB is 413 from the global error handler (`{ "statusCode": 413, "success": false, "message", "stack" }`).
+`POST /api/v1/mcp/:id` exposes a published chatflow or agentflow as a Streamable HTTP MCP server. The path is on the public whitelist, like prediction: a caller with the MCP Bearer token does not need a signed-in session. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Auth is `Authorization: Bearer <MCP token>`, not an API key. GET answers **405** with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC `-32000` body. DELETE is also **405** (`Session termination is not supported in stateless mode.`). The POST body is MCP JSON-RPC, capped at 1 MB regardless of **Largest upload** (`CUTTLELY_FILE_SIZE_LIMIT`). A body over 1 MB is 413 from the global error handler (`{ "statusCode": 413, "success": false, "message", "stack" }`). [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md).
 
-Orchestrate users who want a remote toolkit instead of an `external_chat` collaborator (A2A is not yet tested) point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
+Orchestrate users who want a remote toolkit instead of an `external_chat` collaborator point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
 
 ## Call a chatflow over A2A
 

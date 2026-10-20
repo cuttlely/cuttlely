@@ -185,7 +185,8 @@
             "unctx>unplugin": "-",
             "@babel/core": "7.29.7",
             "@babel/helpers": "7.29.7",
-            "ibm-cloud-sdk-core@5": "^5.9.0"
+            "ibm-cloud-sdk-core@5": "^5.9.0",
+            "ajv@>=7 <8.18.0": "8.18.0"
         }
     },
     "packageManager": "pnpm@10.33.4",
