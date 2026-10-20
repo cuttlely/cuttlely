@@ -3,7 +3,7 @@
 // answers 410 once the link has been used, a sign-in method is on, or the first account exists.
 import express, { NextFunction, Request, Response } from 'express'
 import { applySetupHeaders, cookieMutationAllowed } from '../../identity/sessionGuard'
-import { noteSetupFailure, setupCodeHmac } from '../../identity/setupCode'
+import { noteSetupFailure, reissueExpiredSetupCode, setupCodeHmac } from '../../identity/setupCode'
 import { socketAddress } from '../../identity/setupLimit'
 import { Principal, applyAuthKitTest, authKitTestStatus, checkAuthKit, requestOrigin, startAuthKitTest } from '../../settings/authkit'
 import { TestInputError } from '../../settings/connection'
@@ -72,6 +72,7 @@ router.post('/open', async (req, res, next) => {
         if (closed) return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE[closed] })
         const code = (req.body as { code?: unknown })?.code
         if (!(await codeOpensSetup(setup, code))) {
+            await reissueExpiredSetupCode(now)
             if (noteSetupFailure(address, now).limited) {
                 return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
             }

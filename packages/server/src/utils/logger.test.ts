@@ -184,6 +184,9 @@ describe('logger.ts', () => {
             expect(redactLoggedCookies(`theme=light; code=${secret}; %63ode=${secret}; SetupCode=${secret}`)).toBe(
                 'theme=light; code=[redacted]; %63ode=[redacted]; SetupCode=[redacted]'
             )
+            expect(redactLoggedCookies(`theme=light; cuttlely-setup=${secret}; Cuttlely-Setup=${secret}`)).toBe(
+                'theme=light; cuttlely-setup=[redacted]; Cuttlely-Setup=[redacted]'
+            )
             for (const value of [
                 redactLoggedUrl(`/api/v1/chatflows?%2563ode=${secret}`),
                 String(redactLoggedHeaderValue(`%63ode=${secret}`)),
@@ -242,7 +245,7 @@ describe('logger.ts', () => {
                 body: { token: invite },
                 query: {},
                 headers: {
-                    cookie: `theme=light; Cuttlely-Invite=${invite}; wos-session=${sealed}; cuttlely-local-session=${local}; code=${invite}`
+                    cookie: `theme=light; Cuttlely-Invite=${invite}; wos-session=${sealed}; cuttlely-local-session=${local}; cuttlely-setup=${sealed}; code=${invite}`
                 }
             } as any
             expressRequestLogger(req, {} as any, next)
@@ -250,7 +253,7 @@ describe('logger.ts', () => {
             for (const secret of [invite, sealed, local]) expect(logged).not.toContain(secret)
             const meta = infoSpy.mock.calls[0][1] as { request: { headers: { cookie: string } } }
             expect(meta.request.headers.cookie).toBe(
-                'theme=light; Cuttlely-Invite=[redacted]; wos-session=[redacted]; cuttlely-local-session=[redacted]; code=[redacted]'
+                'theme=light; Cuttlely-Invite=[redacted]; wos-session=[redacted]; cuttlely-local-session=[redacted]; cuttlely-setup=[redacted]; code=[redacted]'
             )
             infoSpy.mockRestore()
         })

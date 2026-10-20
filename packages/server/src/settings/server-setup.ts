@@ -3,7 +3,14 @@
 // a first account, or set up AuthKit after a test sign-in. The link works once and stops working as soon as the
 // first account exists, a sign-in method is on, or the setup is done.
 import { Request } from 'express'
-import { noSignInMethod, retireFirstRunSetupCode, setupCodeMatches, setupCodeRetired, storedSetupCodeLive } from '../identity/setupCode'
+import {
+    noSignInMethod,
+    reissueExpiredSetupCode,
+    retireFirstRunSetupCode,
+    setupCodeMatches,
+    setupCodeRetired,
+    storedSetupCodeLive
+} from '../identity/setupCode'
 import { hashPassword, passwordErrors } from '../identity/password'
 import { CreateOwnerInput, NotEmptyError, SetupCodeRejected, UserRow } from '../identity/types'
 import { Principal } from './authkit'
@@ -119,6 +126,7 @@ export async function createOwnerFromSetup(
     // longer have the plaintext (a restart, or a second copy that did not print the link).
     const hmac = setupSessionCodeHmac(req)
     if (!hmac || !(await storedSetupCodeLive(hmac))) {
+        await reissueExpiredSetupCode()
         throw new SettingsError(410, 'SETUP_CLOSED', 'Open the setup link from the server log again.')
     }
     // Turn the password sign-in on first: if the file can't be written, no account exists that nobody can use. If

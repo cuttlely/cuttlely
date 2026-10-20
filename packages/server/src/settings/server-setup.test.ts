@@ -13,6 +13,7 @@ import {
     issuedSetupHmac,
     resetFirstRunSetupCode,
     serverSetupLink,
+    SETUP_CODE_TTL_MS,
     setupCodeHmac,
     setupCodeMatches,
     setupCodeReady
@@ -43,6 +44,18 @@ const FAKE = {
 }
 const GOOD_PASSWORD = 'Made-Up-Pass-123!'
 const INTERNAL = { 'x-request-from': 'internal' }
+
+function setCookies(header: string | string[] | undefined): string[] {
+    if (Array.isArray(header)) return header
+    return header ? [header] : []
+}
+
+function cookiePathList(header: string | string[] | undefined): string[] {
+    return setCookies(header).flatMap((cookie) => {
+        const match = cookie.match(/(?:^|; )Path=([^;]*)/)
+        return match ? [match[1]] : []
+    })
+}
 
 let data: string
 let dir: string
@@ -174,11 +187,13 @@ describe('opening the link', () => {
         expect(res.headers['cache-control']).toBe('no-store')
         expect(res.headers['x-frame-options']).toBe('DENY')
         expect(res.headers['content-security-policy']).toBe("frame-ancestors 'none'")
-        const cookie = String(res.headers['set-cookie'])
+        const cookies = setCookies(res.headers['set-cookie'])
+        const cookie = cookies.join('\n')
         expect(cookie).toMatch(/cuttlely-setup=/)
         expect(cookie).toMatch(/HttpOnly/)
         expect(cookie).toMatch(/SameSite=Strict/)
         expect(cookie).not.toContain(firstRunSetupCode())
+        expect(cookiePathList(cookies).sort()).toEqual(['/api/v1/auth/callback', '/api/v1/server-setup'])
     })
 
     it('is closed once an account exists or a sign-in method is on', async () => {
@@ -239,6 +254,7 @@ describe('use a password for now', () => {
         expect(created[0].credential).not.toBe(GOOD_PASSWORD)
         expect(lastOwnerOptions?.consumeSetupHmac).toMatch(/^[0-9a-f]{64}$/i)
         expect(typeof lastOwnerOptions?.now).toBe('number')
+        expect(cookiePathList(res.headers['set-cookie']).sort()).toEqual(['/', '/api/v1/auth/callback', '/api/v1/server-setup'])
         expect(readSettingsFile(dir, KEY).values.CUTTLELY_LOCAL_ADMIN).toBe('true')
         expect(readHistory(dir).map((entry) => entry.by)).toContain('setup link')
         // Single use: the same code, the same browser, all closed.
@@ -408,5 +424,78 @@ describe('set up AuthKit from the link', () => {
         created.push({ email: 'someone@rosas-bakery.example', name: 'Someone', credential: null, externalId: null })
         const res = await startTest(agent)
         expect(res.status).toBe(410)
+    })
+})
+
+describe('an expired setup code', () => {
+    const base = Date.parse('2026-10-20T12:00:00.000Z')
+    const later = base + SETUP_CODE_TTL_MS + 60_000
+
+    async function issued(lines: string[]): Promise<string> {
+        jest.spyOn(Date, 'now').mockReturnValue(base)
+        resetFirstRunSetupCode()
+        await announceFirstRunSetup(
+            3000,
+            async () => created.length,
+            (line) => lines.push(line),
+            false,
+            env
+        )
+        await setupCodeReady()
+        return firstRunSetupCode()
+    }
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        resetFirstRunSetupCode()
+    })
+
+    it('prints a new code from /open, and the new code opens a session', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        lines.length = 0
+        const refused = await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code })
+        expect(refused.status).toBe(404)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('A new setup link is ready'))
+        expect(printed).toBeTruthy()
+        const fresh = printed!.slice(printed!.indexOf('#code=') + '#code='.length)
+        expect(await setupCodeMatches(code)).toBe(false)
+        expect(await setupCodeMatches(fresh)).toBe(true)
+        expect((await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: fresh })).status).toBe(200)
+    })
+
+    it('prints a new code from the owner call, and the new code opens a session', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        // Open while the code still has time, so the 30-minute session outlives the code.
+        jest.spyOn(Date, 'now').mockReturnValue(base + 50 * 60 * 1000)
+        const agent = request.agent(server())
+        expect((await agent.post('/api/v1/server-setup/open').set(INTERNAL).send({ code })).status).toBe(200)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        lines.length = 0
+        const res = await agent
+            .post('/api/v1/server-setup/owner')
+            .set(INTERNAL)
+            .send({ name: 'Rosa', email: 'rosa@rosas-bakery.example', password: GOOD_PASSWORD })
+        expect(res.status).toBe(410)
+        await setupCodeReady()
+        expect(created).toEqual([])
+        const printed = lines.find((line) => line.includes('A new setup link is ready'))
+        expect(printed).toBeTruthy()
+        const fresh = printed!.slice(printed!.indexOf('#code=') + '#code='.length)
+        expect(await setupCodeMatches(code)).toBe(false)
+        expect((await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: fresh })).status).toBe(200)
+    })
+
+    it('leaves a live code in place when the submitted code is wrong', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        lines.length = 0
+        expect((await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: 'wrong-code' })).status).toBe(404)
+        await setupCodeReady()
+        expect(lines.some((line) => line.includes('A new setup link is ready'))).toBe(false)
+        expect(await setupCodeMatches(code)).toBe(true)
     })
 })

@@ -40,7 +40,7 @@ import {
 } from './password'
 import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
-import { noteSetupFailure, setupCodeHmac, setupCodeMatches } from './setupCode'
+import { noteSetupFailure, reissueExpiredSetupCode, setupCodeHmac, setupCodeMatches } from './setupCode'
 import { IdentityStore } from './store'
 import {
     HandlerResult,
@@ -481,6 +481,7 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     // The one-time code from the setup link is required before the password is hashed.
     const hmac = setupCodeHmac(ctx.body.setupCode)
     if (!hmac || !(await setupCodeMatches(ctx.body.setupCode, ctx.now))) {
+        await reissueExpiredSetupCode(ctx.now)
         if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
         return json(400, { message: SETUP_LINK_NEEDED })
     }

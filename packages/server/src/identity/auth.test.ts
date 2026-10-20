@@ -37,14 +37,22 @@ import {
     forgetIssuedSetupCode,
     issuedSetupHmac,
     noteSetupFailure,
+    reissueExpiredSetupCode,
+    reissueExpiredSetupIfOpen,
     reissueFirstRunSetupCode,
     resetFirstRunSetupCode,
     retireOpenSetupCode,
+    runSetupCodeWatch,
     serverSetupLink,
     SETUP_CODE_TTL_MS,
+    SETUP_CODE_WATCH_MS,
     setupCodeHmac,
     setupCodeMatches,
-    setupCodeReady
+    setupCodeReady,
+    setupCodeWatchActive,
+    setupCodeWatchUnrefd,
+    simulateOtherSetupCopy,
+    simulateSetupRestart
 } from './setupCode'
 import { SETUP_GLOBAL_WINDOW_MS, setupFailureLimited, socketAddress } from './setupLimit'
 import { linkWorkosUser } from './link'
@@ -1227,6 +1235,220 @@ describe('identity auth', () => {
         expect(await setupCodeMatches(renewed, NOW + 2 * SETUP_CODE_TTL_MS)).toBe(true)
         expect(await setupCodeMatches(rotated, NOW + 2 * SETUP_CODE_TTL_MS)).toBe(false)
         resetFirstRunSetupCode()
+    })
+
+    it('refuses an expired setup code from register, prints a new one, and accepts the new one', async () => {
+        const base = Date.parse('2026-10-20T15:00:00.000Z')
+        const later = base + SETUP_CODE_TTL_MS + 60_000
+        const spy = jest.spyOn(Date, 'now').mockReturnValue(base)
+        resetFirstRunSetupCode()
+        const lines: string[] = []
+        expect(
+            await announceFirstRunSetup(
+                43117,
+                async () => 0,
+                (line) => lines.push(line),
+                true
+            )
+        ).toBe(true)
+        await setupCodeReady()
+        const code = firstRunSetupCode()
+        spy.mockReturnValue(later)
+        lines.length = 0
+        const store = new MemoryStore()
+        const user = { name: 'Owner', email: 'owner@example.com', credential: GOOD }
+        const refused = json(
+            await handleRegister(
+                ctx({
+                    localAdmin: true,
+                    internal: true,
+                    socketAddress: '192.0.2.40',
+                    store,
+                    now: later,
+                    body: { user, setupCode: code }
+                })
+            )
+        )
+        expect(refused.status).toBe(400)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('A new setup link is ready'))
+        expect(printed).toBeTruthy()
+        const fresh = printed!.slice(printed!.indexOf('#code=') + '#code='.length)
+        expect(fresh).not.toBe(code)
+        expect(await setupCodeMatches(code, later)).toBe(false)
+        expect(await setupCodeMatches(fresh, later)).toBe(true)
+        const created = json(
+            await handleRegister(
+                ctx({
+                    localAdmin: true,
+                    internal: true,
+                    socketAddress: '192.0.2.40',
+                    store,
+                    now: later,
+                    body: { user, setupCode: fresh }
+                })
+            )
+        )
+        expect(created.status).toBe(200)
+        expect(store.users).toHaveLength(1)
+        spy.mockRestore()
+        resetFirstRunSetupCode()
+    })
+
+    it('checks once a minute while setup is open, and stops once an account exists', async () => {
+        const base = Date.parse('2026-10-20T15:00:00.000Z')
+        const later = base + SETUP_CODE_TTL_MS + 60_000
+        const spy = jest.spyOn(Date, 'now').mockReturnValue(base)
+        resetFirstRunSetupCode()
+        const lines: string[] = []
+        let users = 0
+        expect(
+            await announceFirstRunSetup(
+                43117,
+                async () => users,
+                (line) => lines.push(line),
+                true
+            )
+        ).toBe(true)
+        await setupCodeReady()
+        expect(SETUP_CODE_WATCH_MS).toBe(60_000)
+        expect(setupCodeWatchActive()).toBe(true)
+        expect(setupCodeWatchUnrefd()).toBe(true)
+        const code = firstRunSetupCode()
+        spy.mockReturnValue(later)
+        lines.length = 0
+        await runSetupCodeWatch(later)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('A new setup link is ready'))
+        expect(printed).toBeTruthy()
+        const fresh = printed!.slice(printed!.indexOf('#code=') + '#code='.length)
+        expect(await setupCodeMatches(code, later)).toBe(false)
+        expect(await setupCodeMatches(fresh, later)).toBe(true)
+        users = 1
+        await runSetupCodeWatch(later)
+        expect(setupCodeWatchActive()).toBe(false)
+        spy.mockRestore()
+        resetFirstRunSetupCode()
+    })
+
+    it('replaces an expired code for a setup document while setup is open, and stops once an account exists', async () => {
+        const base = Date.parse('2026-10-20T15:00:00.000Z')
+        const later = base + SETUP_CODE_TTL_MS + 60_000
+        const spy = jest.spyOn(Date, 'now').mockReturnValue(base)
+        resetFirstRunSetupCode()
+        const lines: string[] = []
+        await announceFirstRunSetup(
+            43117,
+            async () => 0,
+            (line) => lines.push(line),
+            true
+        )
+        await setupCodeReady()
+        const code = firstRunSetupCode()
+        spy.mockReturnValue(later)
+        lines.length = 0
+        await reissueExpiredSetupIfOpen(async () => 0, true, process.env, later)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('A new setup link is ready'))
+        expect(printed).toBeTruthy()
+        const fresh = printed!.slice(printed!.indexOf('#code=') + '#code='.length)
+        expect(await setupCodeMatches(code, later)).toBe(false)
+        expect(await setupCodeMatches(fresh, later)).toBe(true)
+        lines.length = 0
+        await reissueExpiredSetupIfOpen(async () => 1, true, process.env, later + SETUP_CODE_TTL_MS)
+        await setupCodeReady()
+        expect(lines.some((line) => line.includes('A new setup link is ready'))).toBe(false)
+        expect(await setupCodeMatches(fresh, later)).toBe(true)
+        spy.mockRestore()
+        resetFirstRunSetupCode()
+    })
+
+    it('does not print a new code when another copy already stored a fresh one', async () => {
+        resetFirstRunSetupCode()
+        const lines: string[] = []
+        await announceFirstRunSetup(
+            43117,
+            async () => 1,
+            (line) => lines.push(line),
+            true
+        )
+        bindSetupCodeStore({
+            async read() {
+                return { codeHmac: 'ab'.repeat(32), issuedAt: NOW, expiresAt: NOW, consumedAt: null }
+            },
+            async save() {
+                return 'kept'
+            },
+            async consume() {
+                return false
+            }
+        })
+        lines.length = 0
+        await reissueExpiredSetupCode(NOW + 1)
+        expect(lines.some((line) => line.includes('#code='))).toBe(false)
+        expect(issuedSetupHmac()).toBeNull()
+        resetFirstRunSetupCode()
+    })
+
+    it('says the setup code from the last start is still valid after a restart of this install', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-setup-issuer-'))
+        const previousPath = process.env.SECRETKEY_PATH
+        try {
+            process.env.SECRETKEY_PATH = dir
+            resetFirstRunSetupCode()
+            const lines: string[] = []
+            expect(
+                await announceFirstRunSetup(
+                    43117,
+                    async () => 0,
+                    (line) => lines.push(line),
+                    true
+                )
+            ).toBe(true)
+            await setupCodeReady()
+            const code = firstRunSetupCode()
+            simulateSetupRestart()
+            lines.length = 0
+            expect(
+                await announceFirstRunSetup(
+                    43117,
+                    async () => 0,
+                    (line) => lines.push(line),
+                    true
+                )
+            ).toBe(true)
+            expect(lines).toHaveLength(1)
+            expect(lines[0]).toContain('The setup code from the last start is still valid')
+            expect(lines[0]).not.toContain('another copy')
+            expect(lines[0]).not.toMatch(/#code=/)
+            expect(await setupCodeMatches(code)).toBe(true)
+            const marks = JSON.parse(fs.readFileSync(path.join(dir, 'setup-issuer.json'), 'utf8')) as {
+                instanceId: string
+                starts: Record<string, { pid: number; expiresAt?: number }>
+            }
+            expect(marks.instanceId.length).toBeGreaterThan(8)
+            const expiry = Object.values(marks.starts).find((mark) => mark.pid === 0)?.expiresAt
+            expect(expiry).toEqual(expect.any(Number))
+            expect(lines[0]).toContain(new Date(expiry as number).toISOString())
+            lines.length = 0
+            simulateOtherSetupCopy()
+            expect(
+                await announceFirstRunSetup(
+                    43117,
+                    async () => 0,
+                    (line) => lines.push(line),
+                    true
+                )
+            ).toBe(true)
+            expect(lines[0]).toContain('another copy')
+            expect(lines[0]).not.toContain('last start')
+            expect(await setupCodeMatches(code)).toBe(true)
+        } finally {
+            if (previousPath === undefined) delete process.env.SECRETKEY_PATH
+            else process.env.SECRETKEY_PATH = previousPath
+            resetFirstRunSetupCode()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
     })
 
     it('prints the setup link with the code in the fragment', () => {

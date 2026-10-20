@@ -6,6 +6,8 @@ import { Request, Response } from 'express'
 
 export const SETUP_COOKIE = 'cuttlely-setup'
 export const SETUP_SESSION_MS = 30 * 60 * 1000
+/** The setup API, and the AuthKit test callback that reads the same session. */
+export const SETUP_COOKIE_PATHS = ['/api/v1/server-setup', '/api/v1/auth/callback']
 
 interface HeldSession {
     expires: number
@@ -36,13 +38,15 @@ export function openSetupSession(req: Request, res: Response, codeHmac: string, 
     const value = randomBytes(32).toString('base64url')
     for (const [key, session] of sessions) if (session.expires <= now) sessions.delete(key)
     sessions.set(hash(value), { expires: now + SETUP_SESSION_MS, codeHmac })
-    res.cookie(SETUP_COOKIE, value, {
-        httpOnly: true,
-        sameSite: 'strict',
-        secure: req.secure,
-        path: '/',
-        maxAge: SETUP_SESSION_MS
-    })
+    for (const cookiePath of SETUP_COOKIE_PATHS) {
+        res.cookie(SETUP_COOKIE, value, {
+            httpOnly: true,
+            sameSite: 'strict',
+            secure: req.secure,
+            path: cookiePath,
+            maxAge: SETUP_SESSION_MS
+        })
+    }
 }
 
 /** The setup session of this request, as a hash, or null when there is none (or it ran out). */
@@ -59,5 +63,8 @@ export function setupSessionCodeHmac(req: Request, now = Date.now()): string | n
 /** Ends every setup session. */
 export function endSetupSessions(res?: Response): void {
     sessions.clear()
-    res?.clearCookie(SETUP_COOKIE, { path: '/', httpOnly: true, sameSite: 'strict' })
+    if (!res) return
+    for (const cookiePath of [...SETUP_COOKIE_PATHS, '/']) {
+        res.clearCookie(SETUP_COOKIE, { path: cookiePath, httpOnly: true, sameSite: 'strict' })
+    }
 }

@@ -806,9 +806,18 @@ function sameSetupRow(left: SetupCodeRow | null, right: SetupCodeRow): boolean {
     )
 }
 
+function setupCodeSelect(dialect: Dialect): string {
+    return `SELECT ${quote(dialect, 'codeHmac')} AS ${quote(dialect, 'codeHmac')},
+                    ${quote(dialect, 'issuedAt')} AS ${quote(dialect, 'issuedAt')},
+                    ${quote(dialect, 'expiresAt')} AS ${quote(dialect, 'expiresAt')},
+                    ${quote(dialect, 'consumedAt')} AS ${quote(dialect, 'consumedAt')}
+             FROM ${quote(dialect, 'identity_setup_code')} WHERE ${quote(dialect, 'id')} = 1`
+}
+
 /**
- * One statement. Inserts the singleton row when it is absent.
+ * One statement for sqlite and postgres. Inserts the singleton row when it is absent.
  * Updates it only when it is consumed, expired at this write's issued time, or still this process's HMAC.
+ * MySQL and MariaDB use a transaction in SqlSetupCodeStore instead of a user variable.
  */
 function conditionalSetupUpsert(dialect: Dialect): string {
     const table = quote(dialect, 'identity_setup_code')
@@ -830,12 +839,25 @@ function conditionalSetupUpsert(dialect: Dialect): string {
                OR ${table}.${expiresAt} <= ?
                OR ${table}.${codeHmac} = ?`
     }
-    return `${insert}
-        ON DUPLICATE KEY UPDATE
-            ${codeHmac} = IF((@setup_keep := (${consumedAt} IS NULL AND ${expiresAt} > ? AND ${codeHmac} <> ?)), ${codeHmac}, VALUES(${codeHmac})),
-            ${issuedAt} = IF(@setup_keep, ${issuedAt}, VALUES(${issuedAt})),
-            ${expiresAt} = IF(@setup_keep, ${expiresAt}, VALUES(${expiresAt})),
-            ${consumedAt} = IF(@setup_keep, ${consumedAt}, VALUES(${consumedAt}))`
+    throw new Error('MySQL and MariaDB setup writes use a transaction')
+}
+
+function affectedCount(result: unknown): number {
+    if (result && typeof result === 'object' && 'affectedRows' in result) {
+        return Number((result as { affectedRows: unknown }).affectedRows) || 0
+    }
+    if (Array.isArray(result) && result[0] && typeof result[0] === 'object' && 'affectedRows' in result[0]) {
+        return Number((result[0] as { affectedRows: unknown }).affectedRows) || 0
+    }
+    return 0
+}
+
+/** InnoDB can abort one of two setup writes. The caller tries that write again. */
+function isLockConflict(error: unknown): boolean {
+    const record = error as { code?: string; errno?: number; driverError?: { code?: string; errno?: number } }
+    const code = record.driverError?.code || record.code
+    const errno = record.driverError?.errno || record.errno
+    return code === 'ER_LOCK_DEADLOCK' || code === 'ER_LOCK_WAIT_TIMEOUT' || errno === 1213 || errno === 1205
 }
 
 /** Reads and writes the single setup-code row. Owner creation consumes it inside its own transaction. */
@@ -844,21 +866,14 @@ export class SqlSetupCodeStore implements SetupCodeStore {
 
     async read(): Promise<SetupCodeRow | null> {
         const d = dialectOfSource(this.dataSource)
-        const rows = await querySource(
-            this.dataSource,
-            `SELECT ${quote(d, 'codeHmac')} AS ${quote(d, 'codeHmac')},
-                    ${quote(d, 'issuedAt')} AS ${quote(d, 'issuedAt')},
-                    ${quote(d, 'expiresAt')} AS ${quote(d, 'expiresAt')},
-                    ${quote(d, 'consumedAt')} AS ${quote(d, 'consumedAt')}
-             FROM ${quote(d, 'identity_setup_code')} WHERE ${quote(d, 'id')} = 1`,
-            []
-        )
+        const rows = await querySource(this.dataSource, setupCodeSelect(d), [])
         return rows[0] ? setupCodeRowFrom(rows[0]) : null
     }
 
     async save(row: SetupCodeRow, previousHmac?: string | null): Promise<SetupCodeWrite> {
-        const before = await this.read()
         const d = dialectOfSource(this.dataSource)
+        if (d === 'mysql' || d === 'mariadb') return this.saveOnMysql(row, previousHmac ?? '')
+        const before = await this.read()
         const previous = previousHmac ?? ''
         await querySource(this.dataSource, conditionalSetupUpsert(d), [
             row.codeHmac,
@@ -873,6 +888,69 @@ export class SqlSetupCodeStore implements SetupCodeStore {
         if (!before) return 'inserted'
         if (!sameSetupRow(before, row)) return 'replaced'
         return 'inserted'
+    }
+
+    /**
+     * Insert if absent, lock the singleton row, then update it only when it is consumed,
+     * expired at this write's issued time, or still this process's HMAC.
+     * A second copy that finds a fresh live row leaves that row in place.
+     */
+    private async saveOnMysql(row: SetupCodeRow, previous: string): Promise<SetupCodeWrite> {
+        let last: unknown
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                return await this.saveOnMysqlOnce(row, previous)
+            } catch (error) {
+                last = error
+                if (!isLockConflict(error) || attempt === 2) throw error
+            }
+        }
+        throw last
+    }
+
+    private async saveOnMysqlOnce(row: SetupCodeRow, previous: string): Promise<SetupCodeWrite> {
+        const d = dialectOfSource(this.dataSource)
+        const runner = this.dataSource.createQueryRunner()
+        await runner.connect()
+        await runner.startTransaction()
+        try {
+            const table = quote(d, 'identity_setup_code')
+            const insertResult: unknown = await runner.query(
+                `INSERT IGNORE INTO ${table} (${quote(d, 'id')}, ${quote(d, 'codeHmac')}, ${quote(d, 'issuedAt')}, ${quote(
+                    d,
+                    'expiresAt'
+                )}, ${quote(d, 'consumedAt')}) VALUES (1, ?, ?, ?, ?)`,
+                [row.codeHmac, row.issuedAt, row.expiresAt, row.consumedAt]
+            )
+            const insertedRows = affectedCount(insertResult)
+            const locked = await query(runner, `${setupCodeSelect(d)} FOR UPDATE`)
+            const prior = locked[0] ? setupCodeRowFrom(locked[0]) : null
+            const updateResult: unknown = await runner.query(
+                `UPDATE ${table}
+                 SET ${quote(d, 'codeHmac')} = ?, ${quote(d, 'issuedAt')} = ?, ${quote(d, 'expiresAt')} = ?, ${quote(d, 'consumedAt')} = ?
+                 WHERE ${quote(d, 'id')} = 1
+                   AND (${quote(d, 'consumedAt')} IS NOT NULL OR ${quote(d, 'expiresAt')} <= ? OR ${quote(d, 'codeHmac')} = ?)`,
+                [row.codeHmac, row.issuedAt, row.expiresAt, row.consumedAt, row.issuedAt, previous]
+            )
+            const updatedRows = affectedCount(updateResult)
+            const afterRows = await query(runner, setupCodeSelect(d))
+            const after = afterRows[0] ? setupCodeRowFrom(afterRows[0]) : null
+            await runner.commitTransaction()
+            if (!sameSetupRow(after, row)) return 'kept'
+            if (insertedRows > 0 && sameSetupRow(prior, row) && updatedRows === 0) return 'inserted'
+            if (!prior) return 'inserted'
+            if (!sameSetupRow(prior, row)) return 'replaced'
+            return 'inserted'
+        } catch (error) {
+            try {
+                await runner.rollbackTransaction()
+            } catch {
+                // The engine already ended the transaction.
+            }
+            throw error
+        } finally {
+            await runner.release()
+        }
     }
 
     async consume(hmac: string, now: number): Promise<boolean> {
