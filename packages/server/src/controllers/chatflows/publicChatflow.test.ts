@@ -7,7 +7,19 @@ jest.mock('../../services/chatflows', () => ({
 }))
 jest.mock('../../services/schedule', () => ({ __esModule: true, default: {} }))
 jest.mock('../../schedule/ScheduleBeat', () => ({ ScheduleBeat: { getInstance: jest.fn() } }))
-jest.mock('../../utils/getRunningExpressApp', () => ({ getRunningExpressApp: jest.fn() }))
+const readWorkspaceUserByUserId = jest.fn()
+const releaseQueryRunner = jest.fn()
+jest.mock('../../utils/getRunningExpressApp', () => ({
+    getRunningExpressApp: () => ({ AppDataSource: { createQueryRunner: () => ({ release: releaseQueryRunner }) } })
+}))
+jest.mock('../../identity/workspaceScope', () => ({
+    ...jest.requireActual('../../identity/workspaceScope'),
+    WorkspaceUserService: class WorkspaceUserService {
+        readWorkspaceUserByUserId(...args: unknown[]) {
+            return readWorkspaceUserByUserId(...args)
+        }
+    }
+}))
 jest.mock('../../utils/quotaUsage', () => ({ checkUsageLimit: jest.fn() }))
 jest.mock('../../utils/rateLimit', () => ({ RateLimiterManager: class RateLimiterManager {} }))
 jest.mock('../../utils/logger', () => ({
@@ -42,14 +54,7 @@ const variantInputs = {
     temperature: 0.2
 }
 const variantLeaks = ['FAKE-NESTED', 'FAKE-ARRAY', 'FAKE-SENTENCE', 'FAKEsig', 'AIzaFAKE', 'cred-FAKE-ID', 'FAKE-HDR']
-const variantKept = {
-    config: { a: {}, keep: 'ok' },
-    list: ['fine'],
-    headers: [{ key: 'Accept', value: 'application/json' }],
-    temperature: 0.2
-}
-
-const run = async (id: string) => {
+const run = async (id: string, user?: { id: string }) => {
     const res: any = {
         statusCode: 200,
         body: undefined,
@@ -63,7 +68,7 @@ const run = async (id: string) => {
         }
     }
     const next = jest.fn()
-    await chatflowsController.getSinglePublicChatflow({ params: { id } } as any, res, next)
+    await chatflowsController.getSinglePublicChatflow({ params: { id }, user } as any, res, next)
     return { res, next }
 }
 
@@ -101,7 +106,7 @@ describe('GET /public-chatflows/:id', () => {
         for (const leak of [...variantLeaks, 'sk-FAKE-ORPHAN', 'cred-FAKE-0001', 'allowedOrigins', 'ws-1']) {
             expect(serialized).not.toContain(leak)
         }
-        expect(JSON.parse(res.body.chatbotConfig)).toEqual({ title: 'Bot', overrideConfig: variantKept })
+        expect(JSON.parse(res.body.chatbotConfig)).toEqual({ title: 'Bot' })
     })
 
     it('reports a key-protected public chatflow as needing a key without returning the key id', async () => {
@@ -115,5 +120,25 @@ describe('GET /public-chatflows/:id', () => {
         getChatflowById.mockResolvedValue({ id: 'flow-2', isPublic: false, flowData: '{"nodes":[],"edges":[]}' })
         const { res } = await run('flow-2')
         expect(res.statusCode).toBe(401)
+    })
+
+    // Intended: a signed-in member of the owning workspace keeps their normal access to a private chatflow here,
+    // the same entity GET /api/v1/chatflows/:id gives them. Anyone else is refused.
+    it('gives a signed-in workspace member of a private chatflow their normal access', async () => {
+        const stored = { id: 'flow-4', name: 'Private', isPublic: false, workspaceId: 'ws-1', flowData: '{"nodes":[],"edges":[]}' }
+        getChatflowById.mockResolvedValue(stored)
+        readWorkspaceUserByUserId.mockResolvedValue([{ workspaceId: 'ws-1' }])
+        const { res } = await run('flow-4', { id: 'user-1' })
+        expect(res.statusCode).toBe(200)
+        expect(res.body).toEqual(stored)
+        expect(releaseQueryRunner).toHaveBeenCalled()
+    })
+
+    it('refuses a signed-in user outside the owning workspace', async () => {
+        getChatflowById.mockResolvedValue({ id: 'flow-5', isPublic: false, workspaceId: 'ws-1', flowData: '{}' })
+        readWorkspaceUserByUserId.mockResolvedValue([{ workspaceId: 'ws-2' }])
+        const { res } = await run('flow-5', { id: 'user-2' })
+        expect(res.statusCode).toBe(400)
+        expect(res.body).not.toHaveProperty('flowData')
     })
 })

@@ -366,31 +366,22 @@ describe('public chatbot display config', () => {
             name: 'Flow',
             isPublic: true,
             hasApiKey: true,
-            chatbotConfig: JSON.stringify({ title: 'Bot', overrideConfig: { temperature: 0.1 } })
+            chatbotConfig: JSON.stringify({ title: 'Bot' })
         })
     })
 })
 
 describe('public config follow-up rules', () => {
-    it('drops credential headers from overrideConfig in array and object form', () => {
-        const run = (headers: unknown) =>
-            JSON.parse(
-                publicChatflowSummary({
-                    id: 'f',
-                    chatbotConfig: JSON.stringify({ overrideConfig: { temperature: 0.2, headers } })
-                }).chatbotConfig as string
-            ).overrideConfig
-        expect(
-            run([
-                { key: 'X-Custom-Auth', value: 'plain' },
-                { key: 'Accept', value: 'application/json' }
-            ])
-        ).toEqual({ temperature: 0.2, headers: [{ key: 'Accept', value: 'application/json' }] })
-        expect(run({ 'X-Custom-Auth': 'plain', Accept: 'text/plain' })).toEqual({ temperature: 0.2, headers: { Accept: 'text/plain' } })
-        expect(run(JSON.stringify({ 'X-Custom-Auth': 'plain', Accept: 'text/plain' }))).toEqual({
-            temperature: 0.2,
-            headers: JSON.stringify({ Accept: 'text/plain' })
+    it('never returns overrideConfig from the public flow summary', () => {
+        const summary = publicChatflowSummary({
+            id: 'f',
+            chatbotConfig: JSON.stringify({
+                title: 'Bot',
+                overrideConfig: { temperature: 0.2, headers: { Accept: 'a' }, vars: { databaseUrl: 'https://u:pw@db.example/app' } }
+            })
         })
+        expect(JSON.parse(summary.chatbotConfig as string)).toEqual({ title: 'Bot' })
+        expect(JSON.stringify(summary)).not.toContain('overrideConfig')
     })
 
     it('drops nested auth and pass exactly but keeps passThrough and bypass', () => {
@@ -470,33 +461,6 @@ describe('declared credential names and nested headers', () => {
         expect(declared(kept)).toEqual(kept)
     })
 
-    const summaryOverride = (overrideConfig: unknown) =>
-        JSON.parse(publicChatflowSummary({ id: 'f', chatbotConfig: JSON.stringify({ overrideConfig }) }).chatbotConfig as string)
-            .overrideConfig
-
-    it('drops credential headers in per-node and nested shapes of overrideConfig', () => {
-        expect(
-            summaryOverride({
-                headers: {
-                    httpAgentflow_0: { 'X-Custom-Auth': 'plain', Accept: 'a' },
-                    http_1: JSON.stringify({ Cookie: 'c', 'X-Ok': 'b' })
-                },
-                something: {
-                    headers: { 'X-Custom-Auth': 'plain', Accept: 'a' },
-                    deeper: {
-                        Headers: [
-                            { key: 'X-Custom-Auth', value: 'plain' },
-                            { key: 'Accept', value: 'a' }
-                        ]
-                    }
-                }
-            })
-        ).toEqual({
-            headers: { httpAgentflow_0: { Accept: 'a' }, http_1: JSON.stringify({ 'X-Ok': 'b' }) },
-            something: { headers: { Accept: 'a' }, deeper: { Headers: [{ key: 'Accept', value: 'a' }] } }
-        })
-    })
-
     it('drops credential headers in per-node and nested shapes of json template inputs', () => {
         const params = [
             { name: 'config', type: 'json' },
@@ -524,5 +488,64 @@ describe('declared credential names and nested headers', () => {
                 something: { headers: JSON.stringify([{ key: 'Accept', value: 'a' }]) }
             }
         })
+    })
+})
+
+describe('public display config shapes', () => {
+    it('keeps scalars only as primitives and nested objects only with their listed keys', () => {
+        expect(
+            publicChatbotDisplayConfig({
+                title: { extra: 'x' },
+                welcomeMessage: 'Hi',
+                fontSize: 14,
+                generateNewSession: true,
+                backgroundColor: ['#fff'],
+                botMessage: { textColor: '#000', avatarSrc: { nested: 1 }, extra: 'x' },
+                textInput: 'not-an-object'
+            })
+        ).toEqual({ welcomeMessage: 'Hi', fontSize: 14, generateNewSession: true, botMessage: { textColor: '#000' } })
+    })
+
+    it('returns starterPrompts as an array of { prompt } from array or index-keyed shapes', () => {
+        expect(
+            publicChatbotDisplayConfig({
+                starterPrompts: { 0: { prompt: 'One', extra: 'x' }, 1: { prompt: { a: 1 } }, 2: 'bare', 3: { prompt: 'Two' } }
+            })
+        ).toEqual({ starterPrompts: [{ prompt: 'One' }, { prompt: 'Two' }] })
+        expect(publicChatbotDisplayConfig({ starterPrompts: [{ prompt: 'A' }, null, { leak: 'x' }] })).toEqual({
+            starterPrompts: [{ prompt: 'A' }]
+        })
+        expect(publicChatbotDisplayConfig({ starterPrompts: 'One' })).toEqual({})
+    })
+})
+
+describe('credential-bearing URLs in node inputs', () => {
+    const params = [
+        { name: 'url', type: 'string' },
+        { name: 'note', type: 'string' },
+        { name: 'config', type: 'json' },
+        { name: 'authorization', type: 'string' },
+        { name: 'auth', type: 'string' },
+        { name: 'site', type: 'string' }
+    ] as any
+
+    it('drops userinfo and credential-parameter URLs at any depth and auth-named inputs, keeping plain URLs', () => {
+        expect(
+            sanitizeNodeInputs(
+                {
+                    url: 'https://example.com/hook?api_key=abc',
+                    note: 'https://user:pw@example.com/x',
+                    config: {
+                        a: 'https://example.com/cb#access_token=abc',
+                        b: ['https://example.com/s?sig=1', 'https://example.com/p?page=2'],
+                        c: 'https://example.com/x?Signature=1&client_secret=2'
+                    },
+                    authorization: 'plain',
+                    auth: 'plain',
+                    site: 'https://example.com/docs?q=token'
+                },
+                params
+            )
+        ).toEqual({ config: { b: ['https://example.com/p?page=2'] }, site: 'https://example.com/docs?q=token' })
     })
 })

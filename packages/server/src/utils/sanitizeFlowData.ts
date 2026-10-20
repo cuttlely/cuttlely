@@ -20,6 +20,24 @@ const DECLARED_SECRET_NAME = /(credential|api[_-]?key|access[_-]?key|private[_-]
 const DECLARED_TOKEN_NAME = /token/i
 // Query or fragment parameter names that carry credentials inside a URL.
 const URL_SECRET_PARAM = /(token|key|secret|sig|passw)/i
+// Exact query or fragment parameter names that mark a URL as carrying a credential.
+const URL_CREDENTIAL_PARAM = /^(api[_-]?key|apikey|access[_-]?token|token|key|secret|password|sig|signature|client[_-]?secret)$/i
+// Declared inputs dropped by name alone.
+const DECLARED_AUTH_NAME = /^(authorization|auth)$/i
+
+/** True for a string that parses as a URL carrying userinfo or a credential query or fragment parameter. */
+const isCredentialUrl = (value: string): boolean => {
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value.trim())) return false
+    let url: URL
+    try {
+        url = new URL(value.trim())
+    } catch {
+        return false
+    }
+    if (url.username || url.password) return true
+    const params = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.replace(/^#/, '')).keys()]
+    return params.some((name) => URL_CREDENTIAL_PARAM.test(name))
+}
 
 /** True for an http(s) URL with no userinfo and no credential-looking query or fragment parameters. */
 const isPlainUrl = (value: unknown): boolean => {
@@ -38,6 +56,7 @@ const isPlainUrl = (value: unknown): boolean => {
 
 /** Name rule for declared, non-password inputs; token-count words are ignored. */
 const isDeclaredSecretInput = (name: string, value: unknown): boolean => {
+    if (DECLARED_AUTH_NAME.test(name)) return true
     const stripped = name.replace(TOKEN_COUNT_WORD, '')
     if (DECLARED_SECRET_NAME.test(stripped)) return true
     return DECLARED_TOKEN_NAME.test(stripped) && !isPlainUrl(value)
@@ -115,7 +134,7 @@ const scrubHeaderTree = (value: unknown, depth = 0): unknown => {
  */
 const scrubValue = (value: unknown, depth = 0): unknown => {
     if (depth > 32) return DROP
-    if (typeof value === 'string') return looksLikeSecretValue(value) ? DROP : value
+    if (typeof value === 'string') return looksLikeSecretValue(value) || isCredentialUrl(value) ? DROP : value
     if (Array.isArray(value)) {
         const out: unknown[] = []
         for (const item of value) {
@@ -218,7 +237,8 @@ export const sanitizeFlowDataForPublicEndpoint = (flowDataString: string): strin
 }
 
 // chatbotConfig fields the chat widget (packages/chat-widget/src/config.js) reads. Nothing else leaves a public response.
-const PUBLIC_DISPLAY_FIELDS = [
+// Scalar fields: kept only when the value is a string, number or boolean.
+const PUBLIC_DISPLAY_SCALARS = [
     'title',
     'titleAvatarSrc',
     'titleBackgroundColor',
@@ -227,9 +247,9 @@ const PUBLIC_DISPLAY_FIELDS = [
     'welcomeMessage',
     'errorMessage',
     'fontSize',
-    'starterPrompts',
     'generateNewSession'
 ] as const
+// Object fields: only the listed keys, each a scalar.
 const PUBLIC_DISPLAY_OBJECTS: Record<string, readonly string[]> = {
     botMessage: ['showAvatar', 'avatarSrc', 'backgroundColor', 'textColor'],
     userMessage: ['backgroundColor', 'textColor'],
@@ -238,22 +258,45 @@ const PUBLIC_DISPLAY_OBJECTS: Record<string, readonly string[]> = {
     followUpPrompts: ['status']
 }
 
-/** The display-only part of a saved chatbotConfig, for signed-out callers. */
+/** A string, number or boolean with nothing credential-shaped in it, or undefined. */
+const publicScalar = (value: unknown): string | number | boolean | undefined => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
+    if (typeof value === 'boolean') return value
+    if (typeof value === 'string') return scrubSecrets(value) === undefined ? undefined : value
+    return undefined
+}
+
+/** starterPrompts as an array of { prompt } (saved as an array or an index-keyed object); anything else is dropped. */
+const publicStarterPrompts = (value: unknown): { prompt: string }[] | undefined => {
+    if (!value || typeof value !== 'object') return undefined
+    const items = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>)
+    const out: { prompt: string }[] = []
+    for (const item of items) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+        const prompt = (item as Record<string, unknown>).prompt
+        if (typeof prompt !== 'string' || publicScalar(prompt) === undefined) continue
+        out.push({ prompt })
+    }
+    return out
+}
+
+/** The display-only part of a saved chatbotConfig, for signed-out callers. Every value is shape-checked. */
 export const publicChatbotDisplayConfig = (config: unknown): Record<string, unknown> => {
     const result: Record<string, unknown> = {}
     if (!config || typeof config !== 'object' || Array.isArray(config)) return result
     const source = config as Record<string, unknown>
-    for (const field of PUBLIC_DISPLAY_FIELDS) {
-        if (source[field] === undefined) continue
-        const kept = scrubSecrets(source[field])
+    for (const field of PUBLIC_DISPLAY_SCALARS) {
+        const kept = publicScalar(source[field])
         if (kept !== undefined) result[field] = kept
     }
+    const prompts = publicStarterPrompts(source.starterPrompts)
+    if (prompts !== undefined) result.starterPrompts = prompts
     for (const [field, keys] of Object.entries(PUBLIC_DISPLAY_OBJECTS)) {
         const value = source[field]
         if (!value || typeof value !== 'object' || Array.isArray(value)) continue
         const picked: Record<string, unknown> = {}
         for (const key of keys) {
-            const kept = scrubSecrets((value as Record<string, unknown>)[key])
+            const kept = publicScalar((value as Record<string, unknown>)[key])
             if (kept !== undefined) picked[key] = kept
         }
         result[field] = picked
@@ -263,8 +306,7 @@ export const publicChatbotDisplayConfig = (config: unknown): Record<string, unkn
 
 /**
  * What GET /api/v1/public-chatflows/:id returns for a public chatflow: id, name, whether an API key is required,
- * and the display part of chatbotConfig plus overrideConfig (which the shared chat page sends with each question),
- * with anything credential-shaped removed. Never the flow graph.
+ * and the display part of chatbotConfig. Never overrideConfig or the flow graph.
  */
 export const publicChatflowSummary = (chatflow: {
     id: string
@@ -280,18 +322,6 @@ export const publicChatflowSummary = (chatflow: {
         parsed = {}
     }
     const display = publicChatbotDisplayConfig(parsed)
-    const override = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).overrideConfig : undefined
-    if (override && typeof override === 'object' && !Array.isArray(override)) {
-        const { headers, ...rest } = override as Record<string, unknown>
-        const kept = scrubSecrets(rest) as Record<string, unknown> | undefined
-        if (kept !== undefined) {
-            if (headers !== undefined && headers !== null) {
-                const keptHeaders = sanitizeHeaders(headers)
-                if (keptHeaders !== undefined) kept.headers = keptHeaders
-            }
-            display.overrideConfig = kept
-        }
-    }
     return {
         id: chatflow.id,
         name: chatflow.name,

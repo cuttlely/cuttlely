@@ -988,7 +988,7 @@ describe('getSinglePublicChatbotConfig', () => {
         expect(result).not.toHaveProperty('flowData')
         expect(result.title).toBe('Bot')
         expect(result.botMessage).toEqual({ showAvatar: true, avatarSrc: 'https://img.example/b.png', backgroundColor: '#fff' })
-        expect(result.starterPrompts).toEqual({ 0: { prompt: 'What is new?' }, 1: {} })
+        expect(result.starterPrompts).toEqual([{ prompt: 'What is new?' }])
         for (const leak of ['SECRET-PROMPT-CANARY', 'cred-openai', 'sk-', 'allowedOrigins', 'overrideConfig', 'owner@example.com']) {
             expect(serialized).not.toContain(leak)
         }
