@@ -5,7 +5,7 @@ jest.mock('../../utils/logger', () => ({
 
 const mockRedis = { subscribe: jest.fn(async () => undefined), unsubscribe: jest.fn(async () => undefined) }
 const mockRemoveClient = jest.fn()
-const mockBuildChatflow = jest.fn(async (req: { body?: { chatId?: string } }) => ({ text: 'ok', chatId: req.body?.chatId }))
+const mockBuildChatflow = jest.fn(async (req?: { body?: { chatId?: string } }) => ({ text: 'ok', chatId: req?.body?.chatId }))
 
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
@@ -21,7 +21,7 @@ jest.mock('../../utils/getRunningExpressApp', () => ({
 
 jest.mock('../../services/predictions', () => ({
     __esModule: true,
-    default: { buildChatflow: (...args: unknown[]) => mockBuildChatflow(...args) }
+    default: { buildChatflow: (req?: { body?: { chatId?: string } }) => mockBuildChatflow(req) }
 }))
 
 jest.mock('../../utils/sessionOwnership', () => ({
@@ -95,7 +95,7 @@ describe('A2A executor helpers', () => {
         mockRedis.unsubscribe.mockResolvedValue(undefined)
         mockRemoveClient.mockReset()
         mockBuildChatflow.mockReset()
-        mockBuildChatflow.mockImplementation(async (req: { body?: { chatId?: string } }) => ({ text: 'ok', chatId: req.body?.chatId }))
+        mockBuildChatflow.mockImplementation(async (req?: { body?: { chatId?: string } }) => ({ text: 'ok', chatId: req?.body?.chatId }))
         if (previousMode === undefined) delete process.env.MODE
         else process.env.MODE = previousMode
     })
