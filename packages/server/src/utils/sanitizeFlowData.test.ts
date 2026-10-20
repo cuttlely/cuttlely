@@ -133,7 +133,8 @@ describe('template inputs', () => {
                 note: 'not declared here'
             },
             [],
-            [{ name: 'model' }, { name: 'tools' }]
+            [{ name: 'model' }, { name: 'tools' }],
+            new Set(['chatOpenAI_0', 'tool_0', 'tool_1'])
         )
         expect(inputs).toEqual({
             model: '{{chatOpenAI_0.data.instance}}',
@@ -147,10 +148,58 @@ describe('template inputs', () => {
         const { inputs, dropped } = sanitizeNodeInputs(
             { model: `{{chatOpenAI_0.data.instance}} sk-${MARKER}LINK`, tools: ['{{tool_0.data.instance}}', `sk-${MARKER}TOOL`] },
             [],
-            [{ name: 'model' }, { name: 'tools' }]
+            [{ name: 'model' }, { name: 'tools' }],
+            new Set(['chatOpenAI_0', 'tool_0'])
         )
         expect(inputs).toEqual({})
         expect(dropped).toEqual(['model', 'tools'])
+    })
+
+    it('keeps a canvas link only when it names a node in the same flow', () => {
+        const { inputs, dropped } = sanitizeNodeInputs(
+            {
+                model: '{{chatOpenAI_0.data.instance}}',
+                tools: ['{{tool_0.data.instance}}'],
+                missing: '{{missingNode_0.data.instance}}',
+                shaped: `{{sk-${MARKER}NODE_0.data.instance}}`,
+                nested: '{{chatOpenAI_0.data.instance.secret}}'
+            },
+            [],
+            [{ name: 'model' }, { name: 'tools' }, { name: 'missing' }, { name: 'shaped' }, { name: 'nested' }],
+            new Set(['chatOpenAI_0', 'tool_0'])
+        )
+        expect(inputs).toEqual({
+            model: '{{chatOpenAI_0.data.instance}}',
+            tools: ['{{tool_0.data.instance}}']
+        })
+        expect(dropped.sort()).toEqual(['missing', 'nested', 'shaped'])
+        expect(JSON.stringify(inputs)).not.toContain(MARKER)
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'llmChain_0',
+                        data: {
+                            name: 'llmChain',
+                            inputs: {
+                                model: '{{chatOpenAI_0.data.instance}}',
+                                gone: '{{missingNode_3.data.instance}}'
+                            }
+                        }
+                    },
+                    { id: 'chatOpenAI_0', data: { name: 'chatOpenAI', inputs: {} } }
+                ],
+                edges: []
+            },
+            {
+                llmChain: { name: 'llmChain', label: 'Chain', inputAnchors: [{ name: 'model' }, { name: 'gone' }] },
+                chatOpenAI: { name: 'chatOpenAI', label: 'OpenAI' }
+            }
+        )
+        const saved = (flow.nodes[0] as { data: { inputs: Record<string, unknown> } }).data.inputs
+        expect(saved.model).toBe('{{chatOpenAI_0.data.instance}}')
+        expect(saved.gone).toBeUndefined()
+        expect(JSON.stringify(flow)).not.toContain(MARKER)
     })
 
     it('drops a kept string whole when the normalized text has //, an @ between non-spaces, a scheme-like word, or a token prefix', () => {
@@ -257,7 +306,8 @@ describe('template inputs', () => {
                                 inputAnchors: [{ name: 'model' }],
                                 inputs: { ...inputs, model: '{{chatOpenAI_0.data.instance}}', prompt: pick() }
                             }
-                        }
+                        },
+                        { id: 'chatOpenAI_0', data: { id: 'chatOpenAI_0', name: 'chatOpenAI', inputs: {} } }
                     ],
                     edges: [{ id: 'e1' }]
                 },
@@ -312,6 +362,10 @@ describe('dropped settings report', () => {
                     }
                 },
                 {
+                    id: 'other_0',
+                    data: { id: 'other_0', name: 'stickyNote', inputs: {} }
+                },
+                {
                     id: 'plain_0',
                     data: {
                         id: 'plain_0',
@@ -356,7 +410,7 @@ describe('dropped settings report', () => {
             temperature: 0.2,
             model: '{{other_0.data.instance}}'
         })
-        expect((flow.nodes[1] as { data: { inputs: Record<string, unknown> } }).data.inputs).toEqual({ label: 'Fine' })
+        expect((flow.nodes[2] as { data: { inputs: Record<string, unknown> } }).data.inputs).toEqual({ label: 'Fine' })
     })
 
     it('uses the node name when a label was not saved', () => {

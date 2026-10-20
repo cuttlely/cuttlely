@@ -25,7 +25,8 @@ const SAFE_STRING_NAME = /(?:prompt|systemmessage|description|label|placeholder|
 const HTTP_TOOL_NAME = /^requests(?:get|post|put|delete)name$/i
 const URL_FIELD_NAME = /^base(?:path|url)$/i
 const HEADER_NAME = /headers$/i
-const NODE_REFERENCE = /^\{\{[A-Za-z0-9_-]+\.data\.instance(?:\.[A-Za-z0-9_-]+)*\}\}$/
+// Canvas ids are `<nodeName>_<n>` (chatOpenAI_0). A link is only that id's `.data.instance`.
+const NODE_REFERENCE = /^\{\{([A-Za-z][A-Za-z0-9_]*_\d+)\.data\.instance\}\}$/
 const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-)/i
 const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
 // word: followed by a non-space character. Applied to the normalized text, not tuned per field.
@@ -234,9 +235,16 @@ const optionNames = (param: DeclaredParam): unknown[] => {
 
 const isListedOption = (value: unknown, param: DeclaredParam): boolean => optionNames(param).some((name) => Object.is(name, value))
 
-const isNodeReference = (value: unknown): boolean => {
-    if (typeof value === 'string') return NODE_REFERENCE.test(value)
-    return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && NODE_REFERENCE.test(item))
+const referenceNodeId = (value: string): string | undefined => NODE_REFERENCE.exec(value)?.[1]
+
+const isNodeReference = (value: unknown, nodeIds: ReadonlySet<string>): boolean => {
+    const one = (item: unknown): boolean => {
+        if (typeof item !== 'string') return false
+        const id = referenceNodeId(item)
+        return id !== undefined && nodeIds.has(id)
+    }
+    if (typeof value === 'string') return one(value)
+    return Array.isArray(value) && value.length > 0 && value.every(one)
 }
 
 /** http or https, written back as scheme, host, and path. No user info, port, query, or fragment. */
@@ -272,18 +280,20 @@ const keepString = (value: unknown): string | undefined => (stringIsSafe(value) 
 export const sanitizeNodeInputs = (
     inputs: Record<string, unknown> | undefined,
     inputParams: INodeParams[] | DeclaredParam[] | undefined,
-    inputAnchors?: { name?: string }[] | undefined
+    inputAnchors?: { name?: string }[] | undefined,
+    nodeIds?: ReadonlySet<string>
 ): { inputs: Record<string, unknown>; dropped: string[] } => {
     const result: Record<string, unknown> = {}
     const dropped: string[] = []
     if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) return { inputs: result, dropped }
     const params = flattenParams(inputParams)
     const anchors = Array.isArray(inputAnchors) ? inputAnchors : []
+    const knownNodes = nodeIds ?? new Set<string>()
     for (const name of Object.keys(inputs)) {
         const value = inputs[name]
         const param = params.find((item) => item.name === name)
         const anchor = anchors.find((item) => item?.name === name)
-        if (!param && anchor && isNodeReference(value)) {
+        if (!param && anchor && isNodeReference(value, knownNodes)) {
             result[name] = value
             continue
         }
@@ -443,6 +453,14 @@ export const buildTemplateFlow = (
 ): TemplateFlow => {
     const sourceNodes = Array.isArray(flowData?.nodes) ? flowData.nodes : []
     const edges = Array.isArray(flowData?.edges) ? [...flowData.edges] : []
+    const nodeIds = new Set<string>()
+    for (const node of sourceNodes) {
+        if (!node || typeof node !== 'object') continue
+        const current = node as Record<string, unknown>
+        if (typeof current.id === 'string' && current.id) nodeIds.add(current.id)
+        const data = asRecord(current.data)
+        if (typeof data?.id === 'string' && data.id) nodeIds.add(data.id)
+    }
     const droppedSettings: DroppedNodeSettings[] = []
     const nodes = sourceNodes.map((node) => {
         if (!node || typeof node !== 'object') return node
@@ -461,7 +479,7 @@ export const buildTemplateFlow = (
             return { ...shell, data: { id: nodeId, selected: false, inputs: {} } }
         }
         const { params, anchors } = componentParts(component)
-        const sanitized = sanitizeNodeInputs(inputs, params, anchors)
+        const sanitized = sanitizeNodeInputs(inputs, params, anchors, nodeIds)
         const dropped = [...sanitized.dropped]
         if (credentialDropped(data)) dropped.push('credential')
         const label = textOf(component.label) || textOf(component.name) || nodeId

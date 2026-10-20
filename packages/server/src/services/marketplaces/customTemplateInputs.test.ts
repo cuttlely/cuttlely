@@ -70,6 +70,7 @@ describe('saveCustomTemplate input filtering', () => {
                 { name: 'cache', type: 'BaseCache' }
             ]
         }
+        mockComponentNodes.cache = { name: 'cache', label: 'Cache', inputs: [] }
         const flowData = {
             nodes: [
                 {
@@ -92,7 +93,8 @@ describe('saveCustomTemplate input filtering', () => {
                             openAIApiKey: 'sk-FAKE-ORPHAN-1'
                         }
                     }
-                }
+                },
+                { id: 'cache_0', data: { id: 'cache_0', name: 'cache', inputs: {} } }
             ],
             edges: []
         }
