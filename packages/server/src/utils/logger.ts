@@ -137,6 +137,18 @@ export function redactLoggedUrl(url: string): string {
     return `${redactedPath}?${redactQueryString(beforeHash.slice(queryAt + 1))}${hash}`
 }
 
+const HEADER_SECRET_PARAM = /((?:^|[?#&;\s])(?:code|setupcode|token|sessiontoken|sessionid|chatid)=)[^&#;\s]*/gi
+
+/** Masks setup codes and tokens in any header value that can carry a URL or a query (referer, origin, x-original-url and others). */
+export function redactLoggedHeaderValue(value: unknown): unknown {
+    if (typeof value === 'string') {
+        const asUrl = value.includes('?') || value.includes('#') ? redactLoggedUrl(value) : value
+        return asUrl.replace(HEADER_SECRET_PARAM, '$1[redacted]')
+    }
+    if (Array.isArray(value)) return value.map((item) => redactLoggedHeaderValue(item))
+    return value
+}
+
 // A debug query value is untrusted. Two open-ended groups in a regex are polynomial on a long
 // repeated string, so email-like text is masked with one left-to-right pass, and a longer value
 // is replaced whole.
@@ -232,7 +244,10 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
         if (isDebugLevel) {
             const sanitizedBody = sanitizeObject(req.body)
             const sanitizedQuery = redactLoggedQuery(req.query)
-            const sanitizedHeaders = { ...req.headers }
+            const sanitizedHeaders: Record<string, unknown> = {}
+            for (const [name, value] of Object.entries(req.headers)) {
+                sanitizedHeaders[name] = name === 'cookie' ? value : redactLoggedHeaderValue(value)
+            }
 
             const sensitiveHeaders = getSensitiveHeaderFields()
             sensitiveHeaders.forEach((header) => {

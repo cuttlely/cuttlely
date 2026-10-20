@@ -142,6 +142,36 @@ describe('logger.ts', () => {
             infoSpy.mockRestore()
         })
 
+        it('does not write a setup code from any header that can carry a URL in the debug record', () => {
+            process.env.DEBUG = 'true'
+            const secret = 'setup-code-example-value'
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            const req = {
+                url: '/api/v1/account/register',
+                method: 'POST',
+                params: {},
+                body: { name: 'Rosa' },
+                query: {},
+                headers: {
+                    referer: `http://127.0.0.1/organization-setup?code=${secret}`,
+                    origin: `http://127.0.0.1/server-setup#code=${secret}`,
+                    'x-original-url': `/organization-setup?%63ode=${secret}&lang=en`,
+                    'x-forwarded-uri': `/server-setup?setupCode=${secret}`,
+                    'x-rewrite-url': [`/setup?Code=${secret}`],
+                    'x-custom-note': `code=${secret}; lang=en`,
+                    'user-agent': 'example-agent/1.0'
+                }
+            } as any
+            expressRequestLogger(req, {} as any, next)
+            const logged = JSON.stringify(infoSpy.mock.calls)
+            expect(logged).not.toContain(secret)
+            const meta = infoSpy.mock.calls[0][1] as { request: { headers: Record<string, unknown> } }
+            expect(meta.request.headers.referer).toBe('http://127.0.0.1/organization-setup?code=[redacted]')
+            expect(meta.request.headers['x-original-url']).toBe('/organization-setup?%63ode=[redacted]&lang=en')
+            expect(meta.request.headers['user-agent']).toBe('example-agent/1.0')
+            infoSpy.mockRestore()
+        })
+
         it('does not write the invite token or a session from the cookie header in the debug record', () => {
             process.env.DEBUG = 'true'
             const invite = 'exampleinvitetokenexampleinvitetoken99'

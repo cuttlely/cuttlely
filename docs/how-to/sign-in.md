@@ -31,7 +31,7 @@ The link uses Render's public address, or `APP_URL` when it is set. It opens onl
 -   **Use a password for now** creates the owner account and turns the password sign-in on.
 -   **Set up AuthKit** runs the same four steps as Server settings. The owner email is required, and the test sign-in must use it. Nothing is saved until the test passes.
 
-Either way Cuttlely restarts when it can, or lists what to do. The link stops working as soon as it has been used, the first account exists, or a sign-in method is on. A new code is printed on every start while nobody can sign in.
+Either way Cuttlely restarts when it can, or lists what to do. The link stops working as soon as it has been used, the first account exists, or a sign-in method is on. A code lasts 60 minutes. A restart, or a second copy of the server on the same database, keeps a live code: the link printed first still works, and the new log says the code was printed by another copy. Once the code expires or is used, the next start prints a new one.
 
 If accounts already exist but no sign-in method is on (for example a `.env` that lost `CUTTLELY_LOCAL_ADMIN=true`), there is no setup link. The browser opens the Sign In page with **Sign-in is not configured.**, and the log says how to get back in:
 
@@ -65,7 +65,7 @@ docker compose logs cuttlely | grep "No account yet"
 2026-10-09 12:00:00 [INFO]: 👋 [server]: No account yet. Open http://localhost:43117/organization-setup#code=... to create yours.
 ```
 
-The code is in the link fragment. It lasts 60 minutes from when it is printed, is new on every start, and stops working once the first account exists. Without it, **Sign Up** says `Open the setup link from the server log to create the first account.`
+The code is in the link fragment. It lasts 60 minutes from when it is printed and stops working once the first account exists. A restart or a second copy of the server keeps a live code, so the link printed first still works; an expired code is replaced and the new link is printed. Without it, **Sign Up** says `Open the setup link from the server log to create the first account.`
 
 After **Sign Up** you are signed in and land in Cuttlely. Keeping a copy in GitHub is optional and waits in **Version History**; see [Right after setup](./versioning.md#right-after-setup).
 
