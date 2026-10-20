@@ -1982,6 +1982,10 @@
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
         },
         {
+            "path": "packages/components/src/missingModelCredential.test.ts",
+            "reason": "The missing-credential tests stay next to getCredentialData and the chat model nodes they exercise."
+        },
+        {
             "path": "packages/node-pack-caches-memory/credentials/DynamodbMemoryApi.credential.ts",
             "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
         },
@@ -3064,6 +3068,10 @@
         {
             "path": "packages/server/src/utils/buildAgentGraph.usage.test.ts",
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
+        },
+        {
+            "path": "packages/server/src/utils/missingModelCredential.prediction.test.ts",
+            "reason": "The missing-credential HTTP test stays next to the prediction error path it exercises."
         },
         {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
