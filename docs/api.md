@@ -2,12 +2,13 @@
 
 Every chatflow, agentflow and harness you build in Cuttlely can answer questions for your own website or app. Your server sends the question to Cuttlely's prediction API with an API key, and Cuttlely sends back the answer, either whole or token by token. This guide covers how to do that safely.
 
-All outputs on this page come from real runs against a local Cuttlely server with the `gpt-4.1-mini` model, using a made-up bakery. Session tokens are replaced with `<session token>`.
+Bakery outputs on this page come from real runs against a local Cuttlely server with the `gpt-4.1-mini` model, using a made-up bakery. Session tokens are replaced with `<session token>`. Larkfield Home order snippets in the Orchestrate examples are illustrative made-up demo data, not a recorded model run.
 
 -   [Before you start](#before-you-start)
 -   [Create an API key](#create-an-api-key)
 -   [Ask a chatflow](#ask-a-chatflow)
 -   [Call a chatflow from Orchestrate](#call-a-chatflow-from-orchestrate)
+-   [MCP endpoint](#mcp-endpoint)
 -   [Call a chatflow over A2A](#call-a-chatflow-over-a2a)
 -   [Agentflows and harnesses](#agentflows-and-harnesses)
 -   [Run a harness in the background](#run-a-harness-in-the-background)
@@ -97,22 +98,22 @@ IBM watsonx Orchestrate can call a published chatflow as an `external_chat` coll
 
 **Threads.** Optional `X-IBM-THREAD-ID` continues one conversation on that flow and key. Omit it and each call is a new chat; earlier `user` and `assistant` turns in `messages` become history. A second stream on the same thread while the first is still open is `409` `thread_busy`. In queue mode with more than one API replica, that busy check is per replica: two streams routed to different replicas are both accepted.
 
-**Streaming.** `"stream": true` writes `text/event-stream` frames:
+**Streaming.** `"stream": true` writes `text/event-stream` frames. The frame and the non-stream `chat.completion` object below use made-up Larkfield Home demo data (order LH-30112); they are not a recorded model run:
 
 ```text
 event: thread.message.delta
-data: {"id":"chatcmpl-…","object":"thread.message.delta","thread_id":"…","model":"…","created":1792430000,"choices":[{"delta":{"role":"assistant","content":"We open at 7:00."}}]}
+data: {"id":"chatcmpl-…","object":"thread.message.delta","thread_id":"…","model":"…","created":1792430000,"choices":[{"delta":{"role":"assistant","content":"LH-30112 is a walnut side table."}}]}
 ```
 
 Without `"stream": true` the body is a `chat.completion` object whose `choices[0].message.content` is the answer.
 
-**Errors** before any stream starts use `{ "error": { "message", "type", "code" } }`. Common codes: `content_type_invalid` (415, Content-Type must be `application/json`), `messages_invalid` (400), `thread_id_invalid` (400), `credentials_conflict` (400), `unauthorized` (401), `keyless_flow` (403), `origin_not_allowed` (403), `flow_not_found` (404), `thread_busy` (409). A body over 1 MB is 413. The flow's prediction rate limit answers 429 with the same plain text as `/prediction`.
+**Errors** before any stream starts use `{ "error": { "message", "type", "code" } }`, except a body over 1 MB. Common codes: `content_type_invalid` (415, Content-Type must be `application/json`), `messages_invalid` (400), `thread_id_invalid` (400, Orchestrate routes only), `credentials_conflict` (400), `unauthorized` (401), `keyless_flow` (403), `origin_not_allowed` (403), `flow_not_found` (404), `thread_busy` (409), `internal_error` (500, generic message). A body over 1 MB is 413 from the global error handler (`{ "statusCode": 413, "success": false, "message", "stack" }`), not `{ "error": { "code" } }`. A2A over 1 MB is 413 `{ "error": { "message": "Request body too large", "type": "invalid_request_error", "code": "body_too_large" } }`. The flow's prediction rate limit answers 429 with the same plain text as `/prediction`. The how-to [troubleshooting table](./how-to/orchestrate.md#troubleshooting) lists each code.
 
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
   -H "Authorization: Bearer $CUTTLELY_API_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"any","messages":[{"role":"user","content":"What time do you open on Saturday?"}]}'
+  -d '{"model":"any","messages":[{"role":"user","content":"What is the status of order LH-30112?"}]}'
 ```
 
 ```json
@@ -121,25 +122,41 @@ curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
     "object": "chat.completion",
     "created": 1792430000,
     "model": "any",
-    "choices": [{ "index": 0, "message": { "role": "assistant", "content": "We open at 7:00 on Saturday." }, "finish_reason": "stop" }]
+    "choices": [
+        {
+            "index": 0,
+            "message": { "role": "assistant", "content": "LH-30112 is a walnut side table, arriving Oct 21." },
+            "finish_reason": "stop"
+        }
+    ]
 }
 ```
 
-A flow that uses Buffer Memory continues from stored turns when `X-IBM-THREAD-ID` is sent. A flow with no memory node answers from the `messages` history only if that flow reads it.
+Cuttlely accepts optional `X-IBM-THREAD-ID` on these Orchestrate routes only, not on A2A. When the header is present, a flow that uses Buffer Memory can continue from stored turns. When it is omitted, earlier `user` and `assistant` turns in `messages` become history if the flow reads them. Whether Orchestrate actually sends that header, or instead resends earlier turns, is an open item in the how-to until the A2A live test.
 
-A second Orchestrate chat on the same flow is a different conversation: it does not know a name given in the first chat, and the server log `context=` hash is different.
+The how-to is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md). The Larkfield Home orders demo is [Record the Orchestrate demo](./how-to/orchestrate-demo.md).
+
+A second Orchestrate chat on the same flow is a different conversation: it does not know a name given in the first chat, and the server log `thread=` hash is different.
+
+## MCP endpoint
+
+A published chatflow can also answer as a remote MCP server at `POST /api/v1/mcp/<flow id>`. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Send that token as `Authorization: Bearer <token>`. `DELETE /api/v1/mcp/<flow id>` does not end a session: it always answers 405 `{ "jsonrpc": "2.0", "error": { "code": -32000, "message": "Session termination is not supported in stateless mode." }, "id": null }`. The POST body is MCP JSON-RPC (1 MB cap), not the Orchestrate chat-completions body.
+
+Orchestrate users who want a remote toolkit instead of an `external_chat` collaborator (A2A is not yet tested) point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
 
 ## Call a chatflow over A2A
 
-Orchestrate can also call the same published chatflow as an A2A 0.3.0 collaborator (`external_chat/A2A/0.3.0`). Bind an API key to the chatflow. The RPC URL, which is also the card `url`, is `$CUTTLELY_URL/api/v1/a2a/<flow id>`. The agent card is `GET /api/v1/a2a/<flow id>/.well-known/agent-card.json`. Discover uses that card path (`-e /api/v1/a2a/<flow id>/.well-known/agent-card.json`); the console `api_url` is the RPC URL, never the card path. Auth is the same as the Orchestrate chat-completions route: `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+A2A 0.3.0 is shipped, not yet tested live with Orchestrate.
+
+Orchestrate can also call the same published chatflow as an A2A 0.3.0 collaborator (`external_chat/A2A/0.3.0`). Bind an API key to the chatflow. The RPC URL, which is also the card `url`, is `$CUTTLELY_URL/api/v1/a2a/<flow id>`. The agent card is `GET /api/v1/a2a/<flow id>/.well-known/agent-card.json`. Do not point `api_url` at the card path. How Orchestrate registers an A2A 0.3.0 agent (the **AI Gateway** → **Agent directory** → **Add agent** path, IBM's `orchestrate agents discover` CLI, or another IBM flow) is an open item; do not treat any registration path as fact. Auth is the same as the Orchestrate chat-completions route: `Authorization: Bearer <key>` or `X-API-Key: <key>`.
 
 `A2A_PUBLIC_BASE_URL` sets the origin used in the card `url` (for example `https://tunnel.example`). It must be an origin with no path and no trailing slash; anything else refuses to start. When it is unset, the card uses the request `Host` and `X-Forwarded-Proto` (with `TRUST_PROXY`).
 
-`POST /api/v1/a2a/<flow id>` is JSON-RPC 2.0: `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. JSON-RPC answers are HTTP 200. Auth, size, type, and rate refusals stay HTTP (401, 403, 404, 409 `thread_busy`, 413, 415, 429) with the same bodies as the Orchestrate chat-completions route. A flow that pauses for a person is stored `failed` (`human_input_unsupported`). Tasks live in memory on that process for one hour, at most 1000 per flow, and are not shared across replicas.
+`POST /api/v1/a2a/<flow id>` is JSON-RPC 2.0: `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. JSON-RPC answers are HTTP 200 with an error object (`-32700` parse, `-32600` invalid request, `-32601` method not found, `-32602` invalid params, `-32603` internal, `-32001` task not found, `-32002` task not cancelable, `-32003` push not supported, `-32004` unsupported, `-32005` content type, `-32007` extended card). Auth, type, and rate refusals stay HTTP (401, 403, 404, 409 `thread_busy`, 415, 429) with the same bodies as the Orchestrate chat-completions route. A body over 1 MB is 413 `{ "error": { "message": "Request body too large", "type": "invalid_request_error", "code": "body_too_large" } }`, not the Orchestrate 413 body. A flow that pauses for a person is stored `failed` (`human_input_unsupported`). Tasks live in memory on that process for one hour, at most 1000 per flow, and are not shared across replicas.
 
 `message/stream` writes `text/event-stream` JSON-RPC events: a `submitted` task, a `working` status, token `artifact-update`s, a closing artifact chunk, and a final `completed` or `failed` status. `Content-Type` must be `application/json`; a charset parameter is accepted.
 
-If a live A2A chat sends no `contextId`, `taskId`, or `referenceTaskIds`, each turn is a new context on the wire and continuity cannot be mapped. After an A2A chat that used the name Ada, a new Orchestrate chat on the same flow must not know Ada, and its `context=` hash must differ.
+If a live A2A chat sends no `contextId`, `taskId`, or `referenceTaskIds`, each turn is a new context on the wire and continuity cannot be mapped. After an A2A chat that used the name Ada, a new Orchestrate chat on the same flow must not know Ada, and its `thread=` hash must differ. A2A request logs use `context=`; Orchestrate request logs use `thread=`.
 
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/a2a/$FLOW_ID/.well-known/agent-card.json" \
