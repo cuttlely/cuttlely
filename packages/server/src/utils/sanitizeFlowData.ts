@@ -14,8 +14,34 @@ const STRUCTURAL_KEY =
     /(memory|input|output|text|content|metadata|source[_-]?id|embedding|vector|partition|prompt|project|space|issue|file|payload|sort|primary|state|json|return|topic|cache|route|lookup|group)[_-]?key$/i
 // Token-count settings (maxTokens, maxOutputTokens, maxTokenLimit) are ordinary numbers, not credentials.
 const TOKEN_COUNT_WORD = /(token[_-]?limit|tokens)/gi
-// Saved credential references (credential, credentialId) are never public, whatever the declared type.
-const CREDENTIAL_REF_NAME = /credential/i
+// Names dropped even on declared, non-password inputs: credential references and clear credential words.
+const DECLARED_SECRET_NAME = /(credential|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret|passw)/i
+// Token-named declared inputs are dropped unless they hold a plain URL (accessTokenUrl, tokenUrl).
+const DECLARED_TOKEN_NAME = /token/i
+// Query or fragment parameter names that carry credentials inside a URL.
+const URL_SECRET_PARAM = /(token|key|secret|sig|passw)/i
+
+/** True for an http(s) URL with no userinfo and no credential-looking query or fragment parameters. */
+const isPlainUrl = (value: unknown): boolean => {
+    if (typeof value !== 'string') return false
+    let url: URL
+    try {
+        url = new URL(value)
+    } catch {
+        return false
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    if (url.username || url.password) return false
+    const params = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.replace(/^#/, '')).keys()]
+    return !params.some((name) => URL_SECRET_PARAM.test(name))
+}
+
+/** Name rule for declared, non-password inputs; token-count words are ignored. */
+const isDeclaredSecretInput = (name: string, value: unknown): boolean => {
+    const stripped = name.replace(TOKEN_COUNT_WORD, '')
+    if (DECLARED_SECRET_NAME.test(stripped)) return true
+    return DECLARED_TOKEN_NAME.test(stripped) && !isPlainUrl(value)
+}
 // Header names that can carry credentials.
 const SECRET_HEADER_NAME = /(auth|key|token|secret|session|cookie)/i
 // Credential-shaped values anywhere in a string.
@@ -42,6 +68,46 @@ const isSecretNestedName = (name: string): boolean => isSecretInputName(name) ||
 export const isSecretHeaderName = (name: string): boolean => SECRET_HEADER_NAME.test(name)
 
 const DROP = Symbol('drop')
+const HEADERS_KEY = /^headers$/i
+
+/**
+ * Removes credential-carrying header entries at every depth of a headers value: { key, value } pairs and object
+ * properties whose name is a secret header name, including per-node maps such as headers.<nodeId>.X-Custom-Auth.
+ * JSON strings are parsed, cleaned and re-serialized; a string that is not JSON is left to the value check.
+ */
+const scrubHeaderTree = (value: unknown, depth = 0): unknown => {
+    if (depth > 32) return DROP
+    if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return value
+        try {
+            const cleaned = scrubHeaderTree(JSON.parse(trimmed), depth + 1)
+            return cleaned === DROP ? DROP : JSON.stringify(cleaned)
+        } catch {
+            return DROP
+        }
+    }
+    if (Array.isArray(value)) {
+        const out: unknown[] = []
+        for (const item of value) {
+            const pairKey = item && typeof item === 'object' ? (item as Record<string, unknown>).key : undefined
+            if (typeof pairKey === 'string' && isSecretHeaderName(pairKey)) continue
+            const cleaned = scrubHeaderTree(item, depth + 1)
+            if (cleaned !== DROP) out.push(cleaned)
+        }
+        return out
+    }
+    if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {}
+        for (const [name, item] of Object.entries(value as Record<string, unknown>)) {
+            if (name !== 'key' && name !== 'value' && isSecretHeaderName(name)) continue
+            const cleaned = scrubHeaderTree(item, depth + 1)
+            if (cleaned !== DROP) out[name] = cleaned
+        }
+        return out
+    }
+    return value
+}
 
 /**
  * Walks a value and removes anything credential-shaped: strings that look like keys, properties with
@@ -67,7 +133,10 @@ const scrubValue = (value: unknown, depth = 0): unknown => {
         for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
             // "key" here is the label of a { key, value } pair; the pair itself is checked in the array branch.
             if (key !== 'key' && isSecretNestedName(key)) continue
-            const scrubbed = scrubValue(item, depth + 1)
+            // Anything under a key named headers, at any depth, also loses its credential header entries.
+            const headerSafe = HEADERS_KEY.test(key) ? scrubHeaderTree(item) : item
+            if (headerSafe === DROP) continue
+            const scrubbed = scrubValue(headerSafe, depth + 1)
             if (scrubbed !== DROP) out[key] = scrubbed
         }
         return out
@@ -82,23 +151,14 @@ export const scrubSecrets = (value: unknown): unknown => {
 }
 
 const sanitizeHeaders = (rawHeaders: unknown): unknown => {
-    try {
-        // Array format: [{ key: string, value: string }, ...] (e.g. HTTP agentflow node)
-        if (Array.isArray(rawHeaders)) {
-            return scrubSecrets(rawHeaders.filter((h: { key?: unknown }) => !(typeof h?.key === 'string' && isSecretHeaderName(h.key))))
-        }
-        // Object/string format: Record<string, string> or JSON string thereof
-        const headers: Record<string, unknown> = typeof rawHeaders === 'string' ? JSON.parse(rawHeaders) : { ...(rawHeaders as object) }
-        for (const h of Object.keys(headers)) {
-            if (isSecretHeaderName(h)) delete headers[h]
-        }
-        const scrubbed = scrubSecrets(headers)
-        if (scrubbed === undefined) return undefined
-        return typeof rawHeaders === 'string' ? JSON.stringify(scrubbed) : scrubbed
-    } catch {
-        // Drop headers that cannot be parsed
-        return undefined
+    // Array, object or JSON-string headers, cleaned at every depth (per-node maps included), then value-checked.
+    const cleaned = scrubHeaderTree(rawHeaders)
+    if (cleaned === DROP) return undefined
+    if (typeof cleaned === 'string' && /^\s*[[{]/.test(cleaned)) {
+        const scrubbed = scrubSecrets(JSON.parse(cleaned))
+        return scrubbed === undefined ? undefined : JSON.stringify(scrubbed)
     }
+    return scrubSecrets(cleaned)
 }
 
 /**
@@ -121,9 +181,9 @@ export const sanitizeNodeInputs = (
         if (!param && !anchor) continue
         if (param && SECRET_PARAM_TYPES.has(param.type)) continue
         // A declared, non-password input is kept by name and only its value is checked; undeclared ones also get the name check.
-        // Credential ID references are dropped by name either way, like node.data.credential.
-        if (param ? CREDENTIAL_REF_NAME.test(key) : isSecretInputName(key)) continue
         const value = inputs[key]
+        // Declared inputs still drop clear credential names (and token names unless the value is a plain URL).
+        if (param ? isDeclaredSecretInput(key, value) : isSecretInputName(key)) continue
         const kept = key === 'headers' && value ? sanitizeHeaders(value) : scrubSecrets(value)
         if (kept !== undefined) result[key] = kept
     }

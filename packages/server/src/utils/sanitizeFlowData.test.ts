@@ -251,7 +251,7 @@ describe('sanitizeFlowDataForPublicEndpoint allowlist', () => {
         expect(result.nodes[0].data.inputs).toEqual({ model: '{{chatOpenAI_0.data.instance}}' })
     })
 
-    it('judges declared inputs by type: credential-named string inputs keep plain values, password inputs go', () => {
+    it('drops declared inputs with clear credential names, whatever their type', () => {
         const names = ['myApiKey', 'clientSecret', 'accessToken', 'dbPassword', 'API_KEY']
         const inputs = Object.fromEntries(names.map((name) => [name, 'plain']))
         const run = (type: string) =>
@@ -265,7 +265,8 @@ describe('sanitizeFlowDataForPublicEndpoint allowlist', () => {
                     ])
                 )
             ).nodes[0].data.inputs
-        expect(run('string')).toEqual({ ...inputs, temperature: 0.2 })
+        // Clear credential names are dropped by name even when declared as plain strings.
+        expect(run('string')).toEqual({ temperature: 0.2 })
         expect(run('password')).toEqual({ temperature: 0.2 })
     })
 
@@ -429,5 +430,99 @@ describe('public config follow-up rules', () => {
         expect(looksLikeSecretValue('Bearer abcdefghijABCDEFGHIJ0123')).toBe(true)
         const params = [{ name: 'systemMessage', type: 'string' }] as any
         expect(sanitizeNodeInputs({ systemMessage: 'Explain Bearer x auth' }, params)).toEqual({ systemMessage: 'Explain Bearer x auth' })
+    })
+})
+
+describe('declared credential names and nested headers', () => {
+    const declared = (inputs: Record<string, unknown>) =>
+        sanitizeNodeInputs(inputs, Object.keys(inputs).map((name) => ({ name, type: 'string' })) as any)
+
+    it('drops a declared myApiKey holding a plain 40-char hex value', () => {
+        expect(declared({ myApiKey: '0123456789abcdef0123456789abcdef01234567', temperature: 0.1 })).toEqual({ temperature: 0.1 })
+    })
+
+    it('keeps accessTokenUrl and tokenUrl holding plain URLs', () => {
+        const urls = { accessTokenUrl: 'https://auth.example.com/oauth/token', tokenUrl: 'http://example.com/token?scope=read' }
+        expect(declared(urls)).toEqual(urls)
+    })
+
+    it('drops token-named fields whose URL carries credentials', () => {
+        expect(
+            declared({
+                tokenUrl: 'https://example.com/token?access_token=abc',
+                refreshTokenUrl: 'https://user:pw@example.com/token',
+                accessTokenUrl: 'https://example.com/cb#sig=abc',
+                accessToken: 'plain'
+            })
+        ).toEqual({})
+    })
+
+    it('keeps token-count settings, sessionId, projectKey and a bare key', () => {
+        const kept = {
+            maxTokens: 100,
+            maxOutputTokens: 50,
+            maxTokenLimit: 10,
+            max_tokens_to_sample: 5,
+            sessionId: 's1',
+            projectKey: 'P',
+            key: 'P-1'
+        }
+        expect(declared(kept)).toEqual(kept)
+    })
+
+    const summaryOverride = (overrideConfig: unknown) =>
+        JSON.parse(publicChatflowSummary({ id: 'f', chatbotConfig: JSON.stringify({ overrideConfig }) }).chatbotConfig as string)
+            .overrideConfig
+
+    it('drops credential headers in per-node and nested shapes of overrideConfig', () => {
+        expect(
+            summaryOverride({
+                headers: {
+                    httpAgentflow_0: { 'X-Custom-Auth': 'plain', Accept: 'a' },
+                    http_1: JSON.stringify({ Cookie: 'c', 'X-Ok': 'b' })
+                },
+                something: {
+                    headers: { 'X-Custom-Auth': 'plain', Accept: 'a' },
+                    deeper: {
+                        Headers: [
+                            { key: 'X-Custom-Auth', value: 'plain' },
+                            { key: 'Accept', value: 'a' }
+                        ]
+                    }
+                }
+            })
+        ).toEqual({
+            headers: { httpAgentflow_0: { Accept: 'a' }, http_1: JSON.stringify({ 'X-Ok': 'b' }) },
+            something: { headers: { Accept: 'a' }, deeper: { Headers: [{ key: 'Accept', value: 'a' }] } }
+        })
+    })
+
+    it('drops credential headers in per-node and nested shapes of json template inputs', () => {
+        const params = [
+            { name: 'config', type: 'json' },
+            { name: 'apiKey', type: 'string' }
+        ] as any
+        expect(
+            sanitizeNodeInputs(
+                {
+                    apiKey: 'plain-value',
+                    config: {
+                        headers: { node_0: { 'X-Custom-Auth': 'plain', Accept: 'a' } },
+                        something: {
+                            headers: JSON.stringify([
+                                { key: 'X-Custom-Auth', value: 'plain' },
+                                { key: 'Accept', value: 'a' }
+                            ])
+                        }
+                    }
+                },
+                params
+            )
+        ).toEqual({
+            config: {
+                headers: { node_0: { Accept: 'a' } },
+                something: { headers: JSON.stringify([{ key: 'Accept', value: 'a' }]) }
+            }
+        })
     })
 })
