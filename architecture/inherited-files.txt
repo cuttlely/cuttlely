@@ -1467,6 +1467,8 @@ packages/server/src/utils/telemetry.test.ts
 packages/server/src/utils/telemetry.ts
 packages/server/src/utils/typeormDataSource.ts
 packages/server/src/utils/updateChatMessageFeedback.ts
+packages/server/src/utils/upsertErrors.test.ts
+packages/server/src/utils/upsertErrors.ts
 packages/server/src/utils/upsertVector.ts
 packages/server/src/utils/validateKey.ts
 packages/server/tsconfig.json

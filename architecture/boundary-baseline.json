@@ -3078,6 +3078,14 @@
             "reason": "Server unit test for geolocation when the database package is absent."
         },
         {
+            "path": "packages/server/src/utils/upsertErrors.test.ts",
+            "reason": "The vector upsert error helper and its test stay next to the inherited upsert path they serve."
+        },
+        {
+            "path": "packages/server/src/utils/upsertErrors.ts",
+            "reason": "The vector upsert error helper and its test stay next to the inherited upsert path they serve."
+        },
+        {
             "path": "packages/ui/src/ui-component/dialog/AddRatedAnswersDialog.jsx",
             "reason": "Dataset row rating migrations and the dialog that adds rated answers to a dataset."
         },
