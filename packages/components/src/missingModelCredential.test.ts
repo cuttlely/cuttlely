@@ -152,7 +152,7 @@ describe('node init', () => {
 
     it('OpenAI still 422s when OPENAI_API_KEY is set: a required credential is not an env fallback', async () => {
         const previous = process.env.OPENAI_API_KEY
-        process.env.OPENAI_API_KEY = 'sk-test-not-a-real-key'
+        process.env.OPENAI_API_KEY = 'not-a-real-key'
         try {
             const node = new ChatOpenAI()
             await expect(node.init({ label: 'OpenAI', name: 'chatOpenAI', inputs: {} }, '', {})).rejects.toMatchObject({
