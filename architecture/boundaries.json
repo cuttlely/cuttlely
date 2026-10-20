@@ -782,7 +782,8 @@
             "entryPoints": [
                 "packages/server/src/routes/demo/index.ts",
                 "packages/server/src/services/marketplaces/sampleTemplates.ts",
-                "packages/ui/src/ui-component/flow/TryTheDemo.jsx"
+                "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+                "packages/ui/src/utils/templateSettingsNote.js"
             ]
         },
         {
