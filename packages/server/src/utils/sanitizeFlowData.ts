@@ -290,7 +290,11 @@ const PUBLIC_DISPLAY_OBJECTS: Record<string, readonly string[]> = {
 const publicScalar = (value: unknown): string | number | boolean | undefined => {
     if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
     if (typeof value === 'boolean') return value
-    if (typeof value === 'string') return scrubSecrets(value) === undefined ? undefined : value
+    if (typeof value === 'string') {
+        // Display text is never structured: a JSON object or array, or anything the scrubber would change, is dropped whole.
+        if (parseJsonContainer(value) !== undefined) return undefined
+        return scrubSecrets(value) === value ? value : undefined
+    }
     return undefined
 }
 

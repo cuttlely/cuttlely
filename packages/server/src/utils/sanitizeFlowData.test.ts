@@ -494,6 +494,45 @@ describe('public config follow-up rules', () => {
         })
     })
 
+    describe('structured text in public display fields', () => {
+        const jsonText = JSON.stringify({ apiKey: 'FAKE-DISP-KEY', text: 'hi' })
+        const urlText = JSON.stringify({ u: 'https://user:pw@example.com/x' })
+        const saved = {
+            title: jsonText,
+            welcomeMessage: urlText,
+            errorMessage: 'https://user:pw@example.com/y',
+            starterPrompts: [{ prompt: jsonText }, { prompt: urlText }, { prompt: 'Plain question' }],
+            botMessage: { textColor: jsonText, backgroundColor: '#fff' },
+            userMessage: { textColor: urlText }
+        }
+        const expectClean = (display: Record<string, unknown>) => {
+            expect(display.title).toBeUndefined()
+            expect(display.welcomeMessage).toBeUndefined()
+            expect(display.errorMessage).toBeUndefined()
+            expect(display.starterPrompts).toEqual([{ prompt: 'Plain question' }])
+            expect(display.botMessage).toEqual({ backgroundColor: '#fff' })
+            expect(display.userMessage).toEqual({})
+            const serialized = JSON.stringify(display)
+            for (const leak of ['FAKE-DISP-KEY', 'apiKey', 'user:pw@', 'example.com']) expect(serialized).not.toContain(leak)
+        }
+
+        it('drops JSON text and credential URLs from the public chatbot config', () => {
+            expectClean(publicChatbotDisplayConfig(saved))
+        })
+
+        it('drops JSON text and credential URLs from the public chatflow chatbotConfig', () => {
+            const summary = publicChatflowSummary({ id: 'f1', name: 'n', isPublic: true, chatbotConfig: JSON.stringify(saved) })
+            expectClean(JSON.parse(summary.chatbotConfig as string))
+        })
+
+        it('keeps ordinary display text', () => {
+            expect(publicChatbotDisplayConfig({ title: 'Hello {name}', welcomeMessage: 'See https://example.com/help' })).toEqual({
+                title: 'Hello {name}',
+                welcomeMessage: 'See https://example.com/help'
+            })
+        })
+    })
+
     it('keeps a prompt that mentions Bearer but drops a real bearer token', () => {
         expect(looksLikeSecretValue('Send it as Bearer x in the header')).toBe(false)
         expect(looksLikeSecretValue('Bearer abcdefghijABCDEFGHIJ0123')).toBe(true)

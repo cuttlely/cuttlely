@@ -994,6 +994,31 @@ describe('getSinglePublicChatbotConfig', () => {
         }
     })
 
+    it('drops display fields saved as JSON text or with a credential URL', async () => {
+        const jsonText = JSON.stringify({ apiKey: 'FAKE-SVC-KEY', text: 'hi' })
+        mockRepo.findOneBy.mockResolvedValue({
+            id: 'flow-1',
+            isPublic: true,
+            apikeyid: '',
+            textToSpeech: null,
+            chatbotConfig: JSON.stringify({
+                title: jsonText,
+                welcomeMessage: 'https://user:pw@example.com/x',
+                starterPrompts: [{ prompt: jsonText }, { prompt: 'Plain question' }],
+                botMessage: { textColor: JSON.stringify({ u: 'https://user:pw@example.com/y' }), backgroundColor: '#fff' }
+            })
+        })
+
+        const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
+        const serialized = JSON.stringify(result)
+
+        expect(result.title).toBeUndefined()
+        expect(result.welcomeMessage).toBeUndefined()
+        expect(result.starterPrompts).toEqual([{ prompt: 'Plain question' }])
+        expect(result.botMessage).toEqual({ backgroundColor: '#fff' })
+        for (const leak of ['FAKE-SVC-KEY', 'apiKey', 'user:pw@']) expect(serialized).not.toContain(leak)
+    })
+
     it('answers 404 for a missing chatflow', async () => {
         mockRepo.findOneBy.mockResolvedValue(null)
         await expect(chatflowsService.getSinglePublicChatbotConfig('nope')).rejects.toMatchObject({ statusCode: 404 })
