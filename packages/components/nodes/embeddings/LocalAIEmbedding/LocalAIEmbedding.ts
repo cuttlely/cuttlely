@@ -50,7 +50,7 @@ class LocalAIEmbedding_Embeddings implements INode {
         const modelName = nodeData.inputs?.modelName as string
         const basePath = nodeData.inputs?.basePath as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const localAIApiKey = getCredentialParam('localAIApiKey', credentialData, nodeData)
 
         const obj: Partial<OpenAIEmbeddingsParams> & { openAIApiKey?: string; configuration?: ClientOptions } = {

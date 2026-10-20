@@ -741,6 +741,9 @@ export const buildFlow = async ({
             }
         } catch (e: any) {
             logger.error(`[server]: [${orgId}]:`, e)
+            if (e instanceof AppError) throw e
+            const status = Number(e?.statusCode)
+            if (Number.isInteger(status) && status >= 400 && status < 500) throw e
             throw new Error(e)
         }
 

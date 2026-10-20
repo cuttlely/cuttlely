@@ -21,7 +21,6 @@ import { Workspace } from '../database/entities/identity'
 import { OSS_PRODUCT_ID } from '../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { AppError } from '../errors/appError'
-import { getErrorMessage } from '../errors/utils'
 import {
     buildFlow,
     constructGraphs,
@@ -37,6 +36,7 @@ import { getRunningExpressApp } from '../utils/getRunningExpressApp'
 import logger from '../utils/logger'
 import { OMIT_QUEUE_JOB_DATA } from './constants'
 import { validateFileMimeTypeAndExtensionMatch } from './fileValidation'
+import { toUpsertAppError } from './upsertErrors'
 import { setServerUploadOverride } from './replaceInputsWithConfig'
 import { checkStorage, updateStorageUsage } from './quotaUsage'
 import { validateFlowAPIKey } from './validateKey'
@@ -320,10 +320,6 @@ export const upsertVector = async (req: Request, isInternal: boolean = false) =>
         logger.error('[server]: Error:', e)
         appServer.metricsProvider?.incrementCounter(FLOWISE_METRIC_COUNTERS.VECTORSTORE_UPSERT, { status: FLOWISE_COUNTER_STATUS.FAILURE })
 
-        if (e instanceof AppError && e.statusCode === StatusCodes.UNAUTHORIZED) {
-            throw e
-        } else {
-            throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, getErrorMessage(e))
-        }
+        throw toUpsertAppError(e)
     }
 }

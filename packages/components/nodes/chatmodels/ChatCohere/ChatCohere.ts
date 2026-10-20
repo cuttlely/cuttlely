@@ -76,7 +76,7 @@ class ChatCohere_ChatModels implements INode {
         const cache = nodeData.inputs?.cache as BaseCache
         const temperature = nodeData.inputs?.temperature as string
         const streaming = nodeData.inputs?.streaming as boolean
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const cohereApiKey = getCredentialParam('cohereApiKey', credentialData, nodeData)
 
         const obj: ChatCohereInput = {

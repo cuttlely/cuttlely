@@ -78,7 +78,7 @@ class ChatAlibabaTongyi_ChatModels implements INode {
         const modelName = nodeData.inputs?.modelName as string
         const streaming = nodeData.inputs?.streaming as boolean
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const alibabaApiKey = getCredentialParam('alibabaApiKey', credentialData, nodeData)
 
         const obj: Partial<ChatAlibabaTongyi> & BaseChatModelParams = {

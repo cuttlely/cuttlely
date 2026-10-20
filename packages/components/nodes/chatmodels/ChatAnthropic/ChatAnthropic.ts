@@ -208,7 +208,7 @@ class ChatAnthropic_ChatModels implements INode {
         const adaptiveThinking = nodeData.inputs?.adaptiveThinking as boolean
         const thinkingEffort = nodeData.inputs?.thinkingEffort as 'low' | 'medium' | 'high' | 'max'
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const anthropicApiKey = getCredentialParam('anthropicApiKey', credentialData, nodeData)
 
         const allowImageUploads = nodeData.inputs?.allowImageUploads as boolean

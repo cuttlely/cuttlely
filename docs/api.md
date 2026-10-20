@@ -6,6 +6,7 @@ Bakery outputs on this page come from real runs against a local Cuttlely server 
 
 -   [Before you start](#before-you-start)
 -   [Create an API key](#create-an-api-key)
+-   [Create a key from a script](#create-a-key-from-a-script)
 -   [Ask a chatflow](#ask-a-chatflow)
 -   [Call a chatflow from Orchestrate](#call-a-chatflow-from-orchestrate)
 -   [MCP endpoint](#mcp-endpoint)
@@ -63,6 +64,43 @@ To check a key without asking a flow, send it in the same header to `GET /api/v1
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/verify/apikey" -H "Authorization: Bearer $CUTTLELY_API_KEY"
 ```
+
+## Create a key from a script
+
+On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=true`, see [Build from source](./how-to/from-source.md)), you can set up without the UI.
+
+1. Create the owner account. Type the password at the prompt. This creates an account only on an install with no users yet. On an existing install, with `CUTTLELY_LOCAL_ADMIN=true`, it sets a new password for whichever single account matches that email (`Password updated for ...`). It fails with `No account exists for ...` only when no account matches that email and the install already has users:
+
+    ```bash
+    CUTTLELY_LOCAL_ADMIN=true pnpm user --email you@example.com
+    ```
+
+2. Sign in as the owner and keep the session cookie. This route signs in the owner only. Other local users sign in at `/api/v1/auth/local/login`, which answers 404 unless the server also runs with `CUTTLELY_LOCAL_USERS=true` and WorkOS is not configured (it counts as configured when both `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are set). The `x-request-from: internal` header is required. Without it, sign-in answers `401 {"message":"Unauthorized"}` even when the password is right. If the server isn't running with `CUTTLELY_LOCAL_ADMIN=true`, the route answers 404.
+
+    Read the same password into `CUTTLELY_PASSWORD` first. `read -s` keeps it off the screen and out of your shell history:
+
+    ```bash
+    read -rs -p 'Owner password: ' CUTTLELY_PASSWORD; echo
+    curl -s -c cookies.txt "$CUTTLELY_URL/api/v1/auth/login" \
+      -H 'x-request-from: internal' \
+      -H 'Content-Type: application/json' \
+      -d "{\"email\":\"you@example.com\",\"password\":\"$CUTTLELY_PASSWORD\"}"
+    ```
+
+3. Create the key with that session. `permissions` must be an array listing at least one permission. Without it the server answers `412` with `permissions must be an array of strings!`:
+
+    ```bash
+    CUTTLELY_API_KEY=$(curl -s -b cookies.txt "$CUTTLELY_URL/api/v1/apikey" \
+      -H 'x-request-from: internal' \
+      -H 'Content-Type: application/json' \
+      -d '{"keyName":"Bakery script","permissions":["chatflows:view"]}' \
+      | jq -r '.[] | select(.keyName == "Bakery script" and .apiKey) | .apiKey')
+    unset CUTTLELY_PASSWORD
+    ```
+
+    The answer is a JSON array of your keys. The new one includes its `apiKey` in plain text, and `GET /api/v1/apikey` lists keys without it, so this is the only time you get it. The command above stores it in `$CUTTLELY_API_KEY` without printing it, so it stays out of CI logs. It needs [`jq`](https://jqlang.org/). To let the key run harnesses, add `"harnesses": ["<harness name>"]` (see [Let the key run the harness](#let-the-key-run-the-harness)).
+
+Send it as `Authorization: Bearer $CUTTLELY_API_KEY`. `GET /api/v1/verify/apikey` answers `"OK"` for a good key. Then bind the key to a flow in **API Endpoint**, as in [Create an API key](#create-an-api-key). Delete `cookies.txt` when you're done.
 
 ## Ask a chatflow
 
@@ -140,7 +178,7 @@ A second Orchestrate chat on the same flow is a different conversation: it does 
 
 ## MCP endpoint
 
-`POST /api/v1/mcp/:id` exposes a published chatflow or agentflow as a Streamable HTTP MCP server. The path is on the public whitelist, like prediction: a caller with the MCP Bearer token does not need a signed-in session. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Auth is `Authorization: Bearer <MCP token>`, not an API key. GET answers **405** with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC `-32000` body. DELETE is also **405** (`Session termination is not supported in stateless mode.`). The POST body follows **Largest upload** (`CUTTLELY_FILE_SIZE_LIMIT`, 50mb by default). [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md).
+`POST /api/v1/mcp/:id` exposes a published chatflow or agentflow as a Streamable HTTP MCP server. The path is on the public whitelist, like prediction: a caller with the MCP Bearer token does not need a signed-in session. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Auth is `Authorization: Bearer <MCP token>`, not an API key. GET answers **405** with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC `-32000` body. DELETE is also **405** (`Session termination is not supported in stateless mode.`). The POST body is MCP JSON-RPC, capped at 1 MB regardless of **Largest upload** (`CUTTLELY_FILE_SIZE_LIMIT`). A body over 1 MB is 413 from the global error handler (`{ "statusCode": 413, "success": false, "message", "stack" }`). [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md).
 
 Orchestrate users who want a remote toolkit instead of an `external_chat` collaborator point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
 
@@ -152,7 +190,7 @@ Orchestrate can also call the same published chatflow as an A2A 0.3.0 collaborat
 
 `A2A_PUBLIC_BASE_URL` sets the origin used in the card `url` (for example `https://tunnel.example`). It must be an origin with no path and no trailing slash; anything else refuses to start. When it is unset, the card uses the request `Host` and `X-Forwarded-Proto` (with `TRUST_PROXY`).
 
-`POST /api/v1/a2a/<flow id>` is JSON-RPC 2.0: `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. JSON-RPC answers are HTTP 200 with an error object (`-32700` parse, `-32600` invalid request, `-32601` method not found, `-32602` invalid params, `-32603` internal, `-32001` task not found, `-32002` task not cancelable, `-32003` push not supported, `-32004` unsupported, `-32005` content type, `-32007` extended card). Auth, type, and rate refusals stay HTTP (401, 403, 404, 409 `thread_busy`, 415, 429) with the same bodies as the Orchestrate chat-completions route. A body over 1 MB is 413 `{ "error": { "message": "Request body too large", "type": "invalid_request_error", "code": "body_too_large" } }`, not the Orchestrate 413 body. A flow that pauses for a person is stored `failed` (`human_input_unsupported`). Tasks live in memory on that process for one hour, at most 1000 per flow, and are not shared across replicas.
+`POST /api/v1/a2a/<flow id>` is JSON-RPC 2.0: `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. JSON-RPC answers are HTTP 200 with an error object (`-32700` parse, `-32600` invalid request, `-32601` method not found, `-32602` invalid params, `-32603` internal, `-32001` task not found, `-32002` task not cancelable, `-32003` push not supported, `-32004` unsupported, `-32005` content type, `-32007` extended card). Auth, type, and rate refusals stay HTTP (401, 403, 404, 409 `thread_busy`, 415, 429) with the same bodies as the Orchestrate chat-completions route. A body over 1 MB is 413 `{ "error": { "message": "Request body too large", "type": "invalid_request_error", "code": "body_too_large" } }`, not the Orchestrate 413 body. A flow that pauses for a person is stored `failed` (`human_input_unsupported`). Tasks live in memory on that process for one hour, at most 1000 per flow (`A2A_TASK_CAP_PER_FLOW`), and are not shared across replicas. Each stored question over 64 KB (`A2A_TASK_TEXT_MAX_BYTES`, default 65536) is refused with JSON-RPC `-32602`. A stored answer over that cap is cut at a UTF-8 boundary and ends with `[truncated]`. A text cap shorter than that marker keeps the default. The process also keeps a per-flow byte budget of 64 MB (`A2A_TASK_BYTES_PER_FLOW`); when a write would pass it, the oldest completed tasks are evicted first, and a just-finished answer is shortened so the flow stays within the budget. The answer is stored once and turned into the `answer` artifact when the task is read.
 
 `message/stream` writes `text/event-stream` JSON-RPC events: a `submitted` task, a `working` status, token `artifact-update`s, a closing artifact chunk, and a final `completed` or `failed` status. `Content-Type` must be `application/json`; a charset parameter is accepted.
 

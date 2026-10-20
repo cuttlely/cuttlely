@@ -15,7 +15,7 @@ import {
     parseEnvelope,
     parseTaskIdParams
 } from '../../services/a2a/rpc'
-import { TaskStoreFullError, a2aCallerKey, a2aTaskStore } from '../../services/a2a/taskStore'
+import { TaskQuestionTooLargeError, TaskStoreFullError, a2aCallerKey, a2aPublicTask, a2aTaskStore } from '../../services/a2a/taskStore'
 
 type A2aRequest = Request & { orchestrate?: unknown }
 
@@ -80,7 +80,7 @@ const handleRpc = async (req: A2aRequest, res: Response, next: NextFunction) => 
             log.ctxSrc = '-'
             log.context = threadLogHash(row.contextId)
             log.rpc = 'ok'
-            res.status(StatusCodes.OK).json(jsonRpcResult(parsed.id, row.task))
+            res.status(StatusCodes.OK).json(jsonRpcResult(parsed.id, a2aPublicTask(row)))
             return
         }
 
@@ -104,6 +104,13 @@ const handleRpc = async (req: A2aRequest, res: Response, next: NextFunction) => 
             log
         })
     } catch (error) {
+        if (error instanceof TaskQuestionTooLargeError) {
+            if (!res.headersSent) {
+                const id = (res.locals.a2aRpcId as string | number | null | undefined) ?? null
+                sendRpcError(res, id, new A2aRpcError(A2A_RPC_CODES.invalidParams, error.message))
+            }
+            return
+        }
         if (error instanceof TaskStoreFullError) {
             if (!res.headersSent) {
                 res.status(StatusCodes.SERVICE_UNAVAILABLE).json({

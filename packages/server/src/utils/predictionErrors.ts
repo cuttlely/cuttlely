@@ -128,6 +128,11 @@ export const toPredictionError = (error: unknown): AppError => {
     if ((error as { code?: unknown })?.code === 'key_not_allowed') return new AppError(StatusCodes.FORBIDDEN, message)
     // A missing or unreadable credential is a flow setup problem. Do not echo the credential id, even from a harness.
     if (MISSING_CREDENTIAL.test(message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, MISSING_CREDENTIAL_MESSAGE)
+    // Own 4xx (a missing required chat-model credential is 422) keep statusCode. Provider errors use `status`, not statusCode.
+    const ownStatus = Number((error as { statusCode?: unknown })?.statusCode)
+    if (Number.isInteger(ownStatus) && ownStatus >= 400 && ownStatus < 500) {
+        return error instanceof AppError ? error : new AppError(ownStatus, message)
+    }
     if (isHarnessError(error, message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }

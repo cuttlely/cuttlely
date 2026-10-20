@@ -13,6 +13,8 @@ Install and sign in first: [Docker](./how-to/docker.md) and [Sign in](./how-to/s
 
 ### Import a chatflow or agentflow file
 
+Import runs in the browser wizard only for now. There's no import API or CLI yet.
+
 1. In Flowise, export the flow to a JSON file. A file that holds one flow's `nodes` and `edges`, or a saved flow whose `flowData` holds them, both work. Template files with `nodes` and `edges` work the same way.
 2. In Cuttlely, open **Chatflows**, select **Import** at the top right, then **Import Flowise JSON**. On a chatflow canvas, the gear menu has **Import Flowise JSON** too.
 

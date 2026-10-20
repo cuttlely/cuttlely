@@ -126,7 +126,7 @@ class ChatCometAPI_ChatModels implements INode {
         if (nodeData.inputs?.credentialId) {
             nodeData.credential = nodeData.inputs?.credentialId
         }
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const openAIApiKey = getCredentialParam('cometApiKey', credentialData, nodeData)
 
         // Custom error handling for missing API key

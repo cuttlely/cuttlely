@@ -154,7 +154,7 @@ class ChatIBMWatsonx_ChatModels implements INode {
         const topP = nodeData.inputs?.topP as string
         const streaming = nodeData.inputs?.streaming as boolean
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const version = getCredentialParam('version', credentialData, nodeData)
         const serviceUrl = getCredentialParam('serviceUrl', credentialData, nodeData)
         const projectId = getCredentialParam('projectId', credentialData, nodeData)
