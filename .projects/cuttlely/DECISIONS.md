@@ -407,3 +407,7 @@ IBM watsonx Orchestrate `external_chat` calls a published chatflow through `POST
 ## D102. Home hero import link reads Already have flows? Bring them over
 
 Supersedes the hero-link sentences of D97, D98, D99, and D100 for the project website (`website/`). The home hero keeps the H1, the lead, the proof line, Get started, Star on GitHub, and the three-command block. The link under the hero actions is "Already have flows? Bring them over", class `cl-link-arrow`, href `/flowise/`, with the same arrow icon. The hero markup does not name that other product except inside that href. The home page does not name that import format in visible copy. The import page, the FAQ import entry, and Apache-2.0 attribution stay. Why: the home page should lead with the product, and the hero should invite import without naming the other product in the link text.
+
+## D103. Pull request title and body are checked against a checked-in banned-phrase list
+
+The `lint` job runs `scripts/pr-text-banned.mjs` on pull request `opened`, `synchronize`, `reopened`, `ready_for_review`, and `edited`. The list is built in that script. It is not `PR_TEXT_BANNED` and is not a secret. An empty list fails the step. Why: a title or body edit would otherwise keep a green lint result for text the check is meant to reject.
