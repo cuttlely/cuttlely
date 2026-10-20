@@ -8,6 +8,7 @@ All outputs on this page come from real runs against a local Cuttlely server wit
 -   [Create an API key](#create-an-api-key)
 -   [Ask a chatflow](#ask-a-chatflow)
 -   [Call a chatflow from Orchestrate](#call-a-chatflow-from-orchestrate)
+-   [Call a chatflow over A2A](#call-a-chatflow-over-a2a)
 -   [Agentflows and harnesses](#agentflows-and-harnesses)
 -   [Run a harness in the background](#run-a-harness-in-the-background)
 -   [Stream the answer](#stream-the-answer)
@@ -125,6 +126,32 @@ curl -s "$CUTTLELY_URL/api/v1/orchestrate/$FLOW_ID/chat/completions" \
 ```
 
 A flow that uses Buffer Memory continues from stored turns when `X-IBM-THREAD-ID` is sent. A flow with no memory node answers from the `messages` history only if that flow reads it.
+
+A second Orchestrate chat on the same flow is a different conversation: it does not know a name given in the first chat, and the server log `context=` hash is different.
+
+## Call a chatflow over A2A
+
+Orchestrate can also call the same published chatflow as an A2A 0.3.0 collaborator (`external_chat/A2A/0.3.0`). Bind an API key to the chatflow. The RPC URL, which is also the card `url`, is `$CUTTLELY_URL/api/v1/a2a/<flow id>`. The agent card is `GET /api/v1/a2a/<flow id>/.well-known/agent-card.json`. Discover uses that card path (`-e /api/v1/a2a/<flow id>/.well-known/agent-card.json`); the console `api_url` is the RPC URL, never the card path. Auth is the same as the Orchestrate chat-completions route: `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+
+`A2A_PUBLIC_BASE_URL` sets the origin used in the card `url` (for example `https://tunnel.example`). It must be an origin with no path and no trailing slash; anything else refuses to start. When it is unset, the card uses the request `Host` and `X-Forwarded-Proto` (with `TRUST_PROXY`).
+
+`POST /api/v1/a2a/<flow id>` is JSON-RPC 2.0: `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. JSON-RPC answers are HTTP 200. Auth, size, type, and rate refusals stay HTTP (401, 403, 404, 409 `thread_busy`, 413, 415, 429) with the same bodies as the Orchestrate chat-completions route. A flow that pauses for a person is stored `failed` (`human_input_unsupported`). Tasks live in memory on that process for one hour, at most 1000 per flow, and are not shared across replicas.
+
+`message/stream` writes `text/event-stream` JSON-RPC events: a `submitted` task, a `working` status, token `artifact-update`s, a closing artifact chunk, and a final `completed` or `failed` status. `Content-Type` must be `application/json`; a charset parameter is accepted.
+
+If a live A2A chat sends no `contextId`, `taskId`, or `referenceTaskIds`, each turn is a new context on the wire and continuity cannot be mapped. After an A2A chat that used the name Ada, a new Orchestrate chat on the same flow must not know Ada, and its `context=` hash must differ.
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/a2a/$FLOW_ID/.well-known/agent-card.json" \
+  -H "X-API-Key: $CUTTLELY_API_KEY"
+```
+
+```bash
+curl -s "$CUTTLELY_URL/api/v1/a2a/$FLOW_ID" \
+  -H "Authorization: Bearer $CUTTLELY_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":{"kind":"message","messageId":"m1","role":"user","parts":[{"kind":"text","text":"What time do you open on Saturday?"}]}}}'
+```
 
 ## Agentflows and harnesses
 

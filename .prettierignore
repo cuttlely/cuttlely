@@ -11,3 +11,6 @@ website/dist/
 # The license text must stay byte-for-byte identical to the Apache 2.0 original so GitHub can detect it.
 LICENSE.md
 
+# Vendored A2A v0.3.0 JSON Schema. Keep the upstream bytes.
+packages/server/src/services/a2a/__fixtures__/a2a-v0.3.0.json
+
