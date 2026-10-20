@@ -18,8 +18,44 @@ const TOKEN_COUNT_WORD = /(token[_-]?limit|tokens)/gi
 const DECLARED_SECRET_NAME = /(credential|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|secret|passw)/i
 // Token-named declared inputs are dropped unless they hold a plain URL (accessTokenUrl, tokenUrl).
 const DECLARED_TOKEN_NAME = /token/i
-// Query or fragment parameter names that carry credentials inside a URL (case-insensitive substring match).
-const URL_CREDENTIAL_PARAM = /(token|key|secret|sig|passw|auth|credential)/i
+// Query or fragment parameter name parts that carry credentials inside a URL (whole parts, case-insensitive).
+const URL_CREDENTIAL_PART = new Set([
+    'token',
+    'key',
+    'secret',
+    'sig',
+    'signature',
+    'password',
+    'passwd',
+    'pwd',
+    'auth',
+    'credential',
+    'credentials'
+])
+// Lowercase compounds with no separator to split on.
+const URL_CREDENTIAL_COMPOUND = new Set([
+    'apikey',
+    'accesstoken',
+    'refreshtoken',
+    'idtoken',
+    'authtoken',
+    'sessiontoken',
+    'clientsecret',
+    'apisecret',
+    'secretkey',
+    'accesskey',
+    'privatekey',
+    'sastoken'
+])
+/** True when a query or fragment parameter name has a credential word as one of its parts (split on _ - . and camelCase). */
+const isUrlCredentialParam = (name: string): boolean => {
+    if (URL_CREDENTIAL_COMPOUND.has(name.toLowerCase().replace(/[_.-]/g, ''))) return true
+    const parts = name
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+        .split(/[\s_.-]+/)
+    return parts.some((part) => URL_CREDENTIAL_PART.has(part.toLowerCase()))
+}
 // Declared inputs dropped by name alone.
 const DECLARED_AUTH_NAME = /^(authorization|auth)$/i
 
@@ -34,7 +70,7 @@ const isCredentialUrl = (value: string): boolean => {
     }
     if (url.username || url.password) return true
     const params = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.replace(/^#/, '')).keys()]
-    return params.some((name) => URL_CREDENTIAL_PARAM.test(name))
+    return params.some((name) => isUrlCredentialParam(name))
 }
 
 /** True for an http(s) URL with no userinfo and no credential-looking query or fragment parameters. */
@@ -49,7 +85,7 @@ const isPlainUrl = (value: unknown): boolean => {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
     if (url.username || url.password) return false
     const params = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.replace(/^#/, '')).keys()]
-    return !params.some((name) => URL_CREDENTIAL_PARAM.test(name))
+    return !params.some((name) => isUrlCredentialParam(name))
 }
 
 /** Name rule for declared, non-password inputs; token-count words are ignored. */
@@ -85,6 +121,43 @@ const isSecretNestedName = (name: string): boolean => isSecretInputName(name) ||
 export const isSecretHeaderName = (name: string): boolean => SECRET_HEADER_NAME.test(name)
 
 const DROP = Symbol('drop')
+
+// A JSON string literal is unwrapped up to this many times (double- or triple-encoded objects).
+const MAX_JSON_LAYERS = 3
+const TOO_DEEP = Symbol('too-deep')
+
+/**
+ * When a string is a JSON object or array, possibly encoded as a JSON string up to MAX_JSON_LAYERS times, returns the
+ * object and how many times it was encoded. TOO_DEEP when it is still an encoded JSON string after that; otherwise undefined.
+ */
+const unwrapJson = (value: string): { parsed: object; layers: number } | typeof TOO_DEEP | undefined => {
+    let text = value
+    for (let layers = 1; ; layers += 1) {
+        const trimmed = text.trim()
+        if (!/^[[{"]/.test(trimmed)) return undefined
+        let parsed: unknown
+        try {
+            parsed = JSON.parse(trimmed)
+        } catch {
+            return undefined
+        }
+        if (parsed && typeof parsed === 'object') return { parsed, layers }
+        if (typeof parsed !== 'string') return undefined
+        if (layers >= MAX_JSON_LAYERS) return /^[[{"]/.test(parsed.trim()) && unwrapJson(parsed) !== undefined ? TOO_DEEP : undefined
+        text = parsed
+    }
+}
+
+/** Serializes a value the same number of times it was encoded. */
+const reencode = (value: unknown, layers: number): string => {
+    let out = JSON.stringify(value)
+    for (let i = 1; i < layers; i += 1) out = JSON.stringify(out)
+    return out
+}
+
+/** True when a string is JSON text for an object or array, including encoded forms. */
+const isStructuredText = (value: string): boolean => unwrapJson(value) !== undefined
+
 const HEADERS_KEY = /headers$/i
 
 /**
@@ -95,14 +168,11 @@ const HEADERS_KEY = /headers$/i
 const scrubHeaderTree = (value: unknown, depth = 0): unknown => {
     if (depth > 32) return DROP
     if (typeof value === 'string') {
-        const trimmed = value.trim()
-        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return value
-        try {
-            const cleaned = scrubHeaderTree(JSON.parse(trimmed), depth + 1)
-            return cleaned === DROP ? DROP : JSON.stringify(cleaned)
-        } catch {
-            return DROP
-        }
+        const unwrapped = unwrapJson(value)
+        if (unwrapped === TOO_DEEP) return DROP
+        if (unwrapped === undefined) return /^\s*[[{]/.test(value) ? DROP : value
+        const cleaned = scrubHeaderTree(unwrapped.parsed, depth + 1)
+        return cleaned === DROP ? DROP : reencode(cleaned, unwrapped.layers)
     }
     if (Array.isArray(value)) {
         const out: unknown[] = []
@@ -129,18 +199,6 @@ const scrubHeaderTree = (value: unknown, depth = 0): unknown => {
     return value
 }
 
-/** The parsed value when a string is a JSON object or array, otherwise undefined. */
-const parseJsonContainer = (value: string): unknown => {
-    const trimmed = value.trim()
-    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return undefined
-    try {
-        const parsed = JSON.parse(trimmed)
-        return parsed && typeof parsed === 'object' ? parsed : undefined
-    } catch {
-        return undefined
-    }
-}
-
 /**
  * Walks a value and removes anything credential-shaped: strings that look like keys, properties with
  * credential names, and { key, value } pairs whose key is a credential name. Returns DROP when nothing is left to keep.
@@ -149,10 +207,12 @@ const scrubValue = (value: unknown, depth = 0): unknown => {
     if (depth > 32) return DROP
     if (typeof value === 'string') {
         // A string holding a serialized object or array is cleaned with the same rules and re-serialized.
-        const parsed = parseJsonContainer(value)
-        if (parsed !== undefined) {
-            const scrubbed = scrubValue(parsed, depth + 1)
-            return scrubbed === DROP ? DROP : JSON.stringify(scrubbed)
+        // Encoded up to MAX_JSON_LAYERS times; deeper encodings are dropped.
+        const unwrapped = unwrapJson(value)
+        if (unwrapped === TOO_DEEP) return DROP
+        if (unwrapped !== undefined) {
+            const scrubbed = scrubValue(unwrapped.parsed, depth + 1)
+            return scrubbed === DROP ? DROP : reencode(scrubbed, unwrapped.layers)
         }
         return looksLikeSecretValue(value) || isCredentialUrl(value) ? DROP : value
     }
@@ -296,7 +356,7 @@ const publicScalar = (value: unknown): string | number | boolean | undefined => 
     if (typeof value === 'boolean') return value
     if (typeof value === 'string') {
         // Display text is never structured: a JSON object or array, or anything the scrubber would change, is dropped whole.
-        if (parseJsonContainer(value) !== undefined) return undefined
+        if (isStructuredText(value)) return undefined
         return scrubSecrets(value) === value ? value : undefined
     }
     return undefined

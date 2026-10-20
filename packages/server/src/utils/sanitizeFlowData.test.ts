@@ -596,6 +596,85 @@ describe('public config follow-up rules', () => {
         })
     })
 
+    describe('encoded JSON and URL parameter parts', () => {
+        const params = [
+            { name: 'dblEnc', type: 'string' },
+            { name: 'extras', type: 'json' },
+            { name: 'callbackUrl', type: 'string' },
+            { name: 'extraHeaders', type: 'string' }
+        ] as any
+        const twice = (v: unknown) => JSON.stringify(JSON.stringify(v))
+        const thrice = (v: unknown) => JSON.stringify(twice(v))
+
+        it('scrubs double- and triple-encoded JSON at the top level and re-encodes it the same way', () => {
+            const result = sanitizeNodeInputs({ dblEnc: twice({ apiKey: 'FAKE-DBL-1', ok: 1 }) }, params)
+            expect(result.dblEnc).toBe(twice({ ok: 1 }))
+            const triple = sanitizeNodeInputs({ dblEnc: thrice({ apiKey: 'FAKE-TRI-1', ok: 2 }) }, params)
+            expect(triple.dblEnc).toBe(thrice({ ok: 2 }))
+            expect(JSON.stringify([result, triple])).not.toContain('FAKE-')
+        })
+
+        it('scrubs double-encoded JSON nested in a kept value and in headers', () => {
+            const result = sanitizeNodeInputs(
+                {
+                    extras: { cfg: twice({ apiKey: 'FAKE-DBL-2', region: 'r1' }), list: ['x', twice({ secret: 'FAKE-DBL-3' })] },
+                    extraHeaders: twice({ 'X-Custom-Auth': 'FAKE-DBL-4', 'X-Trace': 't1' })
+                },
+                params
+            )
+            expect(result.extras).toEqual({ cfg: twice({ region: 'r1' }), list: ['x', twice({})] })
+            expect(JSON.parse(JSON.parse(result.extraHeaders as string))).toEqual({ 'X-Trace': 't1' })
+            expect(JSON.stringify(result)).not.toContain('FAKE-')
+        })
+
+        it('drops JSON encoded more than three times and keeps plain JSON string literals', () => {
+            const quad = JSON.stringify(thrice({ apiKey: 'FAKE-QUAD-1' }))
+            expect(sanitizeNodeInputs({ dblEnc: quad }, params)).toEqual({})
+            expect(sanitizeNodeInputs({ dblEnc: '"hello"' }, params)).toEqual({ dblEnc: '"hello"' })
+        })
+
+        it('drops double-encoded JSON from public display fields', () => {
+            const saved = {
+                title: twice({ apiKey: 'FAKE-DBL-DISP-1' }),
+                welcomeMessage: 'Hello',
+                starterPrompts: [{ prompt: twice({ apiKey: 'FAKE-DBL-DISP-2' }) }, { prompt: 'Plain question' }],
+                botMessage: { textColor: twice({ u: 'https://user:pw@example.com/x' }) }
+            }
+            const display = publicChatbotDisplayConfig(saved)
+            expect(display).toEqual({ welcomeMessage: 'Hello', starterPrompts: [{ prompt: 'Plain question' }], botMessage: {} })
+            const summary = publicChatflowSummary({ id: 'f1', isPublic: true, chatbotConfig: JSON.stringify(saved) })
+            expect(summary.chatbotConfig).not.toContain('FAKE-')
+            expect(summary.chatbotConfig).not.toContain('user:pw@')
+        })
+
+        it.each([
+            'access_token',
+            'client_secret',
+            'X-Amz-Signature',
+            'apikey',
+            'subscriptionKey',
+            'userPassword',
+            'X-Goog-Credential',
+            'id_token',
+            'refresh_token',
+            'APIKey',
+            'sig',
+            'pwd',
+            'user.passwd',
+            'Auth'
+        ])('drops a URL whose parameter %s names a credential', (name) => {
+            expect(sanitizeNodeInputs({ callbackUrl: `https://example.com/cb?${name}=FAKE-PARAM` }, params)).toEqual({})
+        })
+
+        it.each(['author', 'keywords', 'monkeyId', 'page', 'q', 'signal', 'tokenizer'])(
+            'keeps a URL whose parameter %s is ordinary',
+            (name) => {
+                const callbackUrl = `https://example.com/cb?${name}=7`
+                expect(sanitizeNodeInputs({ callbackUrl }, params)).toEqual({ callbackUrl })
+            }
+        )
+    })
+
     it('keeps a prompt that mentions Bearer but drops a real bearer token', () => {
         expect(looksLikeSecretValue('Send it as Bearer x in the header')).toBe(false)
         expect(looksLikeSecretValue('Bearer abcdefghijABCDEFGHIJ0123')).toBe(true)
