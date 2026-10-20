@@ -589,10 +589,10 @@ describe('public config follow-up rules', () => {
         it('drops credential URLs from public display fields and keeps ordinary ones', () => {
             const display = publicChatbotDisplayConfig({
                 titleAvatarSrc: 'https://img.example/a.png?refresh_token=FAKE-DISP-URL',
-                welcomeMessage: 'https://example.com/help?q=hours&page=1',
+                welcomeMessage: 'https://example.com/help?page=1&lang=en&utm_source=chat',
                 botMessage: { avatarSrc: 'https://img.example/b.png?X-Amz-Signature=FAKE-DISP-SIG' }
             })
-            expect(display).toEqual({ welcomeMessage: 'https://example.com/help?q=hours&page=1', botMessage: {} })
+            expect(display).toEqual({ welcomeMessage: 'https://example.com/help?page=1&lang=en&utm_source=chat', botMessage: {} })
         })
     })
 
@@ -857,7 +857,19 @@ describe('encoding fuzz: no fake secret marker survives any wrapper, carrier and
         'fragment ?query': `https://example.com/x#/cb?token=${MARK}`,
         'apiKey field': { apiKey: MARK, ok: 1 },
         'header pair': { key: 'X-Custom-Auth', value: MARK },
-        'header map key': { 'X-Api-Key': MARK, Accept: 'a' }
+        'header map key': { 'X-Api-Key': MARK, Accept: 'a' },
+        'URL nested in a query value': `https://example.com/out?next=https://user:${MARK}@evil.example/z`,
+        'URL nested in a fragment value': `https://example.com/out#go=//user:${MARK}@evil.example/z`,
+        'invalid percent tail': encodeURIComponent(`https://user:${MARK}@example.com/x`) + '%zz',
+        'bracketed param name': `https://example.com/x?token[]=${MARK}`,
+        'zero-width in param name': `https://example.com/x?access_\u200btoken=${MARK}`,
+        'NUL in param name': `https://example.com/x?token%00=${MARK}`,
+        'single-slash userinfo': `https:/user:${MARK}@example.com/x`,
+        'escaped-slash userinfo': `https:\\/\\/user:${MARK}@example.com/x`,
+        'NUL before JSON': '\u0000{"apiKey":"' + MARK + '"}',
+        'duplicate JSON keys': '{"note":"sk-' + MARK + '","note":"hello"}',
+        'name/value header pair': [{ name: 'X-Api-Key', value: MARK }],
+        'signature header': { 'X-Amz-Signature': MARK, Accept: 'a' }
     }
     const twice = (v: string) => JSON.stringify(JSON.stringify(v))
     const asText = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v))
@@ -912,15 +924,39 @@ describe('encoding fuzz: no fake secret marker survives any wrapper, carrier and
         expect(decodeURIComponent(out.replace(/%(?![0-9a-f]{2})/gi, '%25'))).not.toContain(MARK)
     })
 
+    it.each([
+        ['fullwidth at sign', `https://user:${MARK}\uff20example.com/x`],
+        ['HTML character reference', `https://user:${MARK}&#64;example.com/x`],
+        ['escaped sk- prefix', `\\u0073k-${MARK}`]
+    ])('drops %s from public display fields', (_label, text) => {
+        const out = JSON.stringify(publicChatbotDisplayConfig({ title: text, welcomeMessage: text, botMessage: { textColor: text } }))
+        expect(out).not.toContain(MARK)
+    })
+
     it('keeps harmless values through the same wrappers on template inputs', () => {
         const harmless = { url: 'https://example.com/search?q=cakes&page=2#results', mode: 'fast' }
         for (const w of ['none', 'JSON 1x', 'JSON 2x', 'JSON 3x', 'array element', 'object value']) {
             const wrapped = wrappers[w](harmless)
             expect(sanitizeNodeInputs({ extras: wrapped }, params)).toEqual({ extras: wrapped })
         }
-        expect(publicChatbotDisplayConfig({ title: 'Ask about 50% off', welcomeMessage: 'See https://example.com/help?q=1' })).toEqual({
-            title: 'Ask about 50% off',
-            welcomeMessage: 'See https://example.com/help?q=1'
+        expect(
+            publicChatbotDisplayConfig({
+                title: 'Ask about half-price bakes!',
+                welcomeMessage: 'See https://example.com/help?page=2&ref=chat#hours, or write to shop@example.com'
+            })
+        ).toEqual({
+            title: 'Ask about half-price bakes!',
+            welcomeMessage: 'See https://example.com/help?page=2&ref=chat#hours, or write to shop@example.com'
         })
+        // Fail closed: %, backslashes, unlisted query names, and non-http schemes drop the whole field.
+        expect(
+            publicChatbotDisplayConfig({
+                title: 'Ask about 50% off',
+                welcomeMessage: 'See https://example.com/help?q=1',
+                errorMessage: 'path C:\\temp',
+                fontSize: 16,
+                titleAvatarSrc: 'javascript:alert(1)'
+            })
+        ).toEqual({ fontSize: 16 })
     })
 })
