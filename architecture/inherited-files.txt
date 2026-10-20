@@ -970,6 +970,7 @@ packages/server/src/controllers/assistants/index.ts
 packages/server/src/controllers/attachments/index.ts
 packages/server/src/controllers/chat-messages/index.ts
 packages/server/src/controllers/chatflows/index.ts
+packages/server/src/controllers/chatflows/publicChatflow.test.ts
 packages/server/src/controllers/components-credentials/index.ts
 packages/server/src/controllers/credentials/index.ts
 packages/server/src/controllers/custom-mcp-servers/index.test.ts
@@ -1375,6 +1376,7 @@ packages/server/src/services/load-prompts/index.ts
 packages/server/src/services/log/index.test.ts
 packages/server/src/services/log/index.ts
 packages/server/src/services/log/pem-cut.test.ts
+packages/server/src/services/marketplaces/customTemplateInputs.test.ts
 packages/server/src/services/marketplaces/index.ts
 packages/server/src/services/mcp-endpoint/index.test.ts
 packages/server/src/services/mcp-endpoint/index.ts

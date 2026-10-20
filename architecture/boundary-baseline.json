@@ -244,11 +244,6 @@
             "reason": "the test mounts the inherited verify router to check the API-key routes"
         },
         {
-            "from": "packages/server/src/controllers/chatflows/publicChatflow.test.ts",
-            "to": "packages/server/src/controllers/chatflows/index.ts",
-            "reason": "tests for inherited public config endpoints and template saving"
-        },
-        {
             "from": "packages/server/src/controllers/demo/index.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
@@ -1041,16 +1036,6 @@
             "from": "packages/server/src/services/harnesses/schedules.ts",
             "to": "packages/server/src/utils/logger.ts",
             "reason": "The harness scheduler logs each due time with the shared server logger, and the Schedule card uses the shared permission button and role check like the harness page beside it."
-        },
-        {
-            "from": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
-            "to": "packages/server/src/services/chatflows/index.ts",
-            "reason": "tests for inherited public config endpoints and template saving"
-        },
-        {
-            "from": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
-            "to": "packages/server/src/services/marketplaces/index.ts",
-            "reason": "tests for inherited public config endpoints and template saving"
         },
         {
             "from": "packages/server/src/services/orchestrate/ibmEncoder.ts",
@@ -2985,6 +2970,10 @@
             "reason": "Pack manifest files ship with the vector store pack."
         },
         {
+            "path": "packages/server/src/controllers/chatflows/publicChatflow.test.ts",
+            "reason": "tests for inherited public config endpoints and template saving"
+        },
+        {
             "path": "packages/server/src/database/migrations/mariadb/1795000000000-AddDatasetRowSource.ts",
             "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
         },
@@ -3063,6 +3052,10 @@
         {
             "path": "packages/server/src/services/executions/index.test.ts",
             "reason": "The executions paging test lives next to the service it checks."
+        },
+        {
+            "path": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
+            "reason": "tests for inherited public config endpoints and template saving"
         },
         {
             "path": "packages/server/src/services/settings/publicPayload.test.ts",
