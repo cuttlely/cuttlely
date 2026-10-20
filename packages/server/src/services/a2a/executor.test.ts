@@ -3,12 +3,107 @@ jest.mock('../../utils/logger', () => ({
     default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }
 }))
 
+const mockRedis = { subscribe: jest.fn(async () => undefined), unsubscribe: jest.fn(async () => undefined) }
+const mockRemoveClient = jest.fn()
+const mockBuildChatflow = jest.fn(async (req: { body?: { chatId?: string } }) => ({ text: 'ok', chatId: req.body?.chatId }))
+
+jest.mock('../../utils/getRunningExpressApp', () => ({
+    getRunningExpressApp: () => ({
+        sseStreamer: {
+            tryAddExternalClient: () => true,
+            removeClient: mockRemoveClient
+        },
+        redisSubscriber: mockRedis,
+        abortControllerPool: { abort: jest.fn() },
+        queueManager: { getPredictionQueueEventsProducer: () => ({ publishEvent: jest.fn() }) }
+    })
+}))
+
+jest.mock('../../services/predictions', () => ({
+    __esModule: true,
+    default: { buildChatflow: (...args: unknown[]) => mockBuildChatflow(...args) }
+}))
+
+jest.mock('../../utils/sessionOwnership', () => ({
+    bindRequestSession: () => ({ chatId: 'chat-1', sessionId: 'chat-1', sessionToken: 'tok-1', rebound: false })
+}))
+
+jest.mock('../../utils/externalThread', () => ({
+    threadChatId: () => ({ chatId: 'chat-1', sessionToken: 'tok-1' }),
+    threadLogHash: () => 'abcd1234'
+}))
+
+jest.mock('../../utils/clientAbort', () => ({
+    watchClientDisconnect: () => ({ aborted: false }),
+    onAbort: () => () => undefined
+}))
+
+import { Request, Response } from 'express'
 import { AppError } from '../../errors/appError'
-import { classifyOutcome, isHumanInputResult, resolveContext } from './executor'
-import { a2aTaskStore, isoNow, resetA2aTaskStore } from './taskStore'
+import { classifyOutcome, emptyA2aLog, executeMessage, isHumanInputResult, resolveContext } from './executor'
+import { a2aTaskStore, isoNow, listA2aTasksForTests, resetA2aTaskStore } from './taskStore'
+
+const mockReq = (): Request =>
+    ({
+        headers: {},
+        body: {},
+        on: () => undefined
+    } as unknown as Request)
+
+const mockRes = (headersSent = false): Response & { body?: unknown; write: jest.Mock } => {
+    const res: Record<string, unknown> = {
+        headersSent,
+        writableEnded: false,
+        destroyed: false,
+        locals: {},
+        body: undefined
+    }
+    res.setHeader = jest.fn()
+    res.removeHeader = jest.fn()
+    res.flushHeaders = jest.fn(() => {
+        res.headersSent = true
+    })
+    res.write = jest.fn(() => {
+        res.headersSent = true
+        return true
+    })
+    res.end = jest.fn(() => {
+        res.writableEnded = true
+    })
+    res.cookie = jest.fn(() => res)
+    res.status = jest.fn(() => res)
+    res.json = jest.fn((body: unknown) => {
+        res.headersSent = true
+        res.body = body
+        return res
+    })
+    res.once = jest.fn()
+    res.on = jest.fn()
+    return res as unknown as Response & { body?: unknown; write: jest.Mock }
+}
+
+const messageParams = { message: { kind: 'message', messageId: 'm1', role: 'user', parts: [{ kind: 'text', text: 'Hi' }] } }
 
 describe('A2A executor helpers', () => {
-    beforeEach(() => resetA2aTaskStore())
+    const previousMode = process.env.MODE
+
+    beforeEach(() => {
+        resetA2aTaskStore()
+        mockRedis.subscribe.mockReset()
+        mockRedis.subscribe.mockResolvedValue(undefined)
+        mockRedis.unsubscribe.mockReset()
+        mockRedis.unsubscribe.mockResolvedValue(undefined)
+        mockRemoveClient.mockReset()
+        mockBuildChatflow.mockReset()
+        mockBuildChatflow.mockImplementation(async (req: { body?: { chatId?: string } }) => ({ text: 'ok', chatId: req.body?.chatId }))
+        if (previousMode === undefined) delete process.env.MODE
+        else process.env.MODE = previousMode
+    })
+
+    afterAll(() => {
+        if (previousMode === undefined) delete process.env.MODE
+        else process.env.MODE = previousMode
+    })
 
     it('detects a human-input pause from waitingForApproval, not a bare action field', () => {
         expect(isHumanInputResult({ text: 'hi', action: {} })).toBe(false)
@@ -48,5 +143,45 @@ describe('A2A executor helpers', () => {
         })
         expect(classifyOutcome({ row, result: { text: 'Hello' } })).toEqual({ kind: 'completed', text: 'Hello' })
         expect(isoNow(0)).toBe('1970-01-01T00:00:00.000Z')
+    })
+
+    it('finalizes a send task as failed when queue subscribe rejects, including from finally', async () => {
+        process.env.MODE = 'queue'
+        mockRedis.subscribe.mockRejectedValueOnce(new Error('redis down'))
+        const res = mockRes(false)
+        await expect(
+            executeMessage({
+                req: mockReq(),
+                res,
+                chatflow: { id: 'flow-1', apikeyid: 'k', flowData: '{}' },
+                rpcId: 1,
+                params: messageParams,
+                stream: false,
+                log: emptyA2aLog()
+            })
+        ).rejects.toThrow('redis down')
+        expect(mockBuildChatflow).not.toHaveBeenCalled()
+        expect(listA2aTasksForTests()).toHaveLength(1)
+        expect(listA2aTasksForTests()[0].task.status.state).toBe('failed')
+        expect(listA2aTasksForTests()[0].task.status.message?.parts[0].text).toMatch(/The flow could not finish/)
+    })
+
+    it('finalizes a stream task as failed when queue subscribe rejects', async () => {
+        process.env.MODE = 'queue'
+        mockRedis.subscribe.mockRejectedValueOnce(new Error('redis down'))
+        const res = mockRes(false)
+        await executeMessage({
+            req: mockReq(),
+            res,
+            chatflow: { id: 'flow-1', apikeyid: 'k', flowData: '{}' },
+            rpcId: 1,
+            params: messageParams,
+            stream: true,
+            log: emptyA2aLog()
+        })
+        expect(mockBuildChatflow).not.toHaveBeenCalled()
+        expect(listA2aTasksForTests()).toHaveLength(1)
+        expect(listA2aTasksForTests()[0].task.status.state).toBe('failed')
+        expect(res.write).toHaveBeenCalled()
     })
 })

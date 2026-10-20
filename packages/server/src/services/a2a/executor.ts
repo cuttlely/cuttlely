@@ -24,7 +24,18 @@ import {
     jsonRpcResult,
     parseMessageParams
 } from './rpc'
-import { A2A_FINAL_STATES, A2aMessage, A2aStoredTask, A2aTask, a2aCallerKey, a2aTaskStore, isoNow } from './taskStore'
+import {
+    A2A_FINAL_STATES,
+    A2aMessage,
+    A2aStoredTask,
+    A2aTask,
+    a2aCallerKey,
+    a2aPublicTask,
+    a2aTaskStore,
+    a2aTaskTextMaxBytes,
+    isoNow,
+    utf8Bytes
+} from './taskStore'
 
 export type A2aLogState = {
     method: string
@@ -133,7 +144,7 @@ export async function cancelStoredTask(flowId: string, caller: string, taskId: s
         throw new A2aRpcError(A2A_RPC_CODES.taskNotCancelable, 'Task cannot be canceled')
     }
     await abortRunning(flowId, result.row.chatId)
-    return result.row.task
+    return a2aPublicTask(result.row)
 }
 
 const bindRun = (
@@ -182,6 +193,10 @@ export async function executeMessage(opts: {
     log: A2aLogState
 }): Promise<void> {
     const parsed = parseMessageParams(opts.params)
+    const textLimit = a2aTaskTextMaxBytes()
+    if (utf8Bytes(parsed.question) > textLimit) {
+        throw new A2aRpcError(A2A_RPC_CODES.invalidParams, `Question exceeds the ${textLimit}-byte store limit`)
+    }
     const caller = a2aCallerKey(opts.chatflow)
     const { contextId, ctxSrc } = resolveContext({ flow: opts.chatflow, caller, parsed })
     opts.log.ctxSrc = ctxSrc
@@ -252,6 +267,7 @@ export async function executeMessage(opts: {
 
     const isQueueMode = process.env.MODE === MODE.QUEUE
     const stopWatchingClient = onAbort(signal, () => sseStreamer.removeClient(boundIds.chatId))
+    let runError: unknown
     try {
         if (isQueueMode) {
             await getRunningExpressApp().redisSubscriber.subscribe(boundIds.chatId)
@@ -266,11 +282,8 @@ export async function executeMessage(opts: {
         applyOutcome({ row, outcome, sentToken, stream: opts.stream, res: opts.res, rpcId: opts.rpcId, signal })
         if (opts.log.rpc === '-') opts.log.rpc = 'ok'
     } catch (error) {
-        if (!A2A_FINAL_STATES.has(row.task.status.state)) {
-            if (!opts.res.headersSent) {
-                a2aTaskStore.remove(opts.chatflow.id, caller, row.task.id)
-                throw error
-            }
+        runError = error
+        if (!A2A_FINAL_STATES.has(row.task.status.state) && opts.res.headersSent) {
             applyOutcome({
                 row,
                 outcome: classifyOutcome({ row, signal, error }),
@@ -281,7 +294,19 @@ export async function executeMessage(opts: {
                 signal
             })
         }
+        if (!opts.res.headersSent) {
+            throw error
+        }
     } finally {
+        if (!A2A_FINAL_STATES.has(row.task.status.state)) {
+            const failed = classifyOutcome({ row, signal, error: runError ?? new Error('queue_subscribe_failed') })
+            const text = failed.kind === 'failed' ? failed.text : failedStatusText('internal_error')
+            a2aTaskStore.finalize(row, {
+                state: 'failed',
+                timestamp: isoNow(),
+                message: agentStatusMessage(row.task.id, row.contextId, text)
+            })
+        }
         stopWatchingClient()
         if (isQueueMode) {
             try {
@@ -325,7 +350,7 @@ function applyOutcome(opts: {
                 )
             )
         } else if (!stream && !gone) {
-            writeSendResult(response, rpcId, row.task)
+            writeSendResult(response, rpcId, a2aPublicTask(row))
         }
         return
     }
@@ -346,18 +371,12 @@ function applyOutcome(opts: {
                 )
             )
         } else if (!stream && !gone) {
-            writeSendResult(response, rpcId, row.task)
+            writeSendResult(response, rpcId, a2aPublicTask(row))
         }
         return
     }
-    const artifacts = [
-        {
-            artifactId: row.artifactId,
-            name: 'answer',
-            parts: [{ kind: 'text' as const, text: outcome.text }]
-        }
-    ]
-    a2aTaskStore.finalize(row, { state: 'completed', timestamp: isoNow() }, { answer: outcome.text, artifacts })
+    a2aTaskStore.finalize(row, { state: 'completed', timestamp: isoNow() }, { answer: outcome.text })
+    const answer = row.answer ?? outcome.text
     if (stream && !gone) {
         if (opts.sentToken) {
             writeIfOpen(
@@ -381,7 +400,7 @@ function applyOutcome(opts: {
                         kind: 'artifact-update',
                         taskId: row.task.id,
                         contextId: row.contextId,
-                        artifact: { artifactId: row.artifactId, name: 'answer', parts: [{ kind: 'text', text: outcome.text }] },
+                        artifact: { artifactId: row.artifactId, name: 'answer', parts: [{ kind: 'text', text: answer }] },
                         append: false,
                         lastChunk: true
                     })
@@ -401,7 +420,7 @@ function applyOutcome(opts: {
             )
         )
     } else if (!stream && !gone) {
-        writeSendResult(response, rpcId, row.task)
+        writeSendResult(response, rpcId, a2aPublicTask(row))
     }
 }
 
