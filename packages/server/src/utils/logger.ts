@@ -5,6 +5,11 @@ import { createLogger, format, transports } from 'winston'
 import config from './config' // should be replaced by node-config or similar
 import { isServerSettingsUrl } from '../settings/redact'
 
+const isExternalAgentLogUrl = (url: string): boolean => {
+    const lower = url.toLowerCase()
+    return lower.includes('/api/v1/a2a/') || lower.includes('/api/v1/orchestrate/')
+}
+
 const { combine, timestamp, printf, errors } = format
 
 let requestLogger: any
@@ -241,7 +246,8 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
             if (typeof sanitizedHeaders.cookie === 'string') sanitizedHeaders.cookie = redactLoggedCookies(sanitizedHeaders.cookie)
 
             // Server settings bodies can hold secrets (database password, API keys). Never log them, even at debug.
-            requestMetadata.request.body = isServerSettingsUrl(req.url) ? '[redacted]' : sanitizedBody
+            // Orchestrate and A2A bodies hold question text and raw context ids.
+            requestMetadata.request.body = isServerSettingsUrl(req.url) || isExternalAgentLogUrl(req.url) ? '[redacted]' : sanitizedBody
             requestMetadata.request.query = sanitizedQuery
             requestMetadata.request.headers = sanitizedHeaders
         }

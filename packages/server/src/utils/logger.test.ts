@@ -460,6 +460,28 @@ describe('logger.ts', () => {
             expect(logged).toContain('[redacted]')
             infoSpy.mockRestore()
         })
+
+        it('skips the body for Orchestrate and A2A paths at debug', () => {
+            process.env.DEBUG = 'true'
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            for (const url of ['/api/v1/orchestrate/flow-1', '/api/v1/a2a/flow-1']) {
+                infoSpy.mockClear()
+                const req = {
+                    url,
+                    method: 'POST',
+                    params: {},
+                    body: { question: 'secret-question-text', params: { message: { contextId: 'raw-context-id' } } },
+                    query: {},
+                    headers: {}
+                } as any
+                expressRequestLogger(req, {} as any, next)
+                const logged = JSON.stringify(infoSpy.mock.calls)
+                expect(logged).toContain('"[redacted]"')
+                expect(logged).not.toContain('secret-question-text')
+                expect(logged).not.toContain('raw-context-id')
+            }
+            infoSpy.mockRestore()
+        })
     })
 
     describe('exports', () => {

@@ -175,4 +175,12 @@ describe('API key gate on the real API router', () => {
         expect(res.body).not.toEqual({ error: 'Unauthorized Access' })
         expect(res.body.error).toEqual(expect.objectContaining({ code: expect.any(String) }))
     })
+
+    it('keeps the A2A prefix public so the route answers, not the session gate', async () => {
+        const res = await app()
+            .post('/api/v1/a2a/11111111-1111-4111-8111-111111111111')
+            .set('Content-Type', 'application/json')
+            .send({ jsonrpc: '2.0', id: 1, method: 'message/send', params: { message: { kind: 'message' } } })
+        expect(res.body).not.toEqual({ error: 'Unauthorized Access' })
+    })
 })
