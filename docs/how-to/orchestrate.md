@@ -1,6 +1,6 @@
 # Call a chatflow from IBM watsonx Orchestrate
 
-A published Cuttlely chatflow can answer as a collaborator for an IBM watsonx Orchestrate native agent. Bind an API key to the chatflow, then register an external agent whose `api_url` points at that flow. This page covers IBM's `external_chat` contract (OpenAI-style chat completions) and IBM's A2A 0.3.0 contract. The Larkfield Home orders demo, including the sample YAML, is in [Record the Orchestrate demo](./orchestrate-demo.md).
+Let your IBM watsonx Orchestrate agents hand questions to a flow you built on the Cuttlely canvas: a published chatflow answers as a collaborator for a native agent. Bind an API key to the chatflow, then register an external agent whose `api_url` points at that flow. This page covers IBM's `external_chat` contract (OpenAI-style chat completions) and IBM's A2A 0.3.0 contract. The Larkfield Home orders demo, including the sample YAML, is in [Record the Orchestrate demo](./orchestrate-demo.md).
 
 Copy each sample YAML, fill in the host, flow id and API key, and import **that filled-in copy**. Do not import the files from this repository: they hold placeholders, not a working agent.
 
@@ -65,9 +65,9 @@ Whether Orchestrate actually sends `X-IBM-THREAD-ID`, or instead resends earlier
 
 The API reference, including a curl example, is [Call a chatflow from Orchestrate](../api.md#call-a-chatflow-from-orchestrate).
 
-## A2A 0.3.0 contract
+## A2A 0.3.0 contract (not yet tested)
 
-IBM also documents an external agent over A2A 0.3.0 (`provider: external_chat/A2A/0.3.0`). The URL you would give IBM is the JSON-RPC URL, which is also the agent card's `url`:
+**Not yet tested:** this route has contract tests only, no live Orchestrate test. IBM also documents an external agent over A2A 0.3.0 (`provider: external_chat/A2A/0.3.0`). The URL you would give IBM is the JSON-RPC URL, which is also the agent card's `url`:
 
 `$CUTTLELY_URL/api/v1/a2a/<flow id>`
 
@@ -99,7 +99,7 @@ The live `external_chat` proxy in the demo runbook forwards only `POST /api/v1/o
 
 ## MCP instead of an external agent
 
-Orchestrate can also call a published chatflow as a remote MCP toolkit. There is no separate per-flow MCP how-to: use the [MCP endpoint](../api.md#mcp-endpoint) on the API page (`POST /api/v1/mcp/<flow id>`, Bearer token). Prefer `external_chat` or A2A when you want IBM's native collaborator chat.
+Use the [MCP endpoint](../api.md#mcp-endpoint) (`POST /api/v1/mcp/<flow id>`, Bearer token). Use `external_chat` when you want IBM's native collaborator chat.
 
 ## Open items until the A2A live test
 
@@ -133,3 +133,10 @@ Errors on the Orchestrate routes, before any stream starts, use `{ "error": { "m
 | 500    | `internal_error`       | Anything else. The client gets a generic message; the raw error stays in the server log.                              |
 
 One info line per Orchestrate request is logged as `[orchestrate] flow=… path=… thread=… stream=… fields=… status=… ms=…`. `thread` is a short hash, or `none` when IBM sent no `X-IBM-THREAD-ID`. The key, `Authorization`, `X-API-Key`, body text and the raw thread id are never logged.
+
+## Next steps
+
+-   [Get started in 10 minutes](../../README.md#your-first-10-minutes)
+-   [Record the Orchestrate demo](./orchestrate-demo.md)
+-   [Use the API in your own web app](../api.md)
+-   [Star on GitHub](https://github.com/cuttlely/cuttlely) if this page saved you time

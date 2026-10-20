@@ -139,7 +139,7 @@ The how-to is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrat
 
 A published chatflow can also answer as a remote MCP server at `POST /api/v1/mcp/<flow id>`. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Send that token as `Authorization: Bearer <token>`. `DELETE /api/v1/mcp/<flow id>` ends a session and answers 405 in the default stateless mode. The body is MCP JSON-RPC (1 MB cap), not the Orchestrate chat-completions body.
 
-Orchestrate users who want a remote toolkit instead of an `external_chat` or A2A collaborator point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
+Orchestrate users who want a remote toolkit instead of an `external_chat` collaborator (A2A is not yet tested) point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
 
 ## Agentflows and harnesses
 

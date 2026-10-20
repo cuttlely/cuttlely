@@ -1,5 +1,6 @@
 # Copy this file, replace YOUR_HOST, YOUR_FLOW_ID and <API_KEY>, then import the copy.
 # Do not import this repository file into Orchestrate: the placeholders are not a working agent.
+# Not yet tested against a live Orchestrate tenant. The registration path is an open item.
 # Continuity uses A2A contextId. Do not send X-IBM-THREAD-ID on this api_url.
 spec_version: v1
 kind: external
