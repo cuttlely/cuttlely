@@ -77,7 +77,10 @@ On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=tru
 
 2. Sign in as the owner and keep the session cookie. This route signs in the owner only. Other local users sign in at `/api/v1/auth/local/login`, which answers 404 unless the server also runs with `CUTTLELY_LOCAL_USERS=true`. The `x-request-from: internal` header is required. Without it, sign-in answers `401 {"message":"Unauthorized"}` even when the password is right. If the server isn't running with `CUTTLELY_LOCAL_ADMIN=true`, the route answers 404.
 
+    Read the same password into `CUTTLELY_PASSWORD` first. `read -s` keeps it off the screen and out of your shell history:
+
     ```bash
+    read -rs -p 'Owner password: ' CUTTLELY_PASSWORD; echo
     curl -s -c cookies.txt "$CUTTLELY_URL/api/v1/auth/login" \
       -H 'x-request-from: internal' \
       -H 'Content-Type: application/json' \
@@ -87,13 +90,15 @@ On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=tru
 3. Create the key with that session. `permissions` must be an array listing at least one permission. Without it the server answers `412` with `permissions must be an array of strings!`:
 
     ```bash
-    curl -s -b cookies.txt "$CUTTLELY_URL/api/v1/apikey" \
+    CUTTLELY_API_KEY=$(curl -s -b cookies.txt "$CUTTLELY_URL/api/v1/apikey" \
       -H 'x-request-from: internal' \
       -H 'Content-Type: application/json' \
-      -d '{"keyName":"Bakery script","permissions":["chatflows:view"]}'
+      -d '{"keyName":"Bakery script","permissions":["chatflows:view"]}' \
+      | jq -r '.[] | select(.keyName == "Bakery script" and .apiKey) | .apiKey')
+    unset CUTTLELY_PASSWORD
     ```
 
-    The answer is a JSON array of your keys. The new one includes its `apiKey` in plain text. `GET /api/v1/apikey` lists keys without it, so this is the only time you see it, so store it as `$CUTTLELY_API_KEY`. To let the key run harnesses, add `"harnesses": ["<harness name>"]` (see [Let the key run the harness](#let-the-key-run-the-harness)).
+    The answer is a JSON array of your keys. The new one includes its `apiKey` in plain text, and `GET /api/v1/apikey` lists keys without it, so this is the only time you get it. The command above stores it in `$CUTTLELY_API_KEY` without printing it, so it stays out of CI logs. It needs [`jq`](https://jqlang.org/). To let the key run harnesses, add `"harnesses": ["<harness name>"]` (see [Let the key run the harness](#let-the-key-run-the-harness)).
 
 Send it as `Authorization: Bearer $CUTTLELY_API_KEY`. `GET /api/v1/verify/apikey` answers `"OK"` for a good key. Then bind the key to a flow in **API Endpoint**, as in [Create an API key](#create-an-api-key). Delete `cookies.txt` when you're done.
 
