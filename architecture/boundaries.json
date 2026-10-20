@@ -749,7 +749,9 @@
                 "packages/server/src/utils/fileLinkSignature*",
                 "packages/server/src/utils/upload*",
                 "packages/server/src/utils/predictionUploads*",
-                "packages/server/src/utils/replaceInputsWithConfig*"
+                "packages/server/src/utils/replaceInputsWithConfig*",
+                "packages/server/src/controllers/chatflows/publicChatflow.test.ts",
+                "packages/server/src/services/marketplaces/customTemplateInputs.test.ts"
             ],
             "entryPoints": [
                 "packages/server/src/utils/authorizeFlowAccess.ts",
