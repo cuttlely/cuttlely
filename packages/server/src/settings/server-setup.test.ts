@@ -6,13 +6,19 @@ import path from 'path'
 import request from 'supertest'
 import {
     announceFirstRunSetup,
+    bindSetupCodeStore,
+    consumeSetupCode,
     firstRunSetupCode,
     forgetIssuedSetupCode,
+    issuedSetupHmac,
     resetFirstRunSetupCode,
-    serverSetupLink
+    serverSetupLink,
+    setupCodeHmac,
+    setupCodeMatches,
+    setupCodeReady
 } from '../identity/setupCode'
 import { setupFailureLimited } from '../identity/setupLimit'
-import { CreateOwnerInput, CreateOwnerOptions, UserRow } from '../identity/types'
+import { CreateOwnerInput, CreateOwnerOptions, SetupCodeRejected, UserRow } from '../identity/types'
 import { StartState } from './apply'
 import { AuthKitDeps, AuthKitPort, resetAuthKitTests } from './authkit'
 import { readHistory } from './history'
@@ -51,6 +57,10 @@ function users() {
     return {
         countUsers: async () => created.length,
         createOwner: async (input: CreateOwnerInput, options?: CreateOwnerOptions) => {
+            if (options?.consumeSetupHmac) {
+                const consumed = await consumeSetupCode(options.consumeSetupHmac, options.now ?? Date.now())
+                if (!consumed) throw new SetupCodeRejected()
+            }
             created.push(input)
             lastOwnerOptions = options
             return {
@@ -268,9 +278,44 @@ describe('use a password for now', () => {
         expect(allowed.status).toBe(200)
     })
 
-    it('refuses owner creation when this process has no setup code', async () => {
-        const agent = await opened()
+    it('creates the owner from the stored code after this process loses its copy', async () => {
+        const code = firstRunSetupCode()
+        await setupCodeReady()
         forgetIssuedSetupCode()
+        expect(issuedSetupHmac()).toBeNull()
+        const agent = request.agent(server())
+        const openedRes = await agent.post('/api/v1/server-setup/open').set(INTERNAL).send({ code })
+        expect(openedRes.status).toBe(200)
+        const res = await agent
+            .post('/api/v1/server-setup/owner')
+            .set(INTERNAL)
+            .send({ name: 'Rosa', email: 'rosa@rosas-bakery.example', password: GOOD_PASSWORD })
+        expect(res.status).toBe(200)
+        expect(created).toHaveLength(1)
+        expect(lastOwnerOptions?.consumeSetupHmac).toBe(setupCodeHmac(code))
+        expect(await setupCodeMatches(code)).toBe(false)
+        const second = await agent
+            .post('/api/v1/server-setup/owner')
+            .set(INTERNAL)
+            .send({ name: 'Rosa', email: 'rosa2@rosas-bakery.example', password: GOOD_PASSWORD })
+        expect(second.status).toBe(401)
+        expect(created).toHaveLength(1)
+        const again = await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code })
+        expect(again.status).toBe(410)
+        expect(again.body.message).toBe('This setup link has already been used. Sign in instead.')
+    }, 20000)
+
+    it('refuses owner creation when the stored code is no longer live', async () => {
+        const code = firstRunSetupCode()
+        await setupCodeReady()
+        const hmac = setupCodeHmac(code) as string
+        const agent = request.agent(server())
+        expect((await agent.post('/api/v1/server-setup/open').set(INTERNAL).send({ code })).status).toBe(200)
+        bindSetupCodeStore({
+            read: async () => ({ codeHmac: hmac, issuedAt: 1, expiresAt: 1, consumedAt: null }),
+            save: async () => 'kept',
+            consume: async () => false
+        })
         const res = await agent
             .post('/api/v1/server-setup/owner')
             .set(INTERNAL)

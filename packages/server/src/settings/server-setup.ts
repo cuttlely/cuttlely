@@ -3,12 +3,12 @@
 // a first account, or set up AuthKit after a test sign-in. The link works once and stops working as soon as the
 // first account exists, a sign-in method is on, or the setup is done.
 import { Request } from 'express'
-import { issuedSetupHmac, noSignInMethod, retireFirstRunSetupCode, setupCodeMatches, setupCodeRetired } from '../identity/setupCode'
+import { noSignInMethod, retireFirstRunSetupCode, setupCodeMatches, setupCodeRetired, storedSetupCodeLive } from '../identity/setupCode'
 import { hashPassword, passwordErrors } from '../identity/password'
 import { CreateOwnerInput, NotEmptyError, SetupCodeRejected, UserRow } from '../identity/types'
 import { Principal } from './authkit'
 import { ServiceDeps, SettingView, SettingsError, getView, restartNow, writeValues } from './service'
-import { setupSessionHash } from './setup-session'
+import { setupSessionCodeHmac, setupSessionHash } from './setup-session'
 
 export const SETUP_BY = 'setup link'
 export const SIGNIN_SECTION = 'signin'
@@ -93,7 +93,8 @@ export async function finishSetup(deps: SetupDeps): Promise<{ restarting: boolea
 /** Use a password for now: creates the first account (the owner) and turns the password sign-in on. */
 export async function createOwnerFromSetup(
     deps: SetupDeps,
-    body: unknown
+    body: unknown,
+    req: Request
 ): Promise<{ restarting: boolean; steps: string[]; email: string }> {
     const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
     const name = typeof input.name === 'string' ? input.name.trim() : ''
@@ -114,8 +115,12 @@ export async function createOwnerFromSetup(
     }
     const closed = await setupClosed(deps)
     if (closed) throw new SettingsError(410, 'SETUP_CLOSED', CLOSED_MESSAGE[closed])
-    const hmac = issuedSetupHmac()
-    if (!hmac) throw new SettingsError(410, 'SETUP_CLOSED', 'Open the setup link from the server log again.')
+    // The HMAC bound when this browser opened the link, checked against the stored row. This process may no
+    // longer have the plaintext (a restart, or a second copy that did not print the link).
+    const hmac = setupSessionCodeHmac(req)
+    if (!hmac || !(await storedSetupCodeLive(hmac))) {
+        throw new SettingsError(410, 'SETUP_CLOSED', 'Open the setup link from the server log again.')
+    }
     // Turn the password sign-in on first: if the file can't be written, no account exists that nobody can use. If
     // the account can't be created, the link keeps working for another try (and after a restart the password
     // sign-in offers the usual first-account link).

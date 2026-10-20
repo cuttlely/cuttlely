@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals'
 
 // ---------- mocks (must be hoisted) ----------
@@ -32,6 +33,8 @@ let logger: any
 let expressRequestLogger: (req: any, res: any, next: any) => void
 let auditLogger: any
 let redactLoggedUrl: (url: string) => string
+let redactLoggedHeaderValue: (value: unknown) => unknown
+let redactLoggedCookies: (header: string) => string
 
 const ORIGINAL_ENV = process.env
 
@@ -44,6 +47,8 @@ describe('logger.ts', () => {
         expressRequestLogger = mod.expressRequestLogger
         auditLogger = mod.auditLogger
         redactLoggedUrl = mod.redactLoggedUrl
+        redactLoggedHeaderValue = mod.redactLoggedHeaderValue
+        redactLoggedCookies = mod.redactLoggedCookies
         // Assert here so beforeEach's clearAllMocks() doesn't wipe call history
         expect(mockExistsSync).toHaveBeenCalled()
         expect(mockMkdirSync).toHaveBeenCalled()
@@ -111,35 +116,81 @@ describe('logger.ts', () => {
             expect(logged).not.toContain(secret)
         })
 
-        it('does not write a setup code from the body, the query, or the fragment', () => {
+        it('logs only method, path, and status for first-run setup and owner routes', () => {
             process.env.DEBUG = 'true'
             const secret = 'setup-code-example-value'
-            const kept = 'kept-encode-value'
             const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
-            const req = {
-                url: `/api/v1/account/register?setupCode=${secret}&code=${secret}&Code=${secret}#code=${secret}&setupCode=${secret}&encode=${kept}`,
-                method: 'POST',
-                params: {},
-                body: { setupCode: secret, code: secret, Code: secret, name: 'Rosa' },
-                query: { setupCode: secret, code: secret, Code: secret },
-                headers: {}
-            } as any
-            expressRequestLogger(req, {} as any, next)
-            const logged = JSON.stringify(infoSpy.mock.calls)
-            expect(logged).not.toContain(secret)
-            expect(logged).toContain(kept)
-            const meta = infoSpy.mock.calls[0][1] as {
-                request: { body: Record<string, string>; query: Record<string, string>; url: string }
+            const cases = [
+                [`/api/v1/account/register?setupCode=${secret}&code=${secret}#code=${secret}`, '/api/v1/account/register', 201],
+                [`/api/v1/server-setup/owner?code=${secret}#%63ode=${secret}`, '/api/v1/server-setup/owner', 200],
+                [`/api/v1/server-setup/open?%2563ode=${secret}`, '/api/v1/server-setup/open', 200],
+                [`/organization-setup?code=${secret}#code=${secret}`, '/organization-setup', 200],
+                [`/server-setup?setupCode=${secret}`, '/server-setup', 200],
+                [`/setup?code=${secret}#panel=1`, '/setup', 200]
+            ] as const
+            for (const [url, path, status] of cases) {
+                infoSpy.mockClear()
+                const res = new EventEmitter() as EventEmitter & { statusCode: number }
+                res.statusCode = status
+                const req = {
+                    url,
+                    method: 'POST',
+                    params: {},
+                    body: { setupCode: secret, code: secret, name: 'Rosa' },
+                    query: { setupCode: secret, code: secret },
+                    headers: {
+                        cookie: `code=${secret}`,
+                        referer: `http://127.0.0.1/server-setup?code=${secret}`,
+                        'x-original-url': `%63ode=${secret}`
+                    }
+                } as any
+                expressRequestLogger(req, res as any, next)
+                expect(infoSpy).not.toHaveBeenCalled()
+                res.emit('finish')
+                expect(infoSpy).toHaveBeenCalledTimes(1)
+                expect(infoSpy.mock.calls[0]).toEqual([`⬆️ POST ${path} ${status}`])
+                const logged = JSON.stringify(infoSpy.mock.calls)
+                expect(logged).not.toContain(secret)
+                expect(logged).not.toContain('?')
+                expect(logged).not.toContain('#')
+                expect(logged).not.toContain('cookie')
+                expect(logged).not.toContain('referer')
+                expect(logged).not.toContain('Rosa')
             }
-            expect(meta.request.body).toEqual({ setupCode: '[redacted]', code: '[redacted]', Code: '[redacted]', name: 'Rosa' })
-            expect(meta.request.query).toEqual({ setupCode: '[redacted]', code: '[redacted]', Code: '[redacted]' })
-            expect(meta.request.url).toContain('code=[redacted]')
-            expect(meta.request.url).toContain('setupCode=[redacted]')
-            expect(meta.request.url).toContain(`encode=${kept}`)
-            expect(redactLoggedUrl(`/api/v1/account/register?%63ode=${secret}#code=${secret}&token=${secret}`)).toBe(
-                '/api/v1/account/register?%63ode=[redacted]#code=[redacted]&token=[redacted]'
-            )
             infoSpy.mockRestore()
+        })
+
+        it('masks a parameter name only after it is fully percent-decoded', () => {
+            const secret = 'setup-code-example-value'
+            const kept = 'kept-encode-value'
+            expect(redactLoggedUrl(`/api/v1/chatflows?%63ode=${secret}#code=${secret}&token=${secret}`)).toBe(
+                `/api/v1/chatflows?%63ode=[redacted]#code=[redacted]&token=[redacted]`
+            )
+            expect(redactLoggedUrl(`/api/v1/chatflows?%2563ode=${secret}&lang=en#%63ode=${secret}`)).toBe(
+                `/api/v1/chatflows?%2563ode=[redacted]&lang=en#%63ode=[redacted]`
+            )
+            expect(
+                redactLoggedUrl(
+                    `/api/v1/chatflows?setupCode=${secret}&code=${secret}&Code=${secret}#code=${secret}&setupCode=${secret}&encode=${kept}`
+                )
+            ).toBe(
+                `/api/v1/chatflows?setupCode=[redacted]&code=[redacted]&Code=[redacted]#code=[redacted]&setupCode=[redacted]&encode=${kept}`
+            )
+            expect(redactLoggedHeaderValue(`%63ode=${secret}`)).toBe('%63ode=[redacted]')
+            expect(redactLoggedHeaderValue(`%2563ode=${secret}`)).toBe('%2563ode=[redacted]')
+            expect(redactLoggedHeaderValue(`http://127.0.0.1/organization-setup?code=${secret}#%63ode=${secret}`)).toBe(
+                'http://127.0.0.1/organization-setup?code=[redacted]#%63ode=[redacted]'
+            )
+            expect(redactLoggedCookies(`theme=light; code=${secret}; %63ode=${secret}; SetupCode=${secret}`)).toBe(
+                'theme=light; code=[redacted]; %63ode=[redacted]; SetupCode=[redacted]'
+            )
+            for (const value of [
+                redactLoggedUrl(`/api/v1/chatflows?%2563ode=${secret}`),
+                String(redactLoggedHeaderValue(`%63ode=${secret}`)),
+                redactLoggedCookies(`code=${secret}`)
+            ]) {
+                expect(value).not.toContain(secret)
+            }
         })
 
         it('does not write a setup code from any header that can carry a URL in the debug record', () => {
@@ -147,18 +198,21 @@ describe('logger.ts', () => {
             const secret = 'setup-code-example-value'
             const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
             const req = {
-                url: '/api/v1/account/register',
+                url: '/api/v1/chatflows',
                 method: 'POST',
                 params: {},
                 body: { name: 'Rosa' },
                 query: {},
                 headers: {
-                    referer: `http://127.0.0.1/organization-setup?code=${secret}`,
+                    referer: `http://127.0.0.1/organization-setup?code=${secret}#%63ode=${secret}`,
                     origin: `http://127.0.0.1/server-setup#code=${secret}`,
                     'x-original-url': `/organization-setup?%63ode=${secret}&lang=en`,
                     'x-forwarded-uri': `/server-setup?setupCode=${secret}`,
                     'x-rewrite-url': [`/setup?Code=${secret}`],
                     'x-custom-note': `code=${secret}; lang=en`,
+                    'x-bare-code': `%63ode=${secret}`,
+                    'x-double-code': `%2563ode=${secret}`,
+                    cookie: `theme=light; code=${secret}`,
                     'user-agent': 'example-agent/1.0'
                 }
             } as any
@@ -166,8 +220,11 @@ describe('logger.ts', () => {
             const logged = JSON.stringify(infoSpy.mock.calls)
             expect(logged).not.toContain(secret)
             const meta = infoSpy.mock.calls[0][1] as { request: { headers: Record<string, unknown> } }
-            expect(meta.request.headers.referer).toBe('http://127.0.0.1/organization-setup?code=[redacted]')
+            expect(meta.request.headers.referer).toBe('http://127.0.0.1/organization-setup?code=[redacted]#%63ode=[redacted]')
             expect(meta.request.headers['x-original-url']).toBe('/organization-setup?%63ode=[redacted]&lang=en')
+            expect(meta.request.headers['x-bare-code']).toBe('%63ode=[redacted]')
+            expect(meta.request.headers['x-double-code']).toBe('%2563ode=[redacted]')
+            expect(meta.request.headers.cookie).toBe('theme=light; code=[redacted]')
             expect(meta.request.headers['user-agent']).toBe('example-agent/1.0')
             infoSpy.mockRestore()
         })
@@ -184,14 +241,16 @@ describe('logger.ts', () => {
                 params: {},
                 body: { token: invite },
                 query: {},
-                headers: { cookie: `theme=light; Cuttlely-Invite=${invite}; wos-session=${sealed}; cuttlely-local-session=${local}` }
+                headers: {
+                    cookie: `theme=light; Cuttlely-Invite=${invite}; wos-session=${sealed}; cuttlely-local-session=${local}; code=${invite}`
+                }
             } as any
             expressRequestLogger(req, {} as any, next)
             const logged = JSON.stringify(infoSpy.mock.calls)
             for (const secret of [invite, sealed, local]) expect(logged).not.toContain(secret)
             const meta = infoSpy.mock.calls[0][1] as { request: { headers: { cookie: string } } }
             expect(meta.request.headers.cookie).toBe(
-                'theme=light; Cuttlely-Invite=[redacted]; wos-session=[redacted]; cuttlely-local-session=[redacted]'
+                'theme=light; Cuttlely-Invite=[redacted]; wos-session=[redacted]; cuttlely-local-session=[redacted]; code=[redacted]'
             )
             infoSpy.mockRestore()
         })

@@ -3,7 +3,7 @@
 // answers 410 once the link has been used, a sign-in method is on, or the first account exists.
 import express, { NextFunction, Request, Response } from 'express'
 import { applySetupHeaders, cookieMutationAllowed } from '../../identity/sessionGuard'
-import { noteSetupFailure } from '../../identity/setupCode'
+import { noteSetupFailure, setupCodeHmac } from '../../identity/setupCode'
 import { socketAddress } from '../../identity/setupLimit'
 import { Principal, applyAuthKitTest, authKitTestStatus, checkAuthKit, requestOrigin, startAuthKitTest } from '../../settings/authkit'
 import { TestInputError } from '../../settings/connection'
@@ -70,13 +70,18 @@ router.post('/open', async (req, res, next) => {
         const setup = deps()
         const closed = await setupClosed(setup)
         if (closed) return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE[closed] })
-        if (!(await codeOpensSetup(setup, (req.body as { code?: unknown })?.code))) {
+        const code = (req.body as { code?: unknown })?.code
+        if (!(await codeOpensSetup(setup, code))) {
             if (noteSetupFailure(address, now).limited) {
                 return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
             }
             return res.status(404).json({ code: 'BAD_CODE', message: 'This setup link is not right. Copy it again from the server log.' })
         }
-        openSetupSession(req, res)
+        const hmac = setupCodeHmac(code)
+        if (!hmac) {
+            return res.status(404).json({ code: 'BAD_CODE', message: 'This setup link is not right. Copy it again from the server log.' })
+        }
+        openSetupSession(req, res, hmac)
         res.json({ ok: true })
     } catch (error) {
         next(error)
@@ -106,8 +111,8 @@ router.get(
 )
 router.post(
     '/owner',
-    handle(async (_req, res) => {
-        const result = await createOwnerFromSetup(deps(), _req.body)
+    handle(async (req, res) => {
+        const result = await createOwnerFromSetup(deps(), req.body, req)
         endSetupSessions(res)
         return result
     })

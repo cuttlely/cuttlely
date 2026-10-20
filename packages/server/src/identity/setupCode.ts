@@ -215,6 +215,18 @@ export function issuedSetupHmac(): string | null {
     return digest(issuedPlain)
 }
 
+/**
+ * True when hmac is the stored setup row and that row is still unused and unexpired.
+ * A restart or another copy can check this without the plaintext this process printed.
+ */
+export async function storedSetupCodeLive(hmac: string, now = Date.now()): Promise<boolean> {
+    if (!/^[0-9a-f]{64}$/i.test(hmac)) return false
+    await pending
+    const row = await activeStore().read()
+    if (!row || row.consumedAt != null || row.expiresAt <= now) return false
+    return sameHmac(row.codeHmac, hmac)
+}
+
 export function firstRunSetupLink(port: number | string): string {
     return `http://localhost:${port}/organization-setup#code=${firstRunSetupCode()}`
 }
