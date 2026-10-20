@@ -17,7 +17,7 @@ function site(files) {
 
 const head =
     '<link rel="canonical" href="https://cuttlely.com/"><meta property="og:image" content="https://cuttlely.com/social/og-light.png">'
-const home = `<html><head>${head}</head><body><h1>The visual agent builder, <span>ready for production.</span></h1><p>Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/flowise/">Coming from Flowise? Bring your flows</a><a href="/docs/#build">Docs</a></body></html>`
+const home = `<html><head>${head}</head><body><h1>The visual agent builder, <span>ready for production.</span></h1><p>Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/flowise/">Already have flows? Bring them over</a><a href="/docs/#build">Docs</a></body></html>`
 const base = {
     'index.html': home,
     '404.html': `<html><head>${head}</head><body>Not found</body></html>`,
@@ -258,14 +258,20 @@ describe('check-site message house', () => {
         assert.match(checkSite(dir).problems.join('\n'), /lists the \/migrate\/ alias/)
     })
 
-    it('requires the Coming from Flowise home link to /flowise/', () => {
-        const missingLink = home
-            .replace('Coming from Flowise? Bring your flows', 'Bring your flows')
-            .replace('href="/flowise/"', 'href="/docs/"')
+    it('requires the Already have flows? Bring them over home link to /flowise/', () => {
+        const missingLink = home.replace('Already have flows? Bring them over', 'Learn more').replace('href="/flowise/"', 'href="/docs/"')
         const dir = site({ ...base, 'index.html': missingLink })
         const problems = checkSite(dir).problems.join('\n')
         assert.match(problems, /missing href="\/flowise\/"/)
-        assert.match(problems, /Coming from Flowise\?/)
+        assert.match(problems, /Already have flows\? Bring them over home link/)
+    })
+
+    it('the hero markup has no Flowise text outside the href', () => {
+        const hero = fs.readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
+        const withoutHref = hero.replace(/href="[^"]*"/gi, 'href=""')
+        assert.match(hero, /href="\/flowise\/"/)
+        assert.match(hero, /<a class="cl-link-arrow" href="\/flowise\/">Already have flows\? Bring them over <Icon name="right-arrow" \/>/)
+        assert.doesNotMatch(withoutHref, /flowise/i)
     })
 
     it('fails waitlist copy and an unchanged-flows claim on the Flowise import page', () => {
