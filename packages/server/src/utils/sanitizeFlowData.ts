@@ -30,9 +30,10 @@ const NODE_REFERENCE = /^\{\{([A-Za-z][A-Za-z0-9_]*_\d+)\.data\.instance\}\}$/
 const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-)/i
 const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
 const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-// word: followed by a non-space character. Applied to the normalized text, not tuned per field.
+// word: followed by a non-space character. Checked on the original, normalized, and fully decoded text.
 const SCHEME_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\S/
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
+// Newline, return, tab, other controls, NBSP, and zero-width characters become a space.
+const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
 const MAX_NORMALIZE_LAYERS = 5
 
 // Letters that look like ASCII, so a token prefix written with them still matches.
@@ -122,13 +123,13 @@ const PUBLIC_OBJECTS: Record<string, Record<string, DisplayKind>> = {
 }
 
 const foldText = (value: string): string => {
-    const normalized = value.normalize('NFKC').replace(INVISIBLE, '')
+    const normalized = value.replace(INVISIBLE, ' ').normalize('NFKC').replace(INVISIBLE, ' ')
     let out = ''
     for (const char of normalized) out += HOMOGLYPHS[char] ?? char
     return out
 }
 
-/** Plain text after NFKC, look-alike folding, percent-decoding, and JSON unwrapping. Undefined when that cannot be finished. */
+/** Plain text after spacing characters become spaces, NFKC, look-alike folding, percent-decoding, and JSON unwrapping. Undefined when that cannot be finished. */
 const plainForCheck = (value: string): string | undefined => {
     let text = value
     let layers = 0
@@ -191,13 +192,25 @@ const hasHighEntropyRun = (text: string): boolean => {
 /** //, an @ with a non-space on both sides, or a scheme-like word: immediately followed by a non-space. */
 const hasUnsafeFreeText = (text: string): boolean => text.includes('//') || /\S@\S/.test(text) || SCHEME_LIKE.test(text)
 
+const hasTokenOrUnsafePattern = (text: string): boolean => TOKEN_PREFIX.test(text) || hasUnsafeFreeText(text)
+
+/**
+ * Decoded text when the original, the normalized form, and the fully decoded form are all free of a token prefix
+ * and of an unsafe free-text pattern. Undefined when decoding cannot finish or any of those three forms matches.
+ */
+const plainIfAllowed = (value: string): string | undefined => {
+    const plain = plainForCheck(value)
+    if (hasTokenOrUnsafePattern(value) || hasTokenOrUnsafePattern(foldText(value))) return undefined
+    if (plain === undefined || hasTokenOrUnsafePattern(plain)) return undefined
+    return plain
+}
+
 /** True when a string can be kept. The original value is kept or the whole value is left out. */
 const stringIsSafe = (value: unknown): value is string => {
     if (typeof value !== 'string') return false
-    const plain = plainForCheck(value)
+    const plain = plainIfAllowed(value)
     if (plain === undefined) return false
-    if (TOKEN_PREFIX.test(plain) || hasUnsafeFreeText(plain) || hasHighEntropyRun(plain)) return false
-    return true
+    return !hasHighEntropyRun(plain)
 }
 
 const isSafeStringName = (name: string): boolean => SAFE_STRING_NAME.test(name) || HTTP_TOOL_NAME.test(name)
@@ -277,9 +290,8 @@ const keepString = (value: unknown): string | undefined => (stringIsSafe(value) 
 /** A whole async option value that is only a UUID is not treated as a high-entropy run. */
 const keepAsyncOption = (value: unknown): string | undefined => {
     if (typeof value !== 'string') return undefined
-    const plain = plainForCheck(value)
+    const plain = plainIfAllowed(value)
     if (plain === undefined) return undefined
-    if (TOKEN_PREFIX.test(plain) || hasUnsafeFreeText(plain)) return undefined
     if (!PLAIN_UUID.test(plain) && hasHighEntropyRun(plain)) return undefined
     return value
 }

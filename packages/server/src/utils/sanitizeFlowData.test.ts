@@ -233,6 +233,41 @@ describe('template inputs', () => {
         }
     })
 
+    it('drops a prompt when a control, encoded break, NBSP, or zero-width character sits before a token prefix', () => {
+        const prompts = [
+            `Use\nsk-${MARKER}A`,
+            `Use%0Ask-${MARKER}B`,
+            `Use\u200bsk-${MARKER}C`,
+            `Use\tsk-${MARKER}D`,
+            `Use\rsk-${MARKER}E`,
+            `Use\u00a0sk-${MARKER}F`,
+            `Use\u0001sk-${MARKER}G`,
+            `Use\u007fsk-${MARKER}H`,
+            `Use\u2028sk-${MARKER}I`,
+            `Use\ufeffsk-${MARKER}J`
+        ]
+        for (const prompt of prompts) {
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+            expect(inputs.prompt).toBeUndefined()
+            expect(inputs.temperature).toBe(0.2)
+            expect(dropped).toContain('prompt')
+            expect(JSON.stringify(inputs)).not.toContain(MARKER)
+        }
+    })
+
+    it('keeps a harmless prompt that spans more than one line', () => {
+        const prompts = [
+            'Hello "world" @ café, 10% off\nSee the help page.',
+            'Line one.\r\nLine two.\tThanks for asking.',
+            'Ask\u00a0about the hours today.'
+        ]
+        for (const prompt of prompts) {
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt }, schemaParams as any)
+            expect(inputs.prompt).toBe(prompt)
+            expect(dropped).toEqual([])
+        }
+    })
+
     it('drops the wrong JavaScript type for every kept kind', () => {
         const wrong = {
             temperature: `sk-${MARKER}NUM`,
