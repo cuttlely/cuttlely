@@ -15,7 +15,7 @@ import { baseURL } from '@/store/constant'
 const blockedFor = (error, chatflow) => {
     if (error) return error?.response?.status === 404 ? 'missing' : 'private'
     if (!chatflow) return 'missing'
-    if (chatflow.apikeyid) return 'private'
+    if (chatflow.hasApiKey || chatflow.apikeyid) return 'private'
     return null
 }
 

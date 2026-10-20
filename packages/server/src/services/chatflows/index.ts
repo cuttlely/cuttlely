@@ -20,6 +20,7 @@ import { Workspace } from '../../database/entities/identity'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../../identity/workspaceScope'
 import { AppError } from '../../errors/appError'
+import { publicChatbotDisplayConfig } from '../../utils/sanitizeFlowData'
 import { getErrorMessage } from '../../errors/utils'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
@@ -969,14 +970,15 @@ async function loadHarnessSync() {
 }
 
 // Get specific chatflow chatbotConfig via id (PUBLIC endpoint, used to retrieve config for embedded chat).
-// Only public chatflows answer, and the response carries the chatbot config only, never the flow graph.
+// Any existing chatflow answers with the display fields the chat widget reads and the upload/speech flags
+// computed here. It never carries the flow graph or other saved settings.
 const getSinglePublicChatbotConfig = async (chatflowId: string): Promise<any> => {
     try {
         const appServer = getRunningExpressApp()
         const dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).findOneBy({
             id: chatflowId
         })
-        if (!dbResponse || !dbResponse.isPublic) {
+        if (!dbResponse) {
             throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
         }
         const uploadsConfig = await utilGetUploadsConfig(chatflowId)
@@ -996,11 +998,8 @@ const getSinglePublicChatbotConfig = async (chatflowId: string): Promise<any> =>
                         }
                     })
                 }
-                delete parsedConfig.allowedOrigins
-                delete parsedConfig.allowedOriginsError
-                delete parsedConfig.flowData
                 return {
-                    ...parsedConfig,
+                    ...publicChatbotDisplayConfig(parsedConfig),
                     uploads: uploadsConfig,
                     isTTSEnabled
                 }

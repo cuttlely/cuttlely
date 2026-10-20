@@ -942,55 +942,61 @@ const secretGraph = JSON.stringify({
 })
 
 describe('getSinglePublicChatbotConfig', () => {
-    it('answers 404 for a chatflow that is not public', async () => {
-        mockRepo.findOneBy.mockResolvedValue({
-            id: 'flow-1',
-            isPublic: false,
-            apikeyid: '',
-            chatbotConfig: JSON.stringify({ title: 'Bot' }),
-            flowData: secretGraph,
-            textToSpeech: null
-        })
-
-        await expect(chatflowsService.getSinglePublicChatbotConfig('flow-1')).rejects.toMatchObject({ statusCode: 404 })
+    const savedConfig = JSON.stringify({
+        title: 'Bot',
+        titleAvatarSrc: 'https://img.example/a.png',
+        welcomeMessage: 'Hello',
+        starterPrompts: { 0: { prompt: 'What is new?' }, 1: { prompt: 'use sk-FAKE-START-1 please' } },
+        botMessage: { showAvatar: true, avatarSrc: 'https://img.example/b.png', backgroundColor: '#fff', extra: 'x' },
+        textInput: { placeholder: 'Ask', sendButtonColor: '#123456' },
+        chatFeedback: { status: true },
+        allowedOrigins: ['https://ok.example'],
+        overrideConfig: { openAIApiKey: 'sk-FAKE-OVERRIDE-1' },
+        leads: { status: true, email: 'owner@example.com' },
+        flowData: 'x'
     })
 
-    it('answers 404 for a key-protected chatflow that is not public', async () => {
+    it.each([
+        ['private', { isPublic: false, apikeyid: '' }],
+        ['key-protected', { apikeyid: 'apikey-1' }],
+        ['public', { isPublic: true, apikeyid: '' }]
+    ])('returns only display fields for a %s chatflow, never flowData', async (_label, extra) => {
         mockRepo.findOneBy.mockResolvedValue({
             id: 'flow-1',
-            apikeyid: 'apikey-1',
-            chatbotConfig: JSON.stringify({ title: 'Bot' }),
+            chatbotConfig: savedConfig,
             flowData: secretGraph,
-            textToSpeech: null
-        })
-
-        await expect(chatflowsService.getSinglePublicChatbotConfig('flow-1')).rejects.toMatchObject({ statusCode: 404 })
-    })
-
-    it('answers 404 for a missing chatflow', async () => {
-        mockRepo.findOneBy.mockResolvedValue(null)
-        await expect(chatflowsService.getSinglePublicChatbotConfig('nope')).rejects.toMatchObject({ statusCode: 404 })
-    })
-
-    it('returns only the chatbot config for a public chatflow, without flowData', async () => {
-        mockRepo.findOneBy.mockResolvedValue({
-            id: 'flow-1',
-            isPublic: true,
-            apikeyid: '',
-            chatbotConfig: JSON.stringify({ title: 'Bot', allowedOrigins: ['https://ok.example'], flowData: 'x' }),
-            flowData: secretGraph,
-            textToSpeech: null
+            textToSpeech: null,
+            ...extra
         })
 
         const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
         const serialized = JSON.stringify(result)
 
+        expect(Object.keys(result).sort()).toEqual(
+            [
+                'botMessage',
+                'chatFeedback',
+                'isTTSEnabled',
+                'starterPrompts',
+                'textInput',
+                'title',
+                'titleAvatarSrc',
+                'uploads',
+                'welcomeMessage'
+            ].sort()
+        )
         expect(result).not.toHaveProperty('flowData')
         expect(result.title).toBe('Bot')
-        expect(serialized).not.toContain('SECRET-PROMPT-CANARY')
-        expect(serialized).not.toContain('cred-openai')
-        expect(serialized).not.toContain('sk-live')
-        expect(serialized).not.toContain('allowedOrigins')
+        expect(result.botMessage).toEqual({ showAvatar: true, avatarSrc: 'https://img.example/b.png', backgroundColor: '#fff' })
+        expect(result.starterPrompts).toEqual({ 0: { prompt: 'What is new?' }, 1: {} })
+        for (const leak of ['SECRET-PROMPT-CANARY', 'cred-openai', 'sk-', 'allowedOrigins', 'overrideConfig', 'owner@example.com']) {
+            expect(serialized).not.toContain(leak)
+        }
+    })
+
+    it('answers 404 for a missing chatflow', async () => {
+        mockRepo.findOneBy.mockResolvedValue(null)
+        await expect(chatflowsService.getSinglePublicChatbotConfig('nope')).rejects.toMatchObject({ statusCode: 404 })
     })
 })
 

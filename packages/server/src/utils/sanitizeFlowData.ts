@@ -1,23 +1,102 @@
 import { INodeParams } from '@cuttlely/components'
 import { IReactFlowObject } from '../Interface'
 
-const SENSITIVE_HEADER_KEYS = new Set(['authorization', 'x-api-key', 'x-auth-token', 'cookie'])
-const SECRET_PARAM_TYPES = new Set(['password', 'file', 'folder'])
-const SECRET_INPUT_NAME = /(api[_-]?key|secret|token|password|authorization)/i
-// Token-count settings (maxTokens, maxOutputTokens) are ordinary numbers, not credentials.
-const TOKEN_COUNT_WORD = /tokens/gi
-const SECRET_VALUE = /^\s*(sk-|sk_|xai-|ghp_|gho_|github_pat_|xox[abposr]-|AKIA|Bearer\s)/
+export const isChatflowKeyProtected = (apiKeyId: string | null | undefined): boolean => typeof apiKeyId === 'string' && apiKeyId.length > 0
 
-/** True when a string value looks like a credential (provider key prefixes, bearer tokens). */
+const SECRET_PARAM_TYPES = new Set(['password', 'file', 'folder'])
+
+// Names that suggest a credential: api/access/private/client keys, secrets, tokens, passwords, auth, sessions, cookies.
+const SECRET_INPUT_NAME =
+    /(api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?key|secret|token|passw|authori[sz]ation|auth[_-]?key|cookie|session[_-]?(key|token|secret)|credential|^key$)/i
+// Any other name ending in "key" counts as a credential unless it names a field or lookup key.
+const KEY_SUFFIX = /key$/i
+const STRUCTURAL_KEY =
+    /(memory|input|output|text|content|metadata|source[_-]?id|embedding|vector|partition|prompt|project|space|issue|file|payload|sort|primary|state|json|return|topic|cache|route|lookup|group)[_-]?key$/i
+// Token-count settings (maxTokens, maxOutputTokens, maxTokenLimit) are ordinary numbers, not credentials.
+const TOKEN_COUNT_WORD = /(token[_-]?limit|tokens)/gi
+// Header names that can carry credentials.
+const SECRET_HEADER_NAME = /(auth|key|token|secret|session|cookie)/i
+// Credential-shaped values anywhere in a string.
+const SECRET_VALUE =
+    /(\bsk-|\bsk_|\brk_(live|test)_|\bpk_live_|\bxai-|\bghp_|\bgho_|\bgithub_pat_|\bxox[abposr]-|\bxapp-|\bAKIA[0-9A-Z]{8,}|\bAIza[0-9A-Za-z_-]{10,}|\bBearer\s+\S|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*)/
+
+/** True when a string value contains something shaped like a credential (provider key, bearer token, JWT). */
 export const looksLikeSecretValue = (value: unknown): boolean => typeof value === 'string' && SECRET_VALUE.test(value)
 
-/** True when an input name suggests it holds a credential. */
-export const isSecretInputName = (name: string): boolean => SECRET_INPUT_NAME.test(name.replace(TOKEN_COUNT_WORD, ''))
+/** True when an input or property name suggests it holds a credential. */
+export const isSecretInputName = (name: string): boolean => {
+    const stripped = name.replace(TOKEN_COUNT_WORD, '')
+    if (SECRET_INPUT_NAME.test(stripped)) return true
+    return KEY_SUFFIX.test(stripped) && !STRUCTURAL_KEY.test(stripped)
+}
+
+/** True when an HTTP header name can carry credentials. */
+export const isSecretHeaderName = (name: string): boolean => SECRET_HEADER_NAME.test(name)
+
+const DROP = Symbol('drop')
+
+/**
+ * Walks a value and removes anything credential-shaped: strings that look like keys, properties with
+ * credential names, and { key, value } pairs whose key is a credential name. Returns DROP when nothing is left to keep.
+ */
+const scrubValue = (value: unknown, depth = 0): unknown => {
+    if (depth > 32) return DROP
+    if (typeof value === 'string') return looksLikeSecretValue(value) ? DROP : value
+    if (Array.isArray(value)) {
+        const out: unknown[] = []
+        for (const item of value) {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+                const pairKey = (item as Record<string, unknown>).key
+                if (typeof pairKey === 'string' && (isSecretInputName(pairKey) || isSecretHeaderName(pairKey))) continue
+            }
+            const scrubbed = scrubValue(item, depth + 1)
+            if (scrubbed !== DROP) out.push(scrubbed)
+        }
+        return out
+    }
+    if (value && typeof value === 'object') {
+        const out: Record<string, unknown> = {}
+        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+            // "key" here is the label of a { key, value } pair; the pair itself is checked in the array branch.
+            if (key !== 'key' && isSecretInputName(key)) continue
+            const scrubbed = scrubValue(item, depth + 1)
+            if (scrubbed !== DROP) out[key] = scrubbed
+        }
+        return out
+    }
+    return value
+}
+
+/** Deep copy of a value with credential-shaped parts removed, or undefined when the whole value must go. */
+export const scrubSecrets = (value: unknown): unknown => {
+    const scrubbed = scrubValue(value)
+    return scrubbed === DROP ? undefined : scrubbed
+}
+
+const sanitizeHeaders = (rawHeaders: unknown): unknown => {
+    try {
+        // Array format: [{ key: string, value: string }, ...] (e.g. HTTP agentflow node)
+        if (Array.isArray(rawHeaders)) {
+            return scrubSecrets(rawHeaders.filter((h: { key?: unknown }) => !(typeof h?.key === 'string' && isSecretHeaderName(h.key))))
+        }
+        // Object/string format: Record<string, string> or JSON string thereof
+        const headers: Record<string, unknown> = typeof rawHeaders === 'string' ? JSON.parse(rawHeaders) : { ...(rawHeaders as object) }
+        for (const h of Object.keys(headers)) {
+            if (isSecretHeaderName(h)) delete headers[h]
+        }
+        const scrubbed = scrubSecrets(headers)
+        if (scrubbed === undefined) return undefined
+        return typeof rawHeaders === 'string' ? JSON.stringify(scrubbed) : scrubbed
+    } catch {
+        // Drop headers that cannot be parsed
+        return undefined
+    }
+}
 
 /**
  * Allowlist filter for a node's saved inputs on public and template responses.
- * An input is kept only when the node defines it (inputParams or inputAnchors) with a non-secret type,
- * its name does not suggest a credential, and its value does not look like one.
+ * An input is kept only when the node defines it (inputParams or inputAnchors) with a non-secret type and its name
+ * does not suggest a credential. Kept values are walked and anything credential-shaped inside them is removed.
  */
 export const sanitizeNodeInputs = (
     inputs: Record<string, unknown> | undefined,
@@ -35,39 +114,11 @@ export const sanitizeNodeInputs = (
         if (param && SECRET_PARAM_TYPES.has(param.type)) continue
         if (isSecretInputName(key)) continue
         const value = inputs[key]
-        if (looksLikeSecretValue(value)) continue
-        if (key === 'headers' && value) {
-            const headers = sanitizeHeaders(value)
-            if (headers !== undefined) result[key] = headers
-            continue
-        }
-        result[key] = value
+        const kept = key === 'headers' && value ? sanitizeHeaders(value) : scrubSecrets(value)
+        if (kept !== undefined) result[key] = kept
     }
     return result
 }
-
-const sanitizeHeaders = (rawHeaders: unknown): unknown => {
-    try {
-        // Array format: [{ key: string, value: string }, ...] (e.g. HTTP agentflow node)
-        if (Array.isArray(rawHeaders)) {
-            return rawHeaders.filter(
-                (h: { key?: string; value?: string }) =>
-                    !h?.key || (!SENSITIVE_HEADER_KEYS.has(h.key.toLowerCase()) && !looksLikeSecretValue(h.value))
-            )
-        }
-        // Object/string format: Record<string, string> or JSON string thereof
-        const headers: Record<string, string> = typeof rawHeaders === 'string' ? JSON.parse(rawHeaders) : { ...(rawHeaders as object) }
-        for (const h of Object.keys(headers)) {
-            if (SENSITIVE_HEADER_KEYS.has(h.toLowerCase()) || looksLikeSecretValue(headers[h])) delete headers[h]
-        }
-        return typeof rawHeaders === 'string' ? JSON.stringify(headers) : headers
-    } catch {
-        // Drop headers that cannot be parsed
-        return undefined
-    }
-}
-
-export const isChatflowKeyProtected = (apiKeyId: string | null | undefined): boolean => typeof apiKeyId === 'string' && apiKeyId.length > 0
 
 /**
  * Sanitizes flowData before returning it from a public endpoint.
@@ -93,5 +144,82 @@ export const sanitizeFlowDataForPublicEndpoint = (flowDataString: string): strin
         return JSON.stringify(flowData)
     } catch {
         return JSON.stringify({ nodes: [], edges: [] })
+    }
+}
+
+// chatbotConfig fields the chat widget (packages/chat-widget/src/config.js) reads. Nothing else leaves a public response.
+const PUBLIC_DISPLAY_FIELDS = [
+    'title',
+    'titleAvatarSrc',
+    'titleBackgroundColor',
+    'titleTextColor',
+    'backgroundColor',
+    'welcomeMessage',
+    'errorMessage',
+    'fontSize',
+    'starterPrompts',
+    'generateNewSession'
+] as const
+const PUBLIC_DISPLAY_OBJECTS: Record<string, readonly string[]> = {
+    botMessage: ['showAvatar', 'avatarSrc', 'backgroundColor', 'textColor'],
+    userMessage: ['backgroundColor', 'textColor'],
+    textInput: ['placeholder', 'backgroundColor', 'textColor', 'sendButtonColor'],
+    chatFeedback: ['status'],
+    followUpPrompts: ['status']
+}
+
+/** The display-only part of a saved chatbotConfig, for signed-out callers. */
+export const publicChatbotDisplayConfig = (config: unknown): Record<string, unknown> => {
+    const result: Record<string, unknown> = {}
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return result
+    const source = config as Record<string, unknown>
+    for (const field of PUBLIC_DISPLAY_FIELDS) {
+        if (source[field] === undefined) continue
+        const kept = scrubSecrets(source[field])
+        if (kept !== undefined) result[field] = kept
+    }
+    for (const [field, keys] of Object.entries(PUBLIC_DISPLAY_OBJECTS)) {
+        const value = source[field]
+        if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+        const picked: Record<string, unknown> = {}
+        for (const key of keys) {
+            const kept = scrubSecrets((value as Record<string, unknown>)[key])
+            if (kept !== undefined) picked[key] = kept
+        }
+        result[field] = picked
+    }
+    return result
+}
+
+/**
+ * What GET /api/v1/public-chatflows/:id returns for a public chatflow: id, name, whether an API key is required,
+ * and the display part of chatbotConfig plus overrideConfig (which the shared chat page sends with each question),
+ * with anything credential-shaped removed. Never the flow graph.
+ */
+export const publicChatflowSummary = (chatflow: {
+    id: string
+    name?: string
+    isPublic?: boolean
+    apikeyid?: string | null
+    chatbotConfig?: string | null
+}): Record<string, unknown> => {
+    let parsed: unknown = {}
+    try {
+        parsed = chatflow.chatbotConfig ? JSON.parse(chatflow.chatbotConfig) : {}
+    } catch {
+        parsed = {}
+    }
+    const display = publicChatbotDisplayConfig(parsed)
+    const override = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).overrideConfig : undefined
+    if (override && typeof override === 'object' && !Array.isArray(override)) {
+        const kept = scrubSecrets(override)
+        if (kept !== undefined) display.overrideConfig = kept
+    }
+    return {
+        id: chatflow.id,
+        name: chatflow.name,
+        isPublic: Boolean(chatflow.isPublic),
+        hasApiKey: isChatflowKeyProtected(chatflow.apikeyid),
+        chatbotConfig: JSON.stringify(display)
     }
 }

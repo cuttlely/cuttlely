@@ -1,4 +1,11 @@
-import { isChatflowKeyProtected, isSecretInputName, sanitizeFlowDataForPublicEndpoint } from './sanitizeFlowData'
+import {
+    isChatflowKeyProtected,
+    isSecretHeaderName,
+    isSecretInputName,
+    publicChatbotDisplayConfig,
+    publicChatflowSummary,
+    sanitizeFlowDataForPublicEndpoint
+} from './sanitizeFlowData'
 
 const makeFlowData = (nodes: object[], edges: object[] = []) => JSON.stringify({ nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } })
 
@@ -179,10 +186,39 @@ describe('isChatflowKeyProtected', () => {
 
 describe('isSecretInputName', () => {
     it('flags credential-like names and not token-count settings', () => {
-        for (const name of ['openAIApiKey', 'api_key', 'clientSecret', 'accessToken', 'PASSWORD', 'authorization']) {
+        for (const name of [
+            'openAIApiKey',
+            'api_key',
+            'clientSecret',
+            'accessToken',
+            'PASSWORD',
+            'authorization',
+            'googleKey',
+            'accessKey',
+            'privateKey',
+            'secretAccessKey',
+            'credential',
+            'credentialId',
+            'bearerToken',
+            'key'
+        ]) {
             expect(isSecretInputName(name)).toBe(true)
         }
-        for (const name of ['maxTokens', 'maxOutputTokens', 'modelName', 'temperature']) {
+        for (const name of [
+            'maxTokens',
+            'maxOutputTokens',
+            'maxTokenLimit',
+            'max_tokens_to_sample',
+            'memoryKey',
+            'inputKey',
+            'outputKey',
+            'metadataKey',
+            'omitMetadataKeys',
+            'keyPrefix',
+            'sessionId',
+            'modelName',
+            'temperature'
+        ]) {
             expect(isSecretInputName(name)).toBe(false)
         }
     })
@@ -234,5 +270,92 @@ describe('sanitizeFlowDataForPublicEndpoint allowlist', () => {
         const raw = sanitizeFlowDataForPublicEndpoint(flowData)
         expect(raw).not.toContain('FAKE')
         expect(JSON.parse(raw).nodes[0].data.inputs).toEqual({ prompt: 'You are helpful' })
+    })
+})
+
+// Seven credential shapes a saved node can carry. All values are fake.
+const variantParams = [
+    { name: 'config', type: 'json' },
+    { name: 'list', type: 'array' },
+    { name: 'prompt', type: 'string' },
+    { name: 'note', type: 'string' },
+    { name: 'googleKey', type: 'string' },
+    { name: 'credentialId', type: 'string' },
+    { name: 'headers', type: 'array' },
+    { name: 'temperature', type: 'number' }
+]
+const variantInputs = {
+    config: { a: { b: 'sk-FAKE-NESTED-1' }, keep: 'ok' },
+    list: ['fine', 'sk-FAKE-ARRAY-1'],
+    prompt: 'Use the key sk-FAKE-SENTENCE-1 when asked',
+    note: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWtlIn0.FAKEsig',
+    googleKey: 'AIzaFAKEFAKEFAKEFAKE123',
+    credentialId: 'cred-FAKE-ID-1',
+    headers: [
+        { key: 'X-Custom-Auth', value: 'FAKE-HDR-1' },
+        { key: 'Accept', value: 'application/json' }
+    ],
+    temperature: 0.2
+}
+const variantLeaks = ['FAKE-NESTED', 'FAKE-ARRAY', 'FAKE-SENTENCE', 'FAKEsig', 'AIzaFAKE', 'cred-FAKE-ID', 'FAKE-HDR']
+const variantKept = {
+    config: { a: {}, keep: 'ok' },
+    list: ['fine'],
+    headers: [{ key: 'Accept', value: 'application/json' }],
+    temperature: 0.2
+}
+
+describe('seven credential shapes', () => {
+    it('removes each one from a public flow graph and keeps the safe parts', () => {
+        const raw = sanitizeFlowDataForPublicEndpoint(makeFlowData([makeNode(variantInputs, variantParams)]))
+        for (const leak of variantLeaks) expect(raw).not.toContain(leak)
+        expect(JSON.parse(raw).nodes[0].data.inputs).toEqual(variantKept)
+    })
+
+    it('drops headers whose name mentions auth, key, token, secret, session or cookie', () => {
+        for (const name of ['Authorization', 'X-Custom-Auth', 'X-Api-Key', 'X-Token', 'Client-Secret', 'X-Session', 'Cookie']) {
+            expect(isSecretHeaderName(name)).toBe(true)
+        }
+        expect(isSecretHeaderName('Accept')).toBe(false)
+        const flowData = makeFlowData([
+            makeNode({ headers: JSON.stringify({ 'X-Custom-Auth': 'FAKE-HDR-2', Accept: 'application/json' }) }, [
+                { name: 'headers', type: 'json' }
+            ])
+        ])
+        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
+        expect(JSON.parse(result.nodes[0].data.inputs.headers)).toEqual({ Accept: 'application/json' })
+    })
+})
+
+describe('public chatbot display config', () => {
+    it('keeps only widget display fields', () => {
+        const result = publicChatbotDisplayConfig({
+            title: 'Bot',
+            allowedOrigins: ['x'],
+            overrideConfig: { a: 1 },
+            botMessage: { textColor: '#000', secret: 'sk-FAKE-1' },
+            leads: { status: true }
+        })
+        expect(result).toEqual({ title: 'Bot', botMessage: { textColor: '#000' } })
+    })
+
+    it('public chatflow summary carries no flow graph and no key id', () => {
+        const summary = publicChatflowSummary({
+            id: 'flow-1',
+            name: 'Flow',
+            isPublic: true,
+            apikeyid: 'apikey-1',
+            chatbotConfig: JSON.stringify({
+                title: 'Bot',
+                overrideConfig: { temperature: 0.1, openAIApiKey: 'sk-FAKE-2', note: 'eyJa.eyJb.c' }
+            })
+        })
+        expect(summary).toEqual({
+            id: 'flow-1',
+            name: 'Flow',
+            isPublic: true,
+            hasApiKey: true,
+            chatbotConfig: JSON.stringify({ title: 'Bot', overrideConfig: { temperature: 0.1 } })
+        })
     })
 })

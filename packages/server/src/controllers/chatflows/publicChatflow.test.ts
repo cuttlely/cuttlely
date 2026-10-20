@@ -17,6 +17,38 @@ jest.mock('../../utils/logger', () => ({
 
 import chatflowsController from './index'
 
+// Seven credential shapes a saved node can carry. All values are fake.
+const variantParams = [
+    { name: 'config', type: 'json' },
+    { name: 'list', type: 'array' },
+    { name: 'prompt', type: 'string' },
+    { name: 'note', type: 'string' },
+    { name: 'googleKey', type: 'string' },
+    { name: 'credentialId', type: 'string' },
+    { name: 'headers', type: 'array' },
+    { name: 'temperature', type: 'number' }
+]
+const variantInputs = {
+    config: { a: { b: 'sk-FAKE-NESTED-1' }, keep: 'ok' },
+    list: ['fine', 'sk-FAKE-ARRAY-1'],
+    prompt: 'Use the key sk-FAKE-SENTENCE-1 when asked',
+    note: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWtlIn0.FAKEsig',
+    googleKey: 'AIzaFAKEFAKEFAKEFAKE123',
+    credentialId: 'cred-FAKE-ID-1',
+    headers: [
+        { key: 'X-Custom-Auth', value: 'FAKE-HDR-1' },
+        { key: 'Accept', value: 'application/json' }
+    ],
+    temperature: 0.2
+}
+const variantLeaks = ['FAKE-NESTED', 'FAKE-ARRAY', 'FAKE-SENTENCE', 'FAKEsig', 'AIzaFAKE', 'cred-FAKE-ID', 'FAKE-HDR']
+const variantKept = {
+    config: { a: {}, keep: 'ok' },
+    list: ['fine'],
+    headers: [{ key: 'Accept', value: 'application/json' }],
+    temperature: 0.2
+}
+
 const run = async (id: string) => {
     const res: any = {
         statusCode: 200,
@@ -36,10 +68,14 @@ const run = async (id: string) => {
 }
 
 describe('GET /public-chatflows/:id', () => {
-    it('removes an input with no field definition carrying a key from a public chatflow', async () => {
+    it('returns metadata only for a public chatflow, never flowData', async () => {
         getChatflowById.mockResolvedValue({
             id: 'flow-1',
+            name: 'Support',
             isPublic: true,
+            apikeyid: '',
+            workspaceId: 'ws-1',
+            chatbotConfig: JSON.stringify({ title: 'Bot', allowedOrigins: ['x'], overrideConfig: { ...variantInputs } }),
             flowData: JSON.stringify({
                 nodes: [
                     {
@@ -47,8 +83,8 @@ describe('GET /public-chatflows/:id', () => {
                         data: {
                             name: 'chatOpenAI',
                             credential: 'cred-FAKE-0001',
-                            inputParams: [{ name: 'modelName', type: 'string' }],
-                            inputs: { modelName: 'gpt-4.1-mini', openAIApiKey: 'sk-FAKE-ORPHAN-123456' }
+                            inputParams: variantParams,
+                            inputs: { ...variantInputs, openAIApiKey: 'sk-FAKE-ORPHAN-123456' }
                         }
                     }
                 ],
@@ -58,10 +94,21 @@ describe('GET /public-chatflows/:id', () => {
 
         const { res } = await run('flow-1')
         expect(res.statusCode).toBe(200)
+        expect(Object.keys(res.body).sort()).toEqual(['chatbotConfig', 'hasApiKey', 'id', 'isPublic', 'name'])
+        expect(res.body).not.toHaveProperty('flowData')
+        expect(res.body.hasApiKey).toBe(false)
         const serialized = JSON.stringify(res.body)
-        expect(serialized).not.toContain('sk-FAKE-ORPHAN-123456')
-        expect(serialized).not.toContain('cred-FAKE-0001')
-        expect(JSON.parse(res.body.flowData).nodes[0].data.inputs).toEqual({ modelName: 'gpt-4.1-mini' })
+        for (const leak of [...variantLeaks, 'sk-FAKE-ORPHAN', 'cred-FAKE-0001', 'allowedOrigins', 'ws-1']) {
+            expect(serialized).not.toContain(leak)
+        }
+        expect(JSON.parse(res.body.chatbotConfig)).toEqual({ title: 'Bot', overrideConfig: variantKept })
+    })
+
+    it('reports a key-protected public chatflow as needing a key without returning the key id', async () => {
+        getChatflowById.mockResolvedValue({ id: 'flow-3', name: 'K', isPublic: true, apikeyid: 'apikey-9', flowData: '{}' })
+        const { res } = await run('flow-3')
+        expect(res.body.hasApiKey).toBe(true)
+        expect(JSON.stringify(res.body)).not.toContain('apikey-9')
     })
 
     it('answers 401 for a private chatflow without a user', async () => {

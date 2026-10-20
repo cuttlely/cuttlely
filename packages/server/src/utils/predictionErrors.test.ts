@@ -107,3 +107,11 @@ describe('a model provider that keeps answering 429', () => {
         })
     })
 })
+
+describe('a flow whose credential is missing', () => {
+    it('answers 422 without the credential id', () => {
+        const failure = toPredictionError(new Error('Error: Error: Credential cred-FAKE-QA-0001 not found'))
+        expect(failure.statusCode).toBe(422)
+        expect(failure.message).not.toContain('cred-FAKE-QA-0001')
+    })
+})

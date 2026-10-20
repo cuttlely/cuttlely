@@ -21,6 +21,38 @@ jest.mock('../chatflows', () => ({
 import chatflowsService from '../chatflows'
 import marketplacesService from '.'
 
+// Seven credential shapes a saved node can carry. All values are fake.
+const variantParams = [
+    { name: 'config', type: 'json' },
+    { name: 'list', type: 'array' },
+    { name: 'prompt', type: 'string' },
+    { name: 'note', type: 'string' },
+    { name: 'googleKey', type: 'string' },
+    { name: 'credentialId', type: 'string' },
+    { name: 'headers', type: 'array' },
+    { name: 'temperature', type: 'number' }
+]
+const variantInputs = {
+    config: { a: { b: 'sk-FAKE-NESTED-1' }, keep: 'ok' },
+    list: ['fine', 'sk-FAKE-ARRAY-1'],
+    prompt: 'Use the key sk-FAKE-SENTENCE-1 when asked',
+    note: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWtlIn0.FAKEsig',
+    googleKey: 'AIzaFAKEFAKEFAKEFAKE123',
+    credentialId: 'cred-FAKE-ID-1',
+    headers: [
+        { key: 'X-Custom-Auth', value: 'FAKE-HDR-1' },
+        { key: 'Accept', value: 'application/json' }
+    ],
+    temperature: 0.2
+}
+const variantLeaks = ['FAKE-NESTED', 'FAKE-ARRAY', 'FAKE-SENTENCE', 'FAKEsig', 'AIzaFAKE', 'cred-FAKE-ID', 'FAKE-HDR']
+const variantKept = {
+    config: { a: {}, keep: 'ok' },
+    list: ['fine'],
+    headers: [{ key: 'Accept', value: 'application/json' }],
+    temperature: 0.2
+}
+
 describe('saveCustomTemplate input filtering', () => {
     it('keeps only defined, non-secret inputs in the saved template', async () => {
         const flowData = {
@@ -58,5 +90,19 @@ describe('saveCustomTemplate input filtering', () => {
         const node = JSON.parse(stored).nodes[0]
         expect(node.data.inputs).toEqual({ modelName: 'gpt-4.1-mini', cache: '{{cache_0.data.instance}}' })
         expect(node.data.credential).toBeUndefined()
+    })
+
+    it('removes each of the seven credential shapes from a saved template', async () => {
+        const flowData = {
+            nodes: [{ id: 'n0', data: { id: 'n0', name: 'customNode', inputParams: variantParams, inputs: variantInputs } }],
+            edges: []
+        }
+        ;(chatflowsService.getChatflowById as jest.Mock).mockResolvedValue({ type: 'CHATFLOW', flowData: JSON.stringify(flowData) })
+
+        await marketplacesService.saveCustomTemplate({ chatflowId: 'flow-1', workspaceId: 'ws-1', name: 'T' })
+
+        const stored = saved[saved.length - 1].flowData as string
+        for (const leak of variantLeaks) expect(stored).not.toContain(leak)
+        expect(JSON.parse(stored).nodes[0].data.inputs).toEqual(variantKept)
     })
 })
