@@ -416,6 +416,35 @@ describe('public config follow-up rules', () => {
         expect(sanitizeNodeInputs({ sessionKey: 'x' }, [], [{ name: 'sessionKey' }])).toEqual({})
     })
 
+    it('keeps loadConfig companion inputs and scrubs credentials inside them', () => {
+        const params = [
+            { name: 'llmModel', type: 'asyncOptions', loadConfig: true },
+            { name: 'plain', type: 'string' }
+        ] as any
+        const result = sanitizeNodeInputs(
+            {
+                llmModel: 'chatOpenAI',
+                llmModelConfig: {
+                    modelName: 'gpt-x',
+                    temperature: 0.2,
+                    credential: 'cred-1',
+                    FLOWISE_CREDENTIAL_ID: 'cred-1',
+                    apiKey: 'sk-FAKE-9'
+                },
+                plainConfig: { a: 1 }
+            },
+            params
+        )
+        expect(result.llmModel).toBe('chatOpenAI')
+        expect(result.plainConfig).toBeUndefined()
+        const cfg = result.llmModelConfig as Record<string, unknown>
+        expect(cfg.modelName).toBe('gpt-x')
+        expect(cfg.temperature).toBe(0.2)
+        expect(cfg.credential).toBeUndefined()
+        expect(cfg.FLOWISE_CREDENTIAL_ID).toBeUndefined()
+        expect(cfg.apiKey).toBeUndefined()
+    })
+
     it('keeps a prompt that mentions Bearer but drops a real bearer token', () => {
         expect(looksLikeSecretValue('Send it as Bearer x in the header')).toBe(false)
         expect(looksLikeSecretValue('Bearer abcdefghijABCDEFGHIJ0123')).toBe(true)

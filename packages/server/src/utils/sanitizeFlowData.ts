@@ -197,6 +197,14 @@ export const sanitizeNodeInputs = (
     for (const key of Object.keys(inputs)) {
         const param = params.find((p) => p?.name === key)
         const anchor = anchors.find((a) => a?.name === key)
+        // Companion config of a loadConfig param (e.g. llmModelConfig for llmModel): kept, with credentials scrubbed.
+        const configOf =
+            !param && !anchor && key.endsWith('Config') ? params.find((p) => p?.loadConfig && `${p.name}Config` === key) : undefined
+        if (configOf) {
+            const kept = scrubSecrets(inputs[key])
+            if (kept !== undefined) result[key] = kept
+            continue
+        }
         if (!param && !anchor) continue
         if (param && SECRET_PARAM_TYPES.has(param.type)) continue
         // A declared, non-password input is kept by name and only its value is checked; undeclared ones also get the name check.
