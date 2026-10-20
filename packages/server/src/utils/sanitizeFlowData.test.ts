@@ -2,8 +2,11 @@ import {
     isChatflowKeyProtected,
     isSecretHeaderName,
     isSecretInputName,
+    looksLikeSecretValue,
     publicChatbotDisplayConfig,
     publicChatflowSummary,
+    sanitizeNodeInputs,
+    scrubSecrets,
     sanitizeFlowDataForPublicEndpoint
 } from './sanitizeFlowData'
 
@@ -248,15 +251,22 @@ describe('sanitizeFlowDataForPublicEndpoint allowlist', () => {
         expect(result.nodes[0].data.inputs).toEqual({ model: '{{chatOpenAI_0.data.instance}}' })
     })
 
-    it('removes defined inputs whose name suggests a credential', () => {
-        const params = ['myApiKey', 'clientSecret', 'accessToken', 'dbPassword', 'API_KEY'].map((name) => ({ name, type: 'string' }))
-        const inputs = Object.fromEntries(params.map((p) => [p.name, 'plain']))
-        const result = JSON.parse(
-            sanitizeFlowDataForPublicEndpoint(
-                makeFlowData([makeNode({ ...inputs, temperature: 0.2 }, [...params, { name: 'temperature', type: 'number' }])])
-            )
-        )
-        expect(result.nodes[0].data.inputs).toEqual({ temperature: 0.2 })
+    it('judges declared inputs by type: credential-named string inputs keep plain values, password inputs go', () => {
+        const names = ['myApiKey', 'clientSecret', 'accessToken', 'dbPassword', 'API_KEY']
+        const inputs = Object.fromEntries(names.map((name) => [name, 'plain']))
+        const run = (type: string) =>
+            JSON.parse(
+                sanitizeFlowDataForPublicEndpoint(
+                    makeFlowData([
+                        makeNode({ ...inputs, temperature: 0.2 }, [
+                            ...names.map((name) => ({ name, type })),
+                            { name: 'temperature', type: 'number' }
+                        ])
+                    ])
+                )
+            ).nodes[0].data.inputs
+        expect(run('string')).toEqual({ ...inputs, temperature: 0.2 })
+        expect(run('password')).toEqual({ temperature: 0.2 })
     })
 
     it('removes defined inputs whose value looks like a key', () => {
@@ -357,5 +367,67 @@ describe('public chatbot display config', () => {
             hasApiKey: true,
             chatbotConfig: JSON.stringify({ title: 'Bot', overrideConfig: { temperature: 0.1 } })
         })
+    })
+})
+
+describe('public config follow-up rules', () => {
+    it('drops credential headers from overrideConfig in array and object form', () => {
+        const run = (headers: unknown) =>
+            JSON.parse(
+                publicChatflowSummary({
+                    id: 'f',
+                    chatbotConfig: JSON.stringify({ overrideConfig: { temperature: 0.2, headers } })
+                }).chatbotConfig as string
+            ).overrideConfig
+        expect(
+            run([
+                { key: 'X-Custom-Auth', value: 'plain' },
+                { key: 'Accept', value: 'application/json' }
+            ])
+        ).toEqual({ temperature: 0.2, headers: [{ key: 'Accept', value: 'application/json' }] })
+        expect(run({ 'X-Custom-Auth': 'plain', Accept: 'text/plain' })).toEqual({ temperature: 0.2, headers: { Accept: 'text/plain' } })
+        expect(run(JSON.stringify({ 'X-Custom-Auth': 'plain', Accept: 'text/plain' }))).toEqual({
+            temperature: 0.2,
+            headers: JSON.stringify({ Accept: 'text/plain' })
+        })
+    })
+
+    it('drops nested auth and pass exactly but keeps passThrough and bypass', () => {
+        expect(scrubSecrets({ auth: 'a', PASS: 'b', passThrough: true, bypass: 'yes', nested: [{ key: 'Auth', value: 'c' }] })).toEqual({
+            passThrough: true,
+            bypass: 'yes',
+            nested: []
+        })
+    })
+
+    it('keeps declared Jira-style inputs by type and checks only their values', () => {
+        const params = [
+            { name: 'projectKey', type: 'string' },
+            { name: 'key', type: 'string' },
+            { name: 'accessTokenUrl', type: 'string' },
+            { name: 'apiToken', type: 'password' },
+            { name: 'note', type: 'string' }
+        ] as any
+        const result = sanitizeNodeInputs(
+            {
+                projectKey: 'PROJ',
+                key: 'PROJ-123',
+                accessTokenUrl: 'https://example.atlassian.net/oauth/token',
+                apiToken: 'plain',
+                note: 'sk-FAKE-9',
+                undeclaredToken: 'plain'
+            },
+            params,
+            [{ name: 'sessionKey' }]
+        )
+        expect(result).toEqual({ projectKey: 'PROJ', key: 'PROJ-123', accessTokenUrl: 'https://example.atlassian.net/oauth/token' })
+        expect(sanitizeNodeInputs({ sessionKey: 'x' }, [], [{ name: 'sessionKey' }])).toEqual({})
+    })
+
+    it('keeps a prompt that mentions Bearer but drops a real bearer token', () => {
+        expect(looksLikeSecretValue('Send it as Bearer x in the header')).toBe(false)
+        expect(looksLikeSecretValue('Bearer abcdefghijABCDEFGHIJ0123')).toBe(true)
+        const params = [{ name: 'systemMessage', type: 'string' }] as any
+        expect(sanitizeNodeInputs({ systemMessage: 'Explain Bearer x auth' }, params)).toEqual({ systemMessage: 'Explain Bearer x auth' })
     })
 })

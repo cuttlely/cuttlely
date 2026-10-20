@@ -14,11 +14,13 @@ const STRUCTURAL_KEY =
     /(memory|input|output|text|content|metadata|source[_-]?id|embedding|vector|partition|prompt|project|space|issue|file|payload|sort|primary|state|json|return|topic|cache|route|lookup|group)[_-]?key$/i
 // Token-count settings (maxTokens, maxOutputTokens, maxTokenLimit) are ordinary numbers, not credentials.
 const TOKEN_COUNT_WORD = /(token[_-]?limit|tokens)/gi
+// Saved credential references (credential, credentialId) are never public, whatever the declared type.
+const CREDENTIAL_REF_NAME = /credential/i
 // Header names that can carry credentials.
 const SECRET_HEADER_NAME = /(auth|key|token|secret|session|cookie)/i
 // Credential-shaped values anywhere in a string.
 const SECRET_VALUE =
-    /(\bsk-|\bsk_|\brk_(live|test)_|\bpk_live_|\bxai-|\bghp_|\bgho_|\bgithub_pat_|\bxox[abposr]-|\bxapp-|\bAKIA[0-9A-Z]{8,}|\bAIza[0-9A-Za-z_-]{10,}|\bBearer\s+\S|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*)/
+    /(\bsk-|\bsk_|\brk_(live|test)_|\bpk_live_|\bxai-|\bghp_|\bgho_|\bgithub_pat_|\bxox[abposr]-|\bxapp-|\bAKIA[0-9A-Z]{8,}|\bAIza[0-9A-Za-z_-]{10,}|\bBearer\s+[A-Za-z0-9._~+/=-]{20,}|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*)/
 
 /** True when a string value contains something shaped like a credential (provider key, bearer token, JWT). */
 export const looksLikeSecretValue = (value: unknown): boolean => typeof value === 'string' && SECRET_VALUE.test(value)
@@ -29,6 +31,12 @@ export const isSecretInputName = (name: string): boolean => {
     if (SECRET_INPUT_NAME.test(stripped)) return true
     return KEY_SUFFIX.test(stripped) && !STRUCTURAL_KEY.test(stripped)
 }
+
+// Short names that only mean a credential when they are the whole name (so passThrough or bypass survive).
+const SECRET_EXACT_NESTED_NAME = /^(auth|pass)$/i
+
+/** Name check for properties nested inside a kept value: the input-name rule plus exact auth/pass. */
+const isSecretNestedName = (name: string): boolean => isSecretInputName(name) || SECRET_EXACT_NESTED_NAME.test(name)
 
 /** True when an HTTP header name can carry credentials. */
 export const isSecretHeaderName = (name: string): boolean => SECRET_HEADER_NAME.test(name)
@@ -47,7 +55,7 @@ const scrubValue = (value: unknown, depth = 0): unknown => {
         for (const item of value) {
             if (item && typeof item === 'object' && !Array.isArray(item)) {
                 const pairKey = (item as Record<string, unknown>).key
-                if (typeof pairKey === 'string' && (isSecretInputName(pairKey) || isSecretHeaderName(pairKey))) continue
+                if (typeof pairKey === 'string' && (isSecretNestedName(pairKey) || isSecretHeaderName(pairKey))) continue
             }
             const scrubbed = scrubValue(item, depth + 1)
             if (scrubbed !== DROP) out.push(scrubbed)
@@ -58,7 +66,7 @@ const scrubValue = (value: unknown, depth = 0): unknown => {
         const out: Record<string, unknown> = {}
         for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
             // "key" here is the label of a { key, value } pair; the pair itself is checked in the array branch.
-            if (key !== 'key' && isSecretInputName(key)) continue
+            if (key !== 'key' && isSecretNestedName(key)) continue
             const scrubbed = scrubValue(item, depth + 1)
             if (scrubbed !== DROP) out[key] = scrubbed
         }
@@ -95,8 +103,8 @@ const sanitizeHeaders = (rawHeaders: unknown): unknown => {
 
 /**
  * Allowlist filter for a node's saved inputs on public and template responses.
- * An input is kept only when the node defines it (inputParams or inputAnchors) with a non-secret type and its name
- * does not suggest a credential. Kept values are walked and anything credential-shaped inside them is removed.
+ * An input is kept only when the node defines it (inputParams or inputAnchors) with a non-secret type. Inputs declared
+ * in inputParams are judged by type, not name; anchor-only inputs must also have a non-credential name. Kept values are walked and anything credential-shaped inside them is removed.
  */
 export const sanitizeNodeInputs = (
     inputs: Record<string, unknown> | undefined,
@@ -112,7 +120,9 @@ export const sanitizeNodeInputs = (
         const anchor = anchors.find((a) => a?.name === key)
         if (!param && !anchor) continue
         if (param && SECRET_PARAM_TYPES.has(param.type)) continue
-        if (isSecretInputName(key)) continue
+        // A declared, non-password input is kept by name and only its value is checked; undeclared ones also get the name check.
+        // Credential ID references are dropped by name either way, like node.data.credential.
+        if (param ? CREDENTIAL_REF_NAME.test(key) : isSecretInputName(key)) continue
         const value = inputs[key]
         const kept = key === 'headers' && value ? sanitizeHeaders(value) : scrubSecrets(value)
         if (kept !== undefined) result[key] = kept
@@ -212,8 +222,15 @@ export const publicChatflowSummary = (chatflow: {
     const display = publicChatbotDisplayConfig(parsed)
     const override = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).overrideConfig : undefined
     if (override && typeof override === 'object' && !Array.isArray(override)) {
-        const kept = scrubSecrets(override)
-        if (kept !== undefined) display.overrideConfig = kept
+        const { headers, ...rest } = override as Record<string, unknown>
+        const kept = scrubSecrets(rest) as Record<string, unknown> | undefined
+        if (kept !== undefined) {
+            if (headers !== undefined && headers !== null) {
+                const keptHeaders = sanitizeHeaders(headers)
+                if (keptHeaders !== undefined) kept.headers = keptHeaders
+            }
+            display.overrideConfig = kept
+        }
     }
     return {
         id: chatflow.id,
