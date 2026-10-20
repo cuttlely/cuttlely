@@ -146,6 +146,8 @@ Orchestrate users who want a remote toolkit instead of an `external_chat` collab
 
 ## Call a chatflow over A2A
 
+A2A 0.3.0 is shipped, not yet tested live with Orchestrate.
+
 Orchestrate can also call the same published chatflow as an A2A 0.3.0 collaborator (`external_chat/A2A/0.3.0`). Bind an API key to the chatflow. The RPC URL, which is also the card `url`, is `$CUTTLELY_URL/api/v1/a2a/<flow id>`. The agent card is `GET /api/v1/a2a/<flow id>/.well-known/agent-card.json`. Discover uses that card path (`-e /api/v1/a2a/<flow id>/.well-known/agent-card.json`); the console `api_url` is the RPC URL, never the card path. Auth is the same as the Orchestrate chat-completions route: `Authorization: Bearer <key>` or `X-API-Key: <key>`.
 
 `A2A_PUBLIC_BASE_URL` sets the origin used in the card `url` (for example `https://tunnel.example`). It must be an origin with no path and no trailing slash; anything else refuses to start. When it is unset, the card uses the request `Host` and `X-Forwarded-Proto` (with `TRUST_PROXY`).

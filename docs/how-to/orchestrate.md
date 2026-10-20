@@ -95,7 +95,7 @@ A2A JSON-RPC errors use HTTP 200 with a JSON-RPC error object (`-32700` parse, `
 
 **Open item: A2A registration path.** How you register that agent in Orchestrate (the same **AI Gateway** → **Agent directory** → **Add agent** path, IBM's `orchestrate agents discover` CLI, or another IBM flow) is not confirmed. Do not treat any registration path as fact until the A2A live test. The `external_chat` UI path above is confirmed for `cuttlely_orders` only.
 
-The live proxy in the demo runbook forwards `POST /api/v1/orchestrate/*` and A2A (`GET` card and `POST /api/v1/a2a/<flow id>`). A2A is not yet tested against a live Orchestrate tenant.
+The live proxy in the demo runbook forwards `POST /api/v1/orchestrate/*` and A2A (`GET` card and `POST /api/v1/a2a/<flow id>`). A2A is shipped, not yet tested live with Orchestrate.
 
 ## MCP instead of an external agent
 
