@@ -116,7 +116,7 @@ class ChatLitellm_ChatModels implements INode {
         const timeout = nodeData.inputs?.timeout as string
         const allowImageUploads = nodeData.inputs?.allowImageUploads as boolean
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const apiKey = getCredentialParam('litellmApiKey', credentialData, nodeData)
 
         const obj: Partial<OpenAIChatInput> &

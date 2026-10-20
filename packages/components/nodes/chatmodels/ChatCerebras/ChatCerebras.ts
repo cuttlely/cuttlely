@@ -142,7 +142,7 @@ class ChatCerebras_ChatModels implements INode {
         const baseOptions = nodeData.inputs?.baseOptions
         const cache = nodeData.inputs?.cache as BaseCache
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const cerebrasAIApiKey = getCredentialParam('cerebrasApiKey', credentialData, nodeData)
 
         const obj: ChatOpenAIFields = {

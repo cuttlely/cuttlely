@@ -15,6 +15,15 @@ describe('a failed prediction without streaming', () => {
         expect(toPredictionError(new Error('boom')).statusCode).toBe(500)
         expect(toPredictionError(new AppError(503, 'down')).statusCode).toBe(500)
     })
+
+    test('a missing required chat-model credential is 422 and keeps the card name', () => {
+        const error = Object.assign(new Error('Pick a credential on the OpenAI node.'), { statusCode: 422 })
+        const mapped = toPredictionError(error)
+        expect(mapped.statusCode).toBe(422)
+        expect(mapped.message).toContain('OpenAI')
+        expect(mapped.message).toMatch(/Pick a credential on the .+ node/)
+        expect(mapped.message).not.toMatch(/OPENAI_API_KEY/)
+    })
 })
 
 describe('a failed prediction after the stream started', () => {

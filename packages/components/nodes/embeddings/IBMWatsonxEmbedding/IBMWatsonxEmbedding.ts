@@ -73,7 +73,7 @@ class IBMWatsonx_Embeddings implements INode {
         const maxRetries = nodeData.inputs?.maxRetries as string
         const maxConcurrency = nodeData.inputs?.maxConcurrency as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const version = getCredentialParam('version', credentialData, nodeData)
         const serviceUrl = getCredentialParam('serviceUrl', credentialData, nodeData)
         const projectId = getCredentialParam('projectId', credentialData, nodeData)

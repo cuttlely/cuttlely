@@ -24,13 +24,13 @@ pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `p
 
 ## Toolchain
 
-| Tool   | Version                                         | Notes                                                                                                             |
-| ------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Node   | `.nvmrc` (v24); `engines.node` is `^24`         | `pnpm verify` and the harness credential reader need `node:sqlite`, so use Node 24                                |
-| pnpm   | `packageManager` pins the version Corepack runs | If Corepack cannot write its default folder on your machine, set `COREPACK_HOME` to a writable directory          |
-| Python | 3.11 to 3.14. `hermes/uv.lock` covers 3.14 only | `bash scripts/setup-hermes.sh [version]`: 3.14 uses the lock; 3.11 to 3.13 resolve the same requirements unfrozen |
-| uv     | any recent                                      | Creates the agent runtime's virtualenv                                                                            |
-| Docker | Compose 2.x                                     | Only for the Docker install and `scripts/docker-smoke.sh`                                                         |
+| Tool   | Version                                         | Notes                                                                                                                                                          |
+| ------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node   | `.nvmrc` (v24); `engines.node` is `^24`         | Root `.npmrc` sets `engine-strict=true`, so install fails below that range. `pnpm verify` and the harness credential reader need `node:sqlite`, so use Node 24 |
+| pnpm   | `packageManager` pins the version Corepack runs | If Corepack cannot write its default folder on your machine, set `COREPACK_HOME` to a writable directory                                                       |
+| Python | 3.11 to 3.14. `hermes/uv.lock` covers 3.14 only | `bash scripts/setup-hermes.sh [version]`: 3.14 uses the lock; 3.11 to 3.13 resolve the same requirements unfrozen                                              |
+| uv     | any recent                                      | Creates the agent runtime's virtualenv                                                                                                                         |
+| Docker | Compose 2.x                                     | Only for the Docker install and `scripts/docker-smoke.sh`                                                                                                      |
 
 Commits need a git identity (`user.name` and `user.email`). On a machine without a global identity, set it per repository or with `GIT_AUTHOR_*` and `GIT_COMMITTER_*`.
 

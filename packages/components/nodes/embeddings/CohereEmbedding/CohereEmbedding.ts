@@ -84,7 +84,7 @@ class CohereEmbedding_Embeddings implements INode {
         const modelName = nodeData.inputs?.modelName as string
         const inputType = nodeData.inputs?.inputType as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const cohereApiKey = getCredentialParam('cohereApiKey', credentialData, nodeData)
 
         const obj: Partial<CohereEmbeddingsParams> & { apiKey?: string } = {
