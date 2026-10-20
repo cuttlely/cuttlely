@@ -69,13 +69,13 @@ curl -s "$CUTTLELY_URL/api/v1/verify/apikey" -H "Authorization: Bearer $CUTTLELY
 
 On a source install that uses the local owner account (`CUTTLELY_LOCAL_ADMIN=true`, see [Build from source](./how-to/from-source.md)), you can set up without the UI.
 
-1. Create the owner account. Type the password at the prompt. This creates an account only on an install with no users yet. On an existing install it sets a new password for that email if it's the owner's (`Password updated for ...`), and for any other email it fails with `No account exists for ...`:
+1. Create the owner account. Type the password at the prompt. This creates an account only on an install with no users yet. On an existing install, with `CUTTLELY_LOCAL_ADMIN=true`, it sets a new password for whichever single account matches that email (`Password updated for ...`). It fails with `No account exists for ...` only when no account matches that email and the install already has users:
 
     ```bash
     CUTTLELY_LOCAL_ADMIN=true pnpm user --email you@example.com
     ```
 
-2. Sign in as the owner and keep the session cookie. This route signs in the owner only. Other local users sign in at `/api/v1/auth/local/login`, which answers 404 unless the server also runs with `CUTTLELY_LOCAL_USERS=true`. The `x-request-from: internal` header is required. Without it, sign-in answers `401 {"message":"Unauthorized"}` even when the password is right. If the server isn't running with `CUTTLELY_LOCAL_ADMIN=true`, the route answers 404.
+2. Sign in as the owner and keep the session cookie. This route signs in the owner only. Other local users sign in at `/api/v1/auth/local/login`, which answers 404 unless the server also runs with `CUTTLELY_LOCAL_USERS=true` and WorkOS is not configured (it counts as configured when both `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are set). The `x-request-from: internal` header is required. Without it, sign-in answers `401 {"message":"Unauthorized"}` even when the password is right. If the server isn't running with `CUTTLELY_LOCAL_ADMIN=true`, the route answers 404.
 
     Read the same password into `CUTTLELY_PASSWORD` first. `read -s` keeps it off the screen and out of your shell history:
 
