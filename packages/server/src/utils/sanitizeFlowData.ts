@@ -128,13 +128,33 @@ const scrubHeaderTree = (value: unknown, depth = 0): unknown => {
     return value
 }
 
+/** The parsed value when a string is a JSON object or array, otherwise undefined. */
+const parseJsonContainer = (value: string): unknown => {
+    const trimmed = value.trim()
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return undefined
+    try {
+        const parsed = JSON.parse(trimmed)
+        return parsed && typeof parsed === 'object' ? parsed : undefined
+    } catch {
+        return undefined
+    }
+}
+
 /**
  * Walks a value and removes anything credential-shaped: strings that look like keys, properties with
  * credential names, and { key, value } pairs whose key is a credential name. Returns DROP when nothing is left to keep.
  */
 const scrubValue = (value: unknown, depth = 0): unknown => {
     if (depth > 32) return DROP
-    if (typeof value === 'string') return looksLikeSecretValue(value) || isCredentialUrl(value) ? DROP : value
+    if (typeof value === 'string') {
+        // A string holding a serialized object or array is cleaned with the same rules and re-serialized.
+        const parsed = parseJsonContainer(value)
+        if (parsed !== undefined) {
+            const scrubbed = scrubValue(parsed, depth + 1)
+            return scrubbed === DROP ? DROP : JSON.stringify(scrubbed)
+        }
+        return looksLikeSecretValue(value) || isCredentialUrl(value) ? DROP : value
+    }
     if (Array.isArray(value)) {
         const out: unknown[] = []
         for (const item of value) {

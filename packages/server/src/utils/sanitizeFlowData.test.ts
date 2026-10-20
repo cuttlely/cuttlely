@@ -445,6 +445,55 @@ describe('public config follow-up rules', () => {
         expect(cfg.apiKey).toBeUndefined()
     })
 
+    describe('serialized object inputs', () => {
+        const params = [
+            { name: 'llmModel', type: 'asyncOptions', loadConfig: true },
+            { name: 'agentModel', type: 'asyncOptions', loadConfig: true },
+            { name: 'extras', type: 'json' }
+        ] as any
+
+        it('cleans a JSON string field inside a loadConfig companion', () => {
+            const result = sanitizeNodeInputs(
+                {
+                    llmModelConfig: {
+                        modelName: 'm1',
+                        jsonStr: JSON.stringify({
+                            apiKey: 'FAKE-CMP-KEY',
+                            region: 'r1',
+                            headers: { 'X-Custom-Auth': 'FAKE-CMP-HDR', Accept: 'a' }
+                        })
+                    }
+                },
+                params
+            )
+            const cfg = result.llmModelConfig as Record<string, unknown>
+            expect(cfg.modelName).toBe('m1')
+            expect(JSON.parse(cfg.jsonStr as string)).toEqual({ region: 'r1', headers: { Accept: 'a' } })
+            expect(JSON.stringify(result)).not.toContain('FAKE-CMP')
+        })
+
+        it('cleans a companion saved as a whole JSON string with no provider-shaped value', () => {
+            const result = sanitizeNodeInputs(
+                {
+                    agentModelConfig: JSON.stringify({
+                        modelName: 'm2',
+                        apiKey: 'FAKE-AG-KEY',
+                        headers: { 'X-Custom-Auth': 'FAKE-AG-HDR' }
+                    })
+                },
+                params
+            )
+            expect(typeof result.agentModelConfig).toBe('string')
+            expect(JSON.parse(result.agentModelConfig as string)).toEqual({ modelName: 'm2', headers: {} })
+            expect(JSON.stringify(result)).not.toContain('FAKE-AG')
+        })
+
+        it('cleans a JSON string item in an ordinary json input and leaves plain strings alone', () => {
+            const result = sanitizeNodeInputs({ extras: ['x', '{"apiKey":"FAKE-PRE-KEY","mode":"m"}', '{not json', '[1,2]'] }, params)
+            expect(result.extras).toEqual(['x', '{"mode":"m"}', '{not json', '[1,2]'])
+        })
+    })
+
     it('keeps a prompt that mentions Bearer but drops a real bearer token', () => {
         expect(looksLikeSecretValue('Send it as Bearer x in the header')).toBe(false)
         expect(looksLikeSecretValue('Bearer abcdefghijABCDEFGHIJ0123')).toBe(true)
