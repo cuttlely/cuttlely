@@ -348,6 +348,242 @@ describe('template inputs', () => {
             expect(kept.prompt).toBeUndefined()
         }
     })
+
+    it('keeps no marker in any decoded field when every input type is given a wrong value', () => {
+        const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+        const avatar = 'https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png'
+        const decodeString = (value: string, depth: number): unknown => {
+            let current = value
+            for (let layer = 0; layer < 8; layer += 1) {
+                let decoded = current
+                try {
+                    decoded = decodeURIComponent(current)
+                } catch {
+                    decoded = current
+                }
+                try {
+                    const parsed = JSON.parse(decoded)
+                    if (typeof parsed === 'string') {
+                        current = parsed
+                        continue
+                    }
+                    if (parsed && typeof parsed === 'object') return fullyDecode(parsed, depth + 1)
+                } catch {
+                    // not JSON
+                }
+                if (decoded === current) return current
+                current = decoded
+            }
+            return current
+        }
+        const fullyDecode = (value: unknown, depth = 0): unknown => {
+            if (depth > 12) return value
+            if (typeof value === 'string') return decodeString(value, depth)
+            if (Array.isArray(value)) return value.map((item) => fullyDecode(item, depth + 1))
+            if (value && typeof value === 'object') {
+                const out: Record<string, unknown> = {}
+                for (const [key, child] of Object.entries(value)) {
+                    const decodedKey = fullyDecode(key, depth + 1)
+                    out[typeof decodedKey === 'string' ? decodedKey : key] = fullyDecode(child, depth + 1)
+                }
+                return out
+            }
+            return value
+        }
+        const expectNoMarker = (value: unknown) => {
+            const texts: string[] = []
+            const walk = (node: unknown) => {
+                if (typeof node === 'string') {
+                    texts.push(node)
+                    return
+                }
+                if (Array.isArray(node)) {
+                    node.forEach(walk)
+                    return
+                }
+                if (node && typeof node === 'object') {
+                    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+                        texts.push(key)
+                        walk(child)
+                    }
+                }
+            }
+            walk(fullyDecode(value))
+            for (const text of texts) expect(text).not.toContain(MARKER)
+        }
+        const componentParams = [
+            { name: 'temperature', type: 'number' },
+            { name: 'streaming', type: 'boolean' },
+            {
+                name: 'reasoningEffort',
+                type: 'options',
+                options: [
+                    { label: 'Low', name: 'low' },
+                    { label: 'High', name: 'high' }
+                ]
+            },
+            {
+                name: 'stops',
+                type: 'multiOptions',
+                options: [
+                    { label: 'A', name: 'alpha' },
+                    { label: 'B', name: 'beta' }
+                ]
+            },
+            { name: 'modelName', type: 'asyncOptions' },
+            { name: 'otherModel', type: 'asyncOptions' },
+            { name: 'prompt', type: 'string', placeholder: 'Ask' },
+            { name: 'systemMessage', type: 'string' },
+            { name: 'description', type: 'string' },
+            { name: 'label', type: 'string' },
+            { name: 'placeholder', type: 'string' },
+            { name: 'toolName', type: 'string' },
+            { name: 'agentName', type: 'string' },
+            { name: 'toolDescription', type: 'string' },
+            { name: 'requestsGetName', type: 'string' },
+            { name: 'basePath', type: 'string' },
+            { name: 'baseURL', type: 'string' },
+            { name: 'config', type: 'json' },
+            { name: 'snippet', type: 'code' },
+            { name: 'secretField', type: 'password' },
+            { name: 'upload', type: 'file' },
+            { name: 'directory', type: 'folder' },
+            { name: 'credential', type: 'credential' },
+            { name: 'note', type: 'string' }
+        ]
+        const rng = mulberry32(262)
+        for (let trial = 0; trial < 40; trial += 1) {
+            const marker = `${MARKER}${trial}_`
+            const shapes = [
+                `//user:${marker}@host`,
+                `//cdn.example/a?utm_apikey=${marker}`,
+                `//cdn.example/a#${marker}`,
+                `https:example.com/a?x=${marker}`,
+                `path/user:${marker}@files.example`
+            ]
+            const carry = (shape: string) => {
+                const forms = [shape, percentEncode(shape), JSON.stringify(shape), percentEncode(JSON.stringify(shape))]
+                return forms[Math.floor(rng() * forms.length)]
+            }
+            const carried = shapes.map((shape) => carry(shape))
+            // Each kind gets a JavaScript type it does not accept. The five shapes are also whole values.
+            const inputs: Record<string, unknown> = {
+                prompt: 'Hello "world"',
+                systemMessage: 'a @ b',
+                description: 'こんにちは',
+                label: '10% off',
+                modelName: uuid,
+                model: '{{cache_0.data.instance}}',
+                missing: '{{missingNode_3.data.instance}}',
+                shaped: `{{sk-${marker}NODE_0.data.instance}}`,
+                temperature: trial % 2 === 0 ? carried[0] : { n: carried[0] },
+                streaming: trial % 2 === 0 ? carried[1] : [carried[1]],
+                reasoningEffort: { picked: carried[2] },
+                stops: { picked: carried[3] },
+                otherModel: trial % 2 === 0 ? { id: carried[4] } : [carried[4]],
+                placeholder: { text: carried[0] },
+                toolName: [carried[1]],
+                agentName: { name: carried[2] },
+                toolDescription: shapes[0],
+                requestsGetName: shapes[1],
+                note: shapes[2],
+                basePath: shapes[4],
+                baseURL: trial % 2 === 0 ? { href: carried[3] } : shapes[3],
+                config: trial % 2 === 0 ? carried[0] : [carried[0]],
+                snippet: { body: carried[1] },
+                secretField: { secret: carried[2] },
+                upload: [carried[3]],
+                directory: { path: carried[4] },
+                credential: trial % 2 === 0 ? { id: carried[0] } : [carried[0]]
+            }
+            const flow = buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: 'llmChain_0',
+                            position: { x: 1, y: 2 },
+                            data: {
+                                id: 'llmChain_0',
+                                name: 'llmChain',
+                                label: `${marker}LABEL`,
+                                description: `${marker}DESC`,
+                                category: `${marker}CAT`,
+                                tags: [`${marker}TAG`],
+                                extraProp: `${marker}EXTRA`,
+                                credential: carry(shapes[2]),
+                                inputParams: componentParams.map((param) => ({ ...param, placeholder: `${marker}PLACE` })),
+                                inputAnchors: [{ name: 'model' }, { name: 'missing' }, { name: 'shaped' }],
+                                inputs
+                            }
+                        },
+                        { id: 'cache_0', data: { id: 'cache_0', name: 'cache', inputs: {} } },
+                        {
+                            id: 'mystery_0',
+                            secretNote: `${marker}NODE`,
+                            data: {
+                                id: 'mystery_0',
+                                name: 'notRegistered',
+                                label: `${marker}GHOST`,
+                                description: `${marker}GHOST`,
+                                category: `${marker}GHOST`,
+                                tags: [`${marker}GHOST`],
+                                extraProp: `${marker}GHOST`,
+                                inputParams: [{ name: 'prompt', type: 'string', placeholder: `${marker}GHOST` }],
+                                inputs: { prompt: shapes[0] }
+                            }
+                        }
+                    ],
+                    edges: [{ id: 'e1', source: 'llmChain_0', target: 'cache_0' }]
+                },
+                {
+                    llmChain: {
+                        name: 'llmChain',
+                        label: 'Chain',
+                        description: 'Runs a chain',
+                        category: 'Chains',
+                        tags: ['chain'],
+                        inputParams: componentParams,
+                        inputAnchors: [{ name: 'model' }, { name: 'missing' }, { name: 'shaped' }]
+                    },
+                    cache: { name: 'cache', label: 'Cache', inputParams: [], inputAnchors: [] }
+                }
+            )
+            expectNoMarker(flow)
+            const data = (flow.nodes[0] as { data: Record<string, unknown> }).data
+            const kept = data.inputs as Record<string, unknown>
+            expect(data.label).toBe('Chain')
+            expect(data.description).toBe('Runs a chain')
+            expect(data.category).toBe('Chains')
+            expect(data.tags).toEqual(['chain'])
+            expect(data.extraProp).toBeUndefined()
+            expect(data.inputParams).toEqual(componentParams)
+            expect(kept.prompt).toBe('Hello "world"')
+            expect(kept.systemMessage).toBe('a @ b')
+            expect(kept.description).toBe('こんにちは')
+            expect(kept.label).toBe('10% off')
+            expect(kept.modelName).toBe(uuid)
+            expect(kept.model).toBe('{{cache_0.data.instance}}')
+            expect(kept.missing).toBeUndefined()
+            expect(kept.shaped).toBeUndefined()
+            expect(kept.basePath).toBeUndefined()
+            expect(kept.baseURL).toBe(trial % 2 === 0 ? undefined : 'https://example.com/a')
+            expect(kept.toolDescription).toBeUndefined()
+            expect((flow.nodes[2] as { secretNote?: unknown; data: unknown }).secretNote).toBeUndefined()
+            expect((flow.nodes[2] as { data: unknown }).data).toEqual({ id: 'mystery_0', selected: false, inputs: {} })
+            const display = publicChatbotDisplayConfig({
+                title: 'Hello "world"',
+                welcomeMessage: 'a @ b',
+                errorMessage: 'こんにちは',
+                textInput: { placeholder: '10% off' },
+                titleAvatarSrc: avatar,
+                botMessage: { avatarSrc: shapes[trial % 5] }
+            })
+            expect(display.titleAvatarSrc).toBe(avatar)
+            expect(display.welcomeMessage).toBe('a @ b')
+            expect((display.textInput as { placeholder: string }).placeholder).toBe('10% off')
+            expectNoMarker(display)
+        }
+    })
 })
 
 describe('dropped settings report', () => {
