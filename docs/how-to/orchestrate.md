@@ -91,7 +91,7 @@ The sample YAML uses these names:
 
 Copy [`samples/orchestrate/a2a.agent.yaml`](../../samples/orchestrate/a2a.agent.yaml), fill in the host, flow id and key, and import **that copy**. The sample pins `api_url` at `https://YOUR_HOST/api/v1/a2a/YOUR_FLOW_ID`, names the agent `cuttlely_a2a_test`, and uses the card description `Cuttlely chatflow Larkfield Home orders`. `chat_params.pushNotifications` is `false`.
 
-A2A JSON-RPC errors use HTTP 200 with a JSON-RPC error object (`-32700` parse, `-32600` invalid request, `-32602` invalid params, `-32603` internal). HTTP refusals (401, 403, 404, 409, 413, 415, 429) keep the same bodies as the Orchestrate routes.
+A2A JSON-RPC errors use HTTP 200 with a JSON-RPC error object (`-32700` parse, `-32600` invalid request, `-32601` method not found, `-32602` invalid params, `-32603` internal, `-32001` task not found, `-32002` task not cancelable, `-32003` push not supported, `-32004` unsupported, `-32005` content type, `-32007` extended card). HTTP refusals (401, 403, 404, 409, 415, 429) keep the same bodies as the Orchestrate routes. A body over 1 MB is 413 `{ "error": { "message": "Request body too large", "type": "invalid_request_error", "code": "body_too_large" } }`, not the Orchestrate 413 body.
 
 **Open item: A2A registration path.** How you register that agent in Orchestrate (the same **AI Gateway** → **Agent directory** → **Add agent** path, IBM's `orchestrate agents discover` CLI, or another IBM flow) is not confirmed. Do not treat any registration path as fact until the A2A live test. The `external_chat` UI path above is confirmed for `cuttlely_orders` only.
 
@@ -114,23 +114,23 @@ Fill these in after the A2A live test. Until then the demo runbook records `thre
 
 ## Troubleshooting
 
-Errors on the Orchestrate routes, before any stream starts, use `{ "error": { "message", "type", "code" } }`.
+Errors on the Orchestrate routes, before any stream starts, use `{ "error": { "message", "type", "code" } }`, except a body over 1 MB.
 
-| Status | code                   | When                                                                                                                  |
-| ------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 415    | `content_type_invalid` | `Content-Type` is not `application/json`. A `charset` parameter is fine.                                              |
-| 400    | `flow_id_invalid`      | The flow id is not a UUID.                                                                                            |
-| 400    | `messages_invalid`     | The body is not an object, or `messages` is missing, empty, over 200, has a bad role or content, or has no user turn. |
-| 400    | `thread_id_invalid`    | `X-IBM-THREAD-ID` fails the pattern or is repeated. Orchestrate routes only; A2A uses `contextId`.                    |
-| 400    | `credentials_conflict` | `Authorization` and `X-API-Key` differ.                                                                               |
-| 401    | `unauthorized`         | Missing, malformed or wrong key, or a lookup error.                                                                   |
-| 403    | `keyless_flow`         | The flow has no bound API key. Bind one in **API Endpoint**.                                                          |
-| 403    | `origin_not_allowed`   | A browser `Origin` is outside the flow's allowed origins.                                                             |
-| 404    | `flow_not_found`       | No chatflow with that id.                                                                                             |
-| 409    | `thread_busy`          | Another stream is still open on that thread. In queue mode the check is per replica.                                  |
-| 413    |                        | Body over 1 MB.                                                                                                       |
-| 429    |                        | The flow's prediction rate limit. Same plain text and headers as `/prediction`.                                       |
-| 500    | `internal_error`       | Anything else. The client gets a generic message; the raw error stays in the server log.                              |
+| Status | code                   | When                                                                                                                                                        |
+| ------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 415    | `content_type_invalid` | `Content-Type` is not `application/json`. A `charset` parameter is fine.                                                                                    |
+| 400    | `flow_id_invalid`      | The flow id is not a UUID.                                                                                                                                  |
+| 400    | `messages_invalid`     | The body is not an object, or `messages` is missing, empty, over 200, has a bad role or content, or has no user turn.                                       |
+| 400    | `thread_id_invalid`    | `X-IBM-THREAD-ID` fails the pattern or is repeated. Orchestrate routes only; A2A uses `contextId`.                                                          |
+| 400    | `credentials_conflict` | `Authorization` and `X-API-Key` differ.                                                                                                                     |
+| 401    | `unauthorized`         | Missing, malformed or wrong key, or a lookup error.                                                                                                         |
+| 403    | `keyless_flow`         | The flow has no bound API key. Bind one in **API Endpoint**.                                                                                                |
+| 403    | `origin_not_allowed`   | A browser `Origin` is outside the flow's allowed origins.                                                                                                   |
+| 404    | `flow_not_found`       | No chatflow with that id.                                                                                                                                   |
+| 409    | `thread_busy`          | Another stream is still open on that thread. In queue mode the check is per replica.                                                                        |
+| 413    |                        | Body over 1 MB. Global error handler `{ "statusCode": 413, "success": false, "message", "stack" }`. A2A 413 is `{ "error": { "code": "body_too_large" } }`. |
+| 429    |                        | The flow's prediction rate limit. Same plain text and headers as `/prediction`.                                                                             |
+| 500    | `internal_error`       | Anything else. The client gets a generic message.                                                                                                           |
 
 One info line per Orchestrate request is logged as `[orchestrate] flow=… path=… thread=… stream=… fields=… status=… ms=…`. `thread` is a short hash, or `none` when IBM sent no `X-IBM-THREAD-ID`. The key, `Authorization`, `X-API-Key`, body text and the raw thread id are never logged.
 
