@@ -67,8 +67,9 @@ function fakeKit(): AuthKitDeps {
     return { port, users, now: () => now }
 }
 
-function server() {
+function server(trustProxy = false) {
     const app = express()
+    if (trustProxy) app.set('trust proxy', true)
     app.use(express.json())
     app.use(cookieParser())
     app.use('/api/v1/server-setup', setupRouter)
@@ -226,11 +227,7 @@ describe('use a password for now', () => {
     }, 20000)
 
     it('limits code exchange failures by socket address when the forwarded address changes', async () => {
-        const app = express()
-        app.set('trust proxy', true)
-        app.use(express.json())
-        app.use(cookieParser())
-        app.use('/api/v1/server-setup', setupRouter)
+        const app = server(true)
         for (let i = 0; i < 10; i++) {
             const res = await request(app)
                 .post('/api/v1/server-setup/open')
