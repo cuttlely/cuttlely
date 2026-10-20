@@ -114,17 +114,18 @@ export async function createOwnerFromSetup(
     }
     const closed = await setupClosed(deps)
     if (closed) throw new SettingsError(410, 'SETUP_CLOSED', CLOSED_MESSAGE[closed])
+    const hmac = issuedSetupHmac()
+    if (!hmac) throw new SettingsError(410, 'SETUP_CLOSED', 'Open the setup link from the server log again.')
     // Turn the password sign-in on first: if the file can't be written, no account exists that nobody can use. If
     // the account can't be created, the link keeps working for another try (and after a restart the password
     // sign-in offers the usual first-account link).
     await writeValues(deps.service, { CUTTLELY_LOCAL_ADMIN: 'true' }, SETUP_BY, 'save', 'Password sign-in turned on from the setup link.')
-    const hmac = issuedSetupHmac()
     try {
         await deps
             .users()
             .createOwner(
                 { email, name, credential: await hashPassword(password), externalId: null },
-                hmac ? { consumeSetupHmac: hmac, now: Date.now() } : undefined
+                { consumeSetupHmac: hmac, now: Date.now() }
             )
     } catch (error) {
         if (error instanceof NotEmptyError) throw new SettingsError(410, 'SETUP_CLOSED', CLOSED_MESSAGE['has-account'])

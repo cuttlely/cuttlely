@@ -87,9 +87,10 @@ const SESSION_LOG_FIELDS = new Set([
     'newpassword',
     'credential',
     'setupcode',
+    'code',
     'email'
 ])
-const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'token', 'q', 'cursor'])
+const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'token', 'code', 'setupcode', 'q', 'cursor'])
 
 function decodeQueryName(raw: string): string {
     try {
@@ -121,7 +122,7 @@ function redactQueryString(query: string): string {
 }
 
 function redactFragment(hash: string): string {
-    return hash.replace(/(token=)[^&#]*/gi, '$1[redacted]')
+    return hash.replace(/((?:^|[#&])(?:token|code|setupcode)=)[^&#]*/gi, '$1[redacted]')
 }
 
 /** Drop client session ids, session tokens, searches, page cursors, and API keys before a request line is written. */

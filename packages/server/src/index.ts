@@ -50,7 +50,7 @@ import { Telemetry } from './utils/telemetry'
 import { validateAPIKey } from './utils/validateKey'
 import { getCorsOptions, getIframeSecurityHeaders, sanitizeMiddleware, validateCorsConfig } from './utils/XSS'
 import { identityStore } from './identity/production'
-import { applySetupHeaders, isSetupDocumentPath } from './identity/sessionGuard'
+import { applyDocumentFrameHeaders, applySetupHeaders, isSetupDocumentPath } from './identity/sessionGuard'
 import { announceFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
@@ -242,9 +242,7 @@ export class App {
         // Allow embedding from specified domains.
         const iframeSecurityHeaders = getIframeSecurityHeaders()
         this.app.use((req, res, next) => {
-            for (const [headerName, headerValue] of Object.entries(iframeSecurityHeaders)) {
-                res.setHeader(headerName, headerValue)
-            }
+            applyDocumentFrameHeaders(req.path, res, iframeSecurityHeaders)
             next()
         })
 

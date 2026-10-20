@@ -27,20 +27,28 @@ import {
 } from './handlers'
 import { LoginRateLimit } from './rateLimit'
 import { hashPassword, hashSessionToken, isBcryptHash, passwordErrors } from './password'
-import { applySetupHeaders, cookieMutationAllowed, isSetupDocumentPath } from './sessionGuard'
+import { applyDocumentFrameHeaders, applySetupHeaders, cookieMutationAllowed, isSetupDocumentPath } from './sessionGuard'
 import {
     announceFirstRunSetup,
+    bindSetupCodeStore,
     consumeSetupCode,
     firstRunSetupCode,
     firstRunSetupLink,
     forgetIssuedSetupCode,
+    issuedSetupHmac,
+    noteSetupFailure,
     reissueFirstRunSetupCode,
     resetFirstRunSetupCode,
+    retireOpenSetupCode,
     serverSetupLink,
     SETUP_CODE_TTL_MS,
-    setupCodeMatches
+    setupCodeHmac,
+    setupCodeMatches,
+    setupCodeReady
 } from './setupCode'
-import { recordSetupFailure, setupFailureLimited, socketAddress } from './setupLimit'
+import { SETUP_GLOBAL_WINDOW_MS, setupFailureLimited, socketAddress } from './setupLimit'
+import { linkWorkosUser } from './link'
+import { resetAuthSecretsForTests } from './authSecrets'
 import { resolveTrustProxy } from '../utils/trustProxy'
 import { AuthKitSwitchApply, AuthKitSwitchState, switchedSessions } from './authKitSwitch'
 import { IdentityStore } from './store'
@@ -57,6 +65,10 @@ import {
     UserRow,
     WorkosPort
 } from './types'
+import { createHmac } from 'crypto'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import express from 'express'
 import request from 'supertest'
 
@@ -158,6 +170,9 @@ class MemoryStore implements IdentityStore {
         if (options?.consumeSetupHmac) {
             const consumed = await consumeSetupCode(options.consumeSetupHmac, options.now ?? Date.now())
             if (!consumed) throw new SetupCodeRejected()
+        } else {
+            // An open first-run code is retired in this same createOwner transaction.
+            await retireOpenSetupCode(options?.now ?? Date.now())
         }
         const user: UserRow = {
             id: `user-${this.users.length + 1}`,
@@ -323,6 +338,9 @@ function registerApp(trust: boolean | number, store: MemoryStore) {
     app.get('/organization-setup', (req, res) => {
         if (isSetupDocumentPath(req.path)) applySetupHeaders(res)
         res.status(200).type('html').send('<!doctype html><title>setup</title>')
+    })
+    app.get('/signin', (_req, res) => {
+        res.status(200).type('html').send('<!doctype html><title>sign in</title>')
     })
     return app
 }
@@ -1173,18 +1191,41 @@ describe('identity auth', () => {
 
     it('rejects an expired setup code and issues a new one on demand and after a restart', async () => {
         resetFirstRunSetupCode()
+        const lines: string[] = []
+        expect(
+            await announceFirstRunSetup(
+                43117,
+                async () => 1,
+                (line) => lines.push(line),
+                true
+            )
+        ).toBe(false)
         const code = firstRunSetupCode(NOW)
         expect(await setupCodeMatches(code, NOW + SETUP_CODE_TTL_MS - 1)).toBe(true)
         expect(await setupCodeMatches(code, NOW + SETUP_CODE_TTL_MS)).toBe(false)
-        const fresh = reissueFirstRunSetupCode(NOW + SETUP_CODE_TTL_MS)
+        const fresh = firstRunSetupCode(NOW + SETUP_CODE_TTL_MS)
+        await setupCodeReady()
         expect(fresh).not.toBe(code)
+        expect(lines.some((line) => line.includes('A new setup link is ready') && line.includes(`#code=${fresh}`))).toBe(true)
         expect(await setupCodeMatches(fresh, NOW + SETUP_CODE_TTL_MS)).toBe(true)
         expect(await setupCodeMatches(code, NOW + SETUP_CODE_TTL_MS)).toBe(false)
+        const rotated = reissueFirstRunSetupCode(NOW + SETUP_CODE_TTL_MS)
+        await setupCodeReady()
+        expect(rotated).not.toBe(fresh)
+        expect(await setupCodeMatches(rotated, NOW + SETUP_CODE_TTL_MS)).toBe(true)
         forgetIssuedSetupCode()
-        const restarted = firstRunSetupCode(NOW + SETUP_CODE_TTL_MS)
-        expect(restarted).not.toBe(fresh)
-        expect(await setupCodeMatches(restarted, NOW + SETUP_CODE_TTL_MS)).toBe(true)
-        expect(await setupCodeMatches(fresh, NOW + SETUP_CODE_TTL_MS)).toBe(false)
+        lines.length = 0
+        const other = firstRunSetupCode(NOW + SETUP_CODE_TTL_MS)
+        await setupCodeReady()
+        expect(other).not.toBe(rotated)
+        expect(await setupCodeMatches(other, NOW + SETUP_CODE_TTL_MS)).toBe(false)
+        expect(await setupCodeMatches(rotated, NOW + SETUP_CODE_TTL_MS)).toBe(true)
+        expect(issuedSetupHmac()).toBeNull()
+        expect(lines.some((line) => line.includes('#code='))).toBe(false)
+        const renewed = firstRunSetupCode(NOW + 2 * SETUP_CODE_TTL_MS)
+        await setupCodeReady()
+        expect(await setupCodeMatches(renewed, NOW + 2 * SETUP_CODE_TTL_MS)).toBe(true)
+        expect(await setupCodeMatches(rotated, NOW + 2 * SETUP_CODE_TTL_MS)).toBe(false)
         resetFirstRunSetupCode()
     })
 
@@ -1314,6 +1355,7 @@ describe('identity auth', () => {
             expect(res.headers['referrer-policy']).toBe('no-referrer')
             expect(res.headers['cache-control']).toBe('no-store')
             expect(res.headers['x-frame-options']).toBe('DENY')
+            expect(res.headers['content-security-policy']).toBe("frame-ancestors 'none'")
         }
         expect(store.users).toHaveLength(0)
 
@@ -1321,6 +1363,10 @@ describe('identity auth', () => {
         expect(page.headers['referrer-policy']).toBe('no-referrer')
         expect(page.headers['cache-control']).toBe('no-store')
         expect(page.headers['x-frame-options']).toBe('DENY')
+        expect(page.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+        const signin = await request(registerApp(false, store)).get('/signin')
+        expect(signin.headers['content-security-policy']).toBeUndefined()
+        expect(signin.headers['x-frame-options']).toBeUndefined()
         expect(isSetupDocumentPath('/server-setup')).toBe(true)
         expect(isSetupDocumentPath('/signin')).toBe(false)
         resetFirstRunSetupCode()
@@ -1350,8 +1396,8 @@ describe('identity auth', () => {
             .set('x-request-from', 'internal')
             .set('X-Forwarded-For', '192.0.2.8')
             .send({ user, setupCode: firstRunSetupCode(NOW) })
-        expect(still.status).toBe(429)
-        expect(store.users).toHaveLength(0)
+        expect(still.status).toBe(200)
+        expect(store.users).toHaveLength(1)
 
         resetFirstRunSetupCode()
         const lines: string[] = []
@@ -1364,19 +1410,205 @@ describe('identity auth', () => {
         const issuedUrl = lines[0].match(/https?:\/\/\S+/)
         expect(issuedUrl).not.toBeNull()
         const issued = new URL(issuedUrl?.[0] || '').hash.slice('#code='.length)
-        let reissued = false
-        for (let i = 0; i < 100; i++) {
-            const outcome = recordSetupFailure(`192.0.2.${i % 20}`, NOW)
-            if (outcome.reissue) {
-                reissued = true
-                reissueFirstRunSetupCode(NOW)
-            }
-        }
-        expect(reissued).toBe(true)
+        for (let i = 0; i < 100; i++) noteSetupFailure(`192.0.2.${i % 20}`, NOW)
+        await setupCodeReady()
+        const freshLines = () => lines.filter((line) => line.includes('A new setup link is ready'))
+        expect(freshLines()).toHaveLength(1)
         expect(setupFailureLimited('198.51.100.20', NOW)).toBe(true)
         expect(await setupCodeMatches(issued, NOW)).toBe(false)
-        expect(lines.some((line) => line.includes('#code=') && !line.includes(issued))).toBe(true)
+        expect(freshLines()[0].includes(issued)).toBe(false)
+        for (let i = 0; i < 100; i++) noteSetupFailure(`192.0.2.${i % 20}`, NOW)
+        await setupCodeReady()
+        expect(freshLines()).toHaveLength(1)
+        for (let i = 0; i < 100; i++) noteSetupFailure(`192.0.2.${i % 20}`, NOW + SETUP_GLOBAL_WINDOW_MS)
+        await setupCodeReady()
+        expect(freshLines()).toHaveLength(2)
         resetFirstRunSetupCode()
+    })
+
+    it('counts concurrent failures once each and still accepts the right code', async () => {
+        resetFirstRunSetupCode()
+        const store = new MemoryStore()
+        const code = firstRunSetupCode(NOW)
+        const user = { name: 'Owner', email: 'owner@example.com', credential: GOOD }
+        const bad = await Promise.all(
+            Array.from({ length: 15 }, () =>
+                handleRegister(
+                    ctx({
+                        localAdmin: true,
+                        internal: true,
+                        socketAddress: '192.0.2.9',
+                        store,
+                        now: NOW,
+                        body: { user, setupCode: 'TESTCODE-wrong' }
+                    })
+                )
+            )
+        )
+        const statuses = bad.map((result) => (result.type === 'json' ? result.status : 0))
+        expect(statuses.filter((status) => status === 400)).toHaveLength(10)
+        expect(statuses.filter((status) => status === 429)).toHaveLength(5)
+        expect(store.users).toHaveLength(0)
+        const ok = json(
+            await handleRegister(
+                ctx({
+                    localAdmin: true,
+                    internal: true,
+                    socketAddress: '192.0.2.9',
+                    store,
+                    now: NOW,
+                    body: { user, setupCode: code }
+                })
+            )
+        )
+        expect(ok.status).toBe(200)
+        expect(store.users).toHaveLength(1)
+        resetFirstRunSetupCode()
+    })
+
+    it('does not count a field error toward the setup limit', async () => {
+        resetFirstRunSetupCode()
+        const store = new MemoryStore()
+        const code = firstRunSetupCode(NOW)
+        for (let i = 0; i < 12; i++) {
+            const res = json(
+                await handleRegister(
+                    ctx({
+                        localAdmin: true,
+                        internal: true,
+                        socketAddress: '192.0.2.15',
+                        store,
+                        now: NOW,
+                        body: { user: { name: 'Owner', email: 'owner@example.com', credential: 'short' }, setupCode: code }
+                    })
+                )
+            )
+            expect(res.status).toBe(400)
+        }
+        expect(setupFailureLimited('192.0.2.15', NOW)).toBe(false)
+        expect(store.users).toHaveLength(0)
+        resetFirstRunSetupCode()
+    })
+
+    it('does not print a different code when another copy already stored one', async () => {
+        resetFirstRunSetupCode()
+        const live = {
+            codeHmac: 'ab'.repeat(32),
+            issuedAt: NOW,
+            expiresAt: NOW + SETUP_CODE_TTL_MS,
+            consumedAt: null
+        }
+        bindSetupCodeStore({
+            async read() {
+                return { ...live }
+            },
+            async save() {
+                return 'kept'
+            },
+            async consume() {
+                return false
+            }
+        })
+        const lines: string[] = []
+        expect(
+            await announceFirstRunSetup(
+                43117,
+                async () => 0,
+                (line) => lines.push(line),
+                true
+            )
+        ).toBe(true)
+        expect(lines).toHaveLength(1)
+        expect(lines[0]).toContain('another copy')
+        expect(lines[0]).not.toMatch(/#code=|[?&]code=/)
+        expect(issuedSetupHmac()).toBeNull()
+        resetFirstRunSetupCode()
+    })
+
+    it('uses the persisted instance secret when TOKEN_HASH_SECRET is unset', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-setup-secret-'))
+        const previousPath = process.env.SECRETKEY_PATH
+        const previousHash = process.env.TOKEN_HASH_SECRET
+        try {
+            process.env.SECRETKEY_PATH = dir
+            delete process.env.TOKEN_HASH_SECRET
+            resetAuthSecretsForTests()
+            resetFirstRunSetupCode()
+            const code = 'TESTCODE-example'
+            const hmac = setupCodeHmac(code)
+            const file = fs.readFileSync(path.join(dir, 'token-hash.secret'), 'utf8')
+            expect(file.trim().length).toBeGreaterThan(16)
+            expect(file.includes('setup-code-compare')).toBe(false)
+            expect(hmac).toBe(createHmac('sha256', file).update(code).digest('hex'))
+            expect(hmac).not.toBe(createHmac('sha256', 'setup-code-compare').update(code).digest('hex'))
+            resetAuthSecretsForTests()
+            expect(setupCodeHmac(code)).toBe(hmac)
+        } finally {
+            if (previousPath === undefined) delete process.env.SECRETKEY_PATH
+            else process.env.SECRETKEY_PATH = previousPath
+            if (previousHash === undefined) delete process.env.TOKEN_HASH_SECRET
+            else process.env.TOKEN_HASH_SECRET = previousHash
+            resetAuthSecretsForTests()
+            resetFirstRunSetupCode()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('retires an open setup code when the operator command creates the owner', async () => {
+        resetFirstRunSetupCode()
+        const code = firstRunSetupCode(NOW)
+        const store = new MemoryStore()
+        const result = await runUserCli(store, { email: 'owner@example.com', password: GOOD, localAdmin: true })
+        expect(result.ok).toBe(true)
+        expect(store.users).toHaveLength(1)
+        expect(await setupCodeMatches(code, NOW)).toBe(false)
+        resetFirstRunSetupCode()
+        const empty = new MemoryStore()
+        const again = await runUserCli(empty, { email: 'owner@example.com', password: GOOD, localAdmin: true })
+        expect(again.ok).toBe(true)
+        expect(empty.users).toHaveLength(1)
+        resetFirstRunSetupCode()
+    }, 20000)
+
+    it('retires an open setup code when the first AuthKit account is created', async () => {
+        resetFirstRunSetupCode()
+        const code = firstRunSetupCode(NOW)
+        const store = new MemoryStore()
+        const identity = {
+            id: 'user_fake_1',
+            email: 'rosa@rosas-bakery.example',
+            emailVerified: true,
+            name: 'Rosa'
+        }
+        const linked = await linkWorkosUser(store, identity, { bootstrapEmail: 'rosa@rosas-bakery.example' })
+        expect(linked.ok).toBe(true)
+        if (linked.ok) expect(linked.bootstrapped).toBe(true)
+        expect(store.users).toHaveLength(1)
+        expect(await setupCodeMatches(code, NOW)).toBe(false)
+        resetFirstRunSetupCode()
+        const empty = new MemoryStore()
+        const plain = await linkWorkosUser(empty, identity, { bootstrapEmail: 'rosa@rosas-bakery.example' })
+        expect(plain.ok).toBe(true)
+        expect(empty.users).toHaveLength(1)
+        resetFirstRunSetupCode()
+    })
+
+    it('sends frame-ancestors none on setup documents only', () => {
+        const headers = new Map<string, string>()
+        const res = { setHeader: (name: string, value: string) => headers.set(name.toLowerCase(), value) }
+        applyDocumentFrameHeaders('/organization-setup', res, {
+            'Content-Security-Policy': "frame-ancestors 'self'",
+            'X-Frame-Options': 'SAMEORIGIN'
+        })
+        expect(headers.get('content-security-policy')).toBe("frame-ancestors 'none'")
+        expect(headers.get('x-frame-options')).toBe('DENY')
+        headers.clear()
+        applyDocumentFrameHeaders('/signin', res, {
+            'Content-Security-Policy': "frame-ancestors 'self'",
+            'X-Frame-Options': 'SAMEORIGIN'
+        })
+        expect(headers.get('content-security-policy')).toBe("frame-ancestors 'self'")
+        expect(headers.get('x-frame-options')).toBe('SAMEORIGIN')
     })
 
     it('migration adds externalId and the break-glass session table', async () => {

@@ -18,9 +18,9 @@
  * This process keeps the plaintext only so it can print the link.
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
-import { authSecret } from './authSecrets'
+import { authSecret, ensureInstanceSecret } from './authSecrets'
 import { cookiePasswordOk, localAdminEnabled, workosConfigured } from './constants'
-import { recordSetupFailure, resetSetupFailures } from './setupLimit'
+import { recordSetupFailure, resetSetupFailures, setupFailureLimited } from './setupLimit'
 
 export const SETUP_CODE_TTL_MS = 60 * 60 * 1000
 export const SETUP_CODE_MAX_LENGTH = 64
@@ -32,9 +32,12 @@ export interface SetupCodeRow {
     consumedAt: number | null
 }
 
+/** inserted: no row before. replaced: this write won. kept: a live row from another copy stayed. */
+export type SetupCodeWrite = 'inserted' | 'replaced' | 'kept'
+
 export interface SetupCodeStore {
     read(): Promise<SetupCodeRow | null>
-    save(row: SetupCodeRow): Promise<void>
+    save(row: SetupCodeRow, previousHmac?: string | null): Promise<SetupCodeWrite>
     consume(hmac: string, now: number): Promise<boolean>
 }
 
@@ -45,8 +48,17 @@ class MemorySetupCodeStore implements SetupCodeStore {
         return this.row ? { ...this.row } : null
     }
 
-    async save(row: SetupCodeRow): Promise<void> {
+    async save(row: SetupCodeRow, previousHmac?: string | null): Promise<SetupCodeWrite> {
+        const before = this.row
+        if (!before) {
+            this.row = { ...row }
+            return 'inserted'
+        }
+        const previous = previousHmac ?? ''
+        const keep = before.consumedAt == null && before.expiresAt > row.issuedAt && before.codeHmac !== previous
+        if (keep) return 'kept'
         this.row = { ...row }
+        return 'replaced'
     }
 
     async consume(hmac: string, now: number): Promise<boolean> {
@@ -66,7 +78,9 @@ const memoryStore = new MemorySetupCodeStore()
 let boundStore: SetupCodeStore | undefined
 let pending: Promise<void> = Promise.resolve()
 let issuedPlain: string | undefined
+let issuedExpiresAt = 0
 let localRetired = false
+let heldByOther = false
 let printer: (line: string) => void = () => undefined
 let startupPort: number | string = 3000
 let startupEnv: NodeJS.ProcessEnv = process.env
@@ -81,13 +95,14 @@ export function bindSetupCodeStore(store: SetupCodeStore): void {
     boundStore = store
 }
 
+/** TOKEN_HASH_SECRET, or the instance secret stored with the other auth secrets. */
 function compareMaterial(): string {
     const fromEnv = process.env.TOKEN_HASH_SECRET
     if (fromEnv && fromEnv.trim()) return fromEnv.trim()
     try {
         return authSecret('TOKEN_HASH_SECRET')
     } catch {
-        return 'setup-code-compare'
+        return ensureInstanceSecret('TOKEN_HASH_SECRET')
     }
 }
 
@@ -111,17 +126,39 @@ export function setupCodeHmac(candidate: unknown): string | null {
     return digest(candidate)
 }
 
-function issue(now: number): string {
+function printedSetupLink(plain: string): string {
+    if (linkKind === 'server') return `${publicOrigin(startupPort, startupEnv)}/server-setup#code=${plain}`
+    return `http://localhost:${startupPort}/organization-setup#code=${plain}`
+}
+
+function printFreshLink(plain: string): void {
+    printer(`👋 [server]: A new setup link is ready. Open ${printedSetupLink(plain)}`)
+}
+
+function issue(now: number, notify: boolean): string {
+    const previous = issuedPlain ? digest(issuedPlain) : null
     const plain = randomBytes(12).toString('base64url')
-    issuedPlain = plain
-    localRetired = false
     const row: SetupCodeRow = {
         codeHmac: digest(plain),
         issuedAt: now,
         expiresAt: now + SETUP_CODE_TTL_MS,
         consumedAt: null
     }
-    const save = () => activeStore().save(row)
+    issuedPlain = plain
+    issuedExpiresAt = row.expiresAt
+    localRetired = false
+    heldByOther = false
+    const save = async () => {
+        const outcome = await activeStore().save(row, previous)
+        if (issuedPlain !== plain) return
+        if (outcome === 'kept') {
+            issuedPlain = undefined
+            issuedExpiresAt = 0
+            heldByOther = true
+            return
+        }
+        if (notify) printFreshLink(plain)
+    }
     pending = pending.then(save, save)
     return plain
 }
@@ -131,18 +168,20 @@ export function setupCodeReady(): Promise<void> {
     return pending
 }
 
-/** The code for this process. A restart (empty memory) or an explicit reissue mints a new one. */
+/**
+ * The code for this process. A live in-memory code is reused.
+ * An expired one is replaced, and the new link is printed once the write wins.
+ */
 export function firstRunSetupCode(now = Date.now()): string {
-    if (!issuedPlain) return issue(now)
-    return issuedPlain
+    if (localRetired && issuedPlain) return issuedPlain
+    if (localRetired) return 'setup-code-retired'
+    if (issuedPlain && issuedExpiresAt > now) return issuedPlain
+    return issue(now, Boolean(issuedPlain))
 }
 
 /** Prints a fresh link. Used when the server-wide failure cap is reached, and by tests. */
 export function reissueFirstRunSetupCode(now = Date.now()): string {
-    const plain = issue(now)
-    const link = linkKind === 'server' ? serverSetupLink(startupPort, startupEnv) : firstRunSetupLink(startupPort)
-    printer(`👋 [server]: A new setup link is ready. Open ${link}`)
-    return plain
+    return issue(now, true)
 }
 
 /**
@@ -186,22 +225,49 @@ export async function retireFirstRunSetupCode(now = Date.now()): Promise<void> {
     await pending
     const row = await activeStore().read()
     if (row && row.consumedAt == null) {
-        const save = () => activeStore().save({ ...row, consumedAt: now })
+        const save = async () => {
+            await activeStore().save({ ...row, consumedAt: now }, row.codeHmac)
+        }
         pending = pending.then(save, save)
         await pending
         return
     }
     if (!row) {
-        const save = () =>
-            activeStore().save({
-                codeHmac: digest('setup-code-retired'),
-                issuedAt: now,
-                expiresAt: now,
-                consumedAt: now
-            })
+        const save = async () => {
+            await activeStore().save(
+                {
+                    codeHmac: digest('setup-code-retired'),
+                    issuedAt: now,
+                    expiresAt: now,
+                    consumedAt: now
+                },
+                null
+            )
+        }
         pending = pending.then(save, save)
         await pending
     }
+}
+
+/**
+ * Retires an unconsumed setup row. Operator commands call this from createOwner
+ * when they do not carry a setup HMAC. A live row from another copy is left in place
+ * when this process cannot name it.
+ */
+export async function retireOpenSetupCode(now = Date.now()): Promise<void> {
+    await pending
+    const row = await activeStore().read()
+    if (!row || row.consumedAt != null) return
+    let outcome: SetupCodeWrite = 'kept'
+    const save = async () => {
+        outcome = await activeStore().save({ ...row, consumedAt: now }, row.codeHmac)
+    }
+    pending = pending.then(save, save)
+    await pending
+    if (outcome === 'kept') return
+    localRetired = true
+    issuedPlain = undefined
+    issuedExpiresAt = 0
 }
 
 export async function setupCodeRetired(): Promise<boolean> {
@@ -222,10 +288,14 @@ export function firstRunSetupCodeRetired(): boolean {
  */
 export function resetFirstRunSetupCode(): void {
     issuedPlain = undefined
+    issuedExpiresAt = 0
     localRetired = false
+    heldByOther = false
     pending = Promise.resolve()
     printer = () => undefined
     linkKind = 'organization'
+    startupPort = 3000
+    startupEnv = process.env
     boundStore = undefined
     memoryStore.clear()
     resetSetupFailures()
@@ -234,13 +304,22 @@ export function resetFirstRunSetupCode(): void {
 /** Clears only this process's copy of the code. The stored row stays, as it would for another process. */
 export function forgetIssuedSetupCode(): void {
     issuedPlain = undefined
+    issuedExpiresAt = 0
     localRetired = false
+    heldByOther = false
 }
 
-/** Records a failed register or code exchange. The server-wide cap prints a new link once. */
-export function noteSetupFailure(address: string, now: number): void {
+/**
+ * Records a failed register or code exchange.
+ * Already at the cap: limited, and this attempt is not recorded.
+ * Otherwise the attempt is recorded, and the server-wide cap prints a new link at most once per window.
+ * Check and record stay synchronous so concurrent failures cannot all pass the cap.
+ */
+export function noteSetupFailure(address: string, now: number): { limited: boolean } {
+    if (setupFailureLimited(address, now)) return { limited: true }
     const outcome = recordSetupFailure(address, now)
     if (outcome.reissue) reissueFirstRunSetupCode(now)
+    return { limited: false }
 }
 
 /** True when nobody could sign in: the password sign-in is off and AuthKit is not set up. */
@@ -266,6 +345,15 @@ export function publicOrigin(port: number | string, env: NodeJS.ProcessEnv = pro
 /** The one-time link that opens Sign-in & identity when no sign-in method is on. */
 export function serverSetupLink(port: number | string, env: NodeJS.ProcessEnv = process.env): string {
     return `${publicOrigin(port, env)}/server-setup#code=${firstRunSetupCode()}`
+}
+
+async function claimLiveCode(now = Date.now()): Promise<void> {
+    if (localRetired) {
+        await pending
+        return
+    }
+    if (!(issuedPlain && issuedExpiresAt > now)) issue(now, false)
+    await pending
 }
 
 /**
@@ -295,12 +383,16 @@ export async function announceFirstRunSetup(
         )
         return true
     }
+    await claimLiveCode()
+    if (heldByOther || !issuedPlain) {
+        if (localAdmin) log('👋 [server]: No account yet. The setup code was printed by another copy of this server.')
+        else log('🔑 [server]: No sign-in method is on yet. The setup code was printed by another copy of this server.')
+        return true
+    }
     if (localAdmin) {
         log(`👋 [server]: No account yet. Open ${firstRunSetupLink(port)} to create yours.`)
-        await pending
         return true
     }
     log(`🔑 [server]: No sign-in method is on yet. Open ${serverSetupLink(port, env)} to set one up. The link works once.`)
-    await pending
     return true
 }

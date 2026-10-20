@@ -40,7 +40,6 @@ import {
 } from './password'
 import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
-import { setupFailureLimited } from './setupLimit'
 import { noteSetupFailure, setupCodeHmac, setupCodeMatches } from './setupCode'
 import { IdentityStore } from './store'
 import {
@@ -470,7 +469,6 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.internal) return json(401, { message: 'Unauthorized' })
     if ((await ctx.store.countUsers()) > 0) return json(404, { message: 'Not Found' })
     const address = ctx.socketAddress || 'unknown'
-    if (setupFailureLimited(address, ctx.now)) return json(429, { message: SETUP_TOO_MANY })
     const user = ctx.body.user
     if (!user || typeof user !== 'object') return json(400, { message: 'Name, email, and password are required.' })
     const record = user as Record<string, unknown>
@@ -483,7 +481,7 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     // The one-time code from the setup link is required before the password is hashed.
     const hmac = setupCodeHmac(ctx.body.setupCode)
     if (!hmac || !(await setupCodeMatches(ctx.body.setupCode, ctx.now))) {
-        noteSetupFailure(address, ctx.now)
+        if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
         return json(400, { message: SETUP_LINK_NEEDED })
     }
     try {
@@ -500,7 +498,7 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     } catch (error) {
         if (error instanceof NotEmptyError) return json(404, { message: 'Not Found' })
         if (error instanceof SetupCodeRejected) {
-            noteSetupFailure(address, ctx.now)
+            if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
             return json(400, { message: SETUP_LINK_NEEDED })
         }
         throw error

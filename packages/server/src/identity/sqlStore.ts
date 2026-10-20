@@ -24,7 +24,7 @@ import { utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { isBcryptHash } from './password'
 import { IdentityStore } from './store'
-import { SetupCodeRow, SetupCodeStore } from './setupCode'
+import { SetupCodeRow, SetupCodeStore, SetupCodeWrite } from './setupCode'
 import {
     CreateOwnerInput,
     CreateOwnerOptions,
@@ -280,7 +280,9 @@ export class SqlIdentityStore implements IdentityStore {
             const d = dialectOf(runner)
             await lockBootstrap(runner, d)
             if ((await count(runner)) !== 0) throw new NotEmptyError()
+            // An open first-run code is retired in this same createOwner transaction.
             if (options?.consumeSetupHmac) await consumeSetupCodeRow(runner, d, options.consumeSetupHmac, options.now ?? Date.now())
+            else await retireOpenSetupCodeRow(runner, d, options?.now ?? Date.now())
             // An empty user table with a leftover bootstrap row is not bootstrapped.
             await query(runner, `DELETE FROM ${quote(d, 'identity_bootstrap')}`)
             try {
@@ -718,6 +720,39 @@ function sameHmac(left: string, right: string): boolean {
     return a.length === b.length && a.length > 0 && timingSafeEqual(a, b)
 }
 
+/** True when the setup-code table is already there. Older incremental schemas do not have it yet. */
+async function setupCodeTablePresent(runner: QueryRunner, dialect: Dialect): Promise<boolean> {
+    if (dialect === 'sqlite') {
+        const rows = await query(runner, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'identity_setup_code'`)
+        return rows.length > 0
+    }
+    if (dialect === 'postgres') {
+        const rows = await query(runner, `SELECT to_regclass('identity_setup_code') AS ${quote(dialect, 'name')}`)
+        const name = cell(rows[0] || {}, 'name')
+        return name != null && String(name) !== ''
+    }
+    const rows = await query(
+        runner,
+        `SELECT TABLE_NAME AS ${quote(
+            dialect,
+            'name'
+        )} FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'identity_setup_code'`
+    )
+    return rows.length > 0
+}
+
+/** Marks any unconsumed setup row used. Operator commands do this inside createOwner. */
+async function retireOpenSetupCodeRow(runner: QueryRunner, dialect: Dialect, now: number): Promise<void> {
+    if (!(await setupCodeTablePresent(runner, dialect))) return
+    await query(
+        runner,
+        `UPDATE ${quote(dialect, 'identity_setup_code')}
+         SET ${quote(dialect, 'consumedAt')} = ?
+         WHERE ${quote(dialect, 'id')} = 1 AND ${quote(dialect, 'consumedAt')} IS NULL`,
+        [now]
+    )
+}
+
 /** Marks the setup row used in the same transaction that inserts the owner. */
 async function consumeSetupCodeRow(runner: QueryRunner, dialect: Dialect, hmac: string, now: number): Promise<void> {
     const rows = await query(
@@ -761,6 +796,48 @@ function setupCodeRowFrom(row: Record<string, unknown>): SetupCodeRow {
     }
 }
 
+function sameSetupRow(left: SetupCodeRow | null, right: SetupCodeRow): boolean {
+    if (!left) return false
+    return (
+        left.codeHmac === right.codeHmac &&
+        left.issuedAt === right.issuedAt &&
+        left.expiresAt === right.expiresAt &&
+        left.consumedAt === right.consumedAt
+    )
+}
+
+/**
+ * One statement. Inserts the singleton row when it is absent.
+ * Updates it only when it is consumed, expired at this write's issued time, or still this process's HMAC.
+ */
+function conditionalSetupUpsert(dialect: Dialect): string {
+    const table = quote(dialect, 'identity_setup_code')
+    const id = quote(dialect, 'id')
+    const codeHmac = quote(dialect, 'codeHmac')
+    const issuedAt = quote(dialect, 'issuedAt')
+    const expiresAt = quote(dialect, 'expiresAt')
+    const consumedAt = quote(dialect, 'consumedAt')
+    const insert = `INSERT INTO ${table} (${id}, ${codeHmac}, ${issuedAt}, ${expiresAt}, ${consumedAt}) VALUES (1, ?, ?, ?, ?)`
+    if (dialect === 'sqlite' || dialect === 'postgres') {
+        const excluded = dialect === 'postgres' ? 'EXCLUDED' : 'excluded'
+        return `${insert}
+            ON CONFLICT (${id}) DO UPDATE SET
+                ${codeHmac} = ${excluded}.${codeHmac},
+                ${issuedAt} = ${excluded}.${issuedAt},
+                ${expiresAt} = ${excluded}.${expiresAt},
+                ${consumedAt} = ${excluded}.${consumedAt}
+            WHERE ${table}.${consumedAt} IS NOT NULL
+               OR ${table}.${expiresAt} <= ?
+               OR ${table}.${codeHmac} = ?`
+    }
+    return `${insert}
+        ON DUPLICATE KEY UPDATE
+            ${codeHmac} = IF((@setup_keep := (${consumedAt} IS NULL AND ${expiresAt} > ? AND ${codeHmac} <> ?)), ${codeHmac}, VALUES(${codeHmac})),
+            ${issuedAt} = IF(@setup_keep, ${issuedAt}, VALUES(${issuedAt})),
+            ${expiresAt} = IF(@setup_keep, ${expiresAt}, VALUES(${expiresAt})),
+            ${consumedAt} = IF(@setup_keep, ${consumedAt}, VALUES(${consumedAt}))`
+}
+
 /** Reads and writes the single setup-code row. Owner creation consumes it inside its own transaction. */
 export class SqlSetupCodeStore implements SetupCodeStore {
     constructor(private readonly dataSource: DataSource) {}
@@ -779,59 +856,30 @@ export class SqlSetupCodeStore implements SetupCodeStore {
         return rows[0] ? setupCodeRowFrom(rows[0]) : null
     }
 
-    async save(row: SetupCodeRow): Promise<void> {
+    async save(row: SetupCodeRow, previousHmac?: string | null): Promise<SetupCodeWrite> {
+        const before = await this.read()
         const d = dialectOfSource(this.dataSource)
-        const params = [row.codeHmac, row.issuedAt, row.expiresAt, row.consumedAt]
-        if (d === 'sqlite') {
-            await querySource(
-                this.dataSource,
-                `INSERT OR REPLACE INTO ${quote(d, 'identity_setup_code')}
-                    (${quote(d, 'id')}, ${quote(d, 'codeHmac')}, ${quote(d, 'issuedAt')}, ${quote(d, 'expiresAt')}, ${quote(
-                    d,
-                    'consumedAt'
-                )})
-                 VALUES (1, ?, ?, ?, ?)`,
-                params
-            )
-            return
-        }
-        if (d === 'postgres') {
-            await querySource(
-                this.dataSource,
-                `INSERT INTO ${quote(d, 'identity_setup_code')}
-                    (${quote(d, 'id')}, ${quote(d, 'codeHmac')}, ${quote(d, 'issuedAt')}, ${quote(d, 'expiresAt')}, ${quote(
-                    d,
-                    'consumedAt'
-                )})
-                 VALUES (1, ?, ?, ?, ?)
-                 ON CONFLICT (${quote(d, 'id')}) DO UPDATE SET
-                    ${quote(d, 'codeHmac')} = EXCLUDED.${quote(d, 'codeHmac')},
-                    ${quote(d, 'issuedAt')} = EXCLUDED.${quote(d, 'issuedAt')},
-                    ${quote(d, 'expiresAt')} = EXCLUDED.${quote(d, 'expiresAt')},
-                    ${quote(d, 'consumedAt')} = EXCLUDED.${quote(d, 'consumedAt')}`,
-                params
-            )
-            return
-        }
-        await querySource(
-            this.dataSource,
-            `INSERT INTO ${quote(d, 'identity_setup_code')}
-                (${quote(d, 'id')}, ${quote(d, 'codeHmac')}, ${quote(d, 'issuedAt')}, ${quote(d, 'expiresAt')}, ${quote(d, 'consumedAt')})
-             VALUES (1, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-                ${quote(d, 'codeHmac')} = VALUES(${quote(d, 'codeHmac')}),
-                ${quote(d, 'issuedAt')} = VALUES(${quote(d, 'issuedAt')}),
-                ${quote(d, 'expiresAt')} = VALUES(${quote(d, 'expiresAt')}),
-                ${quote(d, 'consumedAt')} = VALUES(${quote(d, 'consumedAt')})`,
-            params
-        )
+        const previous = previousHmac ?? ''
+        await querySource(this.dataSource, conditionalSetupUpsert(d), [
+            row.codeHmac,
+            row.issuedAt,
+            row.expiresAt,
+            row.consumedAt,
+            row.issuedAt,
+            previous
+        ])
+        const after = await this.read()
+        if (!sameSetupRow(after, row)) return 'kept'
+        if (!before) return 'inserted'
+        if (!sameSetupRow(before, row)) return 'replaced'
+        return 'inserted'
     }
 
     async consume(hmac: string, now: number): Promise<boolean> {
         const row = await this.read()
         if (!row || row.consumedAt != null || row.expiresAt <= now || !sameHmac(row.codeHmac, hmac)) return false
-        await this.save({ ...row, consumedAt: now })
-        return true
+        const outcome = await this.save({ ...row, consumedAt: now }, row.codeHmac)
+        return outcome !== 'kept'
     }
 }
 

@@ -94,7 +94,10 @@ export interface CreateOwnerInput {
     externalId: string | null
 }
 
-/** Optional. When set, the owner row is inserted only if this setup HMAC is still unused and unexpired. */
+/**
+ * Optional. consumeSetupHmac inserts the owner only when that HMAC is still unused and unexpired.
+ * Operator commands omit it, and an open setup code row is retired in the same transaction.
+ */
 export interface CreateOwnerOptions {
     consumeSetupHmac?: string
     now?: number

@@ -4,7 +4,7 @@
 import express, { NextFunction, Request, Response } from 'express'
 import { applySetupHeaders, cookieMutationAllowed } from '../../identity/sessionGuard'
 import { noteSetupFailure } from '../../identity/setupCode'
-import { setupFailureLimited, socketAddress } from '../../identity/setupLimit'
+import { socketAddress } from '../../identity/setupLimit'
 import { Principal, applyAuthKitTest, authKitTestStatus, checkAuthKit, requestOrigin, startAuthKitTest } from '../../settings/authkit'
 import { TestInputError } from '../../settings/connection'
 import { SettingsError } from '../../settings/service'
@@ -67,14 +67,13 @@ router.post('/open', async (req, res, next) => {
     try {
         const address = socketAddress(req.socket?.remoteAddress)
         const now = Date.now()
-        if (setupFailureLimited(address, now)) {
-            return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
-        }
         const setup = deps()
         const closed = await setupClosed(setup)
         if (closed) return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE[closed] })
         if (!(await codeOpensSetup(setup, (req.body as { code?: unknown })?.code))) {
-            noteSetupFailure(address, now)
+            if (noteSetupFailure(address, now).limited) {
+                return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
+            }
             return res.status(404).json({ code: 'BAD_CODE', message: 'This setup link is not right. Copy it again from the server log.' })
         }
         openSetupSession(req, res)

@@ -59,6 +59,7 @@ export async function runUserCli(store: IdentityStore, input: UserCliInput): Pro
     if (!input.localAdmin) return { ok: false, lines: ['Refusing to create a user while the local admin flag is off.'] }
     if ((await store.countUsers()) !== 0) return { ok: false, lines: [`No account exists for ${email}.`] }
     const name = email.split('@')[0]?.trim().slice(0, 100) || 'Super User'
+    // An open first-run code is retired in this same createOwner transaction.
     const created = await store.createOwner({ email, name, credential: hash, externalId: null })
     return { ok: true, lines: [`Super User created for ${created.email}.`] }
 }

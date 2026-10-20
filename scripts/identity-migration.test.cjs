@@ -751,4 +751,102 @@ describe('setup code on sqlite', () => {
             if (second.isInitialized) await second.destroy()
         }
     })
+
+    it('keeps one live code when two copies save, then replaces it for that copy or once it expires', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        await migration.addSetupCode(runner)
+        await dataSource.query(`DELETE FROM "identity_setup_code"`)
+        const secondSource = new DataSource({
+            type: 'sqlite',
+            database: path.join(dir, 'setup.sqlite'),
+            synchronize: false
+        })
+        await secondSource.initialize()
+        await secondSource.query(`PRAGMA busy_timeout = 5000`)
+        try {
+            const first = new SqlSetupCodeStore(dataSource)
+            const second = new SqlSetupCodeStore(secondSource)
+            const rowA = { codeHmac: 'a'.repeat(64), issuedAt: NOW, expiresAt: NOW + 60 * 60 * 1000, consumedAt: null }
+            const rowB = { codeHmac: 'b'.repeat(64), issuedAt: NOW, expiresAt: NOW + 60 * 60 * 1000, consumedAt: null }
+            const outcomes = await Promise.all([first.save(rowA, null), second.save(rowB, null)])
+            assert.equal(outcomes.filter((item) => item === 'inserted').length, 1)
+            assert.equal(outcomes.filter((item) => item === 'kept').length, 1)
+            const stored = await first.read()
+            assert.ok(stored)
+            const winner = stored.codeHmac
+            assert.ok(winner === rowA.codeHmac || winner === rowB.codeHmac)
+            const rotated = { codeHmac: 'c'.repeat(64), issuedAt: NOW, expiresAt: NOW + 60 * 60 * 1000, consumedAt: null }
+            assert.equal(await first.save(rotated, winner), 'replaced')
+            assert.equal((await first.read()).codeHmac, rotated.codeHmac)
+            const expired = {
+                codeHmac: 'd'.repeat(64),
+                issuedAt: rotated.expiresAt,
+                expiresAt: rotated.expiresAt + 60 * 60 * 1000,
+                consumedAt: null
+            }
+            assert.equal(await second.save(expired, ''), 'replaced')
+            assert.equal((await second.read()).codeHmac, expired.codeHmac)
+        } finally {
+            if (secondSource.isInitialized) await secondSource.destroy()
+        }
+    })
+
+    it('a second copy does not print a code it did not store', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        const setup = serverRequire('./src/identity/setupCode.ts')
+        await migration.addSetupCode(runner)
+        await dataSource.query(`DELETE FROM "identity_setup_code"`)
+        setup.resetFirstRunSetupCode()
+        setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+        const lines = []
+        assert.equal(
+            await setup.announceFirstRunSetup(
+                3000,
+                async () => 0,
+                (line) => lines.push(line),
+                true
+            ),
+            true
+        )
+        assert.equal(lines.length, 1)
+        const issuedUrl = String(lines[0]).match(/https?:\/\/\S+/)
+        assert.ok(issuedUrl)
+        const code = new URL(issuedUrl[0]).hash.slice('#code='.length)
+        assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
+        setup.forgetIssuedSetupCode()
+        lines.length = 0
+        assert.equal(
+            await setup.announceFirstRunSetup(
+                3000,
+                async () => 0,
+                (line) => lines.push(line),
+                true
+            ),
+            true
+        )
+        assert.equal(lines.length, 1)
+        assert.match(lines[0], /another copy/)
+        assert.equal(/[#?&]code=/.test(lines[0]), false)
+        assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
+        assert.equal(setup.issuedSetupHmac(), null)
+        setup.resetFirstRunSetupCode()
+    })
+
+    it('retires an open code when the operator command creates the owner', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        const setup = serverRequire('./src/identity/setupCode.ts')
+        await migration.addSetupCode(runner)
+        await emptyAccounts()
+        await dataSource.query(`DELETE FROM "identity_setup_code"`)
+        setup.resetFirstRunSetupCode()
+        setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+        const code = setup.firstRunSetupCode(Date.now())
+        await setup.setupCodeReady()
+        const owner = await new SqlIdentityStore(dataSource).createOwner(ownerInput('cli-owner@example.com'))
+        assert.equal(owner.email, 'cli-owner@example.com')
+        assert.equal(await setup.setupCodeMatches(code, Date.now()), false)
+        const row = await dataSource.query(`SELECT "consumedAt" AS consumedAt FROM "identity_setup_code"`)
+        assert.ok(row[0].consumedAt != null)
+        setup.resetFirstRunSetupCode()
+    })
 })

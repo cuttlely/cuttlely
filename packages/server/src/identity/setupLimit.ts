@@ -11,14 +11,15 @@
  * The address is the socket remote address.
  */
 
-const ADDRESS_LIMIT = 10
-const ADDRESS_WINDOW_MS = 15 * 60 * 1000
-const GLOBAL_LIMIT = 100
-const GLOBAL_WINDOW_MS = 60 * 60 * 1000
+export const SETUP_ADDRESS_LIMIT = 10
+export const SETUP_ADDRESS_WINDOW_MS = 15 * 60 * 1000
+export const SETUP_GLOBAL_LIMIT = 100
+export const SETUP_GLOBAL_WINDOW_MS = 60 * 60 * 1000
 
 const byAddress = new Map<string, number[]>()
 let globalStamps: number[] = []
-let globalReissued = false
+/** -1 until this process has replaced the code for the global cap. */
+let lastGlobalReissueAt = -1
 
 function prune(stamps: number[], now: number, windowMs: number): number[] {
     const cutoff = now - windowMs
@@ -37,30 +38,31 @@ export function socketAddress(remote: string | undefined | null): string {
 /** True when this address or the whole server is already over its failure cap. */
 export function setupFailureLimited(address: string, now: number): boolean {
     const stamps = byAddress.get(socketAddress(address)) ?? []
-    const cutoffAddress = now - ADDRESS_WINDOW_MS
-    const cutoffGlobal = now - GLOBAL_WINDOW_MS
+    const cutoffAddress = now - SETUP_ADDRESS_WINDOW_MS
+    const cutoffGlobal = now - SETUP_GLOBAL_WINDOW_MS
     let addressCount = 0
     for (const stamp of stamps) if (stamp > cutoffAddress) addressCount += 1
     let globalCount = 0
     for (const stamp of globalStamps) if (stamp > cutoffGlobal) globalCount += 1
-    return addressCount >= ADDRESS_LIMIT || globalCount >= GLOBAL_LIMIT
+    return addressCount >= SETUP_ADDRESS_LIMIT || globalCount >= SETUP_GLOBAL_LIMIT
 }
 
 /**
  * Records one failed setup attempt.
- * `reissue` is true once, when the server-wide cap is reached, so the caller can print a new link.
+ * `reissue` is true at most once per global window, when that cap is reached.
  */
 export function recordSetupFailure(address: string, now: number): { blocked: boolean; reissue: boolean } {
     const id = socketAddress(address)
-    const stamps = prune(byAddress.get(id) ?? [], now, ADDRESS_WINDOW_MS)
+    const stamps = prune(byAddress.get(id) ?? [], now, SETUP_ADDRESS_WINDOW_MS)
     stamps.push(now)
     byAddress.set(id, stamps)
-    globalStamps = prune(globalStamps, now, GLOBAL_WINDOW_MS)
+    globalStamps = prune(globalStamps, now, SETUP_GLOBAL_WINDOW_MS)
     globalStamps.push(now)
-    const blocked = stamps.length >= ADDRESS_LIMIT || globalStamps.length >= GLOBAL_LIMIT
+    const blocked = stamps.length >= SETUP_ADDRESS_LIMIT || globalStamps.length >= SETUP_GLOBAL_LIMIT
     let reissue = false
-    if (globalStamps.length >= GLOBAL_LIMIT && !globalReissued) {
-        globalReissued = true
+    const due = lastGlobalReissueAt < 0 || now - lastGlobalReissueAt >= SETUP_GLOBAL_WINDOW_MS
+    if (globalStamps.length >= SETUP_GLOBAL_LIMIT && due) {
+        lastGlobalReissueAt = now
         reissue = true
     }
     return { blocked, reissue }
@@ -70,5 +72,5 @@ export function recordSetupFailure(address: string, now: number): { blocked: boo
 export function resetSetupFailures(): void {
     byAddress.clear()
     globalStamps = []
-    globalReissued = false
+    lastGlobalReissueAt = -1
 }

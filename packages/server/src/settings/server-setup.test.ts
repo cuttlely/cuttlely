@@ -4,8 +4,15 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import request from 'supertest'
-import { announceFirstRunSetup, firstRunSetupCode, resetFirstRunSetupCode, serverSetupLink } from '../identity/setupCode'
-import { CreateOwnerInput, UserRow } from '../identity/types'
+import {
+    announceFirstRunSetup,
+    firstRunSetupCode,
+    forgetIssuedSetupCode,
+    resetFirstRunSetupCode,
+    serverSetupLink
+} from '../identity/setupCode'
+import { setupFailureLimited } from '../identity/setupLimit'
+import { CreateOwnerInput, CreateOwnerOptions, UserRow } from '../identity/types'
 import { StartState } from './apply'
 import { AuthKitDeps, AuthKitPort, resetAuthKitTests } from './authkit'
 import { readHistory } from './history'
@@ -37,13 +44,15 @@ let env: Record<string, string | undefined>
 let state: StartState
 let now: number
 let created: CreateOwnerInput[]
+let lastOwnerOptions: CreateOwnerOptions | undefined
 let exchangeUser: { id: string; email: string; emailVerified: boolean; name: string | null }
 
 function users() {
     return {
         countUsers: async () => created.length,
-        createOwner: async (input: CreateOwnerInput) => {
+        createOwner: async (input: CreateOwnerInput, options?: CreateOwnerOptions) => {
             created.push(input)
+            lastOwnerOptions = options
             return {
                 id: `user-${created.length}`,
                 email: input.email,
@@ -104,6 +113,7 @@ beforeEach(() => {
     }
     now = Date.now()
     created = []
+    lastOwnerOptions = undefined
     exchangeUser = { id: 'user_fake_1', email: 'rosa@rosas-bakery.example', emailVerified: true, name: 'Rosa' }
     resetFirstRunSetupCode()
     resetAuthKitTests()
@@ -153,6 +163,7 @@ describe('opening the link', () => {
         expect(res.headers['referrer-policy']).toBe('no-referrer')
         expect(res.headers['cache-control']).toBe('no-store')
         expect(res.headers['x-frame-options']).toBe('DENY')
+        expect(res.headers['content-security-policy']).toBe("frame-ancestors 'none'")
         const cookie = String(res.headers['set-cookie'])
         expect(cookie).toMatch(/cuttlely-setup=/)
         expect(cookie).toMatch(/HttpOnly/)
@@ -166,6 +177,7 @@ describe('opening the link', () => {
         const res = await request(app).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: firstRunSetupCode() })
         expect(res.status).toBe(410)
         expect(res.body.message).toBe('This server already has an account. Sign in instead.')
+        expect(setupFailureLimited('127.0.0.1', Date.now())).toBe(false)
         created = []
         env.CUTTLELY_LOCAL_ADMIN = 'true'
         expect((await request(app).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: firstRunSetupCode() })).status).toBe(410)
@@ -215,6 +227,8 @@ describe('use a password for now', () => {
         expect(JSON.stringify(res.body)).not.toContain(GOOD_PASSWORD)
         expect(created).toHaveLength(1)
         expect(created[0].credential).not.toBe(GOOD_PASSWORD)
+        expect(lastOwnerOptions?.consumeSetupHmac).toMatch(/^[0-9a-f]{64}$/i)
+        expect(typeof lastOwnerOptions?.now).toBe('number')
         expect(readSettingsFile(dir, KEY).values.CUTTLELY_LOCAL_ADMIN).toBe('true')
         expect(readHistory(dir).map((entry) => entry.by)).toContain('setup link')
         // Single use: the same code, the same browser, all closed.
@@ -240,11 +254,37 @@ describe('use a password for now', () => {
             .post('/api/v1/server-setup/open')
             .set(INTERNAL)
             .set('X-Forwarded-For', '203.0.113.77')
-            .send({ code: firstRunSetupCode() })
+            .send({ code: 'TESTCODE-wrong' })
         expect(blocked.status).toBe(429)
         expect(blocked.headers['referrer-policy']).toBe('no-referrer')
         expect(blocked.headers['cache-control']).toBe('no-store')
         expect(blocked.headers['x-frame-options']).toBe('DENY')
+        expect(blocked.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+        const allowed = await request(app)
+            .post('/api/v1/server-setup/open')
+            .set(INTERNAL)
+            .set('X-Forwarded-For', '203.0.113.78')
+            .send({ code: firstRunSetupCode() })
+        expect(allowed.status).toBe(200)
+    })
+
+    it('refuses owner creation when this process has no setup code', async () => {
+        const agent = await opened()
+        forgetIssuedSetupCode()
+        const res = await agent
+            .post('/api/v1/server-setup/owner')
+            .set(INTERNAL)
+            .send({ name: 'Rosa', email: 'rosa@rosas-bakery.example', password: GOOD_PASSWORD })
+        expect(res.status).toBe(410)
+        expect(res.body.message).toBe('Open the setup link from the server log again.')
+        expect(created).toEqual([])
+        let values: Record<string, string> | undefined
+        try {
+            values = readSettingsFile(dir, KEY).values
+        } catch {
+            values = undefined
+        }
+        expect(values?.CUTTLELY_LOCAL_ADMIN).toBeUndefined()
     })
 
     it('is refused when the host sets the password sign-in', async () => {

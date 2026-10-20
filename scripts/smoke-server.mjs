@@ -69,11 +69,25 @@ function cookieHeader(response) {
     return list.map((cookie) => cookie.split(';')[0]).join('; ')
 }
 
-// The printed setup link carries the one-time code after #code=.
+// The printed setup link carries the one-time code after #code=, or ?code= on an older checkout.
+const SETUP_CODE_IN_LOG = /(?:#code=|[?&]code=)([A-Za-z0-9_-]+)/
+
 export function setupCodeFromLogs(logs) {
     const text = Array.isArray(logs) ? logs.join('') : String(logs || '')
-    const match = text.match(/#code=([A-Za-z0-9_-]+)/)
+    const match = text.match(SETUP_CODE_IN_LOG)
     return match ? match[1] : ''
+}
+
+/** Poll captured logs until the setup code line shows up, or the timeout passes. */
+export async function waitForSetupCode(source, timeoutMs = 15000) {
+    const started = Date.now()
+    for (;;) {
+        const ready = source && typeof source.setupCode === 'string' ? source.setupCode : ''
+        const code = ready || setupCodeFromLogs(source && source.logs != null ? source.logs : source)
+        if (code) return code
+        if (Date.now() - started >= timeoutMs) return ''
+        await new Promise((resolve) => setTimeout(resolve, 50))
+    }
 }
 
 export async function request(url, { method = 'GET', cookie = '', body, timeoutMs = 30000 } = {}) {
@@ -240,7 +254,7 @@ export function startServer(dataDir, port, extra) {
         if (logs.length > 80) logs.shift()
         if (!setupCode) {
             pending = (pending + text).slice(-240)
-            const match = pending.match(/#code=([A-Za-z0-9_-]+)/)
+            const match = pending.match(SETUP_CODE_IN_LOG)
             if (match) setupCode = match[1]
         }
     }
@@ -377,7 +391,7 @@ async function main() {
         })
         if (forgot.status !== 404) throw new Error(`forgot-password ${forgot.status}: ${forgot.text.slice(0, 200)}`)
 
-        const setupCode = started.setupCode
+        const setupCode = await waitForSetupCode(started)
         if (!setupCode) throw new Error('the server log had no setup code')
         const registered = await request(`${base}/api/v1/account/register`, {
             method: 'POST',

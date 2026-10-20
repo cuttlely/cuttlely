@@ -47,8 +47,20 @@ const { WorkspaceUser } = serverRequire('./src/database/entities/identity/Worksp
 const { LoginMethod } = serverRequire('./src/database/entities/identity/LoginMethod.ts')
 const { LoginActivity } = serverRequire('./src/database/entities/identity/LoginActivity.ts')
 const { WorkspaceShared } = serverRequire('./src/database/entities/identity/WorkspaceShared.ts')
+const { IdentitySetupCode } = serverRequire('./src/database/entities/identity/IdentitySetupCode.ts')
 
-const ENTITIES = [User, Organization, Role, OrganizationUser, Workspace, WorkspaceUser, LoginMethod, LoginActivity, WorkspaceShared]
+const ENTITIES = [
+    User,
+    Organization,
+    Role,
+    OrganizationUser,
+    Workspace,
+    WorkspaceUser,
+    LoginMethod,
+    LoginActivity,
+    WorkspaceShared,
+    IdentitySetupCode
+]
 const GOLDEN = JSON.parse(readFileSyncSafe(path.join(__dirname, 'identity-schema.golden.json')))
 const PG_PASSWORD = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD || ''
 const MY_PASSWORD = process.env.MYSQL_PWD || process.env.CUTTLELY_TEST_MYSQL_PASSWORD || ''
@@ -224,6 +236,17 @@ describe('identity entity schema', () => {
             external.some((col) => col.name === 'externalId'),
             true
         )
+    })
+
+    it('reads the setup code row through IdentitySetupCode', async () => {
+        const hmac = 'ab'.repeat(32)
+        await dataSource.query(
+            `INSERT INTO "identity_setup_code" ("id", "codeHmac", "issuedAt", "expiresAt", "consumedAt") VALUES (1, ?, ?, ?, NULL)`,
+            [hmac, '1780000000000', '1780003600000']
+        )
+        const found = await dataSource.getRepository(IdentitySetupCode).findOneBy({ id: 1 })
+        assert.equal(found && found.codeHmac, hmac)
+        assert.equal(String(found && found.issuedAt), '1780000000000')
     })
 })
 

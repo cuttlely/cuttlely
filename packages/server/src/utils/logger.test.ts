@@ -111,6 +111,37 @@ describe('logger.ts', () => {
             expect(logged).not.toContain(secret)
         })
 
+        it('does not write a setup code from the body, the query, or the fragment', () => {
+            process.env.DEBUG = 'true'
+            const secret = 'setup-code-example-value'
+            const kept = 'kept-encode-value'
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            const req = {
+                url: `/api/v1/account/register?setupCode=${secret}&code=${secret}&Code=${secret}#code=${secret}&setupCode=${secret}&encode=${kept}`,
+                method: 'POST',
+                params: {},
+                body: { setupCode: secret, code: secret, Code: secret, name: 'Rosa' },
+                query: { setupCode: secret, code: secret, Code: secret },
+                headers: {}
+            } as any
+            expressRequestLogger(req, {} as any, next)
+            const logged = JSON.stringify(infoSpy.mock.calls)
+            expect(logged).not.toContain(secret)
+            expect(logged).toContain(kept)
+            const meta = infoSpy.mock.calls[0][1] as {
+                request: { body: Record<string, string>; query: Record<string, string>; url: string }
+            }
+            expect(meta.request.body).toEqual({ setupCode: '[redacted]', code: '[redacted]', Code: '[redacted]', name: 'Rosa' })
+            expect(meta.request.query).toEqual({ setupCode: '[redacted]', code: '[redacted]', Code: '[redacted]' })
+            expect(meta.request.url).toContain('code=[redacted]')
+            expect(meta.request.url).toContain('setupCode=[redacted]')
+            expect(meta.request.url).toContain(`encode=${kept}`)
+            expect(redactLoggedUrl(`/api/v1/account/register?%63ode=${secret}#code=${secret}&token=${secret}`)).toBe(
+                '/api/v1/account/register?%63ode=[redacted]#code=[redacted]&token=[redacted]'
+            )
+            infoSpy.mockRestore()
+        })
+
         it('does not write the invite token or a session from the cookie header in the debug record', () => {
             process.env.DEBUG = 'true'
             const invite = 'exampleinvitetokenexampleinvitetoken99'
