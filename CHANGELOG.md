@@ -16,7 +16,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   A2A stored tasks cap each question and answer at 64 KB (`A2A_TASK_TEXT_MAX_BYTES`, default 65536), keep a 64 MB per-flow byte budget (`A2A_TASK_BYTES_PER_FLOW`) next to the 1000-task cap, store the answer once, and mark the task failed when a queue subscription fails. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
+-   A2A stored tasks cap each question and answer at 64 KB (`A2A_TASK_TEXT_MAX_BYTES`, default 65536; a shorter cap than the `[truncated]` marker keeps the default), keep a 64 MB per-flow byte budget (`A2A_TASK_BYTES_PER_FLOW`) next to the 1000-task cap and shorten a just-finished answer if it would still exceed that budget, store the answer once, and mark the task failed when a queue subscription fails. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
 -   MCP `initialize` reports a Cuttlely server name (`cuttlely-<flow>` when the flow name has a usable slug, otherwise `cuttlely`). The name is lowercase `[a-z0-9-]`, at most 64 characters. Clients such as IBM watsonx Orchestrate show it in tool metadata.
 -   The README intro and the public FAQ note that Cuttlely is said like "cuddly".
 -   The public website leads with "The visual agent builder, ready for production." Home-page benchmark copy states the bakery analyst prompt sizes (2,562 to 663 tokens on a made-up bakery database) without score ratios. The Analyst guide's rules-check table says "all passed" instead of a score. Made for real teams names SQLite or Postgres; Server Settings still accepts only those two. The site changelog omits the 1.3.0 paper-page line.

@@ -2,17 +2,20 @@ import {
     A2A_ANSWER_TRUNCATE_MARK,
     A2A_TASK_CAP_PER_FLOW,
     A2A_TASK_TEXT_MAX_BYTES_DEFAULT,
+    A2A_TASK_TEXT_MAX_BYTES_MIN,
     TaskQuestionTooLargeError,
     TaskStoreFullError,
     a2aCallerKey,
     a2aFlowStoredBytes,
     a2aPublicTask,
     a2aTaskStore,
+    a2aTaskTextMaxBytes,
     insertA2aTaskForTests,
     isoNow,
     listA2aTasksForTests,
     measureA2aStoredTask,
     resetA2aTaskStore,
+    truncateA2aStoredAnswer,
     utf8Bytes
 } from './taskStore'
 
@@ -99,20 +102,20 @@ describe('a2a task store', () => {
     })
 
     it('rejects a stored question over the per-task byte cap', () => {
-        process.env.A2A_TASK_TEXT_MAX_BYTES = '8'
-        expect(() => a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: '123456789' })).toThrow(
-            TaskQuestionTooLargeError
-        )
+        process.env.A2A_TASK_TEXT_MAX_BYTES = '16'
+        expect(() =>
+            a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: '12345678901234567' })
+        ).toThrow(TaskQuestionTooLargeError)
         try {
-            a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: 'ééééé' })
+            a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: 'ééééééééé' })
             throw new Error('expected oversize é question to throw')
         } catch (error) {
             expect(error).toBeInstanceOf(TaskQuestionTooLargeError)
-            expect((error as TaskQuestionTooLargeError).message).toBe('Question exceeds the 8-byte store limit')
+            expect((error as TaskQuestionTooLargeError).message).toBe('Question exceeds the 16-byte store limit')
         }
         expect(listA2aTasksForTests()).toHaveLength(0)
-        const ok = a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: '12345678' })
-        expect(ok.question).toBe('12345678')
+        const ok = a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: '1234567890123456' })
+        expect(ok.question).toBe('1234567890123456')
         delete process.env.A2A_TASK_TEXT_MAX_BYTES
         expect(() =>
             a2aTaskStore.create({
@@ -123,6 +126,19 @@ describe('a2a task store', () => {
                 question: 'x'.repeat(A2A_TASK_TEXT_MAX_BYTES_DEFAULT + 1)
             })
         ).toThrow(TaskQuestionTooLargeError)
+    })
+
+    it('ignores a text cap shorter than the truncation marker and never stores a partial marker', () => {
+        process.env.A2A_TASK_TEXT_MAX_BYTES = '8'
+        expect(a2aTaskTextMaxBytes()).toBe(A2A_TASK_TEXT_MAX_BYTES_DEFAULT)
+        const row = a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: '123456789' })
+        expect(row.question).toBe('123456789')
+        expect(truncateA2aStoredAnswer('y'.repeat(40), 8)).toBe('')
+        expect(truncateA2aStoredAnswer('y'.repeat(40), 8).includes('[trunc')).toBe(false)
+        const marked = truncateA2aStoredAnswer('y'.repeat(40), A2A_TASK_TEXT_MAX_BYTES_MIN)
+        expect(marked).toBe(A2A_ANSWER_TRUNCATE_MARK)
+        expect(marked.endsWith('[truncated]')).toBe(true)
+        expect(utf8Bytes(marked)).toBe(A2A_TASK_TEXT_MAX_BYTES_MIN)
     })
 
     it('truncates a stored answer over the per-task byte cap and marks the cut', () => {
@@ -180,6 +196,24 @@ describe('a2a task store', () => {
         expect(a2aFlowStoredBytes('f')).toBe(measureA2aStoredTask(second))
         a2aTaskStore.remove('f', 'key:a', second.task.id)
         expect(a2aFlowStoredBytes('f')).toBe(0)
+    })
+
+    it('shortens a just-finished answer so the flow stays within the byte budget', () => {
+        process.env.A2A_TASK_BYTES_PER_FLOW = '20'
+        const row = a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: 'q' })
+        a2aTaskStore.finalize(row, { state: 'completed', timestamp: isoNow() }, { answer: 'y'.repeat(80) })
+        expect(a2aFlowStoredBytes('f')).toBeLessThanOrEqual(20)
+        expect(a2aFlowStoredBytes('f')).toBe(row.storedBytes)
+        expect(row.storedBytes).toBe(measureA2aStoredTask(row))
+        expect(row.answer?.endsWith('[truncated]')).toBe(true)
+        expect(utf8Bytes(row.answer)).toBe(19)
+        process.env.A2A_TASK_BYTES_PER_FLOW = '10'
+        const tight = a2aTaskStore.create({ flowId: 'g', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: 'q' })
+        a2aTaskStore.finalize(tight, { state: 'completed', timestamp: isoNow() }, { answer: 'y'.repeat(80) })
+        expect(a2aFlowStoredBytes('g')).toBeLessThanOrEqual(10)
+        expect(tight.answer).toBe('')
+        expect(tight.answer?.includes('[trunc')).toBe(false)
+        expect(a2aFlowStoredBytes('g')).toBe(utf8Bytes('q'))
     })
 
     it('stores the answer once and derives artifacts at read time', () => {

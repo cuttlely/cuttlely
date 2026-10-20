@@ -6,6 +6,7 @@ export const A2A_HISTORY_TASK_LIMIT = 20
 export const A2A_TASK_TEXT_MAX_BYTES_DEFAULT = 65536
 export const A2A_TASK_BYTES_PER_FLOW_DEFAULT = 64 * 1024 * 1024
 export const A2A_ANSWER_TRUNCATE_MARK = '\n[truncated]'
+export const A2A_TASK_TEXT_MAX_BYTES_MIN = Buffer.byteLength(A2A_ANSWER_TRUNCATE_MARK, 'utf8')
 
 export const A2A_FINAL_STATES = new Set(['completed', 'failed', 'canceled'])
 
@@ -94,7 +95,9 @@ const parsePositiveInt = (raw: string | undefined, fallback: number): number => 
 }
 
 export function a2aTaskTextMaxBytes(): number {
-    return parsePositiveInt(process.env.A2A_TASK_TEXT_MAX_BYTES, A2A_TASK_TEXT_MAX_BYTES_DEFAULT)
+    const n = parsePositiveInt(process.env.A2A_TASK_TEXT_MAX_BYTES, A2A_TASK_TEXT_MAX_BYTES_DEFAULT)
+    if (n < A2A_TASK_TEXT_MAX_BYTES_MIN) return A2A_TASK_TEXT_MAX_BYTES_DEFAULT
+    return n
 }
 
 export function a2aTaskBytesPerFlow(): number {
@@ -123,7 +126,7 @@ export function truncateA2aStoredAnswer(text: string, maxBytes = a2aTaskTextMaxB
     if (size <= maxBytes) return text
     const mark = A2A_ANSWER_TRUNCATE_MARK
     const markBytes = utf8Bytes(mark)
-    if (markBytes >= maxBytes) return truncateUtf8(mark, maxBytes)
+    if (maxBytes < markBytes) return ''
     return `${truncateUtf8(text, maxBytes - markBytes)}${mark}`
 }
 
@@ -199,6 +202,16 @@ const makeRoomFor = (flowId: string, extraBytes: number, keepId?: string): void 
     while (a2aFlowStoredBytes(flowId) + extraBytes > budget) {
         if (!evictOldestCompleted(flowId, keepId)) break
     }
+}
+
+const fitRowToFlowBudget = (row: A2aStoredTask): void => {
+    const others = a2aFlowStoredBytes(row.flowId) - row.storedBytes
+    const room = Math.max(0, a2aTaskBytesPerFlow() - others)
+    if (row.storedBytes <= room) return
+    const overhead = utf8Bytes(row.question) + utf8Bytes(statusMessageText(row))
+    if (row.answer === undefined) return
+    row.answer = truncateA2aStoredAnswer(row.answer, Math.max(0, room - overhead))
+    rememberBytes(row)
 }
 
 export function a2aPublicTask(row: A2aStoredTask): A2aTask {
@@ -301,6 +314,7 @@ const writeStatus = (row: A2aStoredTask, status: A2aTaskStatus, extra?: { answer
     rememberBytes(row)
     store.set(keyOf(row.flowId, row.caller, row.task.id), row)
     makeRoomFor(row.flowId, 0, row.task.id)
+    fitRowToFlowBudget(row)
     return true
 }
 
