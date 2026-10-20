@@ -1,6 +1,6 @@
 # Status
 
-Last refreshed 2026-10-20. Check `git log origin/main` for anything newer. Main includes the Orchestrate `external_chat` route (D101), A2A 0.3.0 send/stream/cancel (D103; shipped, not yet tested live with Orchestrate), and the pronunciation note. After the merge of `main`, `.gitattributes` is core-shared, so it is off the inherited-files list. The home hero import link on this branch reads Already have flows? Bring them over (D102). This branch adds the Orchestrate how-to, Larkfield Home orders demo samples, and a checked-in pull request banned-phrase check on `edited` (D104).
+Last refreshed 2026-10-20. Check `git log origin/main` for anything newer. Main includes the Orchestrate `external_chat` route (D101), A2A 0.3.0 send/stream/cancel (D103; shipped, not yet tested live with Orchestrate), the pronunciation note, the Orchestrate how-to and Larkfield Home orders samples, and a checked-in pull request banned-phrase check on `edited` (D104). After the merge of `main`, `.gitattributes` is core-shared, so it is off the inherited-files list. The home hero import link on this branch reads Already have flows? Bring them over (D102). This branch caps stored A2A task text and per-flow bytes (D105) and parses A2A, Orchestrate, and MCP JSON at 1 MB ahead of the global file-size parser (D106).
 
 ## What works on `main`
 

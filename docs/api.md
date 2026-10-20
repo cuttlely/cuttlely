@@ -140,7 +140,7 @@ A second Orchestrate chat on the same flow is a different conversation: it does 
 
 ## MCP endpoint
 
-A published chatflow can also answer as a remote MCP server at `POST /api/v1/mcp/<flow id>`. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Send that token as `Authorization: Bearer <token>`. `DELETE /api/v1/mcp/<flow id>` does not end a session: it always answers 405 `{ "jsonrpc": "2.0", "error": { "code": -32000, "message": "Session termination is not supported in stateless mode." }, "id": null }`. The POST body is MCP JSON-RPC (1 MB cap), not the Orchestrate chat-completions body.
+A published chatflow can also answer as a remote MCP server at `POST /api/v1/mcp/<flow id>`. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Send that token as `Authorization: Bearer <token>`. `DELETE /api/v1/mcp/<flow id>` does not end a session: it always answers 405 `{ "jsonrpc": "2.0", "error": { "code": -32000, "message": "Session termination is not supported in stateless mode." }, "id": null }`. The POST body is MCP JSON-RPC (1 MB cap), not the Orchestrate chat-completions body. A body over 1 MB is 413 from the global error handler (`{ "statusCode": 413, "success": false, "message", "stack" }`).
 
 Orchestrate users who want a remote toolkit instead of an `external_chat` collaborator (A2A is not yet tested) point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
 

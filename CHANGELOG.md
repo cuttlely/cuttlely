@@ -28,6 +28,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A2A, Orchestrate, and MCP JSON bodies over 1 MB are refused at that cap even though the global JSON parser uses the file-size limit (default 50 MB). A2A stays 413 `{ "error": { "code": "body_too_large" } }`; Orchestrate and MCP stay the global 413 body. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
 -   GET `/api/v1/mcp/:chatflowId` returns `405 Method Not Allowed` with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC error body, instead of the UI page. This server does not offer MCP server-initiated streams.
 -   A Flowise database older than `3.1.4` is refused before any migration, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is left unchanged. That includes application data in document stores, variables, and the other tables that gain a workspace id, not only flows, credentials, and tools. An older enterprise identity schema is refused even when those application tables are empty. A database with no application data, including a first start that stopped part way, still migrates. Upgrade it in Flowise `3.1.4` first, then move it. [Move a whole install](./docs/bring-your-flows.md#move-a-whole-install).
 
