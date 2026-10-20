@@ -699,9 +699,25 @@ export function credentialIsOptional(definition?: { optional?: boolean | object 
     return definition?.optional === true
 }
 
+const INPUT_SECRET_KEY = /api[_-]?key|access[_-]?token|secret(?:key)?$/i
+
+/**
+ * Override config and some tests put the provider key on the node inputs instead of selecting a stored credential.
+ */
+export function inputsProvideModelSecret(nodeData?: ModelCredentialNodeData): boolean {
+    const inputs = nodeData?.inputs
+    if (!inputs || typeof inputs !== 'object') return false
+    for (const [key, value] of Object.entries(inputs)) {
+        if (!INPUT_SECRET_KEY.test(key)) continue
+        if (typeof value === 'string' && value.trim()) return true
+    }
+    return false
+}
+
 /**
  * Chat model and embeddings nodes that declare a required credential must have one selected.
  * Optional credentials (Ollama, Cerebras, Azure when the process already has the provider variables) stay optional.
+ * A key already on the node inputs still counts, so override config and init tests can pass a key without a stored id.
  */
 export function assertRequiredModelCredential(source: ModelCredentialSource | undefined, nodeData?: ModelCredentialNodeData): void {
     const category = source?.category || nodeData?.category
@@ -709,6 +725,7 @@ export function assertRequiredModelCredential(source: ModelCredentialSource | un
     if (!source?.credential) return
     if (credentialIsOptional(source.credential)) return
     if (selectedModelCredentialId(nodeData)) return
+    if (inputsProvideModelSecret(nodeData)) return
     const label = String(nodeData?.label || source.label || nodeData?.name || source.name || '').trim()
     throw new MissingModelCredentialError(label)
 }

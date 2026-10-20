@@ -6,6 +6,7 @@ import {
     assertRequiredModelCredential,
     credentialIsOptional,
     getCredentialData,
+    inputsProvideModelSecret,
     MISSING_MODEL_CREDENTIAL_STATUS,
     MissingModelCredentialError,
     missingModelCredentialMessage,
@@ -58,6 +59,15 @@ describe('missing required model credential', () => {
         expect(selectedModelCredentialId({ credential: 'cred-1' })).toBe('cred-1')
         expect(selectedModelCredentialId({ inputs: { FLOWISE_CREDENTIAL_ID: 'cred-2' } })).toBe('cred-2')
         expect(() => assertRequiredModelCredential(requiredChat, { credential: 'cred-1', label: 'OpenAI' })).not.toThrow()
+    })
+
+    it('accepts a provider key on the node inputs (override config) without a stored credential id', () => {
+        expect(inputsProvideModelSecret({ inputs: { openAIApiKey: 'not-a-real-key' } })).toBe(true)
+        expect(inputsProvideModelSecret({ inputs: { openRouterApiKey: 'not-a-real-key' } })).toBe(true)
+        expect(inputsProvideModelSecret({ inputs: { modelName: 'gpt-4.1' } })).toBe(false)
+        expect(() =>
+            assertRequiredModelCredential(requiredChat, { label: 'OpenAI', inputs: { openAIApiKey: 'not-a-real-key' } })
+        ).not.toThrow()
     })
 
     it('leaves optional credentials alone, including an Azure-style env-var fallback', () => {
@@ -124,6 +134,20 @@ describe('node init', () => {
         const node = new ChatCerebras()
         expect(node.credential.optional).toBe(true)
         await expect(getCredentialData('', {}, { instance: node, nodeData: { label: node.label } })).resolves.toEqual({})
+    })
+
+    it('OpenAI init still builds when the key is on the node inputs', async () => {
+        const node = new ChatOpenAI()
+        const model = await node.init(
+            {
+                label: 'OpenAI',
+                name: 'chatOpenAI',
+                inputs: { modelName: 'gpt-4-turbo', temperature: '0.2', openAIApiKey: 'not-a-real-key' }
+            },
+            '',
+            {}
+        )
+        expect(model.model).toBe('gpt-4-turbo')
     })
 
     it('OpenAI still 422s when OPENAI_API_KEY is set: a required credential is not an env fallback', async () => {
