@@ -447,44 +447,10 @@ describe('template inputs', () => {
             for (const text of texts) expect(text).not.toContain(MARKER)
         }
         const componentParams = [
-            { name: 'temperature', type: 'number' },
-            { name: 'streaming', type: 'boolean' },
-            {
-                name: 'reasoningEffort',
-                type: 'options',
-                options: [
-                    { label: 'Low', name: 'low' },
-                    { label: 'High', name: 'high' }
-                ]
-            },
-            {
-                name: 'stops',
-                type: 'multiOptions',
-                options: [
-                    { label: 'A', name: 'alpha' },
-                    { label: 'B', name: 'beta' }
-                ]
-            },
-            { name: 'modelName', type: 'asyncOptions' },
+            ...schemaParams,
             { name: 'otherModel', type: 'asyncOptions' },
-            { name: 'prompt', type: 'string', placeholder: 'Ask' },
-            { name: 'systemMessage', type: 'string' },
-            { name: 'description', type: 'string' },
-            { name: 'label', type: 'string' },
-            { name: 'placeholder', type: 'string' },
-            { name: 'toolName', type: 'string' },
-            { name: 'agentName', type: 'string' },
-            { name: 'toolDescription', type: 'string' },
-            { name: 'requestsGetName', type: 'string' },
-            { name: 'basePath', type: 'string' },
             { name: 'baseURL', type: 'string' },
-            { name: 'config', type: 'json' },
-            { name: 'snippet', type: 'code' },
-            { name: 'secretField', type: 'password' },
-            { name: 'upload', type: 'file' },
-            { name: 'directory', type: 'folder' },
-            { name: 'credential', type: 'credential' },
-            { name: 'note', type: 'string' }
+            { name: 'credential', type: 'credential' }
         ]
         const rng = mulberry32(262)
         for (let trial = 0; trial < 40; trial += 1) {
@@ -501,7 +467,9 @@ describe('template inputs', () => {
                 return forms[Math.floor(rng() * forms.length)]
             }
             const carried = shapes.map((shape) => carry(shape))
-            // Each kind gets a JavaScript type it does not accept. The five shapes are also whole values.
+            const shaped = secretShapes(marker)
+            const secretText = (index: number) => carry(shaped[index % shaped.length])
+            // Each kind gets a JavaScript type it does not accept, or a secret-shaped string, including after percent and JSON decoding.
             const inputs: Record<string, unknown> = {
                 prompt: 'Hello "world"',
                 systemMessage: 'a @ b',
@@ -523,13 +491,27 @@ describe('template inputs', () => {
                 requestsGetName: shapes[1],
                 note: shapes[2],
                 basePath: shapes[4],
+                basepath: carry(shapes[4]),
                 baseURL: trial % 2 === 0 ? { href: carried[3] } : shapes[3],
                 config: trial % 2 === 0 ? carried[0] : [carried[0]],
                 snippet: { body: carried[1] },
                 secretField: { secret: carried[2] },
                 upload: [carried[3]],
                 directory: { path: carried[4] },
-                credential: trial % 2 === 0 ? { id: carried[0] } : [carried[0]]
+                credential: trial % 2 === 0 ? { id: carried[0] } : [carried[0]],
+                systemMessagePrompt: trial % 2 === 0 ? { text: secretText(0) } : secretText(7),
+                when: trial % 2 === 0 ? secretText(0) : { at: secretText(0) },
+                grid: trial % 2 === 0 ? [{ cell: secretText(1) }] : secretText(1),
+                relations: trial % 2 === 0 ? [secretText(2)] : { ids: secretText(2) },
+                rows: trial % 2 === 0 ? secretText(3) : [{ id: secretText(3) }],
+                headers: trial % 2 === 0 ? secretText(0) : { Authorization: secretText(0) },
+                requestsGetHeaders: trial % 2 === 0 ? { Authorization: secretText(1) } : [secretText(1)],
+                credentialId: trial % 2 === 0 ? secretText(6) : { id: secretText(6) }
+            }
+            const declaredTypes = new Set(componentParams.map((param) => param.type))
+            for (const param of schemaParams) {
+                expect(Object.prototype.hasOwnProperty.call(inputs, param.name)).toBe(true)
+                expect(declaredTypes.has(param.type)).toBe(true)
             }
             const flow = buildTemplateFlow(
                 {
@@ -601,8 +583,17 @@ describe('template inputs', () => {
             expect(kept.missing).toBeUndefined()
             expect(kept.shaped).toBeUndefined()
             expect(kept.basePath).toBeUndefined()
+            expect(kept.basepath).toBeUndefined()
             expect(kept.baseURL).toBe(trial % 2 === 0 ? undefined : 'https://example.com/a')
             expect(kept.toolDescription).toBeUndefined()
+            expect(kept.systemMessagePrompt).toBeUndefined()
+            expect(kept.when).toBeUndefined()
+            expect(kept.grid).toBeUndefined()
+            expect(kept.relations).toBeUndefined()
+            expect(kept.rows).toBeUndefined()
+            expect(kept.headers).toBeUndefined()
+            expect(kept.requestsGetHeaders).toBeUndefined()
+            expect(kept.credentialId).toBeUndefined()
             expect((flow.nodes[2] as { secretNote?: unknown; data: unknown }).secretNote).toBeUndefined()
             expect((flow.nodes[2] as { data: unknown }).data).toEqual({ id: 'mystery_0', selected: false, inputs: {} })
             const display = publicChatbotDisplayConfig({
