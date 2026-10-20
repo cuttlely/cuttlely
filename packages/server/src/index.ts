@@ -32,6 +32,7 @@ import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
 import { orchestrateContentTypeGuard, orchestrateJsonParser } from './routes/orchestrate'
 import { a2aBodyErrorHandler, a2aContentTypeGuard, a2aJsonParser, assertA2aPublicBaseUrl } from './routes/a2a'
+import { mcpJsonParser, unlessExternalJson, whenMcpEndpoint } from './utils/externalJsonLimit'
 import { attachIdentitySession } from './identity'
 import { apiV1Auth, isMcpEndpointPath, withoutDenylisted } from './identity/apiGate'
 import { sendMcpMethodNotAllowed } from './routes/mcp-endpoint/http'
@@ -213,13 +214,16 @@ export class App {
             ;(req as any).rawBody = buf
         }
         assertA2aPublicBaseUrl()
-        // Parse Orchestrate bodies at 1 MB and refuse non-JSON before the 50 MB urlencoded parser runs.
+        // Parse A2A, Orchestrate, and MCP JSON at 1 MB, then skip the global file-size parser on
+        // those prefixes. body-parser leaves an already-parsed body alone, so a later 50 MB
+        // express.json would otherwise ignore the 1 MB cap.
         this.app.use('/api/v1/orchestrate', orchestrateContentTypeGuard, orchestrateJsonParser)
         this.app.use('/api/v1/a2a', a2aContentTypeGuard)
         this.app.use('/api/v1/a2a', a2aJsonParser)
         this.app.use('/api/v1/a2a', a2aBodyErrorHandler)
-        this.app.use(express.json({ limit: flowise_file_size_limit, verify: captureRawBody }))
-        this.app.use(express.urlencoded({ limit: flowise_file_size_limit, extended: true, verify: captureRawBody }))
+        this.app.use(whenMcpEndpoint(mcpJsonParser))
+        this.app.use(unlessExternalJson(express.json({ limit: flowise_file_size_limit, verify: captureRawBody })))
+        this.app.use(unlessExternalJson(express.urlencoded({ limit: flowise_file_size_limit, extended: true, verify: captureRawBody })))
 
         // Unset TRUST_PROXY ignores X-Forwarded-For. Render sets TRUST_PROXY=1.
         this.app.set('trust proxy', resolveTrustProxy(process.env.TRUST_PROXY))

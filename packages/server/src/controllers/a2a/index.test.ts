@@ -338,6 +338,9 @@ beforeEach(() => {
     resetA2aTaskStore()
     delete process.env.CUTTLELY_ORCHESTRATE_ALLOW_KEYLESS
     delete process.env.A2A_PUBLIC_BASE_URL
+    delete process.env.A2A_TASK_TEXT_MAX_BYTES
+    delete process.env.A2A_TASK_BYTES_PER_FLOW
+    delete process.env.A2A_TASK_CAP_PER_FLOW
     delete process.env.DEBUG
 })
 
@@ -389,6 +392,8 @@ describe('A2A message/send', () => {
         expect(res.body.result.kind).toBe('task')
         expect(res.body.result.status.state).toBe('completed')
         expect(res.body.result.artifacts[0].parts[0].text).toBe('Hello Ada')
+        expect(listA2aTasksForTests()[0].answer).toBe('Hello Ada')
+        expect(listA2aTasksForTests()[0].task.artifacts).toBeUndefined()
         expect(res.body.result.contextId).toBe('Ada-thread')
         expect(String(res.headers['content-type'] || '')).not.toMatch(/event-stream/)
         expect(JSON.stringify(res.body)).not.toContain('tok-secret')
@@ -755,13 +760,15 @@ describe('A2A abort classification, get, and cancel', () => {
         }
     })
 
-    it('does not leak a task when queue subscribe rejects', async () => {
+    it('finalizes the task as failed when queue subscribe rejects', async () => {
         const previous = process.env.MODE
         process.env.MODE = MODE.QUEUE
         mockRedis.subscribe.mockRejectedValueOnce(new Error('redis down'))
         try {
             expectRpcError(await post(K, sendBody('Hi', { contextId: 'queue-send-fail' }), withKey()), A2A_RPC_CODES.internal)
-            expect(listA2aTasksForTests()).toHaveLength(0)
+            expect(listA2aTasksForTests()).toHaveLength(1)
+            expect(listA2aTasksForTests()[0].task.status.state).toBe('failed')
+            resetA2aTaskStore()
             mockRedis.subscribe.mockRejectedValueOnce(new Error('redis down'))
             const streamed = await streamRequest(K, streamBody('Hi', { contextId: 'queue-stream-fail' }), withKey())
             const events = parseA2aEvents(String(streamed.body))
@@ -806,6 +813,15 @@ describe('A2A error codes', () => {
         expectRpcError(await post(K, rpc('tasks/get', {}), withKey()), A2A_RPC_CODES.invalidParams)
         expectRpcError(await post(K, rpc('message/send', {}), withKey()), A2A_RPC_CODES.invalidParams)
         expectRpcError(await post(K, rpc('message/send', { message: userMessage('   ') }), withKey()), A2A_RPC_CODES.invalidParams)
+    })
+
+    it('answers -32602 for a question over the stored-text cap', async () => {
+        process.env.A2A_TASK_TEXT_MAX_BYTES = '32'
+        const res = await post(K, sendBody('x'.repeat(33)), withKey())
+        expectRpcError(res, A2A_RPC_CODES.invalidParams)
+        expect(res.body.error.message).toMatch(/32-byte store limit/)
+        expect(listA2aTasksForTests()).toHaveLength(0)
+        expect(mockBuildChatflow).not.toHaveBeenCalled()
     })
 
     it('answers the remaining JSON-RPC codes and HTTP refusals', async () => {

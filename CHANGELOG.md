@@ -18,6 +18,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   A2A stored tasks cap each question and answer at 64 KB (`A2A_TASK_TEXT_MAX_BYTES`, default 65536; a shorter cap than the `[truncated]` marker keeps the default), keep a 64 MB per-flow byte budget (`A2A_TASK_BYTES_PER_FLOW`) next to the 1000-task cap and shorten a just-finished answer if it would still exceed that budget, store the answer once, and mark the task failed when a queue subscription fails. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
 -   MCP `initialize` reports a Cuttlely server name (`cuttlely-<flow>` when the flow name has a usable slug, otherwise `cuttlely`). The name is lowercase `[a-z0-9-]`, at most 64 characters. Clients such as IBM watsonx Orchestrate show it in tool metadata.
 -   The README intro and the public FAQ note that Cuttlely is said like "cuddly".
 -   The public website leads with "The visual agent builder, ready for production." Home-page benchmark copy states the bakery analyst prompt sizes (2,562 to 663 tokens on a made-up bakery database) without score ratios. The Analyst guide's rules-check table says "all passed" instead of a score. Made for real teams names SQLite or Postgres; Server Settings still accepts only those two. The site changelog omits the 1.3.0 paper-page line.
@@ -29,6 +30,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Fixed
 
 -   MCP `POST /api/v1/mcp/:chatflowId` applies that flow's **Rate Limit** from Configuration.
+-   A2A, Orchestrate, and MCP JSON bodies over 1 MB are refused at that cap even though the global JSON parser uses the file-size limit (default 50 MB). A2A stays 413 `{ "error": { "code": "body_too_large" } }`; Orchestrate and MCP stay the global 413 body. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
 -   GET `/api/v1/mcp/:chatflowId` returns `405 Method Not Allowed` with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC error body, instead of the UI page. This server does not offer MCP server-initiated streams.
 -   A Flowise database older than `3.1.4` is refused before any migration, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is left unchanged. That includes application data in document stores, variables, and the other tables that gain a workspace id, not only flows, credentials, and tools. An older enterprise identity schema is refused even when those application tables are empty. A database with no application data, including a first start that stopped part way, still migrates. Upgrade it in Flowise `3.1.4` first, then move it. [Move a whole install](./docs/bring-your-flows.md#move-a-whole-install).
 
