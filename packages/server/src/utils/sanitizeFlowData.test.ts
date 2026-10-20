@@ -808,3 +808,119 @@ describe('credential-bearing URLs in node inputs', () => {
         ).toEqual({ config: { b: ['https://example.com/p?page=2'] }, site: 'https://example.com/docs?q=token' })
     })
 })
+
+describe('pair shape, fragments and decoded userinfo', () => {
+    const params = [
+        { name: 'callbackUrl', type: 'string' },
+        { name: 'requestsGetHeaders', type: 'json' },
+        { name: 'extras', type: 'json' }
+    ] as any
+
+    it('treats key as an ordinary name unless the object is exactly { key, value }', () => {
+        expect(sanitizeNodeInputs({ requestsGetHeaders: { key: 'FAKE-KEYNAME-1', Accept: 'json' } }, params)).toEqual({
+            requestsGetHeaders: { Accept: 'json' }
+        })
+        expect(sanitizeNodeInputs({ extras: { key: 'FAKE-KEYNAME-2', mode: 'm' } }, params)).toEqual({ extras: { mode: 'm' } })
+        expect(sanitizeNodeInputs({ requestsGetHeaders: [{ key: 'Accept', value: 'json' }] }, params)).toEqual({
+            requestsGetHeaders: [{ key: 'Accept', value: 'json' }]
+        })
+        expect(sanitizeNodeInputs({ requestsGetHeaders: [{ key: 'X-Custom-Auth', value: 'FAKE-PAIR', enabled: true }] }, params)).toEqual({
+            requestsGetHeaders: []
+        })
+    })
+
+    it.each([
+        'https://example.com/cb#/path?apikey=FAKE-FRAG-1',
+        'https://example.com/cb#/p?x=1&token=FAKE-FRAG-2',
+        'https://example.com/cb#a=1&sig=FAKE-FRAG-3',
+        'https://user%3AFAKE-UI@example.com/x',
+        '//user:FAKE-UI-2@example.com/x',
+        'see https://user:FAKE-UI-3@example.com/x for details',
+        'https://example.com/x;token=FAKE-MATRIX-1'
+    ])('drops %s on templates and public display', (url) => {
+        expect(sanitizeNodeInputs({ callbackUrl: url }, params)).toEqual({})
+        expect(publicChatbotDisplayConfig({ welcomeMessage: url })).toEqual({})
+    })
+
+    it('keeps a fragment route with ordinary parameters', () => {
+        const callbackUrl = 'https://example.com/app#/search?q=bread&page=3'
+        expect(sanitizeNodeInputs({ callbackUrl }, params)).toEqual({ callbackUrl })
+    })
+})
+
+describe('encoding fuzz: no fake secret marker survives any wrapper, carrier and location', () => {
+    const MARK = 'FAKEMARKQ7'
+    const carriers: Record<string, unknown> = {
+        'bare URL with userinfo': `https://user:${MARK}@example.com/x`,
+        'query param': `https://example.com/x?api_key=${MARK}`,
+        'fragment param': `https://example.com/x#a=1&access_token=${MARK}`,
+        'fragment ?query': `https://example.com/x#/cb?token=${MARK}`,
+        'apiKey field': { apiKey: MARK, ok: 1 },
+        'header pair': { key: 'X-Custom-Auth', value: MARK },
+        'header map key': { 'X-Api-Key': MARK, Accept: 'a' }
+    }
+    const twice = (v: string) => JSON.stringify(JSON.stringify(v))
+    const asText = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v))
+    const wrappers: Record<string, (v: unknown) => unknown> = {
+        none: (v) => v,
+        'JSON 1x': (v) => JSON.stringify(v),
+        'JSON 2x': (v) => JSON.stringify(JSON.stringify(v)),
+        'JSON 3x': (v) => JSON.stringify(JSON.stringify(JSON.stringify(v))),
+        'percent-encoded': (v) => encodeURIComponent(asText(v)),
+        'percent inside JSON': (v) => JSON.stringify(encodeURIComponent(asText(v))),
+        'JSON inside percent': (v) => encodeURIComponent(twice(asText(v))),
+        'array element': (v) => [v],
+        'object value': (v) => ({ wrap: v })
+    }
+    const params = [
+        { name: 'note', type: 'string' },
+        { name: 'extras', type: 'json' },
+        { name: 'requestsGetHeaders', type: 'json' }
+    ] as any
+    const displayOf = (field: string, v: unknown): Record<string, unknown> => {
+        if (field === 'starter prompt') return { starterPrompts: [{ prompt: v }] }
+        if (field === 'textColor') return { botMessage: { textColor: v } }
+        return { [field]: v }
+    }
+    const locations: Record<string, (v: unknown) => unknown> = {
+        'template top level': (v) => sanitizeNodeInputs({ note: v, extras: v }, params),
+        'template nested': (v) => sanitizeNodeInputs({ extras: { a: { b: v }, list: [1, v] } }, params),
+        'template *headers': (v) => sanitizeNodeInputs({ requestsGetHeaders: v, extras: { proxyHeaders: v } }, params),
+        'public title': (v) => publicChatbotDisplayConfig(displayOf('title', v)),
+        'public welcomeMessage': (v) => publicChatbotDisplayConfig(displayOf('welcomeMessage', v)),
+        'public starter prompt': (v) => publicChatbotDisplayConfig(displayOf('starter prompt', v)),
+        'public textColor': (v) => publicChatbotDisplayConfig(displayOf('textColor', v)),
+        'public chatflow summary': (v) =>
+            publicChatflowSummary({
+                id: 'f1',
+                isPublic: true,
+                chatbotConfig: JSON.stringify({
+                    title: v,
+                    welcomeMessage: v,
+                    starterPrompts: [{ prompt: v }],
+                    botMessage: { textColor: v }
+                })
+            })
+    }
+    const cases: [string, string, string][] = []
+    for (const w of Object.keys(wrappers))
+        for (const c of Object.keys(carriers)) for (const l of Object.keys(locations)) cases.push([w, c, l])
+
+    it.each(cases)('%s × %s × %s', (w, c, l) => {
+        const out = JSON.stringify(locations[l](wrappers[w](carriers[c])))
+        expect(out).not.toContain(MARK)
+        expect(decodeURIComponent(out.replace(/%(?![0-9a-f]{2})/gi, '%25'))).not.toContain(MARK)
+    })
+
+    it('keeps harmless values through the same wrappers on template inputs', () => {
+        const harmless = { url: 'https://example.com/search?q=cakes&page=2#results', mode: 'fast' }
+        for (const w of ['none', 'JSON 1x', 'JSON 2x', 'JSON 3x', 'array element', 'object value']) {
+            const wrapped = wrappers[w](harmless)
+            expect(sanitizeNodeInputs({ extras: wrapped }, params)).toEqual({ extras: wrapped })
+        }
+        expect(publicChatbotDisplayConfig({ title: 'Ask about 50% off', welcomeMessage: 'See https://example.com/help?q=1' })).toEqual({
+            title: 'Ask about 50% off',
+            welcomeMessage: 'See https://example.com/help?q=1'
+        })
+    })
+})

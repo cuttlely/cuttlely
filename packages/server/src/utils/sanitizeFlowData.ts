@@ -59,19 +59,53 @@ const isUrlCredentialParam = (name: string): boolean => {
 // Declared inputs dropped by name alone.
 const DECLARED_AUTH_NAME = /^(authorization|auth)$/i
 
-/** True for a string that parses as a URL carrying userinfo or a credential query or fragment parameter. */
+/** Parameter names in a query or fragment, split on & ; and a ? inside a fragment, percent-decoded. */
+const urlParamNames = (part: string): string[] =>
+    part
+        .split(/[?&;]/)
+        .map((piece) => piece.split('=')[0])
+        .filter(Boolean)
+        .map((name) => {
+            try {
+                return decodeURIComponent(name.replace(/\+/g, ' '))
+            } catch {
+                return name
+            }
+        })
+
+/** True when a parsed URL carries userinfo or a credential query or fragment parameter (including a ?query inside the fragment). */
+const urlCarriesCredential = (url: URL, raw: string): boolean => {
+    if (url.username || url.password) return true
+    // Userinfo the parser may not report (for example percent-encoded): anything before @ in the authority.
+    if (/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(raw) || /^\/\/[^/?#]*@/.test(raw)) return true
+    // Matrix parameters in path segments (/x;token=...) count too.
+    const matrix = url.pathname
+        .split('/')
+        .flatMap((segment) => segment.split(';').slice(1))
+        .join('&')
+    const names = [...urlParamNames(url.search.replace(/^\?/, '')), ...urlParamNames(url.hash.replace(/^#/, '')), ...urlParamNames(matrix)]
+    return names.some((name) => isUrlCredentialParam(name))
+}
+
+/** True for a string that is a URL (absolute or scheme-relative) carrying userinfo or a credential parameter. */
 const isCredentialUrl = (value: string): boolean => {
-    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value.trim())) return false
+    const raw = value.trim()
+    if (!/^([a-z][a-z0-9+.-]*:)?\/\//i.test(raw)) return false
     let url: URL
     try {
-        url = new URL(value.trim())
+        url = new URL(raw, 'https://base.invalid')
     } catch {
-        return false
+        return /@/.test(raw.split(/[/?#]/, 3).join('/'))
     }
-    if (url.username || url.password) return true
-    const params = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.replace(/^#/, '')).keys()]
-    return params.some((name) => isUrlCredentialParam(name))
+    return urlCarriesCredential(url, raw)
 }
+
+// URLs that appear anywhere inside text.
+const URL_IN_TEXT = /(?:[a-z][a-z0-9+.-]*:)?\/\/[^\s"'<>`\\]+/gi
+
+/** True when a string is, or contains, a credential-carrying URL. */
+const containsCredentialUrl = (value: string): boolean =>
+    isCredentialUrl(value) || [...value.matchAll(URL_IN_TEXT)].some((match) => isCredentialUrl(match[0]))
 
 /** True for an http(s) URL with no userinfo and no credential-looking query or fragment parameters. */
 const isPlainUrl = (value: unknown): boolean => {
@@ -83,9 +117,7 @@ const isPlainUrl = (value: unknown): boolean => {
         return false
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
-    if (url.username || url.password) return false
-    const params = [...url.searchParams.keys(), ...new URLSearchParams(url.hash.replace(/^#/, '')).keys()]
-    return !params.some((name) => isUrlCredentialParam(name))
+    return !urlCarriesCredential(url, value.trim())
 }
 
 /** Name rule for declared, non-password inputs; token-count words are ignored. */
@@ -122,41 +154,105 @@ export const isSecretHeaderName = (name: string): boolean => SECRET_HEADER_NAME.
 
 const DROP = Symbol('drop')
 
-// A JSON string literal is unwrapped up to this many times (double- or triple-encoded objects).
-const MAX_JSON_LAYERS = 3
-const TOO_DEEP = Symbol('too-deep')
+// Each kind of encoding (JSON string literal, percent-encoding) is unwrapped at most this many times.
+const MAX_DECODE_LAYERS = 3
 
-/**
- * When a string is a JSON object or array, possibly encoded as a JSON string up to MAX_JSON_LAYERS times, returns the
- * object and how many times it was encoded. TOO_DEEP when it is still an encoded JSON string after that; otherwise undefined.
- */
-const unwrapJson = (value: string): { parsed: object; layers: number } | typeof TOO_DEEP | undefined => {
+interface DecodedLayers {
+    /** The original string and every string it decodes to, outermost first. */
+    strings: string[]
+    /** The object or array at the bottom, how many JSON encodings wrap it, and whether percent-decoding was involved. */
+    structured?: { parsed: object; jsonLayers: number; viaPercent: boolean }
+    /** True when JSON parsing produced a string, object or array at any layer. */
+    jsonEncoded: boolean
+    /** True when the value is still encoded after MAX_DECODE_LAYERS of either kind. */
+    tooDeep: boolean
+}
+
+/** Repeatedly JSON-unwraps and percent-decodes a string, recording every layer. */
+const decodeLayers = (value: string): DecodedLayers => {
+    const strings = [value]
     let text = value
-    for (let layers = 1; ; layers += 1) {
+    let jsonLayers = 0
+    let percentLayers = 0
+    let viaPercent = false
+    let jsonEncoded = false
+    for (;;) {
         const trimmed = text.trim()
-        if (!/^[[{"]/.test(trimmed)) return undefined
-        let parsed: unknown
-        try {
-            parsed = JSON.parse(trimmed)
-        } catch {
-            return undefined
+        if (/^[[{"]/.test(trimmed)) {
+            let parsed: unknown
+            let ok = true
+            try {
+                parsed = JSON.parse(trimmed)
+            } catch {
+                ok = false
+            }
+            if (ok && parsed && typeof parsed === 'object') {
+                if (jsonLayers >= MAX_DECODE_LAYERS) return { strings, jsonEncoded: true, tooDeep: true }
+                return { strings, structured: { parsed, jsonLayers: jsonLayers + 1, viaPercent }, jsonEncoded: true, tooDeep: false }
+            }
+            if (ok && typeof parsed === 'string') {
+                if (jsonLayers >= MAX_DECODE_LAYERS) return { strings, jsonEncoded: true, tooDeep: true }
+                jsonLayers += 1
+                jsonEncoded = true
+                text = parsed
+                strings.push(text)
+                continue
+            }
         }
-        if (parsed && typeof parsed === 'object') return { parsed, layers }
-        if (typeof parsed !== 'string') return undefined
-        if (layers >= MAX_JSON_LAYERS) return /^[[{"]/.test(parsed.trim()) && unwrapJson(parsed) !== undefined ? TOO_DEEP : undefined
-        text = parsed
+        if (/%[0-9a-f]{2}/i.test(text)) {
+            let decoded: string | undefined
+            try {
+                decoded = decodeURIComponent(text)
+            } catch {
+                decoded = undefined
+            }
+            if (decoded !== undefined && decoded !== text) {
+                if (percentLayers >= MAX_DECODE_LAYERS) return { strings, jsonEncoded, tooDeep: true }
+                percentLayers += 1
+                viaPercent = true
+                text = decoded
+                strings.push(text)
+                continue
+            }
+        }
+        return { strings, jsonEncoded, tooDeep: false }
     }
 }
 
-/** Serializes a value the same number of times it was encoded. */
+/** True when a plain string layer is credential-shaped or carries a credential URL. */
+const isUnsafeText = (text: string): boolean => looksLikeSecretValue(text) || containsCredentialUrl(text)
+
+/** The string layers to value-check: all of them, except the JSON text of a structured bottom (its contents are walked instead). */
+const textLayers = (layers: DecodedLayers): string[] => (layers.structured ? layers.strings.slice(0, -1) : layers.strings)
+
+/** Serializes a value the same number of times it was JSON-encoded. */
 const reencode = (value: unknown, layers: number): string => {
     let out = JSON.stringify(value)
     for (let i = 1; i < layers; i += 1) out = JSON.stringify(out)
     return out
 }
 
-/** True when a string is JSON text for an object or array, including encoded forms. */
-const isStructuredText = (value: string): boolean => unwrapJson(value) !== undefined
+/**
+ * Cleans a decoded structured value with clean() and re-encodes it. A percent-encoded structure is kept only when
+ * cleaning changed nothing, since it cannot be re-encoded exactly.
+ */
+const cleanStructured = (value: string, layers: DecodedLayers, clean: (parsed: unknown) => unknown): unknown => {
+    const structured = layers.structured as NonNullable<DecodedLayers['structured']>
+    const cleaned = clean(structured.parsed)
+    if (cleaned === DROP) return DROP
+    if (structured.viaPercent) return JSON.stringify(cleaned) === JSON.stringify(structured.parsed) ? value : DROP
+    return reencode(cleaned, structured.jsonLayers)
+}
+
+/** True for an object that is exactly a { key, value } pair. */
+const isExactPair = (value: Record<string, unknown>): boolean => {
+    const names = Object.keys(value)
+    return names.length === 2 && 'key' in value && 'value' in value
+}
+
+/** True for an object that holds a key/value pair (it has both), whatever else it carries. */
+const isPairLike = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === 'object' && !Array.isArray(value) && 'key' in value && 'value' in value
 
 const HEADERS_KEY = /headers$/i
 
@@ -168,29 +264,27 @@ const HEADERS_KEY = /headers$/i
 const scrubHeaderTree = (value: unknown, depth = 0): unknown => {
     if (depth > 32) return DROP
     if (typeof value === 'string') {
-        const unwrapped = unwrapJson(value)
-        if (unwrapped === TOO_DEEP) return DROP
-        if (unwrapped === undefined) return /^\s*[[{]/.test(value) ? DROP : value
-        const cleaned = scrubHeaderTree(unwrapped.parsed, depth + 1)
-        return cleaned === DROP ? DROP : reencode(cleaned, unwrapped.layers)
+        const layers = decodeLayers(value)
+        if (layers.tooDeep || textLayers(layers).some(isUnsafeText)) return DROP
+        if (layers.structured) return cleanStructured(value, layers, (parsed) => scrubHeaderTree(parsed, depth + 1))
+        return /^\s*[[{]/.test(value) ? DROP : value
     }
     if (Array.isArray(value)) {
         const out: unknown[] = []
         for (const item of value) {
-            const pairKey = item && typeof item === 'object' ? (item as Record<string, unknown>).key : undefined
-            if (typeof pairKey === 'string' && isSecretHeaderName(pairKey)) continue
+            if (isPairLike(item) && (typeof item.key !== 'string' || isSecretHeaderName(item.key))) continue
             const cleaned = scrubHeaderTree(item, depth + 1)
             if (cleaned !== DROP) out.push(cleaned)
         }
         return out
     }
     if (value && typeof value === 'object') {
-        // A single { key, value } pair is judged like an array item.
-        const pairKey = (value as Record<string, unknown>).key
-        if (typeof pairKey === 'string' && isSecretHeaderName(pairKey)) return DROP
+        // An object holding a pair is judged by its key, like an array item. Only an exact { key, value } keeps the label.
+        if (isPairLike(value) && (typeof value.key !== 'string' || isSecretHeaderName(value.key))) return DROP
+        const exactPair = isExactPair(value as Record<string, unknown>)
         const out: Record<string, unknown> = {}
         for (const [name, item] of Object.entries(value as Record<string, unknown>)) {
-            if (name !== 'key' && name !== 'value' && isSecretHeaderName(name)) continue
+            if (!(exactPair && (name === 'key' || name === 'value')) && isSecretHeaderName(name)) continue
             const cleaned = scrubHeaderTree(item, depth + 1)
             if (cleaned !== DROP) out[name] = cleaned
         }
@@ -206,36 +300,29 @@ const scrubHeaderTree = (value: unknown, depth = 0): unknown => {
 const scrubValue = (value: unknown, depth = 0): unknown => {
     if (depth > 32) return DROP
     if (typeof value === 'string') {
-        // A string holding a serialized object or array is cleaned with the same rules and re-serialized.
-        // Encoded up to MAX_JSON_LAYERS times; deeper encodings are dropped.
-        const unwrapped = unwrapJson(value)
-        if (unwrapped === TOO_DEEP) return DROP
-        if (unwrapped !== undefined) {
-            const scrubbed = scrubValue(unwrapped.parsed, depth + 1)
-            return scrubbed === DROP ? DROP : reencode(scrubbed, unwrapped.layers)
-        }
-        return looksLikeSecretValue(value) || isCredentialUrl(value) ? DROP : value
+        // Every layer (JSON-unwrapped and percent-decoded) is checked; a serialized object or array is cleaned and re-encoded.
+        const layers = decodeLayers(value)
+        if (layers.tooDeep || textLayers(layers).some(isUnsafeText)) return DROP
+        if (layers.structured) return cleanStructured(value, layers, (parsed) => scrubValue(parsed, depth + 1))
+        return value
     }
     if (Array.isArray(value)) {
         const out: unknown[] = []
         for (const item of value) {
-            if (item && typeof item === 'object' && !Array.isArray(item)) {
-                const pairKey = (item as Record<string, unknown>).key
-                if (typeof pairKey === 'string' && (isSecretNestedName(pairKey) || isSecretHeaderName(pairKey))) continue
-            }
+            if (isPairLike(item) && (typeof item.key !== 'string' || isSecretNestedName(item.key) || isSecretHeaderName(item.key))) continue
             const scrubbed = scrubValue(item, depth + 1)
             if (scrubbed !== DROP) out.push(scrubbed)
         }
         return out
     }
     if (value && typeof value === 'object') {
-        // A single { key, value } pair is judged like an array item.
-        const pairKey = (value as Record<string, unknown>).key
-        if (typeof pairKey === 'string' && (isSecretNestedName(pairKey) || isSecretHeaderName(pairKey))) return DROP
+        // An object holding a pair is judged by its key, like an array item. Only an exact { key, value } keeps the label.
+        if (isPairLike(value) && (typeof value.key !== 'string' || isSecretNestedName(value.key) || isSecretHeaderName(value.key)))
+            return DROP
+        const exactPair = isExactPair(value as Record<string, unknown>)
         const out: Record<string, unknown> = {}
         for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-            // "key" here is the label of a { key, value } pair; the pair itself is checked in the array branch.
-            if (key !== 'key' && isSecretNestedName(key)) continue
+            if (!(exactPair && key === 'key') && isSecretNestedName(key)) continue
             // Anything under a key named headers, at any depth, also loses its credential header entries.
             const headerSafe = HEADERS_KEY.test(key) ? scrubHeaderTree(item) : item
             if (headerSafe === DROP) continue
@@ -355,8 +442,9 @@ const publicScalar = (value: unknown): string | number | boolean | undefined => 
     if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
     if (typeof value === 'boolean') return value
     if (typeof value === 'string') {
-        // Display text is never structured: a JSON object or array, or anything the scrubber would change, is dropped whole.
-        if (isStructuredText(value)) return undefined
+        // Allowlist: plain text only. Anything JSON-encoded at any layer, credential-shaped once decoded, or changed by the scrubber is dropped.
+        const layers = decodeLayers(value)
+        if (layers.tooDeep || layers.jsonEncoded || layers.strings.some(isUnsafeText)) return undefined
         return scrubSecrets(value) === value ? value : undefined
     }
     return undefined
