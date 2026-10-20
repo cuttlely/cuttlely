@@ -126,9 +126,9 @@ export const toPredictionError = (error: unknown): AppError => {
     }
     const message = getErrorMessage(error)
     if ((error as { code?: unknown })?.code === 'key_not_allowed') return new AppError(StatusCodes.FORBIDDEN, message)
-    if (isHarnessError(error, message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
-    // A missing or unreadable credential is a flow setup problem. Do not echo the credential id.
+    // A missing or unreadable credential is a flow setup problem. Do not echo the credential id, even from a harness.
     if (MISSING_CREDENTIAL.test(message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, MISSING_CREDENTIAL_MESSAGE)
+    if (isHarnessError(error, message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }
 
