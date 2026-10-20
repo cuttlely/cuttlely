@@ -92,7 +92,7 @@ class BaiduQianfanEmbedding_Embeddings implements INode {
         const batchSize = nodeData.inputs?.batchSize as string
         const timeout = nodeData.inputs?.timeout as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const qianfanAccessKey = getCredentialParam('qianfanAccessKey', credentialData, nodeData)
         const qianfanSecretKey = getCredentialParam('qianfanSecretKey', credentialData, nodeData)
 

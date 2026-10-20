@@ -287,7 +287,7 @@ class ChatOllama_ChatModels implements INode {
             }
         }
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const ollamaApiKey = getCredentialParam('ollamaApiKey', credentialData, nodeData)
         if (ollamaApiKey) {
             obj.headers = new Headers({

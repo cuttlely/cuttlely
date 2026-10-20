@@ -192,7 +192,7 @@ class ChatPerplexity_ChatModels implements INode {
         if (nodeData.inputs?.credentialId) {
             nodeData.credential = nodeData.inputs?.credentialId
         }
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const apiKey = getCredentialParam('perplexityApiKey', credentialData, nodeData)
 
         if (!apiKey) {

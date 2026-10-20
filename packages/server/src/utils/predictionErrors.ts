@@ -123,6 +123,11 @@ export const toPredictionError = (error: unknown): AppError => {
     }
     const message = getErrorMessage(error)
     if ((error as { code?: unknown })?.code === 'key_not_allowed') return new AppError(StatusCodes.FORBIDDEN, message)
+    // Own 4xx (a missing required chat-model credential is 422) keep statusCode. Provider errors use `status`, not statusCode.
+    const ownStatus = Number((error as { statusCode?: unknown })?.statusCode)
+    if (Number.isInteger(ownStatus) && ownStatus >= 400 && ownStatus < 500) {
+        return error instanceof AppError ? error : new AppError(ownStatus, message)
+    }
     if (isHarnessError(error, message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }

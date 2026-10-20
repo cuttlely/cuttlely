@@ -154,7 +154,7 @@ class ChatOpenRouter_ChatModels implements INode {
         const cache = nodeData.inputs?.cache as BaseCache
         const allowImageUploads = nodeData.inputs?.allowImageUploads as boolean
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const openRouterApiKey = getCredentialParam('openRouterApiKey', credentialData, nodeData)
 
         const obj: ChatOpenAIFields = {

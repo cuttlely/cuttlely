@@ -110,7 +110,7 @@ class OpenAIEmbeddingCustom_Embeddings implements INode {
         const baseOptions = nodeData.inputs?.baseOptions
         const encodingFormat = nodeData.inputs?.encodingFormat as 'float' | 'base64' | undefined
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const openAIApiKey = getCredentialParam('openAIApiKey', credentialData, nodeData)
 
         const obj: Partial<OpenAIEmbeddingsParams> & { openAIApiKey?: string; configuration?: ClientOptions } = {

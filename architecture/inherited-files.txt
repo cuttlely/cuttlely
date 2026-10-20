@@ -597,6 +597,7 @@ packages/components/src/httpSecurity.test.ts
 packages/components/src/httpSecurity.ts
 packages/components/src/index.ts
 packages/components/src/indexing.ts
+packages/components/src/missingModelCredential.test.ts
 packages/components/src/modelLoader.ts
 packages/components/src/multiModalUtils.ts
 packages/components/src/otelRunSpans.ts
@@ -1445,6 +1446,7 @@ packages/server/src/utils/ipValidation.test.ts
 packages/server/src/utils/ipValidation.ts
 packages/server/src/utils/logger.test.ts
 packages/server/src/utils/logger.ts
+packages/server/src/utils/missingModelCredential.prediction.test.ts
 packages/server/src/utils/mockRequest.test.ts
 packages/server/src/utils/mockRequest.ts
 packages/server/src/utils/oauth2Security.test.ts
@@ -1467,6 +1469,8 @@ packages/server/src/utils/telemetry.test.ts
 packages/server/src/utils/telemetry.ts
 packages/server/src/utils/typeormDataSource.ts
 packages/server/src/utils/updateChatMessageFeedback.ts
+packages/server/src/utils/upsertErrors.test.ts
+packages/server/src/utils/upsertErrors.ts
 packages/server/src/utils/upsertVector.ts
 packages/server/src/utils/validateKey.ts
 packages/server/tsconfig.json
