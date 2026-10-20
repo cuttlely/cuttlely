@@ -27,6 +27,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Share and embed a chat](./how-to/share-and-embed.md). A public link for any chatflow, a chat button or full-page chat on your website, how the share settings change the look, and the [`@cuttlely/chat`](./how-to/share-and-embed.md#embed-with-cuttlelychat) package.
 -   [Use the API in your own web app](./api.md). API keys, calling chatflows, agentflows and harnesses, streaming, conversation memory, uploads, errors and allowed origins, with a runnable [example app](../examples/web-app). [Call a chatflow from Orchestrate](./api.md#call-a-chatflow-from-orchestrate), [Call a chatflow over A2A](./api.md#call-a-chatflow-over-a2a), and the [MCP endpoint](./api.md#mcp-endpoint).
 -   [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md). Register a published chatflow as the `external_chat` collaborator `cuttlely_orders` for native agent `larkfield_router`. Copy the sample YAML, fill it in, and import that copy. A2A 0.3.0 samples are included but not yet tested. [Record the Orchestrate demo](./how-to/orchestrate-demo.md) is the Larkfield Home orders runbook.
+-   [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md). Register `/api/v1/mcp/:id` as a remote MCP toolkit in IBM watsonx Orchestrate.
 
 ## Install and sign in
 

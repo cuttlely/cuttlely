@@ -8,6 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Docs: how to register a published chatflow as a remote MCP toolkit in IBM watsonx Orchestrate (`POST /api/v1/mcp/:id`). The ADK sample is `samples/orchestrate/bakery-hours.toolkit.yaml`. [Use a chatflow as an Orchestrate toolkit](./docs/how-to/orchestrate-mcp.md).
 -   Published chatflows answer IBM watsonx Orchestrate native agents on `POST /api/v1/orchestrate/:id` and `POST /api/v1/orchestrate/:id/chat/completions` (OpenAI-style chat completions, streaming `thread.message.delta` frames, Bearer or `X-API-Key`, optional `X-IBM-THREAD-ID`). A flow without a bound API key is refused. A second overlapping stream on the same replica is `409`; queue mode with several API replicas does not share that lease. [Call a chatflow from Orchestrate](./docs/api.md#call-a-chatflow-from-orchestrate).
 -   How-to and Larkfield Home orders demo samples for calling a published chatflow from IBM watsonx Orchestrate (`external_chat` collaborator `cuttlely_orders` behind native agent `larkfield_router`, and A2A 0.3.0 samples, not yet tested). Copy the YAML, fill in the host, flow id and key, and import that copy. A2A registration path and whether live-chat memory comes from `X-IBM-THREAD-ID` or from Orchestrate resending earlier turns stay open until the A2A live test. [Call a chatflow from IBM watsonx Orchestrate](./docs/how-to/orchestrate.md), [Record the Orchestrate demo](./docs/how-to/orchestrate-demo.md).
 -   The same keyed chatflow also answers A2A 0.3.0 on `GET /api/v1/a2a/:id/.well-known/agent-card.json` and `POST /api/v1/a2a/:id` (`message/send`, `message/stream`, `tasks/get`, `tasks/cancel`). `A2A_PUBLIC_BASE_URL` is the public origin written on the card (no path, no trailing slash). Tasks are in-memory on that process. Shipped, not yet tested live with Orchestrate. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
@@ -27,6 +28,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   MCP `POST /api/v1/mcp/:chatflowId` applies that flow's **Rate Limit** from Configuration.
 -   GET `/api/v1/mcp/:chatflowId` returns `405 Method Not Allowed` with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC error body, instead of the UI page. This server does not offer MCP server-initiated streams.
 -   A Flowise database older than `3.1.4` is refused before any migration, with `unsupported upgrade path, upgrade via Flowise 3.1.4 first`, and that database is left unchanged. That includes application data in document stores, variables, and the other tables that gain a workspace id, not only flows, credentials, and tools. An older enterprise identity schema is refused even when those application tables are empty. A database with no application data, including a first start that stopped part way, still migrates. Upgrade it in Flowise `3.1.4` first, then move it. [Move a whole install](./docs/bring-your-flows.md#move-a-whole-install).
 

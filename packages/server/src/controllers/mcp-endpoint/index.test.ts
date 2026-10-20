@@ -4,7 +4,9 @@
  * Tests the Express request handlers: token extraction, auth enforcement,
  * rate limiter middleware delegation, and request routing to the service layer.
  */
-import { Request, Response, NextFunction } from 'express'
+import express, { Request, Response, NextFunction } from 'express'
+import request from 'supertest'
+import { RateLimiterManager } from '../../utils/rateLimit'
 
 // --- Mock setup ---
 const mockHandleMcpRequest = jest.fn()
@@ -15,16 +17,6 @@ jest.mock('../../services/mcp-endpoint', () => ({
     default: {
         handleMcpRequest: (...args: any[]) => mockHandleMcpRequest(...args),
         handleMcpDeleteRequest: (...args: any[]) => mockHandleMcpDeleteRequest(...args)
-    }
-}))
-
-const mockGetRateLimiter = jest.fn().mockReturnValue((_req: any, _res: any, next: any) => next())
-
-jest.mock('../../utils/rateLimit', () => ({
-    RateLimiterManager: {
-        getInstance: () => ({
-            getRateLimiter: () => mockGetRateLimiter()
-        })
     }
 }))
 
@@ -184,14 +176,24 @@ describe('MCP Endpoint Controller', () => {
     })
 
     describe('getRateLimiterMiddleware', () => {
-        it('delegates to RateLimiterManager', async () => {
-            const req = mockReq()
-            const res = mockRes()
-            const next = mockNext()
+        it('applies the flow Rate Limit to MCP POST using chatflowId', async () => {
+            const id = 'flow-rate-mcp-1'
+            await RateLimiterManager.getInstance().addRateLimiter(id, 60, 2, 'limited')
+            try {
+                const app = express()
+                app.post('/:chatflowId', mcpEndpointController.getRateLimiterMiddleware, (_req, res) => {
+                    res.end('ok')
+                })
 
-            await mcpEndpointController.getRateLimiterMiddleware(req, res, next)
+                const first = await request(app).post(`/${id}`)
+                const second = await request(app).post(`/${id}`)
+                const third = await request(app).post(`/${id}`)
+                const other = await request(app).post('/other-flow')
 
-            expect(mockGetRateLimiter).toHaveBeenCalled()
+                expect([first.status, second.status, third.status, other.status]).toEqual([200, 200, 429, 200])
+            } finally {
+                RateLimiterManager.getInstance().removeRateLimiter(id)
+            }
         })
     })
 })
