@@ -97,7 +97,7 @@ class GoogleGenerativeAIEmbedding_Embeddings implements INode {
     // eslint-disable-next-line unused-imports/no-unused-vars
     async init(nodeData: INodeData, _: string, options: ICommonObject): Promise<any> {
         const modelName = nodeData.inputs?.modelName as string
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const apiKey = getCredentialParam('googleGenerativeAPIKey', credentialData, nodeData)
         const stripNewLines = nodeData.inputs?.stripNewLines as boolean
 

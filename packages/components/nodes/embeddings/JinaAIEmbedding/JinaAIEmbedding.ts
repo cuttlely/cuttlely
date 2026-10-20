@@ -71,7 +71,7 @@ class JinaAIEmbedding_Embeddings implements INode {
         const modelName = nodeData.inputs?.modelName as string
         const modelDimensions = nodeData.inputs?.modelDimensions as number
         const allowLateChunking = nodeData.inputs?.modelDimensions as boolean
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const apiKey = getCredentialParam('jinaAIAPIKey', credentialData, nodeData)
 
         const model = new ExtendedJinaEmbeddings({

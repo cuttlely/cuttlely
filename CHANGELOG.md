@@ -18,6 +18,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   Installing with a Node version below `engines.node` (`^24`) now fails at `pnpm install` (`engine-strict=true` in the root `.npmrc`). CI and the Docker image already use Node 24.
 -   A2A stored tasks cap each question and answer at 64 KB (`A2A_TASK_TEXT_MAX_BYTES`, default 65536; a shorter cap than the `[truncated]` marker keeps the default), keep a 64 MB per-flow byte budget (`A2A_TASK_BYTES_PER_FLOW`) next to the 1000-task cap and shorten a just-finished answer if it would still exceed that budget, store the answer once, and mark the task failed when a queue subscription fails. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
 -   MCP `initialize` reports a Cuttlely server name (`cuttlely-<flow>` when the flow name has a usable slug, otherwise `cuttlely`). The name is lowercase `[a-z0-9-]`, at most 64 characters. Clients such as IBM watsonx Orchestrate show it in tool metadata.
 -   The README intro and the public FAQ note that Cuttlely is said like "cuddly".
@@ -29,6 +30,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A chat model or embeddings card with no credential selected now answers `422` naming that card (`Pick a credential on the OpenAI node.`), instead of `500` telling the caller to set `OPENAI_API_KEY`, on chatflow prediction and on vector upsert (`POST /api/v1/vector/upsert/<flow id>`) in the default mode (not `MODE=queue`). Vector upsert now keeps a 4xx from the flow instead of turning it into `500`. Agent canvases, document-store upsert, and `MODE=queue` still answer `500` for this error ([#239](https://github.com/cuttlely/cuttlely/issues/239)). A key or token already on the node inputs (for example `cloudflareApiToken` or `watsonxAIBearerToken`) still counts. Optional credentials (Ollama, Cerebras, Azure when the process already has the provider variables) still fall back to the environment.
 -   MCP `POST /api/v1/mcp/:chatflowId` applies that flow's **Rate Limit** from Configuration.
 -   A2A, Orchestrate, and MCP JSON bodies over 1 MB are refused at that cap even though the global JSON parser uses the file-size limit (default 50 MB). A2A stays 413 `{ "error": { "code": "body_too_large" } }`; Orchestrate and MCP stay the global 413 body. [Call a chatflow over A2A](./docs/api.md#call-a-chatflow-over-a2a).
 -   GET `/api/v1/mcp/:chatflowId` returns `405 Method Not Allowed` with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC error body, instead of the UI page. This server does not offer MCP server-initiated streams.

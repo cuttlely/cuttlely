@@ -53,7 +53,7 @@ class ChatCloudflareWorkersAI_ChatModels implements INode {
         const model = nodeData.inputs?.model as string
         const baseUrl = nodeData.inputs?.baseUrl as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const cloudflareAccountId = getCredentialParam('cloudflareAccountId', credentialData, nodeData)
         if (!cloudflareAccountId) {
             throw new Error('Cloudflare Account ID is missing in credential.')

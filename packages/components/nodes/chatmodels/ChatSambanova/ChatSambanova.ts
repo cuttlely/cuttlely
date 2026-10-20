@@ -96,7 +96,7 @@ class ChatSambanova_ChatModels implements INode {
         const basePath = nodeData.inputs?.basepath as string
         const baseOptions = nodeData.inputs?.baseOptions
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const sambanovaApiKey = getCredentialParam('sambanovaApiKey', credentialData, nodeData)
 
         const obj: ChatOpenAIFields = {
