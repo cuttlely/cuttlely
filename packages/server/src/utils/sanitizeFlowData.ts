@@ -326,52 +326,170 @@ const asRecord = (value: unknown): Record<string, unknown> | undefined => {
     return value as Record<string, unknown>
 }
 
+// Same split the canvas uses: these types are fields, anything else is a link anchor.
+const PARAM_TYPES = new Set([
+    'asyncOptions',
+    'asyncMultiOptions',
+    'options',
+    'multiOptions',
+    'array',
+    'datagrid',
+    'string',
+    'number',
+    'boolean',
+    'password',
+    'json',
+    'code',
+    'date',
+    'file',
+    'folder',
+    'tabs',
+    'conditionFunction',
+    'timePicker',
+    'weekDaysPicker',
+    'monthDaysPicker',
+    'datePicker',
+    'credential'
+])
+
+type TemplateComponent = {
+    name?: string
+    label?: string
+    description?: string
+    category?: string
+    tags?: unknown
+    version?: unknown
+    type?: string
+    color?: string
+    hideOutput?: boolean
+    hideInput?: boolean
+    baseClasses?: unknown
+    inputs?: DeclaredParam[]
+    inputParams?: DeclaredParam[]
+    inputAnchors?: { name?: string }[]
+    credential?: DeclaredParam
+}
+
+const NODE_SHELL = [
+    'type',
+    'position',
+    'positionAbsolute',
+    'width',
+    'height',
+    'parentNode',
+    'extent',
+    'sourcePosition',
+    'targetPosition',
+    'style',
+    'zIndex'
+] as const
+
+const plainCopy = <T>(value: T): T | undefined => {
+    try {
+        return JSON.parse(JSON.stringify(value)) as T
+    } catch {
+        return undefined
+    }
+}
+
+const textOf = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined)
+
+const stringList = (value: unknown): string[] | undefined => {
+    if (!Array.isArray(value)) return undefined
+    const items = value.filter((item): item is string => typeof item === 'string')
+    return items.length ? items : undefined
+}
+
+const shellOf = (node: Record<string, unknown>): Record<string, unknown> => {
+    const shell: Record<string, unknown> = { selected: false }
+    if (node.id !== undefined) shell.id = node.id
+    for (const key of NODE_SHELL) if (node[key] !== undefined) shell[key] = node[key]
+    return shell
+}
+
+const componentParts = (component: TemplateComponent): { params: DeclaredParam[]; anchors: { name?: string }[] } => {
+    if (Array.isArray(component.inputs) || (component.credential && typeof component.credential === 'object')) {
+        const params: DeclaredParam[] = []
+        const anchors: { name?: string }[] = []
+        if (component.credential && typeof component.credential === 'object') params.push(component.credential)
+        for (const input of component.inputs ?? []) {
+            if (!input || typeof input !== 'object') continue
+            const type = typeof input.type === 'string' ? input.type : ''
+            if (PARAM_TYPES.has(type)) params.push(input)
+            else anchors.push(input)
+        }
+        return { params, anchors }
+    }
+    return {
+        params: Array.isArray(component.inputParams) ? component.inputParams : [],
+        anchors: Array.isArray(component.inputAnchors) ? component.inputAnchors : []
+    }
+}
+
+const credentialDropped = (data: Record<string, unknown>): boolean => {
+    if (typeof data.credential === 'string' && data.credential) return true
+    return Boolean(data.credential && typeof data.credential === 'object')
+}
+
+const asComponent = (value: unknown): TemplateComponent | undefined => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+    return value as TemplateComponent
+}
+
 /** A saved flow reduced to template fields, plus the nodes whose settings were left out. */
-export const buildTemplateFlow = (flowData: { nodes?: unknown; edges?: unknown } | null | undefined): TemplateFlow => {
+export const buildTemplateFlow = (
+    flowData: { nodes?: unknown; edges?: unknown } | null | undefined,
+    componentNodes?: Record<string, unknown> | null
+): TemplateFlow => {
     const sourceNodes = Array.isArray(flowData?.nodes) ? flowData.nodes : []
     const edges = Array.isArray(flowData?.edges) ? [...flowData.edges] : []
     const droppedSettings: DroppedNodeSettings[] = []
     const nodes = sourceNodes.map((node) => {
         if (!node || typeof node !== 'object') return node
         const current = node as Record<string, unknown>
+        const shell = shellOf(current)
         const data = asRecord(current.data)
-        if (!data) return { ...current, selected: false }
+        if (!data) return shell
         const nodeId = String(current.id || data.id || '')
-        const label = typeof data.label === 'string' && data.label ? data.label : typeof data.name === 'string' ? data.name : nodeId
+        const nodeName = typeof data.name === 'string' ? data.name : ''
+        const component = asComponent(nodeName && componentNodes ? componentNodes[nodeName] : undefined)
         const inputs = asRecord(data.inputs)
-        const sanitized = sanitizeNodeInputs(
-            inputs,
-            data.inputParams as INodeParams[] | undefined,
-            data.inputAnchors as { name?: string }[] | undefined
-        )
-        const dropped = [...sanitized.dropped]
-        if (typeof data.credential === 'string' && data.credential) dropped.push('credential')
-        else if (data.credential && typeof data.credential === 'object') dropped.push('credential')
-        if (dropped.length) droppedSettings.push({ nodeId, label, inputs: dropped })
-        return {
-            ...current,
-            selected: false,
-            data: {
-                id: data.id,
-                label: data.label,
-                version: data.version,
-                name: data.name,
-                type: data.type,
-                color: data.color,
-                hideOutput: data.hideOutput,
-                hideInput: data.hideInput,
-                baseClasses: data.baseClasses,
-                tags: data.tags,
-                category: data.category,
-                description: data.description,
-                inputParams: data.inputParams,
-                inputAnchors: data.inputAnchors,
-                inputs: sanitized.inputs,
-                outputAnchors: data.outputAnchors,
-                outputs: data.outputs,
-                selected: false
-            }
+        if (!component) {
+            const dropped = inputs ? Object.keys(inputs).filter((name) => !isBlank(inputs[name])) : []
+            if (credentialDropped(data)) dropped.push('credential')
+            droppedSettings.push({ nodeId, label: nodeId, inputs: dropped })
+            return { ...shell, data: { id: nodeId, selected: false, inputs: {} } }
         }
+        const { params, anchors } = componentParts(component)
+        const sanitized = sanitizeNodeInputs(inputs, params, anchors)
+        const dropped = [...sanitized.dropped]
+        if (credentialDropped(data)) dropped.push('credential')
+        const label = textOf(component.label) || textOf(component.name) || nodeId
+        if (dropped.length) droppedSettings.push({ nodeId, label, inputs: dropped })
+        const nextData: Record<string, unknown> = {
+            id: nodeId,
+            name: textOf(component.name) || nodeName,
+            selected: false,
+            inputParams: plainCopy(params) ?? [],
+            inputAnchors: plainCopy(anchors) ?? [],
+            inputs: sanitized.inputs
+        }
+        const labelText = textOf(component.label)
+        if (labelText) nextData.label = labelText
+        const description = textOf(component.description)
+        if (description) nextData.description = description
+        const category = textOf(component.category)
+        if (category) nextData.category = category
+        const tags = stringList(component.tags)
+        if (tags) nextData.tags = tags
+        if (typeof component.version === 'number' && Number.isFinite(component.version)) nextData.version = component.version
+        if (typeof component.type === 'string') nextData.type = component.type
+        if (typeof component.color === 'string') nextData.color = component.color
+        if (typeof component.hideOutput === 'boolean') nextData.hideOutput = component.hideOutput
+        if (typeof component.hideInput === 'boolean') nextData.hideInput = component.hideInput
+        const baseClasses = stringList(component.baseClasses)
+        if (baseClasses) nextData.baseClasses = baseClasses
+        return { ...shell, data: nextData }
     })
     return { nodes, edges, droppedSettings }
 }

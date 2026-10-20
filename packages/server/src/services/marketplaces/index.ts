@@ -197,7 +197,7 @@ const saveCustomTemplate = async (body: any): Promise<any> => {
         if (body.chatflowId) {
             const chatflow = await chatflowsService.getChatflowById(body.chatflowId, body.workspaceId)
             const flowData = JSON.parse(chatflow.flowData)
-            const { framework, exportJson } = _generateExportFlowData(flowData)
+            const { framework, exportJson } = _generateExportFlowData(flowData, appServer.nodesPool?.componentNodes)
             flowDataStr = JSON.stringify(exportJson)
             customTemplate.framework = framework
             const templateType = templateTypeForChatflow(chatflow.type)
@@ -234,8 +234,8 @@ const templateTypeForChatflow = (chatflowType?: string) => {
     return ''
 }
 
-const _generateExportFlowData = (flowData: any) => {
-    return { exportJson: buildTemplateFlow(flowData), framework: 'Langchain' }
+const _generateExportFlowData = (flowData: any, componentNodes?: Record<string, unknown> | null) => {
+    return { exportJson: buildTemplateFlow(flowData, componentNodes), framework: 'Langchain' }
 }
 
 export default {

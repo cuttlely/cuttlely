@@ -243,23 +243,33 @@ describe('template inputs', () => {
             inputs.temperatureWrong = pick()
             inputs.nested = { inner: [pick(), { again: pick() }] }
             const params = [...schemaParams, { name: 'temperatureWrong', type: 'number' }, { name: 'nested', type: 'json' }]
-            const flow = buildTemplateFlow({
-                nodes: [
-                    {
-                        id: `n-${trial}`,
-                        data: {
+            const flow = buildTemplateFlow(
+                {
+                    nodes: [
+                        {
                             id: `n-${trial}`,
-                            label: 'Model',
-                            name: 'chatOpenAI',
-                            credential: pick(),
-                            inputParams: params,
-                            inputAnchors: [{ name: 'model' }],
-                            inputs: { ...inputs, model: '{{chatOpenAI_0.data.instance}}', prompt: pick() }
+                            data: {
+                                id: `n-${trial}`,
+                                label: 'Model',
+                                name: 'chatOpenAI',
+                                credential: pick(),
+                                inputParams: params,
+                                inputAnchors: [{ name: 'model' }],
+                                inputs: { ...inputs, model: '{{chatOpenAI_0.data.instance}}', prompt: pick() }
+                            }
                         }
+                    ],
+                    edges: [{ id: 'e1' }]
+                },
+                {
+                    chatOpenAI: {
+                        name: 'chatOpenAI',
+                        label: 'Model',
+                        inputParams: params,
+                        inputAnchors: [{ name: 'model' }]
                     }
-                ],
-                edges: [{ id: 'e1' }]
-            })
+                }
+            )
             expect(JSON.stringify(flow)).not.toContain(marker)
             expect(JSON.stringify(flow)).not.toContain(MARKER)
             const kept = (flow.nodes[0] as { data: { inputs: Record<string, unknown> } }).data.inputs
@@ -315,7 +325,19 @@ describe('dropped settings report', () => {
             edges: [{ id: 'e1', source: 'a', target: 'b' }]
         }
         const snapshot = JSON.parse(JSON.stringify(original))
-        const flow = buildTemplateFlow(original)
+        const flow = buildTemplateFlow(original, {
+            chatOpenAI: {
+                name: 'chatOpenAI',
+                label: 'OpenAI',
+                inputParams: schemaParams,
+                inputAnchors: [{ name: 'model' }]
+            },
+            stickyNote: {
+                name: 'stickyNote',
+                label: 'Note',
+                inputParams: [{ name: 'label', type: 'string' }]
+            }
+        })
         expect(original).toEqual(snapshot)
         expect(JSON.stringify(snapshot)).toContain(MARKER)
         expect(JSON.stringify(flow)).not.toContain(MARKER)
@@ -338,20 +360,82 @@ describe('dropped settings report', () => {
     })
 
     it('uses the node name when a label was not saved', () => {
-        const flow = buildTemplateFlow({
-            nodes: [
-                {
-                    id: 'n0',
-                    data: {
-                        name: 'customNode',
-                        inputParams: [{ name: 'prompt', type: 'string' }],
-                        inputs: { prompt: `sk-${MARKER}P` }
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'n0',
+                        data: {
+                            name: 'customNode',
+                            inputParams: [{ name: 'prompt', type: 'string' }],
+                            inputs: { prompt: `sk-${MARKER}P` }
+                        }
                     }
-                }
-            ],
-            edges: []
-        })
+                ],
+                edges: []
+            },
+            { customNode: { name: 'customNode', inputParams: [{ name: 'prompt', type: 'string' }] } }
+        )
         expect(flow.droppedSettings).toEqual([{ nodeId: 'n0', label: 'customNode', inputs: ['prompt'] }])
+    })
+
+    it('rebuilds node text from the registered component and records an unknown component', () => {
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'chatOpenAI_0',
+                        position: { x: 1, y: 2 },
+                        data: {
+                            id: 'chatOpenAI_0',
+                            name: 'chatOpenAI',
+                            label: `${MARKER}LABEL`,
+                            description: `${MARKER}DESC`,
+                            category: `${MARKER}CAT`,
+                            tags: [`${MARKER}TAG`],
+                            extraProp: `${MARKER}EXTRA`,
+                            inputParams: [{ name: 'prompt', type: 'string', placeholder: `${MARKER}PLACE` }],
+                            inputs: { prompt: 'Hello "world" @ café, 10% off' }
+                        }
+                    },
+                    {
+                        id: 'mystery_0',
+                        secretNote: `${MARKER}NODE`,
+                        data: {
+                            id: 'mystery_0',
+                            name: 'notRegistered',
+                            label: `${MARKER}GHOST`,
+                            description: `${MARKER}GHOST`,
+                            inputParams: [{ name: 'prompt', type: 'string', placeholder: `${MARKER}GHOST` }],
+                            inputs: { prompt: 'hello' }
+                        }
+                    }
+                ],
+                edges: []
+            },
+            {
+                chatOpenAI: {
+                    name: 'chatOpenAI',
+                    label: 'OpenAI',
+                    description: 'Chat model',
+                    category: 'Chat Models',
+                    tags: ['chat'],
+                    inputParams: [{ name: 'prompt', type: 'string', placeholder: 'Ask' }]
+                }
+            }
+        )
+        expect(JSON.stringify(flow)).not.toContain(MARKER)
+        const data = (flow.nodes[0] as { data: Record<string, unknown> }).data
+        expect(data.label).toBe('OpenAI')
+        expect(data.description).toBe('Chat model')
+        expect(data.category).toBe('Chat Models')
+        expect(data.tags).toEqual(['chat'])
+        expect(data.extraProp).toBeUndefined()
+        expect(data.inputParams).toEqual([{ name: 'prompt', type: 'string', placeholder: 'Ask' }])
+        expect(data.inputs).toEqual({ prompt: 'Hello "world" @ café, 10% off' })
+        expect((flow.nodes[1] as { secretNote?: unknown; data: unknown }).secretNote).toBeUndefined()
+        expect((flow.nodes[1] as { data: unknown }).data).toEqual({ id: 'mystery_0', selected: false, inputs: {} })
+        expect(flow.droppedSettings).toEqual([{ nodeId: 'mystery_0', label: 'mystery_0', inputs: ['prompt'] }])
     })
 })
 

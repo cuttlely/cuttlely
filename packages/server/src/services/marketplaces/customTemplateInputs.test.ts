@@ -1,4 +1,5 @@
 const saved: any[] = []
+const mockComponentNodes: Record<string, unknown> = {}
 const mockRepo = {
     create: jest.fn((entity: any) => ({ ...entity })),
     save: jest.fn(async (entity: any) => {
@@ -8,7 +9,10 @@ const mockRepo = {
 }
 
 jest.mock('../../utils/getRunningExpressApp', () => ({
-    getRunningExpressApp: () => ({ AppDataSource: { getRepository: () => mockRepo } })
+    getRunningExpressApp: () => ({
+        AppDataSource: { getRepository: () => mockRepo },
+        nodesPool: { componentNodes: mockComponentNodes }
+    })
 }))
 jest.mock('../../database/entities/CustomTemplate', () => ({ CustomTemplate: class CustomTemplate {} }))
 jest.mock('../../identity/workspaceScope', () => ({ getWorkspaceSearchOptions: jest.fn(), WorkspaceService: class {} }))
@@ -51,7 +55,21 @@ const variantKept = {
 }
 
 describe('saveCustomTemplate input filtering', () => {
+    beforeEach(() => {
+        for (const key of Object.keys(mockComponentNodes)) delete mockComponentNodes[key]
+    })
+
     it('keeps only defined, non-secret inputs in the saved template', async () => {
+        mockComponentNodes.chatOpenAI = {
+            name: 'chatOpenAI',
+            label: 'chatOpenAI',
+            inputs: [
+                { name: 'modelName', type: 'string' },
+                { name: 'secretField', type: 'password' },
+                { name: 'note', type: 'string' },
+                { name: 'cache', type: 'BaseCache' }
+            ]
+        }
         const flowData = {
             nodes: [
                 {
@@ -98,6 +116,11 @@ describe('saveCustomTemplate input filtering', () => {
     })
 
     it('removes each of the seven credential shapes from a saved template', async () => {
+        mockComponentNodes.customNode = {
+            name: 'customNode',
+            label: 'customNode',
+            inputParams: variantParams
+        }
         const flowData = {
             nodes: [{ id: 'n0', data: { id: 'n0', name: 'customNode', inputParams: variantParams, inputs: variantInputs } }],
             edges: []
