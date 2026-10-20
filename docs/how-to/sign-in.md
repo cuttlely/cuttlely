@@ -23,7 +23,7 @@ With the flag off and no WorkOS, the sign-in page says `Sign-in is not configure
 A server with no account, the password sign-in off and no AuthKit (for example Render without the WorkOS values) prints a one-time setup link when it starts:
 
 ```text
-2026-10-09 12:00:00 [INFO]: 🔑 [server]: No sign-in method is on yet. Open https://your-service.onrender.com/server-setup?code=... to set one up. The link works once.
+2026-10-09 12:00:00 [INFO]: 🔑 [server]: No sign-in method is on yet. Open https://your-service.onrender.com/server-setup#code=... to set one up. The link works once.
 ```
 
 The link uses Render's public address, or `APP_URL` when it is set. It opens only **Sign-in & identity**, with two choices:
@@ -55,17 +55,17 @@ The first account is the owner, shown as **Super User**. You can create it in th
 
 On a new install with the flag on, opening the app shows **Setup Account**. Fill in the name, email, and password, then select **Sign Up**. The page is pictured in [From source](./from-source.md#in-the-browser).
 
-From the machine where Cuttlely runs, for example a from-source install opened at `localhost`, that is all. Through Docker's published port the request doesn't come from that machine, so open the setup link the server prints when it starts with no account:
+Sign Up needs the one-time code from the setup link the server prints when it starts with no account. That includes a from-source install opened at `localhost` and Docker's published port:
 
 ```bash
 docker compose logs cuttlely | grep "No account yet"
 ```
 
 ```text
-2026-10-09 12:00:00 [INFO]: 👋 [server]: No account yet. Open http://localhost:43117/organization-setup?code=... to create yours.
+2026-10-09 12:00:00 [INFO]: 👋 [server]: No account yet. Open http://localhost:43117/organization-setup#code=... to create yours.
 ```
 
-The code in the link is new on every start and stops working once the first account exists. Without it, **Sign Up** through the published port says `Open the setup link from the server log to create the first account.`
+The code is in the link fragment. It lasts 60 minutes from when it is printed, is new on every start, and stops working once the first account exists. Without it, **Sign Up** says `Open the setup link from the server log to create the first account.`
 
 After **Sign Up** you are signed in and land in Cuttlely. Keeping a copy in GitHub is optional and waits in **Version History**; see [Right after setup](./versioning.md#right-after-setup).
 

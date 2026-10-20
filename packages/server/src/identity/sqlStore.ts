@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { randomUUID } from 'crypto'
+import { randomUUID, timingSafeEqual } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
@@ -24,7 +24,17 @@ import { utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { isBcryptHash } from './password'
 import { IdentityStore } from './store'
-import { CreateOwnerInput, InviteSignIn, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
+import { SetupCodeRow, SetupCodeStore } from './setupCode'
+import {
+    CreateOwnerInput,
+    CreateOwnerOptions,
+    InviteSignIn,
+    LocalSession,
+    NotEmptyError,
+    SessionUser,
+    SetupCodeRejected,
+    UserRow
+} from './types'
 import { acceptAuthKitInvite } from './actionLink'
 import { sqlFromDataSource } from './directory'
 
@@ -265,11 +275,12 @@ export class SqlIdentityStore implements IdentityStore {
         return acceptAuthKitInvite(sqlFromDataSource(this.dataSource), input)
     }
 
-    async createOwner(input: CreateOwnerInput): Promise<UserRow> {
+    async createOwner(input: CreateOwnerInput, options?: CreateOwnerOptions): Promise<UserRow> {
         return this.transaction(async (runner) => {
             const d = dialectOf(runner)
             await lockBootstrap(runner, d)
             if ((await count(runner)) !== 0) throw new NotEmptyError()
+            if (options?.consumeSetupHmac) await consumeSetupCodeRow(runner, d, options.consumeSetupHmac, options.now ?? Date.now())
             // An empty user table with a leftover bootstrap row is not bootstrapped.
             await query(runner, `DELETE FROM ${quote(d, 'identity_bootstrap')}`)
             try {
@@ -699,6 +710,129 @@ async function lockBootstrap(runner: QueryRunner, dialect: Dialect): Promise<voi
 function selectUser(dialect: Dialect, alias?: string): string {
     const prefix = alias ? `${alias}.` : ''
     return ['id', 'email', 'name', 'status', 'externalId', 'credential'].map((name) => `${prefix}${quote(dialect, name)}`).join(', ')
+}
+
+function sameHmac(left: string, right: string): boolean {
+    const a = Buffer.from(left)
+    const b = Buffer.from(right)
+    return a.length === b.length && a.length > 0 && timingSafeEqual(a, b)
+}
+
+/** Marks the setup row used in the same transaction that inserts the owner. */
+async function consumeSetupCodeRow(runner: QueryRunner, dialect: Dialect, hmac: string, now: number): Promise<void> {
+    const rows = await query(
+        runner,
+        `SELECT ${quote(dialect, 'codeHmac')} AS ${quote(dialect, 'codeHmac')},
+                ${quote(dialect, 'expiresAt')} AS ${quote(dialect, 'expiresAt')},
+                ${quote(dialect, 'consumedAt')} AS ${quote(dialect, 'consumedAt')}
+         FROM ${quote(dialect, 'identity_setup_code')} WHERE ${quote(dialect, 'id')} = 1`
+    )
+    const row = rows[0]
+    const stored = text(cell(row || {}, 'codeHmac'))
+    const expires = Number(cell(row || {}, 'expiresAt'))
+    const consumed = cell(row || {}, 'consumedAt')
+    const unused = consumed === null || consumed === undefined || consumed === ''
+    if (!row || !unused || !(expires > now) || !sameHmac(stored, hmac)) throw new SetupCodeRejected()
+    await query(
+        runner,
+        `UPDATE ${quote(dialect, 'identity_setup_code')}
+         SET ${quote(dialect, 'consumedAt')} = ?
+         WHERE ${quote(dialect, 'id')} = 1
+           AND ${quote(dialect, 'consumedAt')} IS NULL
+           AND ${quote(dialect, 'expiresAt')} > ?
+           AND ${quote(dialect, 'codeHmac')} = ?`,
+        [now, now, hmac]
+    )
+    const after = await query(
+        runner,
+        `SELECT ${quote(dialect, 'consumedAt')} AS ${quote(dialect, 'consumedAt')}
+         FROM ${quote(dialect, 'identity_setup_code')} WHERE ${quote(dialect, 'id')} = 1`
+    )
+    if (Number(cell(after[0] || {}, 'consumedAt')) !== now) throw new SetupCodeRejected()
+}
+
+function setupCodeRowFrom(row: Record<string, unknown>): SetupCodeRow {
+    const consumed = cell(row, 'consumedAt')
+    return {
+        codeHmac: text(cell(row, 'codeHmac')),
+        issuedAt: Number(cell(row, 'issuedAt')),
+        expiresAt: Number(cell(row, 'expiresAt')),
+        consumedAt: consumed === null || consumed === undefined || consumed === '' ? null : Number(consumed)
+    }
+}
+
+/** Reads and writes the single setup-code row. Owner creation consumes it inside its own transaction. */
+export class SqlSetupCodeStore implements SetupCodeStore {
+    constructor(private readonly dataSource: DataSource) {}
+
+    async read(): Promise<SetupCodeRow | null> {
+        const d = dialectOfSource(this.dataSource)
+        const rows = await querySource(
+            this.dataSource,
+            `SELECT ${quote(d, 'codeHmac')} AS ${quote(d, 'codeHmac')},
+                    ${quote(d, 'issuedAt')} AS ${quote(d, 'issuedAt')},
+                    ${quote(d, 'expiresAt')} AS ${quote(d, 'expiresAt')},
+                    ${quote(d, 'consumedAt')} AS ${quote(d, 'consumedAt')}
+             FROM ${quote(d, 'identity_setup_code')} WHERE ${quote(d, 'id')} = 1`,
+            []
+        )
+        return rows[0] ? setupCodeRowFrom(rows[0]) : null
+    }
+
+    async save(row: SetupCodeRow): Promise<void> {
+        const d = dialectOfSource(this.dataSource)
+        const params = [row.codeHmac, row.issuedAt, row.expiresAt, row.consumedAt]
+        if (d === 'sqlite') {
+            await querySource(
+                this.dataSource,
+                `INSERT OR REPLACE INTO ${quote(d, 'identity_setup_code')}
+                    (${quote(d, 'id')}, ${quote(d, 'codeHmac')}, ${quote(d, 'issuedAt')}, ${quote(d, 'expiresAt')}, ${quote(
+                    d,
+                    'consumedAt'
+                )})
+                 VALUES (1, ?, ?, ?, ?)`,
+                params
+            )
+            return
+        }
+        if (d === 'postgres') {
+            await querySource(
+                this.dataSource,
+                `INSERT INTO ${quote(d, 'identity_setup_code')}
+                    (${quote(d, 'id')}, ${quote(d, 'codeHmac')}, ${quote(d, 'issuedAt')}, ${quote(d, 'expiresAt')}, ${quote(
+                    d,
+                    'consumedAt'
+                )})
+                 VALUES (1, ?, ?, ?, ?)
+                 ON CONFLICT (${quote(d, 'id')}) DO UPDATE SET
+                    ${quote(d, 'codeHmac')} = EXCLUDED.${quote(d, 'codeHmac')},
+                    ${quote(d, 'issuedAt')} = EXCLUDED.${quote(d, 'issuedAt')},
+                    ${quote(d, 'expiresAt')} = EXCLUDED.${quote(d, 'expiresAt')},
+                    ${quote(d, 'consumedAt')} = EXCLUDED.${quote(d, 'consumedAt')}`,
+                params
+            )
+            return
+        }
+        await querySource(
+            this.dataSource,
+            `INSERT INTO ${quote(d, 'identity_setup_code')}
+                (${quote(d, 'id')}, ${quote(d, 'codeHmac')}, ${quote(d, 'issuedAt')}, ${quote(d, 'expiresAt')}, ${quote(d, 'consumedAt')})
+             VALUES (1, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                ${quote(d, 'codeHmac')} = VALUES(${quote(d, 'codeHmac')}),
+                ${quote(d, 'issuedAt')} = VALUES(${quote(d, 'issuedAt')}),
+                ${quote(d, 'expiresAt')} = VALUES(${quote(d, 'expiresAt')}),
+                ${quote(d, 'consumedAt')} = VALUES(${quote(d, 'consumedAt')})`,
+            params
+        )
+    }
+
+    async consume(hmac: string, now: number): Promise<boolean> {
+        const row = await this.read()
+        if (!row || row.consumedAt != null || row.expiresAt <= now || !sameHmac(row.codeHmac, hmac)) return false
+        await this.save({ ...row, consumedAt: now })
+        return true
+    }
 }
 
 async function count(runner: QueryRunner): Promise<number> {

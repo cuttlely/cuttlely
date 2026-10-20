@@ -14,3 +14,38 @@ export function nextAfterSetup(state) {
 export function skipGithubStep(status) {
     return status?.state === 'off'
 }
+
+// Reads #code= first, then a legacy ?code=, and returns the address with that code removed.
+export function readSetupCode(href) {
+    const url = new URL(href, 'http://localhost')
+    const hashBody = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash
+    const hashParams = new URLSearchParams(hashBody)
+    let code = ''
+    if (hashParams.has('code')) code = hashParams.get('code') || ''
+    hashParams.delete('code')
+    const hashLeft = hashParams.toString()
+    if (!code) code = url.searchParams.get('code') || ''
+    url.searchParams.delete('code')
+    const address = `${url.pathname}${url.search}${hashLeft ? `#${hashLeft}` : ''}`
+    return { code, address }
+}
+
+let heldSetupCode = ''
+
+/** Test hook. */
+export function resetHeldSetupCode() {
+    heldSetupCode = ''
+}
+
+// Clears #code= and ?code= before the caller does anything else. A second call keeps the code from the first.
+export function readAndClearSetupCode(win) {
+    const target = win || (typeof window === 'undefined' ? undefined : window)
+    if (!target || !target.location) return heldSetupCode
+    const { code, address } = readSetupCode(target.location.href)
+    const here = `${target.location.pathname}${target.location.search}${target.location.hash}`
+    if (here !== address && target.history && typeof target.history.replaceState === 'function') {
+        target.history.replaceState(null, '', address)
+    }
+    if (code) heldSetupCode = code
+    return code || heldSetupCode
+}

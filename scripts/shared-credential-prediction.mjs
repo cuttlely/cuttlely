@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { freePort, request, smokeFlow, startServer, waitForPing } from './smoke-server.mjs'
+import { freePort, request, setupCodeFromLogs, smokeFlow, startServer, waitForPing } from './smoke-server.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER = path.join(ROOT, 'packages', 'server')
@@ -52,9 +52,11 @@ async function main() {
     try {
         console.log(`shared-credential server ${base}`)
         await waitForPing(base, child, logs)
+        const setupCode = setupCodeFromLogs(logs)
+        if (!setupCode) throw new Error('the server log had no setup code')
         const registered = await request(`${base}/api/v1/account/register`, {
             method: 'POST',
-            body: { user: { name: 'Shared', email: EMAIL, credential: PASSWORD } }
+            body: { user: { name: 'Shared', email: EMAIL, credential: PASSWORD }, setupCode }
         })
         if (registered.status !== 200) throw new Error(`register ${registered.status}: ${registered.text.slice(0, 400)}`)
         const loggedIn = await request(`${base}/api/v1/auth/login`, {

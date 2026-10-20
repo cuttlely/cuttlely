@@ -25,5 +25,12 @@ describe('server setup page', () => {
     it('takes the code out of the address', () => {
         expect(addressWithoutCode('https://rosas-bakery.example/server-setup?code=made-up&authkit=done')).toBe('/server-setup?authkit=done')
         expect(addressWithoutCode('https://rosas-bakery.example/server-setup?code=made-up')).toBe('/server-setup')
+        expect(addressWithoutCode('https://rosas-bakery.example/server-setup#code=TESTCODE')).toBe('/server-setup')
+        expect(addressWithoutCode('https://rosas-bakery.example/server-setup?authkit=done#code=TESTCODE')).toBe(
+            '/server-setup?authkit=done'
+        )
+        expect(addressWithoutCode('https://rosas-bakery.example/organization-setup?code=TESTCODE#panel=1')).toBe(
+            '/organization-setup#panel=1'
+        )
     })
 })

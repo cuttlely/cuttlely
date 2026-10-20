@@ -528,7 +528,7 @@ async function captureSetup(browser) {
         console.log('setup', server.base)
         await waitForPing(server)
         const joined = server.logs.join('')
-        const link = joined.match(/https?:\/\/\S+\/server-setup\?code=[A-Za-z0-9_-]+/)
+        const link = joined.match(/https?:\/\/\S+\/server-setup#code=[A-Za-z0-9_-]+/)
         if (!link) throw new Error(`no setup link in the log\n${joined.slice(-1500)}`)
         const { context, page } = await newPage(browser)
         try {
@@ -546,6 +546,7 @@ async function captureSetup(browser) {
             await page.getByText('Create the owner account').waitFor()
             await shot(page, 'server-settings/setup-link-password.png')
             const bad = new URL(link[0].replace('://localhost', '://127.0.0.1'))
+            bad.hash = ''
             bad.searchParams.set('code', 'not-a-real-code')
             await page.goto(bad.toString(), { waitUntil: 'domcontentloaded' })
             await page.getByText("This setup link can't be used").waitFor()

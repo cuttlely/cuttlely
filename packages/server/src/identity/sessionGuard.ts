@@ -18,8 +18,15 @@ export function cookieMutationAllowed(method: string, internal: boolean): boolea
     return internal
 }
 
-/** Socket address. With TRUST_PROXY unset, a proxy on this host looks like loopback. */
-export function isLoopbackAddress(ip: string): boolean {
-    const host = ip.toLowerCase().replace(/^::ffff:/, '')
-    return host === '127.0.0.1' || host === '::1'
+/** Referrer, cache, and frame headers for setup documents and setup responses. */
+export function applySetupHeaders(res: { setHeader(name: string, value: string): void }): void {
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('X-Frame-Options', 'DENY')
+}
+
+/** True for the first-account page and the sign-in setup page. */
+export function isSetupDocumentPath(path: string): boolean {
+    const name = path.split('?')[0].replace(/\/+$/, '') || '/'
+    return name === '/organization-setup' || name === '/server-setup'
 }

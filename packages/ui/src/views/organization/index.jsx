@@ -25,7 +25,7 @@ import { loginSuccess } from '@/store/reducers/authSlice'
 // utils
 import useNotifier from '@/utils/useNotifier'
 import { passwordSchema } from '@/utils/validation'
-import { nextAfterSetup } from '@/utils/firstRun'
+import { nextAfterSetup, readAndClearSetupCode } from '@/utils/firstRun'
 
 // Icons
 import Auth0SSOLoginIcon from '@/assets/images/auth0.svg'
@@ -104,6 +104,11 @@ const OrganizationSetupPage = () => {
 
     const getDefaultProvidersApi = useApi(loginMethodApi.getDefaultLoginMethods)
     const [configuredSsoProviders, setConfiguredSsoProviders] = useState([])
+    const [setupCode, setSetupCode] = useState('')
+
+    useEffect(() => {
+        setSetupCode(readAndClearSetupCode())
+    }, [])
 
     const register = async (event) => {
         event.preventDefault()
@@ -126,8 +131,7 @@ const OrganizationSetupPage = () => {
                     credential: password
                 }
             }
-            // The setup link from the server log carries a one-time code; it lets Setup Account work through Docker's port.
-            const setupCode = new URLSearchParams(window.location.search).get('code')
+            // The setup link carries a one-time code in the fragment. It is read once and cleared before any request.
             if (setupCode) body.setupCode = setupCode
             if (isEnterpriseLicensed) {
                 body.organization = {

@@ -338,6 +338,7 @@ function ctx(store: IdentityStore, cookies: Record<string, string>): AuthContext
         secure: false,
         now: NOW,
         ip: '198.51.100.8',
+        socketAddress: '198.51.100.8',
         internal: true,
         body: {},
         cookies,

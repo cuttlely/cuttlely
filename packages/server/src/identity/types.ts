@@ -94,6 +94,12 @@ export interface CreateOwnerInput {
     externalId: string | null
 }
 
+/** Optional. When set, the owner row is inserted only if this setup HMAC is still unused and unexpired. */
+export interface CreateOwnerOptions {
+    consumeSetupHmac?: string
+    now?: number
+}
+
 export interface WorkosIdentity {
     id: string
     email: string
@@ -149,6 +155,14 @@ export class NotEmptyError extends Error {
     constructor() {
         super('not-empty')
         this.name = 'NotEmptyError'
+    }
+}
+
+/** The setup code was missing, expired, already used, or did not match inside the owner transaction. */
+export class SetupCodeRejected extends Error {
+    constructor() {
+        super('setup-code')
+        this.name = 'SetupCodeRejected'
     }
 }
 

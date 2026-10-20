@@ -27,13 +27,38 @@ import {
 } from './handlers'
 import { LoginRateLimit } from './rateLimit'
 import { hashPassword, hashSessionToken, isBcryptHash, passwordErrors } from './password'
-import { cookieMutationAllowed } from './sessionGuard'
-import { announceFirstRunSetup, firstRunSetupLink, resetFirstRunSetupCode } from './setupCode'
+import { applySetupHeaders, cookieMutationAllowed, isSetupDocumentPath } from './sessionGuard'
+import {
+    announceFirstRunSetup,
+    consumeSetupCode,
+    firstRunSetupCode,
+    firstRunSetupLink,
+    forgetIssuedSetupCode,
+    reissueFirstRunSetupCode,
+    resetFirstRunSetupCode,
+    serverSetupLink,
+    SETUP_CODE_TTL_MS,
+    setupCodeMatches
+} from './setupCode'
+import { recordSetupFailure, setupFailureLimited, socketAddress } from './setupLimit'
 import { resolveTrustProxy } from '../utils/trustProxy'
 import { AuthKitSwitchApply, AuthKitSwitchState, switchedSessions } from './authKitSwitch'
 import { IdentityStore } from './store'
 import { addIdentityLoginGuards, addIdentitySignIn, removeIdentityLoginGuards } from './schemaMigration'
-import { CreateOwnerInput, HandlerResult, InviteSignIn, LocalSession, NotEmptyError, SessionUser, UserRow, WorkosPort } from './types'
+import {
+    CreateOwnerInput,
+    CreateOwnerOptions,
+    HandlerResult,
+    InviteSignIn,
+    LocalSession,
+    NotEmptyError,
+    SessionUser,
+    SetupCodeRejected,
+    UserRow,
+    WorkosPort
+} from './types'
+import express from 'express'
+import request from 'supertest'
 
 const GOOD = 'Sup3r-Secret!'
 const NOW = Date.parse('2026-10-06T00:00:00.000Z')
@@ -113,7 +138,7 @@ class MemoryStore implements IdentityStore {
         return 'accepted'
     }
 
-    async createOwner(input: CreateOwnerInput): Promise<UserRow> {
+    async createOwner(input: CreateOwnerInput, options?: CreateOwnerOptions): Promise<UserRow> {
         let release: () => void = () => undefined
         const gate = new Promise<void>((resolve) => {
             release = resolve
@@ -122,14 +147,18 @@ class MemoryStore implements IdentityStore {
         this.queue = gate
         await previous
         try {
-            return this.insertOwner(input)
+            return await this.insertOwner(input, options)
         } finally {
             release()
         }
     }
 
-    private insertOwner(input: CreateOwnerInput): UserRow {
+    private async insertOwner(input: CreateOwnerInput, options?: CreateOwnerOptions): Promise<UserRow> {
         if (this.users.length) throw new NotEmptyError()
+        if (options?.consumeSetupHmac) {
+            const consumed = await consumeSetupCode(options.consumeSetupHmac, options.now ?? Date.now())
+            if (!consumed) throw new SetupCodeRejected()
+        }
         const user: UserRow = {
             id: `user-${this.users.length + 1}`,
             email: input.email,
@@ -257,6 +286,7 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
         secure: false,
         now: NOW,
         ip: '203.0.113.5',
+        socketAddress: '203.0.113.5',
         internal: false,
         body: {},
         cookies: {},
@@ -265,6 +295,36 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
         rateLimit: partial.rateLimit || new LoginRateLimit(),
         ...partial
     }
+}
+
+function registerApp(trust: boolean | number, store: MemoryStore) {
+    const app = express()
+    app.set('trust proxy', trust)
+    app.use(express.json())
+    app.post('/api/v1/account/register', (req, res) => {
+        applySetupHeaders(res)
+        const context = ctx({
+            localAdmin: true,
+            internal: req.headers['x-request-from'] === 'internal',
+            ip: req.ip || '',
+            socketAddress: socketAddress(req.socket.remoteAddress),
+            store,
+            now: NOW,
+            body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}
+        })
+        void handleRegister(context).then((result) => {
+            if (result.type !== 'json') {
+                res.status(500).end()
+                return
+            }
+            res.status(result.status).json(result.body)
+        })
+    })
+    app.get('/organization-setup', (req, res) => {
+        if (isSetupDocumentPath(req.path)) applySetupHeaders(res)
+        res.status(200).type('html').send('<!doctype html><title>setup</title>')
+    })
+    return app
 }
 
 function json(result: HandlerResult): {
@@ -840,13 +900,18 @@ describe('identity auth', () => {
             status: 404
         })
         expect(json(await handlePasswordRecoveryGone()).status).toBe(404)
+        resetFirstRunSetupCode()
+        const setupCode = firstRunSetupCode(NOW)
         const created = json(
             await handleRegister(
                 ctx({
                     localAdmin: true,
+                    internal: true,
                     ip: '127.0.0.1',
+                    socketAddress: '127.0.0.1',
                     store,
-                    body: { user: { name: 'Owner', email: 'owner@example.com', credential: GOOD } }
+                    now: NOW,
+                    body: { user: { name: 'Owner', email: 'owner@example.com', credential: GOOD }, setupCode }
                 })
             )
         )
@@ -859,9 +924,12 @@ describe('identity auth', () => {
                 await handleRegister(
                     ctx({
                         localAdmin: true,
+                        internal: true,
                         ip: '127.0.0.1',
+                        socketAddress: '127.0.0.1',
                         store,
-                        body: { user: { name: 'Other', email: 'other@example.com', credential: GOOD } }
+                        now: NOW,
+                        body: { user: { name: 'Other', email: 'other@example.com', credential: GOOD }, setupCode }
                     })
                 )
             ).status
@@ -870,9 +938,12 @@ describe('identity auth', () => {
             await handleRegister(
                 ctx({
                     localAdmin: true,
+                    internal: true,
                     ip: '127.0.0.1',
+                    socketAddress: '127.0.0.1',
                     store: new MemoryStore(),
-                    body: { user: { name: 'Owner', email: 'owner@example.com', credential: 'short' } }
+                    now: NOW,
+                    body: { user: { name: 'Owner', email: 'owner@example.com', credential: 'short' }, setupCode }
                 })
             )
         )
@@ -974,7 +1045,8 @@ describe('identity auth', () => {
         resetFirstRunSetupCode()
         const store = new MemoryStore()
         const user = { name: 'Owner', email: 'owner@example.com', credential: GOOD }
-        const remote = (body: Record<string, unknown>) => handleRegister(ctx({ localAdmin: true, ip: '172.18.0.1', store, body }))
+        const remote = (body: Record<string, unknown>) =>
+            handleRegister(ctx({ localAdmin: true, internal: true, ip: '172.18.0.1', socketAddress: '172.18.0.1', now: NOW, store, body }))
 
         const noCode = json(await remote({ user }))
         // 400, not 403: the app sends a 403 to its no-permission page, and this message has to reach the form.
@@ -983,8 +1055,9 @@ describe('identity auth', () => {
         expect(json(await remote({ user, setupCode: '' })).status).toBe(400)
 
         const link = firstRunSetupLink(43117)
-        const code = new URL(link).searchParams.get('code') as string
-        expect(link.startsWith('http://localhost:43117/organization-setup?code=')).toBe(true)
+        const code = new URL(link).hash.slice('#code='.length)
+        expect(link.startsWith('http://localhost:43117/organization-setup#code=')).toBe(true)
+        expect(link.includes('?code=')).toBe(false)
         expect(code.length).toBeGreaterThanOrEqual(16)
         expect(json(await remote({ user, setupCode: code.slice(1) })).status).toBe(400)
         expect(json(await remote({ user, setupCode: ['x'] })).status).toBe(400)
@@ -1004,7 +1077,11 @@ describe('identity auth', () => {
             true
         )
         const body = { user: { name: 'Other', email: 'other@example.com', credential: GOOD } }
-        await expect(handleRegister(ctx({ localAdmin: true, ip: '203.0.113.5', store: populated, body }))).resolves.toMatchObject({
+        await expect(
+            handleRegister(
+                ctx({ localAdmin: true, internal: true, ip: '203.0.113.5', socketAddress: '203.0.113.5', store: populated, body })
+            )
+        ).resolves.toMatchObject({
             type: 'json',
             status: 404
         })
@@ -1092,6 +1169,214 @@ describe('identity auth', () => {
         expect(ok).toHaveLength(1)
         expect(rejected).toHaveLength(1)
         expect(store.users).toHaveLength(1)
+    })
+
+    it('rejects an expired setup code and issues a new one on demand and after a restart', async () => {
+        resetFirstRunSetupCode()
+        const code = firstRunSetupCode(NOW)
+        expect(await setupCodeMatches(code, NOW + SETUP_CODE_TTL_MS - 1)).toBe(true)
+        expect(await setupCodeMatches(code, NOW + SETUP_CODE_TTL_MS)).toBe(false)
+        const fresh = reissueFirstRunSetupCode(NOW + SETUP_CODE_TTL_MS)
+        expect(fresh).not.toBe(code)
+        expect(await setupCodeMatches(fresh, NOW + SETUP_CODE_TTL_MS)).toBe(true)
+        expect(await setupCodeMatches(code, NOW + SETUP_CODE_TTL_MS)).toBe(false)
+        forgetIssuedSetupCode()
+        const restarted = firstRunSetupCode(NOW + SETUP_CODE_TTL_MS)
+        expect(restarted).not.toBe(fresh)
+        expect(await setupCodeMatches(restarted, NOW + SETUP_CODE_TTL_MS)).toBe(true)
+        expect(await setupCodeMatches(fresh, NOW + SETUP_CODE_TTL_MS)).toBe(false)
+        resetFirstRunSetupCode()
+    })
+
+    it('prints the setup link with the code in the fragment', () => {
+        resetFirstRunSetupCode()
+        const link = firstRunSetupLink(43117)
+        const url = new URL(link)
+        expect(url.searchParams.get('code')).toBeNull()
+        expect(url.hash.startsWith('#code=')).toBe(true)
+        expect(url.hash.slice('#code='.length).length).toBeGreaterThanOrEqual(16)
+        const server = serverSetupLink(3000, { APP_URL: 'https://rosas-bakery.example/x' })
+        expect(server.startsWith('https://rosas-bakery.example/server-setup#code=')).toBe(true)
+        expect(server.includes('?code=')).toBe(false)
+        resetFirstRunSetupCode()
+    })
+
+    it('rejects a wrong, long, or non-string setup code', async () => {
+        resetFirstRunSetupCode()
+        const code = firstRunSetupCode(NOW)
+        expect(await setupCodeMatches(code, NOW)).toBe(true)
+        expect(await setupCodeMatches('TESTCODE-wrong', NOW)).toBe(false)
+        expect(await setupCodeMatches('T'.repeat(65), NOW)).toBe(false)
+        expect(await setupCodeMatches('TESTCODE', NOW)).toBe(false)
+        expect(await setupCodeMatches(12, NOW)).toBe(false)
+        expect(await setupCodeMatches(null, NOW)).toBe(false)
+        expect(await setupCodeMatches('', NOW)).toBe(false)
+        resetFirstRunSetupCode()
+    })
+
+    it('creates exactly one owner when two registers use one setup code', async () => {
+        resetFirstRunSetupCode()
+        const code = firstRunSetupCode(NOW)
+        const store = new MemoryStore()
+        const bodyFor = (email: string) => ({
+            user: { name: 'Owner', email, credential: GOOD },
+            setupCode: code
+        })
+        const results = await Promise.all([
+            handleRegister(
+                ctx({
+                    localAdmin: true,
+                    internal: true,
+                    socketAddress: '127.0.0.1',
+                    store,
+                    now: NOW,
+                    body: bodyFor('owner@example.com')
+                })
+            ),
+            handleRegister(
+                ctx({
+                    localAdmin: true,
+                    internal: true,
+                    socketAddress: '127.0.0.1',
+                    store,
+                    now: NOW,
+                    body: bodyFor('other@example.com')
+                })
+            )
+        ])
+        const created = results.filter((result) => result.type === 'json' && result.status === 200)
+        expect(created).toHaveLength(1)
+        expect(store.users).toHaveLength(1)
+        expect(await setupCodeMatches(code, NOW)).toBe(false)
+        resetFirstRunSetupCode()
+    })
+
+    it('rejects a used setup code from a second process through the stored marker', async () => {
+        resetFirstRunSetupCode()
+        const code = firstRunSetupCode(NOW)
+        const store = new MemoryStore()
+        const body = { user: { name: 'Owner', email: 'owner@example.com', credential: GOOD }, setupCode: code }
+        const created = json(
+            await handleRegister(ctx({ localAdmin: true, internal: true, socketAddress: '127.0.0.1', store, now: NOW, body }))
+        )
+        expect(created.status).toBe(200)
+        forgetIssuedSetupCode()
+        expect(await setupCodeMatches(code, NOW)).toBe(false)
+        const other = new MemoryStore()
+        const again = json(
+            await handleRegister(
+                ctx({
+                    localAdmin: true,
+                    internal: true,
+                    socketAddress: '192.0.2.40',
+                    store: other,
+                    now: NOW,
+                    body: { user: { name: 'Other', email: 'other@example.com', credential: GOOD }, setupCode: code }
+                })
+            )
+        )
+        expect(again.status).toBe(400)
+        expect(again.body.message).toBe(SETUP_LINK_NEEDED)
+        expect(other.users).toHaveLength(0)
+        resetFirstRunSetupCode()
+    })
+
+    it('requires x-request-from: internal on register and rejects a missing code from loopback', async () => {
+        resetFirstRunSetupCode()
+        const store = new MemoryStore()
+        const user = { name: 'Owner', email: 'owner@example.com', credential: GOOD }
+        const missingHeader = json(
+            await handleRegister(
+                ctx({
+                    localAdmin: true,
+                    internal: false,
+                    ip: '127.0.0.1',
+                    socketAddress: '127.0.0.1',
+                    store,
+                    now: NOW,
+                    body: { user }
+                })
+            )
+        )
+        expect(missingHeader.status).toBe(401)
+        expect(missingHeader.body.message).toBe('Unauthorized')
+        expect(setupFailureLimited('127.0.0.1', NOW)).toBe(false)
+
+        for (const trust of [true, 1] as const) {
+            const app = registerApp(trust, store)
+            const res = await request(app)
+                .post('/api/v1/account/register')
+                .set('x-request-from', 'internal')
+                .set('X-Forwarded-For', '127.0.0.1')
+                .send({ user })
+            expect(res.status).toBe(400)
+            expect(res.body.message).toBe(SETUP_LINK_NEEDED)
+            expect(res.headers['referrer-policy']).toBe('no-referrer')
+            expect(res.headers['cache-control']).toBe('no-store')
+            expect(res.headers['x-frame-options']).toBe('DENY')
+        }
+        expect(store.users).toHaveLength(0)
+
+        const page = await request(registerApp(false, store)).get('/organization-setup')
+        expect(page.headers['referrer-policy']).toBe('no-referrer')
+        expect(page.headers['cache-control']).toBe('no-store')
+        expect(page.headers['x-frame-options']).toBe('DENY')
+        expect(isSetupDocumentPath('/server-setup')).toBe(true)
+        expect(isSetupDocumentPath('/signin')).toBe(false)
+        resetFirstRunSetupCode()
+    })
+
+    it('limits setup failures by socket address and ignores a rotating forwarded address', async () => {
+        resetFirstRunSetupCode()
+        const store = new MemoryStore()
+        const app = registerApp(true, store)
+        const user = { name: 'Owner', email: 'owner@example.com', credential: GOOD }
+        for (let i = 0; i < 10; i++) {
+            const res = await request(app)
+                .post('/api/v1/account/register')
+                .set('x-request-from', 'internal')
+                .set('X-Forwarded-For', `198.51.100.${i}`)
+                .send({ user, setupCode: 'TESTCODE-wrong' })
+            expect(res.status).toBe(400)
+        }
+        const blocked = await request(app)
+            .post('/api/v1/account/register')
+            .set('x-request-from', 'internal')
+            .set('X-Forwarded-For', '203.0.113.50')
+            .send({ user, setupCode: 'TESTCODE-wrong' })
+        expect(blocked.status).toBe(429)
+        const still = await request(app)
+            .post('/api/v1/account/register')
+            .set('x-request-from', 'internal')
+            .set('X-Forwarded-For', '192.0.2.8')
+            .send({ user, setupCode: firstRunSetupCode(NOW) })
+        expect(still.status).toBe(429)
+        expect(store.users).toHaveLength(0)
+
+        resetFirstRunSetupCode()
+        const lines: string[] = []
+        await announceFirstRunSetup(
+            43117,
+            async () => 0,
+            (line) => lines.push(line),
+            true
+        )
+        const issuedUrl = lines[0].match(/https?:\/\/\S+/)
+        expect(issuedUrl).not.toBeNull()
+        const issued = new URL(issuedUrl?.[0] || '').hash.slice('#code='.length)
+        let reissued = false
+        for (let i = 0; i < 100; i++) {
+            const outcome = recordSetupFailure(`192.0.2.${i % 20}`, NOW)
+            if (outcome.reissue) {
+                reissued = true
+                reissueFirstRunSetupCode(NOW)
+            }
+        }
+        expect(reissued).toBe(true)
+        expect(setupFailureLimited('198.51.100.20', NOW)).toBe(true)
+        expect(await setupCodeMatches(issued, NOW)).toBe(false)
+        expect(lines.some((line) => line.includes('#code=') && !line.includes(issued))).toBe(true)
+        resetFirstRunSetupCode()
     })
 
     it('migration adds externalId and the break-glass session table', async () => {

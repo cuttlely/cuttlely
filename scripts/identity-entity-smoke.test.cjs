@@ -381,7 +381,8 @@ describe('identity postgres schema', () => {
                     'AddLocalDirectory1799000000000',
                     'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000',
-                    'AddApiKeyHarnesses1800500000000'
+                    'AddApiKeyHarnesses1800500000000',
+                    'AddSetupCode1800600000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -491,7 +492,8 @@ describe('identity mariadb schema', () => {
                     'AddLocalDirectory1799000000000',
                     'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000',
-                    'AddApiKeyHarnesses1800500000000'
+                    'AddApiKeyHarnesses1800500000000',
+                    'AddSetupCode1800600000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -680,7 +682,8 @@ describe('identity mysql 8 schema', () => {
                     'AddLocalDirectory1799000000000',
                     'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000',
-                    'AddApiKeyHarnesses1800500000000'
+                    'AddApiKeyHarnesses1800500000000',
+                    'AddSetupCode1800600000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -736,7 +739,8 @@ describe('identity sqlite upgrade', () => {
                     'AddLocalDirectory1799000000000',
                     'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000',
-                    'AddApiKeyHarnesses1800500000000'
+                    'AddApiKeyHarnesses1800500000000',
+                    'AddSetupCode1800600000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

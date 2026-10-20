@@ -16,6 +16,7 @@ export {
     WorkspaceName,
     WorkspaceUserStatus
 } from './enums'
+export { IdentitySetupCode } from './IdentitySetupCode'
 export { LoginActivity } from './LoginActivity'
 export { LoginMethod } from './LoginMethod'
 export { LoginSession } from './LoginSession'

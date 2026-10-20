@@ -119,7 +119,7 @@ describe('the setup link in the log', () => {
         const lines: string[] = []
         const log = (line: string) => lines.push(line)
         expect(await announceFirstRunSetup(3000, async () => 0, log, false, env)).toBe(true)
-        expect(lines).toEqual([expect.stringContaining('https://rosas-bakery.example/server-setup?code=')])
+        expect(lines).toEqual([expect.stringContaining('https://rosas-bakery.example/server-setup#code=')])
         expect(lines[0]).toContain(serverSetupLink(3000, env))
         expect(lines[0]).toContain('The link works once.')
         lines.length = 0
@@ -135,9 +135,9 @@ describe('the setup link in the log', () => {
 
     it('falls back to APP_URL, then this machine', () => {
         expect(serverSetupLink(3000, { APP_URL: 'https://flows.rosas-bakery.example/x' })).toMatch(
-            /^https:\/\/flows\.rosas-bakery\.example\/server-setup\?code=/
+            /^https:\/\/flows\.rosas-bakery\.example\/server-setup#code=/
         )
-        expect(serverSetupLink(3000, { APP_URL: 'not an address' })).toMatch(/^http:\/\/localhost:3000\/server-setup\?code=/)
+        expect(serverSetupLink(3000, { APP_URL: 'not an address' })).toMatch(/^http:\/\/localhost:3000\/server-setup#code=/)
     })
 })
 
@@ -149,6 +149,9 @@ describe('opening the link', () => {
         expect((await request(app).get('/api/v1/server-setup/state')).status).toBe(401)
         const res = await request(app).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: firstRunSetupCode() })
         expect(res.status).toBe(200)
+        expect(res.headers['referrer-policy']).toBe('no-referrer')
+        expect(res.headers['cache-control']).toBe('no-store')
+        expect(res.headers['x-frame-options']).toBe('DENY')
         const cookie = String(res.headers['set-cookie'])
         expect(cookie).toMatch(/cuttlely-setup=/)
         expect(cookie).toMatch(/HttpOnly/)
@@ -221,6 +224,31 @@ describe('use a password for now', () => {
         expect(again.body.message).toBe('This setup link has already been used. Sign in instead.')
         // Hashing the password and saving the settings took over 5 s once under a fully loaded unit run (under 0.1 s alone).
     }, 20000)
+
+    it('limits code exchange failures by socket address when the forwarded address changes', async () => {
+        const app = express()
+        app.set('trust proxy', true)
+        app.use(express.json())
+        app.use(cookieParser())
+        app.use('/api/v1/server-setup', setupRouter)
+        for (let i = 0; i < 10; i++) {
+            const res = await request(app)
+                .post('/api/v1/server-setup/open')
+                .set(INTERNAL)
+                .set('X-Forwarded-For', `198.51.100.${i}`)
+                .send({ code: 'TESTCODE-wrong' })
+            expect(res.status).toBe(404)
+        }
+        const blocked = await request(app)
+            .post('/api/v1/server-setup/open')
+            .set(INTERNAL)
+            .set('X-Forwarded-For', '203.0.113.77')
+            .send({ code: firstRunSetupCode() })
+        expect(blocked.status).toBe(429)
+        expect(blocked.headers['referrer-policy']).toBe('no-referrer')
+        expect(blocked.headers['cache-control']).toBe('no-store')
+        expect(blocked.headers['x-frame-options']).toBe('DENY')
+    })
 
     it('is refused when the host sets the password sign-in', async () => {
         state.hostKeys = ['CUTTLELY_LOCAL_ADMIN']

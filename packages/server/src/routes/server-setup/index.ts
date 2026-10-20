@@ -2,7 +2,9 @@
 // the code from the link opens a short setup session, and the session only reaches Sign-in & identity. Everything
 // answers 410 once the link has been used, a sign-in method is on, or the first account exists.
 import express, { NextFunction, Request, Response } from 'express'
-import { cookieMutationAllowed } from '../../identity/sessionGuard'
+import { applySetupHeaders, cookieMutationAllowed } from '../../identity/sessionGuard'
+import { noteSetupFailure } from '../../identity/setupCode'
+import { setupFailureLimited, socketAddress } from '../../identity/setupLimit'
 import { Principal, applyAuthKitTest, authKitTestStatus, checkAuthKit, requestOrigin, startAuthKitTest } from '../../settings/authkit'
 import { TestInputError } from '../../settings/connection'
 import { SettingsError } from '../../settings/service'
@@ -52,7 +54,7 @@ function handle(work: (req: SetupRequest, res: Response) => Promise<unknown> | u
 }
 
 router.use((req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store')
+    applySetupHeaders(res)
     // Writes need the app's own header, like every cookie-signed write (a page elsewhere can't send it).
     if (!cookieMutationAllowed(req.method, req.headers['x-request-from'] === 'internal')) {
         return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Unauthorized' })
@@ -63,10 +65,16 @@ router.use((req, res, next) => {
 // The code from the link opens a setup session in this browser.
 router.post('/open', async (req, res, next) => {
     try {
+        const address = socketAddress(req.socket?.remoteAddress)
+        const now = Date.now()
+        if (setupFailureLimited(address, now)) {
+            return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
+        }
         const setup = deps()
         const closed = await setupClosed(setup)
         if (closed) return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE[closed] })
         if (!(await codeOpensSetup(setup, (req.body as { code?: unknown })?.code))) {
+            noteSetupFailure(address, now)
             return res.status(404).json({ code: 'BAD_CODE', message: 'This setup link is not right. Copy it again from the server log.' })
         }
         openSetupSession(req, res)
