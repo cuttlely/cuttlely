@@ -210,6 +210,8 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
     これで `ghcr.io/cuttlely/cuttlely` を取得し、準備ができると [http://localhost:43117](http://localhost:43117) を開きます。`stop`、`status`、`logs`、`upgrade` は [npm でインストールする](./docs/how-to/docker.md#install-with-npm) にあります。
 
+    Docker がない場合は、Node 24 で [ソースからビルドする](./docs/how-to/from-source.md) こともできます（`.nvmrc` は 24.15.0 に固定しています）。
+
 2. 起動すると、サーバーが一回限りのセットアップリンクを出力します。次のコマンドで表示します。
 
     ```bash
