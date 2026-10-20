@@ -1,12 +1,13 @@
 import express from 'express'
 import cors from 'cors'
 import mcpEndpointController from '../../controllers/mcp-endpoint'
+import { mcpJsonParser } from '../../utils/externalJsonLimit'
 import { MCP_ENDPOINT_METHODS } from './http'
 
 const router = express.Router()
 
-// Body size limit: 1MB max for MCP JSON-RPC payloads (overrides the global 50mb limit)
-router.use(express.json({ limit: '1mb', type: 'application/json' }))
+// Cap still applies when this router is mounted without the app-level 1 MB parser.
+router.use(mcpJsonParser)
 
 // CORS: Use MCP_CORS_ORIGINS if set, otherwise allow only non-browser (no Origin header) requests.
 // MCP desktop clients (Claude Desktop, Cursor, etc.) don't send an Origin header, so they pass through.

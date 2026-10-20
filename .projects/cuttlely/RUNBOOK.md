@@ -24,13 +24,13 @@ pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `p
 
 ## Toolchain
 
-| Tool   | Version                                         | Notes                                                                                                                                                          |
-| ------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node   | `.nvmrc` (v24); `engines.node` is `^24`         | Root `.npmrc` sets `engine-strict=true`, so install fails below that range. `pnpm verify` and the harness credential reader need `node:sqlite`, so use Node 24 |
-| pnpm   | `packageManager` pins the version Corepack runs | If Corepack cannot write its default folder on your machine, set `COREPACK_HOME` to a writable directory                                                       |
-| Python | 3.11 to 3.14. `hermes/uv.lock` covers 3.14 only | `bash scripts/setup-hermes.sh [version]`: 3.14 uses the lock; 3.11 to 3.13 resolve the same requirements unfrozen                                              |
-| uv     | any recent                                      | Creates the agent runtime's virtualenv                                                                                                                         |
-| Docker | Compose 2.x                                     | Only for the Docker install and `scripts/docker-smoke.sh`                                                                                                      |
+| Tool   | Version                                         | Notes                                                                                                             |
+| ------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Node   | `.nvmrc` (v24); `engines.node` is `^24`         | `pnpm verify` and the harness credential reader need `node:sqlite`, so use Node 24                                |
+| pnpm   | `packageManager` pins the version Corepack runs | If Corepack cannot write its default folder on your machine, set `COREPACK_HOME` to a writable directory          |
+| Python | 3.11 to 3.14. `hermes/uv.lock` covers 3.14 only | `bash scripts/setup-hermes.sh [version]`: 3.14 uses the lock; 3.11 to 3.13 resolve the same requirements unfrozen |
+| uv     | any recent                                      | Creates the agent runtime's virtualenv                                                                            |
+| Docker | Compose 2.x                                     | Only for the Docker install and `scripts/docker-smoke.sh`                                                         |
 
 Commits need a git identity (`user.name` and `user.email`). On a machine without a global identity, set it per repository or with `GIT_AUTHOR_*` and `GIT_COMMITTER_*`.
 
@@ -165,6 +165,10 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `DISABLE_CUTTLELY_TELEMETRY`                                | unset                                       | `true` turns usage events off. When both disable variables are set, this name is used.                                                                                                                                                                                                          |
 | `METRICS_PREFIX`                                            | unset                                       | Optional prefix for published metric names. Unset keeps today's names.                                                                                                                                                                                                                          |
 | `CUTTLELY_MCP_VALIDATOR_PATH`                               | the built components `core.js`              | Host-only dev/test hook: the server process loads this file to run the Custom MCP checks on raw specialist servers. A value that differs from the default is logged once at use.                                                                                                                |
+| `A2A_PUBLIC_BASE_URL`                                       | unset                                       | Origin written on the A2A agent card. No path, no trailing slash. Unset uses `Host` and `X-Forwarded-Proto` (D103)                                                                                                                                                                              |
+| `A2A_TASK_TEXT_MAX_BYTES`                                   | `65536`                                     | Max UTF-8 bytes of a stored A2A question (refused) or answer (cut with `[truncated]`). Below the marker length, the default is used (D105)                                                                                                                                                      |
+| `A2A_TASK_BYTES_PER_FLOW`                                   | `67108864`                                  | Aggregate stored-task bytes per flow. Oldest completed tasks are evicted first when a write would pass it; a just-finished answer is shortened if the flow is still over (D105)                                                                                                                 |
+| `A2A_TASK_CAP_PER_FLOW`                                     | `1000`                                      | Max stored A2A tasks per flow. Oldest final tasks are evicted first; all-open is refused (D103, D105)                                                                                                                                                                                           |
 
 ## Gotchas
 

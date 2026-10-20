@@ -3070,6 +3070,14 @@
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
         },
         {
+            "path": "packages/server/src/utils/externalJsonLimit.test.ts",
+            "reason": "1 MB JSON parsers for A2A, Orchestrate, and MCP skip the global file-size parser"
+        },
+        {
+            "path": "packages/server/src/utils/externalJsonLimit.ts",
+            "reason": "1 MB JSON parsers for A2A, Orchestrate, and MCP skip the global file-size parser"
+        },
+        {
             "path": "packages/server/src/utils/missingModelCredential.prediction.test.ts",
             "reason": "The missing-credential HTTP test stays next to the prediction error path it exercises."
         },

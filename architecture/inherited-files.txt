@@ -1432,6 +1432,8 @@ packages/server/src/utils/createAttachment.ts
 packages/server/src/utils/database.util.ts
 packages/server/src/utils/domainValidation.ts
 packages/server/src/utils/executeCustomNodeFunction.ts
+packages/server/src/utils/externalJsonLimit.test.ts
+packages/server/src/utils/externalJsonLimit.ts
 packages/server/src/utils/fileRepository.ts
 packages/server/src/utils/fileValidation.ts
 packages/server/src/utils/getChatMessage.ts
