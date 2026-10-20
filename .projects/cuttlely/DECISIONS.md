@@ -407,3 +407,7 @@ IBM watsonx Orchestrate `external_chat` calls a published chatflow through `POST
 ## D102. Home hero import link reads Already have flows? Bring them over
 
 Supersedes the hero-link sentences of D97, D98, D99, and D100 for the project website (`website/`). The home hero keeps the H1, the lead, the proof line, Get started, Star on GitHub, and the three-command block. The link under the hero actions is "Already have flows? Bring them over", class `cl-link-arrow`, href `/flowise/`, with the same arrow icon. The hero markup does not name that other product except inside that href. The home page does not name that import format in visible copy. The import page, the FAQ import entry, and Apache-2.0 attribution stay. Why: the home page should lead with the product, and the hero should invite import without naming the other product in the link text.
+
+## D103. MCP POST applies the flow Rate Limit by chatflow id
+
+`RateLimiterManager.getRateLimiter()` reads `req.params.id`. The MCP route is `POST /api/v1/mcp/:chatflowId`, so that helper never sees the flow id and the flow's **Rate Limit** does not apply. MCP POST calls `getRateLimiterById` with `req.params.chatflowId`. Why: a published chatflow imported as a remote MCP toolkit must keep the same per-flow rate limit as the prediction API. Cost: a second call site that must stay in sync if the MCP route param changes.
