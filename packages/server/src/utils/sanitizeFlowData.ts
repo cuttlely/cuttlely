@@ -29,6 +29,7 @@ const HEADER_NAME = /headers$/i
 const NODE_REFERENCE = /^\{\{([A-Za-z][A-Za-z0-9_]*_\d+)\.data\.instance\}\}$/
 const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-)/i
 const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
+const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // word: followed by a non-space character. Applied to the normalized text, not tuned per field.
 const SCHEME_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\S/
 const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
@@ -273,6 +274,16 @@ export const rebuildHttpUrl = (value: unknown): string | undefined => {
 
 const keepString = (value: unknown): string | undefined => (stringIsSafe(value) ? value : undefined)
 
+/** A whole async option value that is only a UUID is not treated as a high-entropy run. */
+const keepAsyncOption = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined
+    const plain = plainForCheck(value)
+    if (plain === undefined) return undefined
+    if (TOKEN_PREFIX.test(plain) || hasUnsafeFreeText(plain)) return undefined
+    if (!PLAIN_UUID.test(plain) && hasHighEntropyRun(plain)) return undefined
+    return value
+}
+
 /**
  * Template inputs for one node. Kept values come only from the declared input type.
  * `dropped` names settings that were present and left out.
@@ -321,7 +332,7 @@ export const sanitizeNodeInputs = (
                 }
             }
             kept = items && items.every((item) => isListedOption(item, param)) ? value : undefined
-        } else if (param.type === 'asyncOptions') kept = keepString(value)
+        } else if (param.type === 'asyncOptions') kept = keepAsyncOption(value)
         else if (param.type === 'string' && URL_FIELD_NAME.test(name)) kept = rebuildHttpUrl(value)
         else if (param.type === 'string' && isSafeStringName(name)) kept = keepString(value)
         else kept = undefined

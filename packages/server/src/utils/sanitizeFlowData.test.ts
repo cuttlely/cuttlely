@@ -248,6 +248,21 @@ describe('template inputs', () => {
         expect(JSON.stringify(inputs)).not.toContain(MARKER)
     })
 
+    it('keeps a plain UUID async option and drops another long random option', () => {
+        const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+        const upper = 'A1B2C3D4-E5F6-7890-ABCD-EF1234567890'
+        const { inputs } = sanitizeNodeInputs({ modelName: uuid, otherName: upper, noisy: 'aB3dE9fG1hJ2kL4mN6pQ8rS0tU5vW7xY' }, [
+            { name: 'modelName', type: 'asyncOptions' },
+            { name: 'otherName', type: 'asyncOptions' },
+            { name: 'noisy', type: 'asyncOptions' }
+        ] as any)
+        expect(inputs.modelName).toBe(uuid)
+        expect(inputs.otherName).toBe(upper)
+        expect(inputs.noisy).toBeUndefined()
+        const prompt = sanitizeNodeInputs({ prompt: uuid }, [{ name: 'prompt', type: 'string' }] as any)
+        expect(prompt.inputs.prompt).toBeUndefined()
+    })
+
     it('drops option values that are not in the declared list, including a listed name of the wrong type', () => {
         const { inputs } = sanitizeNodeInputs({ reasoningEffort: 'medium', stops: '["alpha","nope"]' }, schemaParams as any)
         expect(inputs).toEqual({})
