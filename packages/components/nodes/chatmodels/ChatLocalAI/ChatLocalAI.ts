@@ -103,7 +103,7 @@ class ChatLocalAI_ChatModels implements INode {
         const basePath = nodeData.inputs?.basePath as string
         const streaming = nodeData.inputs?.streaming as boolean
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const localAIApiKey = getCredentialParam('localAIApiKey', credentialData, nodeData)
 
         const cache = nodeData.inputs?.cache as BaseCache

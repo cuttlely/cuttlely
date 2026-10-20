@@ -79,7 +79,7 @@ class MistralEmbedding_Embeddings implements INode {
         const stripNewLines = nodeData.inputs?.stripNewLines as boolean
         const overrideEndpoint = nodeData.inputs?.overrideEndpoint as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const apiKey = getCredentialParam('mistralAIAPIKey', credentialData, nodeData)
 
         const obj: MistralAIEmbeddingsParams = {

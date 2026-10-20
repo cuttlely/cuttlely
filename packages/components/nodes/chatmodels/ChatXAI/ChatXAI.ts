@@ -98,7 +98,7 @@ class ChatXAI_ChatModels implements INode {
         const streaming = nodeData.inputs?.streaming as boolean
         const allowImageUploads = nodeData.inputs?.allowImageUploads as boolean
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const xaiApiKey = getCredentialParam('xaiApiKey', credentialData, nodeData)
 
         const obj: ChatXAIInput = {

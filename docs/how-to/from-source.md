@@ -65,7 +65,7 @@ If that fails with `EACCES`, Node was installed for every user on the machine. R
     pnpm build
     ```
 
-    It ends with `Tasks: 7 successful, 7 total`. On an 8-core machine a first build took about 40 seconds.
+    It ends with `Tasks: 10 successful, 10 total`. On an 8-core machine a first build took about 40 seconds.
 
 5. Set up the agent runtime, the Python process that runs harness specialists:
 
@@ -154,7 +154,7 @@ Type the password at the `Password:` prompt. It isn't shown. The command ends wi
 [INFO]: Super User created for you@example.com.
 ```
 
-Several `npm warn` lines come first, including `Unknown cli config "--email"`. They are harmless. The account exists when you see `Super User created`.
+Several harmless `npm warn` lines come first. The account exists when you see `Super User created`.
 
 Then open [http://localhost:43117](http://localhost:43117). The app opens **Sign In**. Type the email and password and select **Sign in**.
 

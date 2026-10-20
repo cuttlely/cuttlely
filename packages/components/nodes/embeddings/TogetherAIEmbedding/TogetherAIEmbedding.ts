@@ -49,7 +49,7 @@ class TogetherAIEmbedding_Embeddings implements INode {
     async init(nodeData: INodeData, _: string, options: ICommonObject): Promise<any> {
         const modelName = nodeData.inputs?.modelName as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const togetherAIApiKey = getCredentialParam('togetherAIApiKey', credentialData, nodeData)
 
         const obj: Partial<TogetherAIEmbeddingsParams> = {

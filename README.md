@@ -194,6 +194,8 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     That pulls `ghcr.io/cuttlely/cuttlely` and opens [http://localhost:43117](http://localhost:43117) when it is ready. [Install with npm](./docs/how-to/docker.md#install-with-npm) has `stop`, `status`, `logs` and `upgrade`.
 
+    No Docker? [Build from source](./docs/how-to/from-source.md) with Node 24 (`.nvmrc` pins 24.15.0).
+
 2. When it is up, the server prints a ready block with a one-time setup link and a setup code. Show it with:
 
     ```bash
