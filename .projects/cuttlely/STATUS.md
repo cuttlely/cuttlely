@@ -56,3 +56,4 @@ Cuttlely 1.3.0. The product version is the root `package.json`, `packages/server
 ## Not done
 
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
+-   Branch `harden-public-config` is in review, not on `main`: hardened public config endpoints with response allowlists for the public chatbot config and chatflow responses, template input sanitizing on save, filtered `overrideConfig` headers, and 422 on a missing credential. Notes are under 1.3.1 Unreleased in the changelog.
