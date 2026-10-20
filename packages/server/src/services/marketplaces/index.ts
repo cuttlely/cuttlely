@@ -11,6 +11,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { IReactFlowEdge, IReactFlowNode } from '../../Interface'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stripProtectedFields } from '../../utils/stripProtectedFields'
+import { sanitizeNodeInputs } from '../../utils/sanitizeFlowData'
 import chatflowsService from '../chatflows'
 
 type ITemplate = {
@@ -263,17 +264,9 @@ const _generateExportFlowData = (flowData: any) => {
             selected: false
         }
 
-        // Remove password, file & folder
+        // Keep only defined, non-secret inputs
         if (node.data.inputs && Object.keys(node.data.inputs).length) {
-            const nodeDataInputs: any = {}
-            for (const input in node.data.inputs) {
-                const inputParam = node.data.inputParams.find((inp: any) => inp.name === input)
-                if (inputParam && inputParam.type === 'password') continue
-                if (inputParam && inputParam.type === 'file') continue
-                if (inputParam && inputParam.type === 'folder') continue
-                nodeDataInputs[input] = node.data.inputs[input]
-            }
-            newNodeData.inputs = nodeDataInputs
+            newNodeData.inputs = sanitizeNodeInputs(node.data.inputs, node.data.inputParams, node.data.inputAnchors)
         }
 
         nodes[i].data = newNodeData

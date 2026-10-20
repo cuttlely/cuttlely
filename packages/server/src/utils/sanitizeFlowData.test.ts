@@ -1,4 +1,4 @@
-import { flowDataForPublicChatbotConfig, isChatflowKeyProtected, sanitizeFlowDataForPublicEndpoint } from './sanitizeFlowData'
+import { isChatflowKeyProtected, isSecretInputName, sanitizeFlowDataForPublicEndpoint } from './sanitizeFlowData'
 
 const makeFlowData = (nodes: object[], edges: object[] = []) => JSON.stringify({ nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } })
 
@@ -147,7 +147,7 @@ describe('sanitizeFlowDataForPublicEndpoint', () => {
         expect(sanitizeFlowDataForPublicEndpoint('')).toBe('')
     })
 
-    it('sanitizes sensitive headers even when inputParams is missing', () => {
+    it('drops headers when inputParams is missing', () => {
         const flowData = makeFlowData([
             {
                 id: 'n0',
@@ -156,69 +156,83 @@ describe('sanitizeFlowDataForPublicEndpoint', () => {
             }
         ])
         const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data.inputs.headers).not.toHaveProperty('Authorization')
-        expect(result.nodes[0].data.inputs.headers['Content-Type']).toBe('application/json')
+        // No field definition: the whole input is dropped.
+        expect(result.nodes[0].data.inputs).toEqual({})
     })
 
     it('does not crash when a node has no inputParams', () => {
         const flowData = makeFlowData([{ id: 'n0', type: 'x', data: { inputs: { foo: 'bar' } } }])
         expect(() => sanitizeFlowDataForPublicEndpoint(flowData)).not.toThrow()
         const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data.inputs.foo).toBe('bar')
+        expect(result.nodes[0].data.inputs).toEqual({})
     })
 })
 
-describe('flowDataForPublicChatbotConfig', () => {
-    const graph = makeFlowData([
-        makeNode(
-            {
-                startInputType: 'formInput',
-                formTitle: 'Contact',
-                formDescription: 'Hi',
-                formInputTypes: [{ name: 'email', type: 'string', label: 'Email' }],
-                startState: [{ key: 'token', value: 'sk-live' }],
-                webhookURL: 'https://internal.example/hook'
-            },
-            [],
-            { name: 'startAgentflow', credential: 'cred-start' }
-        ),
-        makeNode({ systemMessage: 'SECRET-PROMPT-CANARY' }, [], { name: 'chatOpenAI', credential: 'cred-openai' })
-    ])
-
-    it('treats a non-empty apikeyid as key-protected', () => {
+describe('isChatflowKeyProtected', () => {
+    it('is true only for a non-empty key id', () => {
         expect(isChatflowKeyProtected('apikey-1')).toBe(true)
         expect(isChatflowKeyProtected('')).toBe(false)
         expect(isChatflowKeyProtected(null)).toBe(false)
         expect(isChatflowKeyProtected(undefined)).toBe(false)
     })
+})
 
-    it('keeps the sanitized graph when the chatflow has no API key', () => {
-        const result = JSON.parse(flowDataForPublicChatbotConfig(graph, '')!)
-        expect(result.nodes).toHaveLength(2)
-        expect(JSON.stringify(result)).toContain('SECRET-PROMPT-CANARY')
-        expect(JSON.stringify(result)).not.toContain('cred-openai')
+describe('isSecretInputName', () => {
+    it('flags credential-like names and not token-count settings', () => {
+        for (const name of ['openAIApiKey', 'api_key', 'clientSecret', 'accessToken', 'PASSWORD', 'authorization']) {
+            expect(isSecretInputName(name)).toBe(true)
+        }
+        for (const name of ['maxTokens', 'maxOutputTokens', 'modelName', 'temperature']) {
+            expect(isSecretInputName(name)).toBe(false)
+        }
     })
+})
 
-    it('returns only the Start form fields for a key-protected chatflow', () => {
-        const raw = flowDataForPublicChatbotConfig(graph, 'apikey-1')!
-        expect(raw).not.toContain('SECRET-PROMPT-CANARY')
-        expect(raw).not.toContain('sk-live')
-        expect(raw).not.toContain('internal.example')
-        expect(raw).not.toContain('cred-start')
+describe('sanitizeFlowDataForPublicEndpoint allowlist', () => {
+    it('removes an input with no field definition that carries a key', () => {
+        const flowData = makeFlowData([
+            makeNode({ openAIApiKey: 'sk-FAKE-TEST-123456', modelName: 'gpt-4.1-mini' }, [{ name: 'modelName', type: 'string' }])
+        ])
+        const raw = sanitizeFlowDataForPublicEndpoint(flowData)
+        expect(raw).not.toContain('sk-FAKE-TEST-123456')
         const result = JSON.parse(raw)
-        expect(result.edges).toEqual([])
-        expect(result.nodes).toHaveLength(1)
-        expect(result.nodes[0].data.inputs).toEqual({
-            startInputType: 'formInput',
-            formTitle: 'Contact',
-            formDescription: 'Hi',
-            formInputTypes: [{ name: 'email', type: 'string', label: 'Email' }]
-        })
+        expect(result.nodes[0].data.inputs).toEqual({ modelName: 'gpt-4.1-mini' })
     })
 
-    it('returns nothing when a key-protected chatflow has no Start node or the graph is not JSON', () => {
-        expect(flowDataForPublicChatbotConfig(makeFlowData([makeNode({ systemMessage: 'SECRET' }, [])]), 'apikey-1')).toBeUndefined()
-        expect(flowDataForPublicChatbotConfig('not-json', 'apikey-1')).toBeUndefined()
-        expect(flowDataForPublicChatbotConfig('', 'apikey-1')).toBeUndefined()
+    it('removes any input with no field definition', () => {
+        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(makeFlowData([makeNode({ extra: 'value' }, [])])))
+        expect(result.nodes[0].data.inputs).toEqual({})
+    })
+
+    it('keeps inputs defined as anchors', () => {
+        const flowData = makeFlowData([
+            makeNode({ model: '{{chatOpenAI_0.data.instance}}' }, [], { inputAnchors: [{ name: 'model', type: 'BaseChatModel' }] })
+        ])
+        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
+        expect(result.nodes[0].data.inputs).toEqual({ model: '{{chatOpenAI_0.data.instance}}' })
+    })
+
+    it('removes defined inputs whose name suggests a credential', () => {
+        const params = ['myApiKey', 'clientSecret', 'accessToken', 'dbPassword', 'API_KEY'].map((name) => ({ name, type: 'string' }))
+        const inputs = Object.fromEntries(params.map((p) => [p.name, 'plain']))
+        const result = JSON.parse(
+            sanitizeFlowDataForPublicEndpoint(
+                makeFlowData([makeNode({ ...inputs, temperature: 0.2 }, [...params, { name: 'temperature', type: 'number' }])])
+            )
+        )
+        expect(result.nodes[0].data.inputs).toEqual({ temperature: 0.2 })
+    })
+
+    it('removes defined inputs whose value looks like a key', () => {
+        const flowData = makeFlowData([
+            makeNode({ note: 'sk-FAKE-TEST-999', other: 'xai-FAKE-1', prompt: 'You are helpful' }, [
+                { name: 'note', type: 'string' },
+                { name: 'other', type: 'string' },
+                { name: 'prompt', type: 'string' }
+            ])
+        ])
+        const raw = sanitizeFlowDataForPublicEndpoint(flowData)
+        expect(raw).not.toContain('FAKE')
+        expect(JSON.parse(raw).nodes[0].data.inputs).toEqual({ prompt: 'You are helpful' })
     })
 })

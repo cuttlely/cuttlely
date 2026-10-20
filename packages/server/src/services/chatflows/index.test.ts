@@ -942,75 +942,55 @@ const secretGraph = JSON.stringify({
 })
 
 describe('getSinglePublicChatbotConfig', () => {
-    it('does not return the flow graph when the chatflow has an API key', async () => {
+    it('answers 404 for a chatflow that is not public', async () => {
         mockRepo.findOneBy.mockResolvedValue({
             id: 'flow-1',
-            apikeyid: 'apikey-1',
-            chatbotConfig: JSON.stringify({ title: 'Bot', allowedOrigins: ['https://ok.example'] }),
-            flowData: secretGraph,
-            textToSpeech: null
-        })
-
-        const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
-        const serialized = JSON.stringify(result)
-
-        expect(serialized).not.toContain('SECRET-PROMPT-CANARY')
-        expect(serialized).not.toContain('cred-openai')
-        expect(serialized).not.toContain('cred-secret')
-        expect(serialized).not.toContain('sk-live')
-        expect(serialized).not.toContain('internal.example')
-        expect(serialized).not.toContain('llm-1')
-        expect(serialized).not.toContain('allowedOrigins')
-        expect(result.title).toBe('Bot')
-
-        const flow = JSON.parse(result.flowData)
-        expect(flow.nodes).toHaveLength(1)
-        expect(flow.edges).toEqual([])
-        expect(flow.nodes[0].data).toEqual({
-            name: 'startAgentflow',
-            inputs: {
-                startInputType: 'formInput',
-                formTitle: 'Contact',
-                formDescription: 'Hi',
-                formInputTypes: [{ name: 'email', type: 'string', label: 'Email' }]
-            }
-        })
-    })
-
-    it('omits flowData for a key-protected chatflow with no Start node', async () => {
-        mockRepo.findOneBy.mockResolvedValue({
-            id: 'flow-1',
-            apikeyid: 'apikey-1',
-            chatbotConfig: JSON.stringify({ title: 'Bot' }),
-            flowData: JSON.stringify({
-                nodes: [{ id: 'llm-1', data: { name: 'chatOpenAI', inputs: { systemMessage: 'SECRET-PROMPT-CANARY' } } }],
-                edges: []
-            }),
-            textToSpeech: null
-        })
-
-        const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
-        expect(result).not.toHaveProperty('flowData')
-        expect(JSON.stringify(result)).not.toContain('SECRET-PROMPT-CANARY')
-    })
-
-    it('returns the sanitized graph when the chatflow has no API key', async () => {
-        mockRepo.findOneBy.mockResolvedValue({
-            id: 'flow-1',
+            isPublic: false,
             apikeyid: '',
             chatbotConfig: JSON.stringify({ title: 'Bot' }),
             flowData: secretGraph,
             textToSpeech: null
         })
 
+        await expect(chatflowsService.getSinglePublicChatbotConfig('flow-1')).rejects.toMatchObject({ statusCode: 404 })
+    })
+
+    it('answers 404 for a key-protected chatflow that is not public', async () => {
+        mockRepo.findOneBy.mockResolvedValue({
+            id: 'flow-1',
+            apikeyid: 'apikey-1',
+            chatbotConfig: JSON.stringify({ title: 'Bot' }),
+            flowData: secretGraph,
+            textToSpeech: null
+        })
+
+        await expect(chatflowsService.getSinglePublicChatbotConfig('flow-1')).rejects.toMatchObject({ statusCode: 404 })
+    })
+
+    it('answers 404 for a missing chatflow', async () => {
+        mockRepo.findOneBy.mockResolvedValue(null)
+        await expect(chatflowsService.getSinglePublicChatbotConfig('nope')).rejects.toMatchObject({ statusCode: 404 })
+    })
+
+    it('returns only the chatbot config for a public chatflow, without flowData', async () => {
+        mockRepo.findOneBy.mockResolvedValue({
+            id: 'flow-1',
+            isPublic: true,
+            apikeyid: '',
+            chatbotConfig: JSON.stringify({ title: 'Bot', allowedOrigins: ['https://ok.example'], flowData: 'x' }),
+            flowData: secretGraph,
+            textToSpeech: null
+        })
+
         const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
         const serialized = JSON.stringify(result)
-        expect(serialized).toContain('SECRET-PROMPT-CANARY')
+
+        expect(result).not.toHaveProperty('flowData')
+        expect(result.title).toBe('Bot')
+        expect(serialized).not.toContain('SECRET-PROMPT-CANARY')
         expect(serialized).not.toContain('cred-openai')
-        expect(serialized).not.toContain('cred-secret')
-        const flow = JSON.parse(result.flowData)
-        expect(flow.nodes).toHaveLength(2)
-        expect(flow.edges).toHaveLength(1)
+        expect(serialized).not.toContain('sk-live')
+        expect(serialized).not.toContain('allowedOrigins')
     })
 })
 
