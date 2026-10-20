@@ -70,12 +70,13 @@ test('GET is registered and answers 405 with Allow and a JSON-RPC -32000 body', 
     assert.doesNotMatch(page, /no GET handler/)
 })
 
-test('POST body follows Largest upload, not a 1 MB MCP cap', () => {
+test('POST body is capped at 1 MB even when Largest upload is higher', () => {
     const page = read(PAGE)
     assert.match(page, /\*\*Largest upload\*\*/)
     assert.match(page, /CUTTLELY_FILE_SIZE_LIMIT/)
-    assert.match(page, /50mb/)
-    assert.doesNotMatch(page, /Body at most 1 MB/)
+    assert.match(page, /capped at 1 MB/)
+    assert.match(page, /Over 1 MB is 413/)
+    assert.doesNotMatch(page, /50mb/)
 })
 
 test('MCP_CORS_ORIGINS is an origin list, not a method list', () => {
