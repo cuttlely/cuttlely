@@ -207,13 +207,20 @@ describe('a2a task store', () => {
         expect(row.storedBytes).toBe(measureA2aStoredTask(row))
         expect(row.answer?.endsWith('[truncated]')).toBe(true)
         expect(utf8Bytes(row.answer)).toBe(19)
+    })
+
+    it('never exceeds the flow budget after finalization when the budget is smaller than question plus answer', () => {
         process.env.A2A_TASK_BYTES_PER_FLOW = '10'
-        const tight = a2aTaskStore.create({ flowId: 'g', caller: 'key:a', chatId: 'c', contextId: 'ctx', question: 'q' })
-        a2aTaskStore.finalize(tight, { state: 'completed', timestamp: isoNow() }, { answer: 'y'.repeat(80) })
-        expect(a2aFlowStoredBytes('g')).toBeLessThanOrEqual(10)
-        expect(tight.answer).toBe('')
-        expect(tight.answer?.includes('[trunc')).toBe(false)
-        expect(a2aFlowStoredBytes('g')).toBe(utf8Bytes('q'))
+        const question = 'q'
+        const answer = 'y'.repeat(20)
+        expect(utf8Bytes(question) + utf8Bytes(answer)).toBeGreaterThan(10)
+        const row = a2aTaskStore.create({ flowId: 'f', caller: 'key:a', chatId: 'c', contextId: 'ctx', question })
+        a2aTaskStore.finalize(row, { state: 'completed', timestamp: isoNow() }, { answer })
+        expect(a2aFlowStoredBytes('f')).toBeLessThanOrEqual(10)
+        expect(measureA2aStoredTask(row)).toBeLessThanOrEqual(10)
+        expect(row.storedBytes).toBeLessThanOrEqual(10)
+        expect(utf8Bytes(row.question) + utf8Bytes(row.answer)).toBeLessThanOrEqual(10)
+        expect(a2aTaskStore.get('f', 'key:a', row.task.id)).toBeDefined()
     })
 
     it('stores the answer once and derives artifacts at read time', () => {

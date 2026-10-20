@@ -204,14 +204,17 @@ const makeRoomFor = (flowId: string, extraBytes: number, keepId?: string): void 
     }
 }
 
-const fitRowToFlowBudget = (row: A2aStoredTask): void => {
+const remainingBytesForRow = (row: A2aStoredTask): number => {
     const others = a2aFlowStoredBytes(row.flowId) - row.storedBytes
-    const room = Math.max(0, a2aTaskBytesPerFlow() - others)
-    if (row.storedBytes <= room) return
-    const overhead = utf8Bytes(row.question) + utf8Bytes(statusMessageText(row))
+    return Math.max(0, a2aTaskBytesPerFlow() - others)
+}
+
+const clampAnswerToRemainingBudget = (row: A2aStoredTask): void => {
     if (row.answer === undefined) return
-    row.answer = truncateA2aStoredAnswer(row.answer, Math.max(0, room - overhead))
-    rememberBytes(row)
+    const overhead = utf8Bytes(row.question) + utf8Bytes(statusMessageText(row))
+    const answerRoom = Math.max(0, remainingBytesForRow(row) - overhead)
+    if (utf8Bytes(row.answer) <= answerRoom) return
+    row.answer = truncateA2aStoredAnswer(row.answer, answerRoom)
 }
 
 export function a2aPublicTask(row: A2aStoredTask): A2aTask {
@@ -311,10 +314,14 @@ const writeStatus = (row: A2aStoredTask, status: A2aTaskStatus, extra?: { answer
     delete row.task.artifacts
     if (extra?.answer !== undefined) row.answer = truncateA2aStoredAnswer(extra.answer)
     row.updatedAt = now
+    makeRoomFor(row.flowId, Math.max(0, measureA2aStoredTask(row) - row.storedBytes), row.task.id)
+    clampAnswerToRemainingBudget(row)
     rememberBytes(row)
+    if (a2aFlowStoredBytes(row.flowId) > a2aTaskBytesPerFlow() && A2A_FINAL_STATES.has(row.task.status.state)) {
+        forget(row)
+        return true
+    }
     store.set(keyOf(row.flowId, row.caller, row.task.id), row)
-    makeRoomFor(row.flowId, 0, row.task.id)
-    fitRowToFlowBudget(row)
     return true
 }
 
