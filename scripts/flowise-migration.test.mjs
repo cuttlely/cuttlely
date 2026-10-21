@@ -275,7 +275,7 @@ describe('scanFlowiseMigration', () => {
                     category: 'Agent Flows',
                     inputs: {
                         llmModel: 'chatOllama',
-                        llmModelConfig: { modelName: 'llama3' }
+                        llmModelConfig: { modelName: 'llama3', credential: '' }
                     }
                 })
             ],

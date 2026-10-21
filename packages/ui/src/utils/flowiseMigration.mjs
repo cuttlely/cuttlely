@@ -159,8 +159,7 @@ const specRequiresCredential = (catalog, selected) => {
 const holdsCredential = (value) => {
     if (Array.isArray(value)) return value.some((item) => holdsCredential(item))
     if (!value || typeof value !== 'object') return false
-    if (Object.prototype.hasOwnProperty.call(value, 'FLOWISE_CREDENTIAL_ID')) return true
-    if (Object.prototype.hasOwnProperty.call(value, 'credential')) return true
+    if (present(value.FLOWISE_CREDENTIAL_ID) || present(value.credential)) return true
     return Object.values(value).some((child) => child && typeof child === 'object' && holdsCredential(child))
 }
 
