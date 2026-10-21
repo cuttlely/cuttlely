@@ -38,6 +38,16 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
+### What's new in 1.3.1?
+
+-   Every flow an MCP server: turn on **MCP Server** for a flow and other agents call its Live version over MCP. The flow's Rate Limit applies, and request bodies over 1 MB are refused.
+-   Published chatflows answer IBM watsonx Orchestrate native agents. The flow needs a bound API key.
+-   A new install opens one `/setup` page. The server log prints the link and a setup code that lasts 60 minutes and works once.
+-   `npx cuttlely start` on Node 20 waits until the health check answers.
+-   Two security fixes for versions up to and including 1.3.0: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) (setup code) and [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7) (public config endpoints).
+
+Full notes: [v1.3.1 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.3.1).
+
 ### What's new in 1.3.0?
 
 -   Run a harness (an agent team) from your app with an API key, synchronously or async with a run id.
@@ -53,7 +63,7 @@ Full notes: [v1.3.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v
 
 ### Where does the code come from?
 
-Cuttlely is its own project, open source under Apache-2.0. Like most open-source software it includes code from other projects: the chatflow canvas, node catalog and prediction API build on Apache-2.0 code from another open-source flow builder, the agent runtime is Hermes from Nous Research, and the canvas UI uses React Flow. Each is credited in [NOTICE](./NOTICE) and [CREDITS.md](./CREDITS.md). Cuttlely is built around governance (drafts, side-by-side replay, gates, rollback, roles, audit, scoped keys), lean context and agent teams.
+Cuttlely is its own project, open source under Apache-2.0. Like most open-source software it includes code from other projects: the chatflow canvas, node catalog and prediction API include Apache-2.0 code from another open-source flow builder, the agent runtime is Hermes from Nous Research, and the canvas UI uses React Flow. Each is credited in [NOTICE](./NOTICE) and [CREDITS.md](./CREDITS.md). Cuttlely is built around governance (drafts, side-by-side replay, gates, rollback, roles, audit, scoped keys), lean context and agent teams.
 
 ### Can I bring flows I already built?
 
@@ -65,7 +75,7 @@ Key limits:
 -   Whole-workspace exports. Import one flow at a time.
 -   LlamaIndex nodes.
 
-The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix and AssemblyAI configuration cards are dropped with a note, and the file still opens. The full list of limits is in [Bring your flows](docs/bring-your-flows.md). The import page, linked from the home page, also covers the security advisories we checked against the code that Cuttlely builds on. If a flow doesn't open the way you expect, [open an issue](https://github.com/cuttlely/cuttlely/issues/new?template=bug_report.yml) with a made-up export.
+The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix and AssemblyAI configuration cards are dropped with a note, and the file still opens. The full list of limits is in [Bring your flows](docs/bring-your-flows.md). The import page, linked from the home page, also covers the security advisories we checked against the code that Cuttlely includes. If a flow doesn't open the way you expect, [open an issue](https://github.com/cuttlely/cuttlely/issues/new?template=bug_report.yml) with a made-up export.
 
 ## The analyst
 
