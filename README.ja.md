@@ -15,16 +15,18 @@
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
-**あなたのアプリケーションに、エージェントを。**
+**本番に使える、ビジュアルなエージェントビルダー。**
 
-Cuttlely は、AI エージェントを構築し、オーケストレーションするためのオープンソースのビジュアルグラフエディターです。エージェントとツールをキャンバスにドラッグしてチームとしてつなげば、数分でチャットでき、そのまま API を通じてアプリから呼び出せます。動作するのは、あなたが管理するインフラの上です。
+ドラッグ＆ドロップで作るエージェントに、本物のガバナンスと小さなコンテキストを。オープンソース、Apache-2.0。Cuttlely（「カドリー」と読みます）は、あなたが管理するインフラの上で動きます。変更はすべて下書きで待ち、公開する前に実際の質問を Live と下書きで並べて再実行でき、各スペシャリストには必要なタスクだけが渡ります。
+
+[10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
 **1.3.1 を公開しました。** 公開済みのチャットフローやエージェントフローはどれも MCP サーバーにでき、公開済みのチャットフローが IBM watsonx Orchestrate のエージェントに応答します。[変更履歴](./CHANGELOG.md#131---2026-10-21)
 
 ## 目次
 
 -   [チームが苦情を解決するところを見る](#watch-a-team-resolve-a-complaint)
--   [公開前に、すべての変更を A/B テスト](#ab-test-every-change-before-it-goes-live)
+-   [公開前に、すべての変更を再実行で確かめる](#replay-every-change-before-it-goes-live)
     -   [下書き、テスト、バージョン履歴](#drafts-tests-and-version-history)
 -   [実際のチームのために](#made-for-real-teams)
 -   [アプリを動かすエージェントチーム](#agent-teams-that-power-your-apps)
@@ -52,7 +54,9 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 
 ある顧客が、注文の遅れについて問い合わせてきます。カスタマースペシャリストがアカウントを読み、オペレーションスペシャリストが荷物が倉庫から一度も出ていないことを突き止め、オペレーションの作業が終わるとポリシースペシャリストが文書化されたポリシーを確認します。それぞれが自分のデータとツールを持っています。Harness Prime が判断、返信、アクションを、根拠とともに書きます。[Try the demo](./docs/how-to/try-the-demo.md) を使うと、このチームがあなた自身のモデルキーで開きます。
 
-## 公開前に、すべての変更を A/B テスト
+## 公開前に、すべての変更を再実行で確かめる
+
+<a id="replay-every-change-before-it-goes-live"></a>
 
 <a id="ab-test-every-change-before-it-goes-live"></a>
 <a id="test-every-change-before-it-goes-live"></a>
@@ -149,10 +153,10 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 <a id="every-flow-an-mcp-server"></a>
 
-ほかのエージェントが、あなたの Live のフローを MCP で呼び出せます。編集内容は公開するまで下書きに残ります。[10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely)
+ほかのエージェントが、あなたの Live のフローを MCP で呼び出せます。編集内容は公開するまで下書きに残り、何が変わったかは先に並べて再実行して確かめられます。
 
 -   **オンにするまでオフ。** フローの **MCP Server** をオンにすると、Streamable HTTP のエンドポイント（`/api/v1/mcp/<flow id>`）とベアラートークンが発行されます。
--   **Live（公開済み）のフローのみ。1 つのフローが 1 回のツール呼び出しです。** 呼び出しが下書きを実行することはなく、前の呼び出しを覚えていません。フローの Rate Limit が適用され、1 MB を超えるリクエスト本文は拒否されます。
+-   **Live（公開済み）のフローのみ。1 つのフローが 1 回のツール呼び出しです。** 呼び出しは公開済みのバージョンを実行し、下書きを実行することはなく、前の呼び出しを覚えていません。フローの Rate Limit が適用され、1 MB を超えるリクエスト本文は拒否されます。
 -   **mcp-remote 経由の MCP クライアント。** MCP サーバーをローカルコマンドとして起動するクライアントは `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"` で接続します。[mcp-remote で接続する](./docs/api.md#connect-with-mcp-remote)
 
 [MCP エンドポイントのリファレンス](./docs/api.md#mcp-endpoint)
@@ -171,7 +175,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 -   **スペシャリストには、それぞれの仕事を。** よくあるやり方では、すべてのエージェントにチャット全体を渡します。Harness Prime は各スペシャリストに、それだけで完結するタスクを、直近のやり取りの短い要約とともに書きます。
 -   **データはデータベースに置いたまま。** よくあるやり方では、クエリの結果をプロンプトに貼り付けます。アナリストが返すのは 1 ページ分の行です。「もっと見せて」と頼めば次のページが出ます。前のページは次のプロンプトに入りません。
--   **チェックしたテーブルだけ。** よくあるやり方では、データベースのスキーマ全体をプロンプトに貼り付けます。URL で接続したデータベースでは、PostgreSQL MCP ノードの **Tables and views** でテーブルやビューにチェックを入れると、アナリストのプロンプトにはそれぞれについて列名付きの 1 行だけが入ります。`describe` ツールは、アナリストが必要なときに、1 つのテーブルの列、キー、テキスト値のサンプルを返します。架空のベーカリーのデモデータベースでは、6 つのリレーションにチェックを入れると 663 トークン、スキーマ全体では 2,562 トークンです。リストの下の **Rules** ボックスには、どのビューがどの質問に答えるかなど、そのアナリスト向けの独自の指示を 2,000 文字まで書けます。Rules はモデルへの指示であり、チェックしたテーブルを広げたり書き込みを許可したりはできません。[独自のルールを書く](./docs/how-to/analyst.md#write-your-own-rules)。
+-   **チェックしたテーブルだけ。** よくあるやり方では、データベースのスキーマ全体をプロンプトに貼り付けます。URL で接続したデータベースでは、PostgreSQL MCP ノードの **Tables and views** でテーブルやビューにチェックを入れると、アナリストのプロンプトにはそれぞれについて列名付きの 1 行だけが入ります。`describe` ツールは、アナリストが必要なときに、1 つのテーブルの列、キー、テキスト値のサンプルを返します。社内のベンチマークでは、架空のベーカリーのデータベースで 20 のテーブルとビューのうち 6 つにチェックを入れると、アナリストのプロンプトは 2,562 トークンから 663 トークンになりました。`scripts/analyst-schema-tokens.mjs` で再実行できます。リストの下の **Rules** ボックスには、どのビューがどの質問に答えるかなど、そのアナリスト向けの独自の指示を 2,000 文字まで書けます。Rules はモデルへの指示であり、チェックしたテーブルを広げたり書き込みを許可したりはできません。[独自のルールを書く](./docs/how-to/analyst.md#write-your-own-rules)。
 -   **ルールは必要なときに読み込みます。** よくあるやり方では、すべての指示を一つの巨大なシステムプロンプトに入れます。長いルールはプレイブックに入れます。スペシャリストは、質問に必要なときにだけそれを開きます。
 -   **短い引き継ぎ。** よくあるやり方では、最終的な答えを書くプロンプトに文書全体を貼り付けます。Harness Prime が読むのは、各スペシャリストの答えのうち上限を設けた一部分で、ソースの名前と短い抜粋が付きます。文書はレスポンスでアプリに返ります。
 -   **すべてのトークンが見えます。** Run カードには、入力と出力のトークン、モデルが報告する場合はキャッシュされたトークン、各ステップにかかった時間が出ます。API のレスポンスにも同じ数字が入ります。Publish のチェックでは、Live と下書きを、それぞれが使ったトークンと時間とともに並べて表示します。
@@ -224,7 +228,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
     Compose は公開されている Cuttlely のイメージを取得します。取得できない場合は、代わりにチェックアウトからイメージをビルドします。初回は数分かかり、長いビルドステップでは 4 つのうち何番目かが表示されます。`docker compose ps` は Cuttlely の準備ができるまで `(health: starting)`、できると `(healthy)` と表示します。早めに [http://localhost:43117](http://localhost:43117) を開くと **Cuttlely is starting** のページが表示され、準備ができると自動で Cuttlely が開きます。
 
-    Node.js 20 以降があれば、クローンは省けます。`npx cuttlely start` がイメージを取得して実行するので、Docker は必要です。
+    Node 20+ と Docker があれば、クローンは省けます。`npx cuttlely start` がイメージを取得して実行します。
 
     ```bash
     npx cuttlely start
@@ -277,7 +281,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 <a id="bring-your-existing-flows"></a>
 
-ほかのツールで作ったフローがありますか？**Chatflows** の **Import** メニューには **Import Flowise JSON** があり、Flowise のチャットフローまたはエージェントフローのエクスポートをチェックして適切なキャンバスで開く、短いウィザードが開きます。**Import Langflow JSON** はシンプルな Langflow のチャットを読み込みます。何が引き継がれ、何がまだサポートされていないかは [既存のフローを持ち込む](./docs/bring-your-flows.md) にあります。
+ほかのツールで作ったフローがありますか？**Chatflows** の **Import** メニューはエクスポートをチェックし、適切なキャンバスで 1 フローずつ開きます。認証情報は選び直します。何が引き継がれ、何がまだサポートされていないかは [既存のフローを持ち込む](./docs/bring-your-flows.md) にあります。
 
 ## コントリビュート
 
@@ -291,7 +295,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 Cuttlely は Apache 2.0 のオープンソースです。各リリースでの変更は [変更履歴](./CHANGELOG.md) に、どのバージョンに修正が提供されるかは [リリースとサポート](./docs/releases.md) にあります。1.3.1 には 1.3.0 までのバージョン向けのセキュリティ修正が 2 件含まれます：[GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) と [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7)。ライセンス本文は [LICENSE.md](./LICENSE.md)、帰属表示は [NOTICE](./NOTICE) にあります。
 
-Cuttlely は、Flowise、Nous Research の Hermes、React Flow をはじめとするオープンソースの成果の上に作られています。各プロジェクトのライセンスとリンクは [CREDITS.md](./CREDITS.md) にあります。
+Cuttlely には、Flowise、Nous Research の Hermes、React Flow のオープンソースの成果が含まれています。各プロジェクトのライセンスとリンクは [CREDITS.md](./CREDITS.md) にあります。
 
 ## お問い合わせ
 
