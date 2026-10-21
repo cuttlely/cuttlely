@@ -69,6 +69,55 @@ const percentEncode = (value: string) =>
         .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
         .join('')
 
+const assignedText = (source: string, name: string): string => {
+    const back = new RegExp('(?:export\\s+)?(?:const|let)\\s+' + name + '\\s*=\\s*`([\\s\\S]*?)`')
+    const single = new RegExp('(?:export\\s+)?(?:const|let)\\s+' + name + "\\s*=\\s*'([^']*)'")
+    const match = source.match(back) || source.match(single)
+    if (!match) throw new Error('missing ' + name)
+    return match[1]
+}
+
+const readComponent = (rel: string) => {
+    const root = path.resolve(__dirname, '..', '..', '..', '..')
+    return fs.readFileSync(path.join(root, 'packages/components', rel), 'utf8')
+}
+
+const fromComponent = (rel: string, name: string) => assignedText(readComponent(rel), name)
+
+// Stock prompt text, including the built-in chain and agent defaults, plus long accent-free sentences.
+const ordinaryPrompts = (): string[] => {
+    const prompts = 'nodes/chains/ConversationalRetrievalQAChain/prompts.ts'
+    return [
+        'Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question.',
+        'Answer the question based only on the context provided',
+        'You are a helpful Moonbeam Bakery assistant. Answer briefly.',
+        'Always answer in English and keep replies short and polite',
+        'Please read the whole conversation and answer the latest question with a short polite reply that uses only the notes from the bakery counter and the hours posted on the door of the shop.',
+        'El asistente de la panaderia lee la conversacion completa y responde con una frase corta y educada usando solo las notas del mostrador y el horario publicado en la puerta de la tienda.',
+        'You are a helpful AI assistant.',
+        'Extract keywords from the query: {{query}}',
+        "You are a very smart physics professor. You are great at answering questions about physics in a concise and easy to understand manner. When you don't know the answer to a question you admit that you don't know.",
+        'You are a helpful assistant that translates {input_language} to {output_language}.',
+        fromComponent('nodes/chains/ConversationChain/ConversationChain.ts', 'systemMessage'),
+        fromComponent(prompts, 'CUSTOM_QUESTION_GENERATOR_CHAIN_PROMPT'),
+        fromComponent(prompts, 'RESPONSE_TEMPLATE'),
+        fromComponent(prompts, 'QA_TEMPLATE'),
+        fromComponent(prompts, 'REPHRASE_TEMPLATE'),
+        fromComponent('nodes/agents/XMLAgent/XMLAgent.ts', 'defaultSystemMessage'),
+        fromComponent('nodes/agents/ConversationalAgent/ConversationalAgent.ts', 'DEFAULT_PREFIX'),
+        fromComponent('nodes/retrievers/MultiQueryRetriever/MultiQueryRetriever.ts', 'defaultPrompt'),
+        fromComponent('nodes/multiagents/Supervisor/Supervisor.ts', 'sysPrompt'),
+        fromComponent('nodes/multiagents/Worker/Worker.ts', 'examplePrompt'),
+        fromComponent('nodes/sequentialagents/Agent/Agent.ts', 'examplePrompt'),
+        fromComponent('nodes/sequentialagents/Agent/Agent.ts', 'defaultApprovalPrompt'),
+        fromComponent('nodes/sequentialagents/ConditionAgent/ConditionAgent.ts', 'examplePrompt'),
+        fromComponent('nodes/sequentialagents/ConditionAgent/ConditionAgent.ts', 'exampleHumanPrompt'),
+        fromComponent('nodes/agentflow/prompt.ts', 'DEFAULT_SUMMARIZER_TEMPLATE'),
+        fromComponent('nodes/agentflow/prompt.ts', 'DEFAULT_HUMAN_INPUT_DESCRIPTION'),
+        fromComponent('nodes/agentflow/prompt.ts', 'CONDITION_AGENT_SYSTEM_PROMPT')
+    ]
+}
+
 const loadUiFunction = (rel: string, exportName: string) => {
     const root = path.resolve(__dirname, '..', '..', '..', '..')
     const source = fs
@@ -439,6 +488,138 @@ describe('template inputs', () => {
             const { inputs, dropped } = sanitizeNodeInputs({ prompt }, schemaParams as any)
             expect(inputs.prompt).toBe(prompt)
             expect(dropped).toEqual([])
+        }
+    })
+
+    it('drops a named scheme when a tab or a line break follows the colon', () => {
+        const names = ['javascript', 'vbscript', 'data', 'file', 'blob', 'http', 'https']
+        const breaks = ['\n', '\r\n', '\r', '\u2028', '\u2029', '\t', '\v', '\f', ' \n', '\t\n', ' \u00a0\n']
+        for (const name of names) {
+            for (const gap of breaks) {
+                const prompt = name + ':' + gap + 'alert(1)'
+                const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+                expect(inputs.prompt).toBeUndefined()
+                expect(inputs.temperature).toBe(0.2)
+                expect(dropped).toContain('prompt')
+                const tool = sanitizeToolTemplate({ func: prompt, schema: '[]', iconSrc: 'https://cdn.example/icon.png' })
+                expect(tool.func).toBeUndefined()
+                expect(tool.schema).toBe('[]')
+                expect(tool.iconSrc).toBe('https://cdn.example/icon.png')
+                expect(tool.dropped).toEqual(['func'])
+                const option = sanitizeNodeInputs({ modelName: prompt, temperature: 0.2 }, schemaParams as any)
+                expect(option.inputs.modelName).toBeUndefined()
+                expect(option.inputs.temperature).toBe(0.2)
+            }
+        }
+        const kept = [
+            'See the https: example in the notes.',
+            'See the https: example in the notes.\nThanks for asking.',
+            'Use\nhttps: only with a space on that line.',
+            'Chat History:\n{chat_history}',
+            'tools:\n\n{tools}',
+            'text:\n\n- next line',
+            'profile:\nname',
+            'metadata:\nvalue',
+            'Line one.\r\nLine two.\tThanks for asking.'
+        ]
+        for (const prompt of kept) {
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt, modelName: prompt }, schemaParams as any)
+            expect(dropped).toEqual([])
+            expect(inputs.prompt).toBe(prompt)
+            expect(inputs.modelName).toBe(prompt)
+            const tool = sanitizeToolTemplate({
+                func: prompt,
+                schema: [{ property: 'note', description: prompt, type: 'string', required: false }],
+                iconSrc: 'https://cdn.example/icons/hammer.png'
+            })
+            expect(tool.dropped).toEqual([])
+            expect(tool.func).toBe(prompt)
+            expect(tool.schema).toEqual([{ property: 'note', description: prompt, type: 'string', required: false }])
+        }
+    })
+
+    it('keeps ordinary prompt sentences in template fields', () => {
+        const fields = [
+            'systemMessagePrompt',
+            'prompt',
+            'systemMessage',
+            'description',
+            'label',
+            'placeholder',
+            'toolName',
+            'agentName',
+            'toolDescription',
+            'requestsGetName',
+            'rephrasePrompt',
+            'responsePrompt',
+            'humanMessagePrompt'
+        ]
+        const params = [
+            ...fields.map((name) => ({ name, type: 'string' })),
+            { name: 'modelName', type: 'asyncOptions' },
+            { name: 'temperature', type: 'number' }
+        ]
+        const sentences = ordinaryPrompts()
+        expect(sentences.length).toBeGreaterThan(10)
+        for (const sentence of sentences) {
+            const inputs: Record<string, unknown> = { temperature: 0.2, modelName: sentence }
+            for (const field of fields) inputs[field] = sentence
+            const kept = sanitizeNodeInputs(inputs, params as any)
+            expect(kept.dropped).toEqual([])
+            expect(kept.inputs).toEqual(inputs)
+            const tool = sanitizeToolTemplate({
+                func: sentence,
+                schema: [{ property: 'note', description: sentence, type: 'string', required: false }],
+                iconSrc: 'https://cdn.example/icons/hammer.png?size=32#top'
+            })
+            expect(tool.func).toBe(sentence)
+            expect(tool.schema).toEqual([{ property: 'note', description: sentence, type: 'string', required: false }])
+            expect(tool.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+            expect(tool.dropped).toEqual([])
+            const flow = buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: 'conversationChain_0',
+                            type: 'customNode',
+                            position: { x: 12, y: 24 },
+                            width: 300,
+                            height: 180,
+                            data: {
+                                name: 'conversationChain',
+                                inputs: {
+                                    systemMessagePrompt: sentence,
+                                    description: sentence,
+                                    modelName: sentence,
+                                    model: '{{chatOpenAI_0.data.instance}}'
+                                }
+                            }
+                        },
+                        { id: 'chatOpenAI_0', type: 'customNode', position: { x: 0, y: 0 }, data: { name: 'chatOpenAI', inputs: {} } }
+                    ],
+                    edges: []
+                },
+                {
+                    conversationChain: {
+                        name: 'conversationChain',
+                        label: 'Conversation Chain',
+                        type: 'ConversationChain',
+                        inputParams: [
+                            { name: 'systemMessagePrompt', type: 'string' },
+                            { name: 'description', type: 'string' },
+                            { name: 'modelName', type: 'asyncOptions' }
+                        ],
+                        inputAnchors: [{ name: 'model', type: 'BaseChatModel' }]
+                    },
+                    chatOpenAI: { name: 'chatOpenAI', label: 'Chat Model', inputParams: [] }
+                }
+            )
+            expect(flow.droppedSettings).toEqual([])
+            const saved = (flow.nodes[0] as { data: { inputs: Record<string, unknown> } }).data.inputs
+            expect(saved.systemMessagePrompt).toBe(sentence)
+            expect(saved.description).toBe(sentence)
+            expect(saved.modelName).toBe(sentence)
+            expect(saved.model).toBe('{{chatOpenAI_0.data.instance}}')
         }
     })
 
@@ -877,10 +1058,24 @@ describe('template inputs', () => {
             { name: 'prompt', type: 'string' },
             { name: 'systemMessage', type: 'string' },
             { name: 'systemMessagePrompt', type: 'string' },
+            { name: 'description', type: 'string' },
+            { name: 'rephrasePrompt', type: 'string' },
+            { name: 'responsePrompt', type: 'string' },
+            { name: 'humanMessagePrompt', type: 'string' },
+            { name: 'agentName', type: 'string' },
             { name: 'modelName', type: 'asyncOptions' },
+            { name: 'otherModel', type: 'asyncOptions' },
+            { name: 'titleModel', type: 'asyncOptions' },
             { name: 'basepath', type: 'string' },
             { name: 'baseURL', type: 'string' }
         ]
+        const dashes = ['\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212']
+        const chunked = (value: string, size: number) => {
+            const parts: string[] = []
+            for (let i = 0; i < value.length; i += size) parts.push(value.slice(i, i + size))
+            return parts.join(' ')
+        }
+        const corpus = ordinaryPrompts()
         const fixed = [
             `Part ${'xa' + 'i-'}FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
             `AIzaFAKEqa9X7mP2\u200bvR8tY4wK1nB3cDzL\u200bs5Hj6Gf`,
@@ -895,7 +1090,29 @@ describe('template inputs', () => {
             const generated = prefixes[trial % prefixes.length] + body
             const hostLabel = `sk-${pick(hostAlphabet, 40)}`
             const shapes = secretShapes(marker)
-            const banned = [marker, generated, body, hostLabel, ...shapes, ...fixed]
+            const shortBody = 'Qa' + pick(alphabet, 8)
+            const shortToken = prefixes[(trial + 1) % prefixes.length] + shortBody
+            const hyphenToken = 'sk' + dashes[trial % dashes.length] + shortBody
+            const percentToken = '%' + marks[trial % marks.length] + '73' + 'k-' + shortBody
+            const size = trial % 2 === 0 ? 8 : 10
+            const spacedToken = shortToken.slice(0, 1) + (trial % 2 === 0 ? ' ' : '\n') + chunked(shortToken.slice(1), size)
+            const spacedLong = generated.slice(0, 1) + ' ' + chunked(generated.slice(1), size)
+            const sentence = corpus[trial % corpus.length]
+            const banned = [
+                marker,
+                generated,
+                body,
+                hostLabel,
+                shortBody,
+                shortToken,
+                'sk' + '-' + shortBody,
+                hyphenToken,
+                percentToken,
+                spacedToken,
+                spacedLong,
+                ...shapes,
+                ...fixed
+            ]
             const pathSecret = shapes[trial % shapes.length]
             const flow = buildTemplateFlow(
                 {
@@ -919,7 +1136,14 @@ describe('template inputs', () => {
                                     prompt: trial % 2 === 0 ? splitAt(generated) : fixed[trial % fixed.length],
                                     systemMessage: 'Ask\u00a0about the hours today.',
                                     systemMessagePrompt: fixed[5],
+                                    description: sentence,
+                                    rephrasePrompt: hyphenToken,
+                                    responsePrompt: percentToken,
+                                    humanMessagePrompt: spacedToken,
+                                    agentName: shortToken,
                                     modelName: splitAt(shapes[1]),
+                                    otherModel: spacedLong,
+                                    titleModel: sentence,
                                     basepath:
                                         trial % 2 === 0
                                             ? `https://api.example.invalid/v1/${generated}/x`
@@ -998,8 +1222,15 @@ describe('template inputs', () => {
             expect(chat.positionAbsolute).toBeUndefined()
             expect(chat.extraField).toBeUndefined()
             expect(chat.data.inputs.systemMessage).toBe('Ask\u00a0about the hours today.')
+            expect(chat.data.inputs.description).toBe(sentence)
+            expect(chat.data.inputs.titleModel).toBe(sentence)
             expect(chat.data.inputs.prompt).toBeUndefined()
             expect(chat.data.inputs.modelName).toBeUndefined()
+            expect(chat.data.inputs.otherModel).toBeUndefined()
+            expect(chat.data.inputs.rephrasePrompt).toBeUndefined()
+            expect(chat.data.inputs.responsePrompt).toBeUndefined()
+            expect(chat.data.inputs.humanMessagePrompt).toBeUndefined()
+            expect(chat.data.inputs.agentName).toBeUndefined()
             expect(chat.data.inputs.systemMessagePrompt).toBeUndefined()
             expect(chat.data.inputs.basepath).toBeUndefined()
             expect(chat.data.inputs.baseURL).toBeUndefined()
@@ -1064,6 +1295,61 @@ describe('template inputs', () => {
                 expect(tool.iconSrc).toBeUndefined()
                 expect(tool.dropped).toEqual(['func', 'schema', 'iconSrc'])
                 expectClean(tool, banned)
+            }
+            const planted = [
+                sanitizeToolTemplate({
+                    func: shortToken,
+                    schema: JSON.stringify({ description: hyphenToken, note: spacedToken }),
+                    iconSrc: 'https://cdn.example/' + encodeURIComponent(percentToken) + '/i.png'
+                }),
+                sanitizeToolTemplate({
+                    func: spacedLong,
+                    schema: [{ property: 'q', description: spacedToken, type: 'string', required: true }],
+                    iconSrc: 'https://cdn.example/' + encodeURIComponent(hyphenToken) + '/' + encodeURIComponent(spacedLong) + '/i.png'
+                }),
+                sanitizeToolTemplate({
+                    func: percentToken,
+                    schema: hyphenToken,
+                    iconSrc: 'https://cdn.example/' + encodeURIComponent(shortToken) + '/i.png'
+                })
+            ]
+            for (const tool of planted) {
+                expect(tool.func).toBeUndefined()
+                expect(tool.schema).toBeUndefined()
+                expect(tool.iconSrc).toBeUndefined()
+                expect(tool.dropped).toEqual(['func', 'schema', 'iconSrc'])
+                expectClean(tool, banned)
+            }
+            const mixed = sanitizeToolTemplate({
+                func: spacedToken,
+                schema: sentence,
+                iconSrc: 'https://cdn.example/icons/hammer.png'
+            })
+            expect(mixed.func).toBeUndefined()
+            expect(mixed.schema).toBe(sentence)
+            expect(mixed.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+            expect(mixed.dropped).toEqual(['func'])
+            expectClean(mixed, banned)
+            for (const prompt of corpus) {
+                const kept = sanitizeNodeInputs({ systemMessagePrompt: prompt, description: prompt, modelName: prompt }, [
+                    { name: 'systemMessagePrompt', type: 'string' },
+                    { name: 'description', type: 'string' },
+                    { name: 'modelName', type: 'asyncOptions' }
+                ] as any)
+                expect(kept.dropped).toEqual([])
+                expect(kept.inputs.systemMessagePrompt).toBe(prompt)
+                expect(kept.inputs.description).toBe(prompt)
+                expect(kept.inputs.modelName).toBe(prompt)
+                const safeTool = sanitizeToolTemplate({
+                    func: prompt,
+                    schema: [{ property: 'note', description: prompt, type: 'string', required: false }],
+                    iconSrc: 'https://cdn.example/icons/hammer.png'
+                })
+                expect(safeTool.dropped).toEqual([])
+                expect(safeTool.func).toBe(prompt)
+                expect(safeTool.schema).toEqual([{ property: 'note', description: prompt, type: 'string', required: false }])
+                expect(safeTool.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+                expectClean(safeTool, banned)
             }
         }
     })
