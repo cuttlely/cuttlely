@@ -797,7 +797,11 @@
                 "packages/ui/src/utils/langflowImport.mjs",
                 "packages/ui/src/utils/f*Import.js",
                 "packages/ui/src/utils/*Catalog.js",
-                "packages/ui/src/ui-component/flow/*MigrationWizard.jsx"
+                "packages/ui/src/ui-component/flow/*MigrationWizard.jsx",
+                "packages/ui/src/ui-component/flow/migrationWizard.test.js",
+                "packages/ui/src/utils/migrationScan.test.js",
+                "packages/ui/src/utils/__fixtures__/import/**",
+                "packages/server/src/services/validation/fixtures/**"
             ],
             "entryPoints": [
                 "packages/ui/src/ui-component/flow/FlowiseMigrationWizard.jsx",

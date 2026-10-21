@@ -1992,6 +1992,10 @@
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
         },
         {
+            "path": "packages/components/nodes/chains/ConversationChain/conversationPrompt.test.ts",
+            "reason": "Unit test for the inherited conversation chain prompt fallback"
+        },
+        {
             "path": "packages/components/src/missingModelCredential.test.ts",
             "reason": "The missing-credential tests stay next to getCredentialData and the chat model nodes they exercise."
         },

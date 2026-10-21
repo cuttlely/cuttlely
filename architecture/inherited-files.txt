@@ -169,6 +169,7 @@ packages/components/nodes/agents/XMLAgent/XMLAgent.ts
 packages/components/nodes/agents/XMLAgent/xmlagent.svg
 packages/components/nodes/chains/ConversationChain/ConversationChain.ts
 packages/components/nodes/chains/ConversationChain/conv.svg
+packages/components/nodes/chains/ConversationChain/conversationPrompt.test.ts
 packages/components/nodes/chains/ConversationalRetrievalQAChain/ConversationalRetrievalQAChain.ts
 packages/components/nodes/chains/ConversationalRetrievalQAChain/prompts.ts
 packages/components/nodes/chains/ConversationalRetrievalQAChain/qa.svg
