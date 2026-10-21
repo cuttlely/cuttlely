@@ -6,6 +6,7 @@ import { DatabaseTarget, TestDrivers, TestInputError, TestResult, defaultDrivers
 import { appendHistory } from './history'
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { readSettingsFile, readStoredValues, writeSettingsFile } from './store'
+import { setupServiceName } from '../identity/setupCode'
 import { ServiceDeps, SettingsError, installKind, restartSteps, writeValues } from './service'
 
 export { DATABASE_KEYS, PREVIOUS_DATABASE_FILE, describeDatabase }
@@ -30,11 +31,12 @@ export function signInAfter(deps: ServiceDeps, target: DatabaseTarget['kind'] | 
     const localAdmin = values.CUTTLELY_LOCAL_ADMIN === 'true'
     if (localAdmin) {
         const kind = installKind(deps.env)
+        const service = setupServiceName(deps.env)
         const where =
             kind === 'docker'
-                ? 'the setup link from the server log (docker compose logs cuttlely, the line No account yet)'
+                ? `the setup link from the server log (docker compose logs ${service} | grep 'Setup code')`
                 : kind === 'render'
-                ? 'the setup link from the Render log (the line No account yet)'
+                ? 'the setup link from the Render log (the line Setup code)'
                 : 'the setup link the server prints when it starts, or run pnpm user --email you@example.com'
         return { ok: true, text: `It starts with no accounts. Create the owner again with ${where}.` }
     }

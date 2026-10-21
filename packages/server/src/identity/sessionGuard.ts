@@ -39,8 +39,8 @@ export function applyDocumentFrameHeaders(
     for (const [name, value] of Object.entries(otherHeaders)) res.setHeader(name, value)
 }
 
-/** True for the first-account page and the sign-in setup page. */
+/** True for the setup page and the older first-run addresses. */
 export function isSetupDocumentPath(path: string): boolean {
     const name = path.split('?')[0].replace(/\/+$/, '') || '/'
-    return name === '/organization-setup' || name === '/server-setup'
+    return name === '/setup' || name === '/organization-setup' || name === '/server-setup'
 }

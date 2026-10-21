@@ -21,7 +21,6 @@ import { Workspace } from '../database/entities/identity'
 import { OSS_PRODUCT_ID } from '../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { AppError } from '../errors/appError'
-import { getErrorMessage } from '../errors/utils'
 import {
     buildFlow,
     constructGraphs,

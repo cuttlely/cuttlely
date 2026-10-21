@@ -90,7 +90,6 @@ let heldByOther = false
 let printer: (line: string) => void = () => undefined
 let startupPort: number | string = 3000
 let startupEnv: NodeJS.ProcessEnv = process.env
-let linkKind: 'organization' | 'server' = 'organization'
 
 const SETUP_INSTANCE_FILE = 'setup-instance.id'
 const SETUP_ISSUER_FILE = 'setup-issuer.json'
@@ -464,12 +463,32 @@ export function setupCodeHmac(candidate: unknown): string | null {
 }
 
 function printedSetupLink(plain: string): string {
-    if (linkKind === 'server') return `${publicOrigin(startupPort, startupEnv)}/server-setup#code=${plain}`
-    return `http://localhost:${startupPort}/organization-setup#code=${plain}`
+    return `${publicOrigin(startupPort, startupEnv)}/setup#code=${plain}`
 }
 
 function printFreshLink(plain: string): void {
     printer(`👋 [server]: A new setup link is ready. Open ${printedSetupLink(plain)}`)
+}
+
+/**
+ * Startup collects lines, then flushes them once. The same function stays the printer, so a later
+ * reissue writes straight to the real log instead of a buffer that nobody reads again.
+ */
+export function createStartupPrinter(write: (line: string) => void): { log: (line: string) => void; flush: () => void } {
+    const lines: string[] = []
+    let flushed = false
+    return {
+        log(line: string) {
+            if (flushed) write(line)
+            else lines.push(line)
+        },
+        flush() {
+            if (flushed) return
+            flushed = true
+            const pendingLines = lines.splice(0, lines.length)
+            for (const line of pendingLines) write(line)
+        }
+    }
 }
 
 function issue(now: number, notify: boolean): string {
@@ -628,23 +647,33 @@ export function reissueFirstRunSetupCode(now = Date.now()): string {
     return issue(now, true)
 }
 
+/** Shown when the submitted code matches a row that is already past its time. The new code stays in the log. */
+export const SETUP_CODE_EXPIRED_MESSAGE = 'This setup code has expired. A new code was printed in the server log.'
+
+export type SetupCodeVerdict = 'match' | 'expired' | 'rejected'
+
 /**
  * Constant-time compare against the stored HMAC.
  * A non-string, an empty string, and anything longer than 64 characters are rejected before the compare.
- * Expiry and the consumed time are checked after the compare.
+ * Expiry and the consumed time are checked after the compare. The code itself is not returned.
  */
-export async function setupCodeMatches(candidate: unknown, now = Date.now()): Promise<boolean> {
-    if (!acceptable(candidate)) return false
+export async function setupCodeVerdict(candidate: unknown, now = Date.now()): Promise<SetupCodeVerdict> {
+    if (!acceptable(candidate)) return 'rejected'
     const given = Buffer.from(digest(candidate))
     await pending
     const row = await activeStore().read()
     const expectedHex = row && /^[0-9a-f]{64}$/i.test(row.codeHmac) ? row.codeHmac : digest('setup-code-absent')
     const expected = Buffer.from(expectedHex)
     const equal = given.length === expected.length && timingSafeEqual(given, expected)
-    if (!equal || !row) return false
-    if (row.consumedAt != null) return false
-    if (row.expiresAt <= now) return false
-    return true
+    if (!equal || !row) return 'rejected'
+    if (row.consumedAt != null) return 'rejected'
+    if (row.expiresAt <= now) return 'expired'
+    return 'match'
+}
+
+/** True only when the candidate matches a live row. */
+export async function setupCodeMatches(candidate: unknown, now = Date.now()): Promise<boolean> {
+    return (await setupCodeVerdict(candidate, now)) === 'match'
 }
 
 /** Marks the current row used. Returns false when it is missing, expired, already used, or a different HMAC. */
@@ -671,8 +700,22 @@ export async function storedSetupCodeLive(hmac: string, now = Date.now()): Promi
     return sameHmac(row.codeHmac, hmac)
 }
 
-export function firstRunSetupLink(port: number | string): string {
-    return `http://localhost:${port}/organization-setup#code=${firstRunSetupCode()}`
+const SERVICE_NAME = /^[A-Za-z0-9_.-]+$/
+
+/** Compose service name for the setup-code help line. A bad value falls back to the published service name. */
+export function setupServiceName(env: NodeJS.ProcessEnv = process.env): string {
+    const raw = (env.CUTTLELY_SERVICE_NAME ?? '').trim()
+    if (raw && raw.length <= 64 && SERVICE_NAME.test(raw)) return raw
+    return 'cuttlely'
+}
+
+/** One address for the setup page. The code rides in the fragment, so the browser does not send it. */
+export function setupPageLink(port: number | string, env: NodeJS.ProcessEnv = process.env): string {
+    return `${publicOrigin(port, env)}/setup#code=${encodeURIComponent(firstRunSetupCode())}`
+}
+
+export function firstRunSetupLink(port: number | string, env: NodeJS.ProcessEnv = process.env): string {
+    return setupPageLink(port, env)
 }
 
 /** The setup link has been used. Its code stops working at once. */
@@ -751,7 +794,6 @@ export function resetFirstRunSetupCode(): void {
     heldByOther = false
     pending = Promise.resolve()
     printer = () => undefined
-    linkKind = 'organization'
     startupPort = 3000
     startupEnv = process.env
     boundStore = undefined
@@ -801,10 +843,29 @@ export function publicOrigin(port: number | string, env: NodeJS.ProcessEnv = pro
     return `http://localhost:${port}`
 }
 
-/** The one-time link that opens Sign-in & identity when no sign-in method is on. */
+/** The one-time link that opens setup when no sign-in method is on. Same address as the local-admin link. */
 export function serverSetupLink(port: number | string, env: NodeJS.ProcessEnv = process.env): string {
-    return `${publicOrigin(port, env)}/server-setup#code=${firstRunSetupCode()}`
+    return setupPageLink(port, env)
 }
+
+export const SETUP_READY_REPRINT_MS = 5 * 60 * 1000
+
+const READY_RULE = '─'.repeat(62)
+
+/** The ready block for a live code this process can still print. It does not issue a code. */
+export function setupReadyLines(port: number | string, env: NodeJS.ProcessEnv, code: string): string[] {
+    const link = `${publicOrigin(port, env)}/setup#code=${encodeURIComponent(code)}`
+    return [
+        READY_RULE,
+        '✅ Cuttlely is ready — finish setup:',
+        `   ${link}      ← open on this machine`,
+        `   Setup code: ${code}   (valid 60 min, works once)`,
+        `   Remote/Docker? Open http://<your-host>:${port}/setup and paste the code.`,
+        READY_RULE
+    ]
+}
+
+export type FirstRunAnnounce = 'setup' | 'recover' | 'none'
 
 async function claimLiveCode(now = Date.now()): Promise<void> {
     if (localRetired) {
@@ -816,11 +877,11 @@ async function claimLiveCode(now = Date.now()): Promise<void> {
 }
 
 /**
- * On a fresh install with no account yet, prints where to start. With the local account on, the link creates the
- * first account. With no sign-in method at all (for example Render without AuthKit), the link opens only
- * Sign-in & identity, works once, and stops working when the first account exists. Either link carries the
- * one-time code in the fragment, so it also works through Docker's published port. When accounts exist but no
- * sign-in method is on, it prints how to turn one back on instead.
+ * On a fresh install with no account yet, prints the ready block (the link and the setup code). With the local
+ * account on, that link creates the first account. With no sign-in method at all (for example Render without
+ * AuthKit), the same link opens the sign-in choice. The code is the live stored code: a restart or another copy
+ * keeps it, and an expired one is replaced by the one-minute check. When accounts exist but no sign-in method is
+ * on, it prints how to turn one back on instead, and does not print a code.
  */
 export async function announceFirstRunSetup(
     port: number | string,
@@ -828,30 +889,59 @@ export async function announceFirstRunSetup(
     log: (line: string) => void,
     localAdmin: boolean,
     env: NodeJS.ProcessEnv = process.env
-): Promise<boolean> {
+): Promise<FirstRunAnnounce> {
     printer = log
     startupPort = port
     startupEnv = env
-    linkKind = localAdmin ? 'organization' : 'server'
-    if (!localAdmin && !noSignInMethod(env)) return false
+    if (!localAdmin && !noSignInMethod(env)) return 'none'
     if ((await countUsers()) > 0) {
-        if (localAdmin) return false
+        if (localAdmin) return 'none'
         // Accounts exist but nothing lets them in, for example a .env that lost CUTTLELY_LOCAL_ADMIN. Say how to get back.
         log(
             '🔑 [server]: No sign-in method is on, so nobody can sign in. Turn on the password sign-in (CUTTLELY_LOCAL_ADMIN=true) or AuthKit on the host, then restart.'
         )
-        return true
+        return 'recover'
     }
     await claimLiveCode()
     startSetupCodeWatch(countUsers, localAdmin, env)
     if (heldByOther || !issuedPlain) {
         log(keptLine(localAdmin, await activeStore().read(), Date.now()))
-        return true
+        return 'setup'
     }
-    if (localAdmin) {
-        log(`👋 [server]: No account yet. Open ${firstRunSetupLink(port)} to create yours.`)
-        return true
-    }
-    log(`🔑 [server]: No sign-in method is on yet. Open ${serverSetupLink(port, env)} to set one up. The link works once.`)
-    return true
+    for (const line of setupReadyLines(port, env, issuedPlain)) log(line)
+    return 'setup'
+}
+
+/**
+ * Prints the ready block again every few minutes while setup is still open, using the live code this process
+ * already holds. It does not issue a code. An expired code is not printed; the one-minute check replaces it.
+ * The latest write is settled first, so a code that did not win that write is not printed. Returns a function
+ * that stops the reminder.
+ */
+export function watchFirstRunSetup(
+    port: number | string,
+    countUsers: () => Promise<number>,
+    log: (line: string) => void,
+    localAdmin: boolean,
+    env: NodeJS.ProcessEnv = process.env,
+    everyMs: number = SETUP_READY_REPRINT_MS
+): () => void {
+    const timer = setInterval(() => {
+        void (async () => {
+            try {
+                if (localRetired || (await countUsers()) > 0 || (!localAdmin && !noSignInMethod(env))) {
+                    clearInterval(timer)
+                    return
+                }
+                await setupCodeReady()
+                const now = Date.now()
+                if (!issuedPlain || issuedExpiresAt <= now) return
+                for (const line of setupReadyLines(port, env, issuedPlain)) log(line)
+            } catch {
+                // A reminder that fails stays quiet. The next interval tries again.
+            }
+        })()
+    }, everyMs)
+    timer.unref?.()
+    return () => clearInterval(timer)
 }

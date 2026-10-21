@@ -65,13 +65,17 @@ const AuthRoutes = {
             element: <RateLimitedPage />
         },
         {
+            path: '/setup',
+            element: <ServerSetupPage />
+        },
+        {
+            // Older first-run addresses. Both open the single setup page.
             path: '/organization-setup',
             element: <OrganizationSetupPage />
         },
         {
-            // The one-time setup link from the server log, when nobody can sign in yet.
             path: '/server-setup',
-            element: <ServerSetupPage />
+            element: <OrganizationSetupPage />
         },
         {
             path: '/license-expired',

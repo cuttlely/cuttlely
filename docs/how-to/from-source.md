@@ -96,13 +96,18 @@ Waiting for the harness gateway on 127.0.0.1:43118.
 ...
 [INFO]: 🎉 [server]: All initialization steps completed successfully!
 [INFO]: ⚡️ [server]: Cuttlely Server is listening at :43117
-[INFO]: ✅ Cuttlely is ready. Open http://localhost:43117
+[INFO]: ──────────────────────────────────────────────────────────────
+[INFO]: ✅ Cuttlely is ready — finish setup:
+[INFO]:    http://localhost:43117/setup#code=madeupcode000001      ← open on this machine
+[INFO]:    Setup code: madeupcode000001   (valid 60 min, works once)
+[INFO]:    Remote/Docker? Open http://<your-host>:43117/setup and paste the code.
+[INFO]: ──────────────────────────────────────────────────────────────
 Harness gateway is answering on 127.0.0.1:43118.
 Cuttlely boot, step 2 of 2: starting the agent runtime (Hermes) in the background.
 Harness queue: inline
 ```
 
-Server lines start with the time, then `[INFO]:`. The gateway line follows the ready line. On an 8-core machine the server was listening a few seconds after the start command, and the agent runtime was up a few seconds after that. To check it from another terminal:
+Server lines start with the time, then `[INFO]:`. The gateway line follows the ready block. On an 8-core machine the server was listening a few seconds after the start command, and the agent runtime was up a few seconds after that. To check it from another terminal:
 
 ```bash
 curl -fsS http://127.0.0.1:43117/api/v1/ping
@@ -124,15 +129,16 @@ A new install has no users. With `CUTTLELY_LOCAL_ADMIN=true`, there are two ways
 
 ### In the browser
 
-1. Open [http://localhost:43117](http://localhost:43117) on the machine where Cuttlely runs. The app opens **Setup Account**.
-2. Fill in **Administrator Name**, **Administrator Email**, **Password**, and **Confirm Password**. The password needs 8 to 128 characters, with a lowercase letter, an uppercase letter, a digit, and a special character.
-3. Select **Sign Up**.
+1. Open the link in the ready block, or open [http://localhost:43117](http://localhost:43117). With no account, the app opens `/setup`.
+2. If the address has no code, paste the setup code from the block. The form appears after the code is accepted.
+3. Fill in your name, email, password, and password again. The password needs 8 to 128 characters, with a lowercase letter, an uppercase letter, a digit, and a special character.
+4. Select **Create account**.
 
-![Setup Account on a new install, with the mascot above the Cuttlely logo. The note says account setup does not make any external connections and data stays on this server. Empty fields for Administrator Name, Administrator Email, Password and Confirm Password, and a Sign Up button.](../images/from-source/organization-setup.png)
+![The first-account form on a new install, after the setup code is accepted. This picture still shows the earlier field labels. The page now asks for your name, email, password, and password again, and the button reads Create account.](../images/from-source/organization-setup.png)
 
 You are signed in, and the app opens **Chatflows**.
 
-**Setup Account** works only from the machine where Cuttlely runs, and only while there are no users. From anywhere else, or once the account exists, **Sign Up** fails with `Error in registering account: Not Found`.
+The form works only while there are no users. Once the account exists, creating another one answers `Not Found`. From another machine, open `/setup` on that host and paste the setup code from the log.
 
 ### In a terminal
 
@@ -152,7 +158,7 @@ Several harmless `npm warn` lines come first. The account exists when you see `S
 
 Then open [http://localhost:43117](http://localhost:43117). The app opens **Sign In**. Type the email and password and select **Sign in**.
 
-![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign In button.](../images/from-source/first-open-signin.png)
+![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign in button.](../images/from-source/first-open-signin.png)
 
 More about the account, a lost password, and WorkOS for a team: [Sign in](./sign-in.md).
 
@@ -199,7 +205,7 @@ The server's lines also include `npm warn Unknown env config`. Those warnings ar
 
 ### Sign in
 
-The dev server uses the same database as `scripts/start-cuttlely.sh` (`~/.cuttlely`), so the account you created earlier works on `8080` too. On a new install with no account yet, `8080` opens **Setup Account**, the same as in [Create your account](#create-your-account).
+The dev server uses the same database as `scripts/start-cuttlely.sh` (`~/.cuttlely`), so the account you created earlier works on `8080` too. On a new install with no account yet, `8080` opens `/setup` (**Create the owner account**), the same as in [Create your account](#create-your-account).
 
 ### What updates when you save
 
