@@ -19,6 +19,8 @@
 
 Cuttlely は、AI エージェントを構築し、オーケストレーションするためのオープンソースのビジュアルグラフエディターです。エージェントとツールをキャンバスにドラッグしてチームとしてつなげば、数分でチャットでき、そのまま API を通じてアプリから呼び出せます。動作するのは、あなたが管理するインフラの上です。
 
+**1.3.1 を公開しました。** 公開済みのチャットフローやエージェントフローはどれも MCP サーバーにでき、公開済みのチャットフローが IBM watsonx Orchestrate のエージェントに応答します。[変更履歴](./CHANGELOG.md#131---2026-10-21)
+
 ## 目次
 
 -   [チームが苦情を解決するところを見る](#watch-a-team-resolve-a-complaint)
@@ -27,6 +29,8 @@ Cuttlely は、AI エージェントを構築し、オーケストレーショ�
 -   [実際のチームのために](#made-for-real-teams)
 -   [アプリを動かすエージェントチーム](#agent-teams-that-power-your-apps)
 -   [アプリからチームを使う](#use-a-team-from-your-app)
+-   [すべてのフローを MCP サーバーに](#every-flow-an-mcp-server)
+-   [IBM watsonx Orchestrate からフローを呼び出す](#call-a-flow-from-ibm-watsonx-orchestrate)
 -   [小さなコンテキストで、大きな答え](#small-context-big-answers)
 -   [チームが使うツール](#tools-your-teams-use)
 -   [最初の 10 分](#your-first-10-minutes)
@@ -140,6 +144,24 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 ```
 
 Harness Prime が質問を分けました。`baker` が注文の値段を出し、`orders` が受け取りの日を確認しています。完全なレスポンスには、トークン、時間、ソース、チームが作った画像も含まれます。そのほかは [API ガイド](./docs/api.md) にあります。API キー、ストリーミング、会話のメモリー、ファイルのアップロード、エラー、そしてキーを自分のサーバーに置いたままにできる、実行可能なサンプルのウェブアプリです。時間のかかるターンは、同じキーで `POST /api/v1/harnesses/<name>/runs/async` からバックグラウンドで開始し、答えを後で取得できます。ハーネスは cron のスケジュールで実行することもできます：[API キーでアプリから実行する](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key)、[スケジュールで実行する](./docs/how-to/harnesses.md#run-it-on-a-schedule)。リファレンス：[ハーネスの Prediction API](./docs/how-to/harnesses.md#prediction-api) と [チャットフローからハーネスを呼び出す](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow)。
+
+## すべてのフローを MCP サーバーに
+
+<a id="every-flow-an-mcp-server"></a>
+
+ほかのエージェントが、あなたの Live のフローを MCP で呼び出せます。編集内容は公開するまで下書きに残ります。[10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely)
+
+-   **オンにするまでオフ。** フローの **MCP Server** をオンにすると、Streamable HTTP のエンドポイント（`/api/v1/mcp/<flow id>`）とベアラートークンが発行されます。
+-   **Live（公開済み）のフローのみ。1 つのフローが 1 回のツール呼び出しです。** 呼び出しが下書きを実行することはなく、前の呼び出しを覚えていません。フローの Rate Limit が適用され、1 MB を超えるリクエスト本文は拒否されます。
+-   **mcp-remote 経由の MCP クライアント。** MCP サーバーをローカルコマンドとして起動するクライアントは `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"` で接続します。[mcp-remote で接続する](./docs/api.md#connect-with-mcp-remote)
+
+[MCP エンドポイントのリファレンス](./docs/api.md#mcp-endpoint)
+
+## IBM watsonx Orchestrate からフローを呼び出す
+
+<a id="call-a-flow-from-ibm-watsonx-orchestrate"></a>
+
+公開済みのチャットフローを外部エージェントとして登録すると、Orchestrate のネイティブエージェントがコラボレーターとして質問を渡します。フローには API キーのひも付けが必要で、キーのないフローは拒否されます。フローをリモート MCP ツールキットとして取り込む手順も文書化されています。[Orchestrate からチャットフローを呼び出す](./docs/how-to/orchestrate.md) · [チャットフローを Orchestrate のツールキットとして使う](./docs/how-to/orchestrate-mcp.md)
 
 ## 小さなコンテキストで、大きな答え
 
@@ -267,7 +289,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 <a id="about-and-credits"></a>
 
-Cuttlely は Apache 2.0 のオープンソースです。各リリースでの変更は [変更履歴](./CHANGELOG.md) に、どのバージョンに修正が提供されるかは [リリースとサポート](./docs/releases.md) にあります。ライセンス本文は [LICENSE.md](./LICENSE.md)、帰属表示は [NOTICE](./NOTICE) にあります。
+Cuttlely は Apache 2.0 のオープンソースです。各リリースでの変更は [変更履歴](./CHANGELOG.md) に、どのバージョンに修正が提供されるかは [リリースとサポート](./docs/releases.md) にあります。1.3.1 には 1.3.0 までのバージョン向けのセキュリティ修正が 2 件含まれます：[GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) と [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7)。ライセンス本文は [LICENSE.md](./LICENSE.md)、帰属表示は [NOTICE](./NOTICE) にあります。
 
 Cuttlely は、Flowise、Nous Research の Hermes、React Flow をはじめとするオープンソースの成果の上に作られています。各プロジェクトのライセンスとリンクは [CREDITS.md](./CREDITS.md) にあります。
 

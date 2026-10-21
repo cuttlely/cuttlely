@@ -19,6 +19,8 @@
 
 Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오픈소스 비주얼 그래프 에디터입니다. 에이전트와 도구를 캔버스에 끌어다 놓고 하나의 팀으로 연결하면 몇 분 만에 대화할 수 있고, 이어서 API로 앱에서 호출할 수 있습니다. 여러분이 관리하는 인프라 위에서 실행됩니다.
 
+**1.3.1이 나왔습니다.** 게시된 챗플로우나 에이전트플로우는 무엇이든 MCP 서버로 만들 수 있고, 게시된 챗플로우가 IBM watsonx Orchestrate 에이전트에 응답합니다. [변경 기록](./CHANGELOG.md#131---2026-10-21)
+
 ## 목차
 
 -   [팀이 불만을 해결하는 모습 보기](#watch-a-team-resolve-a-complaint)
@@ -27,6 +29,8 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 -   [실제 팀을 위해](#made-for-real-teams)
 -   [앱을 움직이는 에이전트 팀](#agent-teams-that-power-your-apps)
 -   [앱에서 팀 사용하기](#use-a-team-from-your-app)
+-   [모든 플로우를 MCP 서버로](#every-flow-an-mcp-server)
+-   [IBM watsonx Orchestrate에서 플로우 호출하기](#call-a-flow-from-ibm-watsonx-orchestrate)
 -   [작은 컨텍스트, 큰 답변](#small-context-big-answers)
 -   [팀이 사용하는 도구](#tools-your-teams-use)
 -   [처음 10분](#your-first-10-minutes)
@@ -140,6 +144,24 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 ```
 
 Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산했고 `orders`는 픽업 요일을 확인했습니다. 전체 응답에는 토큰, 소요 시간, 출처, 팀이 만든 이미지도 들어 있습니다. 나머지는 [API 가이드](./docs/api.md)에서 다룹니다. API 키, 스트리밍, 대화 메모리, 파일 업로드, 오류, 그리고 키를 여러분의 서버에만 두는 실행 가능한 예제 웹 앱이 있습니다. 오래 걸리는 턴은 같은 키로 `POST /api/v1/harnesses/<name>/runs/async`에서 백그라운드로 시작하고 답변은 나중에 가져올 수 있으며, 하네스를 cron 일정으로 실행할 수도 있습니다: [API 키로 앱에서 실행하기](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [일정으로 실행하기](./docs/how-to/harnesses.md#run-it-on-a-schedule). 참고: [하네스용 Prediction API](./docs/how-to/harnesses.md#prediction-api), [챗플로우에서 하네스 호출하기](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
+
+## 모든 플로우를 MCP 서버로
+
+<a id="every-flow-an-mcp-server"></a>
+
+다른 에이전트가 여러분의 Live 플로우를 MCP로 호출할 수 있습니다. 편집한 내용은 게시할 때까지 초안에 남습니다. [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely)
+
+-   **켜기 전에는 꺼져 있습니다.** 플로우의 **MCP Server**를 켜면 Streamable HTTP 엔드포인트(`/api/v1/mcp/<flow id>`)와 베어러 토큰이 생깁니다.
+-   **Live(게시된) 플로우만, 플로우 하나가 도구 호출 한 번입니다.** 호출은 초안을 실행하지 않으며 이전 호출을 기억하지 않습니다. 플로우의 Rate Limit가 적용되고, 1 MB를 넘는 요청 본문은 거부됩니다.
+-   **mcp-remote를 통한 MCP 클라이언트.** MCP 서버를 로컬 명령으로 실행하는 클라이언트는 `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"`로 연결합니다. [mcp-remote로 연결하기](./docs/api.md#connect-with-mcp-remote)
+
+[MCP 엔드포인트 참고 문서](./docs/api.md#mcp-endpoint)
+
+## IBM watsonx Orchestrate에서 플로우 호출하기
+
+<a id="call-a-flow-from-ibm-watsonx-orchestrate"></a>
+
+게시된 챗플로우를 외부 에이전트로 등록하면 Orchestrate 네이티브 에이전트가 협업자로서 질문을 넘깁니다. 플로우에는 연결된 API 키가 필요하며, 키가 없는 플로우는 거부됩니다. 플로우를 원격 MCP 툴킷으로 가져오는 방법도 문서로 나와 있습니다. [Orchestrate에서 챗플로우 호출하기](./docs/how-to/orchestrate.md) · [챗플로우를 Orchestrate 툴킷으로 사용하기](./docs/how-to/orchestrate-mcp.md)
 
 ## 작은 컨텍스트, 큰 답변
 
@@ -267,7 +289,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 <a id="about-and-credits"></a>
 
-Cuttlely는 Apache 2.0 라이선스의 오픈소스입니다. 릴리스마다 바뀐 내용은 [변경 기록](./CHANGELOG.md)에, 어떤 버전이 수정을 받는지는 [릴리스와 지원](./docs/releases.md)에 있습니다. 라이선스 전문은 [LICENSE.md](./LICENSE.md)에, 저작자 표시는 [NOTICE](./NOTICE)에 있습니다.
+Cuttlely는 Apache 2.0 라이선스의 오픈소스입니다. 릴리스마다 바뀐 내용은 [변경 기록](./CHANGELOG.md)에, 어떤 버전이 수정을 받는지는 [릴리스와 지원](./docs/releases.md)에 있습니다. 1.3.1에는 1.3.0까지의 버전을 위한 보안 수정 두 건이 들어 있습니다: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f), [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7). 라이선스 전문은 [LICENSE.md](./LICENSE.md)에, 저작자 표시는 [NOTICE](./NOTICE)에 있습니다.
 
 Cuttlely는 Flowise, Nous Research의 Hermes, React Flow를 비롯한 오픈소스 작업을 바탕으로 만들어졌습니다. [CREDITS.md](./CREDITS.md)에 각 프로젝트의 라이선스와 링크가 정리되어 있습니다.
 
