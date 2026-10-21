@@ -1407,7 +1407,7 @@ describe('identity auth', () => {
             ).toBe(true)
             await setupCodeReady()
             const code = firstRunSetupCode()
-            simulateSetupRestart()
+            await simulateSetupRestart()
             lines.length = 0
             expect(
                 await announceFirstRunSetup(
@@ -1431,7 +1431,7 @@ describe('identity auth', () => {
             expect(expiry).toEqual(expect.any(Number))
             expect(lines[0]).toContain(new Date(expiry as number).toISOString())
             lines.length = 0
-            simulateOtherSetupCopy()
+            await simulateOtherSetupCopy()
             expect(
                 await announceFirstRunSetup(
                     43117,
