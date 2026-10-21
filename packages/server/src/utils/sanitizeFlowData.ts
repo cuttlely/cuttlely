@@ -395,12 +395,17 @@ const tokenPatternFails = (value: string): boolean => {
 const CODE_CREDENTIAL_QUERY = /[?&;](?:api_key|apikey|key|token|access_token|secret|password|sig)=/i
 // Bearer or Basic followed by a literal value. A template expression such as ${token} or a quoted concatenation is not a value.
 const CODE_AUTH_GAP = `${INVISIBLE_CLASS}*`
-const spelled = (word: string): string => word.split('').join(CODE_AUTH_GAP)
+// Each letter as an explicit ASCII pair, so no case-insensitive Unicode folding (Kelvin sign, long s) applies.
+const spelled = (word: string): string =>
+    word
+        .split('')
+        .map((c) => `[${c.toUpperCase()}${c.toLowerCase()}]`)
+        .join(CODE_AUTH_GAP)
 // Invisible characters may sit inside the word and between the word and the value. Each repeated part is a
 // character class disjoint from the next one, so the match stays linear.
 const CODE_AUTH_SCHEME = new RegExp(
-    `\\b(?:${spelled('bearer')}|${spelled('basic')})(?:[ \\t]|${INVISIBLE_CLASS})+([A-Za-z0-9._~+/=-]+)`,
-    'giu'
+    `(?<![A-Za-z0-9_])(?:${spelled('bearer')}|${spelled('basic')})(?:[ \\t]|${INVISIBLE_CLASS})+([A-Za-z0-9._~+/=-]+)`,
+    'gu'
 )
 // An ALL_CAPS name with an underscore, such as SPIDER_API_KEY, is a placeholder for the user to replace.
 const PLACEHOLDER_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/

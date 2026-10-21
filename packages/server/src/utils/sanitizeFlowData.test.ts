@@ -2645,11 +2645,28 @@ describe('tool func user info with quote characters', () => {
                 `https://user:${pw}${q}@api.example/v1`,
                 `https://user:p${q}${pw}@api.example/v1`,
                 `https://x@y:${pw}${q}@api.example/v1`,
-                `https://@user:${pw}${q}@api.example/v1`
+                `https://@user:${pw}${q}@api.example/v1`,
+                `https://us${q}er:${pw}@api.example/v1`,
+                `https://x@y${q}:${pw}@api.example/v1`
             ]) {
                 expect(sanitizeToolTemplate({ func: `return fetch(String.raw\`${url}\`)` }).func).toBeUndefined()
                 expect(sanitizeToolTemplate({ func: `const u = ${JSON.stringify(url)}` }).func).toBeUndefined()
             }
         }
+    })
+})
+
+describe('tool func auth word after a non-ASCII letter', () => {
+    const pw = ['FAKE', 'pw', '11'].join('')
+    it('leaves out Bearer or Basic right after a letter that is not ASCII', () => {
+        for (const lead of ['\u017f', '\u212a', '\u00e9', '\u0430']) {
+            for (const word of ['Bearer', 'Basic']) {
+                expect(sanitizeToolTemplate({ func: `const h = '${lead}${word} ${pw}'` }).func).toBeUndefined()
+            }
+        }
+    })
+    it('keeps an ASCII word that only ends in bearer', () => {
+        const func = "const cupbearer = 'x'\nreturn cupbearer"
+        expect(sanitizeToolTemplate({ func }).func).toBe(func)
     })
 })
