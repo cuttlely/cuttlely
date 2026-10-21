@@ -153,7 +153,7 @@ Harness Prime が質問を分けました。`baker` が注文の値段を出し�
 
 -   **オンにするまでオフ。** フローの **MCP Server** をオンにすると、Streamable HTTP のエンドポイント（`/api/v1/mcp/<flow id>`）とベアラートークンが発行されます。
 -   **Live（公開済み）のフローのみ。1 つのフローが 1 回のツール呼び出しです。** 呼び出しが下書きを実行することはなく、前の呼び出しを覚えていません。フローの Rate Limit が適用され、1 MB を超えるリクエスト本文は拒否されます。
--   **mcp-remote 経由の MCP クライアント。**
+-   **mcp-remote 経由の MCP クライアント。** MCP サーバーをローカルコマンドとして起動するクライアントは `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"` で接続します。[mcp-remote で接続する](./docs/api.md#connect-with-mcp-remote)
 
 [MCP エンドポイントのリファレンス](./docs/api.md#mcp-endpoint)
 

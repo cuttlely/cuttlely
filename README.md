@@ -140,7 +140,7 @@ Other agents can call your Live flow over MCP. Your edits wait in a draft until 
 
 -   **Off until you turn it on.** Turn on **MCP Server** for a flow to get a Streamable HTTP endpoint (`/api/v1/mcp/<flow id>`) and a bearer token.
 -   **Live or published flows only, each flow is one tool call.** Calls never run the draft, and a call keeps no memory of earlier calls. The flow's Rate Limit applies, and request bodies over 1 MB are refused.
--   **MCP clients via mcp-remote.**
+-   **MCP clients via mcp-remote.** A client that starts MCP servers as local commands connects with `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"`. [Connect with mcp-remote](./docs/api.md#connect-with-mcp-remote)
 
 [MCP endpoint reference](./docs/api.md#mcp-endpoint)
 

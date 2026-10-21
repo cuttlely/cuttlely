@@ -153,7 +153,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 -   **켜기 전에는 꺼져 있습니다.** 플로우의 **MCP Server**를 켜면 Streamable HTTP 엔드포인트(`/api/v1/mcp/<flow id>`)와 베어러 토큰이 생깁니다.
 -   **Live(게시된) 플로우만, 플로우 하나가 도구 호출 한 번입니다.** 호출은 초안을 실행하지 않으며 이전 호출을 기억하지 않습니다. 플로우의 Rate Limit가 적용되고, 1 MB를 넘는 요청 본문은 거부됩니다.
--   **mcp-remote를 통한 MCP 클라이언트.**
+-   **mcp-remote를 통한 MCP 클라이언트.** MCP 서버를 로컬 명령으로 실행하는 클라이언트는 `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"`로 연결합니다. [mcp-remote로 연결하기](./docs/api.md#connect-with-mcp-remote)
 
 [MCP 엔드포인트 참고 문서](./docs/api.md#mcp-endpoint)
 
