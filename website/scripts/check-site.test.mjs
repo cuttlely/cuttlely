@@ -292,15 +292,26 @@ describe('check-site message house', () => {
         assert.match(checkSite(draft).problems.join('\n'), /opens a draft/)
     })
 
-    it('keeps the import format out of the first two sentences of /flowise/, out of the FAQ, and to one mention on the home page', () => {
-        const flowiseOk = `<html><head>${head}</head><body><main><div class="cl-hero-copy"><p>The visual agent builder, ready for production.</p><h1>Bring your flows over.</h1><p>Import Flowise JSON opens it.</p></div><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></main></body></html>`
-        assert.doesNotMatch(checkSite(site({ ...base, 'flowise/index.html': flowiseOk })).problems.join('\n'), /first two sentences/)
+    it('keeps the import format out of the opening of /flowise/, out of the FAQ, and to one mention on the home page', () => {
+        const flowiseOk = `<html><head>${head}</head><body><main><div class="cl-hero-copy"><p>The visual agent builder, ready for production.</p><h1>Bring your flows over.</h1><p class="cl-hero-lead">Drag-and-drop agents. Open source.</p><p class="cl-hero-proof">Import Flowise JSON opens it.</p></div><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></main></body></html>`
+        assert.doesNotMatch(checkSite(site({ ...base, 'flowise/index.html': flowiseOk })).problems.join('\n'), /in its opening/)
         const early = flowiseOk.replace('Bring your flows over.', 'Bring your Flowise flows over.')
-        assert.match(checkSite(site({ ...base, 'flowise/index.html': early })).problems.join('\n'), /first two sentences/)
+        assert.match(checkSite(site({ ...base, 'flowise/index.html': early })).problems.join('\n'), /in its opening/)
+        const lead = flowiseOk.replace('Drag-and-drop agents.', 'Drag-and-drop Flowise agents.')
+        assert.match(checkSite(site({ ...base, 'flowise/index.html': lead })).problems.join('\n'), /in its opening/)
+        const titled = flowiseOk.replace('<head>', '<head><title>Bring your Flowise flows</title>')
+        assert.match(checkSite(site({ ...base, 'flowise/index.html': titled })).problems.join('\n'), /in its opening/)
+        const described = flowiseOk.replace('<head>', '<head><meta name="description" content="Import Flowise JSON">')
+        assert.match(checkSite(site({ ...base, 'flowise/index.html': described })).problems.join('\n'), /in its opening/)
         const faq = `<html><head>${head}</head><body><main><p>Import Flowise JSON</p></main></body></html>`
         assert.match(checkSite(site({ ...base, 'faq/index.html': faq })).problems.join('\n'), /faq\/index\.html: names the import format/)
         const twice = home.replace('</body>', '<main><a href="/flowise/">x</a><a href="/flowise/">y</a></main></body>')
-        assert.match(checkSite(site({ ...base, 'index.html': twice })).problems.join('\n'), /names the import format 2 times/)
+        assert.match(checkSite(site({ ...base, 'index.html': twice })).problems.join('\n'), /names the import format 3 times/)
+        const bare = home.replace('<a href="/flowise/">Already have flows? Bring them over</a>', '')
+        const footer = bare.replace('</body>', '<main></main><footer><a href="/docs/flowise-migration-wizard/">z</a></footer></body>')
+        assert.match(checkSite(site({ ...base, 'index.html': footer })).problems.join('\n'), /outside the hero link/)
+        const heroOnly = bare.replace('</body>', '<main><a href="/flowise/">Already have flows?</a></main></body>')
+        assert.doesNotMatch(checkSite(site({ ...base, 'index.html': heroOnly })).problems.join('\n'), /import format/)
     })
 
     it('skips social tags on a static redirect page', () => {
