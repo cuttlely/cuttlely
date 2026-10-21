@@ -389,7 +389,8 @@ export const rebuildHttpUrl = (value: unknown): string | undefined => {
     }
     for (const label of url.hostname.split('.')) {
         if (!label) continue
-        if (partHasSecret(label)) return undefined
+        // A punycode label came from non-ASCII text the checks above never saw as written, so the address is left out.
+        if (label.toLowerCase().startsWith('xn--') || partHasSecret(label)) return undefined
     }
     return `${url.protocol}//${url.hostname}${url.pathname}`
 }

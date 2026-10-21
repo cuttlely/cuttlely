@@ -2041,7 +2041,7 @@ describe('public display fields', () => {
         expect(rebuildHttpUrl('https://api.example.invalid/v1/sk-FAKE-QA-INPATH/x')).toBeUndefined()
         expect(rebuildHttpUrl('https://api.example.invalid/services/T0FAKE/B0FAKE/FAKEQAwebhookSECRETq9Xm2PvR8tY4wK1nB3')).toBeUndefined()
         expect(rebuildHttpUrl('https://' + 'sk' + '-FAKEQAhostlabel.example.invalid/v1')).toBeUndefined()
-        expect(rebuildHttpUrl('https://b\u00fccher.example/menu')).toBe('https://xn--bcher-kva.example/menu')
+        expect(rebuildHttpUrl('https://b\u00fccher.example/menu')).toBeUndefined()
         expect(rebuildHttpUrl('javascript:alert(1)')).toBeUndefined()
         const { inputs } = sanitizeNodeInputs(
             { basePath: 'path/user:FAKE_MARKER_Q@files.example', baseURL: 'https://models.example:9443/root?q=1#h' },
@@ -2210,5 +2210,17 @@ describe('scheme scans on long input', () => {
         expect(hasSchemeLike('ratio 1:2')).toBe(false)
         expect(hasNamedSchemeAcrossBreak('javascript:\nalert')).toBe(true)
         expect(hasNamedSchemeAcrossBreak('History:\nnext')).toBe(false)
+    })
+})
+
+describe('non-ASCII hosts', () => {
+    it('leaves out an address whose host needs punycode', () => {
+        const lookalike = '\u0455k' + '-' + 'FAKEqa9X7mP2'
+        for (const url of [`https://${lookalike}.example/x`, 'https://b\u00fccher.example/menu', 'https://xn--bcher-kva.example/menu']) {
+            expect(rebuildHttpUrl(url)).toBeUndefined()
+            expect(sanitizeToolTemplate({ iconSrc: url }).iconSrc).toBeUndefined()
+            expect(sanitizeNodeInputs({ basepath: url }, schemaParams as any).inputs.basepath).toBeUndefined()
+        }
+        expect(rebuildHttpUrl('https://cdn.example/icons/hammer.png')).toBe('https://cdn.example/icons/hammer.png')
     })
 })
