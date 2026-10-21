@@ -1,6 +1,6 @@
 {
     "generatedFrom": "packages/components/nodes and packages/node-pack-*/nodes",
-    "registration": "NodesPool loads every nodeClass under packages/components/nodes, then the packs in CUTTLELY_NODE_PACKS. Unset loads the packs that ship with the install. packages/components/nodes/index.ts re-exports this catalog. tier is core (a bundled template, a sample canvas, or a Build with AI recipe), supported, legacy (DEPRECATING badge), or hidden (a category the server skips at load).",
+    "registration": "NodesPool loads every nodeClass under packages/components/nodes, then the packs in CUTTLELY_NODE_PACKS. Unset loads the packs that ship with the install. packages/components/nodes/index.ts re-exports this catalog. tier is core (a bundled template, a sample canvas, or a Build with AI recipe), supported, legacy (DEPRECATING badge), or hidden (a category the server skips at load). credential is set when the card has a credential slot.",
     "langgraphUpgradeBlocked": false,
     "counts": {
         "native": 257,
@@ -72,6 +72,9 @@
             "file": "packages/components/nodes/agentflow/ExecuteFlow/ExecuteFlow.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -82,6 +85,9 @@
             "file": "packages/components/nodes/agentflow/HTTP/HTTP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "core"
         },
         {
@@ -302,6 +308,9 @@
             "file": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -312,6 +321,9 @@
             "file": "packages/components/nodes/chatmodels/AzureChatOpenAI/AzureChatOpenAI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -322,6 +334,9 @@
             "file": "packages/components/nodes/chatmodels/ChatAlibabaTongyi/ChatAlibabaTongyi.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -332,6 +347,9 @@
             "file": "packages/components/nodes/chatmodels/ChatAnthropic/ChatAnthropic.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -342,6 +360,9 @@
             "file": "packages/components/nodes/chatmodels/ChatBaiduWenxin/ChatBaiduWenxin.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -352,6 +373,9 @@
             "file": "packages/components/nodes/chatmodels/ChatCerebras/ChatCerebras.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -362,6 +386,9 @@
             "file": "packages/components/nodes/chatmodels/ChatCloudflareWorkersAI/ChatCloudflareWorkersAI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -372,6 +399,9 @@
             "file": "packages/components/nodes/chatmodels/ChatCohere/ChatCohere.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -382,6 +412,9 @@
             "file": "packages/components/nodes/chatmodels/ChatCometAPI/ChatCometAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -392,6 +425,9 @@
             "file": "packages/components/nodes/chatmodels/ChatFireworks/ChatFireworks.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -402,6 +438,9 @@
             "file": "packages/components/nodes/chatmodels/ChatGoogleGenerativeAI/ChatGoogleGenerativeAI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -412,6 +451,9 @@
             "file": "packages/components/nodes/chatmodels/ChatGoogleVertexAI/ChatGoogleVertexAI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -422,6 +464,9 @@
             "file": "packages/components/nodes/chatmodels/ChatHuggingFace/ChatHuggingFace.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -432,6 +477,9 @@
             "file": "packages/components/nodes/chatmodels/ChatIBMWatsonx/ChatIBMWatsonx.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -442,6 +490,9 @@
             "file": "packages/components/nodes/chatmodels/ChatLitellm/ChatLitellm.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -452,6 +503,9 @@
             "file": "packages/components/nodes/chatmodels/ChatLocalAI/ChatLocalAI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -462,6 +516,9 @@
             "file": "packages/components/nodes/chatmodels/ChatMistral/ChatMistral.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -482,6 +539,9 @@
             "file": "packages/components/nodes/chatmodels/ChatNvdiaNIM/ChatNvdiaNIM.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -492,6 +552,9 @@
             "file": "packages/components/nodes/chatmodels/ChatOllama/ChatOllama.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "core"
         },
         {
@@ -502,6 +565,9 @@
             "file": "packages/components/nodes/chatmodels/ChatOpenAI/ChatOpenAI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -512,6 +578,9 @@
             "file": "packages/components/nodes/chatmodels/ChatOpenAICustom/ChatOpenAICustom.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -522,6 +591,9 @@
             "file": "packages/components/nodes/chatmodels/ChatOpenRouter/ChatOpenRouter.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -532,6 +604,9 @@
             "file": "packages/components/nodes/chatmodels/ChatPerplexity/ChatPerplexity.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -542,6 +617,9 @@
             "file": "packages/components/nodes/chatmodels/ChatSambanova/ChatSambanova.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -552,6 +630,9 @@
             "file": "packages/components/nodes/chatmodels/ChatTogetherAI/ChatTogetherAI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -562,6 +643,9 @@
             "file": "packages/components/nodes/chatmodels/ChatXAI/ChatXAI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -572,6 +656,9 @@
             "file": "packages/components/nodes/chatmodels/Deepseek/Deepseek.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -582,6 +669,9 @@
             "file": "packages/components/nodes/chatmodels/Groq/Groq.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -592,6 +682,9 @@
             "file": "packages/components/nodes/documentloaders/Airtable/Airtable.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -612,6 +705,9 @@
             "file": "packages/components/nodes/documentloaders/ApifyWebsiteContentCrawler/ApifyWebsiteContentCrawler.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -622,6 +718,9 @@
             "file": "packages/components/nodes/documentloaders/BraveSearchAPI/BraveSearchAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -642,6 +741,9 @@
             "file": "packages/components/nodes/documentloaders/Confluence/Confluence.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -702,6 +804,9 @@
             "file": "packages/components/nodes/documentloaders/Figma/Figma.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -722,6 +827,9 @@
             "file": "packages/components/nodes/documentloaders/FireCrawl/FireCrawl.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -752,6 +860,9 @@
             "file": "packages/components/nodes/documentloaders/Github/Github.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "core"
         },
         {
@@ -762,6 +873,9 @@
             "file": "packages/components/nodes/documentloaders/GoogleDrive/GoogleDrive.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -772,6 +886,9 @@
             "file": "packages/components/nodes/documentloaders/GoogleSheets/GoogleSheets.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -782,6 +899,9 @@
             "file": "packages/components/nodes/documentloaders/Jira/Jira.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -842,6 +962,9 @@
             "file": "packages/components/nodes/documentloaders/Notion/NotionDB.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -862,6 +985,9 @@
             "file": "packages/components/nodes/documentloaders/Notion/NotionPage.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -872,6 +998,9 @@
             "file": "packages/components/nodes/documentloaders/Oxylabs/Oxylabs.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -922,6 +1051,9 @@
             "file": "packages/components/nodes/documentloaders/S3Directory/S3Directory.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -932,6 +1064,9 @@
             "file": "packages/components/nodes/documentloaders/S3File/S3File.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -942,6 +1077,9 @@
             "file": "packages/components/nodes/documentloaders/SearchApi/SearchAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -952,6 +1090,9 @@
             "file": "packages/components/nodes/documentloaders/SerpApi/SerpAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -962,6 +1103,9 @@
             "file": "packages/components/nodes/documentloaders/Spider/Spider.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -982,6 +1126,9 @@
             "file": "packages/components/nodes/documentloaders/Unstructured/UnstructuredFile.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1002,6 +1149,9 @@
             "file": "packages/components/nodes/embeddings/AWSBedrockEmbedding/AWSBedrockEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1012,6 +1162,9 @@
             "file": "packages/components/nodes/embeddings/AzureOpenAIEmbedding/AzureOpenAIEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1022,6 +1175,9 @@
             "file": "packages/components/nodes/embeddings/BaiduQianfanEmbedding/BaiduQianfanEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1032,6 +1188,9 @@
             "file": "packages/components/nodes/embeddings/CohereEmbedding/CohereEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1042,6 +1201,9 @@
             "file": "packages/components/nodes/embeddings/GoogleGenerativeAIEmbedding/GoogleGenerativeAIEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1052,6 +1214,9 @@
             "file": "packages/components/nodes/embeddings/GoogleVertexAIEmbedding/GoogleVertexAIEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1062,6 +1227,9 @@
             "file": "packages/components/nodes/embeddings/HuggingFaceInferenceEmbedding/HuggingFaceInferenceEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1072,6 +1240,9 @@
             "file": "packages/components/nodes/embeddings/IBMWatsonxEmbedding/IBMWatsonxEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1082,6 +1253,9 @@
             "file": "packages/components/nodes/embeddings/JinaAIEmbedding/JinaAIEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1092,6 +1266,9 @@
             "file": "packages/components/nodes/embeddings/LocalAIEmbedding/LocalAIEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "core"
         },
         {
@@ -1112,6 +1289,9 @@
             "file": "packages/components/nodes/embeddings/MistralEmbedding/MistralEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1132,6 +1312,9 @@
             "file": "packages/components/nodes/embeddings/OpenAIEmbedding/OpenAIEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -1142,6 +1325,9 @@
             "file": "packages/components/nodes/embeddings/OpenAIEmbeddingCustom/OpenAIEmbeddingCustom.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1152,6 +1338,9 @@
             "file": "packages/components/nodes/embeddings/TogetherAIEmbedding/TogetherAIEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1162,6 +1351,9 @@
             "file": "packages/components/nodes/embeddings/VoyageAIEmbedding/VoyageAIEmbedding.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1202,6 +1394,9 @@
             "file": "packages/components/nodes/graphs/Neo4j/Neo4j.ts",
             "disposition": "adapt",
             "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1242,6 +1437,9 @@
             "file": "packages/components/nodes/memory/AgentMemory/AgentMemory.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "legacy"
         },
         {
@@ -1252,6 +1450,9 @@
             "file": "packages/components/nodes/memory/AgentMemory/MySQLAgentMemory/MySQLAgentMemory.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1262,6 +1463,9 @@
             "file": "packages/components/nodes/memory/AgentMemory/PostgresAgentMemory/PostgresAgentMemory.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1322,6 +1526,9 @@
             "file": "packages/components/nodes/moderation/OpenAIModeration/OpenAIModeration.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1422,6 +1629,9 @@
             "file": "packages/components/nodes/prompts/PromptLangfuse/PromptLangfuse.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1442,6 +1652,9 @@
             "file": "packages/components/nodes/recordmanager/MySQLRecordManager/MySQLrecordManager.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1452,6 +1665,9 @@
             "file": "packages/components/nodes/recordmanager/PostgresRecordManager/PostgresRecordManager.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1472,6 +1688,9 @@
             "file": "packages/components/nodes/retrievers/AWSBedrockKBRetriever/AWSBedrockKBRetriever.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1482,6 +1701,9 @@
             "file": "packages/components/nodes/retrievers/AzureRerankRetriever/AzureRerankRetriever.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1492,6 +1714,9 @@
             "file": "packages/components/nodes/retrievers/CohereRerankRetriever/CohereRerankRetriever.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1542,6 +1767,9 @@
             "file": "packages/components/nodes/retrievers/JinaRerankRetriever/JinaRerankRetriever.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1612,6 +1840,9 @@
             "file": "packages/components/nodes/retrievers/VoyageAIRetriever/VoyageAIRerankRetriever.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1672,6 +1903,9 @@
             "file": "packages/components/nodes/sequentialagents/ExecuteFlow/ExecuteFlow.ts",
             "disposition": "adapt",
             "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1792,6 +2026,9 @@
             "file": "packages/components/nodes/tools/AgentAsTool/AgentAsTool.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1802,6 +2039,9 @@
             "file": "packages/components/nodes/tools/AWSDynamoDBKVStorage/AWSDynamoDBKVStorage.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -1832,6 +2072,9 @@
             "file": "packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -1902,6 +2145,9 @@
             "file": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2062,6 +2308,9 @@
             "file": "packages/node-pack-caches-memory/nodes/cache/MomentoCache/MomentoCache.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2072,6 +2321,9 @@
             "file": "packages/node-pack-caches-memory/nodes/cache/RedisCache/RedisCache.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2082,6 +2334,9 @@
             "file": "packages/node-pack-caches-memory/nodes/cache/RedisCache/RedisEmbeddingsCache.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2092,6 +2347,9 @@
             "file": "packages/node-pack-caches-memory/nodes/cache/UpstashRedisCache/UpstashRedisCache.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2102,6 +2360,9 @@
             "file": "packages/node-pack-caches-memory/nodes/memory/DynamoDb/DynamoDb.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2112,6 +2373,9 @@
             "file": "packages/node-pack-caches-memory/nodes/memory/Mem0/Mem0.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2122,6 +2386,9 @@
             "file": "packages/node-pack-caches-memory/nodes/memory/MongoDBMemory/MongoDBMemory.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2132,6 +2399,9 @@
             "file": "packages/node-pack-caches-memory/nodes/memory/RedisBackedChatMemory/RedisBackedChatMemory.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2142,6 +2412,9 @@
             "file": "packages/node-pack-caches-memory/nodes/memory/UpstashRedisBackedChatMemory/UpstashRedisBackedChatMemory.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2152,6 +2425,9 @@
             "file": "packages/node-pack-caches-memory/nodes/memory/ZepMemory/ZepMemory.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2162,6 +2438,9 @@
             "file": "packages/node-pack-caches-memory/nodes/memory/ZepMemoryCloud/ZepMemoryCloud.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2242,6 +2521,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/AWSBedrock/AWSBedrock.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use AWS Bedrock Chat Models instead",
+            "credential": {
+                "optional": true
+            },
             "tier": "legacy"
         },
         {
@@ -2252,6 +2534,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/Azure OpenAI/AzureOpenAI.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use Azure OpenAI Chat Models instead",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2262,6 +2547,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/Cohere/Cohere.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use Cohere Chat Models instead",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2272,6 +2560,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/Fireworks/Fireworks.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use Fireworks Chat Models instead",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2282,6 +2573,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/GoogleVertexAI/GoogleVertexAI.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use GoogleVertexAI Chat Models instead",
+            "credential": {
+                "optional": true
+            },
             "tier": "legacy"
         },
         {
@@ -2292,6 +2586,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/HuggingFaceInference/HuggingFaceInference.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use HuggingFace Inference Chat Models instead",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2302,6 +2599,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/IBMWatsonx/IBMWatsonx.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use IBM Watsonx Chat Models instead",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2322,6 +2622,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/OpenAI/OpenAI.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use OpenAI Chat Models instead",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2332,6 +2635,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/Replicate/Replicate.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2342,6 +2648,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/SambaNova/Sambanova.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use Sambanova Chat Models instead",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2352,6 +2661,9 @@
             "file": "packages/node-pack-legacy-chains/nodes/llms/TogetherAI/TogetherAI.ts",
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use TogetherAI Chat Models instead",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2372,6 +2684,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/AWSSNS/AWSSNS.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2382,6 +2697,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/BraveSearchAPI/BraveSearchAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2392,6 +2710,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/CodeInterpreterE2B/CodeInterpreterE2B.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2402,6 +2723,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/Composio/Composio.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2412,6 +2736,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/ExaSearch/ExaSearch.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2422,6 +2749,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/Gmail/Gmail.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2432,6 +2762,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleCalendar/GoogleCalendar.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2442,6 +2775,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleDocs/GoogleDocs.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2452,6 +2788,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleDrive/GoogleDrive.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2462,6 +2801,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleSearchAPI/GoogleSearchAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2472,6 +2814,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleSheets/GoogleSheets.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2482,6 +2827,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/Jira/Jira.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2492,6 +2840,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/BraveSearch/BraveSearchMCP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2502,6 +2853,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Browserless/BrowserlessMCP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2512,6 +2866,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Github/GithubMCP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2522,6 +2879,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Pipedream/PipedreamMCP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2542,6 +2902,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Slack/SlackMCP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2562,6 +2925,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Teradata/TeradataMCP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2572,6 +2938,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftOutlook/MicrosoftOutlook.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2582,6 +2951,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftTeams/MicrosoftTeams.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2592,6 +2964,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/SearchApi/SearchAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2612,6 +2987,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/SerpAPI/SerpAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2622,6 +3000,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/Serper/Serper.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2632,6 +3013,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/StripeTool/StripeTool.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2642,6 +3026,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/TavilyAPI/TavilyAPI.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2652,6 +3039,9 @@
             "file": "packages/node-pack-tools-mcp/nodes/tools/WolframAlpha/WolframAlpha.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2662,6 +3052,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Astra/Astra.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2672,6 +3065,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Chroma/Chroma.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2682,6 +3078,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Couchbase/Couchbase.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2702,6 +3101,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Elasticsearch/Elasticsearch.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2742,6 +3144,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Kendra/Kendra.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2752,6 +3157,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Meilisearch/Meilisearch.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2762,6 +3170,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Milvus/Milvus.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2772,6 +3183,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/MongoDBAtlas/MongoDBAtlas.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2782,6 +3196,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/OpenSearch/OpenSearch.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2792,6 +3209,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Pinecone/Pinecone.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "core"
         },
         {
@@ -2802,6 +3222,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Postgres/Postgres.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2812,6 +3235,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Qdrant/Qdrant.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2822,6 +3248,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Redis/Redis.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2832,6 +3261,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Singlestore/Singlestore.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2842,6 +3274,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Supabase/Supabase.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2852,6 +3287,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Upstash/Upstash.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2862,6 +3300,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Vectara/Vectara_Upload.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "legacy"
         },
         {
@@ -2872,6 +3313,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Vectara/Vectara.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         },
         {
@@ -2882,6 +3326,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Weaviate/Weaviate.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2892,6 +3339,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/Zep/Zep.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": true
+            },
             "tier": "supported"
         },
         {
@@ -2902,6 +3352,9 @@
             "file": "packages/node-pack-vector-stores/nodes/vectorstores/ZepCloud/ZepCloud.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "credential": {
+                "optional": false
+            },
             "tier": "supported"
         }
     ]
