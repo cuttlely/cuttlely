@@ -5,7 +5,12 @@ import { TEMPLATE_SETTINGS_NOTE, templateSettingsMessage } from './templateSetti
 
 describe('template settings note', () => {
     test('uses the fixed sentence and names each node that needs settings entered again', () => {
-        expect(TEMPLATE_SETTINGS_NOTE).toBe('connection settings are not included in templates; re-enter them after import')
+        expect(TEMPLATE_SETTINGS_NOTE).toBe(
+            'connection settings are not included in templates; re-enter them after import. Prompt text is kept as written, so do not put credentials in prompts.'
+        )
+        expect(TEMPLATE_SETTINGS_NOTE.startsWith('connection settings are not included in templates; re-enter them after import')).toBe(
+            true
+        )
         const message = templateSettingsMessage({
             nodes: [],
             edges: [],

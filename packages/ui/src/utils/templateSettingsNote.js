@@ -1,4 +1,5 @@
-export const TEMPLATE_SETTINGS_NOTE = 'connection settings are not included in templates; re-enter them after import'
+export const TEMPLATE_SETTINGS_NOTE =
+    'connection settings are not included in templates; re-enter them after import. Prompt text is kept as written, so do not put credentials in prompts.'
 
 const droppedRows = (flow) => {
     const rows = flow && typeof flow === 'object' && Array.isArray(flow.droppedSettings) ? flow.droppedSettings : []
