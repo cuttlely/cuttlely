@@ -33,7 +33,9 @@ const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // word: followed by a non-space character. Checked on the original, normalized, and fully decoded text.
 const SCHEME_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\S/
 // Controls, NBSP, soft hyphen, and zero-width characters (including U+2060).
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
+const INVISIBLE_CLASS = '[\\u0000-\\u001f\\u007f-\\u009f\\u00a0\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u2028-\\u202f\\u2060-\\u206f\\ufeff]'
+const INVISIBLE = new RegExp(INVISIBLE_CLASS, 'g')
+const INVISIBLE_CHAR = new RegExp(INVISIBLE_CLASS)
 const MAX_NORMALIZE_LAYERS = 5
 
 // Letters that look like ASCII, so a token prefix written with them still matches.
@@ -122,10 +124,23 @@ const PUBLIC_OBJECTS: Record<string, Record<string, DisplayKind>> = {
     followUpPrompts: { status: 'boolean' }
 }
 
+// NFKC and look-alike folding. Invisible characters are left in place so a later pass can still remove them.
 const foldMarks = (value: string): string => {
-    const normalized = value.normalize('NFKC')
     let out = ''
-    for (const char of normalized) out += HOMOGLYPHS[char] ?? char
+    let pending = ''
+    const flush = () => {
+        if (!pending) return
+        const normalized = pending.normalize('NFKC')
+        for (const char of normalized) out += HOMOGLYPHS[char] ?? char
+        pending = ''
+    }
+    for (const char of value) {
+        if (INVISIBLE_CHAR.test(char)) {
+            flush()
+            out += char
+        } else pending += char
+    }
+    flush()
     return out
 }
 
@@ -138,10 +153,9 @@ const removedForm = (value: string): string => foldMarks(value.replace(INVISIBLE
 // Invisible characters and every other whitespace character are deleted.
 const compactForm = (value: string): string => removedForm(value).replace(/\s+/g, '')
 
-/** Plain text after NFKC, look-alike folding, percent-decoding, and JSON unwrapping. Invisible characters stay in place. Undefined when that cannot be finished. */
-const plainForCheck = (value: string): string | undefined => {
-    let text = value
-    let layers = 0
+// Percent-decoding and JSON unwrapping. Invisible characters stay in this pass so a break before a token prefix still counts.
+const decodeLayers = (start: string, state: { layers: number }): string | undefined => {
+    let text = start
     for (;;) {
         text = foldMarks(text)
         const trimmed = text.trim()
@@ -149,8 +163,8 @@ const plainForCheck = (value: string): string | undefined => {
             try {
                 const parsed = JSON.parse(trimmed)
                 if (typeof parsed === 'string') {
-                    layers += 1
-                    if (layers > MAX_NORMALIZE_LAYERS) return undefined
+                    state.layers += 1
+                    if (state.layers > MAX_NORMALIZE_LAYERS) return undefined
                     text = parsed
                     continue
                 }
@@ -167,14 +181,36 @@ const plainForCheck = (value: string): string | undefined => {
                 return undefined
             }
             if (decoded !== text) {
-                layers += 1
-                if (layers > MAX_NORMALIZE_LAYERS) return undefined
+                state.layers += 1
+                if (state.layers > MAX_NORMALIZE_LAYERS) return undefined
                 text = decoded
                 continue
             }
         }
         return text
     }
+}
+
+/** Plain text after NFKC, look-alike folding, percent-decoding, and JSON unwrapping. Invisible characters are removed from the original and from the decoded text, then percent-decoding and JSON unwrapping run again. Undefined when that cannot be finished. */
+const plainForCheck = (value: string): string | undefined => {
+    const state = { layers: 0 }
+    const decoded = decodeLayers(value, state)
+    if (decoded === undefined) return undefined
+    // Removal happens on the original as well, before NFKC turns a no-break space into a normal space.
+    const candidates = [value.replace(INVISIBLE, ''), decoded.replace(INVISIBLE, '')]
+    let combined = decoded
+    const seen = new Set<string>([value, decoded])
+    for (const candidate of candidates) {
+        if (seen.has(candidate)) continue
+        seen.add(candidate)
+        const again = decodeLayers(candidate, state)
+        if (again === undefined) return undefined
+        if (again !== candidate && !seen.has(again)) {
+            seen.add(again)
+            combined += '\n' + again
+        }
+    }
+    return combined
 }
 
 const shannon = (value: string): number => {

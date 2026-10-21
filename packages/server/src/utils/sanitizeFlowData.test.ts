@@ -361,6 +361,44 @@ describe('template inputs', () => {
         expect(sanitizeToolTemplate({ func: 1, schema: 2, iconSrc: 'javascript:alert(1)' }).dropped).toEqual(['func', 'schema', 'iconSrc'])
     })
 
+    it('drops text when a percent sequence is split by an invisible character', () => {
+        const marker = 'FAKE' + 'PCT' + '91'
+        const tail = 'k' + '-' + marker
+        const gaps = ['\u200b', '\u00ad', '\u2060', '\u00a0', '\u0001', '\ufeff']
+        for (const gap of gaps) {
+            const prompts = [
+                '%' + gap + '73' + tail,
+                '%7' + gap + '3' + tail,
+                'note %' + gap + '2f%2f' + marker,
+                JSON.stringify('%' + gap + '73' + tail),
+                encodeURIComponent('%' + gap + '73' + tail)
+            ]
+            for (const prompt of prompts) {
+                const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+                expect(inputs.prompt).toBeUndefined()
+                expect(inputs.temperature).toBe(0.2)
+                expect(dropped).toContain('prompt')
+                expect(JSON.stringify(inputs)).not.toContain(marker)
+            }
+            const tool = sanitizeToolTemplate({
+                func: '%' + gap + '73' + tail,
+                schema: '[]',
+                iconSrc: 'https://cdn.example/icon.png'
+            })
+            expect(tool.func).toBeUndefined()
+            expect(tool.schema).toBe('[]')
+            expect(tool.iconSrc).toBe('https://cdn.example/icon.png')
+            expect(tool.dropped).toEqual(['func'])
+            expect(JSON.stringify(tool)).not.toContain(marker)
+        }
+        const kept = 'Ask\u00a0about the hours today. 100%\u00a0off.'
+        const safe = sanitizeNodeInputs({ prompt: kept }, schemaParams as any)
+        expect(safe.inputs.prompt).toBe(kept)
+        expect(safe.dropped).toEqual([])
+        const shown = '%' + '\u200b' + '73' + tail
+        expect(publicChatbotDisplayConfig({ title: 'Hours', welcomeMessage: shown }).welcomeMessage).toBe(shown)
+    })
+
     it('keeps a harmless prompt that spans more than one line', () => {
         const prompts = [
             'Hello "world" @ café, 10% off\nSee the help page.',
