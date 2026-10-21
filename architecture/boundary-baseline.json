@@ -1864,6 +1864,21 @@
         },
         {
             "from": "packages/ui/src/views/serversetup/index.jsx",
+            "to": "packages/ui/src/api/account.api.js",
+            "reason": "The setup page posts the first account and signs that browser in with the session from the register response."
+        },
+        {
+            "from": "packages/ui/src/views/serversetup/index.jsx",
+            "to": "packages/ui/src/store/index.jsx",
+            "reason": "The setup page posts the first account and signs that browser in with the session from the register response."
+        },
+        {
+            "from": "packages/ui/src/views/serversetup/index.jsx",
+            "to": "packages/ui/src/store/reducers/authSlice.js",
+            "reason": "The setup page posts the first account and signs that browser in with the session from the register response."
+        },
+        {
+            "from": "packages/ui/src/views/serversetup/index.jsx",
             "to": "packages/ui/src/ui-component/extended/Logo.jsx"
         },
         {

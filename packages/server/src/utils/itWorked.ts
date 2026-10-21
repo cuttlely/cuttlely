@@ -65,10 +65,16 @@ export function maybeLogFirstSuccess(): void {
     }
 }
 
-/** Fire-and-forget wrapper so a successful run never waits on the prompt. */
+/** Fire-and-forget wrapper so a successful run never waits on the prompt. The marker is written after this returns. */
 export function notifyFirstSuccess(): void {
     try {
-        void maybeLogFirstSuccess()
+        setImmediate(() => {
+            try {
+                maybeLogFirstSuccess()
+            } catch {
+                // never fail the run on this
+            }
+        })
     } catch {
         // never fail the run on this
     }

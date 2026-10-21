@@ -389,6 +389,17 @@ const CanvasHeader = ({
         setAPIDialogOpen(true)
     }
 
+    useEffect(() => {
+        const openShare = () => {
+            if (!chatflow?.id) return
+            onAPIDialogClick()
+        }
+        window.addEventListener('cuttlely-open-share', openShare)
+        return () => window.removeEventListener('cuttlely-open-share', openShare)
+        // The first-success toast asks this canvas to open the API dialog.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chatflow])
+
     const onSaveChatflowClick = () => {
         if (chatflow.id) handleSaveFlow(flowName)
         else setFlowDialogOpen(true)

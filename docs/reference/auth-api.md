@@ -48,16 +48,16 @@ The body has no emails, cookies, or session ids. A missing session is still 200.
 
 `POST /api/v1/auth/local/login` is 404 unless local users mode is on: `CUTTLELY_LOCAL_USERS=true` and AuthKit is not configured. The owner route `POST /api/v1/auth/login` stays on its own flag and still accepts only the owner.
 
-| `CUTTLELY_LOCAL_ADMIN` | `CUTTLELY_LOCAL_USERS` | AuthKit | `POST /api/v1/auth/login` | `POST /api/v1/auth/local/login` | Sign-in page                         |
-| ---------------------- | ---------------------- | ------- | ------------------------- | ------------------------------- | ------------------------------------ |
-| off                    | off                    | off     | 404                       | 404                             | Sign-in is not configured            |
-| on                     | off                    | off     | Owner password            | 404                             | Owner email and password             |
-| off                    | on                     | off     | 404                       | Any user with a password        | Email and password                   |
-| on                     | on                     | off     | Owner password            | Any user with a password        | Email and password (local users)     |
-| off                    | off                    | on      | 404                       | 404                             | Sign in with WorkOS                  |
-| on                     | off                    | on      | Owner password            | 404                             | WorkOS, plus the owner password form |
-| off                    | on                     | on      | 404                       | 404                             | Sign in with WorkOS                  |
-| on                     | on                     | on      | Owner password            | 404                             | WorkOS, plus the owner password form |
+| `CUTTLELY_LOCAL_ADMIN` | `CUTTLELY_LOCAL_USERS` | AuthKit | `POST /api/v1/auth/login` | `POST /api/v1/auth/local/login` | Sign-in page                                                       |
+| ---------------------- | ---------------------- | ------- | ------------------------- | ------------------------------- | ------------------------------------------------------------------ |
+| off                    | off                    | off     | 404                       | 404                             | Sign-in is not configured. A server with no account opens `/setup` |
+| on                     | off                    | off     | Owner password            | 404                             | Owner email and password                                           |
+| off                    | on                     | off     | 404                       | Any user with a password        | Email and password                                                 |
+| on                     | on                     | off     | Owner password            | Any user with a password        | Email and password (local users)                                   |
+| off                    | off                    | on      | 404                       | 404                             | Sign in with WorkOS                                                |
+| on                     | off                    | on      | Owner password            | 404                             | WorkOS, plus the owner password form                               |
+| off                    | on                     | on      | 404                       | 404                             | Sign in with WorkOS                                                |
+| on                     | on                     | on      | Owner password            | 404                             | WorkOS, plus the owner password form                               |
 
 AuthKit turns local users mode off even when `CUTTLELY_LOCAL_USERS` is set. The owner break-glass path still works when `CUTTLELY_LOCAL_ADMIN=true`. A restart applies either flag.
 

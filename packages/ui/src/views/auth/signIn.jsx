@@ -20,6 +20,7 @@ import useNotifier from '@/utils/useNotifier'
 
 import { loginSuccess } from '@/store/reducers/authSlice'
 import { store } from '@/store'
+import { t } from '@/i18n'
 
 const SignInPage = () => {
     const theme = useTheme()
@@ -223,9 +224,17 @@ const SignInPage = () => {
                             </form>
                         )}
                         {!options.authKit && !options.localAdmin && !options.localUsers && (
-                            <Typography variant='body2' sx={{ color: theme.palette.grey[600] }}>
-                                Sign-in is not configured.
-                            </Typography>
+                            <Stack gap={1.25} alignItems='flex-start'>
+                                <Typography variant='body2' sx={{ color: theme.palette.grey[600] }}>
+                                    {t('signIn.notConfigured')}
+                                </Typography>
+                                <Typography variant='body2' sx={{ color: theme.palette.grey[600] }}>
+                                    {t('signIn.turnMethodOn')}
+                                </Typography>
+                                <Button component={Link} to='/setup' variant='contained' disableElevation sx={{ borderRadius: 2.5 }}>
+                                    {t('signIn.openSetup')}
+                                </Button>
+                            </Stack>
                         )}
                     </Stack>
                 </Stack>

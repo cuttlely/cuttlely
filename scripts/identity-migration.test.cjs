@@ -799,37 +799,43 @@ describe('setup code on sqlite', () => {
         setup.resetFirstRunSetupCode()
         setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
         const lines = []
-        assert.equal(
-            await setup.announceFirstRunSetup(
-                3000,
-                async () => 0,
-                (line) => lines.push(line),
-                true
-            ),
-            true
-        )
-        assert.equal(lines.length, 1)
-        const issuedUrl = String(lines[0]).match(/https?:\/\/\S+/)
-        assert.ok(issuedUrl)
-        const code = new URL(issuedUrl[0]).hash.slice('#code='.length)
-        assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
-        setup.forgetIssuedSetupCode()
-        lines.length = 0
-        assert.equal(
-            await setup.announceFirstRunSetup(
-                3000,
-                async () => 0,
-                (line) => lines.push(line),
-                true
-            ),
-            true
-        )
-        assert.equal(lines.length, 1)
-        assert.match(lines[0], /another copy/)
-        assert.equal(/[#?&]code=/.test(lines[0]), false)
-        assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
-        assert.equal(setup.issuedSetupHmac(), null)
-        setup.resetFirstRunSetupCode()
+        try {
+            assert.equal(
+                await setup.announceFirstRunSetup(
+                    3000,
+                    async () => 0,
+                    (line) => lines.push(line),
+                    true
+                ),
+                'setup'
+            )
+            const printed = lines.find((line) => line.includes('#code='))
+            assert.ok(printed)
+            const issuedUrl = String(printed).match(/https?:\/\/\S+/)
+            assert.ok(issuedUrl)
+            const code = decodeURIComponent(new URL(issuedUrl[0]).hash.slice('#code='.length))
+            assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
+            assert.ok(lines.some((line) => line.includes(`Setup code: ${code}`)))
+            setup.forgetIssuedSetupCode()
+            lines.length = 0
+            assert.equal(
+                await setup.announceFirstRunSetup(
+                    3000,
+                    async () => 0,
+                    (line) => lines.push(line),
+                    true
+                ),
+                'setup'
+            )
+            assert.equal(lines.length, 1)
+            assert.match(lines[0], /another copy/)
+            assert.equal(/[#?&]code=/.test(lines[0]), false)
+            assert.equal(lines[0].includes(code), false)
+            assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
+            assert.equal(setup.issuedSetupHmac(), null)
+        } finally {
+            setup.resetFirstRunSetupCode()
+        }
     })
 
     it('retires an open code when the operator command creates the owner', async () => {

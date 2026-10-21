@@ -215,7 +215,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 2. 실행되면 서버가 일회용 설정 링크를 출력합니다. 다음 명령으로 확인합니다.
 
     ```bash
-    docker compose logs cuttlely | grep "No account yet"
+    docker compose logs cuttlely | grep "Setup code"
     ```
 
     아직 아무것도 없나요? 아직 시작하는 중입니다. 몇 초 뒤에 명령을 다시 실행하세요.

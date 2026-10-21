@@ -644,7 +644,7 @@ const installs = [
                     <strong>Start Cuttlely.</strong> Run <code>docker compose up -d</code> in a clone of the repository, or <code>npx cuttlely start</code> with Node.js 20 or newer. Both need Docker.
                 </li>
                 <li>
-                    <strong>Create your account.</strong> <code>cuttlely start</code> prints only the ready URL. The first-account setup link is on the <code>No account yet</code> line in <code>docker compose logs cuttlely</code> or <code>npx cuttlely logs</code>. Open that setup URL and create your account.
+                    <strong>Create your account.</strong> The server log prints a ready block with a one-time setup link (<code>/setup#code=...</code>) and a setup code. Show it with <code>docker compose logs cuttlely | grep "Setup code"</code> or <code>npx cuttlely logs</code>. Open that link, or open the app and paste the code.
                 </li>
                 <li>
                     <strong>Try the demo.</strong> On Chatflows, select <strong>Add a model key</strong>, paste a key from any chat model provider listed under <strong>Credentials</strong>, then select <strong>Try the demo</strong>. A customer care team opens with its chat ready.
