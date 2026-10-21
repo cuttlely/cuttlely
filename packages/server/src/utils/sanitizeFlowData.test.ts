@@ -2768,3 +2768,19 @@ describe('tool func auth word stays kept for expressions and other words', () =>
         for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBe(func)
     })
 })
+
+describe('tool func auth separator timing', () => {
+    it('checks long separator runs with no value in linear time', () => {
+        const units = ['\u00a0', '\u202f', '\ufeff', ' ', '\u00a0\u202f\ufeff', '\u3000\u200b', '\\t\u00a0', '\u000b\u000c']
+        for (const word of ['Bearer', 'Basic']) {
+            for (const unit of units) {
+                for (const size of [32, 1000, 19000]) {
+                    const func = word + unit.repeat(Math.ceil(size / unit.length)).slice(0, size) + '$'
+                    const started = performance.now()
+                    sanitizeToolTemplate({ func })
+                    expect(performance.now() - started).toBeLessThan(200)
+                }
+            }
+        }
+    })
+})
