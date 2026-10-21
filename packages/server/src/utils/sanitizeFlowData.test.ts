@@ -68,6 +68,15 @@ const percentEncode = (value: string) =>
         .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
         .join('')
 
+const loadUiFunction = (rel: string, exportName: string) => {
+    const root = path.resolve(__dirname, '..', '..', '..', '..')
+    const source = fs
+        .readFileSync(path.join(root, rel), 'utf8')
+        .replace(/export function /g, 'function ')
+        .replace(/export const /g, 'const ')
+    return new Function(source + '\nreturn ' + exportName + ';')() as (...args: any[]) => any
+}
+
 const mulberry32 = (seed: number) => () => {
     seed |= 0
     seed = (seed + 0x6d2b79f5) | 0
@@ -598,7 +607,9 @@ describe('template inputs', () => {
             expect(data.category).toBe('Chains')
             expect(data.tags).toEqual(['chain'])
             expect(data.extraProp).toBeUndefined()
-            expect(data.inputParams).toEqual(componentParams)
+            expect(data.inputParams).toEqual(
+                componentParams.map((param) => ({ ...param, id: `llmChain_0-input-${param.name}-${param.type}` }))
+            )
             expect(kept.prompt).toBe('Hello "world"')
             expect(kept.systemMessage).toBe('a @ b')
             expect(kept.description).toBe('こんにちは')
@@ -752,9 +763,19 @@ describe('dropped settings report', () => {
                     name: 'chatOpenAI',
                     label: 'OpenAI',
                     selected: false,
-                    inputParams: [{ name: 'prompt', type: 'string' }],
+                    inputParams: [{ name: 'prompt', type: 'string', id: 'chatOpenAI_0-input-prompt-string' }],
                     inputAnchors: [],
-                    inputs: { prompt: 'Hello' }
+                    inputs: { prompt: 'Hello' },
+                    outputAnchors: [
+                        {
+                            id: 'chatOpenAI_0-output-chatOpenAI-',
+                            name: 'chatOpenAI',
+                            label: 'chatOpenAI',
+                            description: '',
+                            type: ''
+                        }
+                    ],
+                    outputs: {}
                 }
             }
         ])
@@ -918,6 +939,151 @@ describe('dropped settings report', () => {
         ])
     })
 
+    it('keeps the chat model connection when a saved chain is loaded from a template', () => {
+        const chatClasses = ['ChatOpenAI', 'BaseChatModel', 'BaseLanguageModel', 'Runnable']
+        const memoryClasses = ['BufferMemory', 'BaseChatMemory', 'BaseMemory']
+        const chainClasses = ['ConversationChain', 'LLMChain', 'BaseChain', 'Runnable']
+        const sourceHandle = `chatOpenAI_0-output-chatOpenAI-${chatClasses.join('|')}`
+        const memoryHandle = `bufferMemory_0-output-bufferMemory-${memoryClasses.join('|')}`
+        const modelTarget = 'conversationChain_0-input-model-BaseChatModel'
+        const memoryTarget = 'conversationChain_0-input-memory-BaseMemory'
+        const chatEdgeId = `chatOpenAI_0-${sourceHandle}-conversationChain_0-${modelTarget}`
+        const memoryEdgeId = `bufferMemory_0-${memoryHandle}-conversationChain_0-${memoryTarget}`
+        const chat = {
+            name: 'chatOpenAI',
+            label: 'OpenAI',
+            type: 'ChatOpenAI',
+            description: 'Chat model',
+            category: 'Chat Models',
+            baseClasses: chatClasses,
+            inputs: [] as { label: string; name: string; type: string }[]
+        }
+        const memory = {
+            name: 'bufferMemory',
+            label: 'Buffer Memory',
+            type: 'BufferMemory',
+            description: 'Remembers the chat',
+            category: 'Memory',
+            baseClasses: memoryClasses,
+            inputs: [] as { label: string; name: string; type: string }[]
+        }
+        const chain = {
+            name: 'conversationChain',
+            label: 'Conversation Chain',
+            type: 'ConversationChain',
+            description: 'Conversational chain',
+            category: 'Chains',
+            baseClasses: chainClasses,
+            inputs: [
+                { label: 'Chat Model', name: 'model', type: 'BaseChatModel' },
+                { label: 'Memory', name: 'memory', type: 'BaseMemory' }
+            ]
+        }
+        const forged = {
+            outputAnchors: [{ id: 'forged', note: 'sk-FAKE-QA-ANCHOR' }],
+            outputs: { secret: 'sk-FAKE-QA-OUT' }
+        }
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'chatOpenAI_0',
+                        type: 'customNode',
+                        position: { x: 40, y: 40 },
+                        data: { id: 'chatOpenAI_0', name: 'chatOpenAI', label: 'sk-FAKE-QA-LABEL', inputs: {}, ...forged }
+                    },
+                    {
+                        id: 'bufferMemory_0',
+                        type: 'customNode',
+                        position: { x: 40, y: 360 },
+                        data: { id: 'bufferMemory_0', name: 'bufferMemory', inputs: {}, ...forged }
+                    },
+                    {
+                        id: 'conversationChain_0',
+                        type: 'customNode',
+                        position: { x: 420, y: 40 },
+                        data: {
+                            id: 'conversationChain_0',
+                            name: 'conversationChain',
+                            inputs: {
+                                model: '{{chatOpenAI_0.data.instance}}',
+                                memory: '{{bufferMemory_0.data.instance}}'
+                            },
+                            ...forged
+                        }
+                    }
+                ],
+                edges: [
+                    {
+                        id: chatEdgeId,
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle: modelTarget,
+                        type: 'buttonedge',
+                        data: { label: 'sk-FAKE-QA-EDGE' }
+                    },
+                    {
+                        id: memoryEdgeId,
+                        source: 'bufferMemory_0',
+                        target: 'conversationChain_0',
+                        sourceHandle: memoryHandle,
+                        targetHandle: memoryTarget,
+                        type: 'buttonedge'
+                    }
+                ]
+            },
+            { chatOpenAI: chat, bufferMemory: memory, conversationChain: chain }
+        )
+        expect(JSON.stringify(flow)).not.toContain('FAKE')
+        const chatData = (flow.nodes[0] as { data: Record<string, any> }).data
+        const chainData = (flow.nodes[2] as { data: Record<string, any> }).data
+        expect(chatData.outputAnchors).toEqual([
+            {
+                id: sourceHandle,
+                name: 'chatOpenAI',
+                label: 'ChatOpenAI',
+                description: 'Chat model',
+                type: chatClasses.join(' | ')
+            }
+        ])
+        expect(chatData.outputs).toEqual({})
+        expect(chainData.inputAnchors).toEqual([
+            { label: 'Chat Model', name: 'model', type: 'BaseChatModel', id: modelTarget },
+            { label: 'Memory', name: 'memory', type: 'BaseMemory', id: memoryTarget }
+        ])
+        expect(chainData.outputs).toEqual({})
+        expect(flow.edges).toEqual([
+            {
+                id: chatEdgeId,
+                source: 'chatOpenAI_0',
+                target: 'conversationChain_0',
+                sourceHandle,
+                targetHandle: modelTarget,
+                type: 'buttonedge'
+            },
+            {
+                id: memoryEdgeId,
+                source: 'bufferMemory_0',
+                target: 'conversationChain_0',
+                sourceHandle: memoryHandle,
+                targetHandle: memoryTarget,
+                type: 'buttonedge'
+            }
+        ])
+        const canvasJson = loadUiFunction('packages/ui/src/utils/flowiseImport.js', 'flowiseCanvasJson')
+        const normalizeCanvasFlow = loadUiFunction('packages/ui/src/utils/normalizeCanvasFlow.js', 'normalizeCanvasFlow')
+        const imported = normalizeCanvasFlow(JSON.parse(canvasJson(flow)), [chat, memory, chain])
+        expect(imported.edges).toEqual(flow.edges)
+        const importedChat = imported.nodes.find((node: { id: string }) => node.id === 'chatOpenAI_0')
+        const importedChain = imported.nodes.find((node: { id: string }) => node.id === 'conversationChain_0')
+        expect(importedChat.data.outputAnchors[0].id).toBe(imported.edges[0].sourceHandle)
+        expect(importedChain.data.inputAnchors.find((anchor: { name: string }) => anchor.name === 'model').id).toBe(
+            imported.edges[0].targetHandle
+        )
+        expect(imported.edges.map((edge: { targetHandle: string }) => edge.targetHandle)).toEqual([modelTarget, memoryTarget])
+    })
+
     it('uses the node name when a label was not saved', () => {
         const flow = buildTemplateFlow(
             {
@@ -990,7 +1156,17 @@ describe('dropped settings report', () => {
         expect(data.category).toBe('Chat Models')
         expect(data.tags).toEqual(['chat'])
         expect(data.extraProp).toBeUndefined()
-        expect(data.inputParams).toEqual([{ name: 'prompt', type: 'string', placeholder: 'Ask' }])
+        expect(data.inputParams).toEqual([{ name: 'prompt', type: 'string', placeholder: 'Ask', id: 'chatOpenAI_0-input-prompt-string' }])
+        expect(data.outputAnchors).toEqual([
+            {
+                id: 'chatOpenAI_0-output-chatOpenAI-',
+                name: 'chatOpenAI',
+                label: 'chatOpenAI',
+                description: 'Chat model',
+                type: ''
+            }
+        ])
+        expect(data.outputs).toEqual({})
         expect(data.inputs).toEqual({ prompt: 'Hello "world" @ café, 10% off' })
         expect((flow.nodes[1] as { secretNote?: unknown; data: unknown }).secretNote).toBeUndefined()
         expect((flow.nodes[1] as { data: unknown }).data).toEqual({ id: 'mystery_0', selected: false, inputs: {} })

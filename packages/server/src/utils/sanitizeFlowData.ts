@@ -441,7 +441,7 @@ type TemplateComponent = {
     baseClasses?: unknown
     inputs?: DeclaredParam[]
     inputParams?: DeclaredParam[]
-    inputAnchors?: { name?: string }[]
+    inputAnchors?: DeclaredParam[]
     credential?: DeclaredParam
     outputs?: unknown
 }
@@ -480,7 +480,7 @@ const shellOf = (node: Record<string, unknown>): Record<string, unknown> | undef
     return shell
 }
 
-const componentParts = (component: TemplateComponent): { params: DeclaredParam[]; anchors: { name?: string }[] } => {
+const componentParts = (component: TemplateComponent): { params: DeclaredParam[]; anchors: DeclaredParam[] } => {
     if (Array.isArray(component.inputs) || (component.credential && typeof component.credential === 'object')) {
         const params: DeclaredParam[] = []
         const anchors: { name?: string }[] = []
@@ -497,6 +497,26 @@ const componentParts = (component: TemplateComponent): { params: DeclaredParam[]
         params: Array.isArray(component.inputParams) ? component.inputParams : [],
         anchors: Array.isArray(component.inputAnchors) ? component.inputAnchors : []
     }
+}
+
+const withInputId = (item: DeclaredParam, nodeId: string): Record<string, unknown> => {
+    const copy = (plainCopy(item) ?? {}) as Record<string, unknown>
+    const name = typeof copy.name === 'string' ? copy.name : ''
+    const type = typeof copy.type === 'string' ? copy.type : ''
+    if (name) copy.id = `${nodeId}-input-${name}-${type}`
+    return copy
+}
+
+const outputValueMap = (component: TemplateComponent, anchors: Array<Record<string, unknown>>): Record<string, string> => {
+    if (component.hideOutput || !Array.isArray(component.outputs)) return {}
+    const values: Record<string, string> = {}
+    for (const anchor of anchors) {
+        const name = typeof anchor.name === 'string' ? anchor.name : ''
+        if (!name) continue
+        const fallback = anchor.default
+        values[name] = typeof fallback === 'string' && fallback ? fallback : ''
+    }
+    return values
 }
 
 const classList = (value: unknown): string[] =>
@@ -673,8 +693,9 @@ export const buildTemplateFlow = (
             continue
         }
         const { params, anchors } = componentParts(component)
+        const builtOutputs = outputAnchorList(component, nodeId)
         handles.set(nodeId, {
-            outputs: outputHandleIds(outputAnchorList(component, nodeId)),
+            outputs: outputHandleIds(builtOutputs),
             inputs: inputHandleIds(component, nodeId, params, anchors)
         })
         const sanitized = sanitizeNodeInputs(inputs, params, anchors, nodeIds)
@@ -686,9 +707,11 @@ export const buildTemplateFlow = (
             id: nodeId,
             name: textOf(component.name) || nodeName,
             selected: false,
-            inputParams: plainCopy(params) ?? [],
-            inputAnchors: plainCopy(anchors) ?? [],
-            inputs: sanitized.inputs
+            inputParams: params.map((item) => withInputId(item, nodeId)),
+            inputAnchors: anchors.map((item) => withInputId(item, nodeId)),
+            inputs: sanitized.inputs,
+            outputAnchors: builtOutputs,
+            outputs: outputValueMap(component, builtOutputs)
         }
         const labelText = textOf(component.label)
         if (labelText) nextData.label = labelText
