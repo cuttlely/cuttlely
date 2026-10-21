@@ -3,8 +3,17 @@
 // answers 410 once the link has been used, a sign-in method is on, or the first account exists.
 import express, { NextFunction, Request, Response } from 'express'
 import { localAdminEnabled } from '../../identity/constants'
-import { cookieMutationAllowed } from '../../identity/sessionGuard'
-import { firstRunSetupCodeRetired, noSignInMethod, setupCodeMatches, setupServiceName } from '../../identity/setupCode'
+import { applySetupHeaders, cookieMutationAllowed } from '../../identity/sessionGuard'
+import {
+    noSignInMethod,
+    noteSetupFailure,
+    reissueExpiredSetupCode,
+    setupCodeHmac,
+    setupCodeMatches,
+    setupCodeRetired,
+    setupServiceName
+} from '../../identity/setupCode'
+import { socketAddress } from '../../identity/setupLimit'
 import { Principal, applyAuthKitTest, authKitTestStatus, checkAuthKit, requestOrigin, startAuthKitTest } from '../../settings/authkit'
 import { TestInputError } from '../../settings/connection'
 import { SettingsError } from '../../settings/service'
@@ -54,7 +63,7 @@ function handle(work: (req: SetupRequest, res: Response) => Promise<unknown> | u
 }
 
 router.use((req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store')
+    applySetupHeaders(res)
     // Writes need the app's own header, like every cookie-signed write (a page elsewhere can't send it).
     if (!cookieMutationAllowed(req.method, req.headers['x-request-from'] === 'internal')) {
         return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Unauthorized' })
@@ -70,7 +79,7 @@ router.get('/hint', async (_req, res, next) => {
         const setup = deps()
         const env = setup.service.env
         const users = await setup.users().countUsers()
-        const open = users === 0 && !firstRunSetupCodeRetired() && (noSignInMethod(env) || localAdminEnabled(env))
+        const open = users === 0 && !(await setupCodeRetired()) && (noSignInMethod(env) || localAdminEnabled(env))
         res.json({ serviceName: setupServiceName(env), open })
     } catch (error) {
         next(error)
@@ -81,21 +90,33 @@ router.get('/hint', async (_req, res, next) => {
 // The password-sign-in path does not open a settings session: the account call still checks the code.
 router.post('/begin', async (req, res, next) => {
     try {
+        const address = socketAddress(req.socket?.remoteAddress)
+        const now = Date.now()
         const setup = deps()
         const env = setup.service.env
         const users = await setup.users().countUsers()
-        if (users > 0 || firstRunSetupCodeRetired()) {
+        if (users > 0 || (await setupCodeRetired())) {
             const reason = users > 0 ? 'has-account' : 'used'
             return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE[reason] })
         }
+        if (!noSignInMethod(env) && !localAdminEnabled(env)) {
+            return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE['signin-on'] })
+        }
         const code = (req.body as { code?: unknown })?.code
-        if (!setupCodeMatches(code)) return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
+        if (!(await setupCodeMatches(code, now))) {
+            await reissueExpiredSetupCode(now)
+            if (noteSetupFailure(address, now).limited) {
+                return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
+            }
+            return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
+        }
         if (noSignInMethod(env)) {
-            openSetupSession(req, res)
+            const hmac = setupCodeHmac(code)
+            if (!hmac) return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
+            openSetupSession(req, res, hmac)
             return res.json({ next: 'choose' })
         }
-        if (localAdminEnabled(env)) return res.json({ next: 'owner' })
-        return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE['signin-on'] })
+        return res.json({ next: 'owner' })
     } catch (error) {
         next(error)
     }
@@ -104,13 +125,24 @@ router.post('/begin', async (req, res, next) => {
 // The code from the link opens a setup session in this browser.
 router.post('/open', async (req, res, next) => {
     try {
+        const address = socketAddress(req.socket?.remoteAddress)
+        const now = Date.now()
         const setup = deps()
         const closed = await setupClosed(setup)
         if (closed) return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE[closed] })
-        if (!(await codeOpensSetup(setup, (req.body as { code?: unknown })?.code))) {
+        const code = (req.body as { code?: unknown })?.code
+        if (!(await codeOpensSetup(setup, code))) {
+            await reissueExpiredSetupCode(now)
+            if (noteSetupFailure(address, now).limited) {
+                return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
+            }
             return res.status(404).json({ code: 'BAD_CODE', message: 'This setup link is not right. Copy it again from the server log.' })
         }
-        openSetupSession(req, res)
+        const hmac = setupCodeHmac(code)
+        if (!hmac) {
+            return res.status(404).json({ code: 'BAD_CODE', message: 'This setup link is not right. Copy it again from the server log.' })
+        }
+        openSetupSession(req, res, hmac)
         res.json({ ok: true })
     } catch (error) {
         next(error)
@@ -140,8 +172,8 @@ router.get(
 )
 router.post(
     '/owner',
-    handle(async (_req, res) => {
-        const result = await createOwnerFromSetup(deps(), _req.body)
+    handle(async (req, res) => {
+        const result = await createOwnerFromSetup(deps(), req.body, req)
         endSetupSessions(res)
         return result
     })

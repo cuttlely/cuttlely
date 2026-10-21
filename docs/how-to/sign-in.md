@@ -33,7 +33,7 @@ The page reads the code, then removes it from the address. It opens **Sign-in & 
 -   **Use a password for now** creates the owner account and turns the password sign-in on.
 -   **Set up AuthKit** runs the same four steps as Server settings. The owner email is required, and the test sign-in must use it. Nothing is saved until the test passes.
 
-Either way Cuttlely restarts when it can, or lists what to do. The link stops working as soon as it has been used, the first account exists, or a sign-in method is on. A new code is printed on every start while nobody can sign in.
+Either way Cuttlely restarts when it can, or lists what to do. The link stops working as soon as it has been used, the first account exists, or a sign-in method is on. A code lasts 60 minutes. A restart, or a second copy of the server on the same database, keeps a live code: the link printed first still works. A second running copy logs that the code was printed by another copy. A restart of this install logs that the setup code from the last start is still valid, with the time it expires. While setup is still open, an expired code is replaced when a setup request finds it, or on a one-minute check, and the new link is printed. The ready block is printed again every five minutes while setup is still open, using that live code.
 
 If accounts already exist but no sign-in method is on (for example a `.env` that lost `CUTTLELY_LOCAL_ADMIN=true`), there is no setup link. The browser opens the Sign In page with **Sign-in is not configured.**, and the log says how to get back in:
 
@@ -68,7 +68,7 @@ docker compose logs cuttlely | grep "Setup code"
 2026-10-09 12:00:00 [INFO]:    Setup code: madeupcode000001   (valid 60 min, works once)
 ```
 
-The code is new on every start and stops working once the first account exists. The same link works through Docker's published port: open it on that host, or open `/setup` and paste the code. Without the code, the form does not appear.
+The code is in the link fragment. It lasts 60 minutes from when it is printed and stops working once the first account exists. A restart or a second copy of the server keeps a live code, so the first printed link still works for register and the setup page. A second running copy logs that the code was printed by another copy. A restart of this install logs that the setup code from the last start is still valid, with the time it expires. An expired code is replaced when register or a setup page finds it, or on a one-minute check, and the new link is printed. The same link works through Docker's published port: open it on that host, or open `/setup` and paste the code. Without the code, the form does not appear.
 
 After **Create account** you are signed in and land in Cuttlely. Keeping a copy in GitHub is optional and waits in **Version History**; see [Right after setup](./versioning.md#right-after-setup).
 

@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { setupCodeFromLogs } from '../smoke-server.mjs'
 import { costHit, maskTexts, moneyHit } from './money.mjs'
 import { themeFor } from './theme.mjs'
 
@@ -91,6 +92,8 @@ function startStub() {
     child.unref()
 }
 
+const serverLogs = []
+
 function startServer() {
     fs.mkdirSync(path.join(DATA, 'db'), { recursive: true })
     fs.mkdirSync(path.join(DATA, 'secrets'), { recursive: true })
@@ -114,10 +117,16 @@ function startServer() {
         spawn('bash', [path.join(ROOT, 'scripts/start-cuttlely.sh')], {
             cwd: ROOT,
             env,
-            stdio: ['ignore', 'inherit', 'inherit'],
+            stdio: ['ignore', 'pipe', 'pipe'],
             detached: true
         })
     )
+    const keep = (stream) => (chunk) => {
+        serverLogs.push(String(chunk))
+        stream.write(chunk)
+    }
+    child.stdout.on('data', keep(process.stdout))
+    child.stderr.on('data', keep(process.stderr))
     child.unref()
 }
 
@@ -623,7 +632,9 @@ async function main() {
     await waitFor(`${BASE}/api/v1/ping`, 180, 'server')
     log('server is up')
 
-    await api('POST', '/account/register', { user: { name: OWNER, email: EMAIL, credential: PASSWORD } })
+    const setupCode = setupCodeFromLogs(serverLogs)
+    if (!setupCode) throw new Error('the server log had no setup code')
+    await api('POST', '/account/register', { user: { name: OWNER, email: EMAIL, credential: PASSWORD }, setupCode })
     await api('POST', '/auth/login', { email: EMAIL, password: PASSWORD })
     const credential = await api('POST', '/credentials', {
         name: 'OpenAI demo',

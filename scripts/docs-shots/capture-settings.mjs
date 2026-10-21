@@ -554,6 +554,7 @@ async function captureSetup(browser) {
             await shot(page, 'server-settings/setup-link-password.png')
             const bad = new URL(link[0].replace('://localhost', '://127.0.0.1'))
             bad.hash = 'code=not-a-real-code'
+            bad.search = ''
             await page.goto(bad.toString(), { waitUntil: 'domcontentloaded' })
             await page.getByTestId('setup-code').waitFor()
             await page.getByText('This setup link is not right').waitFor()

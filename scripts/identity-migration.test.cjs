@@ -604,3 +604,249 @@ describe('sign-in opens an invited organization membership', () => {
         assert.deepEqual(refused.body, { message: 'Forbidden' })
     })
 })
+
+describe('setup code on sqlite', () => {
+    let dir
+    let dataSource
+    let runner
+    const NOW = Date.parse('2026-10-06T00:00:00.000Z')
+
+    function ownerInput(email) {
+        return { email, name: 'Owner', credential: null, externalId: null }
+    }
+
+    async function emptyAccounts() {
+        await dataSource.query(`DELETE FROM "workspace_user"`)
+        await dataSource.query(`DELETE FROM "organization_user"`)
+        await dataSource.query(`DELETE FROM "workspace"`)
+        await dataSource.query(`DELETE FROM "role"`)
+        await dataSource.query(`DELETE FROM "organization"`)
+        await dataSource.query(`DELETE FROM "user"`)
+        await dataSource.query(`DELETE FROM "identity_bootstrap"`)
+    }
+
+    before(async () => {
+        dir = await mkdtemp(path.join(tmpdir(), 'cuttlely-setup-code-'))
+        dataSource = new DataSource({
+            type: 'sqlite',
+            database: path.join(dir, 'setup.sqlite'),
+            synchronize: false
+        })
+        await dataSource.initialize()
+        await dataSource.query(`PRAGMA busy_timeout = 5000`)
+        runner = dataSource.createQueryRunner()
+        await runner.connect()
+        await runner.query(
+            `CREATE TABLE "user" (
+                "id" varchar(36) NOT NULL PRIMARY KEY,
+                "name" varchar(255),
+                "email" varchar(255),
+                "credential" text,
+                "status" varchar(20),
+                "createdBy" varchar(36),
+                "updatedBy" varchar(36)
+            )`
+        )
+        await dataSource.query(
+            `CREATE TABLE "organization" ("id" varchar(36) PRIMARY KEY, "name" varchar(255), "createdBy" varchar(36), "updatedBy" varchar(36))`
+        )
+        await dataSource.query(
+            `CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "organizationId" varchar(36), "name" varchar(255), "permissions" text, "createdBy" varchar(36), "updatedBy" varchar(36))`
+        )
+        await dataSource.query(
+            `CREATE TABLE "workspace" ("id" varchar(36) PRIMARY KEY, "name" varchar(255), "organizationId" varchar(36), "createdBy" varchar(36), "updatedBy" varchar(36))`
+        )
+        await dataSource.query(
+            `CREATE TABLE "organization_user" ("organizationId" varchar(36), "userId" varchar(36), "roleId" varchar(36), "status" varchar(20), "createdBy" varchar(36), "updatedBy" varchar(36))`
+        )
+        await dataSource.query(
+            `CREATE TABLE "workspace_user" ("workspaceId" varchar(36), "userId" varchar(36), "roleId" varchar(36), "status" varchar(20), "createdBy" varchar(36), "updatedBy" varchar(36))`
+        )
+        await migration.addIdentitySignIn(runner)
+        await migration.addIdentityLoginGuards(runner)
+    })
+
+    after(async () => {
+        const setup = serverRequire('./src/identity/setupCode.ts')
+        setup.resetFirstRunSetupCode()
+        if (runner) await runner.release()
+        if (dataSource && dataSource.isInitialized) await dataSource.destroy()
+        if (dir) await rm(dir, { recursive: true, force: true })
+    })
+
+    it('adds the setup code columns and can add them again', async () => {
+        await migration.addSetupCode(runner)
+        let columns = names(await runner.query(`PRAGMA table_info("identity_setup_code")`))
+        assert.equal(columns.has('codeHmac'), true)
+        assert.equal(columns.has('issuedAt'), true)
+        assert.equal(columns.has('expiresAt'), true)
+        assert.equal(columns.has('consumedAt'), true)
+        await migration.addSetupCode(runner)
+        await migration.removeSetupCode(runner)
+        let tables = names(await runner.query(`SELECT name FROM sqlite_master WHERE type = 'table'`))
+        assert.equal(tables.has('identity_setup_code'), false)
+        await migration.addSetupCode(runner)
+        tables = names(await runner.query(`SELECT name FROM sqlite_master WHERE type = 'table'`))
+        assert.equal(tables.has('identity_setup_code'), true)
+    })
+
+    it('retires the code in the owner transaction and a second process rejects it', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        const { SetupCodeRejected } = serverRequire('./src/identity/types.ts')
+        const setup = serverRequire('./src/identity/setupCode.ts')
+        setup.resetFirstRunSetupCode()
+        setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+        const code = setup.firstRunSetupCode(NOW)
+        await setup.setupCodeReady()
+        const hmac = setup.issuedSetupHmac()
+        assert.equal(typeof hmac, 'string')
+        const store = new SqlIdentityStore(dataSource)
+        const owner = await store.createOwner(ownerInput('owner@example.com'), { consumeSetupHmac: hmac, now: NOW })
+        assert.equal(owner.email, 'owner@example.com')
+        assert.equal((await dataSource.query(`SELECT "email" AS email FROM "user"`)).length, 1)
+        const row = await dataSource.query(`SELECT "consumedAt" AS consumedAt FROM "identity_setup_code"`)
+        assert.equal(Number(row[0].consumedAt), NOW)
+        setup.forgetIssuedSetupCode()
+        assert.equal(await setup.setupCodeMatches(code, NOW), false)
+        const seen = await new SqlSetupCodeStore(dataSource).read()
+        assert.equal(seen && seen.consumedAt, NOW)
+        await emptyAccounts()
+        await assert.rejects(
+            () => new SqlIdentityStore(dataSource).createOwner(ownerInput('other@example.com'), { consumeSetupHmac: hmac, now: NOW }),
+            SetupCodeRejected
+        )
+        assert.equal((await dataSource.query(`SELECT "email" AS email FROM "user"`)).length, 0)
+        const still = await dataSource.query(`SELECT "consumedAt" AS consumedAt FROM "identity_setup_code"`)
+        assert.equal(Number(still[0].consumedAt), NOW)
+    })
+
+    it('lets only one of two owner creates succeed', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        const setup = serverRequire('./src/identity/setupCode.ts')
+        setup.resetFirstRunSetupCode()
+        setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+        await emptyAccounts()
+        setup.firstRunSetupCode(NOW)
+        await setup.setupCodeReady()
+        const hmac = setup.issuedSetupHmac()
+        const options = { consumeSetupHmac: hmac, now: NOW }
+        const second = new DataSource({
+            type: 'sqlite',
+            database: path.join(dir, 'setup.sqlite'),
+            synchronize: false
+        })
+        await second.initialize()
+        await second.query(`PRAGMA busy_timeout = 5000`)
+        try {
+            const settled = await Promise.allSettled([
+                new SqlIdentityStore(dataSource).createOwner(ownerInput('one@example.com'), options),
+                new SqlIdentityStore(second).createOwner(ownerInput('two@example.com'), options)
+            ])
+            assert.equal(settled.filter((item) => item.status === 'fulfilled').length, 1)
+            assert.equal(settled.filter((item) => item.status === 'rejected').length, 1)
+            assert.equal((await dataSource.query(`SELECT "email" AS email FROM "user"`)).length, 1)
+            const row = await dataSource.query(`SELECT "consumedAt" AS consumedAt FROM "identity_setup_code"`)
+            assert.equal(Number(row[0].consumedAt), NOW)
+        } finally {
+            if (second.isInitialized) await second.destroy()
+        }
+    })
+
+    it('keeps one live code when two copies save, then replaces it for that copy or once it expires', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        await migration.addSetupCode(runner)
+        await dataSource.query(`DELETE FROM "identity_setup_code"`)
+        const secondSource = new DataSource({
+            type: 'sqlite',
+            database: path.join(dir, 'setup.sqlite'),
+            synchronize: false
+        })
+        await secondSource.initialize()
+        await secondSource.query(`PRAGMA busy_timeout = 5000`)
+        try {
+            const first = new SqlSetupCodeStore(dataSource)
+            const second = new SqlSetupCodeStore(secondSource)
+            const rowA = { codeHmac: 'a'.repeat(64), issuedAt: NOW, expiresAt: NOW + 60 * 60 * 1000, consumedAt: null }
+            const rowB = { codeHmac: 'b'.repeat(64), issuedAt: NOW, expiresAt: NOW + 60 * 60 * 1000, consumedAt: null }
+            const outcomes = await Promise.all([first.save(rowA, null), second.save(rowB, null)])
+            assert.equal(outcomes.filter((item) => item === 'inserted').length, 1)
+            assert.equal(outcomes.filter((item) => item === 'kept').length, 1)
+            const stored = await first.read()
+            assert.ok(stored)
+            const winner = stored.codeHmac
+            assert.ok(winner === rowA.codeHmac || winner === rowB.codeHmac)
+            const rotated = { codeHmac: 'c'.repeat(64), issuedAt: NOW, expiresAt: NOW + 60 * 60 * 1000, consumedAt: null }
+            assert.equal(await first.save(rotated, winner), 'replaced')
+            assert.equal((await first.read()).codeHmac, rotated.codeHmac)
+            const expired = {
+                codeHmac: 'd'.repeat(64),
+                issuedAt: rotated.expiresAt,
+                expiresAt: rotated.expiresAt + 60 * 60 * 1000,
+                consumedAt: null
+            }
+            assert.equal(await second.save(expired, ''), 'replaced')
+            assert.equal((await second.read()).codeHmac, expired.codeHmac)
+        } finally {
+            if (secondSource.isInitialized) await secondSource.destroy()
+        }
+    })
+
+    it('a second copy does not print a code it did not store', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        const setup = serverRequire('./src/identity/setupCode.ts')
+        await migration.addSetupCode(runner)
+        await dataSource.query(`DELETE FROM "identity_setup_code"`)
+        setup.resetFirstRunSetupCode()
+        setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+        const lines = []
+        assert.equal(
+            await setup.announceFirstRunSetup(
+                3000,
+                async () => 0,
+                (line) => lines.push(line),
+                true
+            ),
+            true
+        )
+        assert.equal(lines.length, 1)
+        const issuedUrl = String(lines[0]).match(/https?:\/\/\S+/)
+        assert.ok(issuedUrl)
+        const code = new URL(issuedUrl[0]).hash.slice('#code='.length)
+        assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
+        setup.forgetIssuedSetupCode()
+        lines.length = 0
+        assert.equal(
+            await setup.announceFirstRunSetup(
+                3000,
+                async () => 0,
+                (line) => lines.push(line),
+                true
+            ),
+            true
+        )
+        assert.equal(lines.length, 1)
+        assert.match(lines[0], /another copy/)
+        assert.equal(/[#?&]code=/.test(lines[0]), false)
+        assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
+        assert.equal(setup.issuedSetupHmac(), null)
+        setup.resetFirstRunSetupCode()
+    })
+
+    it('retires an open code when the operator command creates the owner', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        const setup = serverRequire('./src/identity/setupCode.ts')
+        await migration.addSetupCode(runner)
+        await emptyAccounts()
+        await dataSource.query(`DELETE FROM "identity_setup_code"`)
+        setup.resetFirstRunSetupCode()
+        setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+        const code = setup.firstRunSetupCode(Date.now())
+        await setup.setupCodeReady()
+        const owner = await new SqlIdentityStore(dataSource).createOwner(ownerInput('cli-owner@example.com'))
+        assert.equal(owner.email, 'cli-owner@example.com')
+        assert.equal(await setup.setupCodeMatches(code, Date.now()), false)
+        const row = await dataSource.query(`SELECT "consumedAt" AS consumedAt FROM "identity_setup_code"`)
+        assert.ok(row[0].consumedAt != null)
+        setup.resetFirstRunSetupCode()
+    })
+})

@@ -50,7 +50,8 @@ import { Telemetry } from './utils/telemetry'
 import { validateAPIKey } from './utils/validateKey'
 import { getCorsOptions, getIframeSecurityHeaders, sanitizeMiddleware, validateCorsConfig } from './utils/XSS'
 import { identityStore } from './identity/production'
-import { announceFirstRunSetup, watchFirstRunSetup } from './identity/setupCode'
+import { applyDocumentFrameHeaders, applySetupHeaders, isSetupDocumentPath } from './identity/sessionGuard'
+import { announceFirstRunSetup, reissueExpiredSetupIfOpen, watchFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
 import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
@@ -241,9 +242,7 @@ export class App {
         // Allow embedding from specified domains.
         const iframeSecurityHeaders = getIframeSecurityHeaders()
         this.app.use((req, res, next) => {
-            for (const [headerName, headerValue] of Object.entries(iframeSecurityHeaders)) {
-                res.setHeader(headerName, headerValue)
-            }
+            applyDocumentFrameHeaders(req.path, res, iframeSecurityHeaders)
             next()
         })
 
@@ -348,6 +347,12 @@ export class App {
                 if (isMcpEndpointPath(`${req.baseUrl}${req.path}`)) {
                     sendMcpMethodNotAllowed(res)
                     return
+                }
+                if (isSetupDocumentPath(req.path)) {
+                    applySetupHeaders(res)
+                    void reissueExpiredSetupIfOpen(() => identityStore().countUsers(), localAdminEnabled()).catch((error) =>
+                        logger.warn(`[server]: Setup code check failed: ${error instanceof Error ? error.message : error}`)
+                    )
                 }
                 res.sendFile(uiBuild.indexHtml)
             })
