@@ -137,7 +137,7 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime split the question: `baker` priced the order and `orders` checked the pickup day. The full response also has the tokens, the timings, the sources and any images the team made. The [API guide](./docs/api.md) covers the rest: API keys, streaming, conversation memory, file uploads, errors, and a runnable example web app that keeps your key on your server. For a long turn, the same key can start the run in the background with `POST /api/v1/harnesses/<name>/runs/async` and fetch the answer later, and a harness can also run on a cron schedule: [Run it from your app with an API key](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [Run it on a schedule](./docs/how-to/harnesses.md#run-it-on-a-schedule). Reference: [Prediction API for harnesses](./docs/how-to/harnesses.md#prediction-api) and [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
-## Every flow an MCP server
+## Every flow an MCP server.
 
 Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish, and side-by-side replay shows what changed first.
 
