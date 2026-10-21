@@ -49,15 +49,15 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 Full notes: [v1.3.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.3.0).
 
-## Coming from Flowise
+## Bringing your flows
 
-### Is Cuttlely affiliated with FlowiseAI?
+### Where does the code come from?
 
-No. Cuttlely is its own project, open source under Apache-2.0. Like most open-source software it includes code from other projects: the chatflow canvas, node catalog and prediction API include code from Flowise, the agent runtime is Hermes from Nous Research, and the canvas UI uses React Flow. Each is credited in [NOTICE](./NOTICE) and [CREDITS.md](./CREDITS.md). Cuttlely is built around governance (drafts, side-by-side replay, gates, rollback, roles, audit, scoped keys), lean context and agent teams. Have Flowise flows? The next answer shows how to bring them.
+Cuttlely is its own project, open source under Apache-2.0. Like most open-source software it includes code from other projects: the chatflow canvas, node catalog and prediction API build on Apache-2.0 code from another open-source flow builder, the agent runtime is Hermes from Nous Research, and the canvas UI uses React Flow. Each is credited in [NOTICE](./NOTICE) and [CREDITS.md](./CREDITS.md). Cuttlely is built around governance (drafts, side-by-side replay, gates, rollback, roles, audit, scoped keys), lean context and agent teams.
 
-### Can I bring my Flowise flows?
+### Can I bring flows I already built?
 
-Yes, and you're welcome here. Go to **Chatflows** → **Import** → **Import Flowise JSON**. It opens a chatflow or agentflow node for node; about 300 nodes open with their settings. A chatflow's prediction API takes the same request body, so your app changes only the host and the flow id. API keys, passwords and credential ids are removed from the file, so you pick a credential on each card. The step-by-step page is [cuttlely.com/flowise](https://cuttlely.com/flowise/).
+Yes, and you're welcome here. On **Chatflows**, the **Import** menu checks an exported chatflow or agentflow and opens it on the right canvas, node for node; about 300 nodes open with their settings. A chatflow's prediction API takes the same request body, so your app changes only the host and the flow id. API keys, passwords and credential ids are removed from the file, so you pick a credential on each card.
 
 Key limits:
 
@@ -65,18 +65,7 @@ Key limits:
 -   Whole-workspace exports. Import one flow at a time.
 -   LlamaIndex nodes.
 
-The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix and AssemblyAI configuration cards are dropped with a note, and the file still opens. The full list of limits is in [Bring your flows](docs/bring-your-flows.md). If a flow doesn't open the way you expect, [open an issue](https://github.com/cuttlely/cuttlely/issues/new?template=bug_report.yml) with a made-up export.
-
-### What about the Flowise security advisories?
-
-We read the code at v1.3.0 against the six advisories on Flowise 3.1.4 that list no patched release:
-
--   Five don't apply. The chat-message ([GHSA-ppmg-4cx6-95hh](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-ppmg-4cx6-95hh)), upsert-history ([GHSA-jvx3-mjpw-r4gh](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-jvx3-mjpw-r4gh)) and credential ([GHSA-27w2-26m5-x82c](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-27w2-26m5-x82c)) routes check permissions and team. The BullMQ dashboard isn't mounted ([GHSA-rpcc-gw54-mfgx](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-rpcc-gw54-mfgx)). There's no multi-provider SSO ([GHSA-cffm-583c-vffr](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-cffm-583c-vffr)).
--   The sixth, invites activated by an email match ([GHSA-vf3j-89vf-r697](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-vf3j-89vf-r697)), is fixed in 1.3.0. A pending invite needs its one-time link. One caveat: someone added with **Add User** before 1.3.0 was stored as active and can still join by email match, so remove and re-invite them to require the link.
-
-We also checked an older file-write advisory, [GHSA-8vvx-qvq9-5948](https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-8vvx-qvq9-5948), for Flowise 2.2.7 and earlier. The storage helpers it names sanitize the file name in every storage provider.
-
-This is a code read, not a pen test. If you find something, please report it privately through [SECURITY.md](SECURITY.md).
+The Arize, LangFuse, LangSmith, LangWatch, Lunary, Opik, Phoenix and AssemblyAI configuration cards are dropped with a note, and the file still opens. The full list of limits is in [Bring your flows](docs/bring-your-flows.md). The import page, linked from the home page, also covers the security advisories we checked against the code that Cuttlely builds on. If a flow doesn't open the way you expect, [open an issue](https://github.com/cuttlely/cuttlely/issues/new?template=bug_report.yml) with a made-up export.
 
 ## The analyst
 

@@ -315,7 +315,10 @@ export function sync({ check = true, write = true } = {}) {
         titles[route] = label
         writePage(
             route.slice(1, -1) + '.md',
-            frontmatter({ title, description, editUrl: edit(rel) }) + rewriteLinks(body, rel, repoExists, problems) + '\n',
+            // The FAQ keeps the import format to /flowise/, so its footer does not link the sidebar page before it.
+            frontmatter({ title, description, editUrl: edit(rel), extra: rel === 'FAQ.md' ? { prev: false } : {} }) +
+                rewriteLinks(body, rel, repoExists, problems) +
+                '\n',
             write
         )
     }

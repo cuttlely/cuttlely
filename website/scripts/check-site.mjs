@@ -261,7 +261,7 @@ export function checkSite(dist, { csp = null } = {}) {
         const flowise = fs.readFileSync(flowiseFile, 'utf8')
         const flowiseText = visibleText(flowise)
         for (const line of [
-            'Bring your Flowise flows.',
+            'Bring your flows over.',
             'Import a flow (2-min guide)',
             'Star on GitHub',
             'Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.'
@@ -271,6 +271,25 @@ export function checkSite(dist, { csp = null } = {}) {
         if (/waitlist/i.test(flowiseText)) problems.push('flowise/index.html: shows waitlist copy')
         if (/runs your flows unchanged/i.test(flowiseText)) problems.push('flowise/index.html: claims flows run unchanged')
         if (/opens a draft/i.test(flowiseText)) problems.push('flowise/index.html: says the import opens a draft')
+    }
+    // The import format is named on /flowise/, but not in its first two sentences, and elsewhere only in the home hero href.
+    if (fs.existsSync(flowiseFile)) {
+        const flowise = fs.readFileSync(flowiseFile, 'utf8')
+        const heroCopy = flowise.match(/class="cl-hero-copy"[\s\S]*?<\/div>/)
+        const sentences = heroCopy
+            ? visibleText(heroCopy[0])
+                  .split(/(?<=[.!?])\s+/)
+                  .slice(0, 2)
+                  .join(' ')
+            : ''
+        if (/flowise/i.test(sentences)) problems.push('flowise/index.html: names the import format in the first two sentences')
+    }
+    const mainOf = (html) => (html.match(/<main[\s\S]*<\/main>/) || [html])[0]
+    const homeHits = mainOf(home).match(/flowise/gi) || []
+    if (homeHits.length > 1) problems.push(`index.html: names the import format ${homeHits.length} times; only the hero link may`)
+    const faqFile = path.join(dist, 'faq/index.html')
+    if (fs.existsSync(faqFile) && /flowise/i.test(mainOf(fs.readFileSync(faqFile, 'utf8')))) {
+        problems.push('faq/index.html: names the import format; that belongs on /flowise/')
     }
     // A real site build has hashed /_astro assets. Fixtures used by unit tests do not.
     if (home && fs.existsSync(path.join(dist, '_astro'))) {

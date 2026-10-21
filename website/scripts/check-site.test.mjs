@@ -24,7 +24,7 @@ const base = {
     'quickstart/index.html': `<html><head>${head}</head><body></body></html>`,
     'docs/index.html': `<html><head>${head}</head><body><h2 id="build">Build</h2></body></html>`,
     'faq/index.html': `<html><head>${head}</head><body></body></html>`,
-    'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`,
+    'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your flows over.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`,
     'robots.txt': '',
     'sitemap-index.xml': '',
     '.well-known/security.txt': '',
@@ -277,19 +277,30 @@ describe('check-site message house', () => {
     it('fails waitlist copy and an unchanged-flows claim on the Flowise import page', () => {
         const waitlist = site({
             ...base,
-            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Join the waitlist</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
+            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your flows over.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Join the waitlist</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
         })
         assert.match(checkSite(waitlist).problems.join('\n'), /waitlist/)
         const unchanged = site({
             ...base,
-            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Cuttlely runs your flows unchanged</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
+            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your flows over.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Cuttlely runs your flows unchanged</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
         })
         assert.match(checkSite(unchanged).problems.join('\n'), /unchanged/)
         const draft = site({
             ...base,
-            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your Flowise flows.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>The import opens a draft of that flow.</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
+            'flowise/index.html': `<html><head>${head}</head><body><h1>Bring your flows over.</h1><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>The import opens a draft of that flow.</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></body></html>`
         })
         assert.match(checkSite(draft).problems.join('\n'), /opens a draft/)
+    })
+
+    it('keeps the import format out of the first two sentences of /flowise/, out of the FAQ, and to one mention on the home page', () => {
+        const flowiseOk = `<html><head>${head}</head><body><main><div class="cl-hero-copy"><p>The visual agent builder, ready for production.</p><h1>Bring your flows over.</h1><p>Import Flowise JSON opens it.</p></div><p>Import a flow (2-min guide)</p><p>Star on GitHub</p><p>Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.</p></main></body></html>`
+        assert.doesNotMatch(checkSite(site({ ...base, 'flowise/index.html': flowiseOk })).problems.join('\n'), /first two sentences/)
+        const early = flowiseOk.replace('Bring your flows over.', 'Bring your Flowise flows over.')
+        assert.match(checkSite(site({ ...base, 'flowise/index.html': early })).problems.join('\n'), /first two sentences/)
+        const faq = `<html><head>${head}</head><body><main><p>Import Flowise JSON</p></main></body></html>`
+        assert.match(checkSite(site({ ...base, 'faq/index.html': faq })).problems.join('\n'), /faq\/index\.html: names the import format/)
+        const twice = home.replace('</body>', '<main><a href="/flowise/">x</a><a href="/flowise/">y</a></main></body>')
+        assert.match(checkSite(site({ ...base, 'index.html': twice })).problems.join('\n'), /names the import format 2 times/)
     })
 
     it('skips social tags on a static redirect page', () => {

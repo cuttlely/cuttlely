@@ -26,22 +26,14 @@ describe('FAQ page wiring', () => {
         assert.match(fs.readFileSync(path.join(SITE, 'scripts/site-config.mjs'), 'utf8'), /'FAQ\.md': '\/faq\/'/)
     })
 
-    it('keeps the 3.1.4 advisories, the older file-write advisory, the internal-benchmarks sentence, and the import headings, and leaves Cloud and waitlist out', () => {
+    it('keeps the internal-benchmarks sentence and the import headings, leaves the import format and its advisories to /flowise/, and leaves Cloud and waitlist out', () => {
         const faq = fs.readFileSync(path.join(REPO, 'FAQ.md'), 'utf8')
-        assert.match(faq, /## Coming from Flowise/)
-        assert.doesNotMatch(faq, /## Importing existing flows/)
-        assert.doesNotMatch(faq, /picks up where|next generation|fork of Flowise/i)
-        assert.match(faq, /### Is Cuttlely affiliated with FlowiseAI\?/)
-        assert.match(faq, /No\. Cuttlely is its own project, open source under Apache-2\.0\./)
-        assert.match(faq, /### Can I bring my Flowise flows\?/)
-        assert.doesNotMatch(faq, /### Can I bring my existing flows\?/)
-        assert.match(faq, /### What about the Flowise security advisories\?/)
-        assert.match(faq, /the six advisories on Flowise 3\.1\.4 that list no patched release/)
-        assert.match(faq, /an older file-write advisory, \[GHSA-8vvx-qvq9-5948\]/)
-        assert.match(faq, /for Flowise 2\.2\.7 and earlier/)
-        for (const id of [...SIX_314, OLDER_FILE_WRITE]) {
-            assert.equal(faq.includes(`[${id}](${FLOWISE_ADVISORY}${id})`), true, `${id} must link to ${FLOWISE_ADVISORY}${id}`)
-        }
+        assert.match(faq, /## Bringing your flows/)
+        assert.doesNotMatch(faq, /flowise/i)
+        assert.doesNotMatch(faq, /picks up where|next generation/i)
+        assert.match(faq, /### Where does the code come from\?/)
+        assert.match(faq, /### Can I bring flows I already built\?/)
+        assert.doesNotMatch(faq, /GHSA-ppmg-4cx6-95hh/)
         assert.doesNotMatch(faq, /github\.com\/advisories\//)
         assert.match(faq, /Cuttlely is open source under Apache-2\.0\. The bundled agent runtime is Hermes \(MIT\)/)
         assert.match(faq, /lean context means fewer tokens in our \[internal benchmarks\]/)
