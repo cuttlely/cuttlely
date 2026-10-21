@@ -12,7 +12,7 @@ To enable stdio you must set all of the following on the host:
 -   (Optional but recommended) CUSTOM_MCP_ALLOWED_ENV_VARS=<comma-separated list of env var names a server may read, for example GITHUB_TOKEN,BRAVE_API_KEY>
 -   (Optional) CUSTOM_MCP_SECURITY_CHECK=true (default) to keep validation on
 
-What the server enforces (1.3.0):
+What the server enforces (1.3.0 and later, including 1.3.1):
 
 -   Stdio is off unless CUSTOM_MCP_PROTOCOL=stdio is set.
 -   The command in your MCP config must be allow-listed by CUSTOM_MCP_ALLOWED_COMMANDS or it is refused.
