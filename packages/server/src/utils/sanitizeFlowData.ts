@@ -36,7 +36,8 @@ const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const MAX_TEMPLATE_TEXT = 20000
 const MAX_URL_TEXT = 8192
 const MAX_NFKC_EXPANSION = 4
-// word: followed by a non-space character. Checked on the original, normalized, and fully decoded text.
+// A letter, then scheme characters, then `:`, then a letter, digit, or `/`.
+// Checked on the original, normalized, and fully decoded text.
 // Scanned in one pass (see hasSchemeLike) so the time stays linear in the text length.
 // A known scheme whose colon is followed by a tab or a line break. A normal space after the colon stays allowed.
 // Ordinary labels such as "History:" are not in this list.
@@ -295,15 +296,16 @@ const hasHighEntropyRun = (text: string, code = false): boolean => {
 
 const isAsciiLetter = (c: string): boolean => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 const isSchemeChar = (c: string): boolean => isAsciiLetter(c) || (c >= '0' && c <= '9') || c === '+' || c === '.' || c === '-'
+const isUrlStart = (c: string): boolean => isAsciiLetter(c) || (c >= '0' && c <= '9') || c === '/'
 
-/** A letter, then letters, digits, `+`, `.` or `-`, then `:` and a non-space character. One linear pass, no regex. */
+/** A letter, then letters, digits, `+`, `.` or `-`, then `:` and a letter, digit, or `/`. One linear pass, no regex. */
 export const hasSchemeLike = (text: string): boolean => {
     let runHasLetter = false
     for (let i = 0; i < text.length; i++) {
         const c = text[i]
         if (c === ':') {
             const next = text[i + 1]
-            if (runHasLetter && next !== undefined && !/\s/.test(next)) return true
+            if (runHasLetter && next !== undefined && isUrlStart(next)) return true
             runHasLetter = false
         } else if (isSchemeChar(c)) {
             if (isAsciiLetter(c)) runHasLetter = true
@@ -316,7 +318,7 @@ export const hasSchemeLike = (text: string): boolean => {
 
 export const hasNamedSchemeAcrossBreak = (text: string): boolean => NAMED_SCHEME_ACROSS_BREAK.test(text)
 
-/** //, an @ with a non-space on both sides, or a scheme-like word: immediately followed by a non-space. A named scheme with a tab or a line break after the colon counts too. */
+/** `//`, an `@` with a non-space on both sides, or a scheme-like word whose colon is followed by a letter, digit, or `/`. A named scheme with a tab or a line break after the colon counts too. */
 const hasUnsafeFreeText = (text: string): boolean =>
     text.includes('//') || /\S@\S/.test(text) || hasSchemeLike(text) || hasNamedSchemeAcrossBreak(text)
 
@@ -400,7 +402,8 @@ const codeIsSafe = (value: unknown): value is string => {
     })
 }
 
-const isSafeStringName = (name: string): boolean => SAFE_STRING_NAME.test(name) || HTTP_TOOL_NAME.test(name)
+const TEMPLATE_NAME = /^template$/i
+const isSafeStringName = (name: string): boolean => SAFE_STRING_NAME.test(name) || TEMPLATE_NAME.test(name) || HTTP_TOOL_NAME.test(name)
 
 const isBlank = (value: unknown): boolean => {
     if (value === undefined || value === null || value === '') return true

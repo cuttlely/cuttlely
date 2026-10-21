@@ -2158,6 +2158,72 @@ describe('built-in tool templates', () => {
     })
 })
 
+describe('built-in marketplace prompts', () => {
+    const safeStringName = /(?:prompt|systemmessage|description|label|placeholder|(?:tool|agent)name)$/i
+    const templateName = /^template$/i
+
+    const isPromptInput = (name: string, type: string): boolean =>
+        (type === 'string' && (safeStringName.test(name) || templateName.test(name))) || name === 'prompt'
+
+    it('keeps every prompt from the marketplace flows', () => {
+        const root = path.resolve(__dirname, '../../marketplaces')
+        const folders = fs.readdirSync(root).filter((name) => {
+            if (name === 'tools') return false
+            return fs.statSync(path.join(root, name)).isDirectory()
+        })
+        let found = 0
+        let sawOpenApiSystemMessage = false
+        for (const folder of folders) {
+            const dir = path.join(root, folder)
+            for (const file of fs.readdirSync(dir).filter((name) => name.endsWith('.json'))) {
+                const flow = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as {
+                    nodes?: Array<{
+                        id?: string
+                        data?: {
+                            name?: string
+                            inputs?: Record<string, unknown>
+                            inputParams?: Array<{ name?: string; type?: string }>
+                            inputAnchors?: Array<{ name?: string; type?: string }>
+                        }
+                    }>
+                }
+                const nodes = Array.isArray(flow.nodes) ? flow.nodes : []
+                const nodeIds = new Set(nodes.map((node) => node.id).filter((id): id is string => typeof id === 'string'))
+                const components: Record<string, unknown> = {}
+                for (const node of nodes) {
+                    const name = node.data?.name
+                    if (typeof name === 'string' && components[name] === undefined && node.data) components[name] = node.data
+                }
+                const built = buildTemplateFlow(flow, components)
+                for (const node of nodes) {
+                    const inputs = node.data?.inputs
+                    if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) continue
+                    const declared = [...(node.data?.inputParams ?? []), ...(node.data?.inputAnchors ?? [])]
+                    const sanitized = sanitizeNodeInputs(inputs, node.data?.inputParams, node.data?.inputAnchors, nodeIds)
+                    const saved = (built.nodes as Array<{ id?: string; data?: { inputs?: Record<string, unknown> } }>).find(
+                        (item) => item.id === node.id
+                    )?.data?.inputs
+                    for (const [name, value] of Object.entries(inputs)) {
+                        if (typeof value !== 'string' || value.length === 0) continue
+                        const match = declared.find((item) => item?.name === name)
+                        const type = typeof match?.type === 'string' ? match.type : ''
+                        if (!match || !isPromptInput(name, type)) continue
+                        found += 1
+                        expect(sanitized.inputs[name]).toBe(value)
+                        expect(saved?.[name]).toBe(value)
+                        if (folder === 'chatflows' && file === 'OpenAPI YAML Agent.json' && name === 'systemMessage') {
+                            sawOpenApiSystemMessage = true
+                            expect(value).toContain('**Receive User Input:**')
+                        }
+                    }
+                }
+            }
+        }
+        expect(found).toBeGreaterThanOrEqual(127)
+        expect(sawOpenApiSystemMessage).toBe(true)
+    })
+})
+
 describe('tool schema rebuild', () => {
     const prefix = ['s', 'k', '-'].join('')
     const hidden = (text: string) =>
@@ -2256,7 +2322,9 @@ describe('scheme scans on long input', () => {
     it('keeps the same answers', () => {
         expect(hasSchemeLike('see mailto:x')).toBe(true)
         expect(hasSchemeLike('Note: be brief')).toBe(false)
+        expect(hasSchemeLike('**Note:** be brief')).toBe(false)
         expect(hasSchemeLike('ratio 1:2')).toBe(false)
+        expect(sanitizeNodeInputs({ prompt: '**Note:** be brief' }, schemaParams as any).inputs.prompt).toBe('**Note:** be brief')
         expect(hasNamedSchemeAcrossBreak('javascript:\nalert')).toBe(true)
         expect(hasNamedSchemeAcrossBreak('History:\nnext')).toBe(false)
     })
