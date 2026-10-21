@@ -287,6 +287,14 @@ const isNodeReference = (value: unknown, nodeIds: ReadonlySet<string>): boolean 
     return Array.isArray(value) && value.length > 0 && value.every(one)
 }
 
+/** A path segment or host label that matches a token prefix or a long high-entropy run, on the raw and decoded forms. */
+const partHasSecret = (text: string): boolean => {
+    if (patternFails(text) || entropyFails(text)) return true
+    const plain = plainForCheck(text)
+    if (plain === undefined) return true
+    return plain !== text && (patternFails(plain) || entropyFails(plain))
+}
+
 /** http or https, written back as scheme, host, and path. No user info, port, query, or fragment. */
 export const rebuildHttpUrl = (value: unknown): string | undefined => {
     if (typeof value !== 'string' || !value.trim()) return undefined
@@ -306,7 +314,11 @@ export const rebuildHttpUrl = (value: unknown): string | undefined => {
         } catch {
             return undefined
         }
-        if (decoded.includes('@') || decoded.includes(':')) return undefined
+        if (decoded.includes('@') || decoded.includes(':') || partHasSecret(decoded)) return undefined
+    }
+    for (const label of url.hostname.split('.')) {
+        if (!label) continue
+        if (partHasSecret(label)) return undefined
     }
     return `${url.protocol}//${url.hostname}${url.pathname}`
 }

@@ -411,7 +411,7 @@ describe('template inputs', () => {
 
     it('keeps no marker in any decoded field when every input type is given a wrong value', () => {
         const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
-        const avatar = 'https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png'
+        const avatar = 'https://cdn.example/images/logo.png'
         const decodeString = (value: string, depth: number): unknown => {
             let current = value
             for (let layer = 0; layer < 8; layer += 1) {
@@ -907,9 +907,8 @@ describe('public display fields', () => {
         expect(rebuildHttpUrl('https://img.example/a.png?utm_apikey=FAKE_MARKER_Q#x')).toBe('https://img.example/a.png')
         expect(rebuildHttpUrl('https://cdn.example:8443/a.png?x=1')).toBe('https://cdn.example/a.png')
         expect(rebuildHttpUrl('https:example.com/a?x=FAKE_MARKER_Q')).toBe('https://example.com/a')
-        expect(rebuildHttpUrl('https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png')).toBe(
-            'https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png'
-        )
+        expect(rebuildHttpUrl('https://cdn.example/images/logo.png')).toBe('https://cdn.example/images/logo.png')
+        expect(rebuildHttpUrl('https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png')).toBeUndefined()
         expect(rebuildHttpUrl('https://user:pw@img.example/a.png')).toBeUndefined()
         expect(rebuildHttpUrl('//user:FAKE_MARKER_Q@host')).toBeUndefined()
         expect(rebuildHttpUrl('//cdn.example/a?utm_apikey=FAKE_MARKER_Q')).toBeUndefined()
@@ -918,6 +917,10 @@ describe('public display fields', () => {
         expect(rebuildHttpUrl('https://cdn.example/user%3AFAKE_MARKER_Q%40host')).toBeUndefined()
         expect(rebuildHttpUrl('https://cdn.example/%ZZ')).toBeUndefined()
         expect(rebuildHttpUrl('http://files.example/logo.png')).toBe('http://files.example/logo.png')
+        expect(rebuildHttpUrl('https://api.example.invalid/v1/sk-FAKE-QA-INPATH/x')).toBeUndefined()
+        expect(rebuildHttpUrl('https://api.example.invalid/services/T0FAKE/B0FAKE/FAKEQAwebhookSECRETq9Xm2PvR8tY4wK1nB3')).toBeUndefined()
+        expect(rebuildHttpUrl('https://sk-FAKEQAhostlabel.example.invalid/v1')).toBeUndefined()
+        expect(rebuildHttpUrl('https://b\u00fccher.example/menu')).toBe('https://xn--bcher-kva.example/menu')
         expect(rebuildHttpUrl('javascript:alert(1)')).toBeUndefined()
         const { inputs } = sanitizeNodeInputs(
             { basePath: 'path/user:FAKE_MARKER_Q@files.example', baseURL: 'https://models.example:9443/root?q=1#h' },
@@ -927,11 +930,11 @@ describe('public display fields', () => {
         expect(JSON.stringify(inputs)).not.toContain('FAKE_MARKER_')
         expect(
             publicChatbotDisplayConfig({
-                titleAvatarSrc: 'https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png',
+                titleAvatarSrc: 'https://cdn.example/images/logo.png',
                 botMessage: { avatarSrc: 'https://cdn.example:8443/images/a.png?utm_apikey=FAKE_MARKER_Q#x' }
             })
         ).toEqual({
-            titleAvatarSrc: 'https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png',
+            titleAvatarSrc: 'https://cdn.example/images/logo.png',
             botMessage: { avatarSrc: 'https://cdn.example/images/a.png' }
         })
         const summary = publicChatflowSummary({
