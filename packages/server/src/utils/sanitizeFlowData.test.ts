@@ -719,7 +719,7 @@ describe('template inputs', () => {
         }
     })
 
-    it('keeps no planted value in layout, connections, addresses, or split text', () => {
+    it('keeps no planted value in layout, connections, addresses, split text, or tool templates', () => {
         const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
         const visible = (value: string) => value.replace(INVISIBLE, '').replace(/\s+/g, '').toLowerCase()
         const decodeString = (value: string): unknown => {
@@ -958,6 +958,45 @@ describe('template inputs', () => {
             expect(display.titleAvatarSrc).toBeUndefined()
             expect((display.botMessage as { avatarSrc?: string } | undefined)?.avatarSrc).toBeUndefined()
             expectClean(display, banned)
+            const encoded = [
+                generated,
+                splitAt(generated),
+                fixed[trial % fixed.length],
+                shapes[trial % shapes.length],
+                percentEncode(generated),
+                JSON.stringify(generated),
+                percentEncode(JSON.stringify(generated)),
+                JSON.stringify(JSON.stringify(shapes[trial % shapes.length]))
+            ]
+            const tools = [
+                sanitizeToolTemplate({
+                    func: encoded[0],
+                    schema: encoded[1],
+                    iconSrc: `https://api.example.invalid/v1/${encodeURIComponent(generated)}/icon.png`
+                }),
+                sanitizeToolTemplate({
+                    func: encoded[2],
+                    schema: [{ property: 'q', description: encoded[3], type: 'string', required: true }],
+                    iconSrc: `https://${hostLabel}.example.invalid/icon.png`
+                }),
+                sanitizeToolTemplate({
+                    func: encoded[4],
+                    schema: JSON.stringify({ description: encoded[5], note: fixed[trial % fixed.length] }),
+                    iconSrc: `https://cdn.example/icons/${encodeURIComponent(encoded[3])}.png`
+                }),
+                sanitizeToolTemplate({
+                    func: encoded[6],
+                    schema: encoded[7],
+                    iconSrc: `https://api.example.invalid/services/T0FAKE/B0FAKE/${body}/icon.png`
+                })
+            ]
+            for (const tool of tools) {
+                expect(tool.func).toBeUndefined()
+                expect(tool.schema).toBeUndefined()
+                expect(tool.iconSrc).toBeUndefined()
+                expect(tool.dropped).toEqual(['func', 'schema', 'iconSrc'])
+                expectClean(tool, banned)
+            }
         }
     })
 })
