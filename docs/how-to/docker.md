@@ -220,7 +220,7 @@ Then use this config on the Custom MCP node (paths exist only after those mounts
 }
 ```
 
-Rules that apply in 1.3.0:
+Rules that apply in 1.3.1:
 
 -   The command must be in CUSTOM_MCP_ALLOWED_COMMANDS.
 -   If any args are present, the first must match a path listed in CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS. List absolute paths you control. Relative paths are strongly discouraged and only work if you explicitly allow-list that exact relative path.

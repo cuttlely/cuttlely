@@ -180,6 +180,24 @@ A second Orchestrate chat on the same flow is a different conversation: it does 
 
 `POST /api/v1/mcp/:id` exposes a published chatflow or agentflow as a Streamable HTTP MCP server. The path is on the public whitelist, like prediction: a caller with the MCP Bearer token does not need a signed-in session. On the canvas, open **Configuration** and turn on **Expose as MCP Server** to mint the token. Auth is `Authorization: Bearer <MCP token>`, not an API key. GET answers **405** with `Allow: POST, DELETE, OPTIONS` and a JSON-RPC `-32000` body. DELETE is also **405** (`Session termination is not supported in stateless mode.`). The POST body is MCP JSON-RPC, capped at 1 MB regardless of **Largest upload** (`CUTTLELY_FILE_SIZE_LIMIT`). A body over 1 MB is 413 from the global error handler (`{ "statusCode": 413, "success": false, "message", "stack" }`). [Use a chatflow as an Orchestrate toolkit](./how-to/orchestrate-mcp.md).
 
+### Connect with mcp-remote
+
+A client that starts MCP servers as local commands reaches this endpoint through `mcp-remote`, which bridges stdio to Streamable HTTP. Put the MCP token in the header, not in the URL:
+
+```json
+{
+    "mcpServers": {
+        "bakery-orders": {
+            "command": "npx",
+            "args": ["-y", "mcp-remote", "http://localhost:3000/api/v1/mcp/<flow id>", "--header", "Authorization: Bearer ${MCP_TOKEN}"],
+            "env": { "MCP_TOKEN": "<MCP token>" }
+        }
+    }
+}
+```
+
+The client lists one tool for the flow. Each call runs the Live flow with a fresh chat, so pass everything the flow needs in that call.
+
 Orchestrate users who want a remote toolkit instead of an `external_chat` collaborator point the toolkit URL at this endpoint. The how-to for native collaborators is [Call a chatflow from IBM watsonx Orchestrate](./how-to/orchestrate.md).
 
 ## Call a chatflow over A2A

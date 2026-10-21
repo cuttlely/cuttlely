@@ -19,6 +19,8 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 
 Cuttlely (said like "cuddly") is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.
 
+**1.3.1 is out.** Any published chatflow or agentflow can be an MCP server, and published chatflows answer IBM watsonx Orchestrate agents. [Changelog](./CHANGELOG.md#131---2026-10-21)
+
 ## Contents
 
 -   [Watch a team resolve a complaint](#watch-a-team-resolve-a-complaint)
@@ -27,6 +29,8 @@ Cuttlely (said like "cuddly") is an open-source visual graph editor for building
 -   [Made for real teams](#made-for-real-teams)
 -   [Agent teams that power your apps](#agent-teams-that-power-your-apps)
 -   [Use a team from your app](#use-a-team-from-your-app)
+-   [Every flow an MCP server](#every-flow-an-mcp-server)
+-   [Call a flow from IBM watsonx Orchestrate](#call-a-flow-from-ibm-watsonx-orchestrate)
 -   [Small context, big answers](#small-context-big-answers)
 -   [Tools your teams use](#tools-your-teams-use)
 -   [Your first 10 minutes](#your-first-10-minutes)
@@ -129,6 +133,20 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 ```
 
 Harness Prime split the question: `baker` priced the order and `orders` checked the pickup day. The full response also has the tokens, the timings, the sources and any images the team made. The [API guide](./docs/api.md) covers the rest: API keys, streaming, conversation memory, file uploads, errors, and a runnable example web app that keeps your key on your server. For a long turn, the same key can start the run in the background with `POST /api/v1/harnesses/<name>/runs/async` and fetch the answer later, and a harness can also run on a cron schedule: [Run it from your app with an API key](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [Run it on a schedule](./docs/how-to/harnesses.md#run-it-on-a-schedule). Reference: [Prediction API for harnesses](./docs/how-to/harnesses.md#prediction-api) and [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
+
+## Every flow an MCP server
+
+Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish. [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely)
+
+-   **Off until you turn it on.** Turn on **MCP Server** for a flow to get a Streamable HTTP endpoint (`/api/v1/mcp/<flow id>`) and a bearer token.
+-   **Live or published flows only, each flow is one tool call.** Calls never run the draft, and a call keeps no memory of earlier calls. The flow's Rate Limit applies, and request bodies over 1 MB are refused.
+-   **MCP clients via mcp-remote.** A client that starts MCP servers as local commands connects with `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"`. [Connect with mcp-remote](./docs/api.md#connect-with-mcp-remote)
+
+[MCP endpoint reference](./docs/api.md#mcp-endpoint)
+
+## Call a flow from IBM watsonx Orchestrate
+
+Register a published chatflow as an external agent, and an Orchestrate native agent hands it questions as a collaborator. The flow needs a bound API key; a flow without one is refused. A documented path also imports a flow as a remote MCP toolkit. [Call a chatflow from Orchestrate](./docs/how-to/orchestrate.md) · [Use a chatflow as an Orchestrate toolkit](./docs/how-to/orchestrate-mcp.md)
 
 ## Small context, big answers
 
@@ -245,7 +263,7 @@ Have flows from another tool? On **Chatflows**, the **Import** menu has **Import
 
 ## About and credits
 
-Cuttlely is open source under Apache 2.0. What changed in each release is in the [changelog](./CHANGELOG.md), and which versions get fixes is in [Releases and support](./docs/releases.md). The license text is in [LICENSE.md](./LICENSE.md), and attribution is in [NOTICE](./NOTICE).
+Cuttlely is open source under Apache 2.0. What changed in each release is in the [changelog](./CHANGELOG.md), and which versions get fixes is in [Releases and support](./docs/releases.md). 1.3.1 carries two security fixes for versions up to 1.3.0: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) and [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7). The license text is in [LICENSE.md](./LICENSE.md), and attribution is in [NOTICE](./NOTICE).
 
 Cuttlely builds on open-source work, including Flowise, Hermes from Nous Research and React Flow. [CREDITS.md](./CREDITS.md) lists each project with its license and link.
 

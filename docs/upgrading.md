@@ -144,6 +144,15 @@ An invite link issued before the upgrade keeps working until it expires (at most
 
 The full rules are in [Invite people](./how-to/sign-in.md#invite-people) and [Security](../SECURITY.md#invites).
 
+## Upgrading to 1.3.1
+
+1.3.1 fixes two security issues in versions up to and including 1.3.0: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) (setup code) and [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7) (public config endpoints). Upgrade as above. What else changed is in the [changelog](../CHANGELOG.md#131---2026-10-21).
+
+-   **New installs.** A server with no account opens one `/setup` page. The server log prints a ready block with the `/setup#code=` link and a setup code, and prints it again every five minutes while setup is open. The code lasts 60 minutes and works once. An install that already has an owner is not affected.
+-   **Building from source.** `pnpm install` now fails on a Node version below 24 (`engine-strict=true`). The Docker image already uses Node 24.
+-   **MCP and Orchestrate callers.** JSON bodies over 1 MB are refused with `413`. MCP `POST /api/v1/mcp/<flow id>` now applies the flow's **Rate Limit**, and `GET` answers `405`.
+-   **Shared chat pages.** The public chatflow config no longer returns `overrideConfig`, so a shared chat page no longer sends saved overrides with each question.
+
 ## How upgrades are tested
 
 Every full `pnpm verify` runs an upgrade check. It starts the current server on data written by an older cuttlely: a chatflow with two saved versions, an agentflow, a harness with two specialists, and a credential. It then checks that each of these survived, and that a question to the chatflow still gets an answer, which proves the credential still decrypts. It also checks that a new save records a version and that a second start works. Run it on its own with `pnpm upgrade:check`.
