@@ -30,6 +30,10 @@ const NODE_REFERENCE = /^\{\{([A-Za-z][A-Za-z0-9_]*_\d+)\.data\.instance\}\}$/
 const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-)/i
 const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
 const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Checked before any normalization. Comfortably above real prompt and tool text. Display fields keep their shorter limits.
+const MAX_TEMPLATE_TEXT = 20000
+const MAX_URL_TEXT = 8192
+const MAX_NFKC_EXPANSION = 4
 // word: followed by a non-space character. Checked on the original, normalized, and fully decoded text.
 // Scanned in one pass (see hasSchemeLike) so the time stays linear in the text length.
 // A known scheme whose colon is followed by a tab or a line break. A normal space after the colon stays allowed.
@@ -136,40 +140,80 @@ const foldHyphens = (value: string): string => {
     return value.replace(HYPHEN_LIKE, '-')
 }
 
-// NFKC and look-alike folding. Hyphens U+2010 through U+2015 and U+2212 are read as ASCII hyphen. Invisible characters are left in place so a later pass can still remove them.
-const foldMarks = (value: string): string => {
-    let out = ''
-    let pending = ''
-    const flush = () => {
-        if (!pending) return
-        const normalized = foldHyphens(pending.normalize('NFKC'))
-        for (const char of normalized) out += HOMOGLYPHS[char] ?? char
-        pending = ''
+// One check reuses a folded form instead of running NFKC again on the same text.
+let foldCache: Map<string, string | undefined> | null = null
+
+const withFoldCache = <T>(fn: () => T): T => {
+    if (foldCache) return fn()
+    foldCache = new Map()
+    try {
+        return fn()
+    } finally {
+        foldCache = null
     }
-    for (const char of foldHyphens(value)) {
-        if (INVISIBLE_CHAR.test(char)) {
-            flush()
-            out += char
-        } else pending += char
-    }
-    flush()
-    return out
 }
 
-// Invisible characters become spaces, then NFKC and look-alike folding.
-const foldText = (value: string): string => foldMarks(value.replace(INVISIBLE, ' ')).replace(INVISIBLE, ' ')
+// NFKC and look-alike folding. Hyphens U+2010 through U+2015 and U+2212 are read as ASCII hyphen. Invisible characters are left in place so a later pass can still remove them. Undefined when NFKC makes a run more than four times longer.
+const foldMarks = (value: string): string | undefined => {
+    if (foldCache?.has(value)) return foldCache.get(value)
+    const out: string[] = []
+    let pending: string[] = []
+    const flush = (): boolean => {
+        if (!pending.length) return true
+        const segment = pending.join('')
+        pending = []
+        const normalized = segment.normalize('NFKC')
+        if (normalized.length > segment.length * MAX_NFKC_EXPANSION) return false
+        const folded = foldHyphens(normalized)
+        let piece = ''
+        for (const char of folded) piece += HOMOGLYPHS[char] ?? char
+        out.push(piece)
+        return true
+    }
+    let expanded = false
+    for (const char of foldHyphens(value)) {
+        if (INVISIBLE_CHAR.test(char)) {
+            if (!flush()) {
+                expanded = true
+                break
+            }
+            out.push(char)
+        } else pending.push(char)
+    }
+    if (!expanded && !flush()) expanded = true
+    const result = expanded ? undefined : out.join('')
+    foldCache?.set(value, result)
+    return result
+}
 
-// The same characters are deleted, then NFKC and look-alike folding.
-const removedForm = (value: string): string => foldMarks(value.replace(INVISIBLE, '')).replace(INVISIBLE, '')
+// Invisible characters become spaces, then NFKC and look-alike folding. Undefined when NFKC grows too far.
+const foldText = (value: string): string | undefined => {
+    const folded = foldMarks(value.replace(INVISIBLE, ' '))
+    if (folded === undefined) return undefined
+    return folded.replace(INVISIBLE, ' ')
+}
 
-// Invisible characters and every other whitespace character are deleted.
-const compactForm = (value: string): string => removedForm(value).replace(/\s+/g, '')
+// The same characters are deleted, then NFKC and look-alike folding. Undefined when NFKC grows too far.
+const removedForm = (value: string): string | undefined => {
+    const folded = foldMarks(value.replace(INVISIBLE, ''))
+    if (folded === undefined) return undefined
+    return folded.replace(INVISIBLE, '')
+}
+
+// Invisible characters and every other whitespace character are deleted. Undefined when NFKC grows too far.
+const compactForm = (value: string): string | undefined => {
+    const removed = removedForm(value)
+    if (removed === undefined) return undefined
+    return removed.replace(/\s+/g, '')
+}
 
 // Percent-decoding and JSON unwrapping. Invisible characters stay in this pass so a break before a token prefix still counts.
 const decodeLayers = (start: string, state: { layers: number }): string | undefined => {
     let text = start
     for (;;) {
-        text = foldMarks(text)
+        const folded = foldMarks(text)
+        if (folded === undefined) return undefined
+        text = folded
         const trimmed = text.trim()
         if (trimmed.startsWith('"') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
             try {
@@ -282,32 +326,48 @@ const hasTokenOrEntropy = (text: string): boolean => TOKEN_PREFIX.test(text) || 
  * A token prefix is also checked after every whitespace character is removed.
  */
 const patternFails = (value: string): boolean => {
-    if (hasTokenOrUnsafePattern(value) || hasTokenOrUnsafePattern(foldText(value)) || hasTokenOrUnsafePattern(removedForm(value))) {
-        return true
-    }
-    return TOKEN_PREFIX.test(compactForm(value))
+    if (value.length > MAX_TEMPLATE_TEXT || hasTokenOrUnsafePattern(value)) return true
+    const folded = foldText(value)
+    if (folded === undefined || hasTokenOrUnsafePattern(folded)) return true
+    const removed = removedForm(value)
+    if (removed === undefined || hasTokenOrUnsafePattern(removed)) return true
+    const compact = compactForm(value)
+    if (compact === undefined) return true
+    return TOKEN_PREFIX.test(compact)
 }
 
 /** A token prefix or a long high-entropy run on the raw text, the spaced form, and the form with invisible characters removed. Spaces stay, so ordinary words are not joined into one run. The whitespace-free form is only for a token prefix, in patternFails. */
-const entropyFails = (value: string): boolean => [value, foldText(value), removedForm(value)].some((form) => hasTokenOrEntropy(form))
+const entropyFails = (value: string): boolean => {
+    if (value.length > MAX_TEMPLATE_TEXT || hasTokenOrEntropy(value)) return true
+    const folded = foldText(value)
+    if (folded === undefined || hasTokenOrEntropy(folded)) return true
+    const removed = removedForm(value)
+    if (removed === undefined || hasTokenOrEntropy(removed)) return true
+    return false
+}
 
 /**
  * Decoded text when the original and the fully decoded text are free of a token prefix and of an unsafe free-text pattern
  * on each checked form. Undefined when decoding cannot finish or any form matches.
  */
 const plainIfAllowed = (value: string): string | undefined => {
+    if (value.length > MAX_TEMPLATE_TEXT) return undefined
     const plain = plainForCheck(value)
-    if (patternFails(value)) return undefined
-    if (plain === undefined || patternFails(plain)) return undefined
+    if (plain === undefined) return undefined
+    if (patternFails(value) || patternFails(plain)) return undefined
     return plain
 }
 
 /** True when a string can be kept. The original value is kept or the whole value is left out. */
 const stringIsSafe = (value: unknown): value is string => {
-    if (typeof value !== 'string') return false
-    const plain = plainIfAllowed(value)
-    if (plain === undefined) return false
-    return !entropyFails(value) && !entropyFails(plain)
+    if (typeof value !== 'string' || value.length > MAX_TEMPLATE_TEXT) return false
+    // Reject an obvious raw match before normalization. Folded forms still run below.
+    if (hasTokenOrUnsafePattern(value)) return false
+    return withFoldCache(() => {
+        const plain = plainIfAllowed(value)
+        if (plain === undefined) return false
+        return !entropyFails(value) && !entropyFails(plain)
+    })
 }
 
 const isSafeStringName = (name: string): boolean => SAFE_STRING_NAME.test(name) || HTTP_TOOL_NAME.test(name)
@@ -360,18 +420,23 @@ const isNodeReference = (value: unknown, nodeIds: ReadonlySet<string>): boolean 
 
 /** A path segment or host label that matches a token prefix or a long high-entropy run, on the raw and decoded forms. Spaces stay for the long-run check. */
 const partHasSecret = (text: string): boolean => {
-    if (patternFails(text) || entropyFails(text)) return true
-    const plain = plainForCheck(text)
-    if (plain === undefined) return true
-    return plain !== text && (patternFails(plain) || entropyFails(plain))
+    if (text.length > MAX_TEMPLATE_TEXT) return true
+    return withFoldCache(() => {
+        if (patternFails(text) || entropyFails(text)) return true
+        const plain = plainForCheck(text)
+        if (plain === undefined) return true
+        return plain !== text && (patternFails(plain) || entropyFails(plain))
+    })
 }
 
 /** http or https, written back as scheme, host, and path. No user info, port, query, or fragment. */
 export const rebuildHttpUrl = (value: unknown): string | undefined => {
-    if (typeof value !== 'string' || !value.trim()) return undefined
+    if (typeof value !== 'string' || value.length === 0 || value.length > MAX_URL_TEXT) return undefined
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
     let url: URL
     try {
-        url = new URL(value.trim())
+        url = new URL(trimmed)
     } catch {
         return undefined
     }
@@ -399,11 +464,20 @@ const keepString = (value: unknown): string | undefined => (stringIsSafe(value) 
 
 /** A whole async option value that is only a UUID is not treated as a long high-entropy run. Spaces stay for that run. The whitespace-free form is only for a token prefix. */
 const keepAsyncOption = (value: unknown): string | undefined => {
-    if (typeof value !== 'string') return undefined
+    if (typeof value !== 'string' || value.length > MAX_TEMPLATE_TEXT) return undefined
+    return withFoldCache(() => keepAsyncOptionCached(value))
+}
+
+const keepAsyncOptionCached = (value: string): string | undefined => {
     const plain = plainIfAllowed(value)
     if (plain === undefined) return undefined
-    const spaced = [value, plain, foldText(plain), removedForm(plain)]
-    const joined = [compactForm(value), compactForm(plain)]
+    const folded = foldText(plain)
+    const removed = removedForm(plain)
+    const compactValue = compactForm(value)
+    const compactPlain = compactForm(plain)
+    if (folded === undefined || removed === undefined || compactValue === undefined || compactPlain === undefined) return undefined
+    const spaced = [value, plain, folded, removed]
+    const joined = [compactValue, compactPlain]
     if ([...spaced, ...joined].some((form) => TOKEN_PREFIX.test(form))) return undefined
     const isUuid = (form: string) => PLAIN_UUID.test(form.trim())
     const uuid = [...spaced, ...joined].some(isUuid)
@@ -490,9 +564,10 @@ const jsonContainer = (value: string): unknown | undefined => {
 /** A string uses the whole-value text check. A JSON array or object is safe only when every nested string is. */
 const toolValueIsSafe = (value: unknown): boolean => {
     if (typeof value === 'string') {
+        if (value.length > MAX_TEMPLATE_TEXT) return false
         const container = jsonContainer(value)
         if (container !== undefined) {
-            if (patternFails(value) || entropyFails(value)) return false
+            if (withFoldCache(() => patternFails(value) || entropyFails(value))) return false
             return toolValueIsSafe(container)
         }
         return stringIsSafe(value)
@@ -517,11 +592,13 @@ export const sanitizeToolTemplate = (tool: unknown): { iconSrc?: string; schema?
     const dropped: string[] = []
     const result: { iconSrc?: string; schema?: unknown; func?: string; dropped: string[] } = { dropped }
     if (!isBlank(source.func)) {
-        if (typeof source.func === 'string' && stringIsSafe(source.func)) result.func = source.func
+        if (typeof source.func === 'string' && source.func.length <= MAX_TEMPLATE_TEXT && stringIsSafe(source.func))
+            result.func = source.func
         else dropped.push('func')
     }
     if (source.schema !== undefined && source.schema !== null && source.schema !== '') {
-        if (typeof source.schema === 'string' || Array.isArray(source.schema) || asRecord(source.schema)) {
+        if (typeof source.schema === 'string' && source.schema.length > MAX_TEMPLATE_TEXT) dropped.push('schema')
+        else if (typeof source.schema === 'string' || Array.isArray(source.schema) || asRecord(source.schema)) {
             // Emit a rebuilt copy of what was checked, never the saved text: a JSON string is parsed and written again,
             // so a duplicate key or escaped text that the parsed value no longer holds is not carried over.
             const container = typeof source.schema === 'string' ? jsonContainer(source.schema) : source.schema
@@ -750,7 +827,8 @@ const EDGE_TYPES = new Set(['buttonedge', 'agentFlow'])
 const PLAIN_EDGE = /^[A-Za-z0-9_.:| -]{1,1000}$/
 
 // Connection ids are long structured strings, so the character set and token prefixes are checked.
-const plainEdgeString = (value: unknown): value is string => typeof value === 'string' && PLAIN_EDGE.test(value) && !patternFails(value)
+const plainEdgeString = (value: unknown): value is string =>
+    typeof value === 'string' && value.length <= 1000 && PLAIN_EDGE.test(value) && !patternFails(value)
 
 const emptyHandles = (): { outputs: Set<string>; inputs: Set<string> } => ({ outputs: new Set(), inputs: new Set() })
 
@@ -877,6 +955,7 @@ export const buildTemplateFlow = (
 const displayText = (value: unknown, field: string): string | undefined => {
     if (typeof value !== 'string') return undefined
     const limit = TEXT_LIMITS[field]
+    // Length is decided before any other work. Display fields stay shorter than template text.
     if (!limit || value.length === 0 || value.length > limit) return undefined
     return value
 }

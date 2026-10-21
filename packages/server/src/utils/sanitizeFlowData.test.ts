@@ -2213,6 +2213,162 @@ describe('scheme scans on long input', () => {
     })
 })
 
+describe('length and normalization caps', () => {
+    it('leaves out template text and addresses that are over the cap', () => {
+        const over = 'Hello. '.repeat(4000).slice(0, 20001)
+        const atCap = 'Hello. '.repeat(4000).slice(0, 20000)
+        expect(over.length).toBe(20001)
+        expect(atCap.length).toBe(20000)
+        const dropped = sanitizeNodeInputs({ prompt: over, temperature: 0.2 }, schemaParams as any)
+        expect(dropped.inputs.prompt).toBeUndefined()
+        expect(dropped.inputs.temperature).toBe(0.2)
+        expect(dropped.dropped).toContain('prompt')
+        const kept = sanitizeNodeInputs({ prompt: atCap }, schemaParams as any)
+        expect(kept.inputs.prompt).toBe(atCap)
+        expect(kept.dropped).toEqual([])
+        const tool = sanitizeToolTemplate({
+            func: over,
+            schema: over,
+            iconSrc: 'https://cdn.example/' + 'a'.repeat(9000) + '.png'
+        })
+        expect(tool.func).toBeUndefined()
+        expect(tool.schema).toBeUndefined()
+        expect(tool.iconSrc).toBeUndefined()
+        expect(tool.dropped).toEqual(['func', 'schema', 'iconSrc'])
+        expect(rebuildHttpUrl('https://cdn.example/' + 'a'.repeat(9000))).toBeUndefined()
+        expect(rebuildHttpUrl('https://cdn.example/' + 'a'.repeat(100))).toBe('https://cdn.example/' + 'a'.repeat(100))
+        const summary = publicChatflowSummary({
+            id: 'f1',
+            name: 'Bot',
+            isPublic: true,
+            apikeyid: '',
+            chatbotConfig: JSON.stringify({
+                title: 'T'.repeat(81),
+                welcomeMessage: 'Hi',
+                titleAvatarSrc: 'https://cdn.example/' + 'a'.repeat(9000)
+            })
+        })
+        expect(summary.chatbotConfig).toBe(JSON.stringify({ welcomeMessage: 'Hi' }))
+    })
+
+    it('leaves out a value when NFKC makes a run more than four times longer', () => {
+        const expanded = '\uFDFA'.repeat(8)
+        const dropped = sanitizeNodeInputs({ prompt: expanded, temperature: 0.1 }, schemaParams as any)
+        expect(dropped.inputs.prompt).toBeUndefined()
+        expect(dropped.inputs.temperature).toBe(0.1)
+        expect(sanitizeToolTemplate({ func: expanded, schema: '[]' }).func).toBeUndefined()
+        const mild = 'Answer briefly. ' + '\uFDFA'
+        expect(mild.normalize('NFKC').length).toBeLessThanOrEqual(mild.length * 4)
+        expect(sanitizeNodeInputs({ prompt: mild }, schemaParams as any).inputs.prompt).toBe(mild)
+    })
+})
+
+describe('entry point timing', () => {
+    const sizes = [100000, 200000]
+    const kinds: Array<[string, (size: number) => string]> = [
+        ['fdfa', (size) => '\uFDFA'.repeat(size)],
+        ['cyrillic', (size) => 'Привет '.repeat(Math.ceil(size / 'Привет '.length)).slice(0, size)],
+        ['slashes', (size) => '/'.repeat(size)],
+        ['hyphens', (size) => '\u2010\u2011\u2012\u2013\u2014\u2015\u2212'.repeat(Math.ceil(size / 7)).slice(0, size)],
+        ['quotes', (size) => '{"a":"b",'.repeat(Math.ceil(size / 9)).slice(0, size)],
+        [
+            'runs',
+            (size) => {
+                const block = Array.from({ length: 31 }, (_, index) => 'a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTu'[index % 29]).join('') + ' '
+                return block.repeat(Math.ceil(size / block.length)).slice(0, size)
+            }
+        ]
+    ]
+    const entries = [
+        'sanitizeNodeInputs',
+        'buildTemplateFlow',
+        'sanitizeToolTemplate',
+        'publicChatbotDisplayConfig',
+        'rebuildHttpUrl',
+        'publicChatflowSummary'
+    ] as const
+    const cases: Array<[string, number, (typeof entries)[number], (size: number) => string]> = []
+    for (const size of sizes) {
+        for (const [kind, make] of kinds) {
+            for (const entry of entries) cases.push([`${entry} ${kind} ${size}`, size, entry, make])
+        }
+    }
+
+    const runEntry = (entry: (typeof entries)[number], text: string) => {
+        if (entry === 'sanitizeNodeInputs') {
+            sanitizeNodeInputs(
+                { prompt: text, systemMessage: text, systemMessagePrompt: text, basepath: text, modelName: text },
+                schemaParams as any
+            )
+            return
+        }
+        if (entry === 'buildTemplateFlow') {
+            buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: 'conversationChain_0',
+                            type: 'customNode',
+                            position: { x: 0, y: 0 },
+                            data: { name: 'conversationChain', inputs: { systemMessagePrompt: text, basepath: text } }
+                        }
+                    ],
+                    edges: []
+                },
+                {
+                    conversationChain: {
+                        name: 'conversationChain',
+                        label: 'Chain',
+                        inputParams: [
+                            { name: 'systemMessagePrompt', type: 'string' },
+                            { name: 'basepath', type: 'string' }
+                        ]
+                    }
+                }
+            )
+            return
+        }
+        if (entry === 'sanitizeToolTemplate') {
+            sanitizeToolTemplate({ func: text, schema: text, iconSrc: text })
+            return
+        }
+        if (entry === 'publicChatbotDisplayConfig') {
+            publicChatbotDisplayConfig({
+                title: text,
+                welcomeMessage: text,
+                errorMessage: text,
+                placeholder: text,
+                titleAvatarSrc: text,
+                starterPrompts: [{ prompt: text }],
+                botMessage: { avatarSrc: text },
+                textInput: { placeholder: text }
+            })
+            return
+        }
+        if (entry === 'rebuildHttpUrl') {
+            rebuildHttpUrl(text)
+            return
+        }
+        publicChatflowSummary({
+            id: 'f1',
+            name: text,
+            isPublic: true,
+            apikeyid: '',
+            chatbotConfig: text
+        })
+    }
+
+    it.each(cases)('%s finishes under 200 ms', (label, size, entry, make) => {
+        const text = make(size)
+        expect(text.length).toBe(size)
+        const started = performance.now()
+        runEntry(entry, text)
+        const elapsed = performance.now() - started
+        console.info(`timing ${label} ${elapsed.toFixed(1)}`)
+        expect(elapsed).toBeLessThan(200)
+    })
+})
+
 describe('non-ASCII hosts', () => {
     it('leaves out an address whose host needs punycode', () => {
         const lookalike = '\u0455k' + '-' + 'FAKEqa9X7mP2'
