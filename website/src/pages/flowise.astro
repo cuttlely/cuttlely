@@ -11,9 +11,9 @@ import { REPO_URL } from '../../scripts/site-config.mjs'
 const publicDir = path.resolve(process.cwd(), 'public')
 const mediaUrl = (urlPath: string) => versionedMedia(urlPath, publicDir)
 
-const title = 'Bring your Flowise flows: import, no rebuild | Cuttlely'
+const title = 'Bring your flows over: import, no rebuild | Cuttlely'
 const description =
-    'Import Flowise JSON opens your chatflows and agentflows node for node. See what carries over, then try it in three commands. Open source, Apache-2.0.'
+    'Open your exported chatflows and agentflows node for node. See what carries over, then try it in three commands. Open source, Apache-2.0.'
 
 const curlDiff = `- curl -s http://localhost:3000/api/v1/prediction/cf_bakery_helper_7a2c -H "Content-Type: application/json" -d '{"question":"How much are two croissants?"}'
 + curl -s http://localhost:43117/api/v1/prediction/cf_bakery_helper_7a2c -H "Content-Type: application/json" -d '{"question":"How much are two croissants?"}'`
@@ -35,7 +35,7 @@ const after = [
 
 <StarlightPage
     frontmatter={{
-        title: 'Bring your Flowise flows: import, no rebuild',
+        title: 'Bring your flows over: import, no rebuild',
         description,
         template: 'splash',
         head: [{ tag: 'title', content: title }],
@@ -48,7 +48,7 @@ const after = [
         <section class="cl-hero" aria-labelledby="_top">
             <div class="cl-hero-copy">
                 <p class="cl-eyebrow"><span class="cl-dot" aria-hidden="true"></span>The visual agent builder, ready for production.</p>
-                <h1 id="_top" class="cl-display cl-hero-title">Bring your Flowise flows.</h1>
+                <h1 id="_top" class="cl-display cl-hero-title">Bring your flows over.</h1>
                 <p class="cl-hero-lead">Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p>
                 <p class="cl-hero-proof">
                     Import Flowise JSON opens a chatflow or agentflow on the canvas, node for node. You pick your credentials again, and everything that doesn't
@@ -230,6 +230,28 @@ const after = [
                     ))
                 }
             </ul>
+        </section>
+
+        <section id="security-advisories" class="cl-section" aria-labelledby="advisories-title">
+            <h2 id="advisories-title" class="cl-display">Security advisories we checked</h2>
+            <p>We read the code at v1.3.0 against the six advisories on Flowise 3.1.4 that list no patched release:</p>
+            <ul class="cl-flowise-list">
+                <li>
+                    Five don't apply. The chat-message (<a href="https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-ppmg-4cx6-95hh">GHSA-ppmg-4cx6-95hh</a>), upsert-history (<a href="https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-jvx3-mjpw-r4gh">GHSA-jvx3-mjpw-r4gh</a>) and credential
+                    (<a href="https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-27w2-26m5-x82c">GHSA-27w2-26m5-x82c</a>) routes check permissions and team. The BullMQ dashboard isn't mounted (<a href="https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-rpcc-gw54-mfgx">GHSA-rpcc-gw54-mfgx</a>).
+                    There's no multi-provider SSO (<a href="https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-cffm-583c-vffr">GHSA-cffm-583c-vffr</a>).
+                </li>
+                <li>
+                    The sixth, invites activated by an email match (<a href="https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-vf3j-89vf-r697">GHSA-vf3j-89vf-r697</a>), is fixed in 1.3.0. A pending invite needs its one-time
+                    link. One caveat: someone added with <strong>Add User</strong> before 1.3.0 was stored as active and can still join by email match, so
+                    remove and re-invite them to require the link.
+                </li>
+            </ul>
+            <p>
+                We also checked an older file-write advisory, <a href="https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-8vvx-qvq9-5948">GHSA-8vvx-qvq9-5948</a>, for Flowise 2.2.7 and earlier. The storage helpers it names
+                sanitize the file name in every storage provider.
+            </p>
+            <p>This is a code read, not a pen test. If you find something, please report it privately through <a href="/security/">Security</a>.</p>
         </section>
 
         <section id="send-a-flow-that-breaks" class="cl-section cl-final" aria-labelledby="break-title">
