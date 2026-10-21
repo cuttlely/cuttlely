@@ -150,7 +150,7 @@ The full rules are in [Invite people](./how-to/sign-in.md#invite-people) and [Se
 
 -   **New installs.** A server with no account opens one `/setup` page. The server log prints a ready block with the `/setup#code=` link and a setup code, and prints it again every five minutes while setup is open. The code lasts 60 minutes and works once. An install that already has an owner is not affected.
 -   **Building from source.** `pnpm install` now fails on a Node version below 24 (`engine-strict=true`). The Docker image already uses Node 24.
--   **MCP, A2A and Orchestrate callers.** JSON bodies over 1 MB are refused with `413`. MCP `POST /api/v1/mcp/<flow id>` now applies the flow's **Rate Limit**, and `GET` answers `405`.
+-   **MCP and Orchestrate callers.** JSON bodies over 1 MB are refused with `413`. MCP `POST /api/v1/mcp/<flow id>` now applies the flow's **Rate Limit**, and `GET` answers `405`.
 -   **Shared chat pages.** The public chatflow config no longer returns `overrideConfig`, so a shared chat page no longer sends saved overrides with each question.
 
 ## How upgrades are tested

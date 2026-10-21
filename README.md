@@ -19,7 +19,7 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 
 Cuttlely (said like "cuddly") is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.
 
-**1.3.1 is out.** Every flow can be an MCP server, and published chatflows answer IBM watsonx Orchestrate agents. [Changelog](./CHANGELOG.md#131---2026-10-21)
+**1.3.1 is out.** Any published chatflow or agentflow can be an MCP server, and published chatflows answer IBM watsonx Orchestrate agents. [Changelog](./CHANGELOG.md#131---2026-10-21)
 
 ## Contents
 
@@ -136,7 +136,7 @@ Harness Prime split the question: `baker` priced the order and `orders` checked 
 
 ## Every flow an MCP server
 
-Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish.
+Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish. [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely)
 
 -   **Off until you turn it on.** Turn on **MCP Server** for a flow to get a Streamable HTTP endpoint (`/api/v1/mcp/<flow id>`) and a bearer token.
 -   **Live or published flows only, each flow is one tool call.** Calls never run the draft, and a call keeps no memory of earlier calls. The flow's Rate Limit applies, and request bodies over 1 MB are refused.
