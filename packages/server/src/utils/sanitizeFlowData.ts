@@ -27,7 +27,7 @@ const URL_FIELD_NAME = /^base(?:path|url)$/i
 const HEADER_NAME = /headers$/i
 // Canvas ids are `<nodeName>_<n>` (chatOpenAI_0). A link is only that id's `.data.instance`.
 const NODE_REFERENCE = /^\{\{([A-Za-z][A-Za-z0-9_]*_\d+)\.data\.instance\}\}$/
-const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-)/i
+const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-|xai-)/i
 const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
 // In func, a slash ends a run. A path is not one long run.
 const HIGH_ENTROPY_RUN_CODE = /[A-Za-z0-9+=_-]{32,}/g

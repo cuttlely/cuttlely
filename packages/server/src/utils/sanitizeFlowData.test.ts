@@ -426,6 +426,29 @@ describe('template inputs', () => {
         expect(sanitizeToolTemplate({ func: 1, schema: 2, iconSrc: 'javascript:alert(1)' }).dropped).toEqual(['func', 'schema', 'iconSrc'])
     })
 
+    it('drops a provider prefix on a prompt and on func', () => {
+        const prefix = ['x', 'ai', '-'].join('')
+        const samples = [
+            prefix + 'abc',
+            prefix + 'FAKE' + 'BODY' + '91',
+            ['X', 'AI', '-'].join('') + 'abc',
+            '\u0445\u0430\u0456-' + 'abc',
+            ['x', 'ai', '\u2010'].join('') + 'abc'
+        ]
+        for (const sample of samples) {
+            const prompt = sanitizeNodeInputs({ prompt: 'Use ' + sample, temperature: 0.2 }, schemaParams as any)
+            expect(prompt.inputs.prompt).toBeUndefined()
+            expect(prompt.inputs.temperature).toBe(0.2)
+            expect(sanitizeToolTemplate({ func: 'const t = "' + sample + '"' }).func).toBeUndefined()
+        }
+        const spaced = ['x', ' ai', '-'].join('') + 'abc'
+        expect(sanitizeNodeInputs({ prompt: spaced }, schemaParams as any).inputs.prompt).toBeUndefined()
+        expect(sanitizeToolTemplate({ func: 'const t = "' + spaced + '"' }).func).toBeUndefined()
+        const embedded = ['max', 'ai', '-', 'tool'].join('')
+        expect(sanitizeNodeInputs({ prompt: 'Use ' + embedded }, schemaParams as any).inputs.prompt).toBe('Use ' + embedded)
+        expect(sanitizeToolTemplate({ func: 'const name = "' + embedded + '"' }).func).toBe('const name = "' + embedded + '"')
+    })
+
     it('drops text when a percent sequence is split by an invisible character', () => {
         const marker = 'FAKE' + 'PCT' + '91'
         const tail = 'k' + '-' + marker
