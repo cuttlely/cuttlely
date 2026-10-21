@@ -2057,3 +2057,19 @@ describe('public display fields', () => {
         expect(result).toEqual({ welcomeMessage: 'Hi', starterPrompts: [{ prompt: 'A' }] })
     })
 })
+
+describe('long crafted text', () => {
+    it('checks long repeated text in linear time', () => {
+        const samples = ['A'.repeat(200000), 'A'.repeat(200000) + ':', 'a1+.-'.repeat(40000) + ': ', ('A'.repeat(500) + ' ').repeat(400)]
+        for (const sample of samples) {
+            const started = Date.now()
+            sanitizeToolTemplate({ func: sample, schema: sample })
+            expect(Date.now() - started).toBeLessThan(2000)
+        }
+    })
+
+    it('still drops a scheme-like word and keeps a spaced label', () => {
+        expect(sanitizeToolTemplate({ func: 'call mailto:someone' }).func).toBeUndefined()
+        expect(sanitizeToolTemplate({ func: 'Note: be brief' }).func).toBe('Note: be brief')
+    })
+})

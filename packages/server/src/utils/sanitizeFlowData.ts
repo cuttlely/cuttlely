@@ -31,7 +31,7 @@ const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-)/i
 const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
 const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // word: followed by a non-space character. Checked on the original, normalized, and fully decoded text.
-const SCHEME_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\S/
+// Scanned in one pass (see hasSchemeLike) so the time stays linear in the text length.
 // A known scheme whose colon is followed by a tab or a line break. A normal space after the colon stays allowed.
 // Ordinary labels such as "History:" are not in this list.
 const NAMED_SCHEME_ACROSS_BREAK =
@@ -245,11 +245,32 @@ const hasHighEntropyRun = (text: string): boolean => {
     return false
 }
 
+const isAsciiLetter = (c: string): boolean => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+const isSchemeChar = (c: string): boolean => isAsciiLetter(c) || (c >= '0' && c <= '9') || c === '+' || c === '.' || c === '-'
+
+/** A letter, then letters, digits, `+`, `.` or `-`, then `:` and a non-space character. One linear pass, no regex. */
+const hasSchemeLike = (text: string): boolean => {
+    let runHasLetter = false
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i]
+        if (c === ':') {
+            const next = text[i + 1]
+            if (runHasLetter && next !== undefined && !/\s/.test(next)) return true
+            runHasLetter = false
+        } else if (isSchemeChar(c)) {
+            if (isAsciiLetter(c)) runHasLetter = true
+        } else {
+            runHasLetter = false
+        }
+    }
+    return false
+}
+
 const hasNamedSchemeAcrossBreak = (text: string): boolean => NAMED_SCHEME_ACROSS_BREAK.test(text)
 
 /** //, an @ with a non-space on both sides, or a scheme-like word: immediately followed by a non-space. A named scheme with a tab or a line break after the colon counts too. */
 const hasUnsafeFreeText = (text: string): boolean =>
-    text.includes('//') || /\S@\S/.test(text) || SCHEME_LIKE.test(text) || hasNamedSchemeAcrossBreak(text)
+    text.includes('//') || /\S@\S/.test(text) || hasSchemeLike(text) || hasNamedSchemeAcrossBreak(text)
 
 const hasTokenOrUnsafePattern = (text: string): boolean => TOKEN_PREFIX.test(text) || hasUnsafeFreeText(text)
 
