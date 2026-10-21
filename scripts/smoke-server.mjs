@@ -69,6 +69,27 @@ function cookieHeader(response) {
     return list.map((cookie) => cookie.split(';')[0]).join('; ')
 }
 
+// The printed setup link carries the one-time code after #code=, or ?code= on an older checkout.
+const SETUP_CODE_IN_LOG = /(?:#code=|[?&]code=)([A-Za-z0-9_-]+)/
+
+export function setupCodeFromLogs(logs) {
+    const text = Array.isArray(logs) ? logs.join('') : String(logs || '')
+    const match = text.match(SETUP_CODE_IN_LOG)
+    return match ? match[1] : ''
+}
+
+/** Poll captured logs until the setup code line shows up, or the timeout passes. */
+export async function waitForSetupCode(source, timeoutMs = 15000) {
+    const started = Date.now()
+    for (;;) {
+        const ready = source && typeof source.setupCode === 'string' ? source.setupCode : ''
+        const code = ready || setupCodeFromLogs(source && source.logs != null ? source.logs : source)
+        if (code) return code
+        if (Date.now() - started >= timeoutMs) return ''
+        await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+}
+
 export async function request(url, { method = 'GET', cookie = '', body, timeoutMs = 30000 } = {}) {
     const headers = { 'x-request-from': 'internal' }
     if (cookie) headers.cookie = cookie
@@ -219,6 +240,8 @@ export async function waitForPing(base, child, logs) {
 
 export function startServer(dataDir, port, extra) {
     const logs = []
+    let setupCode = ''
+    let pending = ''
     const child = spawn(process.execPath, ['-r', SSO_GUARD, '-r', PRELOAD, path.join(SERVER, 'bin', 'run'), 'start'], {
         cwd: SERVER,
         env: childEnv(dataDir, port, extra),
@@ -226,8 +249,14 @@ export function startServer(dataDir, port, extra) {
         stdio: ['ignore', 'pipe', 'pipe']
     })
     const keep = (chunk) => {
-        logs.push(String(chunk))
+        const text = String(chunk)
+        logs.push(text)
         if (logs.length > 80) logs.shift()
+        if (!setupCode) {
+            pending = (pending + text).slice(-240)
+            const match = pending.match(SETUP_CODE_IN_LOG)
+            if (match) setupCode = match[1]
+        }
     }
     child.stdout.on('data', keep)
     child.stderr.on('data', keep)
@@ -238,7 +267,14 @@ export function startServer(dataDir, port, extra) {
             child.kill('SIGTERM')
         }
     }
-    return { child, logs, stop }
+    return {
+        child,
+        logs,
+        stop,
+        get setupCode() {
+            return setupCode || setupCodeFromLogs(logs)
+        }
+    }
 }
 
 async function bootClosedRegister() {
@@ -340,7 +376,8 @@ async function main() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-smoke-'))
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
-    const { child, logs, stop } = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
+    const started = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
+    const { child, logs, stop } = started
     process.on('exit', stop)
     try {
         console.log(`smoke server ${base} data ${dataDir}`)
@@ -354,9 +391,11 @@ async function main() {
         })
         if (forgot.status !== 404) throw new Error(`forgot-password ${forgot.status}: ${forgot.text.slice(0, 200)}`)
 
+        const setupCode = await waitForSetupCode(started)
+        if (!setupCode) throw new Error('the server log had no setup code')
         const registered = await request(`${base}/api/v1/account/register`, {
             method: 'POST',
-            body: { user: { name: 'Smoke', email: EMAIL, credential: PASSWORD } }
+            body: { user: { name: 'Smoke', email: EMAIL, credential: PASSWORD }, setupCode }
         })
         if (registered.status !== 200) throw new Error(`register ${registered.status}: ${registered.text.slice(0, 400)}`)
         const loggedIn = await request(`${base}/api/v1/auth/login`, {

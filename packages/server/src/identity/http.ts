@@ -41,6 +41,7 @@ import { requireAnyPermission, requirePermission } from './rbac'
 import { acceptLocalRoute, registerInvite } from './directoryRoutes'
 import { authOptionsBody, signInOptionsBody } from './signInOptions'
 import { buildAuthContext } from './production'
+import { applySetupHeaders } from './sessionGuard'
 import { HandlerResult } from './types'
 
 function apply(res: Response, result: Exclude<HandlerResult, { type: 'next' }>): void {
@@ -220,7 +221,10 @@ function gone(_req: Request, res: Response) {
 
 export const identityAccountRouter = Router()
 identityAccountRouter.post('/logout', (req, res, next) => void dispatch(req, res, next, handleLogout))
-identityAccountRouter.post('/register', (req, res, next) => void dispatch(req, res, next, handleRegister))
+identityAccountRouter.post('/register', (req, res, next) => {
+    applySetupHeaders(res)
+    void dispatch(req, res, next, handleRegister)
+})
 identityAccountRouter.post('/forgot-password', (req, res, next) => void dispatch(req, res, next, handlePasswordRecoveryGone))
 identityAccountRouter.post('/reset-password', (req, res, next) => void dispatch(req, res, next, handlePasswordRecoveryGone))
 identityAccountRouter.post('/resend-verification', gone)

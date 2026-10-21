@@ -917,10 +917,11 @@ async function expectHidden(page, text) {
     }
 }
 
-export async function runCanvasActions(base, dataDir) {
+export async function runCanvasActions(base, dataDir, setupCode = '') {
+    const user = { name: 'Canvas Actions', email: EMAIL, credential: PASSWORD }
     const registered = await request(`${base}/api/v1/account/register`, {
         method: 'POST',
-        body: { user: { name: 'Canvas Actions', email: EMAIL, credential: PASSWORD } }
+        body: setupCode ? { user, setupCode } : { user }
     })
     if (registered.status !== 200 && registered.status !== 404) {
         throw new Error(`register ${registered.status}: ${registered.text.slice(0, 200)}`)
@@ -1022,12 +1023,13 @@ async function main() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-canvas-actions-'))
     const port = await freePort()
     const base = `http://127.0.0.1:${port}`
-    const { child, logs, stop } = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
+    const started = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
     try {
-        await waitForPing(base, child, logs)
-        await runCanvasActions(base, dataDir)
+        await waitForPing(base, started.child, started.logs)
+        if (!started.setupCode) throw new Error('the server log had no setup code')
+        await runCanvasActions(base, dataDir, started.setupCode)
     } finally {
-        stop()
+        started.stop()
         fs.rmSync(dataDir, { recursive: true, force: true })
     }
 }

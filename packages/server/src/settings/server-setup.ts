@@ -3,12 +3,19 @@
 // a first account, or set up AuthKit after a test sign-in. The link works once and stops working as soon as the
 // first account exists, a sign-in method is on, or the setup is done.
 import { Request } from 'express'
-import { firstRunSetupCodeRetired, noSignInMethod, retireFirstRunSetupCode, setupCodeMatches } from '../identity/setupCode'
+import {
+    noSignInMethod,
+    reissueExpiredSetupCode,
+    retireFirstRunSetupCode,
+    setupCodeMatches,
+    setupCodeRetired,
+    storedSetupCodeLive
+} from '../identity/setupCode'
 import { hashPassword, passwordErrors } from '../identity/password'
-import { CreateOwnerInput, UserRow } from '../identity/types'
+import { CreateOwnerInput, NotEmptyError, SetupCodeRejected, UserRow } from '../identity/types'
 import { Principal } from './authkit'
 import { ServiceDeps, SettingView, SettingsError, getView, restartNow, writeValues } from './service'
-import { setupSessionHash } from './setup-session'
+import { setupSessionCodeHmac, setupSessionHash } from './setup-session'
 
 export const SETUP_BY = 'setup link'
 export const SIGNIN_SECTION = 'signin'
@@ -17,7 +24,7 @@ const EMAIL = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/
 
 export interface SetupUsers {
     countUsers(): Promise<number>
-    createOwner(input: CreateOwnerInput): Promise<UserRow>
+    createOwner(input: CreateOwnerInput, options?: { consumeSetupHmac?: string; now?: number }): Promise<UserRow>
 }
 
 export interface SetupDeps {
@@ -29,7 +36,7 @@ export type SetupClosedReason = 'used' | 'signin-on' | 'has-account'
 
 /** Why the link no longer works, or null while it still does. */
 export async function setupClosed(deps: SetupDeps): Promise<SetupClosedReason | null> {
-    if (firstRunSetupCodeRetired()) return 'used'
+    if (await setupCodeRetired()) return 'used'
     if (!noSignInMethod(deps.service.env)) return 'signin-on'
     if ((await deps.users().countUsers()) > 0) return 'has-account'
     return null
@@ -43,7 +50,7 @@ export const CLOSED_MESSAGE: Record<SetupClosedReason, string> = {
 
 /** True when the code from the link is right and the link still works. */
 export async function codeOpensSetup(deps: SetupDeps, code: unknown): Promise<boolean> {
-    if (!setupCodeMatches(code)) return false
+    if (!(await setupCodeMatches(code))) return false
     return (await setupClosed(deps)) === null
 }
 
@@ -86,14 +93,15 @@ export async function setupState(deps: SetupDeps): Promise<SetupState> {
 
 /** Ends the link and restarts when the server can, else answers with what to do. */
 export async function finishSetup(deps: SetupDeps): Promise<{ restarting: boolean; steps: string[] }> {
-    retireFirstRunSetupCode()
+    await retireFirstRunSetupCode()
     return restartNow(deps.service, SETUP_BY)
 }
 
 /** Use a password for now: creates the first account (the owner) and turns the password sign-in on. */
 export async function createOwnerFromSetup(
     deps: SetupDeps,
-    body: unknown
+    body: unknown,
+    req: Request
 ): Promise<{ restarting: boolean; steps: string[]; email: string }> {
     const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
     const name = typeof input.name === 'string' ? input.name.trim() : ''
@@ -114,11 +122,29 @@ export async function createOwnerFromSetup(
     }
     const closed = await setupClosed(deps)
     if (closed) throw new SettingsError(410, 'SETUP_CLOSED', CLOSED_MESSAGE[closed])
+    // The HMAC bound when this browser opened the link, checked against the stored row. This process may no
+    // longer have the plaintext (a restart, or a second copy that did not print the link).
+    const hmac = setupSessionCodeHmac(req)
+    if (!hmac || !(await storedSetupCodeLive(hmac))) {
+        await reissueExpiredSetupCode()
+        throw new SettingsError(410, 'SETUP_CLOSED', 'Open the setup link from the server log again.')
+    }
     // Turn the password sign-in on first: if the file can't be written, no account exists that nobody can use. If
     // the account can't be created, the link keeps working for another try (and after a restart the password
     // sign-in offers the usual first-account link).
     await writeValues(deps.service, { CUTTLELY_LOCAL_ADMIN: 'true' }, SETUP_BY, 'save', 'Password sign-in turned on from the setup link.')
-    await deps.users().createOwner({ email, name, credential: await hashPassword(password), externalId: null })
+    try {
+        await deps
+            .users()
+            .createOwner(
+                { email, name, credential: await hashPassword(password), externalId: null },
+                { consumeSetupHmac: hmac, now: Date.now() }
+            )
+    } catch (error) {
+        if (error instanceof NotEmptyError) throw new SettingsError(410, 'SETUP_CLOSED', CLOSED_MESSAGE['has-account'])
+        if (error instanceof SetupCodeRejected) throw new SettingsError(410, 'SETUP_CLOSED', CLOSED_MESSAGE.used)
+        throw error
+    }
     const restart = await finishSetup(deps)
     return { ...restart, email }
 }

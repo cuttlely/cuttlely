@@ -8,7 +8,7 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { authSecret, initAuthSecrets, resetAuthSecretsForTests } from './authSecrets'
+import { authSecret, ensureInstanceSecret, initAuthSecrets, resetAuthSecretsForTests } from './authSecrets'
 
 const KEYS = [
     'JWT_AUTH_TOKEN_SECRET',
@@ -71,6 +71,22 @@ describe('initAuthSecrets', () => {
         expect(stored.length).toBeGreaterThan(0)
         expect(authSecret('JWT_AUTH_TOKEN_SECRET')).toBe(stored)
         expect(authSecret('JWT_AUTH_TOKEN_SECRET')).not.toBe('cuttlely')
+        fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('creates the instance secret file once and leaves an existing file in place', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-auth-ensure-'))
+        process.env.SECRETKEY_PATH = dir
+        delete process.env.TOKEN_HASH_SECRET
+        const first = ensureInstanceSecret('TOKEN_HASH_SECRET')
+        const filePath = path.join(dir, 'token-hash.secret')
+        expect(fs.readFileSync(filePath, 'utf8')).toBe(first)
+        expect(first.includes('setup-code-compare')).toBe(false)
+        expect(first.length).toBeGreaterThan(16)
+        fs.writeFileSync(filePath, 'already-stored-secret-value')
+        resetAuthSecretsForTests()
+        expect(ensureInstanceSecret('TOKEN_HASH_SECRET')).toBe('already-stored-secret-value')
+        expect(fs.readFileSync(filePath, 'utf8')).toBe('already-stored-secret-value')
         fs.rmSync(dir, { recursive: true, force: true })
     })
 })

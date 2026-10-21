@@ -15,6 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { setupCodeFromLogs } from './smoke-server.mjs'
 import { dataEnv, freePort, login, nodeCount, request, startServer, versionList, waitForPing } from './upgrade-check.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -229,11 +230,13 @@ function must(res, what) {
     return res.json
 }
 
-async function makeData(base) {
+async function makeData(base, logs) {
+    const setupCode = setupCodeFromLogs(logs)
+    if (!setupCode) throw new Error('the server log had no setup code')
     must(
         await request(`${base}/api/v1/account/register`, {
             method: 'POST',
-            body: { user: { name: ACCOUNT.name, email: ACCOUNT.email, credential: ACCOUNT.password } }
+            body: { user: { name: ACCOUNT.name, email: ACCOUNT.email, credential: ACCOUNT.password }, setupCode }
         }),
         'register'
     )
@@ -331,7 +334,7 @@ async function main() {
     let expected
     try {
         await waitForPing(base, server)
-        expected = await makeData(base)
+        expected = await makeData(base, server.logs)
     } finally {
         await server.stop()
     }

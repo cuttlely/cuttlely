@@ -1,4 +1,4 @@
-// The one-time setup page: /server-setup?code=... from the server log, on a server where nobody can sign in yet
+// The one-time setup page: /server-setup#code=... from the server log, on a server where nobody can sign in yet
 // (for example Render without AuthKit). It reaches only Sign-in & identity: a first account with a password, or
 // AuthKit after a test sign-in. The link works once.
 import { useEffect, useState } from 'react'
@@ -12,7 +12,8 @@ import Logo from '@/ui-component/extended/Logo'
 import Mascot from '@/ui-component/extended/Mascot'
 import serverSetupApi from '@/api/serverSetup'
 import AuthKitWizard from '@/views/serversettings/AuthKitWizard'
-import { addressWithoutCode, fieldErrors, ownerProblems, setupProblem } from './model'
+import { readAndClearSetupCode } from '@/utils/firstRun'
+import { fieldErrors, ownerProblems, setupProblem } from './model'
 
 const ChoiceCard = ({ icon: Icon, title, body, onClick, disabled, note, testId }) => {
     const theme = useTheme()
@@ -296,12 +297,11 @@ const ServerSetupPage = () => {
     const resume = params.get('authkit') === 'done' || params.get('authkit') === 'expired'
 
     useEffect(() => {
-        const code = params.get('code')
+        const code = readAndClearSetupCode()
         const run = async () => {
             try {
                 if (code) {
                     await serverSetupApi.open(code)
-                    window.history.replaceState(null, '', addressWithoutCode(window.location.href))
                 }
                 const res = await serverSetupApi.getState()
                 setState(res.data)

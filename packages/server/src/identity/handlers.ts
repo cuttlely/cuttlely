@@ -40,10 +40,18 @@ import {
 } from './password'
 import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
-import { isLoopbackAddress } from './sessionGuard'
-import { setupCodeMatches } from './setupCode'
+import { noteSetupFailure, reissueExpiredSetupCode, setupCodeHmac, setupCodeMatches } from './setupCode'
 import { IdentityStore } from './store'
-import { HandlerResult, LocalSession, SessionUser, SetCookie, WorkosPort, WorkosUnavailableError } from './types'
+import {
+    HandlerResult,
+    LocalSession,
+    NotEmptyError,
+    SessionUser,
+    SetCookie,
+    SetupCodeRejected,
+    WorkosPort,
+    WorkosUnavailableError
+} from './types'
 
 export interface AuthContext {
     workosConfigured: boolean
@@ -55,6 +63,8 @@ export interface AuthContext {
     secure: boolean
     now: number
     ip: string
+    /** Socket remote address. Failure limits use this value. */
+    socketAddress: string
     internal: boolean
     code?: string
     body: Record<string, unknown>
@@ -74,6 +84,7 @@ export interface AuthContext {
 const INVALID_LOGIN = 'Invalid email or password.'
 export const SETUP_LINK_NEEDED =
     'Open the setup link from the server log to create the first account. With Docker, run: docker compose logs cuttlely'
+export const SETUP_TOO_MANY = 'Too many attempts. Try again later.'
 export const TOO_MANY = 'Too many sign-in attempts. Try again later.'
 
 async function accountId(ctx: AuthContext, email: string): Promise<string | null> {
@@ -455,10 +466,9 @@ export async function handleResolve(ctx: AuthContext): Promise<HandlerResult> {
 
 export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.localAdmin) return json(404, { message: 'Not Found' })
+    if (!ctx.internal) return json(401, { message: 'Unauthorized' })
     if ((await ctx.store.countUsers()) > 0) return json(404, { message: 'Not Found' })
-    // The setup form on this machine is loopback. Anything else, such as Docker's published port, needs the one-time
-    // code from the setup link the server prints in its log.
-    if (!isLoopbackAddress(ctx.ip) && !setupCodeMatches(ctx.body.setupCode)) return json(400, { message: SETUP_LINK_NEEDED })
+    const address = ctx.socketAddress || 'unknown'
     const user = ctx.body.user
     if (!user || typeof user !== 'object') return json(400, { message: 'Name, email, and password are required.' })
     const record = user as Record<string, unknown>
@@ -468,13 +478,32 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     if (!name || name.length > 100 || !email || !credential) return json(400, { message: 'Name, email, and password are required.' })
     const errors = passwordErrors(credential)
     if (errors.length) return json(400, { message: errors[0] })
-    const created = await ctx.store.createOwner({
-        email,
-        name,
-        credential: await hashPassword(credential),
-        externalId: null
-    })
-    return json(200, { message: 'Account created', id: created.id })
+    // The one-time code from the setup link is required before the password is hashed.
+    const hmac = setupCodeHmac(ctx.body.setupCode)
+    if (!hmac || !(await setupCodeMatches(ctx.body.setupCode, ctx.now))) {
+        await reissueExpiredSetupCode(ctx.now)
+        if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
+        return json(400, { message: SETUP_LINK_NEEDED })
+    }
+    try {
+        const created = await ctx.store.createOwner(
+            {
+                email,
+                name,
+                credential: await hashPassword(credential),
+                externalId: null
+            },
+            { consumeSetupHmac: hmac, now: ctx.now }
+        )
+        return json(200, { message: 'Account created', id: created.id })
+    } catch (error) {
+        if (error instanceof NotEmptyError) return json(404, { message: 'Not Found' })
+        if (error instanceof SetupCodeRejected) {
+            if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
+            return json(400, { message: SETUP_LINK_NEEDED })
+        }
+        throw error
+    }
 }
 
 /** Password recovery is AuthKit, or `pnpm user` for the break-glass owner. These posts do not fall through. */

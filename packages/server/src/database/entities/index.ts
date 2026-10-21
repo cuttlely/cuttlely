@@ -18,6 +18,7 @@ import { ApiKey } from './ApiKey'
 import { CustomTemplate } from './CustomTemplate'
 import { Execution } from './Execution'
 import { CustomMcpServer } from './CustomMcpServer'
+import { IdentitySetupCode } from './identity/IdentitySetupCode'
 import { LoginActivity } from './identity/LoginActivity'
 import { LoginMethod } from './identity/LoginMethod'
 import { Organization } from './identity/Organization'
@@ -52,6 +53,7 @@ export const entities = {
     Evaluator,
     ApiKey,
     User,
+    IdentitySetupCode,
     LoginActivity,
     WorkspaceShared,
     CustomTemplate,
