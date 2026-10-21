@@ -202,12 +202,14 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
     docker compose logs cuttlely | grep "Setup code"
     ```
 
+    Started with `npx cuttlely start`? Run `npx cuttlely logs` instead. Times in the server log, including the setup code expiry, are in UTC.
+
     Nothing yet? It is still starting. Run the command again in a few seconds.
 
 3. Open the link and create your account. The password needs at least 8 characters, including a lowercase letter, an uppercase letter, a digit and a special character. You are signed in and land on **Chatflows**.
-4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made customer care team opens with its chat open. Select the first starter question, a complaint about a late espresso machine. The run card shows Harness Prime sending the work to the customer and operations specialists, then to the policy specialist, and the answer gives the decision, the reply to the customer, the actions and the evidence. All the data is made up. [Try the demo](./docs/how-to/try-the-demo.md) shows each step, and the bakery quickstart on the same card.
+4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made customer care team opens with its chat open. Select the first starter question, a complaint about a late espresso machine. The run card shows Harness Prime sending the work to the customer, operations and policy specialists, which run in parallel, and the answer gives the decision, the reply to the customer, the actions and the evidence. All the data is made up. [Try the demo](./docs/how-to/try-the-demo.md) shows each step, and the bakery quickstart on the same card.
 
-    ![The customer care team's chat after the first starter question. The run card says Harness Prime sent work to customer, operations, then policy, each done, and the decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall, a store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)
+    ![The customer care team's chat after the first starter question. The run card says Harness Prime sent work to customer, operations and policy, each done, and the decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall, a store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)
 
 5. Build your own team: open **Harness · Agent Team**, select **New agent team**, then **Build with AI** (the sparkle button). Your model and key are already picked under **Chat model that builds**. Pick one of the examples and select **Build**, then open the chat and select a starter question.
 6. Next time, sign in at [http://localhost:43117/signin](http://localhost:43117/signin) with **Sign in**.

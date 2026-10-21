@@ -61,3 +61,4 @@ Cuttlely 1.3.1. The product version is the root `package.json`, `packages/server
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
 -   Hardened public config endpoints and template sanitizing are on `main` (#238).
 -   Chatflow import checks (model and tool credentials, sticky notes, tool files, older card names, custom tools by id) are on `main` ([#245](https://github.com/cuttlely/cuttlely/pull/245)). Refreshing every imported card from the current spec and partial import of unsupported cards are still open.
+-   `npx cuttlely start` on Node 20: the health wait keeps the event loop alive, times out each try and retries through resets; the `cli-node` CI job runs the CLI tests on Node 20, 22 and 24 (fix PR open, Architect to confirm on Node 20 before merge).
