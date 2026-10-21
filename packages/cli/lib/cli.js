@@ -2,6 +2,7 @@
 // This package only talks to the local Docker daemon.
 import { readFileSync, statSync } from 'node:fs'
 import { spawn } from 'node:child_process'
+import { get as httpGet } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RESOURCE_ID_RE, runCheck } from './check.js'
@@ -17,6 +18,21 @@ export const VOLUME_NAME = 'cuttlely-data'
 export const DATA_DIR = '/var/cuttlely'
 export const INSTALL_DOCS = 'https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/docker.md'
 export const HEALTH_TIMEOUT_MS = 6 * 60 * 1000
+// Each health try gets its own limit, so one stuck request cannot use up the whole wait.
+export const HEALTH_TRY_TIMEOUT_MS = 5000
+// Error codes for a connection that the port accepts and then drops while the container boots.
+export const RETRYABLE_HEALTH_ERRORS = new Set([
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'ECONNABORTED',
+    'EPIPE',
+    'ETIMEDOUT',
+    'EHOSTUNREACH',
+    'UND_ERR_SOCKET',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'HEALTH_TRY_TIMEOUT'
+])
 
 const TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/
 const INSPECT_FORMAT = '{{.State.Status}}|{{.Config.Image}}|{{.Image}}|{{range $p, $b := .HostConfig.PortBindings}}{{$p}} {{end}}'
@@ -457,26 +473,86 @@ async function readImageId(docker, image) {
     return result.stdout.trim()
 }
 
-async function waitForHealth({ url, fetchImpl, sleep, timeoutMs, now }) {
+function healthErrorCode(error) {
+    return error?.code || error?.cause?.code || error?.name || 'UNKNOWN'
+}
+
+// One health try with its own timeout. The timer is a normal (ref'd) timer, so a request that never settles still
+// keeps the event loop alive until it fires; AbortSignal.timeout alone is unref'd and does not.
+function healthTry(fetchImpl, url, tryTimeoutMs) {
+    const controller = new AbortController()
+    let timer
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            const error = new Error(`No answer from ${url} within ${tryTimeoutMs} ms`)
+            error.code = 'HEALTH_TRY_TIMEOUT'
+            controller.abort(error)
+            reject(error)
+        }, tryTimeoutMs)
+    })
+    const attempt = (async () => {
+        const res = await fetchImpl(url, { redirect: 'manual', signal: controller.signal })
+        const body = typeof res.text === 'function' ? await res.text() : String(res.body ?? '')
+        return res.ok && body.includes('pong')
+    })()
+    attempt.catch(() => {})
+    return Promise.race([attempt, timeout]).finally(() => clearTimeout(timer))
+}
+
+// Waits until the ping answers pong or the deadline passes. Returns { ready, lastError }.
+// A keep-alive interval runs for the whole wait: on Node 20 a fetch whose socket is reset during boot can stay
+// pending with nothing else holding the event loop, and Node then exits with code 13 before the ready message.
+export async function waitForHealth({ url, fetchImpl, sleep, timeoutMs, now, tryTimeoutMs = HEALTH_TRY_TIMEOUT_MS }) {
     const deadline = now() + timeoutMs
-    for (;;) {
-        try {
-            const res = await fetchImpl(url, { redirect: 'manual' })
-            const body = typeof res.text === 'function' ? await res.text() : String(res.body ?? '')
-            if (res.ok && body.includes('pong')) return true
-        } catch {
-            // The server is still booting, or the port is not open yet.
+    const keepAlive = setInterval(() => {}, 1000)
+    let lastError = null
+    try {
+        for (;;) {
+            try {
+                if (await healthTry(fetchImpl, url, tryTimeoutMs)) return { ready: true, lastError: null }
+                lastError = null
+            } catch (error) {
+                // Resets, refusals and per-try timeouts mean the server is still booting: try again.
+                // Anything else is also retried until the deadline, but is reported if it is the last error seen.
+                lastError = { code: healthErrorCode(error), retryable: RETRYABLE_HEALTH_ERRORS.has(healthErrorCode(error)) }
+            }
+            if (now() >= deadline) return { ready: false, lastError }
+            await sleep(1000)
         }
-        if (now() >= deadline) return false
-        await sleep(1000)
+    } finally {
+        clearInterval(keepAlive)
     }
+}
+
+// Default health fetch: node:http with a socket timeout, so the open request itself holds the event loop.
+export function httpHealthFetch(url, { signal, timeoutMs = HEALTH_TRY_TIMEOUT_MS } = {}) {
+    return new Promise((resolve, reject) => {
+        const req = httpGet(url, { signal, timeout: timeoutMs }, (res) => {
+            let body = ''
+            res.setEncoding('utf8')
+            res.on('data', (chunk) => {
+                body += chunk
+            })
+            res.on('end', () => {
+                const status = res.statusCode || 0
+                resolve({ ok: status >= 200 && status < 300, status, text: async () => body })
+            })
+            res.on('error', reject)
+        })
+        req.on('timeout', () => {
+            const error = new Error(`No answer from ${url} within ${timeoutMs} ms`)
+            error.code = 'HEALTH_TRY_TIMEOUT'
+            req.destroy(error)
+        })
+        req.on('error', reject)
+    })
 }
 
 async function reportReady(ctx) {
     const url = publicUrl(ctx.opts.port)
     const ping = healthUrl(ctx.opts.port)
     ctx.out(`Waiting for Cuttlely at ${ping}`)
-    const ready = await waitForHealth({
+    const { ready, lastError } = await waitForHealth({
         url: ping,
         fetchImpl: ctx.fetchImpl,
         sleep: ctx.sleep,
@@ -484,6 +560,9 @@ async function reportReady(ctx) {
         now: ctx.now
     })
     if (!ready) {
+        const minutes = Math.max(1, Math.round(ctx.timeoutMs / 60000))
+        const reason = lastError ? ` (last error: ${lastError.code})` : ''
+        ctx.err(`Cuttlely did not answer ${ping} within ${minutes} min${reason}.`)
         ctx.err(`Cuttlely is still starting. Open ${url} when it is ready.`)
         ctx.err('Logs: cuttlely logs')
         ctx.err(INSTALL_DOCS)
@@ -649,7 +728,7 @@ export async function main(argv, io = {}) {
         env: io.env || process.env,
         fetch: io.fetch || globalThis.fetch.bind(globalThis),
         writeFile: io.writeFile,
-        fetchImpl: io.fetch || globalThis.fetch.bind(globalThis),
+        fetchImpl: io.fetch || httpHealthFetch,
         sleep: io.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
         open: io.open || openBrowser,
         now: io.now || Date.now,
