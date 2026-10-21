@@ -307,7 +307,7 @@ test('upgrade pulls and restarts even when the same image is running', async () 
     assert.match(io.text(), /Cuttlely is ready/)
 })
 
-test('health waits through a starting response, then times out', async () => {
+test('health waits through a starting response, then times out and points at the logs', async () => {
     const io = capture()
     let tries = 0
     const { docker } = scriptedDocker([ok('26\n'), ok(''), ok('sha256:abc\n'), absent(), ok('')])
@@ -327,8 +327,9 @@ test('health waits through a starting response, then times out', async () => {
     })
     assert.equal(code, 1)
     assert.ok(tries >= 2)
-    assert.match(io.errors(), /still starting/)
-    assert.match(io.errors(), /cuttlely logs/)
+    assert.doesNotMatch(io.errors(), /still starting/)
+    assert.match(io.errors(), /Check the logs to see why: npx cuttlely logs\./)
+    assert.match(io.errors(), /Then open http:\/\/localhost:\d+ once it answers\./)
 })
 
 test('a taken port is reported without opening the browser', async () => {

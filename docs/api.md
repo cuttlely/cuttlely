@@ -189,13 +189,7 @@ A client that starts MCP servers as local commands reaches this endpoint through
     "mcpServers": {
         "bakery-orders": {
             "command": "npx",
-            "args": [
-                "-y",
-                "mcp-remote",
-                "http://localhost:3000/api/v1/mcp/<flow id>",
-                "--header",
-                "Authorization: Bearer ${MCP_TOKEN}"
-            ],
+            "args": ["-y", "mcp-remote", "http://localhost:3000/api/v1/mcp/<flow id>", "--header", "Authorization: Bearer ${MCP_TOKEN}"],
             "env": { "MCP_TOKEN": "<MCP token>" }
         }
     }
