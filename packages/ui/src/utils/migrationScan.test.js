@@ -19,13 +19,15 @@ describe('migration scan', () => {
         const report = scan(fixture('make-webhook.json'))
         expect(report.ok).toBe(false)
         expect(report.code).toBe('tool')
-        expect(report.title).toBe('This is a tool, use Tools > Load.')
+        expect(report.title).toBe('This is a Flowise tool, not a flow. Open Tools > Load to import it.')
         expect(report.canvas).toBeNull()
     })
 
     it('lists a custom tool that is only an id', () => {
         const report = scan(fixture('text-to-sql.json'))
         expect(report.level).not.toBe('compatible')
-        expect(report.attention).toContain("Re-create tool '00000000-0000-4000-8000-000000000002' in Tools, then pick it on Custom Tool.")
+        expect(report.attention).toContain(
+            'Custom tool 00000000-0000-4000-8000-000000000002. Re-create this in Tools, then pick it in the node.'
+        )
     })
 })

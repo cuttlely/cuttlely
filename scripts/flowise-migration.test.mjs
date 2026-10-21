@@ -247,8 +247,8 @@ describe('scanFlowiseMigration', () => {
         const report = scan(parsed)
         assert.equal(report.ok, false)
         assert.equal(report.code, 'tool')
-        assert.equal(report.title, 'This is a tool, use Tools > Load.')
-        assert.equal(report.reason, 'This is a tool, use Tools > Load.')
+        assert.equal(report.title, 'This is a Flowise tool, not a flow. Open Tools > Load to import it.')
+        assert.equal(report.reason, 'This is a Flowise tool, not a flow. Open Tools > Load to import it.')
         assert.equal(report.canvas, null)
     })
 
@@ -454,7 +454,11 @@ describe('scanFlowiseMigration', () => {
         )
         const report = scan(parsed)
         assert.notEqual(report.level, 'compatible')
-        assert.ok(report.attention.includes("Re-create tool '00000000-0000-4000-8000-000000000002' in Tools, then pick it on Custom Tool."))
+        assert.ok(
+            report.attention.includes(
+                'Custom tool 00000000-0000-4000-8000-000000000002. Re-create this in Tools, then pick it in the node.'
+            )
+        )
     })
 
     it('lists a custom tool chosen on an agent canvas', () => {
@@ -486,7 +490,9 @@ describe('scanFlowiseMigration', () => {
             ],
             edges: []
         })
-        assert.deepEqual(report.attention, ["Re-create tool 'Lookup rows' in Tools, then pick it on Worker."])
+        assert.deepEqual(report.attention, [
+            "Custom tool 'Lookup rows' (tool-made-up-2). Re-create this in Tools, then pick it in the node."
+        ])
     })
 
     it('copies a conversation chain system message into the current prompt field', () => {

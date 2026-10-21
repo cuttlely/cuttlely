@@ -106,7 +106,14 @@ const hasCredentialId = (value) => {
 // Model and tool settings on agent canvases live in *ModelConfig / *ToolConfig, not on a credential input.
 const CONFIG_KEY = /(?:Model|Tool)Config$/
 
-const TOOL_FILE_MESSAGE = 'This is a tool, use Tools > Load.'
+const TOOL_FILE_MESSAGE = 'This is a Flowise tool, not a flow. Open Tools > Load to import it.'
+
+const aliasFixLine = (label, from, to) => `Updated ${label} from ${from} to ${to}.`
+const conversationPromptFixLine = (label) => `Copied the system message on ${label} into the current prompt field.`
+
+const CUSTOM_TOOL_RECREATE = 'Re-create this in Tools, then pick it in the node.'
+const customToolLine = (name, id) =>
+    name && name !== id ? `Custom tool '${name}' (${id}). ${CUSTOM_TOOL_RECREATE}` : `Custom tool ${id}. ${CUSTOM_TOOL_RECREATE}`
 
 // Output handle ids are `${nodeId}-output-${cardName}-${classes}`. These two old card names use the
 // same anchor names and types as the current cards, so only that card-name segment has to change.
@@ -263,17 +270,17 @@ const inlineToolFunc = (record) => {
 }
 
 const noteCustomTools = (nodeName, inputs, label, attention) => {
-    const push = (toolName) => {
-        const shown = String(toolName || '').trim()
-        if (!shown) return
-        const line = `Re-create tool '${shown}' in Tools, then pick it on ${label}.`
+    const push = (toolName, toolId) => {
+        const id = String(toolId || '').trim()
+        if (!id) return
+        const line = customToolLine(String(toolName || '').trim(), id)
         if (!attention.includes(line)) attention.push(line)
     }
     const fromCustom = (record) => {
         if (!record || typeof record !== 'object' || Array.isArray(record) || inlineToolFunc(record)) return
         const id = typeof record.selectedTool === 'string' ? record.selectedTool.trim() : ''
         const named = typeof record.customToolName === 'string' ? record.customToolName.trim() : ''
-        if (id) push(named || id)
+        if (id) push(named, id)
     }
     if (nodeName === 'customTool') fromCustom(inputs)
     const walk = (obj) => {
@@ -472,7 +479,7 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
         if (alias && catalog.has(alias.to) && anchorsMatchAlias(data, name, alias)) {
             applyAlias(data, name, alias.to)
             aliasPairs.push({ from: name, to: alias.to })
-            fixes.push(`Updated ${label} from ${name} to ${alias.to}.`)
+            fixes.push(aliasFixLine(label, name, alias.to))
             name = alias.to
         }
 
@@ -544,7 +551,7 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
         })
         if (clearConfigCredentialIds(nextInputs)) clearedCredential = true
         if (name === 'conversationChain' && carryConversationPrompt(nextInputs)) {
-            fixes.push(`Copied the system message on ${label} into the current prompt field.`)
+            fixes.push(conversationPromptFixLine(label))
         }
         noteCustomTools(name, inputs, label, attention)
         for (const param of params) {

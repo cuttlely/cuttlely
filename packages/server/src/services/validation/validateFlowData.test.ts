@@ -274,31 +274,4 @@ describe('validateFlowData', () => {
         expect(issues).toContain('Model is required')
         expect(issues).toContain('Temperature is required')
     })
-
-    it('does not require a table condition, and still requires the code condition', () => {
-        const flow = readFixture('table-condition.json')
-        const first = validateFlowData(flow.nodes, flow.edges, emptyComponentNodes)
-        expect(issuesFor(first, 'seqCondition_0')).not.toContain('Condition is required')
-
-        const cloned = JSON.parse(JSON.stringify(flow))
-        const condition = cloned.nodes.find((item: { id: string }) => item.id === 'seqCondition_0')
-        condition.data.inputs.selectedConditionFunctionTab_seqCondition_0 = 'conditionFunction'
-        const second = validateFlowData(cloned.nodes, cloned.edges, emptyComponentNodes)
-        expect(issuesFor(second, 'seqCondition_0')).toContain('Condition is required')
-    })
-
-    it('allows an empty flow-state value and still requires the key', () => {
-        const flow = readFixture('empty-state.json')
-        const edges = [makeEdge(flow.nodes[0].id, flow.nodes[0].id)]
-        const first = validateFlowData(flow.nodes, edges, emptyComponentNodes)
-        expect(issuesFor(first, flow.nodes[0].id).some((line) => line.includes('Value is required'))).toBe(false)
-
-        const cleared = JSON.parse(JSON.stringify(flow))
-        cleared.nodes[0].data.inputs.startState[0].key = ''
-        cleared.nodes[0].data.inputs.startState[0].value = '<p></p>'
-        const second = validateFlowData(cleared.nodes, edges, emptyComponentNodes)
-        const issues = issuesFor(second, flow.nodes[0].id)
-        expect(issues).toContain('Flow State item #1: Key is required')
-        expect(issues.some((line) => line.includes('Value is required'))).toBe(false)
-    })
 })

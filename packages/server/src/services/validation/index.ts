@@ -3,7 +3,7 @@ import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { ChatFlow } from '../../database/entities/ChatFlow'
-import { ICommonObject, INodeParams } from '@cuttlely/components'
+import { INodeParams } from '@cuttlely/components'
 import { resolveScheduleCron } from '../schedule'
 import { IComponentNodes, IReactFlowEdge, IReactFlowNode, IReactFlowObject } from '../../Interface'
 
@@ -12,21 +12,6 @@ export interface IValidationResult {
     label: string
     name: string
     issues: string[]
-}
-
-const conditionTabIsTable = (param: INodeParams, inputs: ICommonObject | undefined, nodeId: string): boolean => {
-    const bag = inputs || {}
-    const tabKey = param.tabIdentifier || 'selectedConditionFunctionTab'
-    const matches = (value: unknown) => {
-        if (typeof value !== 'string' || !value) return false
-        const tab = value.split(`_${nodeId}`)[0]
-        return tab === 'conditionUI' || tab.startsWith('conditionUI')
-    }
-    if (matches(bag[`${tabKey}_${nodeId}`]) || matches(bag[tabKey])) return true
-    for (const [key, value] of Object.entries(bag)) {
-        if ((key === tabKey || key.startsWith(`${tabKey}_`)) && matches(value)) return true
-    }
-    return false
 }
 
 /**
@@ -91,8 +76,7 @@ export const validateFlowData = (
                 // Check if required parameter has a value
                 if (!param.optional) {
                     const inputValue = node.data.inputs[param.name]
-                    const tableCondition = param.type === 'conditionFunction' && conditionTabIsTable(param, node.data.inputs, node.id)
-                    if (!tableCondition && (inputValue === undefined || inputValue === null || inputValue === '')) {
+                    if (inputValue === undefined || inputValue === null || inputValue === '') {
                         nodeIssues.push(`${param.label} is required`)
                     }
                 }
@@ -176,12 +160,8 @@ export const validateFlowData = (
 
                                     // Only validate if field should be shown
                                     if (shouldValidate) {
-                                        // Flow State keys are required. Empty values are allowed.
-                                        const flowStateValue =
-                                            (param.name === 'startState' || param.label === 'Flow State') && arrayParam.name === 'value'
                                         // Check if value is required and missing
                                         if (
-                                            !flowStateValue &&
                                             (arrayParam.optional === undefined || !arrayParam.optional) &&
                                             (item[arrayParam.name] === undefined ||
                                                 item[arrayParam.name] === null ||
