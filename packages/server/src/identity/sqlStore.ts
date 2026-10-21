@@ -15,6 +15,7 @@
  */
 
 import { randomUUID, timingSafeEqual } from 'crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
@@ -852,7 +853,7 @@ function affectedCount(result: unknown): number {
     return 0
 }
 
-/** InnoDB can abort one of two setup writes. The caller tries that write again. */
+/** InnoDB can abort one of two setup writes. The caller waits, then tries that write again. */
 function isLockConflict(error: unknown): boolean {
     const record = error as { code?: string; errno?: number; driverError?: { code?: string; errno?: number } }
     const code = record.driverError?.code || record.code
@@ -860,9 +861,49 @@ function isLockConflict(error: unknown): boolean {
     return code === 'ER_LOCK_DEADLOCK' || code === 'ER_LOCK_WAIT_TIMEOUT' || errno === 1213 || errno === 1205
 }
 
+/** How many times a MySQL or MariaDB setup write may run when the engine reports a lock conflict. */
+export const SETUP_LOCK_RETRY_ATTEMPTS = 6
+/** Full-jitter ceiling for the first wait. Later waits double this until the cap. */
+export const SETUP_LOCK_RETRY_BASE_MS = 20
+export const SETUP_LOCK_RETRY_CAP_MS = 250
+
+export interface SetupLockRetryOptions {
+    sleep?: (ms: number) => Promise<void>
+    random?: () => number
+}
+
+/** Uniform draw from 0 through the attempt ceiling. The ceiling doubles, then stays at the cap. */
+export function setupLockDelayMs(
+    failed: number,
+    random: () => number,
+    baseMs = SETUP_LOCK_RETRY_BASE_MS,
+    capMs = SETUP_LOCK_RETRY_CAP_MS
+): number {
+    const ceiling = Math.min(capMs, baseMs * 2 ** failed)
+    const sample = random()
+    const unit = Number.isFinite(sample) ? Math.min(1, Math.max(0, sample)) : 0
+    return Math.round(unit * ceiling)
+}
+
+export async function retryOnSetupLockConflict<T>(run: () => Promise<T>, options: SetupLockRetryOptions = {}): Promise<T> {
+    const sleep = options.sleep ?? ((ms: number) => delay(ms))
+    const random = options.random ?? Math.random
+    let last: unknown
+    for (let attempt = 0; attempt < SETUP_LOCK_RETRY_ATTEMPTS; attempt++) {
+        try {
+            return await run()
+        } catch (error) {
+            last = error
+            if (!isLockConflict(error) || attempt === SETUP_LOCK_RETRY_ATTEMPTS - 1) throw error
+            await sleep(setupLockDelayMs(attempt, random))
+        }
+    }
+    throw last
+}
+
 /** Reads and writes the single setup-code row. Owner creation consumes it inside its own transaction. */
 export class SqlSetupCodeStore implements SetupCodeStore {
-    constructor(private readonly dataSource: DataSource) {}
+    constructor(private readonly dataSource: DataSource, private readonly lockRetry: SetupLockRetryOptions = {}) {}
 
     async read(): Promise<SetupCodeRow | null> {
         const d = dialectOfSource(this.dataSource)
@@ -896,16 +937,7 @@ export class SqlSetupCodeStore implements SetupCodeStore {
      * A second copy that finds a fresh live row leaves that row in place.
      */
     private async saveOnMysql(row: SetupCodeRow, previous: string): Promise<SetupCodeWrite> {
-        let last: unknown
-        for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-                return await this.saveOnMysqlOnce(row, previous)
-            } catch (error) {
-                last = error
-                if (!isLockConflict(error) || attempt === 2) throw error
-            }
-        }
-        throw last
+        return retryOnSetupLockConflict(() => this.saveOnMysqlOnce(row, previous), this.lockRetry)
     }
 
     private async saveOnMysqlOnce(row: SetupCodeRow, previous: string): Promise<SetupCodeWrite> {
