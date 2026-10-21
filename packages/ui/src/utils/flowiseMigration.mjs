@@ -103,6 +103,206 @@ const hasCredentialId = (value) => {
     return Object.entries(value).some(([key, child]) => key === 'FLOWISE_CREDENTIAL_ID' || hasCredentialId(child))
 }
 
+// Model and tool settings on agent canvases live in *ModelConfig / *ToolConfig, not on a credential input.
+const CONFIG_KEY = /(?:Model|Tool)Config$/
+
+const TOOL_FILE_MESSAGE = 'This is a tool, use Tools > Load.'
+
+// Output handle ids are `${nodeId}-output-${cardName}-${classes}`. These two old card names use the
+// same anchor names and types as the current cards, so only that card-name segment has to change.
+const NAME_ALIASES = {
+    ollamaEmbeddings: {
+        to: 'ollamaEmbedding',
+        inputs: [],
+        outputType: 'OllamaEmbeddings | Embeddings'
+    },
+    openAIToolAgent: {
+        to: 'toolAgent',
+        inputs: [
+            ['tools', 'Tool'],
+            ['memory', 'BaseChatMemory'],
+            ['model', 'BaseChatModel'],
+            ['chatPromptTemplate', 'ChatPromptTemplate'],
+            ['inputModeration', 'Moderation']
+        ],
+        outputType: 'AgentExecutor | BaseChain | Runnable'
+    }
+}
+
+const isToolFile = (parsed) => {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+    if (Array.isArray(parsed.nodes)) return false
+    return (
+        typeof parsed.name === 'string' &&
+        parsed.name.trim() !== '' &&
+        Object.prototype.hasOwnProperty.call(parsed, 'schema') &&
+        Object.prototype.hasOwnProperty.call(parsed, 'func')
+    )
+}
+
+const specRequiresCredential = (catalog, selected) => {
+    if (!selected || typeof selected !== 'string' || !catalog.has(selected)) return false
+    const cred = catalog.get(selected).credential
+    if (!cred) return false
+    if (cred === true) return true
+    if (typeof cred === 'object') return cred.optional !== true
+    return false
+}
+
+const holdsCredential = (value) => {
+    if (Array.isArray(value)) return value.some((item) => holdsCredential(item))
+    if (!value || typeof value !== 'object') return false
+    if (Object.prototype.hasOwnProperty.call(value, 'FLOWISE_CREDENTIAL_ID')) return true
+    if (Object.prototype.hasOwnProperty.call(value, 'credential')) return true
+    return Object.values(value).some((child) => child && typeof child === 'object' && holdsCredential(child))
+}
+
+const selectedForConfig = (parent, key, config) => {
+    const base = key.endsWith('Config') ? key.slice(0, -'Config'.length) : ''
+    if (base && parent && typeof parent[base] === 'string' && parent[base]) return parent[base]
+    if (base && config && typeof config[base] === 'string' && config[base]) return config[base]
+    return ''
+}
+
+const configSlot = (key) => (/ModelConfig$/.test(key) ? 'Model credential' : 'Tool credential')
+
+const noteConfigCredentials = (inputs, catalog, push) => {
+    const walk = (parent) => {
+        if (!parent || typeof parent !== 'object') return
+        if (Array.isArray(parent)) {
+            parent.forEach((item) => walk(item))
+            return
+        }
+        for (const [key, value] of Object.entries(parent)) {
+            if ((CONFIG_KEY.test(key) || key === 'toolConfig') && value && typeof value === 'object') {
+                const entries = Array.isArray(value) ? value : [value]
+                for (const config of entries) {
+                    if (!config || typeof config !== 'object' || Array.isArray(config)) continue
+                    const selected = selectedForConfig(parent, key, config)
+                    if (holdsCredential(config) || specRequiresCredential(catalog, selected)) push(configSlot(key))
+                }
+            }
+            if (value && typeof value === 'object') walk(value)
+        }
+    }
+    walk(inputs)
+}
+
+const clearConfigCredentialIds = (inputs) => {
+    let cleared = false
+    const clearValue = (value) => {
+        if (Array.isArray(value)) {
+            value.forEach((item) => clearValue(item))
+            return
+        }
+        if (!value || typeof value !== 'object') return
+        if (typeof value.credential === 'string' && value.credential) {
+            cleared = true
+            value.credential = ''
+        }
+        if (Object.prototype.hasOwnProperty.call(value, 'FLOWISE_CREDENTIAL_ID')) {
+            if (value.FLOWISE_CREDENTIAL_ID) cleared = true
+            delete value.FLOWISE_CREDENTIAL_ID
+        }
+        for (const child of Object.values(value)) {
+            if (child && typeof child === 'object') clearValue(child)
+        }
+    }
+    const walk = (parent) => {
+        if (!parent || typeof parent !== 'object') return
+        if (Array.isArray(parent)) {
+            parent.forEach((item) => walk(item))
+            return
+        }
+        for (const [key, value] of Object.entries(parent)) {
+            if ((CONFIG_KEY.test(key) || key === 'toolConfig') && value && typeof value === 'object') clearValue(value)
+            else if (value && typeof value === 'object') walk(value)
+        }
+    }
+    walk(inputs)
+    return cleared
+}
+
+const anchorsMatchAlias = (data, oldName, spec) => {
+    const allowed = new Map(spec.inputs)
+    for (const anchor of data.inputAnchors || []) {
+        if (!anchor || allowed.get(anchor.name) !== anchor.type) return false
+    }
+    const outputs = data.outputAnchors || []
+    if (outputs.length !== 1) return false
+    const output = outputs[0]
+    if (!output || output.type !== spec.outputType) return false
+    const embeds = typeof output.id === 'string' && output.id.includes(`-output-${oldName}-`)
+    return output.name === oldName || embeds
+}
+
+const rewriteOutputToken = (value, from, to) => {
+    if (typeof value !== 'string' || !value.includes(`-output-${from}-`)) return value
+    return value.split(`-output-${from}-`).join(`-output-${to}-`)
+}
+
+const applyAlias = (data, from, to) => {
+    data.name = to
+    if (data.type === from) data.type = to
+    const rewriteAnchor = (anchor) => {
+        if (!anchor || typeof anchor !== 'object') return
+        if (anchor.name === from) anchor.name = to
+        if (typeof anchor.id === 'string') anchor.id = rewriteOutputToken(anchor.id, from, to)
+        if (Array.isArray(anchor.options)) anchor.options.forEach(rewriteAnchor)
+    }
+    for (const anchor of data.outputAnchors || []) rewriteAnchor(anchor)
+    for (const anchor of data.inputAnchors || []) rewriteAnchor(anchor)
+}
+
+const inlineToolFunc = (record) => {
+    if (!record || typeof record !== 'object') return false
+    for (const key of ['customToolFunc', 'func', 'code']) {
+        if (typeof record[key] === 'string' && record[key].trim()) return true
+    }
+    return false
+}
+
+const noteCustomTools = (nodeName, inputs, label, attention) => {
+    const push = (toolName) => {
+        const shown = String(toolName || '').trim()
+        if (!shown) return
+        const line = `Re-create tool '${shown}' in Tools, then pick it on ${label}.`
+        if (!attention.includes(line)) attention.push(line)
+    }
+    const fromCustom = (record) => {
+        if (!record || typeof record !== 'object' || Array.isArray(record) || inlineToolFunc(record)) return
+        const id = typeof record.selectedTool === 'string' ? record.selectedTool.trim() : ''
+        const named = typeof record.customToolName === 'string' ? record.customToolName.trim() : ''
+        if (id) push(named || id)
+    }
+    if (nodeName === 'customTool') fromCustom(inputs)
+    const walk = (obj) => {
+        if (!obj || typeof obj !== 'object') return
+        if (Array.isArray(obj)) {
+            obj.forEach((item) => walk(item))
+            return
+        }
+        const chosen = obj.agentSelectedTool || obj.toolAgentflowSelectedTool
+        const config = obj.agentSelectedToolConfig || obj.toolAgentflowSelectedToolConfig || obj.selectedToolConfig || obj.toolConfig
+        if (chosen === 'customTool') fromCustom(config && typeof config === 'object' && !Array.isArray(config) ? config : obj)
+        for (const value of Object.values(obj)) {
+            if (value && typeof value === 'object') walk(value)
+        }
+    }
+    if (inputs && typeof inputs === 'object') walk(inputs)
+}
+
+const carryConversationPrompt = (inputs) => {
+    if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) return false
+    const current = inputs.systemMessagePrompt
+    const older = inputs.systemMessage
+    if ((current === undefined || current === null || current === '') && typeof older === 'string' && older) {
+        inputs.systemMessagePrompt = older
+        return true
+    }
+    return false
+}
+
 const nodeLabel = (data, fallback) => {
     if (data && typeof data.label === 'string' && data.label.trim()) return data.label.trim()
     if (data && typeof data.name === 'string' && data.name.trim()) return data.name.trim()
@@ -215,6 +415,7 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
         if (isWorkspaceExport(parsed)) {
             return refused('workspace', 'Workspace export is not supported. Import one chatflow JSON.')
         }
+        if (isToolFile(parsed)) return refused('tool', TOOL_FILE_MESSAGE)
         return refused('not-flowise', 'That file is not a Flowise chatflow JSON.')
     }
 
@@ -228,6 +429,8 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
     const deprecated = []
     const unsupported = []
     const fixes = []
+    const attention = []
+    const aliasPairs = []
     const prepared = []
     let clean = 0
 
@@ -237,7 +440,7 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
             continue
         }
         const data = node.data && typeof node.data === 'object' ? node.data : null
-        const name = data && typeof data.name === 'string' ? data.name : ''
+        let name = data && typeof data.name === 'string' ? data.name : ''
         const id = typeof node.id === 'string' && node.id ? node.id : data && typeof data.id === 'string' ? data.id : ''
         const label = nodeLabel(data, 'Node')
         if (!name || !id) {
@@ -263,6 +466,14 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
                 message: 'This node is missing its input or output list, so the canvas cannot draw it.'
             })
             continue
+        }
+
+        const alias = NAME_ALIASES[name]
+        if (alias && catalog.has(alias.to) && anchorsMatchAlias(data, name, alias)) {
+            applyAlias(data, name, alias.to)
+            aliasPairs.push({ from: name, to: alias.to })
+            fixes.push(`Updated ${label} from ${name} to ${alias.to}.`)
+            name = alias.to
         }
 
         const entry = catalog.get(name)
@@ -324,9 +535,18 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
                 delete nextInputs[param.name]
             }
         }
-        if (!credentialParams.length && (data.credential || hasCredentialId(inputs))) {
+        const topLevelCredentialId = Object.prototype.hasOwnProperty.call(inputs, 'FLOWISE_CREDENTIAL_ID')
+        if (!credentialParams.length && (data.credential || topLevelCredentialId)) {
             credentials.push({ nodeId: id, label, name, slot: 'Credential' })
         }
+        noteConfigCredentials(inputs, catalog, (slot) => {
+            credentials.push({ nodeId: id, label, name, slot })
+        })
+        if (clearConfigCredentialIds(nextInputs)) clearedCredential = true
+        if (name === 'conversationChain' && carryConversationPrompt(nextInputs)) {
+            fixes.push(`Copied the system message on ${label} into the current prompt field.`)
+        }
+        noteCustomTools(name, inputs, label, attention)
         for (const param of params) {
             if (!param || param.type !== 'password' || !present(inputs[param.name])) continue
             const slot = typeof param.label === 'string' && param.label.trim() ? param.label.trim() : 'API key'
@@ -363,7 +583,14 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
             droppedEdges += 1
             continue
         }
-        edges.push(edge)
+        let sourceHandle = edge.sourceHandle
+        let targetHandle = edge.targetHandle
+        for (const pair of aliasPairs) {
+            sourceHandle = rewriteOutputToken(sourceHandle, pair.from, pair.to)
+            targetHandle = rewriteOutputToken(targetHandle, pair.from, pair.to)
+        }
+        if (sourceHandle === edge.sourceHandle && targetHandle === edge.targetHandle) edges.push(edge)
+        else edges.push({ ...edge, sourceHandle, targetHandle })
     }
     if (droppedEdges && !unsupported.length) {
         fixes.push(
@@ -375,7 +602,6 @@ export const scanFlowiseMigration = (parsed, options = {}) => {
 
     const name = unwrapped.name || 'Imported Flowise chatflow'
     const route = migrationRoute(prepared.length ? prepared : sourceNodes, type)
-    const attention = []
     if (!unsupported.length && route === '/canvas' && !chatflowWouldChat(prepared, edges)) {
         attention.push(CHATFLOW_NEEDS_ENDING_NODE)
     }
