@@ -36,6 +36,7 @@ const SPECS: { envKey: string; fileName: string; createdValue?: string }[] = [
 ]
 
 let loaded: Map<string, string> | null = null
+const ensured = new Map<string, string>()
 
 function directory(): string {
     return process.env.SECRETKEY_PATH ? process.env.SECRETKEY_PATH : path.join(os.homedir(), '.cuttlely')
@@ -73,7 +74,53 @@ export function authSecret(envKey: string): string {
     return loaded.get(envKey) as string
 }
 
+function readSecretFile(filePath: string): string | null {
+    try {
+        const text = fs.readFileSync(filePath, 'utf8')
+        if (text.trim() === '') return null
+        return text
+    } catch {
+        return null
+    }
+}
+
+/**
+ * The instance secret for one auth env name.
+ * A set environment value wins, then a secret already loaded at boot, then the file under SECRETKEY_PATH.
+ * A missing file is created once, the same way initAuthSecrets creates the other auth secrets.
+ */
+export function ensureInstanceSecret(envKey: string): string {
+    const fromEnv = process.env[envKey]
+    if (fromEnv && fromEnv.trim() !== '') return fromEnv.trim()
+    if (loaded && loaded.has(envKey)) return loaded.get(envKey) as string
+    const cached = ensured.get(envKey)
+    if (cached) return cached
+    const spec = SPECS.find((item) => item.envKey === envKey)
+    if (!spec) throw new Error(`Unknown auth secret ${envKey}`)
+    const dir = directory()
+    const filePath = path.join(dir, spec.fileName)
+    const existing = readSecretFile(filePath)
+    if (existing) {
+        ensured.set(envKey, existing)
+        return existing
+    }
+    const value = spec.createdValue !== undefined ? spec.createdValue : randomBytes(32).toString('base64')
+    fs.mkdirSync(dir, { recursive: true })
+    try {
+        fs.writeFileSync(filePath, value, { flag: 'wx' })
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        const raced = readSecretFile(filePath)
+        if (!raced) throw new Error(`Auth secret ${envKey} could not be read`)
+        ensured.set(envKey, raced)
+        return raced
+    }
+    ensured.set(envKey, value)
+    return value
+}
+
 /** Tests start from an empty map. Production boot calls initAuthSecrets once. */
 export function resetAuthSecretsForTests(): void {
     loaded = null
+    ensured.clear()
 }

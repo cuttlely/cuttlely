@@ -23,7 +23,7 @@ With the flag off and no WorkOS, the sign-in page says `Sign-in is not configure
 A server with no account, the password sign-in off and no AuthKit (for example Render without the WorkOS values) prints a one-time setup link when it starts:
 
 ```text
-2026-10-09 12:00:00 [INFO]: 🔑 [server]: No sign-in method is on yet. Open https://your-service.onrender.com/server-setup?code=... to set one up. The link works once.
+2026-10-09 12:00:00 [INFO]: 🔑 [server]: No sign-in method is on yet. Open https://your-service.onrender.com/server-setup#code=... to set one up. The link works once.
 ```
 
 The link uses Render's public address, or `APP_URL` when it is set. It opens only **Sign-in & identity**, with two choices:
@@ -31,7 +31,7 @@ The link uses Render's public address, or `APP_URL` when it is set. It opens onl
 -   **Use a password for now** creates the owner account and turns the password sign-in on.
 -   **Set up AuthKit** runs the same four steps as Server settings. The owner email is required, and the test sign-in must use it. Nothing is saved until the test passes.
 
-Either way Cuttlely restarts when it can, or lists what to do. The link stops working as soon as it has been used, the first account exists, or a sign-in method is on. A new code is printed on every start while nobody can sign in.
+Either way Cuttlely restarts when it can, or lists what to do. The link stops working as soon as it has been used, the first account exists, or a sign-in method is on. A code lasts 60 minutes. A restart, or a second copy of the server on the same database, keeps a live code: the link printed first still works. A second running copy logs that the code was printed by another copy. A restart of this install logs that the setup code from the last start is still valid, with the time it expires. Once the code is used and an owner exists, a later start prints no new link. While setup is still open, an expired code is replaced when a setup request finds it, or on a one-minute check, and the new link is printed.
 
 If accounts already exist but no sign-in method is on (for example a `.env` that lost `CUTTLELY_LOCAL_ADMIN=true`), there is no setup link. The browser opens the Sign In page with **Sign-in is not configured.**, and the log says how to get back in:
 
@@ -55,17 +55,17 @@ The first account is the owner, shown as **Super User**. You can create it in th
 
 On a new install with the flag on, opening the app shows **Setup Account**. Fill in the name, email, and password, then select **Sign Up**. The page is pictured in [From source](./from-source.md#in-the-browser).
 
-From the machine where Cuttlely runs, for example a from-source install opened at `localhost`, that is all. Through Docker's published port the request doesn't come from that machine, so open the setup link the server prints when it starts with no account:
+Sign Up needs the one-time code from the setup link the server prints when it starts with no account. That includes a from-source install opened at `localhost` and Docker's published port:
 
 ```bash
 docker compose logs cuttlely | grep "No account yet"
 ```
 
 ```text
-2026-10-09 12:00:00 [INFO]: 👋 [server]: No account yet. Open http://localhost:43117/organization-setup?code=... to create yours.
+2026-10-09 12:00:00 [INFO]: 👋 [server]: No account yet. Open http://localhost:43117/organization-setup#code=... to create yours.
 ```
 
-The code in the link is new on every start and stops working once the first account exists. Without it, **Sign Up** through the published port says `Open the setup link from the server log to create the first account.`
+The code is in the link fragment. It lasts 60 minutes from when it is printed and stops working once the first account exists. A restart or a second copy of the server keeps a live code, so the first printed link still works for register and the setup page. A second running copy logs that the code was printed by another copy. A restart of this install logs that the setup code from the last start is still valid, with the time it expires. An expired code is replaced when register or a setup page finds it, or on a one-minute check, and the new link is printed. Without it, **Sign Up** says `Open the setup link from the server log to create the first account.`
 
 After **Sign Up** you are signed in and land in Cuttlely. Keeping a copy in GitHub is optional and waits in **Version History**; see [Right after setup](./versioning.md#right-after-setup).
 

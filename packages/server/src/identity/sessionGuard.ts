@@ -18,8 +18,29 @@ export function cookieMutationAllowed(method: string, internal: boolean): boolea
     return internal
 }
 
-/** Socket address. With TRUST_PROXY unset, a proxy on this host looks like loopback. */
-export function isLoopbackAddress(ip: string): boolean {
-    const host = ip.toLowerCase().replace(/^::ffff:/, '')
-    return host === '127.0.0.1' || host === '::1'
+/** Referrer, cache, and frame headers for setup documents and setup responses. */
+export function applySetupHeaders(res: { setHeader(name: string, value: string): void }): void {
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('X-Frame-Options', 'DENY')
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'")
+}
+
+/** Setup documents get the strict frame headers. Other pages keep the configured frame policy. */
+export function applyDocumentFrameHeaders(
+    path: string,
+    res: { setHeader(name: string, value: string): void },
+    otherHeaders: Record<string, string>
+): void {
+    if (isSetupDocumentPath(path)) {
+        applySetupHeaders(res)
+        return
+    }
+    for (const [name, value] of Object.entries(otherHeaders)) res.setHeader(name, value)
+}
+
+/** True for the first-account page and the sign-in setup page. */
+export function isSetupDocumentPath(path: string): boolean {
+    const name = path.split('?')[0].replace(/\/+$/, '') || '/'
+    return name === '/organization-setup' || name === '/server-setup'
 }

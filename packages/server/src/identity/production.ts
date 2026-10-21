@@ -22,7 +22,9 @@ import { cookieSecure } from './cookies'
 import { organizationsForUser, recordAudit } from './auditLog'
 import { Sql, sqlFromDataSource } from './directory'
 import { AuthContext } from './handlers'
-import { SqlIdentityStore, SqlLoginRateLimit } from './sqlStore'
+import { socketAddress } from './setupLimit'
+import { bindSetupCodeStore } from './setupCode'
+import { SqlIdentityStore, SqlLoginRateLimit, SqlSetupCodeStore } from './sqlStore'
 import { workosPort } from './workosAdapter'
 
 let store: SqlIdentityStore | undefined
@@ -48,7 +50,11 @@ export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<
 }
 
 export function identityStore(): SqlIdentityStore {
-    if (!store) store = new SqlIdentityStore(getDataSource())
+    if (!store) {
+        const dataSource = getDataSource()
+        store = new SqlIdentityStore(dataSource)
+        bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+    }
     return store
 }
 
@@ -70,6 +76,7 @@ export function buildAuthContext(req: Request): AuthContext {
         secure: cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
         now: Date.now(),
         ip: req.ip || req.socket?.remoteAddress || 'unknown',
+        socketAddress: socketAddress(req.socket?.remoteAddress),
         internal: req.headers['x-request-from'] === 'internal',
         code: typeof code === 'string' ? code : Array.isArray(code) ? String(code[0] || '') : undefined,
         body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {},

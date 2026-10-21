@@ -126,7 +126,7 @@ describe('UI page fallback limiter', () => {
         const limiter = fs.readFileSync(path.join(__dirname, 'rateLimit.ts'), 'utf8')
         expect(source).toMatch(/this\.app\.use\(uiAssetMiddleware\(uiBuild\.directory\)\)/)
         expect(source).toMatch(
-            /this\.app\.use\(uiPageRateLimiter\(\), \(req: Request, res: Response\) => \{\s*if \(isMcpEndpointPath\(`\$\{req\.baseUrl\}\$\{req\.path\}`\)\) \{\s*sendMcpMethodNotAllowed\(res\)\s*return\s*\}\s*res\.sendFile\(uiBuild\.indexHtml\)/
+            /this\.app\.use\(uiPageRateLimiter\(\), \(req: Request, res: Response\) => \{\s*if \(isMcpEndpointPath\(`\$\{req\.baseUrl\}\$\{req\.path\}`\)\) \{\s*sendMcpMethodNotAllowed\(res\)\s*return\s*\}\s*if \(isSetupDocumentPath\(req\.path\)\) \{\s*applySetupHeaders\(res\)\s*void reissueExpiredSetupIfOpen\(\(\) => identityStore\(\)\.countUsers\(\), localAdminEnabled\(\)\)\.catch\(\(error\) =>\s*logger\.warn\(`\[server\]: Setup code check failed: \$\{error instanceof Error \? error\.message : error\}`\)\s*\)\s*\}\s*res\.sendFile\(uiBuild\.indexHtml\)/
         )
         expect(limiter).toMatch(/express\.static\(directory, \{ index: false, redirect: false \}\)/)
         expect(limiter).toMatch(/req\.path === '\/' \|\| req\.path === '\/index\.html'/)

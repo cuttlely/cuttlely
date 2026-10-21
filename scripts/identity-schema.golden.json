@@ -1387,6 +1387,47 @@
                 }
             ]
         },
+        "identity_setup_code": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "codeHmac",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "issuedAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "bigint",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": []
+        },
         "document_store": {
             "columns": [
                 {
@@ -4893,6 +4934,48 @@
                 },
                 {
                     "name": "identity_login_failure_pkey",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_setup_code": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "codeHmac",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "issuedAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "bigint",
+                    "nullable": true,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_setup_code_pkey",
                     "unique": true,
                     "columns": ["id"]
                 }
@@ -8435,6 +8518,58 @@
                     "name": "attemptedAt",
                     "type": "bigint(20)",
                     "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_setup_code": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "codeHmac",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "issuedAt",
+                    "type": "bigint(20)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "bigint(20)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "bigint(20)",
+                    "nullable": true,
                     "default": null,
                     "extra": "",
                     "collation": null
@@ -12576,6 +12711,58 @@
                     "name": "attemptedAt",
                     "type": "bigint",
                     "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_setup_code": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "int",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "codeHmac",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "issuedAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "consumedAt",
+                    "type": "bigint",
+                    "nullable": true,
                     "default": null,
                     "extra": "",
                     "collation": null

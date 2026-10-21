@@ -533,3 +533,25 @@ export async function removeAuthKitSwitchTable(runner: QueryRunner): Promise<voi
     const dialect = dialectOf(runner)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_authkit_switch')}`)
 }
+
+function setupCodeTableSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_setup_code')} (
+        ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,
+        ${q(dialect, 'codeHmac')} varchar(64) NOT NULL,
+        ${q(dialect, 'issuedAt')} bigint NOT NULL,
+        ${q(dialect, 'expiresAt')} bigint NOT NULL,
+        ${q(dialect, 'consumedAt')} bigint NULL
+    )`
+}
+
+/** One row for the first-run setup code: HMAC, when it was issued, when it expires, and when it was used. */
+export async function addSetupCode(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (await tableExists(runner, dialect, 'identity_setup_code')) return
+    await runner.query(setupCodeTableSql(dialect))
+}
+
+export async function removeSetupCode(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_setup_code')}`)
+}

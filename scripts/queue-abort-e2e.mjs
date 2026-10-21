@@ -17,6 +17,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { setupCodeFromLogs } from './smoke-server.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER = path.join(ROOT, 'packages', 'server')
@@ -289,9 +290,11 @@ async function main() {
         await waitFor('worker ready', async () => worker.logs.join('').includes('Prediction Worker'), worker)
         console.log('queue-abort-e2e: server and worker up')
 
+        const setupCode = setupCodeFromLogs(main.logs)
+        if (!setupCode) throw new Error('the server log had no setup code')
         const registered = await request(`${base}/api/v1/account/register`, {
             method: 'POST',
-            body: { user: { name: 'Queue Abort', email: EMAIL, credential: PASSWORD } }
+            body: { user: { name: 'Queue Abort', email: EMAIL, credential: PASSWORD }, setupCode }
         })
         if (registered.status !== 200) throw new Error(`register ${registered.status}: ${registered.text.slice(0, 300)}`)
         const login = await request(`${base}/api/v1/auth/login`, { method: 'POST', body: { email: EMAIL, password: PASSWORD } })

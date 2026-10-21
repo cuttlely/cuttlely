@@ -10,7 +10,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
-import { freePort, request, waitForPing } from '../smoke-server.mjs'
+import { freePort, request, setupCodeFromLogs, waitForPing } from '../smoke-server.mjs'
 import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -487,9 +487,11 @@ async function main() {
     try {
         console.log(`docs server ${base}`)
         await waitForPing(base, child, logs)
+        const setupCode = setupCodeFromLogs(logs)
+        if (!setupCode) throw new Error('the server log had no setup code')
         const registered = await request(`${base}/api/v1/account/register`, {
             method: 'POST',
-            body: { user: { name: NAME, email: EMAIL, credential: PASSWORD } }
+            body: { user: { name: NAME, email: EMAIL, credential: PASSWORD }, setupCode }
         })
         if (registered.status !== 200) throw new Error(`register ${registered.status}`)
         const loggedIn = await request(`${base}/api/v1/auth/login`, {

@@ -1,4 +1,5 @@
 // The one-time setup page (/server-setup): what to show, and checks for the first account form.
+import { readSetupCode } from '@/utils/firstRun'
 import { validatePassword } from '@/utils/validation'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -30,9 +31,7 @@ export function fieldErrors(errors) {
     return Object.fromEntries((errors ?? []).map((error) => [error.key, error.message]))
 }
 
-/** Removes the code from the address bar once it has been used, so it isn't left in history or shared by mistake. */
+/** Removes the code from the address bar, including a fragment code and a legacy query code. */
 export function addressWithoutCode(href) {
-    const url = new URL(href)
-    url.searchParams.delete('code')
-    return `${url.pathname}${url.search}${url.hash}`
+    return readSetupCode(href).address
 }
