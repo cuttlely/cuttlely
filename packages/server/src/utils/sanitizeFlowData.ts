@@ -32,8 +32,13 @@ const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
 const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // word: followed by a non-space character. Checked on the original, normalized, and fully decoded text.
 const SCHEME_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\S/
-// Controls, NBSP, soft hyphen, and zero-width characters (including U+2060).
-const INVISIBLE_CLASS = '[\\u0000-\\u001f\\u007f-\\u009f\\u00a0\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u2028-\\u202f\\u2060-\\u206f\\ufeff]'
+// A known scheme whose colon is followed by a tab or a line break. A normal space after the colon stays allowed.
+// Ordinary labels such as "History:" are not in this list.
+const NAMED_SCHEME_ACROSS_BREAK =
+    /(?:^|[^A-Za-z0-9])(?:javascript|vbscript|data|file|blob|https?):[^\S\t\n\v\f\r\u2028\u2029]*[\t\n\v\f\r\u2028\u2029]/i
+// Hidden characters. Tab and line breaks stay, so a label on its own line is not joined to the next line.
+const INVISIBLE_CLASS =
+    '[\\u0000-\\u0008\\u000e-\\u001f\\u007f-\\u009f\\u00a0\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u202a-\\u202f\\u2060-\\u206f\\ufeff]'
 const INVISIBLE = new RegExp(INVISIBLE_CLASS, 'g')
 const INVISIBLE_CHAR = new RegExp(INVISIBLE_CLASS)
 const HYPHEN_LIKE = /[\u2010-\u2015\u2212]/g
@@ -240,8 +245,11 @@ const hasHighEntropyRun = (text: string): boolean => {
     return false
 }
 
-/** //, an @ with a non-space on both sides, or a scheme-like word: immediately followed by a non-space. */
-const hasUnsafeFreeText = (text: string): boolean => text.includes('//') || /\S@\S/.test(text) || SCHEME_LIKE.test(text)
+const hasNamedSchemeAcrossBreak = (text: string): boolean => NAMED_SCHEME_ACROSS_BREAK.test(text)
+
+/** //, an @ with a non-space on both sides, or a scheme-like word: immediately followed by a non-space. A named scheme with a tab or a line break after the colon counts too. */
+const hasUnsafeFreeText = (text: string): boolean =>
+    text.includes('//') || /\S@\S/.test(text) || SCHEME_LIKE.test(text) || hasNamedSchemeAcrossBreak(text)
 
 const hasTokenOrUnsafePattern = (text: string): boolean => TOKEN_PREFIX.test(text) || hasUnsafeFreeText(text)
 
@@ -258,9 +266,8 @@ const patternFails = (value: string): boolean => {
     return TOKEN_PREFIX.test(compactForm(value))
 }
 
-/** A token prefix or a long high-entropy run on the raw, spaced, removed, and whitespace-free forms. */
-const entropyFails = (value: string): boolean =>
-    [value, foldText(value), removedForm(value), compactForm(value)].some((form) => hasTokenOrEntropy(form))
+/** A token prefix or a long high-entropy run on the raw text, the spaced form, and the form with invisible characters removed. Spaces stay, so ordinary words are not joined into one run. The whitespace-free form is only for a token prefix, in patternFails. */
+const entropyFails = (value: string): boolean => [value, foldText(value), removedForm(value)].some((form) => hasTokenOrEntropy(form))
 
 /**
  * Decoded text when the original and the fully decoded text are free of a token prefix and of an unsafe free-text pattern
@@ -329,7 +336,7 @@ const isNodeReference = (value: unknown, nodeIds: ReadonlySet<string>): boolean 
     return Array.isArray(value) && value.length > 0 && value.every(one)
 }
 
-/** A path segment or host label that matches a token prefix or a long high-entropy run, on the raw and decoded forms. */
+/** A path segment or host label that matches a token prefix or a long high-entropy run, on the raw and decoded forms. Spaces stay for the long-run check. */
 const partHasSecret = (text: string): boolean => {
     if (patternFails(text) || entropyFails(text)) return true
     const plain = plainForCheck(text)
@@ -367,16 +374,18 @@ export const rebuildHttpUrl = (value: unknown): string | undefined => {
 
 const keepString = (value: unknown): string | undefined => (stringIsSafe(value) ? value : undefined)
 
-/** A whole async option value that is only a UUID is not treated as a high-entropy run. */
+/** A whole async option value that is only a UUID is not treated as a long high-entropy run. Spaces stay for that run. The whitespace-free form is only for a token prefix. */
 const keepAsyncOption = (value: unknown): string | undefined => {
     if (typeof value !== 'string') return undefined
     const plain = plainIfAllowed(value)
     if (plain === undefined) return undefined
-    const forms = [value, plain, foldText(plain), removedForm(plain), compactForm(plain)]
-    if (forms.some((form) => TOKEN_PREFIX.test(form))) return undefined
-    const uuid = forms.some((form) => PLAIN_UUID.test(form.trim()))
-    if (!uuid && forms.some((form) => hasHighEntropyRun(form))) return undefined
-    if (uuid && forms.some((form) => !PLAIN_UUID.test(form.trim()) && hasHighEntropyRun(form))) return undefined
+    const spaced = [value, plain, foldText(plain), removedForm(plain)]
+    const joined = [compactForm(value), compactForm(plain)]
+    if ([...spaced, ...joined].some((form) => TOKEN_PREFIX.test(form))) return undefined
+    const isUuid = (form: string) => PLAIN_UUID.test(form.trim())
+    const uuid = [...spaced, ...joined].some(isUuid)
+    if (!uuid && spaced.some((form) => hasHighEntropyRun(form))) return undefined
+    if (uuid && spaced.some((form) => !isUuid(form) && hasHighEntropyRun(form))) return undefined
     return value
 }
 
