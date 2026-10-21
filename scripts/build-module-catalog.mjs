@@ -87,6 +87,26 @@ function categoryOf(source, file) {
     return constantString(source, file, ident, new Set()) || ''
 }
 
+// The catalog used to list names only. A card with this.credential needs that slot recorded
+// so import can tell a selected model or tool apart from one that does not.
+function credentialOf(source) {
+    const match = source.match(/this\.credential\s*=\s*\{/)
+    if (!match) return null
+    let depth = 0
+    for (let i = match.index + match[0].length - 1; i < source.length; i += 1) {
+        const ch = source[i]
+        if (ch === '{') depth += 1
+        else if (ch === '}') {
+            depth -= 1
+            if (depth === 0) {
+                const body = source.slice(match.index, i + 1)
+                return { optional: /optional\s*:\s*true/.test(body) }
+            }
+        }
+    }
+    return { optional: false }
+}
+
 // Categories NodesPool does not register. hidden follows that list.
 function skippedCategories() {
     const source = fs.readFileSync(path.join(root, 'packages/server/src/NodesPool.ts'), 'utf8')
@@ -169,7 +189,10 @@ function collectNodes(dir, nodes) {
             disposition = 'adapt'
             reason = 'Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.'
         }
-        nodes.push({ name, label, category, folder, file: relative, disposition, reason, badge })
+        const node = { name, label, category, folder, file: relative, disposition, reason, badge }
+        const credential = credentialOf(source)
+        if (credential) node.credential = credential
+        nodes.push(node)
     }
 }
 
@@ -195,7 +218,7 @@ export function buildModuleCatalog() {
     return {
         generatedFrom: 'packages/components/nodes and packages/node-pack-*/nodes',
         registration:
-            'NodesPool loads every nodeClass under packages/components/nodes, then the packs in CUTTLELY_NODE_PACKS. Unset loads the packs that ship with the install. packages/components/nodes/index.ts re-exports this catalog. tier is core (a bundled template, a sample canvas, or a Build with AI recipe), supported, legacy (DEPRECATING badge), or hidden (a category the server skips at load).',
+            'NodesPool loads every nodeClass under packages/components/nodes, then the packs in CUTTLELY_NODE_PACKS. Unset loads the packs that ship with the install. packages/components/nodes/index.ts re-exports this catalog. tier is core (a bundled template, a sample canvas, or a Build with AI recipe), supported, legacy (DEPRECATING badge), or hidden (a category the server skips at load). credential is set when the card has a credential slot.',
         langgraphUpgradeBlocked: false,
         counts,
         tiers,
