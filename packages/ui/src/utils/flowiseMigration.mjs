@@ -109,9 +109,9 @@ const CONFIG_KEY = /(?:Model|Tool)Config$/
 const TOOL_FILE_MESSAGE = 'This is a Flowise tool, not a flow. Open Tools > Load to import it.'
 
 const aliasFixLine = (label, from, to) => `Updated ${label} from ${from} to ${to}.`
-const conversationPromptFixLine = (label) => `Copied the system message on ${label} into the current prompt field.`
+const conversationPromptFixLine = (label) => `Copied the system message on ${label} into its prompt field.`
 
-const CUSTOM_TOOL_RECREATE = 'Re-create this in Tools, then pick it in the node.'
+const CUSTOM_TOOL_RECREATE = 'Recreate it in Tools, then pick it in this node.'
 const customToolLine = (name, id) =>
     name && name !== id ? `Custom tool '${name}' (${id}). ${CUSTOM_TOOL_RECREATE}` : `Custom tool ${id}. ${CUSTOM_TOOL_RECREATE}`
 

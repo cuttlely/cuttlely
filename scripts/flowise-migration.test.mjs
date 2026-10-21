@@ -455,9 +455,7 @@ describe('scanFlowiseMigration', () => {
         const report = scan(parsed)
         assert.notEqual(report.level, 'compatible')
         assert.ok(
-            report.attention.includes(
-                'Custom tool 00000000-0000-4000-8000-000000000002. Re-create this in Tools, then pick it in the node.'
-            )
+            report.attention.includes('Custom tool 00000000-0000-4000-8000-000000000002. Recreate it in Tools, then pick it in this node.')
         )
     })
 
@@ -491,8 +489,8 @@ describe('scanFlowiseMigration', () => {
             edges: []
         })
         assert.deepEqual(report.attention, [
-            "Custom tool 'Lookup rows' (tool-made-up-2). Re-create this in Tools, then pick it in the node.",
-            'Custom tool tool-made-up-3. Re-create this in Tools, then pick it in the node.'
+            "Custom tool 'Lookup rows' (tool-made-up-2). Recreate it in Tools, then pick it in this node.",
+            'Custom tool tool-made-up-3. Recreate it in Tools, then pick it in this node.'
         ])
     })
 
@@ -507,7 +505,7 @@ describe('scanFlowiseMigration', () => {
             ],
             edges: []
         })
-        assert.deepEqual(report.attention, ['Custom tool tool-made-up-4. Re-create this in Tools, then pick it in the node.'])
+        assert.deepEqual(report.attention, ['Custom tool tool-made-up-4. Recreate it in Tools, then pick it in this node.'])
     })
 
     it('copies a conversation chain system message into the current prompt field', () => {
@@ -524,6 +522,6 @@ describe('scanFlowiseMigration', () => {
         assert.equal(report.ok, true)
         assert.equal(report.canvas.nodes[0].data.inputs.systemMessagePrompt, 'Be brief.')
         assert.equal(report.canvas.nodes[0].data.inputs.systemMessage, 'Be brief.')
-        assert.ok(report.fixes.includes('Copied the system message on Conversation Chain into the current prompt field.'))
+        assert.ok(report.fixes.includes('Copied the system message on Conversation Chain into its prompt field.'))
     })
 })

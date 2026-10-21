@@ -8,7 +8,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import Wizard from './FlowiseMigrationWizard'
 
-const LINE = 'Custom tool tool-made-up-1. Re-create this in Tools, then pick it in the node.'
+const LINE = 'Custom tool tool-made-up-1. Recreate it in Tools, then pick it in this node.'
 
 const graph = {
     name: 'Lookup',
