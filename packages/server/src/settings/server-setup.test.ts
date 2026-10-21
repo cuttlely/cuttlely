@@ -550,6 +550,26 @@ describe('an expired setup code', () => {
         expect((await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: fresh })).status).toBe(200)
     })
 
+    it('refuses a code older than 60 minutes on /begin, prints a new one, and the new code is accepted', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        lines.length = 0
+        const refused = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code })
+        expect(refused.status).not.toBe(200)
+        expect(await setupCodeMatches(code)).toBe(false)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('#code='))
+        expect(printed).toBeTruthy()
+        const fresh = printed!
+            .slice(printed!.indexOf('#code=') + '#code='.length)
+            .trim()
+            .split(/\s/)[0]
+        expect(fresh).not.toBe(code)
+        expect(await setupCodeMatches(fresh)).toBe(true)
+        expect((await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: fresh })).status).toBe(200)
+    })
+
     it('prints a new code from the owner call, and the new code opens a session', async () => {
         const lines: string[] = []
         const code = await issued(lines)
