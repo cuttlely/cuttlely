@@ -646,6 +646,248 @@ describe('template inputs', () => {
             expectNoMarker(display)
         }
     })
+
+    it('keeps no planted value in layout, connections, addresses, or split text', () => {
+        const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
+        const visible = (value: string) => value.replace(INVISIBLE, '').replace(/\s+/g, '').toLowerCase()
+        const decodeString = (value: string): unknown => {
+            let current = value
+            for (let layer = 0; layer < 8; layer += 1) {
+                let decoded = current
+                try {
+                    decoded = decodeURIComponent(current)
+                } catch {
+                    decoded = current
+                }
+                try {
+                    const parsed = JSON.parse(decoded)
+                    if (typeof parsed === 'string') {
+                        current = parsed
+                        continue
+                    }
+                    if (parsed && typeof parsed === 'object') return fullyDecode(parsed)
+                } catch {
+                    // not JSON
+                }
+                if (decoded === current) return current
+                current = decoded
+            }
+            return current
+        }
+        const fullyDecode = (value: unknown): unknown => {
+            if (typeof value === 'string') return decodeString(value)
+            if (Array.isArray(value)) return value.map((item) => fullyDecode(item))
+            if (value && typeof value === 'object') {
+                const out: Record<string, unknown> = {}
+                for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+                    const decodedKey = fullyDecode(key)
+                    out[typeof decodedKey === 'string' ? decodedKey : key] = fullyDecode(child)
+                }
+                return out
+            }
+            return value
+        }
+        const textsOf = (value: unknown): string[] => {
+            const texts: string[] = []
+            const walk = (node: unknown) => {
+                if (typeof node === 'string') {
+                    texts.push(node)
+                    return
+                }
+                if (Array.isArray(node)) {
+                    node.forEach(walk)
+                    return
+                }
+                if (node && typeof node === 'object') {
+                    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+                        texts.push(key)
+                        walk(child)
+                    }
+                }
+            }
+            walk(fullyDecode(value))
+            return texts
+        }
+        const expectClean = (value: unknown, banned: string[]) => {
+            const folded = textsOf(value).map(visible)
+            expect(folded.length).toBeGreaterThan(0)
+            for (const secret of banned) {
+                const needle = visible(secret)
+                if (needle.length < 8) continue
+                for (const text of folded) expect(text).not.toContain(needle)
+            }
+        }
+        const prefixes = ['sk-', 'pk-', 'ghp_', 'xoxb-', 'xoxp-']
+        const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        const hostAlphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
+        const marks = ['\u200b', '\u00ad', '\u2060', '\u00a0']
+        const rng = mulberry32(131)
+        const pick = (chars: string, count: number) => {
+            let out = ''
+            for (let i = 0; i < count; i += 1) out += chars[Math.floor(rng() * chars.length)]
+            return out
+        }
+        const splitAt = (value: string) => {
+            const at = 1 + Math.floor(rng() * Math.max(1, value.length - 1))
+            return value.slice(0, at) + marks[Math.floor(rng() * marks.length)] + value.slice(at)
+        }
+        const sourceHandle = 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel'
+        const targetHandle = 'conversationChain_0-input-model-BaseChatModel'
+        const params = [
+            { name: 'prompt', type: 'string' },
+            { name: 'systemMessage', type: 'string' },
+            { name: 'systemMessagePrompt', type: 'string' },
+            { name: 'modelName', type: 'asyncOptions' },
+            { name: 'basepath', type: 'string' },
+            { name: 'baseURL', type: 'string' }
+        ]
+        const fixed = [
+            `Part xai-FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
+            `AIzaFAKEqa9X7mP2\u200bvR8tY4wK1nB3cDzL\u200bs5Hj6Gf`,
+            `s\u200bk-FAKEqa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf`,
+            `s\u00adk-FAKEqa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf`,
+            `sk\u2060-FAKEqa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf`,
+            'https:\u00a0/\u00a0/qa\u00a0:\u00a0pw\u00a0@\u00a0host'
+        ]
+        for (let trial = 0; trial < 24; trial += 1) {
+            const marker = `${MARKER}${trial}_`
+            const body = `aZ9${pick(alphabet, 40)}`
+            const generated = prefixes[trial % prefixes.length] + body
+            const hostLabel = `sk-${pick(hostAlphabet, 40)}`
+            const shapes = secretShapes(marker)
+            const banned = [marker, generated, body, hostLabel, ...shapes, ...fixed]
+            const pathSecret = shapes[trial % shapes.length]
+            const flow = buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: 'chatOpenAI_0',
+                            type: 'customNode',
+                            position: { x: 10, y: 20, note: generated },
+                            positionAbsolute: { x: 1, y: 2, note: generated },
+                            width: 300,
+                            height: generated,
+                            style: { note: shapes[0] },
+                            extent: generated,
+                            parentNode: generated,
+                            extraField: generated,
+                            data: {
+                                id: 'chatOpenAI_0',
+                                name: 'chatOpenAI',
+                                label: generated,
+                                inputs: {
+                                    prompt: trial % 2 === 0 ? splitAt(generated) : fixed[trial % fixed.length],
+                                    systemMessage: 'Ask\u00a0about the hours today.',
+                                    systemMessagePrompt: fixed[5],
+                                    modelName: splitAt(shapes[1]),
+                                    basepath:
+                                        trial % 2 === 0
+                                            ? `https://api.example.invalid/v1/${generated}/x`
+                                            : `https://api.example.invalid/services/T0FAKE/B0FAKE/${body}`,
+                                    baseURL: `https://${hostLabel}.example.invalid/v1`
+                                }
+                            }
+                        },
+                        {
+                            id: 'conversationChain_0',
+                            type: 'customNode',
+                            data: {
+                                id: 'conversationChain_0',
+                                name: 'conversationChain',
+                                inputs: { model: '{{chatOpenAI_0.data.instance}}' }
+                            }
+                        },
+                        generated,
+                        { id: generated, type: 'customNode', width: generated, data: { name: 'chatOpenAI', inputs: { prompt: generated } } }
+                    ],
+                    edges: [
+                        {
+                            id: 'eModel',
+                            source: 'chatOpenAI_0',
+                            target: 'conversationChain_0',
+                            sourceHandle,
+                            targetHandle,
+                            type: 'buttonedge'
+                        },
+                        {
+                            id: generated,
+                            source: 'chatOpenAI_0',
+                            target: 'conversationChain_0',
+                            sourceHandle: generated,
+                            targetHandle: generated,
+                            type: 'buttonedge',
+                            data: { label: generated },
+                            apiKey: shapes[2]
+                        },
+                        generated
+                    ]
+                },
+                {
+                    chatOpenAI: {
+                        name: 'chatOpenAI',
+                        label: 'OpenAI',
+                        type: 'ChatOpenAI',
+                        baseClasses: ['ChatOpenAI', 'BaseChatModel'],
+                        inputParams: params
+                    },
+                    conversationChain: {
+                        name: 'conversationChain',
+                        label: 'Conversation Chain',
+                        type: 'ConversationChain',
+                        inputAnchors: [{ name: 'model', type: 'BaseChatModel' }]
+                    }
+                }
+            )
+            const chat = flow.nodes.find((node) => (node as { id?: string }).id === 'chatOpenAI_0') as {
+                position?: unknown
+                width?: unknown
+                height?: unknown
+                style?: unknown
+                extent?: unknown
+                parentNode?: unknown
+                positionAbsolute?: unknown
+                extraField?: unknown
+                data: { inputs: Record<string, unknown> }
+            }
+            expect(chat.position).toEqual({ x: 10, y: 20 })
+            expect(chat.width).toBe(300)
+            expect(chat.height).toBeUndefined()
+            expect(chat.style).toBeUndefined()
+            expect(chat.extent).toBeUndefined()
+            expect(chat.parentNode).toBeUndefined()
+            expect(chat.positionAbsolute).toBeUndefined()
+            expect(chat.extraField).toBeUndefined()
+            expect(chat.data.inputs.systemMessage).toBe('Ask\u00a0about the hours today.')
+            expect(chat.data.inputs.prompt).toBeUndefined()
+            expect(chat.data.inputs.modelName).toBeUndefined()
+            expect(chat.data.inputs.systemMessagePrompt).toBeUndefined()
+            expect(chat.data.inputs.basepath).toBeUndefined()
+            expect(chat.data.inputs.baseURL).toBeUndefined()
+            expect(flow.nodes).toHaveLength(2)
+            expect(flow.edges).toEqual([
+                {
+                    id: 'eModel',
+                    source: 'chatOpenAI_0',
+                    target: 'conversationChain_0',
+                    sourceHandle,
+                    targetHandle,
+                    type: 'buttonedge'
+                }
+            ])
+            expectClean(flow, banned)
+            const display = publicChatbotDisplayConfig({
+                title: 'Hours',
+                welcomeMessage: 'Ask about the hours today.',
+                titleAvatarSrc: `https://cdn.example/images/${encodeURIComponent(pathSecret)}.png`,
+                botMessage: { avatarSrc: `https://${hostLabel}.example.invalid/logo.png` }
+            })
+            expect(display.title).toBe('Hours')
+            expect(display.welcomeMessage).toBe('Ask about the hours today.')
+            expect(display.titleAvatarSrc).toBeUndefined()
+            expect((display.botMessage as { avatarSrc?: string } | undefined)?.avatarSrc).toBeUndefined()
+            expectClean(display, banned)
+        }
+    })
 })
 
 describe('dropped settings report', () => {
