@@ -27,7 +27,7 @@ describe('migration scan', () => {
         const report = scan(fixture('text-to-sql.json'))
         expect(report.level).not.toBe('compatible')
         expect(report.attention).toContain(
-            'Custom tool 00000000-0000-4000-8000-000000000002. Recreate it in Tools, then pick it in this node.'
+            "Custom tool 00000000-0000-4000-8000-000000000002 on 'Custom Tool'. Recreate it in Tools, then pick it in this node."
         )
     })
 })

@@ -8,7 +8,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import Wizard from './FlowiseMigrationWizard'
 
-const LINE = 'Custom tool tool-made-up-1. Recreate it in Tools, then pick it in this node.'
+const LINE = "Custom tool tool-made-up-1 on 'Lookup'. Recreate it in Tools, then pick it in this node."
 
 const graph = {
     name: 'Lookup',
@@ -93,5 +93,27 @@ describe('import wizard attention list', () => {
         })
         expect(document.body.textContent).toContain('The canvas will open')
         expect(document.body.textContent).toContain(LINE)
+    })
+
+    it('stops a tool file at the upload step', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(ThemeProvider, { theme: createTheme() }, createElement(Wizard, { open: true, onClose() {}, onOpen() {} }))
+            )
+        })
+        const tool = { name: 'made_up_tool', description: 'Made up', schema: '[]', func: 'return "ok"' }
+        const input = document.body.querySelector('input[type="file"]')
+        const file = new File([JSON.stringify(tool)], 'tool.json', { type: 'application/json' })
+        await act(async () => {
+            Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+            input.dispatchEvent(new Event('change', { bubbles: true }))
+            await new Promise((resolve) => setTimeout(resolve, 30))
+        })
+        expect(document.body.textContent).toContain('This is a Flowise tool, not a flow. Open Tools > Load to import it.')
+        expect(document.body.querySelector('input[type="file"]')).not.toBeNull()
+        expect([...document.body.querySelectorAll('button')].some((item) => item.textContent.trim() === 'Next')).toBe(false)
     })
 })

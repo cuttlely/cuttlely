@@ -93,7 +93,7 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
                 return
             }
             const next = scanFlowiseMigration(parsed, { catalog: flowiseNodeCatalog })
-            if (next.code === 'langflow' || next.code === 'not-flowise') {
+            if (next.code === 'langflow' || next.code === 'not-flowise' || next.code === 'tool') {
                 setReport(null)
                 setParseError(next.reason)
                 setStep(0)

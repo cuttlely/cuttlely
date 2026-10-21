@@ -455,7 +455,9 @@ describe('scanFlowiseMigration', () => {
         const report = scan(parsed)
         assert.notEqual(report.level, 'compatible')
         assert.ok(
-            report.attention.includes('Custom tool 00000000-0000-4000-8000-000000000002. Recreate it in Tools, then pick it in this node.')
+            report.attention.includes(
+                "Custom tool 00000000-0000-4000-8000-000000000002 on 'Custom Tool'. Recreate it in Tools, then pick it in this node."
+            )
         )
     })
 
@@ -489,8 +491,8 @@ describe('scanFlowiseMigration', () => {
             edges: []
         })
         assert.deepEqual(report.attention, [
-            "Custom tool 'Lookup rows' (tool-made-up-2). Recreate it in Tools, then pick it in this node.",
-            'Custom tool tool-made-up-3. Recreate it in Tools, then pick it in this node.'
+            "Custom tool 'Lookup rows' (tool-made-up-2) on 'Worker'. Recreate it in Tools, then pick it in this node.",
+            "Custom tool tool-made-up-3 on 'Worker'. Recreate it in Tools, then pick it in this node."
         ])
     })
 
@@ -505,7 +507,7 @@ describe('scanFlowiseMigration', () => {
             ],
             edges: []
         })
-        assert.deepEqual(report.attention, ['Custom tool tool-made-up-4. Recreate it in Tools, then pick it in this node.'])
+        assert.deepEqual(report.attention, ["Custom tool tool-made-up-4 on 'Tool step'. Recreate it in Tools, then pick it in this node."])
     })
 
     it('copies a conversation chain system message into the current prompt field', () => {

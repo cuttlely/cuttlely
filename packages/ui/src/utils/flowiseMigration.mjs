@@ -112,8 +112,10 @@ const aliasFixLine = (label, from, to) => `Updated ${label} from ${from} to ${to
 const conversationPromptFixLine = (label) => `Copied the system message on ${label} into its prompt field.`
 
 const CUSTOM_TOOL_RECREATE = 'Recreate it in Tools, then pick it in this node.'
-const customToolLine = (name, id) =>
-    name && name !== id ? `Custom tool '${name}' (${id}). ${CUSTOM_TOOL_RECREATE}` : `Custom tool ${id}. ${CUSTOM_TOOL_RECREATE}`
+const customToolLine = (name, id, nodeLabel) =>
+    name && name !== id
+        ? `Custom tool '${name}' (${id}) on '${nodeLabel}'. ${CUSTOM_TOOL_RECREATE}`
+        : `Custom tool ${id} on '${nodeLabel}'. ${CUSTOM_TOOL_RECREATE}`
 
 // Output handle ids are `${nodeId}-output-${cardName}-${classes}`. These two old card names use the
 // same anchor names and types as the current cards, so only that card-name segment has to change.
@@ -264,7 +266,7 @@ const noteCustomTools = (nodeName, inputs, label, attention) => {
     const push = (toolName, toolId) => {
         const id = String(toolId || '').trim()
         if (!id) return
-        const line = customToolLine(String(toolName || '').trim(), id)
+        const line = customToolLine(String(toolName || '').trim(), id, label)
         if (!attention.includes(line)) attention.push(line)
     }
     const fromCustom = (record) => {
