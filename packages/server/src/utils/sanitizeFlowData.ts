@@ -520,8 +520,16 @@ export const sanitizeToolTemplate = (tool: unknown): { iconSrc?: string; schema?
     }
     if (source.schema !== undefined && source.schema !== null && source.schema !== '') {
         if (typeof source.schema === 'string' || Array.isArray(source.schema) || asRecord(source.schema)) {
-            if (toolValueIsSafe(source.schema)) result.schema = source.schema
-            else dropped.push('schema')
+            // Emit a rebuilt copy of what was checked, never the saved text: a JSON string is parsed and written again,
+            // so a duplicate key or escaped text that the parsed value no longer holds is not carried over.
+            const container = typeof source.schema === 'string' ? jsonContainer(source.schema) : source.schema
+            if (toolValueIsSafe(source.schema)) {
+                if (container === undefined) result.schema = source.schema
+                else {
+                    const rebuilt = JSON.stringify(container)
+                    result.schema = typeof source.schema === 'string' ? rebuilt : JSON.parse(rebuilt)
+                }
+            } else dropped.push('schema')
         } else dropped.push('schema')
     }
     if (!isBlank(source.iconSrc)) {

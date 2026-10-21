@@ -2073,3 +2073,37 @@ describe('long crafted text', () => {
         expect(sanitizeToolTemplate({ func: 'Note: be brief' }).func).toBe('Note: be brief')
     })
 })
+
+describe('tool schema rebuild', () => {
+    const prefix = ['s', 'k', '-'].join('')
+    const hidden = (text: string) =>
+        Array.from(text)
+            .map((c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
+            .join('')
+    const percent = (text: string) =>
+        Array.from(text)
+            .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+            .join('')
+
+    it('does not carry an earlier duplicate key into the saved schema', () => {
+        const marker = prefix + 'FAKE_MARKER_DUP' + 'qa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf0Ue7Wq'
+        for (const wrapped of [hidden(marker), percent(marker), hidden(prefix + 'FAKE_MARKER_S')]) {
+            const schema = `{"name":"${wrapped}","name":"query"}`
+            const out = sanitizeToolTemplate({ schema })
+            const text = JSON.stringify(out)
+            expect(text).not.toContain('FAKE_MARKER')
+            expect(text).not.toContain('\\\\u')
+            expect(text).not.toContain('%')
+            if (out.schema !== undefined) expect(out.schema).toBe('{"name":"query"}')
+        }
+    })
+
+    it('rebuilds a clean schema string and object', () => {
+        const schema = '[{"property":"query","type":"string","description":"Search text","required":true}]'
+        expect(sanitizeToolTemplate({ schema }).schema).toBe(schema)
+        const obj = [{ property: 'query', type: 'string' }]
+        const out = sanitizeToolTemplate({ schema: obj }).schema
+        expect(out).toEqual(obj)
+        expect(out).not.toBe(obj)
+    })
+})
