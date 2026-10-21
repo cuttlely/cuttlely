@@ -391,6 +391,56 @@ const tokenPatternFails = (value: string): boolean => {
  * Tool func is source text. It uses the token-prefix, high-entropy, and decoding checks.
  * An address, `//`, `@`, or a scheme-like word does not by itself leave it out.
  */
+// Credential-named query parameters, with any value. A fixed word list after one delimiter, so the scan stays linear.
+const CODE_CREDENTIAL_QUERY = /[?&;](?:api_key|apikey|key|token|access_token|secret|password|sig)=/i
+// Bearer or Basic followed by a literal value. A template expression such as ${token} or a quoted concatenation is not a value.
+const CODE_AUTH_SCHEME = /\b(?:bearer|basic)[ \t]+([A-Za-z0-9._~+/=-]+)/gi
+// An ALL_CAPS name with an underscore, such as SPIDER_API_KEY, is a placeholder for the user to replace.
+const PLACEHOLDER_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
+
+/** An address whose authority (after ://, up to /, ?, #, or whitespace) has a : before an @. One pass per authority. */
+const hasUserinfoPassword = (text: string): boolean => {
+    let from = 0
+    for (;;) {
+        const start = text.indexOf('://', from)
+        if (start < 0) return false
+        let colon = false
+        let i = start + 3
+        for (; i < text.length; i++) {
+            const c = text[i]
+            if (
+                c === '/' ||
+                c === '?' ||
+                c === '#' ||
+                c === ' ' ||
+                c === '\t' ||
+                c === '\n' ||
+                c === '\r' ||
+                c === '"' ||
+                c === "'" ||
+                c === '`'
+            )
+                break
+            if (c === ':') colon = true
+            else if (c === '@') {
+                if (colon) return true
+                break
+            }
+        }
+        from = Math.max(i, start + 3)
+    }
+}
+
+const hasAuthValue = (text: string): boolean => {
+    for (const match of text.matchAll(CODE_AUTH_SCHEME)) {
+        if (!PLACEHOLDER_NAME.test(match[1])) return true
+    }
+    return false
+}
+
+/** Credential shapes that leave tool code out even though plain addresses and @ are allowed there. */
+const codeCredentialFails = (text: string): boolean => hasUserinfoPassword(text) || CODE_CREDENTIAL_QUERY.test(text) || hasAuthValue(text)
+
 const codeIsSafe = (value: unknown): value is string => {
     if (typeof value !== 'string' || value.length > MAX_TEMPLATE_TEXT) return false
     if (TOKEN_PREFIX.test(value)) return false
@@ -398,6 +448,7 @@ const codeIsSafe = (value: unknown): value is string => {
         const plain = plainForCheck(value)
         if (plain === undefined) return false
         if (tokenPatternFails(value) || tokenPatternFails(plain)) return false
+        if (codeCredentialFails(value) || codeCredentialFails(plain)) return false
         return !entropyFails(value, true) && !entropyFails(plain, true)
     })
 }
@@ -617,7 +668,8 @@ const toolValueIsSafe = (value: unknown): boolean => {
 /**
  * Custom tool template fields saved from the marketplace.
  * func uses the token-prefix, high-entropy, and decoding checks and is left out whole on a match.
- * An address, //, @, or a scheme-like word does not by itself leave func out.
+ * An address, //, @, or a scheme-like word does not by itself leave func out. An address with a password in its
+ * user info, a credential-named query parameter, or Bearer or Basic followed by a value does.
  * schema uses the whole-value text check and is left out whole on a match.
  * iconSrc is rebuilt as scheme, host, and path, or left out.
  * dropped names the fields that were present and left out.

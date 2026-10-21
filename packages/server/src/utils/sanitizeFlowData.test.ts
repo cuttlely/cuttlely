@@ -2520,3 +2520,58 @@ describe('non-ASCII hosts', () => {
         expect(rebuildHttpUrl('https://cdn.example/icons/hammer.png')).toBe('https://cdn.example/icons/hammer.png')
     })
 })
+
+describe('tool func credential shapes', () => {
+    const pw = ['FAKE', 'pw', '7'].join('')
+    const fn = (body: string) => `const res = await fetch(${body})\nreturn res.text()`
+
+    it('leaves out func with a password in an address', () => {
+        for (const url of [
+            `'https://u:${pw}@api.example/v1'`,
+            `"http://admin:${pw}@10.0.0.1:8080/x"`,
+            '`ftp://u:' + pw + '@files.example`'
+        ]) {
+            expect(sanitizeToolTemplate({ func: fn(url) }).func).toBeUndefined()
+        }
+    })
+
+    it('leaves out func with a credential-named query parameter, any value', () => {
+        for (const name of ['api_key', 'APIKEY', 'key', 'Token', 'access_token', 'secret', 'password', 'sig']) {
+            for (const sep of ['?', '&', ';']) {
+                expect(
+                    sanitizeToolTemplate({ func: fn(`'https://api.example/v1?q=1${sep === '?' ? '&' : sep}${name}=x'`) }).func
+                ).toBeUndefined()
+                expect(
+                    sanitizeToolTemplate({ func: fn(`'https://api.example/v1${sep === '&' ? '?a=1&' : sep}${name}=${pw}'`) }).func
+                ).toBeUndefined()
+            }
+        }
+    })
+
+    it('leaves out func with Bearer or Basic and a literal value', () => {
+        for (const auth of ['Bearer ' + pw, 'bearer ' + pw, 'Basic ' + 'dTpGQUtFcHc3', 'BASIC\t' + pw]) {
+            expect(sanitizeToolTemplate({ func: `const headers = { Authorization: '${auth}' }` }).func).toBeUndefined()
+        }
+    })
+
+    it('keeps plain addresses, @, expressions, and placeholders', () => {
+        const kept = [
+            fn("'https://api.example/v1/items?limit=10&page=2'"),
+            'const to = "team@example.com"\nreturn to',
+            'const headers = { Authorization: `Bearer ${token}` }',
+            "const headers = { Authorization: 'Bearer ' + $vars.token }",
+            "const headers = { Authorization: 'Bearer SPIDER_API_KEY' }",
+            fn("'https://api.example/v1?monkey=1&keyword=bread'")
+        ]
+        for (const func of kept) expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+
+    it('scans long address-like code in linear time', () => {
+        for (const unit of ['a://', '://:', 'https://u:', '?key', 'Bearer ']) {
+            const text = unit.repeat(Math.ceil(200000 / unit.length))
+            const started = performance.now()
+            sanitizeToolTemplate({ func: text.slice(0, 19990) })
+            expect(performance.now() - started).toBeLessThan(200)
+        }
+    })
+})
