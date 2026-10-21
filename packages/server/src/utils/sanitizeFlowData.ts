@@ -250,7 +250,7 @@ const isAsciiLetter = (c: string): boolean => (c >= 'a' && c <= 'z') || (c >= 'A
 const isSchemeChar = (c: string): boolean => isAsciiLetter(c) || (c >= '0' && c <= '9') || c === '+' || c === '.' || c === '-'
 
 /** A letter, then letters, digits, `+`, `.` or `-`, then `:` and a non-space character. One linear pass, no regex. */
-const hasSchemeLike = (text: string): boolean => {
+export const hasSchemeLike = (text: string): boolean => {
     let runHasLetter = false
     for (let i = 0; i < text.length; i++) {
         const c = text[i]
@@ -267,7 +267,7 @@ const hasSchemeLike = (text: string): boolean => {
     return false
 }
 
-const hasNamedSchemeAcrossBreak = (text: string): boolean => NAMED_SCHEME_ACROSS_BREAK.test(text)
+export const hasNamedSchemeAcrossBreak = (text: string): boolean => NAMED_SCHEME_ACROSS_BREAK.test(text)
 
 /** //, an @ with a non-space on both sides, or a scheme-like word: immediately followed by a non-space. A named scheme with a tab or a line break after the colon counts too. */
 const hasUnsafeFreeText = (text: string): boolean =>

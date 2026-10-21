@@ -3,6 +3,8 @@ import path from 'path'
 
 import {
     buildTemplateFlow,
+    hasNamedSchemeAcrossBreak,
+    hasSchemeLike,
     isChatflowKeyProtected,
     publicChatbotDisplayConfig,
     publicChatflowSummary,
@@ -2174,5 +2176,39 @@ describe('default-ignorable characters', () => {
     it('keeps text that uses a variation selector on an emoji', () => {
         const prompt = 'Welcome to Moonbeam Bakery \u2764\ufe0f Answer briefly.'
         expect(sanitizeNodeInputs({ prompt }, schemaParams as any).inputs.prompt).toBe(prompt)
+    })
+})
+
+describe('scheme scans on long input', () => {
+    const size = 100000
+    const fill = (unit: string) => unit.repeat(Math.ceil(size / unit.length)).slice(0, size)
+    const inputs: Array<[string, string]> = [
+        ['one repeated letter', fill('a')],
+        ['one repeated digit', fill('7')],
+        ['alternating letters and digits', fill('a1')],
+        ['scheme characters only', fill('a1+.-')],
+        ['near-miss javascript', fill('javascrip')],
+        ['near-miss javascript with space', fill('javascrip ')],
+        ['near-miss https', fill('http')],
+        ['colon then space', fill('a: ')],
+        ['named scheme then spaces', 'x javascript:' + ' '.repeat(size)],
+        ['named scheme repeated', fill(' javascript: ')],
+        ['many colons', fill(':')]
+    ]
+
+    it.each(inputs)('%s finishes in linear time', (_name, text) => {
+        expect(text.length).toBeGreaterThanOrEqual(size)
+        const started = performance.now()
+        hasSchemeLike(text)
+        hasNamedSchemeAcrossBreak(text)
+        expect(performance.now() - started).toBeLessThan(200)
+    })
+
+    it('keeps the same answers', () => {
+        expect(hasSchemeLike('see mailto:x')).toBe(true)
+        expect(hasSchemeLike('Note: be brief')).toBe(false)
+        expect(hasSchemeLike('ratio 1:2')).toBe(false)
+        expect(hasNamedSchemeAcrossBreak('javascript:\nalert')).toBe(true)
+        expect(hasNamedSchemeAcrossBreak('History:\nnext')).toBe(false)
     })
 })
