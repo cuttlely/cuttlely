@@ -563,8 +563,7 @@ async function reportReady(ctx) {
         const minutes = Math.max(1, Math.round(ctx.timeoutMs / 60000))
         const reason = lastError ? ` (last error: ${lastError.code})` : ''
         ctx.err(`Cuttlely did not answer ${ping} within ${minutes} min${reason}.`)
-        ctx.err(`Cuttlely is still starting. Open ${url} when it is ready.`)
-        ctx.err('Logs: cuttlely logs')
+        ctx.err(`Check the logs to see why: npx cuttlely logs. Then open ${url} once it answers.`)
         ctx.err(INSTALL_DOCS)
         return 1
     }
