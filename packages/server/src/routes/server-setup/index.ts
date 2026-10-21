@@ -122,6 +122,7 @@ router.post('/begin', async (req, res, next) => {
         const verdict = await setupCodeVerdict(code, now)
         if (verdict !== 'match') {
             await reissueExpiredSetupCode(now)
+            // Expired and not-right misses share this cap. An expired code is not a separate allowance.
             if (noteSetupFailure(address, now).limited) {
                 return res.status(429).json({ code: 'TOO_MANY', message: TOO_MANY_MESSAGE })
             }
@@ -151,6 +152,7 @@ router.post('/open', async (req, res, next) => {
         const verdict = await setupCodeVerdict(code, now)
         if (verdict !== 'match' || !(await codeOpensSetup(setup, code))) {
             if (verdict !== 'match') await reissueExpiredSetupCode(now)
+            // Same cap as /begin, including when the code has expired.
             if (noteSetupFailure(address, now).limited) {
                 return res.status(429).json({ code: 'TOO_MANY', message: TOO_MANY_MESSAGE })
             }

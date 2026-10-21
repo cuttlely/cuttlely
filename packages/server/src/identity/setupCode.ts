@@ -36,6 +36,10 @@ export interface SetupCodeRow {
     issuedAt: number
     expiresAt: number
     consumedAt: number | null
+    /** HMAC of the code replaced because it had already expired. Absent when there is none. */
+    previousCodeHmac?: string | null
+    /** Expiry of that previous code. A match on it is expired only once this time has passed. */
+    previousExpiresAt?: number | null
 }
 
 /** inserted: no row before. replaced: this write won. kept: a live row from another copy stayed. */
@@ -493,21 +497,27 @@ export function createStartupPrinter(write: (line: string) => void): { log: (lin
 
 function issue(now: number, notify: boolean): string {
     const booting = ensureProcess()
-    const previous = issuedPlain ? digest(issuedPlain) : null
+    const ownHmac = issuedPlain ? digest(issuedPlain) : null
     const plain = randomBytes(12).toString('base64url')
-    const row: SetupCodeRow = {
-        codeHmac: digest(plain),
-        issuedAt: now,
-        expiresAt: now + SETUP_CODE_TTL_MS,
-        consumedAt: null
-    }
+    const expiresAt = now + SETUP_CODE_TTL_MS
     issuedPlain = plain
-    issuedExpiresAt = row.expiresAt
+    issuedExpiresAt = expiresAt
     localRetired = false
     heldByOther = false
     const save = async () => {
         await booting
-        const outcome = await activeStore().save(row, previous)
+        // Read at write time so the HMAC kept is the row this conditional write replaces.
+        const existing = await activeStore().read()
+        const expiredOpen = existing != null && existing.consumedAt == null && existing.expiresAt <= now
+        const row: SetupCodeRow = {
+            codeHmac: digest(plain),
+            issuedAt: now,
+            expiresAt,
+            consumedAt: null,
+            previousCodeHmac: expiredOpen ? existing.codeHmac : existing?.previousCodeHmac ?? null,
+            previousExpiresAt: expiredOpen ? existing.expiresAt : existing?.previousExpiresAt ?? null
+        }
+        const outcome = await activeStore().save(row, ownHmac)
         if (issuedPlain !== plain) return
         if (outcome === 'kept') {
             issuedPlain = undefined
@@ -652,23 +662,46 @@ export const SETUP_CODE_EXPIRED_MESSAGE = 'This setup code has expired. A new co
 
 export type SetupCodeVerdict = 'match' | 'expired' | 'rejected'
 
+function hmacHex(value: string | null | undefined): string | null {
+    return value && /^[0-9a-f]{64}$/i.test(value) ? value : null
+}
+
 /**
- * Constant-time compare against the stored HMAC.
+ * Constant-time compare against the live HMAC and the previous HMAC.
  * A non-string, an empty string, and anything longer than 64 characters are rejected before the compare.
- * Expiry and the consumed time are checked after the compare. The code itself is not returned.
+ * Both compares run for every accepted candidate. A missing HMAC is compared to a stand-in digest and does not count.
+ * A live match is rejected when that row was used, and expired when it is past its time.
+ * A previous match is expired only when that previous code is past its expiry. It is never a match.
+ * The code itself is not returned.
  */
 export async function setupCodeVerdict(candidate: unknown, now = Date.now()): Promise<SetupCodeVerdict> {
     if (!acceptable(candidate)) return 'rejected'
     const given = Buffer.from(digest(candidate))
     await pending
     const row = await activeStore().read()
-    const expectedHex = row && /^[0-9a-f]{64}$/i.test(row.codeHmac) ? row.codeHmac : digest('setup-code-absent')
-    const expected = Buffer.from(expectedHex)
-    const equal = given.length === expected.length && timingSafeEqual(given, expected)
-    if (!equal || !row) return 'rejected'
-    if (row.consumedAt != null) return 'rejected'
-    if (row.expiresAt <= now) return 'expired'
-    return 'match'
+    const liveHex = hmacHex(row?.codeHmac) ?? digest('setup-code-absent')
+    const previousHex = hmacHex(row?.previousCodeHmac) ?? digest('setup-code-previous-absent')
+    const live = Buffer.from(liveHex)
+    const previous = Buffer.from(previousHex)
+    const liveEqual = given.length === live.length && timingSafeEqual(given, live)
+    const previousEqual = given.length === previous.length && timingSafeEqual(given, previous)
+    if (liveEqual && row && hmacHex(row.codeHmac)) {
+        if (row.consumedAt != null) return 'rejected'
+        if (row.expiresAt <= now) return 'expired'
+        return 'match'
+    }
+    const previousExpires = row?.previousExpiresAt
+    if (
+        previousEqual &&
+        row &&
+        hmacHex(row.previousCodeHmac) &&
+        previousExpires != null &&
+        Number.isFinite(previousExpires) &&
+        previousExpires <= now
+    ) {
+        return 'expired'
+    }
+    return 'rejected'
 }
 
 /** True only when the candidate matches a live row. */
@@ -812,6 +845,7 @@ export function forgetIssuedSetupCode(): void {
 
 /**
  * Records a failed register or code exchange.
+ * An expired code is counted the same as a code that is not the live one. Callers record every verdict that is not a match, so the address cap is unchanged.
  * Already at the cap: limited, and this attempt is not recorded.
  * Otherwise the attempt is recorded, and the server-wide cap prints a new link at most once per window.
  * Check and record stay synchronous so concurrent failures cannot all pass the cap.

@@ -62,6 +62,8 @@ describe('setup code sql', () => {
         expect(source.includes('@setup_keep')).toBe(false)
         expect(source.includes('INSERT IGNORE')).toBe(true)
         expect(source.includes('FOR UPDATE')).toBe(true)
+        expect(source.includes('previousCodeHmac')).toBe(true)
+        expect(source.includes('previousExpiresAt')).toBe(true)
     })
 })
 

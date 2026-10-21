@@ -51,6 +51,7 @@ import {
     setupCodeHmac,
     setupCodeMatches,
     setupCodeReady,
+    setupCodeVerdict,
     setupCodeWatchActive,
     setupCodeWatchUnrefd,
     simulateOtherSetupCopy,
@@ -1320,6 +1321,86 @@ describe('identity auth', () => {
         expect(store.users).toHaveLength(1)
         spy.mockRestore()
         resetFirstRunSetupCode()
+    })
+
+    it('says the previous code expired on register after a setup reissue, and a used code is not expired', async () => {
+        const base = Date.parse('2026-10-20T16:00:00.000Z')
+        const later = base + SETUP_CODE_TTL_MS + 60_000
+        const spy = jest.spyOn(Date, 'now').mockReturnValue(base)
+        resetFirstRunSetupCode()
+        const lines: string[] = []
+        try {
+            expect(
+                await announceFirstRunSetup(
+                    43117,
+                    async () => 0,
+                    (line) => lines.push(line),
+                    true
+                )
+            ).toBe('setup')
+            await setupCodeReady()
+            const code = firstRunSetupCode()
+            spy.mockReturnValue(later)
+            lines.length = 0
+            await reissueExpiredSetupIfOpen(async () => 0, true, process.env, later)
+            await setupCodeReady()
+            const printed = lines.find((line) => line.includes('A new setup link is ready'))
+            expect(printed).toBeTruthy()
+            const fresh = printed!.slice(printed!.indexOf('#code=') + '#code='.length)
+            const store = new MemoryStore()
+            const user = { name: 'Owner', email: 'owner@example.com', credential: GOOD }
+            const register = async (setupCode: string, socketAddress: string, target = store) =>
+                json(
+                    await handleRegister(
+                        ctx({
+                            localAdmin: true,
+                            internal: true,
+                            socketAddress,
+                            store: target,
+                            now: later,
+                            body: { user, setupCode }
+                        })
+                    )
+                )
+            const refused = await register(code, '192.0.2.41')
+            expect(refused.status).toBe(400)
+            expect(refused.body).toEqual({
+                code: 'CODE_EXPIRED',
+                reason: 'expired',
+                message: 'This setup code has expired. A new code was printed in the server log.'
+            })
+            const unrelated = await register('not-the-code', '192.0.2.42')
+            expect(unrelated.status).toBe(400)
+            expect(unrelated.body).toEqual({ message: SETUP_CODE_REJECTED })
+            expect(unrelated.body.code).toBeUndefined()
+            const created = await register(fresh, '192.0.2.43')
+            expect(created.status).toBe(200)
+            expect(store.users).toHaveLength(1)
+            expect(await setupCodeMatches(code, later)).toBe(false)
+
+            resetFirstRunSetupCode()
+            spy.mockReturnValue(base)
+            await announceFirstRunSetup(
+                43117,
+                async () => 0,
+                () => undefined,
+                true
+            )
+            await setupCodeReady()
+            const used = firstRunSetupCode()
+            const hmac = issuedSetupHmac()
+            expect(hmac).toBeTruthy()
+            expect(await consumeSetupCode(hmac as string, base + 1000)).toBe(true)
+            spy.mockReturnValue(later)
+            expect(await setupCodeVerdict(used, later)).toBe('rejected')
+            const afterUse = await register(used, '192.0.2.44', new MemoryStore())
+            expect(afterUse.status).toBe(400)
+            expect(afterUse.body.code).not.toBe('CODE_EXPIRED')
+            expect(afterUse.body.message).toBe(SETUP_CODE_REJECTED)
+        } finally {
+            spy.mockRestore()
+            resetFirstRunSetupCode()
+        }
     })
 
     it('sends a reissued line to the real logger after the startup flush', async () => {
