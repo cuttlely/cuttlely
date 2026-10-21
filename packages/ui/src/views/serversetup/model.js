@@ -1,6 +1,9 @@
 // The one-time setup page (/setup): what to show, and checks for the first account form.
 import { t } from '@/i18n'
+import { safeSetupNext } from '@/utils/firstRun'
 import { validatePassword } from '@/utils/validation'
+
+const EXPIRED_CODE = 'This setup code has expired. A new code was printed in the server log.'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -9,6 +12,14 @@ export function setupProblem(error) {
     const status = error?.response?.status
     const data = error?.response?.data ?? {}
     if (status === 410) return { closed: true, message: data.message || 'This setup link no longer works. Sign in instead.' }
+    if ((status === 404 || status === 400) && (data.reason === 'expired' || data.code === 'CODE_EXPIRED')) {
+        return {
+            closed: false,
+            retry: true,
+            expired: true,
+            message: data.message || EXPIRED_CODE
+        }
+    }
     if (status === 404 && data.code === 'BAD_CODE') {
         return {
             closed: false,
@@ -47,12 +58,14 @@ export function fieldErrors(errors) {
     return Object.fromEntries((errors ?? []).map((error) => [error.key, error.message]))
 }
 
-/** Removes the code from the query and the fragment, and keeps every other part of the address. */
+/** Removes the code and the return path from the query and the fragment, and keeps every other part. */
 export function addressWithoutCode(href) {
     const url = new URL(href)
     url.searchParams.delete('code')
+    url.searchParams.delete('next')
     const hash = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : '')
     hash.delete('code')
+    hash.delete('next')
     const hashText = hash.toString()
     const search = url.searchParams.toString()
     return `${url.pathname}${search ? `?${search}` : ''}${hashText ? `#${hashText}` : ''}`
@@ -68,5 +81,11 @@ export function readSetupCode(href) {
     const fromHash = hash.get('code')
     const fromQuery = url.searchParams.get('code')
     const code = String(fromHash || fromQuery || '').trim()
-    return { code, href: addressWithoutCode(href) }
+    let next = '/'
+    try {
+        next = safeSetupNext(url.searchParams.get('next') || '')
+    } catch {
+        next = '/'
+    }
+    return { code, next, href: addressWithoutCode(href) }
 }

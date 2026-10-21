@@ -32,6 +32,7 @@ import { applyDocumentFrameHeaders, applySetupHeaders, cookieMutationAllowed, is
 import {
     announceFirstRunSetup,
     bindSetupCodeStore,
+    createStartupPrinter,
     consumeSetupCode,
     firstRunSetupCode,
     firstRunSetupLink,
@@ -1289,11 +1290,18 @@ describe('identity auth', () => {
             )
         )
         expect(refused.status).toBe(400)
+        expect(refused.body).toEqual({
+            code: 'CODE_EXPIRED',
+            reason: 'expired',
+            message: 'This setup code has expired. A new code was printed in the server log.'
+        })
+        expect(JSON.stringify(refused.body)).not.toContain(code)
         await setupCodeReady()
         const printed = lines.find((line) => line.includes('A new setup link is ready'))
         expect(printed).toBeTruthy()
         const fresh = printed!.slice(printed!.indexOf('#code=') + '#code='.length)
         expect(fresh).not.toBe(code)
+        expect(JSON.stringify(refused.body)).not.toContain(fresh)
         expect(await setupCodeMatches(code, later)).toBe(false)
         expect(await setupCodeMatches(fresh, later)).toBe(true)
         const created = json(
@@ -1312,6 +1320,48 @@ describe('identity auth', () => {
         expect(store.users).toHaveLength(1)
         spy.mockRestore()
         resetFirstRunSetupCode()
+    })
+
+    it('sends a reissued line to the real logger after the startup flush', async () => {
+        const direct: string[] = []
+        const startupOnly = createStartupPrinter((line) => direct.push(line))
+        startupOnly.log('buffered')
+        expect(direct).toEqual([])
+        startupOnly.flush()
+        expect(direct).toEqual(['buffered'])
+        startupOnly.log('live')
+        startupOnly.flush()
+        expect(direct).toEqual(['buffered', 'live'])
+
+        resetFirstRunSetupCode()
+        const logged: string[] = []
+        const startup = createStartupPrinter((line) => logged.push(line))
+        try {
+            expect(await announceFirstRunSetup(43117, async () => 0, startup.log, true)).toBe('setup')
+            await setupCodeReady()
+            expect(logged).toEqual([])
+            startup.flush()
+            expect(logged.some((line) => line.includes('Setup code'))).toBe(true)
+            const afterReady = logged.length
+            const later = Date.now() + SETUP_CODE_TTL_MS + 60_000
+            await reissueExpiredSetupCode(later)
+            const reissued = logged.slice(afterReady)
+            expect(reissued.some((line) => line.includes('A new setup link is ready'))).toBe(true)
+            const afterReissue = logged.length
+            reissueFirstRunSetupCode(later + SETUP_CODE_TTL_MS)
+            await setupCodeReady()
+            expect(logged.slice(afterReissue).some((line) => line.includes('A new setup link is ready'))).toBe(true)
+
+            const indexSource = fs.readFileSync(path.join(__dirname, '../index.ts'), 'utf8')
+            const announceAt = indexSource.indexOf('announceFirstRunSetup(')
+            const flushAt = indexSource.indexOf('startupLog.flush()')
+            expect(announceAt).toBeGreaterThan(-1)
+            expect(flushAt).toBeGreaterThan(announceAt)
+            expect(indexSource).toContain('createStartupPrinter((line) => logger.info(line))')
+            expect(indexSource).not.toContain('(line) => lines.push(line)')
+        } finally {
+            resetFirstRunSetupCode()
+        }
     })
 
     it('checks once a minute while setup is open, and stops once an account exists', async () => {

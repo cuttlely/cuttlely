@@ -8,10 +8,12 @@ import {
     noSignInMethod,
     noteSetupFailure,
     reissueExpiredSetupCode,
+    SETUP_CODE_EXPIRED_MESSAGE,
     setupCodeHmac,
-    setupCodeMatches,
     setupCodeRetired,
-    setupServiceName
+    setupCodeVerdict,
+    setupServiceName,
+    type SetupCodeVerdict
 } from '../../identity/setupCode'
 import { setupFailureLimited, socketAddress } from '../../identity/setupLimit'
 import { Principal, applyAuthKitTest, authKitTestStatus, checkAuthKit, requestOrigin, startAuthKitTest } from '../../settings/authkit'
@@ -72,7 +74,15 @@ router.use((req, res, next) => {
 })
 
 const BAD_CODE_MESSAGE = 'This setup code is not right. Copy it again from the server log.'
+const EXPIRED_CODE_MESSAGE = SETUP_CODE_EXPIRED_MESSAGE
 const TOO_MANY_MESSAGE = 'Too many attempts. Try again later.'
+
+function rejectSetupCode(res: Response, verdict: SetupCodeVerdict) {
+    if (verdict === 'expired') {
+        return res.status(404).json({ code: 'CODE_EXPIRED', reason: 'expired', message: EXPIRED_CODE_MESSAGE })
+    }
+    return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
+}
 
 // Where to read the setup code, and whether setup is still open. The code itself stays in the server log.
 // The same failure cap as exchanging a code. A hint does not record a failure.
@@ -109,12 +119,13 @@ router.post('/begin', async (req, res, next) => {
             return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE['signin-on'] })
         }
         const code = (req.body as { code?: unknown })?.code
-        if (!(await setupCodeMatches(code, now))) {
+        const verdict = await setupCodeVerdict(code, now)
+        if (verdict !== 'match') {
             await reissueExpiredSetupCode(now)
             if (noteSetupFailure(address, now).limited) {
                 return res.status(429).json({ code: 'TOO_MANY', message: TOO_MANY_MESSAGE })
             }
-            return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
+            return rejectSetupCode(res, verdict)
         }
         if (noSignInMethod(env)) {
             const hmac = setupCodeHmac(code)
@@ -137,12 +148,13 @@ router.post('/open', async (req, res, next) => {
         const closed = await setupClosed(setup)
         if (closed) return res.status(410).json({ code: 'SETUP_CLOSED', message: CLOSED_MESSAGE[closed] })
         const code = (req.body as { code?: unknown })?.code
-        if (!(await codeOpensSetup(setup, code))) {
-            await reissueExpiredSetupCode(now)
+        const verdict = await setupCodeVerdict(code, now)
+        if (verdict !== 'match' || !(await codeOpensSetup(setup, code))) {
+            if (verdict !== 'match') await reissueExpiredSetupCode(now)
             if (noteSetupFailure(address, now).limited) {
                 return res.status(429).json({ code: 'TOO_MANY', message: TOO_MANY_MESSAGE })
             }
-            return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
+            return rejectSetupCode(res, verdict)
         }
         const hmac = setupCodeHmac(code)
         if (!hmac) {

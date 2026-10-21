@@ -51,7 +51,7 @@ import { validateAPIKey } from './utils/validateKey'
 import { getCorsOptions, getIframeSecurityHeaders, sanitizeMiddleware, validateCorsConfig } from './utils/XSS'
 import { identityStore } from './identity/production'
 import { applyDocumentFrameHeaders, applySetupHeaders, isSetupDocumentPath } from './identity/sessionGuard'
-import { announceFirstRunSetup, reissueExpiredSetupIfOpen, watchFirstRunSetup } from './identity/setupCode'
+import { announceFirstRunSetup, createStartupPrinter, reissueExpiredSetupIfOpen, watchFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
 import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
@@ -458,20 +458,16 @@ export async function start(): Promise<void> {
             if (database?.current().ok) logger.error('⚠️ [server]: Cuttlely started with the error above, so it is not ready.')
         } else {
             void (async () => {
-                const lines: string[] = []
+                // Buffer until the ready block is flushed, then the same printer writes straight to the log.
+                const startupLog = createStartupPrinter((line) => logger.info(line))
                 let kind: 'setup' | 'recover' | 'none' = 'none'
                 try {
-                    kind = await announceFirstRunSetup(
-                        port,
-                        () => identityStore().countUsers(),
-                        (line) => lines.push(line),
-                        localAdminEnabled()
-                    )
+                    kind = await announceFirstRunSetup(port, () => identityStore().countUsers(), startupLog.log, localAdminEnabled())
                 } catch (err) {
                     logger.warn(`[server]: First-run setup check failed: ${err}`)
                 }
                 if (kind === 'setup') {
-                    for (const line of lines) logger.info(line)
+                    startupLog.flush()
                     stopSetupReminder = watchFirstRunSetup(
                         port,
                         () => identityStore().countUsers(),
@@ -480,7 +476,7 @@ export async function start(): Promise<void> {
                     )
                 } else {
                     for (const line of readyBanner(port, host)) logger.info(line)
-                    for (const line of lines) logger.info(line)
+                    startupLog.flush()
                 }
             })()
         }

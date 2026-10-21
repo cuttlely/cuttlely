@@ -1,7 +1,15 @@
 import fs from 'fs'
 import path from 'path'
 
-import { GITHUB_STEP_PATH, nextAfterSetup, readAndClearSetupCode, readSetupCode, resetHeldSetupCode, skipGithubStep } from './firstRun'
+import {
+    GITHUB_STEP_PATH,
+    nextAfterSetup,
+    readAndClearSetupCode,
+    readSetupCode,
+    resetHeldSetupCode,
+    safeSetupNext,
+    skipGithubStep
+} from './firstRun'
 
 describe('first-run GitHub step', () => {
     test('goes on to the page the owner was headed to, when it is a page of this app', () => {
@@ -12,6 +20,37 @@ describe('first-run GitHub step', () => {
         expect(nextAfterSetup({ next: 'https://example.com' })).toBe('/')
         expect(nextAfterSetup({ next: '//example.com' })).toBe('/')
         expect(nextAfterSetup({ next: GITHUB_STEP_PATH })).toBe('/')
+    })
+
+    test('keeps next on a page of this server', () => {
+        expect(safeSetupNext('/credentials')).toBe('/credentials')
+        expect(safeSetupNext('/chatflows?tab=1')).toBe('/chatflows?tab=1')
+        expect(safeSetupNext('/')).toBe('/')
+        expect(safeSetupNext('')).toBe('/')
+        expect(safeSetupNext('/setup')).toBe('/')
+        expect(safeSetupNext('/setup/')).toBe('/')
+        expect(safeSetupNext('/setup/github')).toBe('/')
+        expect(safeSetupNext('/setup?next=/credentials')).toBe('/')
+        const refused = [
+            '//evil.example',
+            '/\\evil.example',
+            'https://evil.example',
+            'javascript:alert(1)',
+            '%2F%2Fevil.example',
+            '/%5Cevil.example',
+            '/%00evil',
+            '/credentials%0a/evil',
+            '/%0d%0aSet-Cookie:x',
+            '/foo\\bar',
+            '/\\\\evil.example',
+            '/%2F%2Fevil.example',
+            '/%252F%252Fevil.example',
+            'http://evil.example/credentials',
+            '/credentials\u0000',
+            '/ok\u2028/next'
+        ]
+        for (const value of refused) expect(safeSetupNext(value)).toBe('/')
+        expect(safeSetupNext('/%')).toBe('/')
     })
 
     test('steps aside only when version history is off', () => {
@@ -55,7 +94,7 @@ describe('first-run GitHub step', () => {
     test('setup goes straight into the app, not to the GitHub page', () => {
         const setup = fs.readFileSync(path.join(__dirname, '../views/serversetup/index.jsx'), 'utf8')
         expect(setup).not.toContain('GITHUB_STEP_PATH')
-        expect(setup).toContain('navigate(nextAfterSetup({ next: location.state?.path }), { replace: true })')
+        expect(setup).toContain("navigate(nextPath || '/', { replace: true })")
     })
 })
 

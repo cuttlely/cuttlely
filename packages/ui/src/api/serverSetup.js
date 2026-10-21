@@ -8,10 +8,10 @@ const client = axios.create({
     withCredentials: true
 })
 
-const hint = () => client.get('/hint')
-const begin = (code) => client.post('/begin', { code })
+const hint = (config) => client.get('/hint', config)
+const begin = (code, config) => client.post('/begin', { code }, config)
 const open = (code) => client.post('/open', { code })
-const getState = () => client.get('/state')
+const getState = (config) => client.get('/state', config)
 const createOwner = (owner) => client.post('/owner', owner)
 // The same calls as Set up AuthKit in Server settings, so the wizard works unchanged.
 const checkAuthKit = (values) => client.post('/authkit/check', { values })

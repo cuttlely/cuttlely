@@ -22,8 +22,10 @@ import {
     shouldShowItWorked,
     shouldToastOnStreamEnd,
     itWorkedUrl,
+    IT_WORKED_ANCHOR,
     IT_WORKED_HIDE_MS,
-    IT_WORKED_SHARE_EVENT
+    IT_WORKED_SHARE_EVENT,
+    IT_WORKED_TOAST_STYLE
 } from './itWorked'
 
 describe('itWorked UI helpers', () => {
@@ -149,10 +151,22 @@ describe('itWorked UI helpers', () => {
         expect(calls[0].message).toBe('It worked! Next: share this flow via API / embed it →')
         expect(calls[0].options.autoHideDuration).toBe(IT_WORKED_HIDE_MS)
         expect(calls[0].options.persist).toBeUndefined()
+        expect(calls[0].options.anchorOrigin).toEqual(IT_WORKED_ANCHOR)
+        expect(calls[0].options.anchorOrigin).toEqual({ vertical: 'bottom', horizontal: 'left' })
+        expect(calls[0].options.style).toEqual(IT_WORKED_TOAST_STYLE)
+        expect(calls[0].options.style.maxWidth).toContain('100vw')
+        expect(calls[0].options.style.width).toContain('min(')
+        expect(calls[0].options.style.transform).toBe('none')
+        expect(calls[0].options.style.left).toBe('16px')
+        const viewport = 1280
+        const width = Math.min(640, viewport - 32)
+        expect(16 + width).toBeLessThanOrEqual(viewport)
         expect(localStorage.getItem('cuttlely.itWorked.shown')).toBe('true')
         const source = fs.readFileSync(path.join(__dirname, 'itWorked.jsx'), 'utf8')
         expect(source).toContain(IT_WORKED_SHARE_EVENT)
         expect(source).toContain('markItWorkedShown()')
+        expect(source).toContain("flexWrap: 'wrap'")
+        expect(source).toContain("maxWidth: '100%'")
     })
 
     test('the canvas listens for the share event', () => {

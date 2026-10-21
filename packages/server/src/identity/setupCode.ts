@@ -470,6 +470,27 @@ function printFreshLink(plain: string): void {
     printer(`👋 [server]: A new setup link is ready. Open ${printedSetupLink(plain)}`)
 }
 
+/**
+ * Startup collects lines, then flushes them once. The same function stays the printer, so a later
+ * reissue writes straight to the real log instead of a buffer that nobody reads again.
+ */
+export function createStartupPrinter(write: (line: string) => void): { log: (line: string) => void; flush: () => void } {
+    const lines: string[] = []
+    let flushed = false
+    return {
+        log(line: string) {
+            if (flushed) write(line)
+            else lines.push(line)
+        },
+        flush() {
+            if (flushed) return
+            flushed = true
+            const pendingLines = lines.splice(0, lines.length)
+            for (const line of pendingLines) write(line)
+        }
+    }
+}
+
 function issue(now: number, notify: boolean): string {
     const booting = ensureProcess()
     const previous = issuedPlain ? digest(issuedPlain) : null
@@ -626,23 +647,33 @@ export function reissueFirstRunSetupCode(now = Date.now()): string {
     return issue(now, true)
 }
 
+/** Shown when the submitted code matches a row that is already past its time. The new code stays in the log. */
+export const SETUP_CODE_EXPIRED_MESSAGE = 'This setup code has expired. A new code was printed in the server log.'
+
+export type SetupCodeVerdict = 'match' | 'expired' | 'rejected'
+
 /**
  * Constant-time compare against the stored HMAC.
  * A non-string, an empty string, and anything longer than 64 characters are rejected before the compare.
- * Expiry and the consumed time are checked after the compare.
+ * Expiry and the consumed time are checked after the compare. The code itself is not returned.
  */
-export async function setupCodeMatches(candidate: unknown, now = Date.now()): Promise<boolean> {
-    if (!acceptable(candidate)) return false
+export async function setupCodeVerdict(candidate: unknown, now = Date.now()): Promise<SetupCodeVerdict> {
+    if (!acceptable(candidate)) return 'rejected'
     const given = Buffer.from(digest(candidate))
     await pending
     const row = await activeStore().read()
     const expectedHex = row && /^[0-9a-f]{64}$/i.test(row.codeHmac) ? row.codeHmac : digest('setup-code-absent')
     const expected = Buffer.from(expectedHex)
     const equal = given.length === expected.length && timingSafeEqual(given, expected)
-    if (!equal || !row) return false
-    if (row.consumedAt != null) return false
-    if (row.expiresAt <= now) return false
-    return true
+    if (!equal || !row) return 'rejected'
+    if (row.consumedAt != null) return 'rejected'
+    if (row.expiresAt <= now) return 'expired'
+    return 'match'
+}
+
+/** True only when the candidate matches a live row. */
+export async function setupCodeMatches(candidate: unknown, now = Date.now()): Promise<boolean> {
+    return (await setupCodeVerdict(candidate, now)) === 'match'
 }
 
 /** Marks the current row used. Returns false when it is missing, expired, already used, or a different HMAC. */

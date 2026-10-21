@@ -541,10 +541,17 @@ describe('an expired setup code', () => {
         lines.length = 0
         const refused = await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code })
         expect(refused.status).toBe(404)
+        expect(refused.body).toEqual({
+            code: 'CODE_EXPIRED',
+            reason: 'expired',
+            message: 'This setup code has expired. A new code was printed in the server log.'
+        })
+        expect(JSON.stringify(refused.body)).not.toContain(code)
         await setupCodeReady()
         const printed = lines.find((line) => line.includes('A new setup link is ready'))
         expect(printed).toBeTruthy()
         const fresh = printed!.slice(printed!.indexOf('#code=') + '#code='.length)
+        expect(JSON.stringify(refused.body)).not.toContain(fresh)
         expect(await setupCodeMatches(code)).toBe(false)
         expect(await setupCodeMatches(fresh)).toBe(true)
         expect((await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: fresh })).status).toBe(200)
@@ -556,7 +563,13 @@ describe('an expired setup code', () => {
         jest.spyOn(Date, 'now').mockReturnValue(later)
         lines.length = 0
         const refused = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code })
-        expect(refused.status).not.toBe(200)
+        expect(refused.status).toBe(404)
+        expect(refused.body).toEqual({
+            code: 'CODE_EXPIRED',
+            reason: 'expired',
+            message: 'This setup code has expired. A new code was printed in the server log.'
+        })
+        expect(JSON.stringify(refused.body)).not.toContain(code)
         expect(await setupCodeMatches(code)).toBe(false)
         await setupCodeReady()
         const printed = lines.find((line) => line.includes('#code='))
@@ -566,6 +579,7 @@ describe('an expired setup code', () => {
             .trim()
             .split(/\s/)[0]
         expect(fresh).not.toBe(code)
+        expect(JSON.stringify(refused.body)).not.toContain(fresh)
         expect(await setupCodeMatches(fresh)).toBe(true)
         expect((await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: fresh })).status).toBe(200)
     })
@@ -597,7 +611,9 @@ describe('an expired setup code', () => {
         const lines: string[] = []
         const code = await issued(lines)
         lines.length = 0
-        expect((await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: 'wrong-code' })).status).toBe(404)
+        const wrong = await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: 'wrong-code' })
+        expect(wrong.status).toBe(404)
+        expect(wrong.body).toEqual({ code: 'BAD_CODE', message: BAD_CODE })
         await setupCodeReady()
         expect(lines.some((line) => line.includes('A new setup link is ready'))).toBe(false)
         expect(await setupCodeMatches(code)).toBe(true)

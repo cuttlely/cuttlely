@@ -40,7 +40,14 @@ import {
 } from './password'
 import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
-import { noteSetupFailure, reissueExpiredSetupCode, setupCodeHmac, setupCodeMatches, setupServiceName } from './setupCode'
+import {
+    noteSetupFailure,
+    reissueExpiredSetupCode,
+    SETUP_CODE_EXPIRED_MESSAGE,
+    setupCodeHmac,
+    setupCodeVerdict,
+    setupServiceName
+} from './setupCode'
 import { IdentityStore } from './store'
 import {
     HandlerResult,
@@ -89,6 +96,8 @@ export function setupLinkNeeded(env: NodeJS.ProcessEnv = process.env): string {
 export const SETUP_LINK_NEEDED = setupLinkNeeded()
 /** Shown when the request included a setup code and that code did not match. */
 export const SETUP_CODE_REJECTED = 'This setup code is not right. Copy it again from the server log.'
+/** Shown when the code matched a row that is past its time. The replacement stays in the server log. */
+export const SETUP_CODE_EXPIRED = SETUP_CODE_EXPIRED_MESSAGE
 export const SETUP_TOO_MANY = 'Too many attempts. Try again later.'
 
 function setupAttemptMessage(candidate: unknown): string {
@@ -490,9 +499,11 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     if (errors.length) return json(400, { message: errors[0] })
     // The one-time code from the setup link is required before the password is hashed. Loopback is not a shortcut.
     const hmac = setupCodeHmac(ctx.body.setupCode)
-    if (!hmac || !(await setupCodeMatches(ctx.body.setupCode, ctx.now))) {
+    const verdict = await setupCodeVerdict(ctx.body.setupCode, ctx.now)
+    if (!hmac || verdict !== 'match') {
         await reissueExpiredSetupCode(ctx.now)
         if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
+        if (verdict === 'expired') return json(400, { code: 'CODE_EXPIRED', reason: 'expired', message: SETUP_CODE_EXPIRED })
         return json(400, { message: setupAttemptMessage(ctx.body.setupCode) })
     }
     try {

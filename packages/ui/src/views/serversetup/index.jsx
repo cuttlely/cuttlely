@@ -1,9 +1,9 @@
 // The one-time setup page: /setup from the server log. One page for the first account and, when nobody can sign
 // in yet, the choice of password or AuthKit. The code arrives in the fragment and is removed from the address
 // before any request. The account form appears only after the code is accepted.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { alpha, useTheme } from '@mui/material/styles'
 import { Alert, Box, Button, ButtonBase, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import { IconArrowLeft, IconCircleCheckFilled, IconKey, IconLock, IconShieldLock, IconUserShield } from '@tabler/icons-react'
@@ -16,8 +16,8 @@ import AuthKitWizard from '@/views/serversettings/AuthKitWizard'
 import { t } from '@/i18n'
 import { store } from '@/store'
 import { loginSuccess } from '@/store/reducers/authSlice'
-import { nextAfterSetup } from '@/utils/firstRun'
 import SetupCodeHelp from './SetupCodeHelp'
+import { openSetupPage, rememberSetupCode } from './openSetup'
 import { fieldErrors, ownerProblems, readSetupCode, setupProblem } from './model'
 
 const ChoiceCard = ({ icon: Icon, title, body, onClick, disabled, note, testId }) => {
@@ -347,9 +347,8 @@ CodeStep.propTypes = {
 }
 
 /** Local-admin first account. The session cookie comes back on the same response. */
-const OwnerAccountForm = ({ code }) => {
+const OwnerAccountForm = ({ code, nextPath }) => {
     const navigate = useNavigate()
-    const location = useLocation()
     const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
     const [shown, setShown] = useState(false)
     const [serverErrors, setServerErrors] = useState({})
@@ -380,7 +379,7 @@ const OwnerAccountForm = ({ code }) => {
                 return
             }
             store.dispatch(loginSuccess(session))
-            navigate(nextAfterSetup({ next: location.state?.path }), { replace: true })
+            navigate(nextPath || '/', { replace: true })
         } catch (failure) {
             setServerErrors(fieldErrors(failure?.response?.data?.errors))
             setError(failure?.response?.data?.message || 'Something went wrong. Try again.')
@@ -444,7 +443,7 @@ const OwnerAccountForm = ({ code }) => {
     )
 }
 
-OwnerAccountForm.propTypes = { code: PropTypes.string.isRequired }
+OwnerAccountForm.propTypes = { code: PropTypes.string.isRequired, nextPath: PropTypes.string }
 
 const ServerSetupPage = () => {
     const navigate = useNavigate()
@@ -458,52 +457,45 @@ const ServerSetupPage = () => {
     const [acceptedCode, setAcceptedCode] = useState('')
     const [codeError, setCodeError] = useState('')
     const [codeSaving, setCodeSaving] = useState(false)
+    const [nextPath, setNextPath] = useState('/')
+    const acceptedGate = useRef(false)
     const resume = params.get('authkit') === 'done' || params.get('authkit') === 'expired'
 
     useEffect(() => {
         const read = readSetupCode(window.location.href)
+        const code = rememberSetupCode(read.code)
+        setNextPath(read.next || '/')
         window.history.replaceState(null, '', read.href)
-        const run = async () => {
-            try {
-                if (resume) {
-                    const res = await serverSetupApi.getState()
-                    setState(res.data)
-                    setStage('choose')
-                    setWizard(true)
-                    return
-                }
-                if (read.code) {
-                    const begun = await serverSetupApi.begin(read.code)
-                    if (begun.data?.next === 'owner') {
-                        setAcceptedCode(read.code)
-                        setStage('owner')
-                        return
-                    }
-                    const res = await serverSetupApi.getState()
-                    setState(res.data)
-                    setStage('choose')
-                    return
-                }
-                const hint = await serverSetupApi.hint()
-                setServiceName(hint.data?.serviceName || '')
-                if (hint.data?.open) {
-                    setStage('code')
-                    return
-                }
-                setProblem({ closed: true, message: t('setup.closed.notOpen') })
-                setStage('closed')
-            } catch (failure) {
-                const next = setupProblem(failure)
-                if (next.retry || !next.closed) {
-                    setCodeError(next.message || '')
-                    setStage('code')
-                    return
-                }
+        const controller = new AbortController()
+        const hooks = {
+            onServiceName: (name) => setServiceName(name || ''),
+            onOwner: (accepted) => {
+                setAcceptedCode(accepted)
+                setStage('owner')
+            },
+            onChoose: (data, wizardOn) => {
+                setState(data)
+                setStage('choose')
+                setWizard(Boolean(wizardOn))
+            },
+            onCode: (message) => {
+                setCodeError(message || '')
+                setStage('code')
+            },
+            onClosed: (next) => {
                 setProblem(next)
                 setStage('closed')
             }
         }
-        run()
+        openSetupPage({
+            code,
+            resume,
+            api: serverSetupApi,
+            signal: controller.signal,
+            accepted: acceptedGate,
+            hooks
+        })
+        return () => controller.abort()
         // The code is read once, on open. Later address changes are not a new setup.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -582,7 +574,7 @@ const ServerSetupPage = () => {
     if (stage === 'owner')
         return (
             <Shell>
-                <OwnerAccountForm code={acceptedCode} />
+                <OwnerAccountForm code={acceptedCode} nextPath={nextPath} />
             </Shell>
         )
 

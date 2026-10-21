@@ -32,6 +32,17 @@ describe('server setup page', () => {
         const fallback = setupProblem({ response: { status: 404, data: { code: 'BAD_CODE' } } })
         expect(fallback.message).toContain('setup code')
         expect(fallback.message).not.toContain('setup link')
+        const expired = 'This setup code has expired. A new code was printed in the server log.'
+        expect(setupProblem({ response: { status: 404, data: { code: 'CODE_EXPIRED', reason: 'expired', message: expired } } })).toEqual({
+            closed: false,
+            retry: true,
+            expired: true,
+            message: expired
+        })
+        expect(
+            setupProblem({ response: { status: 400, data: { code: 'CODE_EXPIRED', reason: 'expired', message: expired } } }).expired
+        ).toBe(true)
+        expect(setupProblem({ response: { status: 404, data: { code: 'CODE_EXPIRED', reason: 'expired' } } }).message).toBe(expired)
         expect(setupProblem({ response: { status: 401, data: {} } }).message).toBe('Open the setup link from the server log again.')
         expect(setupProblem({ response: { status: 500, data: {} } })).toEqual({
             closed: false,
@@ -45,6 +56,12 @@ describe('server setup page', () => {
         expect(addressWithoutCode('https://rosas-bakery.example/setup?code=made-up')).toBe('/setup')
         expect(addressWithoutCode('https://rosas-bakery.example/setup#code=made-up')).toBe('/setup')
         expect(addressWithoutCode('https://rosas-bakery.example/setup?authkit=done#code=made-up&keep=1')).toBe('/setup?authkit=done#keep=1')
+        expect(addressWithoutCode('https://rosas-bakery.example/setup?code=made-up&next=%2Fcredentials&authkit=done')).toBe(
+            '/setup?authkit=done'
+        )
+        expect(addressWithoutCode('https://rosas-bakery.example/setup?authkit=done#next=%2Fcredentials&keep=1')).toBe(
+            '/setup?authkit=done#keep=1'
+        )
     })
 
     it('reads the fragment code first and returns an address with the code removed', () => {
@@ -53,6 +70,30 @@ describe('server setup page', () => {
         expect(both.href).toBe('/setup?authkit=done#keep=1')
         expect(readSetupCode('https://rosas-bakery.example/setup?code=query-code').code).toBe('query-code')
         expect(readSetupCode('https://rosas-bakery.example/setup').code).toBe('')
+        const carried = readSetupCode('https://rosas-bakery.example/setup?next=%2Fcredentials&code=query-code#code=hash-code')
+        expect(carried.code).toBe('hash-code')
+        expect(carried.next).toBe('/credentials')
+        expect(carried.href).toBe('/setup')
+        const attacks = [
+            '//evil.example',
+            '/\\evil.example',
+            'https://evil.example',
+            'javascript:alert(1)',
+            '%2F%2Fevil.example',
+            '/%5Cevil.example',
+            '/%00credentials',
+            '/%5Cevil.example',
+            '%2F%00evil'
+        ]
+        for (const next of attacks) {
+            const read = readSetupCode(`https://rosas-bakery.example/setup?next=${encodeURIComponent(next)}&code=made-up`)
+            expect(read.next).toBe('/')
+            expect(read.href).toBe('/setup')
+            expect(read.code).toBe('made-up')
+        }
+        expect(readSetupCode('https://rosas-bakery.example/setup?next=%2Fcredentials').next).toBe('/credentials')
+        expect(readSetupCode('https://rosas-bakery.example/setup?next=/setup').next).toBe('/')
+        expect(readSetupCode('https://rosas-bakery.example/setup#next=/credentials').next).toBe('/')
     })
 
     it('puts the service name from the server into the help text', () => {
@@ -117,5 +158,13 @@ describe('server setup page', () => {
         expect(requestAt).toBeGreaterThan(readAt)
         expect(page.indexOf('history.replaceState')).toBeGreaterThan(readAt)
         expect(page.indexOf('history.replaceState')).toBeLessThan(requestAt)
+        expect(page).toContain('new AbortController()')
+        expect(page).toContain('controller.abort()')
+        expect(page).toContain('openSetupPage')
+        expect(page).toContain('rememberSetupCode')
+        const opener = fs.readFileSync(path.join(__dirname, 'openSetup.js'), 'utf8')
+        expect(opener).toContain('api.hint(config)')
+        expect(opener).toContain('accepted?.current')
+        expect(opener).toContain('signal?.aborted')
     })
 })

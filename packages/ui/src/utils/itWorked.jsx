@@ -9,6 +9,18 @@ const SHOWN_KEY = 'cuttlely.itWorked.shown'
 const DISMISSED_KEY = 'cuttlely.itWorked.dismissed'
 export const IT_WORKED_HIDE_MS = 10000
 export const IT_WORKED_SHARE_EVENT = 'cuttlely-open-share'
+// Left inset and a viewport cap, with no sideways shift, so the toast stays on screen at 1280 by 720.
+export const IT_WORKED_ANCHOR = { vertical: 'bottom', horizontal: 'left' }
+export const IT_WORKED_TOAST_STYLE = {
+    boxSizing: 'border-box',
+    width: 'min(640px, calc(100vw - 32px))',
+    maxWidth: 'calc(100vw - 32px)',
+    left: '16px',
+    right: 'auto',
+    transform: 'none',
+    whiteSpace: 'normal',
+    overflowWrap: 'anywhere'
+}
 
 export const itWorkedUrl = IT_WORKED_URL
 
@@ -100,8 +112,10 @@ export function presentItWorked({ enqueueSnackbar, closeSnackbar, config, option
         key,
         variant: 'info',
         autoHideDuration: IT_WORKED_HIDE_MS,
+        anchorOrigin: IT_WORKED_ANCHOR,
+        style: IT_WORKED_TOAST_STYLE,
         action: (snackbarKey) => (
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxWidth: '100%' }}>
                 <Button
                     type='button'
                     aria-label={t('itWorked.share')}
