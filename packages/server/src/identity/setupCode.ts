@@ -866,7 +866,8 @@ export async function announceFirstRunSetup(
 
 /**
  * Prints the ready block again every few minutes while setup is still open, using the live code this process
- * already holds. It does not issue a code. Expiry replacement stays on the one-minute check. Returns a function
+ * already holds. It does not issue a code. An expired code is not printed; the one-minute check replaces it.
+ * The latest write is settled first, so a code that did not win that write is not printed. Returns a function
  * that stops the reminder.
  */
 export function watchFirstRunSetup(
@@ -884,6 +885,7 @@ export function watchFirstRunSetup(
                     clearInterval(timer)
                     return
                 }
+                await setupCodeReady()
                 const now = Date.now()
                 if (!issuedPlain || issuedExpiresAt <= now) return
                 for (const line of setupReadyLines(port, env, issuedPlain)) log(line)

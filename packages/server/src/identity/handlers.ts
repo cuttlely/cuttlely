@@ -87,7 +87,14 @@ export function setupLinkNeeded(env: NodeJS.ProcessEnv = process.env): string {
     return `Open the setup link from the server log to create the first account. With Docker, run: docker compose logs ${service} | grep 'Setup code'`
 }
 export const SETUP_LINK_NEEDED = setupLinkNeeded()
+/** Shown when the request included a setup code and that code did not match. */
+export const SETUP_CODE_REJECTED = 'This setup code is not right. Copy it again from the server log.'
 export const SETUP_TOO_MANY = 'Too many attempts. Try again later.'
+
+function setupAttemptMessage(candidate: unknown): string {
+    if (typeof candidate === 'string' && candidate.trim()) return SETUP_CODE_REJECTED
+    return setupLinkNeeded()
+}
 export const TOO_MANY = 'Too many sign-in attempts. Try again later.'
 
 async function accountId(ctx: AuthContext, email: string): Promise<string | null> {
@@ -486,7 +493,7 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     if (!hmac || !(await setupCodeMatches(ctx.body.setupCode, ctx.now))) {
         await reissueExpiredSetupCode(ctx.now)
         if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
-        return json(400, { message: setupLinkNeeded() })
+        return json(400, { message: setupAttemptMessage(ctx.body.setupCode) })
     }
     try {
         const created = await ctx.store.createOwner(
@@ -507,7 +514,7 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
         if (error instanceof NotEmptyError) return json(404, { message: 'Not Found' })
         if (error instanceof SetupCodeRejected) {
             if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
-            return json(400, { message: setupLinkNeeded() })
+            return json(400, { message: setupAttemptMessage(ctx.body.setupCode) })
         }
         throw error
     }

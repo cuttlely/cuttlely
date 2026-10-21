@@ -557,7 +557,7 @@ async function captureSetup(browser) {
             bad.search = ''
             await page.goto(bad.toString(), { waitUntil: 'domcontentloaded' })
             await page.getByTestId('setup-code').waitFor()
-            await page.getByText('This setup link is not right').waitFor()
+            await page.getByText('This setup code is not right').waitFor()
             await shot(page, 'server-settings/setup-link-closed.png')
         } finally {
             await context.close()

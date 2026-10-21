@@ -31,6 +31,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   The setup page shows the Docker command as code. A setup code that is not right says "setup code".
 -   The setup page removes the code from the address as soon as it is read. A failed account call does not leave the page spinning, and a missing error body does not throw. The first-success toast names share via API or embed, hides after about 10 seconds, and records that it was shown only after it appears. The server log line is unchanged and is written after the run returns.
 -   A chat model or embeddings card with no credential selected now answers `422` naming that card (`Pick a credential on the OpenAI node.`), instead of `500` telling the caller to set `OPENAI_API_KEY`, on chatflow prediction and on vector upsert (`POST /api/v1/vector/upsert/<flow id>`) in the default mode (not `MODE=queue`). Vector upsert now keeps a 4xx from the flow instead of turning it into `500`. Agent canvases, document-store upsert, and `MODE=queue` still answer `500` for this error ([#239](https://github.com/cuttlely/cuttlely/issues/239)). A key or token already on the node inputs (for example `cloudflareApiToken` or `watsonxAIBearerToken`) still counts. Optional credentials (Ollama, Cerebras, Azure when the process already has the provider variables) still fall back to the environment.
 -   MCP `POST /api/v1/mcp/:chatflowId` applies that flow's **Rate Limit** from Configuration.
@@ -40,6 +41,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Security
 
+-   `GET /api/v1/server-setup/hint` uses the same failure cap as exchanging a setup code: the socket address, and a cap for the whole server. A hint does not record a failure. `POST /api/v1/server-setup/begin` records a failure only when the code does not match, and a correct code still opens setup after that cap. Both send the setup response headers (`Referrer-Policy: no-referrer`, `Cache-Control: no-store`, `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`).
 -   The agent runtime pins aiohttp 3.14.4, which closes GHSA-5wr8-gcqf-gqf3, GHSA-2g87-pp6c-29x5, and GHSA-494j-54xm-rwp3. The workspace pins ajv 8.18.0 for the 7.x and early 8.x range (eslint's ajv 6 is unchanged), which closes GHSA-2g4f-4pwh-qvx6.
 -   The server uses sanitize-html 2.18.0, which closes GHSA-374f-7chj-9948.
 -   Sign-in accepts bcrypt password hashes from a moved Flowise 3.1.4 install (`$2a$`, `$2b$`, `$2y$`, cost 4 to 12) and rehashes them to Cuttlely's scrypt scheme after the first successful login. A cost outside that range is refused without running the expensive compare. A failed rehash still issues the session and leaves the stored hash unchanged. While any accepted bcrypt hash remains stored, unknown and disabled sign-in misses pay the same dummy scrypt-then-bcrypt work as a wrong password on an already-migrated scrypt account, so those paths are not distinguishable by timing; after the last one is rehashed, misses use the scrypt dummy again. Looking for a remaining accepted hash walks rejected `$2x$` prefixes by id instead of an OFFSET page.

@@ -23,6 +23,7 @@ import {
     handlePasswordRecoveryGone,
     handleRegister,
     handleResolve,
+    SETUP_CODE_REJECTED,
     SETUP_LINK_NEEDED
 } from './handlers'
 import { LoginRateLimit } from './rateLimit'
@@ -320,12 +321,25 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
     }
 }
 
-function registerApp(trust: boolean | number, store: MemoryStore) {
+function loopbackSocket(remote: string): boolean {
+    const host = remote
+        .trim()
+        .toLowerCase()
+        .replace(/^::ffff:/, '')
+    return host === '127.0.0.1' || host === '::1'
+}
+
+function registerApp(trust: boolean | number, store: MemoryStore, seen?: { socket: string; ip: string; ips: string[] }) {
     const app = express()
     app.set('trust proxy', trust)
     app.use(express.json())
     app.post('/api/v1/account/register', (req, res) => {
         applySetupHeaders(res)
+        if (seen) {
+            seen.socket = req.socket.remoteAddress || ''
+            seen.ip = req.ip || ''
+            seen.ips = [...req.ips]
+        }
         const context = ctx({
             localAdmin: true,
             internal: req.headers['x-request-from'] === 'internal',
@@ -343,7 +357,7 @@ function registerApp(trust: boolean | number, store: MemoryStore) {
             res.status(result.status).json(result.body)
         })
     })
-    app.get('/organization-setup', (req, res) => {
+    app.get(['/setup', '/organization-setup', '/server-setup'], (req, res) => {
         if (isSetupDocumentPath(req.path)) applySetupHeaders(res)
         res.status(200).type('html').send('<!doctype html><title>setup</title>')
     })
@@ -1544,7 +1558,8 @@ describe('identity auth', () => {
             )
         )
         expect(again.status).toBe(400)
-        expect(again.body.message).toBe(SETUP_LINK_NEEDED)
+        expect(again.body.message).toBe(SETUP_CODE_REJECTED)
+        expect(String(again.body.message)).not.toContain('setup link')
         expect(other.users).toHaveLength(0)
         resetFirstRunSetupCode()
     })
@@ -1570,33 +1585,61 @@ describe('identity auth', () => {
         expect(missingHeader.body.message).toBe('Unauthorized')
         expect(setupFailureLimited('127.0.0.1', NOW)).toBe(false)
 
+        const seen = { socket: '', ip: '', ips: [] as string[] }
         for (const trust of [true, 1] as const) {
-            const app = registerApp(trust, store)
+            const app = registerApp(trust, store, seen)
             const res = await request(app)
                 .post('/api/v1/account/register')
                 .set('x-request-from', 'internal')
                 .set('X-Forwarded-For', '127.0.0.1')
                 .send({ user })
+            expect(loopbackSocket(seen.socket)).toBe(true)
+            expect(seen.ips).toContain('127.0.0.1')
             expect(res.status).toBe(400)
             expect(res.body.message).toBe(SETUP_LINK_NEEDED)
             expect(res.headers['referrer-policy']).toBe('no-referrer')
             expect(res.headers['cache-control']).toBe('no-store')
             expect(res.headers['x-frame-options']).toBe('DENY')
             expect(res.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+            const wrong = await request(app)
+                .post('/api/v1/account/register')
+                .set('x-request-from', 'internal')
+                .set('X-Forwarded-For', '127.0.0.1')
+                .send({ user, setupCode: 'TESTCODE-wrong' })
+            expect(loopbackSocket(seen.socket)).toBe(true)
+            expect(wrong.status).toBe(400)
+            expect(wrong.body.message).toBe(SETUP_CODE_REJECTED)
+            expect(String(wrong.body.message)).not.toContain('setup link')
         }
         expect(store.users).toHaveLength(0)
 
-        const page = await request(registerApp(false, store)).get('/organization-setup')
-        expect(page.headers['referrer-policy']).toBe('no-referrer')
-        expect(page.headers['cache-control']).toBe('no-store')
-        expect(page.headers['x-frame-options']).toBe('DENY')
-        expect(page.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+        for (const pagePath of ['/setup', '/organization-setup', '/server-setup']) {
+            const page = await request(registerApp(false, store)).get(pagePath)
+            expect(page.status).toBe(200)
+            expect(page.headers['referrer-policy']).toBe('no-referrer')
+            expect(page.headers['cache-control']).toBe('no-store')
+            expect(page.headers['x-frame-options']).toBe('DENY')
+            expect(page.headers['content-security-policy']).toBe("frame-ancestors 'none'")
+        }
         const signin = await request(registerApp(false, store)).get('/signin')
         expect(signin.headers['content-security-policy']).toBeUndefined()
         expect(signin.headers['x-frame-options']).toBeUndefined()
         expect(isSetupDocumentPath('/setup')).toBe(true)
+        expect(isSetupDocumentPath('/setup/')).toBe(true)
+        expect(isSetupDocumentPath('/setup?code=made-up')).toBe(true)
         expect(isSetupDocumentPath('/server-setup')).toBe(true)
         expect(isSetupDocumentPath('/signin')).toBe(false)
+
+        const code = firstRunSetupCode(NOW)
+        const created = await request(registerApp(1, store, seen))
+            .post('/api/v1/account/register')
+            .set('x-request-from', 'internal')
+            .set('X-Forwarded-For', '127.0.0.1')
+            .send({ user, setupCode: code })
+        expect(loopbackSocket(seen.socket)).toBe(true)
+        expect(seen.ips).toContain('127.0.0.1')
+        expect(created.status).toBe(200)
+        expect(store.users).toHaveLength(1)
         resetFirstRunSetupCode()
     })
 
@@ -1612,6 +1655,10 @@ describe('identity auth', () => {
                 .set('X-Forwarded-For', `198.51.100.${i}`)
                 .send({ user, setupCode: 'TESTCODE-wrong' })
             expect(res.status).toBe(400)
+            if (i === 0) {
+                expect(res.body.message).toBe(SETUP_CODE_REJECTED)
+                expect(String(res.body.message)).not.toContain('setup link')
+            }
         }
         const blocked = await request(app)
             .post('/api/v1/account/register')
@@ -1824,12 +1871,17 @@ describe('identity auth', () => {
     it('sends frame-ancestors none on setup documents only', () => {
         const headers = new Map<string, string>()
         const res = { setHeader: (name: string, value: string) => headers.set(name.toLowerCase(), value) }
-        applyDocumentFrameHeaders('/organization-setup', res, {
-            'Content-Security-Policy': "frame-ancestors 'self'",
-            'X-Frame-Options': 'SAMEORIGIN'
-        })
-        expect(headers.get('content-security-policy')).toBe("frame-ancestors 'none'")
-        expect(headers.get('x-frame-options')).toBe('DENY')
+        for (const pagePath of ['/setup', '/organization-setup', '/server-setup']) {
+            headers.clear()
+            applyDocumentFrameHeaders(pagePath, res, {
+                'Content-Security-Policy': "frame-ancestors 'self'",
+                'X-Frame-Options': 'SAMEORIGIN'
+            })
+            expect(headers.get('referrer-policy')).toBe('no-referrer')
+            expect(headers.get('cache-control')).toBe('no-store')
+            expect(headers.get('x-frame-options')).toBe('DENY')
+            expect(headers.get('content-security-policy')).toBe("frame-ancestors 'none'")
+        }
         headers.clear()
         applyDocumentFrameHeaders('/signin', res, {
             'Content-Security-Policy': "frame-ancestors 'self'",
@@ -1837,6 +1889,7 @@ describe('identity auth', () => {
         })
         expect(headers.get('content-security-policy')).toBe("frame-ancestors 'self'")
         expect(headers.get('x-frame-options')).toBe('SAMEORIGIN')
+        expect(headers.get('referrer-policy')).toBeUndefined()
     })
 
     it('migration adds externalId and the break-glass session table', async () => {

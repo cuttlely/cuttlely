@@ -8,8 +8,9 @@ const en = {
     'harnesses.empty.title': 'No agent teams yet.',
     'harnesses.empty.body': 'Start one from a template or with Build with AI, then call it from your app.',
     'setup.code.label': 'Setup code',
-    'setup.code.help':
-        "It's in the terminal where you started Cuttlely, next to ✅ Cuttlely is ready. Docker: `docker compose logs {service} | grep 'Setup code'`. Render: Dashboard → Logs.",
+    'setup.code.help.before': "It's in the terminal where you started Cuttlely, next to ✅ Cuttlely is ready. Docker:",
+    'setup.code.help.command': "docker compose logs {service} | grep 'Setup code'",
+    'setup.code.help.after': 'Render: Dashboard → Logs.',
     'setup.code.continue': 'Continue',
     'setup.code.required': 'Enter the setup code.',
     'setup.owner.notSignedIn': 'The account was created, but this browser is not signed in. Open the sign-in page.',

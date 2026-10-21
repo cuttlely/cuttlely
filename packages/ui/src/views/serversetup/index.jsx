@@ -17,7 +17,8 @@ import { t } from '@/i18n'
 import { store } from '@/store'
 import { loginSuccess } from '@/store/reducers/authSlice'
 import { nextAfterSetup } from '@/utils/firstRun'
-import { fieldErrors, ownerProblems, readSetupCode, setupCodeHelp, setupProblem } from './model'
+import SetupCodeHelp from './SetupCodeHelp'
+import { fieldErrors, ownerProblems, readSetupCode, setupProblem } from './model'
 
 const ChoiceCard = ({ icon: Icon, title, body, onClick, disabled, note, testId }) => {
     const theme = useTheme()
@@ -309,9 +310,7 @@ const CodeStep = ({ serviceName, error, saving, onSubmit }) => {
                     <Typography variant='h2' sx={{ fontSize: '1.45rem', fontWeight: 700 }}>
                         {t('setup.code.label')}
                     </Typography>
-                    <Typography color='text.secondary' sx={{ mt: 0.75 }}>
-                        {setupCodeHelp(serviceName)}
-                    </Typography>
+                    <SetupCodeHelp serviceName={serviceName} />
                 </Box>
                 <TextField
                     fullWidth

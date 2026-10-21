@@ -11,19 +11,22 @@ import {
     firstRunSetupCode,
     forgetIssuedSetupCode,
     issuedSetupHmac,
+    noteSetupFailure,
+    reissueExpiredSetupCode,
     resetFirstRunSetupCode,
     serverSetupLink,
     SETUP_CODE_TTL_MS,
     setupCodeHmac,
     setupCodeMatches,
-    setupCodeReady
+    setupCodeReady,
+    watchFirstRunSetup
 } from '../identity/setupCode'
-import { setupFailureLimited } from '../identity/setupLimit'
+import { resetSetupFailures, setupFailureLimited } from '../identity/setupLimit'
 import { CreateOwnerInput, CreateOwnerOptions, SetupCodeRejected, UserRow } from '../identity/types'
 import { StartState } from './apply'
 import { AuthKitDeps, AuthKitPort, resetAuthKitTests } from './authkit'
 import { readHistory } from './history'
-import { endSetupSessions } from './setup-session'
+import { endSetupSessions, SETUP_COOKIE_PATHS } from './setup-session'
 import { readSettingsFile, writeSettingsFile } from './store'
 
 jest.mock('./bootstrap', () => ({
@@ -56,6 +59,34 @@ function cookiePathList(header: string | string[] | undefined): string[] {
         return match ? [match[1]] : []
     })
 }
+
+/** Browser path match for a cookie Path attribute. */
+function requestPathMatchesCookie(cookiePath: string, requestPath: string): boolean {
+    if (requestPath === cookiePath) return true
+    const prefix = cookiePath.endsWith('/') ? cookiePath : `${cookiePath}/`
+    return requestPath.startsWith(prefix)
+}
+
+/** Cookie pairs a browser would send for requestPath. */
+function browserCookie(header: string | string[] | undefined, requestPath: string): string {
+    return setCookies(header)
+        .filter((cookie) => {
+            const match = cookie.match(/(?:^|; )Path=([^;]*)/)
+            const cookiePath = match ? match[1] : '/'
+            return requestPathMatchesCookie(cookiePath, requestPath)
+        })
+        .map((cookie) => cookie.split(';')[0])
+        .join('; ')
+}
+
+function expectSetupHeaders(headers: Record<string, unknown>): void {
+    expect(headers['referrer-policy']).toBe('no-referrer')
+    expect(headers['cache-control']).toBe('no-store')
+    expect(headers['x-frame-options']).toBe('DENY')
+    expect(headers['content-security-policy']).toBe("frame-ancestors 'none'")
+}
+
+const BAD_CODE = 'This setup code is not right. Copy it again from the server log.'
 
 let data: string
 let dir: string
@@ -99,9 +130,9 @@ function fakeKit(): AuthKitDeps {
     return { port, users, now: () => now }
 }
 
-function server(trustProxy = false) {
+function server(trustProxy: boolean | number = false) {
     const app = express()
-    if (trustProxy) app.set('trust proxy', true)
+    if (trustProxy !== false) app.set('trust proxy', trustProxy)
     app.use(express.json())
     app.use(cookieParser())
     app.use('/api/v1/server-setup', setupRouter)
@@ -203,10 +234,21 @@ describe('beginning setup', () => {
         expect(res.headers['set-cookie']).toBeUndefined()
     })
 
+    it('awaits the code check and refuses a wrong code', async () => {
+        const wrong = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: 'not-the-code' })
+        expect(wrong.status).toBe(404)
+        expect(wrong.body).toEqual({ code: 'BAD_CODE', message: BAD_CODE })
+        expect(String(wrong.body.message)).not.toContain('setup link')
+        const right = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: firstRunSetupCode() })
+        expect(right.status).toBe(200)
+        expect(right.body).toEqual({ next: 'choose' })
+    })
+
     it('lets a wrong code be tried again and closes once an account exists', async () => {
         const wrong = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: 'not-the-code' })
         expect(wrong.status).toBe(404)
         expect(wrong.body.code).toBe('BAD_CODE')
+        expect(wrong.body.message).toBe(BAD_CODE)
         created.push({ email: 'rosa@rosas-bakery.example', name: 'Rosa', credential: 'hash', externalId: null })
         const closed = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: firstRunSetupCode() })
         expect(closed.status).toBe(410)
@@ -218,7 +260,10 @@ describe('opening the link', () => {
     it('needs the right code and the app header, then sets a strict cookie', async () => {
         const app = server()
         expect((await request(app).post('/api/v1/server-setup/open').send({ code: firstRunSetupCode() })).status).toBe(401)
-        expect((await request(app).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: 'wrong' })).status).toBe(404)
+        const wrong = await request(app).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: 'wrong' })
+        expect(wrong.status).toBe(404)
+        expect(wrong.body.message).toBe(BAD_CODE)
+        expect(String(wrong.body.message)).not.toContain('setup link')
         expect((await request(app).get('/api/v1/server-setup/state')).status).toBe(401)
         const res = await request(app).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: firstRunSetupCode() })
         expect(res.status).toBe(200)
@@ -536,5 +581,187 @@ describe('an expired setup code', () => {
         await setupCodeReady()
         expect(lines.some((line) => line.includes('A new setup link is ready'))).toBe(false)
         expect(await setupCodeMatches(code)).toBe(true)
+    })
+})
+
+describe('begin and hint limits', () => {
+    it('counts failures by socket address, still accepts the right code, and sends setup headers', async () => {
+        const code = firstRunSetupCode()
+        await setupCodeReady()
+        for (const trust of [true, 1] as const) {
+            resetSetupFailures()
+            const app = server(trust)
+            for (let i = 0; i < 5; i++) {
+                const hint = await request(app).get('/api/v1/server-setup/hint').set('X-Forwarded-For', `203.0.113.${i}`)
+                expect(hint.status).toBe(200)
+                expectSetupHeaders(hint.headers)
+            }
+            expect(setupFailureLimited('127.0.0.1', Date.now())).toBe(false)
+            for (let i = 0; i < 10; i++) {
+                const res = await request(app)
+                    .post('/api/v1/server-setup/begin')
+                    .set(INTERNAL)
+                    .set('X-Forwarded-For', `198.51.100.${i}`)
+                    .send({ code: 'not-the-code' })
+                expect(res.status).toBe(404)
+                expect(res.body).toEqual({ code: 'BAD_CODE', message: BAD_CODE })
+                expectSetupHeaders(res.headers)
+            }
+            expect(setupFailureLimited('127.0.0.1', Date.now())).toBe(true)
+            const blocked = await request(app)
+                .post('/api/v1/server-setup/begin')
+                .set(INTERNAL)
+                .set('X-Forwarded-For', '203.0.113.77')
+                .send({ code: 'not-the-code' })
+            expect(blocked.status).toBe(429)
+            expectSetupHeaders(blocked.headers)
+            const hintBlocked = await request(app).get('/api/v1/server-setup/hint').set('X-Forwarded-For', '203.0.113.88')
+            expect(hintBlocked.status).toBe(429)
+            expect(hintBlocked.body.code).toBe('TOO_MANY')
+            expectSetupHeaders(hintBlocked.headers)
+            const allowed = await request(app)
+                .post('/api/v1/server-setup/begin')
+                .set(INTERNAL)
+                .set('X-Forwarded-For', '192.0.2.8')
+                .send({ code })
+            expect(allowed.status).toBe(200)
+            expect(allowed.body).toEqual({ next: 'choose' })
+            expectSetupHeaders(allowed.headers)
+        }
+    })
+
+    it('records begin failures toward the server-wide cap once, and the new code still opens setup', async () => {
+        const lines: string[] = []
+        await announceFirstRunSetup(
+            3000,
+            async () => created.length,
+            (line) => lines.push(line),
+            false,
+            env
+        )
+        await setupCodeReady()
+        const code = firstRunSetupCode()
+        lines.length = 0
+        const now = Date.now()
+        for (let i = 0; i < 99; i++) noteSetupFailure(`192.0.2.${i % 20}`, now)
+        const app = server(true)
+        const hit = await request(app)
+            .post('/api/v1/server-setup/begin')
+            .set(INTERNAL)
+            .set('X-Forwarded-For', '198.51.100.8')
+            .send({ code: 'not-the-code' })
+        expect(hit.status).toBe(404)
+        await setupCodeReady()
+        const printed = lines.filter((line) => line.includes('A new setup link is ready'))
+        expect(printed).toHaveLength(1)
+        const fresh = printed[0].slice(printed[0].indexOf('#code=') + '#code='.length)
+        expect(fresh).not.toBe(code)
+        expect(await setupCodeMatches(code)).toBe(false)
+        expect(await setupCodeMatches(fresh)).toBe(true)
+        const again = await request(app)
+            .post('/api/v1/server-setup/begin')
+            .set(INTERNAL)
+            .set('X-Forwarded-For', '198.51.100.9')
+            .send({ code: 'still-wrong' })
+        expect(again.status).toBe(429)
+        await setupCodeReady()
+        expect(lines.filter((line) => line.includes('A new setup link is ready'))).toHaveLength(1)
+        for (let i = 0; i < 20; i++) noteSetupFailure(`198.51.100.${i}`, now)
+        await setupCodeReady()
+        expect(lines.filter((line) => line.includes('A new setup link is ready'))).toHaveLength(1)
+        const hint = await request(app).get('/api/v1/server-setup/hint')
+        expect(hint.status).toBe(429)
+        expectSetupHeaders(hint.headers)
+        const opened = await request(app).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: fresh })
+        expect(opened.status).toBe(200)
+        expect(opened.body).toEqual({ next: 'choose' })
+    })
+})
+
+describe('the setup session cookie and the setup page', () => {
+    const sessionRoutes = [
+        '/api/v1/server-setup/state',
+        '/api/v1/server-setup/owner',
+        '/api/v1/server-setup/authkit/check',
+        '/api/v1/server-setup/authkit/test',
+        '/api/v1/server-setup/authkit/apply'
+    ]
+
+    it('sets the narrowed cookie paths and the session routes sit under them', async () => {
+        expect([...SETUP_COOKIE_PATHS].sort()).toEqual(['/api/v1/auth/callback', '/api/v1/server-setup'])
+        const begun = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: firstRunSetupCode() })
+        expect(begun.status).toBe(200)
+        const paths = cookiePathList(begun.headers['set-cookie']).sort()
+        expect(paths).toEqual([...SETUP_COOKIE_PATHS].sort())
+        for (const route of sessionRoutes) {
+            expect(paths.some((cookiePath) => requestPathMatchesCookie(cookiePath, route))).toBe(true)
+        }
+        expect(paths.some((cookiePath) => requestPathMatchesCookie(cookiePath, '/api/v1/account/register'))).toBe(false)
+        expect(paths.some((cookiePath) => requestPathMatchesCookie(cookiePath, '/api/v1/auth/callback'))).toBe(true)
+
+        const forState = browserCookie(begun.headers['set-cookie'], '/api/v1/server-setup/state')
+        expect(forState).toContain('cuttlely-setup=')
+        const state = await request(server()).get('/api/v1/server-setup/state').set('Cookie', forState).set(INTERNAL)
+        expect(state.status).toBe(200)
+        expect(browserCookie(begun.headers['set-cookie'], '/api/v1/account/register')).toBe('')
+        expect(browserCookie(begun.headers['set-cookie'], '/api/v1/auth/callback')).toContain('cuttlely-setup=')
+        const forCallback = browserCookie(begun.headers['set-cookie'], '/api/v1/server-setup/authkit/test')
+        const status = await request(server()).get('/api/v1/server-setup/authkit/test').set('Cookie', forCallback)
+        expect(status.status).not.toBe(401)
+    })
+})
+
+describe('the five minute setup reminder', () => {
+    const base = Date.parse('2026-10-20T12:00:00.000Z')
+
+    afterEach(() => {
+        jest.useRealTimers()
+        resetFirstRunSetupCode()
+    })
+
+    it('reprints the live code, skips an expired one, and does not issue another', async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(base)
+        resetFirstRunSetupCode()
+        const lines: string[] = []
+        const log = (line: string) => lines.push(line)
+        await announceFirstRunSetup(3000, async () => 0, log, true, env)
+        await setupCodeReady()
+        const code = firstRunSetupCode()
+        let stop: () => void = () => undefined
+        try {
+            stop = watchFirstRunSetup(3000, async () => 0, log, true, env, 1000)
+            lines.length = 0
+            await jest.advanceTimersByTimeAsync(1000)
+            const reprinted = lines.join('\n')
+            expect(reprinted).toContain(`Setup code: ${code}`)
+            expect(reprinted).not.toContain('A new setup link is ready')
+            expect(firstRunSetupCode()).toBe(code)
+
+            const hmac = issuedSetupHmac()
+            lines.length = 0
+            jest.setSystemTime(base + SETUP_CODE_TTL_MS + 60_000)
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(lines.join('\n')).not.toContain(`Setup code: ${code}`)
+            expect(lines.some((line) => line.includes('A new setup link is ready'))).toBe(false)
+            expect(issuedSetupHmac()).toBe(hmac)
+
+            lines.length = 0
+            await reissueExpiredSetupCode(base + SETUP_CODE_TTL_MS + 60_000)
+            await setupCodeReady()
+            const fresh = firstRunSetupCode()
+            expect(fresh).not.toBe(code)
+            const freshHmac = issuedSetupHmac()
+            lines.length = 0
+            await jest.advanceTimersByTimeAsync(1000)
+            const again = lines.join('\n')
+            expect(again).toContain(`Setup code: ${fresh}`)
+            expect(again).not.toContain(`Setup code: ${code}`)
+            expect(again).not.toContain('A new setup link is ready')
+            expect(issuedSetupHmac()).toBe(freshHmac)
+            expect(firstRunSetupCode()).toBe(fresh)
+        } finally {
+            stop()
+        }
     })
 })

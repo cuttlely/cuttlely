@@ -9,7 +9,13 @@ export function setupProblem(error) {
     const status = error?.response?.status
     const data = error?.response?.data ?? {}
     if (status === 410) return { closed: true, message: data.message || 'This setup link no longer works. Sign in instead.' }
-    if (status === 404 && data.code === 'BAD_CODE') return { closed: false, retry: true, message: data.message }
+    if (status === 404 && data.code === 'BAD_CODE') {
+        return {
+            closed: false,
+            retry: true,
+            message: data.message || 'This setup code is not right. Copy it again from the server log.'
+        }
+    }
     if (status === 401) return { closed: true, message: data.message || 'Open the setup link from the server log again.' }
     return { closed: false, message: data.message || 'Something went wrong. Try again.' }
 }
@@ -17,7 +23,11 @@ export function setupProblem(error) {
 /** Where the setup page says to read the code. The service name comes from the server. */
 export function setupCodeHelp(serviceName) {
     const service = String(serviceName || '').trim() || 'the service'
-    return t('setup.code.help').replaceAll('{service}', service)
+    return {
+        before: t('setup.code.help.before'),
+        command: t('setup.code.help.command').replaceAll('{service}', service),
+        after: t('setup.code.help.after')
+    }
 }
 
 /** Problems with the first account form, by field. Empty when it can be sent. */

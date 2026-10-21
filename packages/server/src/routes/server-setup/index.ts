@@ -13,7 +13,7 @@ import {
     setupCodeRetired,
     setupServiceName
 } from '../../identity/setupCode'
-import { socketAddress } from '../../identity/setupLimit'
+import { setupFailureLimited, socketAddress } from '../../identity/setupLimit'
 import { Principal, applyAuthKitTest, authKitTestStatus, checkAuthKit, requestOrigin, startAuthKitTest } from '../../settings/authkit'
 import { TestInputError } from '../../settings/connection'
 import { SettingsError } from '../../settings/service'
@@ -71,11 +71,17 @@ router.use((req, res, next) => {
     next()
 })
 
-const BAD_CODE_MESSAGE = 'This setup link is not right. Copy it again from the server log.'
+const BAD_CODE_MESSAGE = 'This setup code is not right. Copy it again from the server log.'
+const TOO_MANY_MESSAGE = 'Too many attempts. Try again later.'
 
 // Where to read the setup code, and whether setup is still open. The code itself stays in the server log.
-router.get('/hint', async (_req, res, next) => {
+// The same failure cap as exchanging a code. A hint does not record a failure.
+router.get('/hint', async (req, res, next) => {
     try {
+        const address = socketAddress(req.socket?.remoteAddress)
+        if (setupFailureLimited(address, Date.now())) {
+            return res.status(429).json({ code: 'TOO_MANY', message: TOO_MANY_MESSAGE })
+        }
         const setup = deps()
         const env = setup.service.env
         const users = await setup.users().countUsers()
@@ -106,7 +112,7 @@ router.post('/begin', async (req, res, next) => {
         if (!(await setupCodeMatches(code, now))) {
             await reissueExpiredSetupCode(now)
             if (noteSetupFailure(address, now).limited) {
-                return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
+                return res.status(429).json({ code: 'TOO_MANY', message: TOO_MANY_MESSAGE })
             }
             return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
         }
@@ -134,13 +140,13 @@ router.post('/open', async (req, res, next) => {
         if (!(await codeOpensSetup(setup, code))) {
             await reissueExpiredSetupCode(now)
             if (noteSetupFailure(address, now).limited) {
-                return res.status(429).json({ code: 'TOO_MANY', message: 'Too many attempts. Try again later.' })
+                return res.status(429).json({ code: 'TOO_MANY', message: TOO_MANY_MESSAGE })
             }
-            return res.status(404).json({ code: 'BAD_CODE', message: 'This setup link is not right. Copy it again from the server log.' })
+            return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
         }
         const hmac = setupCodeHmac(code)
         if (!hmac) {
-            return res.status(404).json({ code: 'BAD_CODE', message: 'This setup link is not right. Copy it again from the server log.' })
+            return res.status(404).json({ code: 'BAD_CODE', message: BAD_CODE_MESSAGE })
         }
         openSetupSession(req, res, hmac)
         res.json({ ok: true })
