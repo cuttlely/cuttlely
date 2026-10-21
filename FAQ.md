@@ -63,7 +63,7 @@ Full notes: [v1.3.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v
 
 ### Where does the code come from?
 
-Cuttlely is its own project, open source under Apache-2.0. Like most open-source software it includes code from other projects: the chatflow canvas, node catalog and prediction API include Apache-2.0 code from another open-source flow builder, the agent runtime is Hermes from Nous Research, and the canvas UI uses React Flow. Each is credited in [NOTICE](./NOTICE) and [CREDITS.md](./CREDITS.md). Cuttlely is built around governance (drafts, side-by-side replay, gates, rollback, roles, audit, scoped keys), lean context and agent teams.
+Cuttlely is its own project, open source under Apache-2.0. Like most open-source software it includes code from other projects: the chatflow canvas, node catalog and prediction API include Apache-2.0 code from other open-source projects, credited in [NOTICE](https://github.com/cuttlely/cuttlely/blob/main/NOTICE), the agent runtime is Hermes from Nous Research, and the canvas UI uses React Flow. Each is credited in [NOTICE](./NOTICE) and [CREDITS.md](./CREDITS.md). Cuttlely is built around governance (drafts, side-by-side replay, gates, rollback, roles, audit, scoped keys), lean context and agent teams.
 
 ### Can I bring flows I already built?
 
