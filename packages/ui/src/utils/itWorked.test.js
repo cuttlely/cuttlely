@@ -9,15 +9,23 @@ jest.mock('notistack', () => ({
     useSnackbar: () => ({ enqueueSnackbar: jest.fn(), closeSnackbar: jest.fn() })
 }))
 
+import fs from 'fs'
+import path from 'path'
+
 import {
     claimItWorkedShown,
     dismissItWorked,
     markItWorkedShown,
+    presentItWorked,
     setItWorkedStorageReader,
     setItWorkedStorageWriter,
     shouldShowItWorked,
     shouldToastOnStreamEnd,
-    itWorkedUrl
+    itWorkedUrl,
+    IT_WORKED_ANCHOR,
+    IT_WORKED_HIDE_MS,
+    IT_WORKED_SHARE_EVENT,
+    IT_WORKED_TOAST_STYLE
 } from './itWorked'
 
 describe('itWorked UI helpers', () => {
@@ -113,6 +121,59 @@ describe('itWorked UI helpers', () => {
                 writable: true
             })
         }
+    })
+
+    test('does not mark the toast shown when display throws', () => {
+        const cfg = { IT_WORKED_DISABLED: false }
+        expect(() =>
+            presentItWorked({
+                enqueueSnackbar: () => {
+                    throw new Error('snackbar down')
+                },
+                closeSnackbar: () => undefined,
+                config: cfg,
+                options: {}
+            })
+        ).toThrow('snackbar down')
+        expect(localStorage.getItem('cuttlely.itWorked.shown')).toBe(null)
+        expect(shouldShowItWorked(cfg)).toBe(true)
+    })
+
+    test('names the next step, hides on its own, and marks shown only after display', () => {
+        const calls = []
+        const shown = presentItWorked({
+            enqueueSnackbar: (message, options) => calls.push({ message, options }),
+            closeSnackbar: () => undefined,
+            config: { IT_WORKED_DISABLED: false },
+            options: {}
+        })
+        expect(shown).toBe(true)
+        expect(calls[0].message).toBe('It worked! Next: share this flow via API / embed it →')
+        expect(calls[0].options.autoHideDuration).toBe(IT_WORKED_HIDE_MS)
+        expect(calls[0].options.persist).toBeUndefined()
+        expect(calls[0].options.anchorOrigin).toEqual(IT_WORKED_ANCHOR)
+        expect(calls[0].options.anchorOrigin).toEqual({ vertical: 'bottom', horizontal: 'left' })
+        expect(calls[0].options.style).toEqual(IT_WORKED_TOAST_STYLE)
+        expect(calls[0].options.style.maxWidth).toContain('100vw')
+        expect(calls[0].options.style.width).toContain('min(')
+        expect(calls[0].options.style.transform).toBe('none')
+        expect(calls[0].options.style.left).toBe('16px')
+        const viewport = 1280
+        const width = Math.min(640, viewport - 32)
+        expect(16 + width).toBeLessThanOrEqual(viewport)
+        expect(localStorage.getItem('cuttlely.itWorked.shown')).toBe('true')
+        const source = fs.readFileSync(path.join(__dirname, 'itWorked.jsx'), 'utf8')
+        expect(source).toContain(IT_WORKED_SHARE_EVENT)
+        expect(source).toContain('markItWorkedShown()')
+        expect(source).toContain("flexWrap: 'wrap'")
+        expect(source).toContain("maxWidth: '100%'")
+    })
+
+    test('the canvas listens for the share event', () => {
+        const header = fs.readFileSync(path.join(__dirname, '../views/canvas/CanvasHeader.jsx'), 'utf8')
+        expect(header).toContain(`'${IT_WORKED_SHARE_EVENT}'`)
+        expect(header).not.toContain("from '@/utils/itWorked'")
+        expect(header).not.toContain('from "./itWorked"')
     })
 
     test('stream toast only after a real result with no error or abort', () => {

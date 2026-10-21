@@ -48,6 +48,8 @@ services:
             # Tells the start script this is the Docker install, so the local account is on by default
             # and a fresh install can create its first account from the setup link in the log.
             CUTTLELY_INSTALL: docker
+            # The name `docker compose logs` uses when the setup page says where to read the setup code.
+            CUTTLELY_SERVICE_NAME: cuttlely
             # Blank leaves the Docker default (on). Set false in .env, or turn it off in Admin, Server settings,
             # when you use WorkOS or publish the port beyond your machine.
             CUTTLELY_LOCAL_ADMIN: ${CUTTLELY_LOCAL_ADMIN:-}

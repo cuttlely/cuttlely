@@ -40,7 +40,14 @@ import {
 } from './password'
 import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
-import { noteSetupFailure, reissueExpiredSetupCode, setupCodeHmac, setupCodeMatches } from './setupCode'
+import {
+    noteSetupFailure,
+    reissueExpiredSetupCode,
+    SETUP_CODE_EXPIRED_MESSAGE,
+    setupCodeHmac,
+    setupCodeVerdict,
+    setupServiceName
+} from './setupCode'
 import { IdentityStore } from './store'
 import {
     HandlerResult,
@@ -82,9 +89,21 @@ export interface AuthContext {
 }
 
 const INVALID_LOGIN = 'Invalid email or password.'
-export const SETUP_LINK_NEEDED =
-    'Open the setup link from the server log to create the first account. With Docker, run: docker compose logs cuttlely'
+export function setupLinkNeeded(env: NodeJS.ProcessEnv = process.env): string {
+    const service = setupServiceName(env)
+    return `Open the setup link from the server log to create the first account. With Docker, run: docker compose logs ${service} | grep 'Setup code'`
+}
+export const SETUP_LINK_NEEDED = setupLinkNeeded()
+/** Shown when the request included a setup code and that code did not match. */
+export const SETUP_CODE_REJECTED = 'This setup code is not right. Copy it again from the server log.'
+/** Shown when the code matched a row that is past its time. The replacement stays in the server log. */
+export const SETUP_CODE_EXPIRED = SETUP_CODE_EXPIRED_MESSAGE
 export const SETUP_TOO_MANY = 'Too many attempts. Try again later.'
+
+function setupAttemptMessage(candidate: unknown): string {
+    if (typeof candidate === 'string' && candidate.trim()) return SETUP_CODE_REJECTED
+    return setupLinkNeeded()
+}
 export const TOO_MANY = 'Too many sign-in attempts. Try again later.'
 
 async function accountId(ctx: AuthContext, email: string): Promise<string | null> {
@@ -457,10 +476,10 @@ export async function handleLogout(ctx: AuthContext): Promise<HandlerResult> {
 }
 
 export async function handleResolve(ctx: AuthContext): Promise<HandlerResult> {
-    if (!ctx.workosConfigured && !ctx.localAdmin) return json(404, { message: 'Not Found' })
     const count = await ctx.store.countUsers()
-    if (count === 0 && ctx.workosConfigured) return json(200, { redirectUrl: '/signin' })
-    if (count === 0 && ctx.localAdmin) return json(200, { redirectUrl: '/organization-setup' })
+    // No account yet, and AuthKit is not the way in: one setup page, whether or not the password form is on.
+    if (count === 0 && !ctx.workosConfigured) return json(200, { redirectUrl: '/setup' })
+    if (!ctx.workosConfigured && !ctx.localAdmin) return json(404, { message: 'Not Found' })
     return json(200, { redirectUrl: '/signin' })
 }
 
@@ -478,12 +497,15 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     if (!name || name.length > 100 || !email || !credential) return json(400, { message: 'Name, email, and password are required.' })
     const errors = passwordErrors(credential)
     if (errors.length) return json(400, { message: errors[0] })
-    // The one-time code from the setup link is required before the password is hashed.
+    // The one-time code from the setup link is required before the password is hashed. Loopback is not a shortcut.
     const hmac = setupCodeHmac(ctx.body.setupCode)
-    if (!hmac || !(await setupCodeMatches(ctx.body.setupCode, ctx.now))) {
+    const verdict = await setupCodeVerdict(ctx.body.setupCode, ctx.now)
+    if (!hmac || verdict !== 'match') {
         await reissueExpiredSetupCode(ctx.now)
+        // Expired and not-right misses share this cap. An expired code is not a separate allowance.
         if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
-        return json(400, { message: SETUP_LINK_NEEDED })
+        if (verdict === 'expired') return json(400, { code: 'CODE_EXPIRED', reason: 'expired', message: SETUP_CODE_EXPIRED })
+        return json(400, { message: setupAttemptMessage(ctx.body.setupCode) })
     }
     try {
         const created = await ctx.store.createOwner(
@@ -495,12 +517,16 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
             },
             { consumeSetupHmac: hmac, now: ctx.now }
         )
-        return json(200, { message: 'Account created', id: created.id })
+        // The same session cookie as a password sign-in, in this response, so the browser is already signed in.
+        const issued = await issueLocalSession(ctx, created.id)
+        const body = { message: 'Account created', id: created.id, ...(issued?.session ?? {}) }
+        if (!issued) return json(200, body)
+        return json(200, body, { cookies: [localCookie(issued.token, ctx.secure, sessionLimitsMs().idleMs)] })
     } catch (error) {
         if (error instanceof NotEmptyError) return json(404, { message: 'Not Found' })
         if (error instanceof SetupCodeRejected) {
             if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
-            return json(400, { message: SETUP_LINK_NEEDED })
+            return json(400, { message: setupAttemptMessage(ctx.body.setupCode) })
         }
         throw error
     }

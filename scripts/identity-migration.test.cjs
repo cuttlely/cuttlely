@@ -676,18 +676,69 @@ describe('setup code on sqlite', () => {
 
     it('adds the setup code columns and can add them again', async () => {
         await migration.addSetupCode(runner)
+        await migration.addSetupCodePrevious(runner)
         let columns = names(await runner.query(`PRAGMA table_info("identity_setup_code")`))
         assert.equal(columns.has('codeHmac'), true)
         assert.equal(columns.has('issuedAt'), true)
         assert.equal(columns.has('expiresAt'), true)
         assert.equal(columns.has('consumedAt'), true)
+        assert.equal(columns.has('previousCodeHmac'), true)
+        assert.equal(columns.has('previousExpiresAt'), true)
         await migration.addSetupCode(runner)
+        await migration.addSetupCodePrevious(runner)
+        await migration.removeSetupCodePrevious(runner)
+        columns = names(await runner.query(`PRAGMA table_info("identity_setup_code")`))
+        assert.equal(columns.has('previousCodeHmac'), false)
+        assert.equal(columns.has('previousExpiresAt'), false)
+        assert.equal(columns.has('codeHmac'), true)
+        await migration.addSetupCodePrevious(runner)
         await migration.removeSetupCode(runner)
         let tables = names(await runner.query(`SELECT name FROM sqlite_master WHERE type = 'table'`))
         assert.equal(tables.has('identity_setup_code'), false)
         await migration.addSetupCode(runner)
+        await migration.addSetupCodePrevious(runner)
         tables = names(await runner.query(`SELECT name FROM sqlite_master WHERE type = 'table'`))
+        columns = names(await runner.query(`PRAGMA table_info("identity_setup_code")`))
         assert.equal(tables.has('identity_setup_code'), true)
+        assert.equal(columns.has('previousCodeHmac'), true)
+        assert.equal(columns.has('previousExpiresAt'), true)
+    })
+
+    it('keeps an expired code in the row so another store still says it expired', async () => {
+        const { SqlSetupCodeStore } = serverRequire('./src/identity/sqlStore.ts')
+        const setup = serverRequire('./src/identity/setupCode.ts')
+        await migration.addSetupCodePrevious(runner)
+        await dataSource.query(`DELETE FROM "identity_setup_code"`)
+        setup.resetFirstRunSetupCode()
+        try {
+            setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+            const code = setup.firstRunSetupCode(NOW)
+            await setup.setupCodeReady()
+            const oldHmac = setup.setupCodeHmac(code)
+            const later = NOW + setup.SETUP_CODE_TTL_MS + 60_000
+            await setup.reissueExpiredSetupCode(later)
+            const fresh = setup.firstRunSetupCode(later)
+            assert.notEqual(fresh, code)
+            const row = await dataSource.query(
+                `SELECT "previousCodeHmac" AS previousCodeHmac, "previousExpiresAt" AS previousExpiresAt, "codeHmac" AS codeHmac FROM "identity_setup_code"`
+            )
+            assert.equal(row[0].previousCodeHmac, oldHmac)
+            assert.equal(Number(row[0].previousExpiresAt), NOW + setup.SETUP_CODE_TTL_MS)
+            assert.notEqual(row[0].codeHmac, oldHmac)
+            setup.forgetIssuedSetupCode()
+            setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
+            assert.equal(await setup.setupCodeVerdict(code, later), 'expired')
+            assert.equal(await setup.setupCodeMatches(code, later), false)
+            assert.equal(await setup.setupCodeVerdict('not-the-code', later), 'rejected')
+            assert.equal(await setup.setupCodeMatches(fresh, later), true)
+            assert.equal(await setup.setupCodeVerdict(code, later + setup.SETUP_CODE_TTL_MS), 'expired')
+            const freshHmac = setup.setupCodeHmac(fresh)
+            assert.equal(await setup.consumeSetupCode(freshHmac, later + 1000), true)
+            assert.equal(await setup.setupCodeVerdict(fresh, later + setup.SETUP_CODE_TTL_MS), 'rejected')
+            assert.equal(await setup.setupCodeVerdict(code, later + setup.SETUP_CODE_TTL_MS), 'expired')
+        } finally {
+            setup.resetFirstRunSetupCode()
+        }
     })
 
     it('retires the code in the owner transaction and a second process rejects it', async () => {
@@ -799,37 +850,43 @@ describe('setup code on sqlite', () => {
         setup.resetFirstRunSetupCode()
         setup.bindSetupCodeStore(new SqlSetupCodeStore(dataSource))
         const lines = []
-        assert.equal(
-            await setup.announceFirstRunSetup(
-                3000,
-                async () => 0,
-                (line) => lines.push(line),
-                true
-            ),
-            true
-        )
-        assert.equal(lines.length, 1)
-        const issuedUrl = String(lines[0]).match(/https?:\/\/\S+/)
-        assert.ok(issuedUrl)
-        const code = new URL(issuedUrl[0]).hash.slice('#code='.length)
-        assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
-        setup.forgetIssuedSetupCode()
-        lines.length = 0
-        assert.equal(
-            await setup.announceFirstRunSetup(
-                3000,
-                async () => 0,
-                (line) => lines.push(line),
-                true
-            ),
-            true
-        )
-        assert.equal(lines.length, 1)
-        assert.match(lines[0], /another copy/)
-        assert.equal(/[#?&]code=/.test(lines[0]), false)
-        assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
-        assert.equal(setup.issuedSetupHmac(), null)
-        setup.resetFirstRunSetupCode()
+        try {
+            assert.equal(
+                await setup.announceFirstRunSetup(
+                    3000,
+                    async () => 0,
+                    (line) => lines.push(line),
+                    true
+                ),
+                'setup'
+            )
+            const printed = lines.find((line) => line.includes('#code='))
+            assert.ok(printed)
+            const issuedUrl = String(printed).match(/https?:\/\/\S+/)
+            assert.ok(issuedUrl)
+            const code = decodeURIComponent(new URL(issuedUrl[0]).hash.slice('#code='.length))
+            assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
+            assert.ok(lines.some((line) => line.includes(`Setup code: ${code}`)))
+            setup.forgetIssuedSetupCode()
+            lines.length = 0
+            assert.equal(
+                await setup.announceFirstRunSetup(
+                    3000,
+                    async () => 0,
+                    (line) => lines.push(line),
+                    true
+                ),
+                'setup'
+            )
+            assert.equal(lines.length, 1)
+            assert.match(lines[0], /another copy/)
+            assert.equal(/[#?&]code=/.test(lines[0]), false)
+            assert.equal(lines[0].includes(code), false)
+            assert.equal(await setup.setupCodeMatches(code, Date.now()), true)
+            assert.equal(setup.issuedSetupHmac(), null)
+        } finally {
+            setup.resetFirstRunSetupCode()
+        }
     })
 
     it('retires an open code when the operator command creates the owner', async () => {

@@ -118,6 +118,7 @@ describe('checking a new database', () => {
             test: { ok: true, target: { kind: 'empty' } }
         })
         expect(res.body.signIn.text).toMatch(/docker compose logs cuttlely/)
+        expect(res.body.signIn.text).toMatch(/Setup code/)
         expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
         expect(JSON.stringify(res.body)).not.toContain(PASSWORD)
     })

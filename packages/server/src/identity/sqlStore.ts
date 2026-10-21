@@ -787,14 +787,27 @@ async function consumeSetupCodeRow(runner: QueryRunner, dialect: Dialect, hmac: 
     if (Number(cell(after[0] || {}, 'consumedAt')) !== now) throw new SetupCodeRejected()
 }
 
+function optionalEpoch(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') return null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
 function setupCodeRowFrom(row: Record<string, unknown>): SetupCodeRow {
     const consumed = cell(row, 'consumedAt')
+    const previousHmac = text(cell(row, 'previousCodeHmac'))
     return {
         codeHmac: text(cell(row, 'codeHmac')),
         issuedAt: Number(cell(row, 'issuedAt')),
         expiresAt: Number(cell(row, 'expiresAt')),
-        consumedAt: consumed === null || consumed === undefined || consumed === '' ? null : Number(consumed)
+        consumedAt: consumed === null || consumed === undefined || consumed === '' ? null : Number(consumed),
+        previousCodeHmac: previousHmac ? previousHmac : null,
+        previousExpiresAt: optionalEpoch(cell(row, 'previousExpiresAt'))
     }
+}
+
+function sameOptional(left: string | number | null | undefined, right: string | number | null | undefined): boolean {
+    return (left ?? null) === (right ?? null)
 }
 
 function sameSetupRow(left: SetupCodeRow | null, right: SetupCodeRow): boolean {
@@ -803,7 +816,9 @@ function sameSetupRow(left: SetupCodeRow | null, right: SetupCodeRow): boolean {
         left.codeHmac === right.codeHmac &&
         left.issuedAt === right.issuedAt &&
         left.expiresAt === right.expiresAt &&
-        left.consumedAt === right.consumedAt
+        left.consumedAt === right.consumedAt &&
+        sameOptional(left.previousCodeHmac, right.previousCodeHmac) &&
+        sameOptional(left.previousExpiresAt, right.previousExpiresAt)
     )
 }
 
@@ -811,7 +826,9 @@ function setupCodeSelect(dialect: Dialect): string {
     return `SELECT ${quote(dialect, 'codeHmac')} AS ${quote(dialect, 'codeHmac')},
                     ${quote(dialect, 'issuedAt')} AS ${quote(dialect, 'issuedAt')},
                     ${quote(dialect, 'expiresAt')} AS ${quote(dialect, 'expiresAt')},
-                    ${quote(dialect, 'consumedAt')} AS ${quote(dialect, 'consumedAt')}
+                    ${quote(dialect, 'consumedAt')} AS ${quote(dialect, 'consumedAt')},
+                    ${quote(dialect, 'previousCodeHmac')} AS ${quote(dialect, 'previousCodeHmac')},
+                    ${quote(dialect, 'previousExpiresAt')} AS ${quote(dialect, 'previousExpiresAt')}
              FROM ${quote(dialect, 'identity_setup_code')} WHERE ${quote(dialect, 'id')} = 1`
 }
 
@@ -827,7 +844,9 @@ function conditionalSetupUpsert(dialect: Dialect): string {
     const issuedAt = quote(dialect, 'issuedAt')
     const expiresAt = quote(dialect, 'expiresAt')
     const consumedAt = quote(dialect, 'consumedAt')
-    const insert = `INSERT INTO ${table} (${id}, ${codeHmac}, ${issuedAt}, ${expiresAt}, ${consumedAt}) VALUES (1, ?, ?, ?, ?)`
+    const previousCodeHmac = quote(dialect, 'previousCodeHmac')
+    const previousExpiresAt = quote(dialect, 'previousExpiresAt')
+    const insert = `INSERT INTO ${table} (${id}, ${codeHmac}, ${issuedAt}, ${expiresAt}, ${consumedAt}, ${previousCodeHmac}, ${previousExpiresAt}) VALUES (1, ?, ?, ?, ?, ?, ?)`
     if (dialect === 'sqlite' || dialect === 'postgres') {
         const excluded = dialect === 'postgres' ? 'EXCLUDED' : 'excluded'
         return `${insert}
@@ -835,7 +854,9 @@ function conditionalSetupUpsert(dialect: Dialect): string {
                 ${codeHmac} = ${excluded}.${codeHmac},
                 ${issuedAt} = ${excluded}.${issuedAt},
                 ${expiresAt} = ${excluded}.${expiresAt},
-                ${consumedAt} = ${excluded}.${consumedAt}
+                ${consumedAt} = ${excluded}.${consumedAt},
+                ${previousCodeHmac} = ${excluded}.${previousCodeHmac},
+                ${previousExpiresAt} = ${excluded}.${previousExpiresAt}
             WHERE ${table}.${consumedAt} IS NOT NULL
                OR ${table}.${expiresAt} <= ?
                OR ${table}.${codeHmac} = ?`
@@ -921,6 +942,8 @@ export class SqlSetupCodeStore implements SetupCodeStore {
             row.issuedAt,
             row.expiresAt,
             row.consumedAt,
+            row.previousCodeHmac ?? null,
+            row.previousExpiresAt ?? null,
             row.issuedAt,
             previous
         ])
@@ -951,18 +974,31 @@ export class SqlSetupCodeStore implements SetupCodeStore {
                 `INSERT IGNORE INTO ${table} (${quote(d, 'id')}, ${quote(d, 'codeHmac')}, ${quote(d, 'issuedAt')}, ${quote(
                     d,
                     'expiresAt'
-                )}, ${quote(d, 'consumedAt')}) VALUES (1, ?, ?, ?, ?)`,
-                [row.codeHmac, row.issuedAt, row.expiresAt, row.consumedAt]
+                )}, ${quote(d, 'consumedAt')}, ${quote(d, 'previousCodeHmac')}, ${quote(
+                    d,
+                    'previousExpiresAt'
+                )}) VALUES (1, ?, ?, ?, ?, ?, ?)`,
+                [row.codeHmac, row.issuedAt, row.expiresAt, row.consumedAt, row.previousCodeHmac ?? null, row.previousExpiresAt ?? null]
             )
             const insertedRows = affectedCount(insertResult)
             const locked = await query(runner, `${setupCodeSelect(d)} FOR UPDATE`)
             const prior = locked[0] ? setupCodeRowFrom(locked[0]) : null
             const updateResult: unknown = await runner.query(
                 `UPDATE ${table}
-                 SET ${quote(d, 'codeHmac')} = ?, ${quote(d, 'issuedAt')} = ?, ${quote(d, 'expiresAt')} = ?, ${quote(d, 'consumedAt')} = ?
+                 SET ${quote(d, 'codeHmac')} = ?, ${quote(d, 'issuedAt')} = ?, ${quote(d, 'expiresAt')} = ?, ${quote(d, 'consumedAt')} = ?,
+                     ${quote(d, 'previousCodeHmac')} = ?, ${quote(d, 'previousExpiresAt')} = ?
                  WHERE ${quote(d, 'id')} = 1
                    AND (${quote(d, 'consumedAt')} IS NOT NULL OR ${quote(d, 'expiresAt')} <= ? OR ${quote(d, 'codeHmac')} = ?)`,
-                [row.codeHmac, row.issuedAt, row.expiresAt, row.consumedAt, row.issuedAt, previous]
+                [
+                    row.codeHmac,
+                    row.issuedAt,
+                    row.expiresAt,
+                    row.consumedAt,
+                    row.previousCodeHmac ?? null,
+                    row.previousExpiresAt ?? null,
+                    row.issuedAt,
+                    previous
+                ]
             )
             const updatedRows = affectedCount(updateResult)
             const afterRows = await query(runner, setupCodeSelect(d))

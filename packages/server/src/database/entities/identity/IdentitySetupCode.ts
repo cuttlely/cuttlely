@@ -27,4 +27,12 @@ export class IdentitySetupCode {
 
     @Column({ type: 'bigint', nullable: true })
     consumedAt?: string | null
+
+    /** HMAC of the code replaced because it had already expired. The plaintext is not stored. */
+    @Column({ type: 'varchar', length: 64, nullable: true })
+    previousCodeHmac?: string | null
+
+    /** Expiry of that previous code, in milliseconds. It is already past this time. */
+    @Column({ type: 'bigint', nullable: true })
+    previousExpiresAt?: string | null
 }

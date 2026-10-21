@@ -196,10 +196,10 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     No Docker? [Build from source](./docs/how-to/from-source.md) with Node 24 (`.nvmrc` pins 24.15.0).
 
-2. When it is up, the server prints a one-time setup link. Show it with:
+2. When it is up, the server prints a ready block with a one-time setup link and a setup code. Show it with:
 
     ```bash
-    docker compose logs cuttlely | grep "No account yet"
+    docker compose logs cuttlely | grep "Setup code"
     ```
 
     Nothing yet? It is still starting. Run the command again in a few seconds.

@@ -240,13 +240,16 @@ describe('identity entity schema', () => {
 
     it('reads the setup code row through IdentitySetupCode', async () => {
         const hmac = 'ab'.repeat(32)
+        const previousHmac = 'cd'.repeat(32)
         await dataSource.query(
-            `INSERT INTO "identity_setup_code" ("id", "codeHmac", "issuedAt", "expiresAt", "consumedAt") VALUES (1, ?, ?, ?, NULL)`,
-            [hmac, '1780000000000', '1780003600000']
+            `INSERT INTO "identity_setup_code" ("id", "codeHmac", "issuedAt", "expiresAt", "consumedAt", "previousCodeHmac", "previousExpiresAt") VALUES (1, ?, ?, ?, NULL, ?, ?)`,
+            [hmac, '1780000000000', '1780003600000', previousHmac, '1770000000000']
         )
         const found = await dataSource.getRepository(IdentitySetupCode).findOneBy({ id: 1 })
         assert.equal(found && found.codeHmac, hmac)
         assert.equal(String(found && found.issuedAt), '1780000000000')
+        assert.equal(found && found.previousCodeHmac, previousHmac)
+        assert.equal(String(found && found.previousExpiresAt), '1770000000000')
     })
 })
 
@@ -405,7 +408,8 @@ describe('identity postgres schema', () => {
                     'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000',
                     'AddApiKeyHarnesses1800500000000',
-                    'AddSetupCode1800600000000'
+                    'AddSetupCode1800600000000',
+                    'AddSetupCodePrevious1800700000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -516,7 +520,8 @@ describe('identity mariadb schema', () => {
                     'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000',
                     'AddApiKeyHarnesses1800500000000',
-                    'AddSetupCode1800600000000'
+                    'AddSetupCode1800600000000',
+                    'AddSetupCodePrevious1800700000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -706,7 +711,8 @@ describe('identity mysql 8 schema', () => {
                     'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000',
                     'AddApiKeyHarnesses1800500000000',
-                    'AddSetupCode1800600000000'
+                    'AddSetupCode1800600000000',
+                    'AddSetupCodePrevious1800700000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -763,7 +769,8 @@ describe('identity sqlite upgrade', () => {
                     'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000',
                     'AddApiKeyHarnesses1800500000000',
-                    'AddSetupCode1800600000000'
+                    'AddSetupCode1800600000000',
+                    'AddSetupCodePrevious1800700000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
