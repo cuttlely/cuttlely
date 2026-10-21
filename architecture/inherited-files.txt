@@ -169,6 +169,7 @@ packages/components/nodes/agents/XMLAgent/XMLAgent.ts
 packages/components/nodes/agents/XMLAgent/xmlagent.svg
 packages/components/nodes/chains/ConversationChain/ConversationChain.ts
 packages/components/nodes/chains/ConversationChain/conv.svg
+packages/components/nodes/chains/ConversationChain/conversationPrompt.test.ts
 packages/components/nodes/chains/ConversationalRetrievalQAChain/ConversationalRetrievalQAChain.ts
 packages/components/nodes/chains/ConversationalRetrievalQAChain/prompts.ts
 packages/components/nodes/chains/ConversationalRetrievalQAChain/qa.svg
@@ -1403,6 +1404,7 @@ packages/server/src/services/stats/index.ts
 packages/server/src/services/text-to-speech/index.ts
 packages/server/src/services/tools/index.ts
 packages/server/src/services/upsert-history/index.ts
+packages/server/src/services/validation/fixtures/llm-chain.json
 packages/server/src/services/validation/index.ts
 packages/server/src/services/validation/validateFlowData.test.ts
 packages/server/src/services/variables/index.ts
@@ -1745,6 +1747,7 @@ packages/ui/src/ui-component/extended/StarterPrompts.jsx
 packages/ui/src/ui-component/extended/TextToSpeech.jsx
 packages/ui/src/ui-component/extended/Transitions.jsx
 packages/ui/src/ui-component/file/File.jsx
+packages/ui/src/ui-component/flow/migrationWizard.test.js
 packages/ui/src/ui-component/form/settings.jsx
 packages/ui/src/ui-component/grid/DataGrid.jsx
 packages/ui/src/ui-component/grid/Grid.jsx
@@ -1789,6 +1792,9 @@ packages/ui/src/ui-component/toolbar/Toolbar.js
 packages/ui/src/ui-component/tooltip/MoreItemsTooltip.jsx
 packages/ui/src/ui-component/tooltip/NodeTooltip.jsx
 packages/ui/src/ui-component/tooltip/TooltipWithParser.jsx
+packages/ui/src/utils/__fixtures__/import/agentic-rag-v2.json
+packages/ui/src/utils/__fixtures__/import/make-webhook.json
+packages/ui/src/utils/__fixtures__/import/text-to-sql.json
 packages/ui/src/utils/authUtils.js
 packages/ui/src/utils/customMention.js
 packages/ui/src/utils/errorHandler.js
@@ -1797,6 +1803,7 @@ packages/ui/src/utils/genericHelper.js
 packages/ui/src/utils/genericHelper.test.js
 packages/ui/src/utils/itWorked.jsx
 packages/ui/src/utils/itWorked.test.js
+packages/ui/src/utils/migrationScan.test.js
 packages/ui/src/utils/useNotifier.js
 packages/ui/src/utils/usePrompt.js
 packages/ui/src/utils/validation.js

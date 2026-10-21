@@ -5,8 +5,12 @@ jest.mock('../../utils/logger', () => ({
     default: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() }
 }))
 
+import fs from 'fs'
+import path from 'path'
 import { validateFlowData, IValidationResult } from './index'
 import type { IComponentNodes, IReactFlowNode, IReactFlowEdge } from '../../Interface'
+
+const readFixture = (name: string) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8'))
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,6 +70,26 @@ describe('validateFlowData', () => {
         const nodes = [makeNode('n1', 'stickyNoteAgentflow')]
         const results = validateFlowData(nodes, [], emptyComponentNodes)
         expect(results).toEqual([])
+    })
+
+    it('skips every sticky note for the connection check and for parameters', () => {
+        const named = makeNode('note1', 'stickyNote', [{ name: 'note', label: 'Note' }], {})
+        const typed = makeNode('note2', 'aside', [{ name: 'note', label: 'Note' }], {})
+        ;(typed.data as { type?: string }).type = 'StickyNote'
+        const plain = makeNode('plain', 'aside', [{ name: 'note', label: 'Note' }], {})
+        ;(plain.data as { type?: string }).type = 'Note'
+
+        const results = validateFlowData([named, typed, plain], [], emptyComponentNodes)
+        expect(issuesFor(results, 'note1')).toEqual([])
+        expect(issuesFor(results, 'note2')).toEqual([])
+        expect(issuesFor(results, 'plain')).toContain('This node is not connected to anything')
+        expect(issuesFor(results, 'plain')).toContain('Note is required')
+    })
+
+    it('does not flag the sticky note in a chain canvas', () => {
+        const flow = readFixture('llm-chain.json')
+        const results = validateFlowData(flow.nodes, flow.edges, emptyComponentNodes)
+        expect(results.find((item) => item.id === 'stickyNote_0')).toBeUndefined()
     })
 
     // --- Required parameters ---

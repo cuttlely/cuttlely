@@ -58,3 +58,4 @@ Cuttlely 1.3.0. The product version is the root `package.json`, `packages/server
 
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
 -   Branch `harden-public-config` is in review, not on `main`: hardened public config endpoints with response allowlists for the public chatbot config and chatflow responses, template input sanitizing on save (including `loadConfig` companion inputs and JSON-string values), filtered `overrideConfig` headers, and 422 on a missing credential. It is merged with `main` after #237. Notes are under 1.3.1 Unreleased in the changelog.
+-   Chatflow import checks (model and tool credentials, sticky notes, tool files, older card names, custom tools by id) are in review in [#245](https://github.com/cuttlely/cuttlely/pull/245). Refreshing every imported card from the current spec and partial import of unsupported cards are still open.

@@ -99,8 +99,20 @@ function splitInputs(nodeId, spec) {
     return { inputAnchors, inputParams, defaults }
 }
 
+function carryConversationPrompt(data) {
+    if (!data || data.name !== 'conversationChain') return
+    const inputs = data.inputs
+    if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) return
+    const current = inputs.systemMessagePrompt
+    const older = inputs.systemMessage
+    if ((current === undefined || current === null || current === '') && typeof older === 'string' && older) {
+        inputs.systemMessagePrompt = older
+    }
+}
+
 export function normalizeNodeData(data, spec) {
     if (!data || typeof data !== 'object') return data
+    carryConversationPrompt(data)
     const missingParams = !Array.isArray(data.inputParams)
     const missingAnchors = !Array.isArray(data.inputAnchors)
     const missingOutputs = !Array.isArray(data.outputAnchors)

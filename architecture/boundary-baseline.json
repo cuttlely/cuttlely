@@ -1976,6 +1976,16 @@
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
             "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
+        },
+        {
+            "from": "packages/ui/src/utils/migrationScan.test.js",
+            "to": "packages/ui/src/utils/flowiseCatalog.js",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "from": "packages/ui/src/utils/migrationScan.test.js",
+            "to": "packages/ui/src/utils/flowiseMigration.mjs",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         }
     ],
     "r5Edges": [
@@ -2005,6 +2015,10 @@
         {
             "path": "packages/components/nodes/agentflow/Agent/Agent.tokens.test.ts",
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
+        },
+        {
+            "path": "packages/components/nodes/chains/ConversationChain/conversationPrompt.test.ts",
+            "reason": "Unit test for the inherited conversation chain prompt fallback"
         },
         {
             "path": "packages/components/src/missingModelCredential.test.ts",
@@ -3091,6 +3105,10 @@
             "reason": "The public settings payload test stays with the settings service it checks."
         },
         {
+            "path": "packages/server/src/services/validation/fixtures/llm-chain.json",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
             "path": "packages/server/src/utils/buildAgentflow.harness-usage.test.ts",
             "reason": "The agentflow harness usage test stays next to the agentflow runner it exercises."
         },
@@ -3141,6 +3159,26 @@
         {
             "path": "packages/ui/src/ui-component/dialog/AddToTestSetDialog.test.js",
             "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/ui/src/ui-component/flow/migrationWizard.test.js",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/__fixtures__/import/agentic-rag-v2.json",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/__fixtures__/import/make-webhook.json",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/__fixtures__/import/text-to-sql.json",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/migrationScan.test.js",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         },
         {
             "path": "packages/ui/src/views/datasets/datasetRowLabel.js",
