@@ -699,7 +699,10 @@ export function credentialIsOptional(definition?: { optional?: boolean | object 
     return definition?.optional === true
 }
 
-const INPUT_SECRET_KEY = /api[_-]?(?:key|token)|(?:access|bearer)[_-]?token|secret(?:key)?$/i
+// Credential-style input names: apiKey, apiToken, accessToken, bearerToken, a name ending in secret or secretKey,
+// and access, secret, private or client keys such as qianfanAccessKey, awsSecretKey or clientSecret.
+const INPUT_SECRET_KEY =
+    /api[_-]?(?:key|token)|(?:access|bearer)[_-]?token|secret(?:key)?$|(?:access|secret|private)[_-]?key|client[_-]?secret/i
 
 /**
  * Override config and some tests put the provider key on the node inputs instead of selecting a stored credential.

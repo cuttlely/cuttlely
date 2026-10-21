@@ -116,3 +116,21 @@ describe('a model provider that keeps answering 429', () => {
         })
     })
 })
+
+describe('a flow whose credential is missing', () => {
+    it('answers 422 without the credential id', () => {
+        const failure = toPredictionError(new Error('Error: Error: Credential cred-FAKE-QA-0001 not found'))
+        expect(failure.statusCode).toBe(422)
+        expect(failure.message).not.toContain('cred-FAKE-QA-0001')
+    })
+
+    it('answers 422 without the credential id when the error is also a harness error', () => {
+        const harness = Object.assign(new Error('Credential cred-FAKE-QA-0002 not found'), { harnessError: true })
+        const failure = toPredictionError(harness)
+        expect(failure.statusCode).toBe(422)
+        expect(failure.message).not.toContain('cred-FAKE-QA-0002')
+        const cannotRun = toPredictionError(new Error('Harness cannot run: Credential cred-FAKE-QA-0003 not found'))
+        expect(cannotRun.statusCode).toBe(422)
+        expect(cannotRun.message).not.toContain('cred-FAKE-QA-0003')
+    })
+})

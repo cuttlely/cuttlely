@@ -11,6 +11,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { IReactFlowEdge, IReactFlowNode } from '../../Interface'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stripProtectedFields } from '../../utils/stripProtectedFields'
+import { buildTemplateFlow, sanitizeToolTemplate } from '../../utils/sanitizeFlowData'
 import chatflowsService from '../chatflows'
 
 type ITemplate = {
@@ -196,17 +197,17 @@ const saveCustomTemplate = async (body: any): Promise<any> => {
         if (body.chatflowId) {
             const chatflow = await chatflowsService.getChatflowById(body.chatflowId, body.workspaceId)
             const flowData = JSON.parse(chatflow.flowData)
-            const { framework, exportJson } = _generateExportFlowData(flowData)
+            const { framework, exportJson } = _generateExportFlowData(flowData, appServer.nodesPool?.componentNodes)
             flowDataStr = JSON.stringify(exportJson)
             customTemplate.framework = framework
             const templateType = templateTypeForChatflow(chatflow.type)
             if (templateType) customTemplate.type = templateType
         } else if (body.tool) {
-            const flowData = {
-                iconSrc: body.tool.iconSrc,
-                schema: body.tool.schema,
-                func: body.tool.func
-            }
+            const tool = sanitizeToolTemplate(body.tool)
+            const flowData: Record<string, unknown> = { dropped: tool.dropped }
+            if (tool.iconSrc !== undefined) flowData.iconSrc = tool.iconSrc
+            if (tool.schema !== undefined) flowData.schema = tool.schema
+            if (tool.func !== undefined) flowData.func = tool.func
             customTemplate.framework = ''
             customTemplate.type = 'Tool'
             flowDataStr = JSON.stringify(flowData)
@@ -233,56 +234,8 @@ const templateTypeForChatflow = (chatflowType?: string) => {
     return ''
 }
 
-const _generateExportFlowData = (flowData: any) => {
-    const nodes = flowData.nodes
-    const edges = flowData.edges
-
-    const framework = 'Langchain'
-    for (let i = 0; i < nodes.length; i += 1) {
-        nodes[i].selected = false
-        const node = nodes[i]
-
-        const newNodeData = {
-            id: node.data.id,
-            label: node.data.label,
-            version: node.data.version,
-            name: node.data.name,
-            type: node.data.type,
-            color: node.data.color,
-            hideOutput: node.data.hideOutput,
-            hideInput: node.data.hideInput,
-            baseClasses: node.data.baseClasses,
-            tags: node.data.tags,
-            category: node.data.category,
-            description: node.data.description,
-            inputParams: node.data.inputParams,
-            inputAnchors: node.data.inputAnchors,
-            inputs: {},
-            outputAnchors: node.data.outputAnchors,
-            outputs: node.data.outputs,
-            selected: false
-        }
-
-        // Remove password, file & folder
-        if (node.data.inputs && Object.keys(node.data.inputs).length) {
-            const nodeDataInputs: any = {}
-            for (const input in node.data.inputs) {
-                const inputParam = node.data.inputParams.find((inp: any) => inp.name === input)
-                if (inputParam && inputParam.type === 'password') continue
-                if (inputParam && inputParam.type === 'file') continue
-                if (inputParam && inputParam.type === 'folder') continue
-                nodeDataInputs[input] = node.data.inputs[input]
-            }
-            newNodeData.inputs = nodeDataInputs
-        }
-
-        nodes[i].data = newNodeData
-    }
-    const exportJson = {
-        nodes,
-        edges
-    }
-    return { exportJson, framework }
+const _generateExportFlowData = (flowData: any, componentNodes?: Record<string, unknown> | null) => {
+    return { exportJson: buildTemplateFlow(flowData, componentNodes), framework: 'Langchain' }
 }
 
 export default {

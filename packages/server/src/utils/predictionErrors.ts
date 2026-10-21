@@ -110,6 +110,9 @@ const isHarnessError = (error: unknown, message: string) =>
  * keeps its status; a model provider that keeps rate limiting is 429 with Retry-After (the provider's wait when it
  * sent one); a harness that cannot run is 422; anything else is 500.
  */
+const MISSING_CREDENTIAL = /\bCredential \S+ not found\b/
+const MISSING_CREDENTIAL_MESSAGE = 'A credential this flow uses was not found. Select a credential on the card.'
+
 export const toPredictionError = (error: unknown): AppError => {
     if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500) return error
     const limited = providerRateLimit(error)
@@ -123,6 +126,8 @@ export const toPredictionError = (error: unknown): AppError => {
     }
     const message = getErrorMessage(error)
     if ((error as { code?: unknown })?.code === 'key_not_allowed') return new AppError(StatusCodes.FORBIDDEN, message)
+    // A missing or unreadable credential is a flow setup problem. Do not echo the credential id, even from a harness.
+    if (MISSING_CREDENTIAL.test(message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, MISSING_CREDENTIAL_MESSAGE)
     // Own 4xx (a missing required chat-model credential is 422) keep statusCode. Provider errors use `status`, not statusCode.
     const ownStatus = Number((error as { statusCode?: unknown })?.statusCode)
     if (Number.isInteger(ownStatus) && ownStatus >= 400 && ownStatus < 500) {

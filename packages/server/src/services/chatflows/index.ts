@@ -20,6 +20,7 @@ import { Workspace } from '../../database/entities/identity'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../../identity/workspaceScope'
 import { AppError } from '../../errors/appError'
+import { publicChatbotDisplayConfig } from '../../utils/sanitizeFlowData'
 import { getErrorMessage } from '../../errors/utils'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
@@ -52,7 +53,6 @@ import flowDraftsService, { withChatflowLock } from '../flow-drafts'
 import { VersionActor } from '../flow-versions/author'
 import { VersionKind } from '../flow-versions/store'
 import { updateStorageUsage } from '../../utils/quotaUsage'
-import { flowDataForPublicChatbotConfig } from '../../utils/sanitizeFlowData'
 import { stampNodePack, withoutRemovedNodes } from '../../utils/nodePacks'
 
 export const enum ChatflowErrorMessage {
@@ -970,8 +970,8 @@ async function loadHarnessSync() {
 }
 
 // Get specific chatflow chatbotConfig via id (PUBLIC endpoint, used to retrieve config for embedded chat).
-// An unprotected chatflow gets sanitized flowData. A key-protected chatflow does not get the canvas:
-// only the Start node's form fields, which the embed widget reads.
+// Any existing chatflow answers with the display fields the chat widget reads and the upload/speech flags
+// computed here. It never carries the flow graph or other saved settings.
 const getSinglePublicChatbotConfig = async (chatflowId: string): Promise<any> => {
     try {
         const appServer = getRunningExpressApp()
@@ -998,13 +998,9 @@ const getSinglePublicChatbotConfig = async (chatflowId: string): Promise<any> =>
                         }
                     })
                 }
-                delete parsedConfig.allowedOrigins
-                delete parsedConfig.allowedOriginsError
-                const flowData = flowDataForPublicChatbotConfig(dbResponse.flowData, dbResponse.apikeyid)
                 return {
-                    ...parsedConfig,
+                    ...publicChatbotDisplayConfig(parsedConfig),
                     uploads: uploadsConfig,
-                    ...(flowData !== undefined ? { flowData } : {}),
                     isTTSEnabled
                 }
             } catch (e) {
@@ -1013,6 +1009,7 @@ const getSinglePublicChatbotConfig = async (chatflowId: string): Promise<any> =>
         }
         return 'OK'
     } catch (error) {
+        if (error instanceof AppError && error.statusCode === StatusCodes.NOT_FOUND) throw error
         throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: chatflowsService.getSinglePublicChatbotConfig - ${getErrorMessage(error)}`

@@ -155,6 +155,7 @@
             "packages/server/src/routes/demo/**",
             "packages/ui/src/api/demo.js",
             "packages/ui/src/utils/tryTheDemo*",
+            "packages/ui/src/utils/templateSettingsNote*",
             "packages/ui/src/ui-component/flow/TryTheDemo*",
             "samples/demo/**",
             "packages/ui/src/utils/*Migration.mjs",
@@ -787,13 +788,15 @@
                 "packages/server/src/routes/demo/**",
                 "packages/ui/src/api/demo.js",
                 "packages/ui/src/utils/tryTheDemo*",
+                "packages/ui/src/utils/templateSettingsNote*",
                 "packages/ui/src/ui-component/flow/TryTheDemo*",
                 "samples/demo/**"
             ],
             "entryPoints": [
                 "packages/server/src/routes/demo/index.ts",
                 "packages/server/src/services/marketplaces/sampleTemplates.ts",
-                "packages/ui/src/ui-component/flow/TryTheDemo.jsx"
+                "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+                "packages/ui/src/utils/templateSettingsNote.js"
             ]
         },
         {

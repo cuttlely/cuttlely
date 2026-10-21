@@ -17,7 +17,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { getPageAndLimitParams } from '../../utils/pagination'
 import { checkUsageLimit } from '../../utils/quotaUsage'
 import { RateLimiterManager } from '../../utils/rateLimit'
-import { sanitizeFlowDataForPublicEndpoint } from '../../utils/sanitizeFlowData'
+import { publicChatflowSummary } from '../../utils/sanitizeFlowData'
 import { stripProtectedFields } from '../../utils/stripProtectedFields'
 
 const checkIfChatflowIsValidForStreaming = async (req: Request, res: Response, next: NextFunction) => {
@@ -242,8 +242,7 @@ const getSinglePublicChatflow = async (req: Request, res: Response, next: NextFu
         }
         const chatflow = await chatflowsService.getChatflowById(req.params.id)
         if (!chatflow) return res.status(StatusCodes.NOT_FOUND).json({ message: 'Chatflow not found' })
-        if (chatflow.isPublic)
-            return res.status(StatusCodes.OK).json({ ...chatflow, flowData: sanitizeFlowDataForPublicEndpoint(chatflow.flowData) })
+        if (chatflow.isPublic) return res.status(StatusCodes.OK).json(publicChatflowSummary(chatflow))
         if (!req.user) return res.status(StatusCodes.UNAUTHORIZED).json({ message: GeneralErrorMessage.UNAUTHORIZED })
         if (typeof req.user.id !== 'string' || req.user.id.length === 0) {
             return res.status(StatusCodes.NOT_FOUND).json({ message: WorkspaceUserErrorMessage.WORKSPACE_USER_NOT_FOUND })
