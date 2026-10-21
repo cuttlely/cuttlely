@@ -697,7 +697,7 @@ describe('dropped settings report', () => {
         expect(original).toEqual(snapshot)
         expect(JSON.stringify(snapshot)).toContain(MARKER)
         expect(JSON.stringify(flow)).not.toContain(MARKER)
-        expect(flow.edges).toEqual(original.edges)
+        expect(flow.edges).toEqual([])
         expect(flow.droppedSettings).toEqual([
             {
                 nodeId: 'chatOpenAI_0',
@@ -759,6 +759,163 @@ describe('dropped settings report', () => {
             }
         ])
         expect(flow.droppedSettings.map((row) => row.inputs)).toEqual([['node'], ['node']])
+    })
+
+    it('rebuilds a connection when the handles match the node anchors', () => {
+        const sourceHandle = 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel'
+        const targetHandle = 'conversationChain_0-input-model-BaseChatModel'
+        const edgeId = `chatOpenAI_0-${sourceHandle}-conversationChain_0-${targetHandle}`
+        const promptHandle = 'conversationChain_0-input-systemMessagePrompt-string'
+        const agentSource = 'conditionAgentflow_0-output-0'
+        const agentTarget = 'directReplyAgentflow_0'
+        const agentEdgeId = `conditionAgentflow_0-${agentSource}-directReplyAgentflow_0-${agentTarget}`
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'chatOpenAI_0',
+                        type: 'customNode',
+                        data: { id: 'chatOpenAI_0', name: 'chatOpenAI', inputs: {} }
+                    },
+                    {
+                        id: 'conversationChain_0',
+                        type: 'customNode',
+                        data: { id: 'conversationChain_0', name: 'conversationChain', inputs: { model: '{{chatOpenAI_0.data.instance}}' } }
+                    },
+                    {
+                        id: 'conditionAgentflow_0',
+                        type: 'agentFlow',
+                        data: { id: 'conditionAgentflow_0', name: 'conditionAgentflow', inputs: {} }
+                    },
+                    {
+                        id: 'directReplyAgentflow_0',
+                        type: 'agentFlow',
+                        data: { id: 'directReplyAgentflow_0', name: 'directReplyAgentflow', inputs: {} }
+                    }
+                ],
+                edges: [
+                    {
+                        id: edgeId,
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle,
+                        type: 'buttonedge',
+                        data: { label: 'sk-FAKE-QA-EDGE' },
+                        apiKey: 'FAKEQA-EDGE-PLAIN'
+                    },
+                    {
+                        id: 'ePrompt',
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle: promptHandle,
+                        type: 'buttonedge'
+                    },
+                    {
+                        id: agentEdgeId,
+                        source: 'conditionAgentflow_0',
+                        target: 'directReplyAgentflow_0',
+                        sourceHandle: agentSource,
+                        targetHandle: agentTarget,
+                        type: 'agentFlow',
+                        data: { edgeLabel: 'sk-FAKE-QA-EDGE' }
+                    },
+                    {
+                        id: 'eBadHandle',
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle: 'chatOpenAI_0-output-other',
+                        targetHandle,
+                        type: 'buttonedge'
+                    },
+                    {
+                        id: 'eBadType',
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle,
+                        type: 'straight'
+                    },
+                    {
+                        id: 'sk-FAKE-QA-EDGE',
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle,
+                        type: 'buttonedge'
+                    },
+                    'sk-FAKE-QA-BARE',
+                    {
+                        id: 'eMissing',
+                        source: 'chatOpenAI_0',
+                        target: 'missing_0',
+                        sourceHandle,
+                        targetHandle: 'missing_0',
+                        type: 'buttonedge'
+                    }
+                ]
+            },
+            {
+                chatOpenAI: {
+                    name: 'chatOpenAI',
+                    label: 'OpenAI',
+                    type: 'ChatOpenAI',
+                    category: 'Chat Models',
+                    baseClasses: ['ChatOpenAI', 'BaseChatModel'],
+                    inputs: []
+                },
+                conversationChain: {
+                    name: 'conversationChain',
+                    label: 'Conversation Chain',
+                    type: 'ConversationChain',
+                    category: 'Chains',
+                    baseClasses: ['ConversationChain', 'BaseChain'],
+                    inputs: [
+                        { label: 'Chat Model', name: 'model', type: 'BaseChatModel' },
+                        { label: 'System Message', name: 'systemMessagePrompt', type: 'string' }
+                    ]
+                },
+                conditionAgentflow: {
+                    name: 'conditionAgentflow',
+                    label: 'Condition',
+                    category: 'Agent Flows',
+                    outputs: [{ name: '0' }, { name: '1' }]
+                },
+                directReplyAgentflow: {
+                    name: 'directReplyAgentflow',
+                    label: 'Direct Reply',
+                    category: 'Agent Flows'
+                }
+            }
+        )
+        expect(JSON.stringify(flow)).not.toContain('FAKE')
+        expect(flow.edges).toEqual([
+            {
+                id: edgeId,
+                source: 'chatOpenAI_0',
+                target: 'conversationChain_0',
+                sourceHandle,
+                targetHandle,
+                type: 'buttonedge'
+            },
+            {
+                id: 'ePrompt',
+                source: 'chatOpenAI_0',
+                target: 'conversationChain_0',
+                sourceHandle,
+                targetHandle: promptHandle,
+                type: 'buttonedge'
+            },
+            {
+                id: agentEdgeId,
+                source: 'conditionAgentflow_0',
+                target: 'directReplyAgentflow_0',
+                sourceHandle: agentSource,
+                targetHandle: agentTarget,
+                type: 'agentFlow'
+            }
+        ])
     })
 
     it('uses the node name when a label was not saved', () => {

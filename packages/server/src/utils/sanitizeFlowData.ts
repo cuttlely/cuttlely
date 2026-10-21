@@ -443,6 +443,7 @@ type TemplateComponent = {
     inputParams?: DeclaredParam[]
     inputAnchors?: { name?: string }[]
     credential?: DeclaredParam
+    outputs?: unknown
 }
 
 // Canvas ids are `<nodeName>_<n>`, including a name that itself contains `_`.
@@ -498,6 +499,124 @@ const componentParts = (component: TemplateComponent): { params: DeclaredParam[]
     }
 }
 
+const classList = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
+
+const isAgentFlowComponent = (component: TemplateComponent): boolean => component.category === 'Agent Flows'
+
+const outputAnchorList = (component: TemplateComponent, nodeId: string): Array<Record<string, unknown>> => {
+    if (component.hideOutput) return []
+    const outputs = Array.isArray(component.outputs) ? component.outputs : []
+    const name = textOf(component.name) || 'output'
+    const label = textOf(component.label) || name
+    if (isAgentFlowComponent(component)) {
+        if (outputs.length) return outputs.map((_, index) => ({ id: `${nodeId}-output-${index}`, label, name }))
+        return [{ id: `${nodeId}-output-${name}`, label, name }]
+    }
+    if (outputs.length) {
+        const options = outputs.map((output) => {
+            const item = asRecord(output) ?? {}
+            const classes = classList(item.baseClasses)
+            const outputName = textOf(item.name) || 'output'
+            const suffix = classes.length > 1 ? classes.join('|') : classes[0] || ''
+            const type = classes.length > 1 ? classes.join(' | ') : classes[0] || textOf(item.type) || ''
+            const option: Record<string, unknown> = {
+                id: `${nodeId}-output-${outputName}-${suffix}`,
+                name: outputName,
+                label: textOf(item.label) || outputName,
+                description: textOf(item.description) || '',
+                type
+            }
+            if (typeof item.isAnchor === 'boolean') option.isAnchor = item.isAnchor
+            if (typeof item.hidden === 'boolean') option.hidden = item.hidden
+            return option
+        })
+        const first = asRecord(outputs[0])
+        return [
+            {
+                name: 'output',
+                label: 'Output',
+                type: 'options',
+                description: textOf(first?.description) || '',
+                options,
+                default: textOf(first?.name) || ''
+            }
+        ]
+    }
+    const classes = classList(component.baseClasses)
+    return [
+        {
+            id: `${nodeId}-output-${name}-${classes.join('|')}`,
+            name,
+            label: textOf(component.type) || name,
+            description: textOf(component.description) || '',
+            type: classes.join(' | ')
+        }
+    ]
+}
+
+const outputHandleIds = (anchors: Array<Record<string, unknown>>): Set<string> => {
+    const ids = new Set<string>()
+    for (const anchor of anchors) {
+        if (typeof anchor.id === 'string' && anchor.id) ids.add(anchor.id)
+        if (!Array.isArray(anchor.options)) continue
+        for (const option of anchor.options) {
+            const item = asRecord(option)
+            if (typeof item?.id === 'string' && item.id) ids.add(item.id)
+        }
+    }
+    return ids
+}
+
+const inputHandleIds = (
+    component: TemplateComponent,
+    nodeId: string,
+    params: DeclaredParam[],
+    anchors: { name?: string; type?: string }[]
+): Set<string> => {
+    const ids = new Set<string>()
+    for (const item of [...params, ...anchors]) {
+        const name = typeof item?.name === 'string' ? item.name : ''
+        if (!name) continue
+        const type = typeof item?.type === 'string' ? item.type : ''
+        ids.add(`${nodeId}-input-${name}-${type}`)
+    }
+    if (isAgentFlowComponent(component)) ids.add(nodeId)
+    return ids
+}
+
+const EDGE_TYPES = new Set(['buttonedge', 'agentFlow'])
+const PLAIN_EDGE = /^[A-Za-z0-9_.:| -]{1,1000}$/
+
+// Connection ids are long structured strings, so the character set and token prefixes are checked.
+const plainEdgeString = (value: unknown): value is string => typeof value === 'string' && PLAIN_EDGE.test(value) && !patternFails(value)
+
+const emptyHandles = (): { outputs: Set<string>; inputs: Set<string> } => ({ outputs: new Set(), inputs: new Set() })
+
+const rebuildEdges = (edges: unknown[], handles: Map<string, { outputs: Set<string>; inputs: Set<string> }>): unknown[] => {
+    const out: unknown[] = []
+    for (const edge of edges) {
+        if (!edge || typeof edge !== 'object' || Array.isArray(edge)) continue
+        const current = edge as Record<string, unknown>
+        if (!plainEdgeString(current.id) || !plainEdgeString(current.type) || !EDGE_TYPES.has(current.type)) continue
+        if (typeof current.source !== 'string' || typeof current.target !== 'string') continue
+        if (typeof current.sourceHandle !== 'string' || typeof current.targetHandle !== 'string') continue
+        const source = handles.get(current.source)
+        const target = handles.get(current.target)
+        if (!source || !target) continue
+        if (!source.outputs.has(current.sourceHandle) || !target.inputs.has(current.targetHandle)) continue
+        out.push({
+            id: current.id,
+            source: current.source,
+            target: current.target,
+            sourceHandle: current.sourceHandle,
+            targetHandle: current.targetHandle,
+            type: current.type
+        })
+    }
+    return out
+}
+
 const credentialDropped = (data: Record<string, unknown>): boolean => {
     if (typeof data.credential === 'string' && data.credential) return true
     return Boolean(data.credential && typeof data.credential === 'object')
@@ -514,9 +633,10 @@ export const buildTemplateFlow = (
     componentNodes?: Record<string, unknown> | null
 ): TemplateFlow => {
     const sourceNodes = Array.isArray(flowData?.nodes) ? flowData.nodes : []
-    const edges = Array.isArray(flowData?.edges) ? [...flowData.edges] : []
+    const sourceEdges = Array.isArray(flowData?.edges) ? flowData.edges : []
     const droppedSettings: DroppedNodeSettings[] = []
     const nodeIds = new Set<string>()
+    const handles = new Map<string, { outputs: Set<string>; inputs: Set<string> }>()
     for (const node of sourceNodes) {
         if (!node || typeof node !== 'object' || Array.isArray(node)) continue
         const current = node as Record<string, unknown>
@@ -535,11 +655,12 @@ export const buildTemplateFlow = (
             continue
         }
         const data = asRecord(current.data)
+        const nodeId = String(shell.id)
         if (!data) {
+            handles.set(nodeId, emptyHandles())
             nodes.push(shell)
             continue
         }
-        const nodeId = String(shell.id)
         const nodeName = typeof data.name === 'string' ? data.name : ''
         const component = asComponent(nodeName && componentNodes ? componentNodes[nodeName] : undefined)
         const inputs = asRecord(data.inputs)
@@ -547,10 +668,15 @@ export const buildTemplateFlow = (
             const dropped = inputs ? Object.keys(inputs).filter((name) => !isBlank(inputs[name])) : []
             if (credentialDropped(data)) dropped.push('credential')
             droppedSettings.push({ nodeId, label: nodeId, inputs: dropped })
+            handles.set(nodeId, emptyHandles())
             nodes.push({ ...shell, data: { id: nodeId, selected: false, inputs: {} } })
             continue
         }
         const { params, anchors } = componentParts(component)
+        handles.set(nodeId, {
+            outputs: outputHandleIds(outputAnchorList(component, nodeId)),
+            inputs: inputHandleIds(component, nodeId, params, anchors)
+        })
         const sanitized = sanitizeNodeInputs(inputs, params, anchors, nodeIds)
         const dropped = [...sanitized.dropped]
         if (credentialDropped(data)) dropped.push('credential')
@@ -581,7 +707,7 @@ export const buildTemplateFlow = (
         if (baseClasses) nextData.baseClasses = baseClasses
         nodes.push({ ...shell, data: nextData })
     }
-    return { nodes, edges, droppedSettings }
+    return { nodes, edges: rebuildEdges(sourceEdges, handles), droppedSettings }
 }
 
 const displayText = (value: unknown, field: string): string | undefined => {
