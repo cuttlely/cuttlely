@@ -394,7 +394,14 @@ const tokenPatternFails = (value: string): boolean => {
 // Credential-named query parameters, with any value. A fixed word list after one delimiter, so the scan stays linear.
 const CODE_CREDENTIAL_QUERY = /[?&;](?:api_key|apikey|key|token|access_token|secret|password|sig)=/i
 // Bearer or Basic followed by a literal value. A template expression such as ${token} or a quoted concatenation is not a value.
-const CODE_AUTH_SCHEME = /\b(?:bearer|basic)[ \t]+([A-Za-z0-9._~+/=-]+)/gi
+const CODE_AUTH_GAP = `${INVISIBLE_CLASS}*`
+const spelled = (word: string): string => word.split('').join(CODE_AUTH_GAP)
+// Invisible characters may sit inside the word and between the word and the value. Each repeated part is a
+// character class disjoint from the next one, so the match stays linear.
+const CODE_AUTH_SCHEME = new RegExp(
+    `\\b(?:${spelled('bearer')}|${spelled('basic')})(?:[ \\t]|${INVISIBLE_CLASS})+([A-Za-z0-9._~+/=-]+)`,
+    'giu'
+)
 // An ALL_CAPS name with an underscore, such as SPIDER_API_KEY, is a placeholder for the user to replace.
 const PLACEHOLDER_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
 
@@ -404,29 +411,17 @@ const hasUserinfoPassword = (text: string): boolean => {
     for (;;) {
         const start = text.indexOf('//', from)
         if (start < 0) return false
-        let colon = false
+        let firstColon = -1
+        let lastAt = -1
         let i = start + 2
         for (; i < text.length; i++) {
             const c = text[i]
-            if (
-                c === '/' ||
-                c === '?' ||
-                c === '#' ||
-                c === ' ' ||
-                c === '\t' ||
-                c === '\n' ||
-                c === '\r' ||
-                c === '"' ||
-                c === "'" ||
-                c === '`'
-            )
-                break
-            if (c === ':') colon = true
-            else if (c === '@') {
-                if (colon) return true
-                break
-            }
+            if (c === '/' || c === '?' || c === '#' || c === '"' || c === "'" || c === '`' || /\s/.test(c)) break
+            if (c === ':' && firstColon < 0) firstColon = i
+            else if (c === '@') lastAt = i
         }
+        // Any colon before the last @ means user info with a password, however many @ signs come before it.
+        if (lastAt >= 0 && firstColon >= 0 && firstColon < lastAt) return true
         from = Math.max(i, start + 2)
     }
 }

@@ -2605,3 +2605,34 @@ describe('tool func credential shapes split or without a scheme', () => {
         expect(sanitizeToolTemplate({ func }).func).toBe(func)
     })
 })
+
+describe('tool func user info and split auth words', () => {
+    const pw = ['FAKE', 'pw', '9'].join('')
+    const gaps = ['\u200b', '\u00a0', '\u2060', '\u00ad', '\ufe0f', '\u{e0020}']
+
+    it('leaves out an address with a colon before the last @', () => {
+        for (const url of [`https://x@y:${pw}@api.example/v1`, `https://@user:${pw}@api.example/v1`, `//a@b@c:${pw}@api.example`]) {
+            expect(sanitizeToolTemplate({ func: `return fetch('${url}')` }).func).toBeUndefined()
+        }
+    })
+
+    it('keeps an address with @ but no password and a host with a port', () => {
+        for (const func of ["return fetch('https://api.example:8443/v1?to=a@b.example')", "return fetch('https://user@api.example/v1')"]) {
+            expect(sanitizeToolTemplate({ func }).func).toBe(func)
+        }
+    })
+
+    it('leaves out Bearer or Basic split by two invisible gaps or with invisibles before the value', () => {
+        for (const a of gaps) {
+            for (const b of gaps) {
+                const funcs = [
+                    `const h = { Authorization: 'Bear${a}er${b}${pw}' }`,
+                    `const h = { Authorization: 'B${a}asi${b}c ${pw}' }`,
+                    `const h = { Authorization: 'Bearer${a}${b}${pw}' }`,
+                    `const h = { Authorization: 'Basic ${a}${pw}' }`
+                ]
+                for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBeUndefined()
+            }
+        }
+    })
+})
