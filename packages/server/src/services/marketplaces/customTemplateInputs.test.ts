@@ -124,7 +124,9 @@ describe('saveCustomTemplate input filtering', () => {
             inputParams: variantParams
         }
         const flowData = {
-            nodes: [{ id: 'n0', data: { id: 'n0', name: 'customNode', inputParams: variantParams, inputs: variantInputs } }],
+            nodes: [
+                { id: 'customNode_0', data: { id: 'customNode_0', name: 'customNode', inputParams: variantParams, inputs: variantInputs } }
+            ],
             edges: []
         }
         ;(chatflowsService.getChatflowById as jest.Mock).mockResolvedValue({ type: 'CHATFLOW', flowData: JSON.stringify(flowData) })
@@ -137,7 +139,7 @@ describe('saveCustomTemplate input filtering', () => {
         expect(parsed.nodes[0].data.inputs).toEqual(variantKept)
         expect(parsed.droppedSettings).toEqual([
             {
-                nodeId: 'n0',
+                nodeId: 'customNode_0',
                 label: 'customNode',
                 inputs: ['config', 'list', 'prompt', 'note', 'googleKey', 'credentialId', 'headers']
             }

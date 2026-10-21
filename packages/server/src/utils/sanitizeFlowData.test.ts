@@ -371,9 +371,9 @@ describe('template inputs', () => {
                 {
                     nodes: [
                         {
-                            id: `n-${trial}`,
+                            id: `chatOpenAI_${trial}`,
                             data: {
-                                id: `n-${trial}`,
+                                id: `chatOpenAI_${trial}`,
                                 label: 'Model',
                                 name: 'chatOpenAI',
                                 credential: pick(),
@@ -715,12 +715,58 @@ describe('dropped settings report', () => {
         expect((flow.nodes[2] as { data: { inputs: Record<string, unknown> } }).data.inputs).toEqual({ label: 'Fine' })
     })
 
+    it('keeps only a valid id, a known type, and finite position, width, and height', () => {
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'chatOpenAI_0',
+                        type: 'customNode',
+                        position: { x: 10, y: 20, apiKey: 'FAKEQA-POS' },
+                        positionAbsolute: { x: 10, y: 20, apiKey: 'FAKEQA-ABS' },
+                        width: 300,
+                        height: 'sk-FAKE-QA-WIDTH',
+                        style: { note: 'sk-FAKE-QA-STYLE' },
+                        extent: 'parent',
+                        parentNode: 'sk-FAKE-QA-PARENT',
+                        zIndex: 4,
+                        selected: true,
+                        data: { id: 'chatOpenAI_0', name: 'chatOpenAI', inputs: { prompt: 'Hello' } }
+                    },
+                    'sk-FAKE-QA-BARE',
+                    { id: 'not a node', type: 'evil', width: 'sk-FAKE-QA-WIDTH', data: { name: 'chatOpenAI', inputs: { prompt: 'Hi' } } }
+                ],
+                edges: []
+            },
+            { chatOpenAI: { name: 'chatOpenAI', label: 'OpenAI', inputParams: [{ name: 'prompt', type: 'string' }] } }
+        )
+        expect(JSON.stringify(flow)).not.toContain('FAKE')
+        expect(flow.nodes).toEqual([
+            {
+                id: 'chatOpenAI_0',
+                type: 'customNode',
+                position: { x: 10, y: 20 },
+                width: 300,
+                data: {
+                    id: 'chatOpenAI_0',
+                    name: 'chatOpenAI',
+                    label: 'OpenAI',
+                    selected: false,
+                    inputParams: [{ name: 'prompt', type: 'string' }],
+                    inputAnchors: [],
+                    inputs: { prompt: 'Hello' }
+                }
+            }
+        ])
+        expect(flow.droppedSettings.map((row) => row.inputs)).toEqual([['node'], ['node']])
+    })
+
     it('uses the node name when a label was not saved', () => {
         const flow = buildTemplateFlow(
             {
                 nodes: [
                     {
-                        id: 'n0',
+                        id: 'customNode_0',
                         data: {
                             name: 'customNode',
                             inputParams: [{ name: 'prompt', type: 'string' }],
@@ -732,7 +778,7 @@ describe('dropped settings report', () => {
             },
             { customNode: { name: 'customNode', inputParams: [{ name: 'prompt', type: 'string' }] } }
         )
-        expect(flow.droppedSettings).toEqual([{ nodeId: 'n0', label: 'customNode', inputs: ['prompt'] }])
+        expect(flow.droppedSettings).toEqual([{ nodeId: 'customNode_0', label: 'customNode', inputs: ['prompt'] }])
     })
 
     it('rebuilds node text from the registered component and records an unknown component', () => {

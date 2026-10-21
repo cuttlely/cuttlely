@@ -445,19 +445,11 @@ type TemplateComponent = {
     credential?: DeclaredParam
 }
 
-const NODE_SHELL = [
-    'type',
-    'position',
-    'positionAbsolute',
-    'width',
-    'height',
-    'parentNode',
-    'extent',
-    'sourcePosition',
-    'targetPosition',
-    'style',
-    'zIndex'
-] as const
+// Canvas ids are `<nodeName>_<n>`, including a name that itself contains `_`.
+const NODE_ID = /^[A-Za-z][A-Za-z0-9_]*_\d+$/
+const NODE_TYPES = new Set(['customNode', 'stickyNote', 'agentFlow', 'iteration'])
+
+const finiteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 
 const plainCopy = <T>(value: T): T | undefined => {
     try {
@@ -475,10 +467,15 @@ const stringList = (value: unknown): string[] | undefined => {
     return items.length ? items : undefined
 }
 
-const shellOf = (node: Record<string, unknown>): Record<string, unknown> => {
-    const shell: Record<string, unknown> = { selected: false }
-    if (node.id !== undefined) shell.id = node.id
-    for (const key of NODE_SHELL) if (node[key] !== undefined) shell[key] = node[key]
+/** id, a known canvas type, and finite position, width, and height. Every other field is left out. */
+const shellOf = (node: Record<string, unknown>): Record<string, unknown> | undefined => {
+    if (typeof node.id !== 'string' || !NODE_ID.test(node.id)) return undefined
+    const shell: Record<string, unknown> = { id: node.id }
+    if (typeof node.type === 'string' && NODE_TYPES.has(node.type)) shell.type = node.type
+    const position = asRecord(node.position)
+    if (position && finiteNumber(position.x) && finiteNumber(position.y)) shell.position = { x: position.x, y: position.y }
+    if (finiteNumber(node.width)) shell.width = node.width
+    if (finiteNumber(node.height)) shell.height = node.height
     return shell
 }
 
@@ -518,22 +515,31 @@ export const buildTemplateFlow = (
 ): TemplateFlow => {
     const sourceNodes = Array.isArray(flowData?.nodes) ? flowData.nodes : []
     const edges = Array.isArray(flowData?.edges) ? [...flowData.edges] : []
+    const droppedSettings: DroppedNodeSettings[] = []
     const nodeIds = new Set<string>()
     for (const node of sourceNodes) {
-        if (!node || typeof node !== 'object') continue
+        if (!node || typeof node !== 'object' || Array.isArray(node)) continue
         const current = node as Record<string, unknown>
-        if (typeof current.id === 'string' && current.id) nodeIds.add(current.id)
-        const data = asRecord(current.data)
-        if (typeof data?.id === 'string' && data.id) nodeIds.add(data.id)
+        if (typeof current.id === 'string' && NODE_ID.test(current.id)) nodeIds.add(current.id)
     }
-    const droppedSettings: DroppedNodeSettings[] = []
-    const nodes = sourceNodes.map((node) => {
-        if (!node || typeof node !== 'object') return node
+    const nodes: unknown[] = []
+    for (const node of sourceNodes) {
+        if (!node || typeof node !== 'object' || Array.isArray(node)) {
+            droppedSettings.push({ nodeId: '', label: 'node', inputs: ['node'] })
+            continue
+        }
         const current = node as Record<string, unknown>
         const shell = shellOf(current)
+        if (!shell) {
+            droppedSettings.push({ nodeId: '', label: 'node', inputs: ['node'] })
+            continue
+        }
         const data = asRecord(current.data)
-        if (!data) return shell
-        const nodeId = String(current.id || data.id || '')
+        if (!data) {
+            nodes.push(shell)
+            continue
+        }
+        const nodeId = String(shell.id)
         const nodeName = typeof data.name === 'string' ? data.name : ''
         const component = asComponent(nodeName && componentNodes ? componentNodes[nodeName] : undefined)
         const inputs = asRecord(data.inputs)
@@ -541,7 +547,8 @@ export const buildTemplateFlow = (
             const dropped = inputs ? Object.keys(inputs).filter((name) => !isBlank(inputs[name])) : []
             if (credentialDropped(data)) dropped.push('credential')
             droppedSettings.push({ nodeId, label: nodeId, inputs: dropped })
-            return { ...shell, data: { id: nodeId, selected: false, inputs: {} } }
+            nodes.push({ ...shell, data: { id: nodeId, selected: false, inputs: {} } })
+            continue
         }
         const { params, anchors } = componentParts(component)
         const sanitized = sanitizeNodeInputs(inputs, params, anchors, nodeIds)
@@ -572,8 +579,8 @@ export const buildTemplateFlow = (
         if (typeof component.hideInput === 'boolean') nextData.hideInput = component.hideInput
         const baseClasses = stringList(component.baseClasses)
         if (baseClasses) nextData.baseClasses = baseClasses
-        return { ...shell, data: nextData }
-    })
+        nodes.push({ ...shell, data: nextData })
+    }
     return { nodes, edges, droppedSettings }
 }
 
