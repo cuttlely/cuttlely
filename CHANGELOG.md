@@ -32,6 +32,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Fixed: `npx cuttlely start` exiting silently on Node 20 (exit code 13, no ready message). The health wait now keeps the process alive, gives each try its own 5 s timeout, retries through connection resets while the container boots, and on the final failure prints which address did not answer and the last error, then exits with code 1.
 -   Chatflow import: credentials stored on model and tool settings are listed before the canvas opens, sticky notes are not flagged as disconnected, a tool file points to Tools > Load, older tool-agent and embedding card names are updated when their connectors match, a custom tool that is only an id is listed so it can be created again, and a conversation chain keeps its system message.
 -   The setup page shows the Docker command as code, with the service name from the server, including when the page was opened with a code link. A setup code that is not right says "setup code". A code that has expired says it expired and that a new code was printed in the server log.
 -   Opening `/setup`, or the one-minute check, prints a new setup code when the current one has expired. Entering the old code then says it expired and that a new code was printed. A different code still says it is not right. The old code does not work. A code that was already used is not reported as expired. An expired attempt still counts toward the same failure limit.

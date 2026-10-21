@@ -17,6 +17,8 @@ import {
     VERSION,
     VOLUME_NAME,
     commandFailureCode,
+    httpHealthFetch,
+    waitForHealth,
     containerRunArgs,
     main,
     parseArgs,
@@ -189,7 +191,10 @@ test('start pulls the version tag, publishes the README port, and opens the brow
     assert.ok(calls[4].args.includes(`${VOLUME_NAME}:${DATA_DIR}`))
     assert.ok(calls[4].args.includes(`${DEFAULT_PORT}:${DEFAULT_PORT}`))
     assert.ok(calls[4].args.includes('CUTTLELY_INSTALL=docker'))
-    assert.deepEqual(fetched, [{ url: `http://127.0.0.1:${DEFAULT_PORT}/api/v1/ping`, init: { redirect: 'manual' } }])
+    assert.equal(fetched.length, 1)
+    assert.equal(fetched[0].url, `http://127.0.0.1:${DEFAULT_PORT}/api/v1/ping`)
+    assert.equal(fetched[0].init.redirect, 'manual')
+    assert.ok(fetched[0].init.signal instanceof AbortSignal)
     assert.deepEqual(opened, [publicUrl(DEFAULT_PORT)])
     assert.match(io.text(), /Cuttlely is ready\. Open http:\/\/localhost:43117/)
 })
@@ -1445,4 +1450,118 @@ test('the example workflow is valid YAML and runs cuttlely check', () => {
     assert.match(index, /how-to\/ci-gate\.md/)
     const api = readFileSync(join(REPO, 'docs', 'reference', 'drafts-api.md'), 'utf8')
     assert.match(api, /how-to\/ci-gate\.md/)
+})
+
+const CLI_LIB = fileURLToPath(new URL('../lib/cli.js', import.meta.url))
+
+function resettingServer(resets) {
+    let seen = 0
+    const server = createServer((req, res) => {
+        seen += 1
+        if (seen <= resets) {
+            req.socket.destroy()
+            return
+        }
+        res.end('pong')
+    })
+    return new Promise((resolve) => {
+        server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, seen: () => seen }))
+    })
+}
+
+test('health retries through connection resets and then reports ready', async () => {
+    const { server, port, seen } = await resettingServer(3)
+    try {
+        const result = await waitForHealth({
+            url: `http://127.0.0.1:${port}/api/v1/ping`,
+            fetchImpl: httpHealthFetch,
+            sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 20))),
+            timeoutMs: 10000,
+            now: Date.now
+        })
+        assert.deepEqual(result, { ready: true, lastError: null })
+        assert.equal(seen(), 4)
+    } finally {
+        server.close()
+    }
+})
+
+test('health gives each try its own timeout, so a stuck request is retried', async () => {
+    let tries = 0
+    const result = await waitForHealth({
+        url: 'http://127.0.0.1:1/api/v1/ping',
+        fetchImpl: async () => {
+            tries += 1
+            if (tries < 3) return new Promise(() => {})
+            return { ok: true, text: async () => 'pong' }
+        },
+        sleep: async () => {},
+        timeoutMs: 10000,
+        now: Date.now,
+        tryTimeoutMs: 30
+    })
+    assert.equal(result.ready, true)
+    assert.equal(tries, 3)
+})
+
+test('health reports the last reset code after the deadline', async () => {
+    let clock = 0
+    const result = await waitForHealth({
+        url: 'http://127.0.0.1:1/api/v1/ping',
+        fetchImpl: async () => {
+            throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
+        },
+        sleep: async () => {
+            clock += 1000
+        },
+        timeoutMs: 2500,
+        now: () => clock
+    })
+    assert.deepEqual(result, { ready: false, lastError: { code: 'ECONNRESET', retryable: true } })
+})
+
+// The Node 20 failure: a health fetch that never settles, with nothing else holding the event loop, made Node exit
+// with code 13 (unsettled top-level await) before any message. This runs that case in a fresh process.
+test('a never-settling health fetch does not let the process exit early', async () => {
+    const script = `
+        import { waitForHealth } from ${JSON.stringify(CLI_LIB)}
+        const result = await waitForHealth({
+            url: 'http://127.0.0.1:1/api/v1/ping',
+            fetchImpl: () => new Promise(() => {}),
+            sleep: (ms) => new Promise((resolve) => setTimeout(resolve, 10)),
+            timeoutMs: 300,
+            now: Date.now,
+            tryTimeoutMs: 50
+        })
+        console.log(JSON.stringify(result))
+    `
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    child.stdout.on('data', (chunk) => {
+        stdout += chunk
+    })
+    const code = await new Promise((resolve) => child.on('close', resolve))
+    assert.equal(code, 0)
+    assert.deepEqual(JSON.parse(stdout.trim()), { ready: false, lastError: { code: 'HEALTH_TRY_TIMEOUT', retryable: true } })
+})
+
+test('start prints a clear error and exits non-zero when health never answers', async () => {
+    const io = capture()
+    const { docker } = scriptedDocker([ok('26\n'), ok(''), ok('sha256:abc\n'), absent(), ok('')])
+    let clock = 0
+    const code = await main(['start', '--no-open'], {
+        ...io,
+        docker,
+        healthTimeoutMs: 120000,
+        now: () => clock,
+        sleep: async () => {
+            clock += 60000
+        },
+        fetch: async () => {
+            throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })
+        }
+    })
+    assert.equal(code, 1)
+    assert.match(io.errors(), /did not answer http:\/\/127\.0\.0\.1:\d+\/api\/v1\/ping within 2 min \(last error: ECONNRESET\)/)
+    assert.doesNotMatch(io.text(), /Cuttlely is ready/)
 })
