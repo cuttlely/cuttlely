@@ -36,6 +36,7 @@ const SCHEME_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\S/
 const INVISIBLE_CLASS = '[\\u0000-\\u001f\\u007f-\\u009f\\u00a0\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u2028-\\u202f\\u2060-\\u206f\\ufeff]'
 const INVISIBLE = new RegExp(INVISIBLE_CLASS, 'g')
 const INVISIBLE_CHAR = new RegExp(INVISIBLE_CLASS)
+const HYPHEN_LIKE = /[\u2010-\u2015\u2212]/g
 const MAX_NORMALIZE_LAYERS = 5
 
 // Letters that look like ASCII, so a token prefix written with them still matches.
@@ -124,17 +125,22 @@ const PUBLIC_OBJECTS: Record<string, Record<string, DisplayKind>> = {
     followUpPrompts: { status: 'boolean' }
 }
 
-// NFKC and look-alike folding. Invisible characters are left in place so a later pass can still remove them.
+const foldHyphens = (value: string): string => {
+    HYPHEN_LIKE.lastIndex = 0
+    return value.replace(HYPHEN_LIKE, '-')
+}
+
+// NFKC and look-alike folding. Hyphens U+2010 through U+2015 and U+2212 are read as ASCII hyphen. Invisible characters are left in place so a later pass can still remove them.
 const foldMarks = (value: string): string => {
     let out = ''
     let pending = ''
     const flush = () => {
         if (!pending) return
-        const normalized = pending.normalize('NFKC')
+        const normalized = foldHyphens(pending.normalize('NFKC'))
         for (const char of normalized) out += HOMOGLYPHS[char] ?? char
         pending = ''
     }
-    for (const char of value) {
+    for (const char of foldHyphens(value)) {
         if (INVISIBLE_CHAR.test(char)) {
             flush()
             out += char

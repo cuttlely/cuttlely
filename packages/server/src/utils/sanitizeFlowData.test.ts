@@ -399,6 +399,36 @@ describe('template inputs', () => {
         expect(publicChatbotDisplayConfig({ title: 'Hours', welcomeMessage: shown }).welcomeMessage).toBe(shown)
     })
 
+    it('reads unicode hyphens as an ASCII hyphen when checking text', () => {
+        const marker = 'FAKE' + 'DASH' + '91'
+        const dashes = ['\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212']
+        for (const dash of dashes) {
+            const prompt = 'sk' + dash + marker
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+            expect(inputs.prompt).toBeUndefined()
+            expect(inputs.temperature).toBe(0.2)
+            expect(dropped).toContain('prompt')
+            expect(JSON.stringify(inputs)).not.toContain(marker)
+            const tool = sanitizeToolTemplate({ func: prompt, schema: '[]', iconSrc: 'https://cdn.example/icon.png' })
+            expect(tool.func).toBeUndefined()
+            expect(tool.schema).toBe('[]')
+            expect(tool.iconSrc).toBe('https://cdn.example/icon.png')
+            expect(tool.dropped).toEqual(['func'])
+            expect(JSON.stringify(tool)).not.toContain(marker)
+        }
+        const encoded = encodeURIComponent('sk' + '\u2010' + marker)
+        const encodedInputs = sanitizeNodeInputs({ prompt: encoded }, schemaParams as any)
+        expect(encodedInputs.inputs.prompt).toBeUndefined()
+        expect(JSON.stringify(encodedInputs.inputs)).not.toContain(marker)
+        const kept = 'Pages 10\u201320 stay on the shelf.'
+        const safe = sanitizeNodeInputs({ prompt: kept }, schemaParams as any)
+        expect(safe.inputs.prompt).toBe(kept)
+        expect(safe.dropped).toEqual([])
+        const shown = 'sk' + '\u2010' + marker
+        expect(publicChatbotDisplayConfig({ title: 'Hours', welcomeMessage: shown }).welcomeMessage).toBe(shown)
+        expect(rebuildHttpUrl('https://cdn.example/' + encodeURIComponent(shown) + '/a.png')).toBeUndefined()
+    })
+
     it('keeps a harmless prompt that spans more than one line', () => {
         const prompts = [
             'Hello "world" @ café, 10% off\nSee the help page.',
