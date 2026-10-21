@@ -401,6 +401,65 @@ const asRecord = (value: unknown): Record<string, unknown> | undefined => {
     return value as Record<string, unknown>
 }
 
+const jsonContainer = (value: string): unknown | undefined => {
+    const trimmed = value.trim()
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return undefined
+    try {
+        const parsed = JSON.parse(trimmed)
+        if (parsed !== null && typeof parsed === 'object') return parsed
+    } catch {
+        return undefined
+    }
+    return undefined
+}
+
+/** A string uses the whole-value text check. A JSON array or object is safe only when every nested string is. */
+const toolValueIsSafe = (value: unknown): boolean => {
+    if (typeof value === 'string') {
+        const container = jsonContainer(value)
+        if (container !== undefined) {
+            if (patternFails(value) || entropyFails(value)) return false
+            return toolValueIsSafe(container)
+        }
+        return stringIsSafe(value)
+    }
+    if (typeof value === 'number') return Number.isFinite(value)
+    if (typeof value === 'boolean' || value === null) return true
+    if (Array.isArray(value)) return value.every((item) => toolValueIsSafe(item))
+    if (value && typeof value === 'object') {
+        return Object.entries(value as Record<string, unknown>).every(([key, child]) => stringIsSafe(key) && toolValueIsSafe(child))
+    }
+    return false
+}
+
+/**
+ * Custom tool template fields saved from the marketplace.
+ * func and schema use the whole-value text check and are left out whole on a match.
+ * iconSrc is rebuilt as scheme, host, and path, or left out.
+ * dropped names the fields that were present and left out.
+ */
+export const sanitizeToolTemplate = (tool: unknown): { iconSrc?: string; schema?: unknown; func?: string; dropped: string[] } => {
+    const source = asRecord(tool) ?? {}
+    const dropped: string[] = []
+    const result: { iconSrc?: string; schema?: unknown; func?: string; dropped: string[] } = { dropped }
+    if (!isBlank(source.func)) {
+        if (typeof source.func === 'string' && stringIsSafe(source.func)) result.func = source.func
+        else dropped.push('func')
+    }
+    if (source.schema !== undefined && source.schema !== null && source.schema !== '') {
+        if (typeof source.schema === 'string' || Array.isArray(source.schema) || asRecord(source.schema)) {
+            if (toolValueIsSafe(source.schema)) result.schema = source.schema
+            else dropped.push('schema')
+        } else dropped.push('schema')
+    }
+    if (!isBlank(source.iconSrc)) {
+        const iconSrc = rebuildHttpUrl(source.iconSrc)
+        if (iconSrc !== undefined) result.iconSrc = iconSrc
+        else dropped.push('iconSrc')
+    }
+    return result
+}
+
 // Same split the canvas uses: these types are fields, anything else is a link anchor.
 const PARAM_TYPES = new Set([
     'asyncOptions',

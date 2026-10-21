@@ -145,4 +145,40 @@ describe('saveCustomTemplate input filtering', () => {
             }
         ])
     })
+
+    it('stores a tool template after checking func and schema and rebuilding the icon address', async () => {
+        const marker = 'FAKE' + 'TOOL' + '91'
+        const token = 'sk' + '-' + marker
+        const schema = [{ id: 0, property: 'city', description: 'City name', type: 'string', required: true }]
+        const func = 'const city = $city\nreturn String(city)'
+        await marketplacesService.saveCustomTemplate({
+            workspaceId: 'ws-1',
+            name: 'Hours',
+            tool: { iconSrc: 'https://cdn.example/icons/hammer.png?size=32#top', schema, func }
+        })
+        const kept = JSON.parse(saved[saved.length - 1].flowData as string)
+        expect(kept.func).toBe(func)
+        expect(kept.schema).toEqual(schema)
+        expect(kept.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+        expect(kept.dropped).toEqual([])
+
+        await marketplacesService.saveCustomTemplate({
+            workspaceId: 'ws-1',
+            name: 'Hours',
+            tool: {
+                iconSrc: 'https://cdn.example/icons/' + encodeURIComponent(token) + '/hammer.png',
+                schema: JSON.stringify([{ description: token }]),
+                func: percentEncode(token)
+            }
+        })
+        const stored = saved[saved.length - 1].flowData as string
+        expect(stored).not.toContain(marker)
+        expect(stored).not.toContain('FAKE')
+        expect(JSON.parse(stored)).toEqual({ dropped: ['func', 'schema', 'iconSrc'] })
+    })
 })
+
+const percentEncode = (value: string) =>
+    Array.from(value)
+        .map((char) => '%' + char.charCodeAt(0).toString(16).padStart(2, '0'))
+        .join('')

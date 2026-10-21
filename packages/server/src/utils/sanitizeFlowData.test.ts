@@ -7,7 +7,8 @@ import {
     publicChatbotDisplayConfig,
     publicChatflowSummary,
     rebuildHttpUrl,
-    sanitizeNodeInputs
+    sanitizeNodeInputs,
+    sanitizeToolTemplate
 } from './sanitizeFlowData'
 
 const MARKER = 'FAKE_MARKER_'
@@ -287,6 +288,77 @@ describe('template inputs', () => {
         expect(JSON.stringify(asyncOption.inputs)).not.toContain('FAKE')
         const kept = sanitizeNodeInputs({ prompt: 'Ask\u00a0about the hours today.' }, schemaParams as any)
         expect(kept.inputs.prompt).toBe('Ask\u00a0about the hours today.')
+    })
+
+    it('keeps a safe tool template and leaves out func, schema, and the icon address on a match', () => {
+        const marker = 'FAKE' + 'TOOL' + '91'
+        const token = 'sk' + '-' + marker
+        const schema = [{ id: 0, property: 'city', description: 'City name', type: 'string', required: true }]
+        const schemaText = JSON.stringify(schema)
+        const func = 'const city = $city\nreturn String(city)'
+        const icon = 'https://cdn.example/icons/hammer.png?size=32#top'
+        const kept = sanitizeToolTemplate({ func, schema, iconSrc: icon })
+        expect(kept.func).toBe(func)
+        expect(kept.schema).toEqual(schema)
+        expect(kept.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+        expect(kept.dropped).toEqual([])
+        const keptText = sanitizeToolTemplate({ func, schema: schemaText, iconSrc: 'https://cdn.example/icons/hammer.png' })
+        expect(keptText.schema).toBe(schemaText)
+        expect(keptText.dropped).toEqual([])
+        const emptySchema = sanitizeToolTemplate({ schema: [], func: '' })
+        expect(emptySchema.schema).toEqual([])
+        expect(emptySchema.func).toBeUndefined()
+        expect(emptySchema.dropped).toEqual([])
+
+        const forms = [
+            token,
+            'pk' + '-' + marker,
+            'ghp' + '_' + marker,
+            'xoxb' + '-' + marker,
+            '\u0455\u043a-' + marker,
+            'https://cdn.example/a?q=' + marker,
+            'user:' + marker + '@files.example',
+            percentEncode(token),
+            JSON.stringify(token),
+            JSON.stringify(JSON.stringify('pk' + '-' + marker)),
+            percentEncode(JSON.stringify(token)),
+            's' + '\u200b' + 'k' + '-' + marker,
+            's' + '\u00ad' + 'k' + '-' + marker,
+            'sk' + '\u2060' + '-' + marker,
+            'see //' + marker,
+            'note ' + 'aB3dE9fG1hJ2kL4mN6pQ8rS0tU5vW7xY' + ' ' + marker
+        ]
+        for (const form of forms) {
+            const original = {
+                func: form,
+                schema: [{ property: 'city', description: form, type: 'string', required: false }],
+                iconSrc: 'https://cdn.example/icons/' + encodeURIComponent(form) + '/hammer.png'
+            }
+            const snapshot = JSON.parse(JSON.stringify(original))
+            const result = sanitizeToolTemplate(original)
+            expect(original).toEqual(snapshot)
+            expect(result.func).toBeUndefined()
+            expect(result.schema).toBeUndefined()
+            expect(result.iconSrc).toBeUndefined()
+            expect(result.dropped).toEqual(['func', 'schema', 'iconSrc'])
+            expect(JSON.stringify(result)).not.toContain(marker)
+            expect(JSON.stringify(result)).not.toContain('FAKE')
+            const asText = sanitizeToolTemplate({ schema: JSON.stringify({ description: form }), func: 'return "ok"' })
+            expect(asText.schema).toBeUndefined()
+            expect(asText.func).toBe('return "ok"')
+            expect(asText.dropped).toEqual(['schema'])
+            expect(JSON.stringify(asText)).not.toContain(marker)
+        }
+        const mixed = sanitizeToolTemplate({
+            func: 'return "ok"',
+            schema: token,
+            iconSrc: 'https://' + token + '.example.invalid/icon.png'
+        })
+        expect(mixed.func).toBe('return "ok"')
+        expect(mixed.schema).toBeUndefined()
+        expect(mixed.iconSrc).toBeUndefined()
+        expect(mixed.dropped).toEqual(['schema', 'iconSrc'])
+        expect(sanitizeToolTemplate({ func: 1, schema: 2, iconSrc: 'javascript:alert(1)' }).dropped).toEqual(['func', 'schema', 'iconSrc'])
     })
 
     it('keeps a harmless prompt that spans more than one line', () => {

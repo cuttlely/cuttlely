@@ -11,7 +11,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { IReactFlowEdge, IReactFlowNode } from '../../Interface'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stripProtectedFields } from '../../utils/stripProtectedFields'
-import { buildTemplateFlow } from '../../utils/sanitizeFlowData'
+import { buildTemplateFlow, sanitizeToolTemplate } from '../../utils/sanitizeFlowData'
 import chatflowsService from '../chatflows'
 
 type ITemplate = {
@@ -203,11 +203,11 @@ const saveCustomTemplate = async (body: any): Promise<any> => {
             const templateType = templateTypeForChatflow(chatflow.type)
             if (templateType) customTemplate.type = templateType
         } else if (body.tool) {
-            const flowData = {
-                iconSrc: body.tool.iconSrc,
-                schema: body.tool.schema,
-                func: body.tool.func
-            }
+            const tool = sanitizeToolTemplate(body.tool)
+            const flowData: Record<string, unknown> = { dropped: tool.dropped }
+            if (tool.iconSrc !== undefined) flowData.iconSrc = tool.iconSrc
+            if (tool.schema !== undefined) flowData.schema = tool.schema
+            if (tool.func !== undefined) flowData.func = tool.func
             customTemplate.framework = ''
             customTemplate.type = 'Tool'
             flowDataStr = JSON.stringify(flowData)
