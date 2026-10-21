@@ -32,7 +32,7 @@ const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
 const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // word: followed by a non-space character. Checked on the original, normalized, and fully decoded text.
 const SCHEME_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\S/
-// Newline, return, tab, other controls, NBSP, and zero-width characters become a space.
+// Controls, NBSP, soft hyphen, and zero-width characters (including U+2060).
 const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
 const MAX_NORMALIZE_LAYERS = 5
 
@@ -122,19 +122,28 @@ const PUBLIC_OBJECTS: Record<string, Record<string, DisplayKind>> = {
     followUpPrompts: { status: 'boolean' }
 }
 
-const foldText = (value: string): string => {
-    const normalized = value.replace(INVISIBLE, ' ').normalize('NFKC').replace(INVISIBLE, ' ')
+const foldMarks = (value: string): string => {
+    const normalized = value.normalize('NFKC')
     let out = ''
     for (const char of normalized) out += HOMOGLYPHS[char] ?? char
     return out
 }
 
-/** Plain text after spacing characters become spaces, NFKC, look-alike folding, percent-decoding, and JSON unwrapping. Undefined when that cannot be finished. */
+// Invisible characters become spaces, then NFKC and look-alike folding.
+const foldText = (value: string): string => foldMarks(value.replace(INVISIBLE, ' ')).replace(INVISIBLE, ' ')
+
+// The same characters are deleted, then NFKC and look-alike folding.
+const removedForm = (value: string): string => foldMarks(value.replace(INVISIBLE, '')).replace(INVISIBLE, '')
+
+// Invisible characters and every other whitespace character are deleted.
+const compactForm = (value: string): string => removedForm(value).replace(/\s+/g, '')
+
+/** Plain text after NFKC, look-alike folding, percent-decoding, and JSON unwrapping. Invisible characters stay in place. Undefined when that cannot be finished. */
 const plainForCheck = (value: string): string | undefined => {
     let text = value
     let layers = 0
     for (;;) {
-        text = foldText(text)
+        text = foldMarks(text)
         const trimmed = text.trim()
         if (trimmed.startsWith('"') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
             try {
@@ -194,14 +203,31 @@ const hasUnsafeFreeText = (text: string): boolean => text.includes('//') || /\S@
 
 const hasTokenOrUnsafePattern = (text: string): boolean => TOKEN_PREFIX.test(text) || hasUnsafeFreeText(text)
 
+const hasTokenOrEntropy = (text: string): boolean => TOKEN_PREFIX.test(text) || hasHighEntropyRun(text)
+
 /**
- * Decoded text when the original, the normalized form, and the fully decoded form are all free of a token prefix
- * and of an unsafe free-text pattern. Undefined when decoding cannot finish or any of those three forms matches.
+ * Token and free-text patterns on the raw text, the spaced form, and the form with invisible characters removed.
+ * A token prefix is also checked after every whitespace character is removed.
+ */
+const patternFails = (value: string): boolean => {
+    if (hasTokenOrUnsafePattern(value) || hasTokenOrUnsafePattern(foldText(value)) || hasTokenOrUnsafePattern(removedForm(value))) {
+        return true
+    }
+    return TOKEN_PREFIX.test(compactForm(value))
+}
+
+/** A token prefix or a long high-entropy run on the raw, spaced, removed, and whitespace-free forms. */
+const entropyFails = (value: string): boolean =>
+    [value, foldText(value), removedForm(value), compactForm(value)].some((form) => hasTokenOrEntropy(form))
+
+/**
+ * Decoded text when the original and the fully decoded text are free of a token prefix and of an unsafe free-text pattern
+ * on each checked form. Undefined when decoding cannot finish or any form matches.
  */
 const plainIfAllowed = (value: string): string | undefined => {
     const plain = plainForCheck(value)
-    if (hasTokenOrUnsafePattern(value) || hasTokenOrUnsafePattern(foldText(value))) return undefined
-    if (plain === undefined || hasTokenOrUnsafePattern(plain)) return undefined
+    if (patternFails(value)) return undefined
+    if (plain === undefined || patternFails(plain)) return undefined
     return plain
 }
 
@@ -210,7 +236,7 @@ const stringIsSafe = (value: unknown): value is string => {
     if (typeof value !== 'string') return false
     const plain = plainIfAllowed(value)
     if (plain === undefined) return false
-    return !hasHighEntropyRun(plain)
+    return !entropyFails(value) && !entropyFails(plain)
 }
 
 const isSafeStringName = (name: string): boolean => SAFE_STRING_NAME.test(name) || HTTP_TOOL_NAME.test(name)
@@ -292,7 +318,11 @@ const keepAsyncOption = (value: unknown): string | undefined => {
     if (typeof value !== 'string') return undefined
     const plain = plainIfAllowed(value)
     if (plain === undefined) return undefined
-    if (!PLAIN_UUID.test(plain) && hasHighEntropyRun(plain)) return undefined
+    const forms = [value, plain, foldText(plain), removedForm(plain), compactForm(plain)]
+    if (forms.some((form) => TOKEN_PREFIX.test(form))) return undefined
+    const uuid = forms.some((form) => PLAIN_UUID.test(form.trim()))
+    if (!uuid && forms.some((form) => hasHighEntropyRun(form))) return undefined
+    if (uuid && forms.some((form) => !PLAIN_UUID.test(form.trim()) && hasHighEntropyRun(form))) return undefined
     return value
 }
 

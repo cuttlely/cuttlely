@@ -255,6 +255,31 @@ describe('template inputs', () => {
         }
     })
 
+    it('drops a token split by a zero-width character, a soft hyphen, a word joiner, or NBSP', () => {
+        const prompts = [
+            `Part xai-FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
+            `s\u200bk-${MARKER}INSIDE`,
+            `s\u00adk-${MARKER}SOFT`,
+            `sk\u2060-${MARKER}JOIN`,
+            'https:\u00a0/\u00a0/qa\u00a0:\u00a0pw\u00a0@\u00a0host'
+        ]
+        for (const prompt of prompts) {
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+            expect(inputs.prompt).toBeUndefined()
+            expect(inputs.temperature).toBe(0.2)
+            expect(dropped).toContain('prompt')
+            expect(JSON.stringify(inputs)).not.toContain(MARKER)
+            expect(JSON.stringify(inputs)).not.toContain('FAKE')
+        }
+        const modelName = 'AIzaFAKEqa9X7mP2\u200bvR8tY4wK1nB3cDzL\u200bs5Hj6Gf'
+        const asyncOption = sanitizeNodeInputs({ modelName, temperature: 0.3 }, schemaParams as any)
+        expect(asyncOption.inputs.modelName).toBeUndefined()
+        expect(asyncOption.inputs.temperature).toBe(0.3)
+        expect(JSON.stringify(asyncOption.inputs)).not.toContain('FAKE')
+        const kept = sanitizeNodeInputs({ prompt: 'Ask\u00a0about the hours today.' }, schemaParams as any)
+        expect(kept.inputs.prompt).toBe('Ask\u00a0about the hours today.')
+    })
+
     it('keeps a harmless prompt that spans more than one line', () => {
         const prompts = [
             'Hello "world" @ café, 10% off\nSee the help page.',
