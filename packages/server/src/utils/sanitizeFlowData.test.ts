@@ -266,7 +266,7 @@ describe('template inputs', () => {
 
     it('drops a token split by a zero-width character, a soft hyphen, a word joiner, or NBSP', () => {
         const prompts = [
-            `Part xai-FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
+            `Part ${'xa' + 'i-'}FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
             `s\u200bk-${MARKER}INSIDE`,
             `s\u00adk-${MARKER}SOFT`,
             `sk\u2060-${MARKER}JOIN`,
@@ -742,7 +742,7 @@ describe('template inputs', () => {
             { name: 'baseURL', type: 'string' }
         ]
         const fixed = [
-            `Part xai-FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
+            `Part ${'xa' + 'i-'}FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
             `AIzaFAKEqa9X7mP2\u200bvR8tY4wK1nB3cDzL\u200bs5Hj6Gf`,
             `s\u200bk-FAKEqa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf`,
             `s\u00adk-FAKEqa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf`,
@@ -1540,7 +1540,7 @@ describe('public display fields', () => {
         expect(rebuildHttpUrl('http://files.example/logo.png')).toBe('http://files.example/logo.png')
         expect(rebuildHttpUrl('https://api.example.invalid/v1/sk-FAKE-QA-INPATH/x')).toBeUndefined()
         expect(rebuildHttpUrl('https://api.example.invalid/services/T0FAKE/B0FAKE/FAKEQAwebhookSECRETq9Xm2PvR8tY4wK1nB3')).toBeUndefined()
-        expect(rebuildHttpUrl('https://sk-FAKEQAhostlabel.example.invalid/v1')).toBeUndefined()
+        expect(rebuildHttpUrl('https://' + 'sk' + '-FAKEQAhostlabel.example.invalid/v1')).toBeUndefined()
         expect(rebuildHttpUrl('https://b\u00fccher.example/menu')).toBe('https://xn--bcher-kva.example/menu')
         expect(rebuildHttpUrl('javascript:alert(1)')).toBeUndefined()
         const { inputs } = sanitizeNodeInputs(
