@@ -404,7 +404,7 @@ const spelled = (word: string): string =>
 // Invisible characters may sit inside the word and between the word and the value. Each repeated part is a
 // character class disjoint from the next one, so the match stays linear.
 const CODE_AUTH_SCHEME = new RegExp(
-    `(?<![A-Za-z0-9_])(?:${spelled('bearer')}|${spelled('basic')})(?:[ \\t]|${INVISIBLE_CLASS})+([A-Za-z0-9._~+/=-]+)`,
+    `(?<![A-Za-z0-9_])(?:${spelled('bearer')}|${spelled('basic')})(?:\\s|\\\\[ntrvf]|${INVISIBLE_CLASS})+([A-Za-z0-9._~+/=-]+)`,
     'gu'
 )
 // An ALL_CAPS name with an underscore, such as SPIDER_API_KEY, is a placeholder for the user to replace.

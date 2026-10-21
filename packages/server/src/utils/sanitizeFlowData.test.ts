@@ -2724,3 +2724,47 @@ describe('tool func user info in parser-accepted spellings', () => {
         }
     })
 })
+
+describe('tool func auth word with any whitespace or escape before the value', () => {
+    const pw = ['FAKE', 'pw', '13'].join('')
+    it('leaves out Bearer or Basic followed by any whitespace or a whitespace escape', () => {
+        const gaps = [
+            '\u000b',
+            '\u000c',
+            '\u1680',
+            '\u2000',
+            '\u2005',
+            '\u200a',
+            '\u2003',
+            '\u2028',
+            '\u2029',
+            '\u205f',
+            '\u3000',
+            '\\t',
+            '\\v',
+            '\\f',
+            '\\n',
+            '\\r',
+            ' \\t ',
+            '\u200b\\v\u3000',
+            '\\f\u00a0\\n',
+            '\u2028 \\r\u2060'
+        ]
+        for (const word of ['Bearer', 'Basic']) {
+            for (const gap of gaps) {
+                expect(sanitizeToolTemplate({ func: `const h = { Authorization: "${word}${gap}${pw}" }` }).func).toBeUndefined()
+            }
+        }
+    })
+})
+
+describe('tool func auth word stays kept for expressions and other words', () => {
+    it('keeps cupbearer, a template expression, and a quoted concatenation after any separator', () => {
+        const funcs = [
+            "const cupbearer = 'x'\nreturn cupbearer",
+            'const h = { Authorization: `Bearer\\t${token}` }',
+            "const h = { Authorization: 'Basic\\v' + encoded }"
+        ]
+        for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+})
