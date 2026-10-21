@@ -29,6 +29,8 @@ const HEADER_NAME = /headers$/i
 const NODE_REFERENCE = /^\{\{([A-Za-z][A-Za-z0-9_]*_\d+)\.data\.instance\}\}$/
 const TOKEN_PREFIX = /(?:^|[^A-Za-z0-9])(?:sk-|pk-|ghp_|xox[a-z]-)/i
 const HIGH_ENTROPY_RUN = /[A-Za-z0-9+/=_-]{32,}/g
+// In func, a slash ends a run. A path is not one long run.
+const HIGH_ENTROPY_RUN_CODE = /[A-Za-z0-9+=_-]{32,}/g
 const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 // Checked before any normalization. Comfortably above real prompt and tool text. Display fields keep their shorter limits.
 const MAX_TEMPLATE_TEXT = 20000
@@ -280,9 +282,10 @@ const shannon = (value: string): number => {
     return entropy
 }
 
-const hasHighEntropyRun = (text: string): boolean => {
-    HIGH_ENTROPY_RUN.lastIndex = 0
-    for (const match of text.matchAll(HIGH_ENTROPY_RUN)) {
+const hasHighEntropyRun = (text: string, code = false): boolean => {
+    const pattern = code ? HIGH_ENTROPY_RUN_CODE : HIGH_ENTROPY_RUN
+    pattern.lastIndex = 0
+    for (const match of text.matchAll(pattern)) {
         const run = match[0]
         const classes = Number(/[0-9]/.test(run)) + Number(/[a-z]/.test(run)) + Number(/[A-Z]/.test(run)) + Number(/[+/=_]/.test(run))
         if (classes >= 2 && shannon(run) >= 3.5) return true
@@ -319,7 +322,7 @@ const hasUnsafeFreeText = (text: string): boolean =>
 
 const hasTokenOrUnsafePattern = (text: string): boolean => TOKEN_PREFIX.test(text) || hasUnsafeFreeText(text)
 
-const hasTokenOrEntropy = (text: string): boolean => TOKEN_PREFIX.test(text) || hasHighEntropyRun(text)
+const hasTokenOrEntropy = (text: string, code = false): boolean => TOKEN_PREFIX.test(text) || hasHighEntropyRun(text, code)
 
 /**
  * Token and free-text patterns on the raw text, the spaced form, and the form with invisible characters removed.
@@ -337,12 +340,12 @@ const patternFails = (value: string): boolean => {
 }
 
 /** A token prefix or a long high-entropy run on the raw text, the spaced form, and the form with invisible characters removed. Spaces stay, so ordinary words are not joined into one run. The whitespace-free form is only for a token prefix, in patternFails. */
-const entropyFails = (value: string): boolean => {
-    if (value.length > MAX_TEMPLATE_TEXT || hasTokenOrEntropy(value)) return true
+const entropyFails = (value: string, code = false): boolean => {
+    if (value.length > MAX_TEMPLATE_TEXT || hasTokenOrEntropy(value, code)) return true
     const folded = foldText(value)
-    if (folded === undefined || hasTokenOrEntropy(folded)) return true
+    if (folded === undefined || hasTokenOrEntropy(folded, code)) return true
     const removed = removedForm(value)
-    if (removed === undefined || hasTokenOrEntropy(removed)) return true
+    if (removed === undefined || hasTokenOrEntropy(removed, code)) return true
     return false
 }
 
@@ -367,6 +370,33 @@ const stringIsSafe = (value: unknown): value is string => {
         const plain = plainIfAllowed(value)
         if (plain === undefined) return false
         return !entropyFails(value) && !entropyFails(plain)
+    })
+}
+
+/** Token prefix on the raw text, the spaced form, the removed form, and the whitespace-free form. */
+const tokenPatternFails = (value: string): boolean => {
+    if (value.length > MAX_TEMPLATE_TEXT || TOKEN_PREFIX.test(value)) return true
+    const folded = foldText(value)
+    if (folded === undefined || TOKEN_PREFIX.test(folded)) return true
+    const removed = removedForm(value)
+    if (removed === undefined || TOKEN_PREFIX.test(removed)) return true
+    const compact = compactForm(value)
+    if (compact === undefined) return true
+    return TOKEN_PREFIX.test(compact)
+}
+
+/**
+ * Tool func is source text. It uses the token-prefix, high-entropy, and decoding checks.
+ * An address, `//`, `@`, or a scheme-like word does not by itself leave it out.
+ */
+const codeIsSafe = (value: unknown): value is string => {
+    if (typeof value !== 'string' || value.length > MAX_TEMPLATE_TEXT) return false
+    if (TOKEN_PREFIX.test(value)) return false
+    return withFoldCache(() => {
+        const plain = plainForCheck(value)
+        if (plain === undefined) return false
+        if (tokenPatternFails(value) || tokenPatternFails(plain)) return false
+        return !entropyFails(value, true) && !entropyFails(plain, true)
     })
 }
 
@@ -583,7 +613,9 @@ const toolValueIsSafe = (value: unknown): boolean => {
 
 /**
  * Custom tool template fields saved from the marketplace.
- * func and schema use the whole-value text check and are left out whole on a match.
+ * func uses the token-prefix, high-entropy, and decoding checks and is left out whole on a match.
+ * An address, //, @, or a scheme-like word does not by itself leave func out.
+ * schema uses the whole-value text check and is left out whole on a match.
  * iconSrc is rebuilt as scheme, host, and path, or left out.
  * dropped names the fields that were present and left out.
  */
@@ -592,8 +624,7 @@ export const sanitizeToolTemplate = (tool: unknown): { iconSrc?: string; schema?
     const dropped: string[] = []
     const result: { iconSrc?: string; schema?: unknown; func?: string; dropped: string[] } = { dropped }
     if (!isBlank(source.func)) {
-        if (typeof source.func === 'string' && source.func.length <= MAX_TEMPLATE_TEXT && stringIsSafe(source.func))
-            result.func = source.func
+        if (typeof source.func === 'string' && codeIsSafe(source.func)) result.func = source.func
         else dropped.push('func')
     }
     if (source.schema !== undefined && source.schema !== null && source.schema !== '') {

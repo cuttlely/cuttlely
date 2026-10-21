@@ -367,8 +367,6 @@ describe('template inputs', () => {
             'ghp' + '_' + marker,
             'xoxb' + '-' + marker,
             '\u0455\u043a-' + marker,
-            'https://cdn.example/a?q=' + marker,
-            'user:' + marker + '@files.example',
             percentEncode(token),
             JSON.stringify(token),
             JSON.stringify(JSON.stringify('pk' + '-' + marker)),
@@ -376,9 +374,9 @@ describe('template inputs', () => {
             's' + '\u200b' + 'k' + '-' + marker,
             's' + '\u00ad' + 'k' + '-' + marker,
             'sk' + '\u2060' + '-' + marker,
-            'see //' + marker,
             'note ' + 'aB3dE9fG1hJ2kL4mN6pQ8rS0tU5vW7xY' + ' ' + marker
         ]
+        const addressForms = ['https://cdn.example/a?q=' + marker, 'user:' + marker + '@files.example', 'see //' + marker]
         for (const form of forms) {
             const original = {
                 func: form,
@@ -398,6 +396,22 @@ describe('template inputs', () => {
             expect(asText.schema).toBeUndefined()
             expect(asText.func).toBe('return "ok"')
             expect(asText.dropped).toEqual(['schema'])
+            expect(JSON.stringify(asText)).not.toContain(marker)
+        }
+        for (const form of addressForms) {
+            const original = {
+                func: form,
+                schema: [{ property: 'city', description: form, type: 'string', required: false }],
+                iconSrc: 'https://cdn.example/icons/' + encodeURIComponent(form) + '/hammer.png'
+            }
+            const result = sanitizeToolTemplate(original)
+            expect(result.func).toBe(form)
+            expect(result.schema).toBeUndefined()
+            expect(result.iconSrc).toBeUndefined()
+            expect(result.dropped).toEqual(['schema', 'iconSrc'])
+            const asText = sanitizeToolTemplate({ schema: JSON.stringify({ description: form }), func: 'return "ok"' })
+            expect(asText.schema).toBeUndefined()
+            expect(asText.func).toBe('return "ok"')
             expect(JSON.stringify(asText)).not.toContain(marker)
         }
         const mixed = sanitizeToolTemplate({
@@ -521,10 +535,10 @@ describe('template inputs', () => {
                 expect(inputs.temperature).toBe(0.2)
                 expect(dropped).toContain('prompt')
                 const tool = sanitizeToolTemplate({ func: prompt, schema: '[]', iconSrc: 'https://cdn.example/icon.png' })
-                expect(tool.func).toBeUndefined()
+                expect(tool.func).toBe(prompt)
                 expect(tool.schema).toBe('[]')
                 expect(tool.iconSrc).toBe('https://cdn.example/icon.png')
-                expect(tool.dropped).toEqual(['func'])
+                expect(tool.dropped).toEqual([])
                 const option = sanitizeNodeInputs({ modelName: prompt, temperature: 0.2 }, schemaParams as any)
                 expect(option.inputs.modelName).toBeUndefined()
                 expect(option.inputs.temperature).toBe(0.2)
@@ -1325,11 +1339,11 @@ describe('template inputs', () => {
                 })
             ]
             for (const tool of tools) {
-                expect(tool.func).toBeUndefined()
                 expect(tool.schema).toBeUndefined()
                 expect(tool.iconSrc).toBeUndefined()
-                expect(tool.dropped).toEqual(['func', 'schema', 'iconSrc'])
-                expectClean(tool, banned)
+                expect(tool.dropped).toEqual(tool.func === undefined ? ['func', 'schema', 'iconSrc'] : ['schema', 'iconSrc'])
+                const needles = tool.func === undefined ? banned : banned.filter((item) => item !== fixed[5])
+                expectClean(tool, needles)
             }
             const planted = [
                 sanitizeToolTemplate({
@@ -2103,9 +2117,44 @@ describe('long crafted text', () => {
         }
     })
 
-    it('still drops a scheme-like word and keeps a spaced label', () => {
-        expect(sanitizeToolTemplate({ func: 'call mailto:someone' }).func).toBeUndefined()
+    it('keeps an address in func and still drops that address in a prompt', () => {
+        expect(sanitizeNodeInputs({ prompt: 'call mailto:someone' }, schemaParams as any).inputs.prompt).toBeUndefined()
+        expect(sanitizeToolTemplate({ func: 'call mailto:someone' }).func).toBe('call mailto:someone')
+        expect(sanitizeToolTemplate({ func: 'const url = "https://cdn.example/a"' }).func).toBe('const url = "https://cdn.example/a"')
+        expect(sanitizeToolTemplate({ func: 'see //cdn.example/a' }).func).toBe('see //cdn.example/a')
+        expect(sanitizeToolTemplate({ func: 'user:name@files.example' }).func).toBe('user:name@files.example')
         expect(sanitizeToolTemplate({ func: 'Note: be brief' }).func).toBe('Note: be brief')
+        const described = sanitizeToolTemplate({
+            func: 'return "ok"',
+            schema: JSON.stringify({ description: 'https://cdn.example/a' })
+        })
+        expect(described.func).toBe('return "ok"')
+        expect(described.schema).toBeUndefined()
+        expect(described.dropped).toEqual(['schema'])
+    })
+})
+
+describe('built-in tool templates', () => {
+    it('keeps func and schema from every marketplace tool file', () => {
+        const dir = path.resolve(__dirname, '../../marketplaces/tools')
+        const files = fs
+            .readdirSync(dir)
+            .filter((name) => name.endsWith('.json'))
+            .sort()
+        expect(files).toHaveLength(13)
+        for (const file of files) {
+            const tool = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as {
+                func?: string
+                schema?: unknown
+                iconSrc?: string
+            }
+            const result = sanitizeToolTemplate(tool)
+            expect(result.dropped).toEqual([])
+            expect(result.func).toBe(tool.func)
+            if (typeof tool.schema === 'string') expect(result.schema).toBe(JSON.stringify(JSON.parse(tool.schema)))
+            else if (tool.schema !== undefined) expect(result.schema).toEqual(JSON.parse(JSON.stringify(tool.schema)))
+            if (typeof tool.iconSrc === 'string' && tool.iconSrc) expect(typeof result.iconSrc).toBe('string')
+        }
     })
 })
 
