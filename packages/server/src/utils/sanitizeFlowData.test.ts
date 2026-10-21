@@ -2575,3 +2575,33 @@ describe('tool func credential shapes', () => {
         }
     })
 })
+
+describe('tool func credential shapes split or without a scheme', () => {
+    const pw = ['FAKE', 'pw', '8'].join('')
+    const gaps = ['\u200b', '\u00a0', '\u2060', '\u00ad', '\ufe0f', '\u{e0020}']
+
+    it('leaves out a protocol-relative address with a password', () => {
+        expect(sanitizeToolTemplate({ func: `return fetch('//user:${pw}@api.example/v1')` }).func).toBeUndefined()
+    })
+
+    it('leaves out credential shapes split by an invisible character', () => {
+        for (const gap of gaps) {
+            const funcs = [
+                `return fetch('https:${gap}//user:${pw}@api.example/v1')`,
+                `return fetch('https://user:${gap}${pw}@api.example/v1')`,
+                `return fetch('https://api.example/v1?api${gap}_key=x')`,
+                `return fetch('https://api.example/v1?q=1&to${gap}ken=x')`,
+                `const h = { Authorization: 'Bear${gap}er ${pw}' }`,
+                `const h = { Authorization: 'Ba${gap}sic ${pw}' }`,
+                `const h = { Authorization: 'Bearer${gap}${pw}' }`,
+                `const h = { Authorization: 'Basic${gap}${pw}' }`
+            ]
+            for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBeUndefined()
+        }
+    })
+
+    it('keeps a line comment and a plain address', () => {
+        const func = "// fetch the menu: see docs\nreturn fetch('https://api.example/menu?limit=5')"
+        expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+})

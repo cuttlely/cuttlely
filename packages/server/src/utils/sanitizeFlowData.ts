@@ -398,14 +398,14 @@ const CODE_AUTH_SCHEME = /\b(?:bearer|basic)[ \t]+([A-Za-z0-9._~+/=-]+)/gi
 // An ALL_CAPS name with an underscore, such as SPIDER_API_KEY, is a placeholder for the user to replace.
 const PLACEHOLDER_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
 
-/** An address whose authority (after ://, up to /, ?, #, or whitespace) has a : before an @. One pass per authority. */
+/** An address whose authority (after //, up to /, ?, #, or whitespace) has a : before an @. One pass per authority. */
 const hasUserinfoPassword = (text: string): boolean => {
     let from = 0
     for (;;) {
-        const start = text.indexOf('://', from)
+        const start = text.indexOf('//', from)
         if (start < 0) return false
         let colon = false
-        let i = start + 3
+        let i = start + 2
         for (; i < text.length; i++) {
             const c = text[i]
             if (
@@ -427,7 +427,7 @@ const hasUserinfoPassword = (text: string): boolean => {
                 break
             }
         }
-        from = Math.max(i, start + 3)
+        from = Math.max(i, start + 2)
     }
 }
 
@@ -448,7 +448,12 @@ const codeIsSafe = (value: unknown): value is string => {
         const plain = plainForCheck(value)
         if (plain === undefined) return false
         if (tokenPatternFails(value) || tokenPatternFails(plain)) return false
-        if (codeCredentialFails(value) || codeCredentialFails(plain)) return false
+        if (
+            [value, plain, removedForm(value), removedForm(plain), foldText(value), foldText(plain)].some(
+                (text) => text === undefined || codeCredentialFails(text)
+            )
+        )
+            return false
         return !entropyFails(value, true) && !entropyFails(plain, true)
     })
 }
