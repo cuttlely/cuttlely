@@ -632,14 +632,11 @@ describe('an expired setup code', () => {
 
     /** The page starts the same check production does, and this test waits so /begin runs after the write. */
     function setupPage() {
-        const app = express()
-        app.use(express.json())
-        app.use(cookieParser())
+        const app = server()
         app.get('/setup', async (_req, res) => {
             await reissueExpiredSetupIfOpen(async () => created.length, false, env)
             res.status(200).type('html').send('<!doctype html><title>setup</title>')
         })
-        app.use('/api/v1/server-setup', setupRouter)
         return app
     }
 
