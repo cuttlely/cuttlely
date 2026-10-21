@@ -2636,3 +2636,20 @@ describe('tool func user info and split auth words', () => {
         }
     })
 })
+
+describe('tool func user info with quote characters', () => {
+    const pw = ['FAKE', 'pw', '10'].join('')
+    it('leaves out a password whose user info contains a quote or backtick', () => {
+        for (const q of ["'", '"', '`']) {
+            for (const url of [
+                `https://user:${pw}${q}@api.example/v1`,
+                `https://user:p${q}${pw}@api.example/v1`,
+                `https://x@y:${pw}${q}@api.example/v1`,
+                `https://@user:${pw}${q}@api.example/v1`
+            ]) {
+                expect(sanitizeToolTemplate({ func: `return fetch(String.raw\`${url}\`)` }).func).toBeUndefined()
+                expect(sanitizeToolTemplate({ func: `const u = ${JSON.stringify(url)}` }).func).toBeUndefined()
+            }
+        }
+    })
+})

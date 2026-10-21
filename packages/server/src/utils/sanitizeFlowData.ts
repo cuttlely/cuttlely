@@ -416,7 +416,7 @@ const hasUserinfoPassword = (text: string): boolean => {
         let i = start + 2
         for (; i < text.length; i++) {
             const c = text[i]
-            if (c === '/' || c === '?' || c === '#' || c === '"' || c === "'" || c === '`' || /\s/.test(c)) break
+            if (c === '/' || c === '?' || c === '#' || /\s/.test(c)) break
             if (c === ':' && firstColon < 0) firstColon = i
             else if (c === '@') lastAt = i
         }
