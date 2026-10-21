@@ -63,6 +63,7 @@ import { AddAuthKitSwitch1800300000000 } from './1800300000000-AddAuthKitSwitch'
 import { AddAuditLog1800400000000 } from './1800400000000-AddAuditLog'
 import { AddApiKeyHarnesses1800500000000 } from './1800500000000-AddApiKeyHarnesses'
 import { AddSetupCode1800600000000 } from './1800600000000-AddSetupCode'
+import { AddSetupCodePrevious1800700000000 } from './1800700000000-AddSetupCodePrevious'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -152,5 +153,6 @@ export const sqliteMigrations = [
     AddAuthKitSwitch1800300000000,
     AddAuditLog1800400000000,
     AddApiKeyHarnesses1800500000000,
-    AddSetupCode1800600000000
+    AddSetupCode1800600000000,
+    AddSetupCodePrevious1800700000000
 ]

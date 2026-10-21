@@ -1423,6 +1423,20 @@
                     "nullable": true,
                     "default": null,
                     "pk": 0
+                },
+                {
+                    "name": "previousCodeHmac",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "previousExpiresAt",
+                    "type": "bigint",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
                 }
             ],
             "foreignKeys": [],
@@ -4967,6 +4981,18 @@
                 },
                 {
                     "name": "consumedAt",
+                    "type": "bigint",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "previousCodeHmac",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "previousExpiresAt",
                     "type": "bigint",
                     "nullable": true,
                     "default": null
@@ -8568,6 +8594,22 @@
                 },
                 {
                     "name": "consumedAt",
+                    "type": "bigint(20)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "previousCodeHmac",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "previousExpiresAt",
                     "type": "bigint(20)",
                     "nullable": true,
                     "default": null,
@@ -12761,6 +12803,22 @@
                 },
                 {
                     "name": "consumedAt",
+                    "type": "bigint",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "previousCodeHmac",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "previousExpiresAt",
                     "type": "bigint",
                     "nullable": true,
                     "default": null,

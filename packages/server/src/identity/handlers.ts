@@ -502,6 +502,7 @@ export async function handleRegister(ctx: AuthContext): Promise<HandlerResult> {
     const verdict = await setupCodeVerdict(ctx.body.setupCode, ctx.now)
     if (!hmac || verdict !== 'match') {
         await reissueExpiredSetupCode(ctx.now)
+        // Expired and not-right misses share this cap. An expired code is not a separate allowance.
         if (noteSetupFailure(address, ctx.now).limited) return json(429, { message: SETUP_TOO_MANY })
         if (verdict === 'expired') return json(400, { code: 'CODE_EXPIRED', reason: 'expired', message: SETUP_CODE_EXPIRED })
         return json(400, { message: setupAttemptMessage(ctx.body.setupCode) })

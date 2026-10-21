@@ -13,12 +13,15 @@ import {
     issuedSetupHmac,
     noteSetupFailure,
     reissueExpiredSetupCode,
+    reissueExpiredSetupIfOpen,
     resetFirstRunSetupCode,
+    runSetupCodeWatch,
     serverSetupLink,
     SETUP_CODE_TTL_MS,
     setupCodeHmac,
     setupCodeMatches,
     setupCodeReady,
+    setupCodeVerdict,
     watchFirstRunSetup
 } from '../identity/setupCode'
 import { resetSetupFailures, setupFailureLimited } from '../identity/setupLimit'
@@ -87,6 +90,7 @@ function expectSetupHeaders(headers: Record<string, unknown>): void {
 }
 
 const BAD_CODE = 'This setup code is not right. Copy it again from the server log.'
+const EXPIRED_CODE = 'This setup code has expired. A new code was printed in the server log.'
 
 let data: string
 let dir: string
@@ -618,6 +622,160 @@ describe('an expired setup code', () => {
         expect(lines.some((line) => line.includes('A new setup link is ready'))).toBe(false)
         expect(await setupCodeMatches(code)).toBe(true)
     })
+
+    function codeFrom(line: string): string {
+        return line
+            .slice(line.indexOf('#code=') + '#code='.length)
+            .trim()
+            .split(/\s/)[0]
+    }
+
+    /** The page starts the same check production does, and this test waits so /begin runs after the write. */
+    function setupPage() {
+        const app = server()
+        app.get('/setup', async (_req, res) => {
+            await reissueExpiredSetupIfOpen(async () => created.length, false, env)
+            res.status(200).type('html').send('<!doctype html><title>setup</title>')
+        })
+        return app
+    }
+
+    it('says the old code expired after /setup prints a new one, and the new code works', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        lines.length = 0
+        const app = setupPage()
+        const page = await request(app).get('/setup')
+        expect(page.status).toBe(200)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('A new setup link is ready'))
+        expect(printed).toBeTruthy()
+        const fresh = codeFrom(printed!)
+        expect(fresh).not.toBe(code)
+        const refused = await request(app).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code })
+        expect(refused.status).toBe(404)
+        expect(refused.body).toEqual({ code: 'CODE_EXPIRED', reason: 'expired', message: EXPIRED_CODE })
+        expect(refused.body.message).toContain('expired')
+        expect(refused.body.message).toContain('new code was printed')
+        expect(JSON.stringify(refused.body)).not.toContain(code)
+        expect(JSON.stringify(refused.body)).not.toContain(fresh)
+        expect(await setupCodeMatches(code, later)).toBe(false)
+        const again = await request(app).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code })
+        expect(again.status).toBe(404)
+        expect(again.body.code).toBe('CODE_EXPIRED')
+        const unrelated = await request(app).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: 'not-the-code' })
+        expect(unrelated.status).toBe(404)
+        expect(unrelated.body).toEqual({ code: 'BAD_CODE', message: BAD_CODE })
+        const opened = await request(app).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: fresh })
+        expect(opened.status).toBe(200)
+        expect(opened.body).toEqual({ next: 'choose' })
+        const still = await request(app).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code })
+        expect(still.status).toBe(404)
+        expect(still.body).toEqual({ code: 'CODE_EXPIRED', reason: 'expired', message: EXPIRED_CODE })
+        expect(await setupCodeMatches(code, later)).toBe(false)
+        expect(await setupCodeMatches(fresh, later)).toBe(true)
+    })
+
+    it('says the old code expired after the one-minute check prints a new one', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        lines.length = 0
+        await runSetupCodeWatch(later)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('A new setup link is ready'))
+        expect(printed).toBeTruthy()
+        const fresh = codeFrom(printed!)
+        const refused = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code })
+        expect(refused.status).toBe(404)
+        expect(refused.body).toEqual({ code: 'CODE_EXPIRED', reason: 'expired', message: EXPIRED_CODE })
+        expect(await setupCodeMatches(code, later)).toBe(false)
+        expect((await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: fresh })).status).toBe(200)
+        const still = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code })
+        expect(still.body.code).toBe('CODE_EXPIRED')
+        expect(await setupCodeMatches(fresh, later)).toBe(true)
+    })
+
+    it('gives /open the same expired answer after the code is replaced', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        lines.length = 0
+        await reissueExpiredSetupCode(later)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('#code='))
+        expect(printed).toBeTruthy()
+        const fresh = codeFrom(printed!)
+        const refused = await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code })
+        expect(refused.status).toBe(404)
+        expect(refused.body).toEqual({ code: 'CODE_EXPIRED', reason: 'expired', message: EXPIRED_CODE })
+        expect(await setupCodeMatches(code, later)).toBe(false)
+        expect((await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code: fresh })).status).toBe(200)
+        const still = await request(server()).post('/api/v1/server-setup/open').set(INTERNAL).send({ code })
+        expect(still.body).toEqual({ code: 'CODE_EXPIRED', reason: 'expired', message: EXPIRED_CODE })
+    })
+
+    it('does not report a used code as expired', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        const hmac = issuedSetupHmac()
+        expect(hmac).toBeTruthy()
+        expect(await consumeSetupCode(hmac as string, base + 1000)).toBe(true)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        expect(await setupCodeVerdict(code, later)).toBe('rejected')
+        const closed = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code })
+        expect(closed.status).toBe(410)
+        expect(closed.body.code).toBe('SETUP_CLOSED')
+        expect(closed.body.code).not.toBe('CODE_EXPIRED')
+
+        resetFirstRunSetupCode()
+        const again = await issued(lines)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        lines.length = 0
+        await reissueExpiredSetupCode(later)
+        await setupCodeReady()
+        const printed = lines.find((line) => line.includes('#code='))
+        expect(printed).toBeTruthy()
+        const fresh = codeFrom(printed!)
+        const freshHmac = setupCodeHmac(fresh)
+        expect(freshHmac).toBeTruthy()
+        expect(await consumeSetupCode(freshHmac as string, later + 1000)).toBe(true)
+        expect(await setupCodeVerdict(fresh, later + SETUP_CODE_TTL_MS)).toBe('rejected')
+        expect(await setupCodeVerdict(again, later + SETUP_CODE_TTL_MS)).toBe('expired')
+        const afterUse = await request(server()).post('/api/v1/server-setup/begin').set(INTERNAL).send({ code: fresh })
+        expect(afterUse.status).toBe(410)
+        expect(afterUse.body.code).not.toBe('CODE_EXPIRED')
+        expect(await setupCodeMatches(again, later + SETUP_CODE_TTL_MS)).toBe(false)
+        expect(await setupCodeMatches(fresh, later + SETUP_CODE_TTL_MS)).toBe(false)
+    })
+
+    it('counts an expired code toward the same address cap as a code that is not right', async () => {
+        const lines: string[] = []
+        const code = await issued(lines)
+        jest.spyOn(Date, 'now').mockReturnValue(later)
+        await reissueExpiredSetupCode(later)
+        await setupCodeReady()
+        resetSetupFailures()
+        const app = server(true)
+        for (let i = 0; i < 10; i++) {
+            const res = await request(app)
+                .post('/api/v1/server-setup/begin')
+                .set(INTERNAL)
+                .set('X-Forwarded-For', '203.0.113.9')
+                .send({ code })
+            expect(res.status).toBe(404)
+            expect(res.body.code).toBe('CODE_EXPIRED')
+        }
+        const blocked = await request(app)
+            .post('/api/v1/server-setup/begin')
+            .set(INTERNAL)
+            .set('X-Forwarded-For', '203.0.113.9')
+            .send({ code })
+        expect(blocked.status).toBe(429)
+        expect(blocked.body.code).toBe('TOO_MANY')
+        expect(await setupCodeMatches(code, later)).toBe(false)
+    })
 })
 
 describe('begin and hint limits', () => {
@@ -693,6 +851,7 @@ describe('begin and hint limits', () => {
         const fresh = printed[0].slice(printed[0].indexOf('#code=') + '#code='.length)
         expect(fresh).not.toBe(code)
         expect(await setupCodeMatches(code)).toBe(false)
+        expect(await setupCodeVerdict(code)).toBe('rejected')
         expect(await setupCodeMatches(fresh)).toBe(true)
         const again = await request(app)
             .post('/api/v1/server-setup/begin')
