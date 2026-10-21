@@ -413,7 +413,24 @@ describe('template inputs', () => {
     it('drops text when a percent sequence is split by an invisible character', () => {
         const marker = 'FAKE' + 'PCT' + '91'
         const tail = 'k' + '-' + marker
-        const gaps = ['\u200b', '\u00ad', '\u2060', '\u00a0', '\u0001', '\ufeff']
+        const gaps = [
+            '\u200b',
+            '\u00ad',
+            '\u2060',
+            '\u00a0',
+            '\u0001',
+            '\ufeff',
+            '\u034f',
+            '\ufe0f',
+            '\u180b',
+            '\u115f',
+            '\u1160',
+            '\u17b4',
+            '\u3164',
+            '\uffa0',
+            '\u{1d173}',
+            '\u{e0020}'
+        ]
         for (const gap of gaps) {
             const prompts = [
                 '%' + gap + '73' + tail,
@@ -969,7 +986,8 @@ describe('template inputs', () => {
     })
 
     it('keeps no planted value in layout, connections, addresses, split text, or tool templates', () => {
-        const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g
+        const INVISIBLE =
+            /[\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
         const visible = (value: string) => value.replace(INVISIBLE, '').replace(/\s+/g, '').toLowerCase()
         const decodeString = (value: string): unknown => {
             let current = value
@@ -1041,7 +1059,22 @@ describe('template inputs', () => {
         const prefixes = ['sk-', 'pk-', 'ghp_', 'xoxb-', 'xoxp-']
         const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
         const hostAlphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
-        const marks = ['\u200b', '\u00ad', '\u2060', '\u00a0']
+        const marks = [
+            '\u200b',
+            '\u00ad',
+            '\u2060',
+            '\u00a0',
+            '\u034f',
+            '\ufe0f',
+            '\u180b',
+            '\u115f',
+            '\u1160',
+            '\u17b4',
+            '\u3164',
+            '\uffa0',
+            '\u{1d173}',
+            '\u{e0020}'
+        ]
         const rng = mulberry32(131)
         const pick = (chars: string, count: number) => {
             let out = ''
@@ -2105,5 +2138,41 @@ describe('tool schema rebuild', () => {
         const out = sanitizeToolTemplate({ schema: obj }).schema
         expect(out).toEqual(obj)
         expect(out).not.toBe(obj)
+    })
+})
+
+describe('default-ignorable characters', () => {
+    const gaps = [
+        '\u034f',
+        '\ufe00',
+        '\ufe0f',
+        '\u180b',
+        '\u180d',
+        '\u115f',
+        '\u1160',
+        '\u17b4',
+        '\u17b5',
+        '\u3164',
+        '\uffa0',
+        '\u{1d173}',
+        '\u{e0020}',
+        '\u{e0100}'
+    ]
+    const body = 'FAKE_MARKER_DI' + 'qa9X7mP2vR8t'
+
+    it('drops a prefixed token split by any default-ignorable character', () => {
+        for (const gap of gaps) {
+            const token = 's' + gap + 'k' + '-' + body
+            const prompt = sanitizeNodeInputs({ prompt: 'Use ' + token }, schemaParams as any)
+            expect(prompt.inputs.prompt).toBeUndefined()
+            expect(sanitizeToolTemplate({ func: 'return "' + token + '"' }).func).toBeUndefined()
+            expect(rebuildHttpUrl('https://cdn.example/v1/' + encodeURIComponent(token) + '/x')).toBeUndefined()
+            expect(rebuildHttpUrl('https://' + 's' + gap + 'k-' + 'fakemarkerhost.example/x')).toBeUndefined()
+        }
+    })
+
+    it('keeps text that uses a variation selector on an emoji', () => {
+        const prompt = 'Welcome to Moonbeam Bakery \u2764\ufe0f Answer briefly.'
+        expect(sanitizeNodeInputs({ prompt }, schemaParams as any).inputs.prompt).toBe(prompt)
     })
 })

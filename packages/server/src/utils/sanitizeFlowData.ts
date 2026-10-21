@@ -36,11 +36,12 @@ const PLAIN_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // Ordinary labels such as "History:" are not in this list.
 const NAMED_SCHEME_ACROSS_BREAK =
     /(?:^|[^A-Za-z0-9])(?:javascript|vbscript|data|file|blob|https?):[^\S\t\n\v\f\r\u2028\u2029]*[\t\n\v\f\r\u2028\u2029]/i
-// Hidden characters. Tab and line breaks stay, so a label on its own line is not joined to the next line.
-const INVISIBLE_CLASS =
-    '[\\u0000-\\u0008\\u000e-\\u001f\\u007f-\\u009f\\u00a0\\u00ad\\u061c\\u180e\\u200b-\\u200f\\u202a-\\u202f\\u2060-\\u206f\\ufeff]'
-const INVISIBLE = new RegExp(INVISIBLE_CLASS, 'g')
-const INVISIBLE_CHAR = new RegExp(INVISIBLE_CLASS)
+// Hidden characters, by Unicode property rather than a hand-picked list: every control except tab and line breaks,
+// every format character, every default-ignorable code point (variation selectors, fillers, tags and the like),
+// and the no-break spaces. Tab and line breaks stay, so a label on its own line is not joined to the next line.
+const INVISIBLE_CLASS = '[\\u0000-\\u0008\\u000e-\\u001f\\u007f-\\u009f\\u00a0\\u202f\\p{Cf}\\p{Default_Ignorable_Code_Point}]'
+const INVISIBLE = new RegExp(INVISIBLE_CLASS, 'gu')
+const INVISIBLE_CHAR = new RegExp(INVISIBLE_CLASS, 'u')
 const HYPHEN_LIKE = /[\u2010-\u2015\u2212]/g
 const MAX_NORMALIZE_LAYERS = 5
 
