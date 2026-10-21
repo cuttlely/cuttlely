@@ -205,7 +205,7 @@ The server's lines also include `npm warn Unknown env config`. Those warnings ar
 
 ### Sign in
 
-The dev server uses the same database as `scripts/start-cuttlely.sh` (`~/.cuttlely`), so the account you created earlier works on `8080` too. On a new install with no account yet, `8080` opens **Setup Account**, the same as in [Create your account](#create-your-account).
+The dev server uses the same database as `scripts/start-cuttlely.sh` (`~/.cuttlely`), so the account you created earlier works on `8080` too. On a new install with no account yet, `8080` opens `/setup` (**Create the owner account**), the same as in [Create your account](#create-your-account).
 
 ### What updates when you save
 
