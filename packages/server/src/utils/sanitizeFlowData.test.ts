@@ -2670,3 +2670,57 @@ describe('tool func auth word after a non-ASCII letter', () => {
         expect(sanitizeToolTemplate({ func }).func).toBe(func)
     })
 })
+
+describe('tool func user info in parser-accepted spellings', () => {
+    const pw = ['FAKE', 'pw', '12'].join('')
+    const fetchOf = (url: string) => `return fetch(${JSON.stringify(url)})`
+
+    it('leaves out a special scheme with zero, one, three, or four slashes, or backslashes', () => {
+        for (const scheme of ['https', 'http', 'HTTPS', 'wss', 'ftp']) {
+            for (const sep of [':', ':/', ':///', ':////', ':\\', ':\\/', ':/\\\\', ':\\\\']) {
+                const url = `${scheme}${sep}user:${pw}@host.example/x`
+                expect(new URL(url).password).not.toBe('')
+                expect(sanitizeToolTemplate({ func: fetchOf(url) }).func).toBeUndefined()
+            }
+        }
+    })
+
+    it('leaves out user info with whitespace the parser removes or keeps', () => {
+        const urls = [
+            `https://user:p w${pw}@host.example/x`,
+            `https://us er:${pw}@host.example/x`,
+            `https://user:p\nw${pw}@host.example/x`,
+            `https:/\n/user:${pw}@host.example/x`,
+            `https:\t\tuser:${pw}@host.example/x`,
+            `https://user:p\u2003w${pw}@host.example/x`,
+            `https://user:p\u3000w${pw}@host.example/x`,
+            `https://user:p\u000bw${pw}@host.example/x`,
+            `https://user:p\u000cw${pw}@host.example/x`
+        ]
+        for (const url of urls) expect(sanitizeToolTemplate({ func: fetchOf(url) }).func).toBeUndefined()
+    })
+
+    it('leaves out a credential query name split by whitespace', () => {
+        for (const q of ['?api_\nkey=x', '?to\tken=x', '?\rtoken=x', '&sec ret=x']) {
+            expect(sanitizeToolTemplate({ func: fetchOf(`https://api.example/v1${q}`) }).func).toBeUndefined()
+        }
+    })
+
+    it('keeps ordinary code with addresses, ports, and @', () => {
+        const funcs = [
+            "const res = await fetch('https://api.example:8443/v1/items?limit=10')\nconst to = 'team@example.com'\nreturn res.json()",
+            "// docs: https://api.example/docs\nconst x = { a: 1 }\nreturn 'ok'",
+            'const url = `https://api.example/v1/${id}`\nreturn fetch(url, { headers: { Authorization: `Bearer ${token}` } })'
+        ]
+        for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+
+    it('scans repeated scheme starts in linear time', () => {
+        for (const unit of ['http:', 'http:a:', 'http:a@', '//a:', 'ftp:\\\\']) {
+            const text = unit.repeat(Math.ceil(19990 / unit.length)).slice(0, 19990)
+            const started = performance.now()
+            sanitizeToolTemplate({ func: text })
+            expect(performance.now() - started).toBeLessThan(200)
+        }
+    })
+})

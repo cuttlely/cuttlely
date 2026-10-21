@@ -410,25 +410,33 @@ const CODE_AUTH_SCHEME = new RegExp(
 // An ALL_CAPS name with an underscore, such as SPIDER_API_KEY, is a placeholder for the user to replace.
 const PLACEHOLDER_NAME = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
 
-/** An address whose authority (after //, up to /, ?, #, or whitespace) has a : before an @. One pass per authority. */
+// Where an address authority can start: after // or after the colon of a scheme the URL parser treats as special,
+// which accepts any run of / or \\ (or none) before the authority. A fixed alternation, so the scan stays linear.
+const ADDRESS_START = /\/\/|(?<![A-Za-z0-9+.-])(?:https?|wss?|ftp):/gi
+
+/**
+ * An address whose authority has a : before its last @. Leading slashes and backslashes are skipped, and the
+ * authority runs until /, ?, or # (whitespace and backslashes do not end it, since the URL parser removes tab and
+ * line breaks and keeps other characters in user info). Each character is scanned at most once.
+ */
 const hasUserinfoPassword = (text: string): boolean => {
-    let from = 0
-    for (;;) {
-        const start = text.indexOf('//', from)
-        if (start < 0) return false
+    let scanned = 0
+    for (const match of text.matchAll(ADDRESS_START)) {
+        let i = (match.index ?? 0) + match[0].length
+        if (i <= scanned) continue
+        while (i < text.length && (text[i] === '/' || text[i] === '\\')) i++
         let firstColon = -1
         let lastAt = -1
-        let i = start + 2
         for (; i < text.length; i++) {
             const c = text[i]
-            if (c === '/' || c === '?' || c === '#' || /\s/.test(c)) break
+            if (c === '/' || c === '?' || c === '#') break
             if (c === ':' && firstColon < 0) firstColon = i
             else if (c === '@') lastAt = i
         }
-        // Any colon before the last @ means user info with a password, however many @ signs come before it.
         if (lastAt >= 0 && firstColon >= 0 && firstColon < lastAt) return true
-        from = Math.max(i, start + 2)
+        scanned = i
     }
+    return false
 }
 
 const hasAuthValue = (text: string): boolean => {
@@ -439,6 +447,9 @@ const hasAuthValue = (text: string): boolean => {
 }
 
 /** Credential shapes that leave tool code out even though plain addresses and @ are allowed there. */
+// Source text writes a line break or tab as an escape; the running code joins the text around it.
+const withoutEscapes = (text: string): string => text.replace(/\\[ntrvf]/g, '')
+
 const codeCredentialFails = (text: string): boolean => hasUserinfoPassword(text) || CODE_CREDENTIAL_QUERY.test(text) || hasAuthValue(text)
 
 const codeIsSafe = (value: unknown): value is string => {
@@ -449,9 +460,17 @@ const codeIsSafe = (value: unknown): value is string => {
         if (plain === undefined) return false
         if (tokenPatternFails(value) || tokenPatternFails(plain)) return false
         if (
-            [value, plain, removedForm(value), removedForm(plain), foldText(value), foldText(plain)].some(
-                (text) => text === undefined || codeCredentialFails(text)
-            )
+            [
+                value,
+                plain,
+                removedForm(value),
+                removedForm(plain),
+                foldText(value),
+                foldText(plain),
+                compactForm(value),
+                compactForm(plain),
+                compactForm(withoutEscapes(value))
+            ].some((text) => text === undefined || codeCredentialFails(text))
         )
             return false
         return !entropyFails(value, true) && !entropyFails(plain, true)
