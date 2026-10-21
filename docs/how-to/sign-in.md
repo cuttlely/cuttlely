@@ -47,7 +47,7 @@ If accounts already exist but no sign-in method is on (for example a `.env` that
 
 ![Set up AuthKit opened from the setup link, on Connect WorkOS, with a Staging chip. The API key is masked. Client ID reads client_demo_bakery.](../images/server-settings/setup-link-authkit.png)
 
-![This setup link can't be used. The note says to copy it again from the server log. Go To Sign In is the button.](../images/server-settings/setup-link-closed.png)
+![This setup link can't be used. The note says to copy it again from the server log. Go to sign in is the button.](../images/server-settings/setup-link-closed.png)
 
 ## Create the first account
 
@@ -111,13 +111,13 @@ Without a terminal, for example in a script, the command reads the password from
 2. Type your **Email** and **Password**.
 3. Select **Sign in**. With WorkOS also on, the button is **Sign in with password**, under **Sign in with WorkOS**.
 
-![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign In button.](../images/sign-in/signin-break-glass.png)
+![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign in button.](../images/sign-in/signin-break-glass.png)
 
 The app opens **Chatflows**, or the page you were going to.
 
 A wrong email or password shows `Invalid email or password.` After 10 failed tries in 15 minutes, the form says `Too many sign-in attempts. Try again later.` Wait, then try again.
 
-![The Sign In page with a red message: Invalid email or password. Email is rosa.diaz@example.com and the password is masked. The button is Sign In.](../images/sign-in/signin-wrong-password.png)
+![The Sign In page with a red message: Invalid email or password. Email is rosa.diaz@example.com and the password is masked. The button is Sign in.](../images/sign-in/signin-wrong-password.png)
 
 ## Sign out
 

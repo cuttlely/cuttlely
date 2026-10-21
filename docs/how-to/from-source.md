@@ -158,7 +158,7 @@ Several harmless `npm warn` lines come first. The account exists when you see `S
 
 Then open [http://localhost:43117](http://localhost:43117). The app opens **Sign In**. Type the email and password and select **Sign in**.
 
-![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign In button.](../images/from-source/first-open-signin.png)
+![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign in button.](../images/from-source/first-open-signin.png)
 
 More about the account, a lost password, and WorkOS for a team: [Sign in](./sign-in.md).
 
