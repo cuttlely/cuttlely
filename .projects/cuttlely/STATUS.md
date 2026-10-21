@@ -57,3 +57,4 @@ Cuttlely 1.3.0. The product version is the root `package.json`, `packages/server
 ## Not done
 
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
+-   Chatflow import checks (model and tool credentials, sticky notes, tool files, older card names, custom tools by id) are in review in [#245](https://github.com/cuttlely/cuttlely/pull/245). Refreshing every imported card from the current spec and partial import of unsupported cards are still open.
