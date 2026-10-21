@@ -21,6 +21,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { authSecret, ensureInstanceSecret } from './authSecrets'
 import { cookiePasswordOk, localAdminEnabled, workosConfigured } from './constants'
 import { recordSetupFailure, resetSetupFailures, setupFailureLimited } from './setupLimit'
@@ -108,6 +109,8 @@ let instanceId = ''
 let startId = ''
 let processStartedAt = 0
 const startMarks = new Map<string, StartMark>()
+let persistChain: Promise<void> = Promise.resolve()
+let issuerEpoch = 0
 let watchTimer: ReturnType<typeof setInterval> | undefined
 let watchCountUsers: (() => Promise<number>) | undefined
 let watchLocalAdmin = false
@@ -129,12 +132,12 @@ function issuerDirectory(): string | null {
     return path.join(os.homedir(), '.cuttlely')
 }
 
-function sleepMs(ms: number): void {
-    const view = new Int32Array(new SharedArrayBuffer(4))
-    Atomics.wait(view, 0, 0, ms)
+/** Yields so a lock wait does not stall the rest of the process. */
+function sleepMs(ms: number): Promise<void> {
+    return delay(ms)
 }
 
-function withIssuerLock(dir: string, body: () => void): void {
+async function withIssuerLock(dir: string, body: () => void): Promise<void> {
     const lock = path.join(dir, 'setup-issuer.lock')
     const started = Date.now()
     let held = false
@@ -151,7 +154,7 @@ function withIssuerLock(dir: string, body: () => void): void {
             } catch {
                 continue
             }
-            sleepMs(15)
+            await sleepMs(15)
         }
     }
     try {
@@ -228,25 +231,37 @@ function mergeMark(current: StartMark, incoming: StartMark): StartMark {
     }
 }
 
-function persistMarks(): void {
+function persistMarks(): Promise<void> {
     const dir = issuerDirectory()
-    if (!dir || !instanceId) return
-    withIssuerLock(dir, () => {
-        const merged = new Map(startMarks)
-        const file = readMarkFile()
-        if (file && file.instanceId === instanceId) {
-            for (const [id, mark] of Object.entries(file.starts)) {
-                const existing = merged.get(id)
-                merged.set(id, existing ? mergeMark(existing, mark) : mark)
+    const epoch = issuerEpoch
+    if (!dir || !instanceId) return Promise.resolve()
+    const run = persistChain.then(async () => {
+        if (epoch !== issuerEpoch || !instanceId) return
+        const current = issuerDirectory()
+        if (!current) return
+        await withIssuerLock(current, () => {
+            if (epoch !== issuerEpoch || !instanceId) return
+            const merged = new Map(startMarks)
+            const file = readMarkFile()
+            if (file && file.instanceId === instanceId) {
+                for (const [id, mark] of Object.entries(file.starts)) {
+                    const existing = merged.get(id)
+                    merged.set(id, existing ? mergeMark(existing, mark) : mark)
+                }
             }
-        }
-        startMarks.clear()
-        for (const [id, mark] of merged) startMarks.set(id, mark)
-        const starts: Record<string, StartMark> = {}
-        for (const [id, mark] of startMarks) starts[id] = { ...mark }
-        fs.mkdirSync(dir, { recursive: true })
-        fs.writeFileSync(path.join(dir, SETUP_ISSUER_FILE), JSON.stringify({ instanceId, starts }))
+            startMarks.clear()
+            for (const [id, mark] of merged) startMarks.set(id, mark)
+            const starts: Record<string, StartMark> = {}
+            for (const [id, mark] of startMarks) starts[id] = { ...mark }
+            fs.mkdirSync(current, { recursive: true })
+            fs.writeFileSync(path.join(current, SETUP_ISSUER_FILE), JSON.stringify({ instanceId, starts }))
+        })
     })
+    persistChain = run.then(
+        () => undefined,
+        () => undefined
+    )
+    return run
 }
 
 function loadOrCreateInstanceId(): string {
@@ -275,7 +290,7 @@ function loadOrCreateInstanceId(): string {
     }
 }
 
-function ensureProcess(): void {
+async function ensureProcess(): Promise<void> {
     if (startId) return
     instanceId = loadOrCreateInstanceId()
     startId = randomBytes(16).toString('hex')
@@ -294,27 +309,27 @@ function ensureProcess(): void {
             heartbeatAt: processStartedAt
         })
     }
-    persistMarks()
+    await persistMarks()
 }
 
-function rememberIssuer(row: SetupCodeRow, now: number): void {
-    ensureProcess()
+async function rememberIssuer(row: SetupCodeRow, now: number): Promise<void> {
+    await ensureProcess()
     const mark = startMarks.get(startId)
     if (!mark) return
     mark.issuedAt = row.issuedAt
     mark.expiresAt = row.expiresAt
     mark.heartbeatAt = Math.max(mark.heartbeatAt, now, Date.now())
     mark.pid = process.pid
-    persistMarks()
+    await persistMarks()
 }
 
-function noteHeartbeat(now: number): void {
-    ensureProcess()
+async function noteHeartbeat(now: number): Promise<void> {
+    await ensureProcess()
     const mark = startMarks.get(startId)
     if (!mark) return
     mark.heartbeatAt = now
     mark.pid = process.pid
-    persistMarks()
+    await persistMarks()
 }
 
 function pidAlive(pid: number): boolean {
@@ -383,6 +398,7 @@ async function setupStillOpen(): Promise<boolean> {
 }
 
 function resetIssuer(): void {
+    issuerEpoch += 1
     const dir = issuerDirectory()
     instanceId = ''
     startId = ''
@@ -457,7 +473,7 @@ function printFreshLink(plain: string): void {
 }
 
 function issue(now: number, notify: boolean): string {
-    ensureProcess()
+    const booting = ensureProcess()
     const previous = issuedPlain ? digest(issuedPlain) : null
     const plain = randomBytes(12).toString('base64url')
     const row: SetupCodeRow = {
@@ -471,6 +487,7 @@ function issue(now: number, notify: boolean): string {
     localRetired = false
     heldByOther = false
     const save = async () => {
+        await booting
         const outcome = await activeStore().save(row, previous)
         if (issuedPlain !== plain) return
         if (outcome === 'kept') {
@@ -479,7 +496,7 @@ function issue(now: number, notify: boolean): string {
             heldByOther = true
             return
         }
-        rememberIssuer(row, now)
+        await rememberIssuer(row, now)
         if (notify) printFreshLink(plain)
     }
     pending = pending.then(save, save)
@@ -548,7 +565,7 @@ export function setupCodeWatchUnrefd(): boolean {
 /** One pass of the one-minute check. Tests call this with a chosen clock. */
 export async function runSetupCodeWatch(now = Date.now()): Promise<void> {
     if (!watchCountUsers) return
-    noteHeartbeat(now)
+    await noteHeartbeat(now)
     if (!(await setupStillOpen())) {
         stopSetupCodeWatch()
         return
@@ -560,8 +577,8 @@ export async function runSetupCodeWatch(now = Date.now()): Promise<void> {
  * Test hook: this process continues as a new start, and the start that issued the current code is gone.
  * The stored row stays.
  */
-export function simulateSetupRestart(): void {
-    ensureProcess()
+export async function simulateSetupRestart(): Promise<void> {
+    await ensureProcess()
     const previous = startMarks.get(startId)
     if (previous) {
         previous.pid = 0
@@ -578,15 +595,15 @@ export function simulateSetupRestart(): void {
     issuedExpiresAt = 0
     heldByOther = false
     localRetired = false
-    persistMarks()
+    await persistMarks()
 }
 
 /**
  * Test hook: this process continues as a new start, and the start that issued the current code is still running.
  * The stored row stays.
  */
-export function simulateOtherSetupCopy(): void {
-    ensureProcess()
+export async function simulateOtherSetupCopy(): Promise<void> {
+    await ensureProcess()
     const previous = startMarks.get(startId)
     if (previous) {
         previous.pid = process.pid
@@ -603,7 +620,7 @@ export function simulateOtherSetupCopy(): void {
     issuedExpiresAt = 0
     heldByOther = false
     localRetired = false
-    persistMarks()
+    await persistMarks()
 }
 
 /** Prints a fresh link. Used when the server-wide failure cap is reached, and by tests. */
