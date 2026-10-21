@@ -491,8 +491,23 @@ describe('scanFlowiseMigration', () => {
             edges: []
         })
         assert.deepEqual(report.attention, [
-            "Custom tool 'Lookup rows' (tool-made-up-2). Re-create this in Tools, then pick it in the node."
+            "Custom tool 'Lookup rows' (tool-made-up-2). Re-create this in Tools, then pick it in the node.",
+            'Custom tool tool-made-up-3. Re-create this in Tools, then pick it in the node.'
         ])
+    })
+
+    it('lists a custom tool chosen through the older tool-step field', () => {
+        const report = scan({
+            nodes: [
+                node('toolAgentflow_0', 'toolAgentflow', {
+                    label: 'Tool step',
+                    category: 'Agent Flows',
+                    inputs: { selectedTool: 'customTool', selectedToolConfig: { selectedTool: 'tool-made-up-4' } }
+                })
+            ],
+            edges: []
+        })
+        assert.deepEqual(report.attention, ['Custom tool tool-made-up-4. Re-create this in Tools, then pick it in the node.'])
     })
 
     it('copies a conversation chain system message into the current prompt field', () => {

@@ -260,14 +260,6 @@ const applyAlias = (data, from, to) => {
     for (const anchor of data.inputAnchors || []) rewriteAnchor(anchor)
 }
 
-const inlineToolFunc = (record) => {
-    if (!record || typeof record !== 'object') return false
-    for (const key of ['customToolFunc', 'func', 'code']) {
-        if (typeof record[key] === 'string' && record[key].trim()) return true
-    }
-    return false
-}
-
 const noteCustomTools = (nodeName, inputs, label, attention) => {
     const push = (toolName, toolId) => {
         const id = String(toolId || '').trim()
@@ -276,7 +268,8 @@ const noteCustomTools = (nodeName, inputs, label, attention) => {
         if (!attention.includes(line)) attention.push(line)
     }
     const fromCustom = (record) => {
-        if (!record || typeof record !== 'object' || Array.isArray(record) || inlineToolFunc(record)) return
+        // The runtime always loads the tool by id, so an inline function does not make it portable.
+        if (!record || typeof record !== 'object' || Array.isArray(record)) return
         const id = typeof record.selectedTool === 'string' ? record.selectedTool.trim() : ''
         const named = typeof record.customToolName === 'string' ? record.customToolName.trim() : ''
         if (id) push(named, id)
@@ -288,7 +281,7 @@ const noteCustomTools = (nodeName, inputs, label, attention) => {
             obj.forEach((item) => walk(item))
             return
         }
-        const chosen = obj.agentSelectedTool || obj.toolAgentflowSelectedTool
+        const chosen = obj.agentSelectedTool || obj.toolAgentflowSelectedTool || (obj.selectedTool === 'customTool' ? 'customTool' : '')
         const config = obj.agentSelectedToolConfig || obj.toolAgentflowSelectedToolConfig || obj.selectedToolConfig || obj.toolConfig
         if (chosen === 'customTool') fromCustom(config && typeof config === 'object' && !Array.isArray(config) ? config : obj)
         for (const value of Object.values(obj)) {
