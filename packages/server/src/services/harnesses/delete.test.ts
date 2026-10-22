@@ -209,6 +209,23 @@ describe('a reused name never sees an earlier harness data', () => {
         })
     })
 
+    it('a staged delete reserves its name until the transaction ends', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, { name: 'tx' } as any)
+        await expect(harnessesService.assertNameAvailable('navi', 'team-b', { claiming: true })).rejects.toMatchObject({ statusCode: 409 })
+        expect(schedules.has('navi')).toBe(true)
+        expect(runRows.filter((row) => row.harness === 'navi')).toHaveLength(2)
+        await cascade.restore()
+        expect(has('navi')).toBe(true)
+    })
+
+    it('restore never replaces a record saved under the name since', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, { name: 'tx' } as any)
+        write({ name: 'navi', workspaceId: 'team-b', specialists: [{ name: 'other' }] })
+        await cascade.restore()
+        expect(JSON.parse(fs.readFileSync(fileOf('navi'), 'utf8'))).toMatchObject({ workspaceId: 'team-b' })
+        expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(false)
+    })
+
     it('a canvas that only names a harness does not clear anything', async () => {
         runRows.push({ table: 'run_history', harness: 'navi-c' })
         await harnessesService.assertNameAvailable('navi-c', 'team-b')

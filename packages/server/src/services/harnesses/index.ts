@@ -392,6 +392,10 @@ async function storeDir(): Promise<string> {
 // failed are cleared first, so a new harness, possibly in another team, never sees the old team's history or schedule.
 // A failure refuses the save.
 export async function clearStaleNameData(name: string) {
+    // A staged canvas delete still holds the name until its transaction ends: it may roll back and need it again.
+    if (fs.existsSync(path.join(await storeDir(), `${name}${STAGED}`))) {
+        throw new AppError(StatusCodes.CONFLICT, `Harness name "${name}" is being deleted. Try again in a moment.`)
+    }
     try {
         await harnessDeleteHooks.removeSchedule(name)
         const lock = await loadHarness('lock.mjs')
@@ -409,6 +413,17 @@ export async function clearStaleNameData(name: string) {
             `Harness "${name}" was not saved, because data left by an earlier harness with this name could not be cleared. Try again.`
         )
     }
+}
+
+// Moves a staged record back without ever replacing a record saved under the name since. COPYFILE_EXCL fails when one exists.
+function putBack(from: string, to: string) {
+    try {
+        fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL)
+    } catch (error) {
+        if ((error as { code?: string })?.code !== 'EEXIST') throw error
+        logger.warn(`[harness] ${path.basename(to)} was saved again while its delete was pending; the staged copy is dropped`)
+    }
+    fs.rmSync(from, { force: true })
 }
 
 type KeyListManager = Parameters<typeof import('./apiAccess').removeHarnessFromKeyLists>[2]
@@ -433,7 +448,7 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
     const restore = async () => {
         for (const name of staged) {
             const from = path.join(dir, `${name}${STAGED}`)
-            if (fs.existsSync(from)) fs.renameSync(from, path.join(dir, `${name}.json`))
+            if (fs.existsSync(from)) putBack(from, path.join(dir, `${name}.json`))
         }
     }
     try {
@@ -476,8 +491,8 @@ async function settleStagedDeletes() {
             continue
         }
         const canvas = await canvasState(row)
-        if (canvas?.state === 'present' && !fs.existsSync(path.join(dir, `${name}.json`))) {
-            fs.renameSync(file, path.join(dir, `${name}.json`))
+        if (canvas?.state === 'present') {
+            putBack(file, path.join(dir, `${name}.json`))
             restored.push(name)
         } else if (canvas?.state === 'missing') {
             fs.rmSync(file, { force: true })
