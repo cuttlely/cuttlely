@@ -8,6 +8,9 @@
 # Python 3.14 installs the locked set from hermes/uv.lock. Upstream locks 3.14 only and marks every
 # runtime dependency `python_version >= '3.14'`, so 3.11-3.13 resolve those same requirements unfrozen.
 # Both paths also install the Hermes mcp extra. The post-check imports aiohttp, cli, and mcp.
+#
+# The image and file libraries (charts, PDF, DOCX, XLSX, PPTX) come from scripts/hermes-assets/requirements.txt,
+# pinned with hashes and checked against hermes/uv.lock. CUTTLELY_HERMES_ASSETS=0 leaves them out.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -70,6 +73,11 @@ PY
 fi
 
 uv pip install --python "$PYTHON" "$AIOHTTP"
+
+if [[ "${CUTTLELY_HERMES_ASSETS:-1}" != "0" ]]; then
+    echo "Installing the image and file libraries (scripts/hermes-assets/requirements.txt)."
+    uv pip install --python "$PYTHON" --require-hashes -r "$ROOT/scripts/hermes-assets/requirements.txt"
+fi
 
 if ! IMPORT_ERROR="$("$PYTHON" -c 'import aiohttp, cli, mcp' 2>&1)"; then
     echo "hermes/.venv was created, but it cannot import Hermes:" >&2
