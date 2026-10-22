@@ -1238,6 +1238,72 @@ describe('deleteChatflow', () => {
         expect(removeFolderFromStorage).not.toHaveBeenCalled()
     })
 
+    it('removes the harness record inside the transaction when a HARNESS canvas is deleted', async () => {
+        mockRepo.findOne.mockResolvedValue(makeChatflow({ type: EnumChatflowType.HARNESS }))
+        const calls = trackDeletes()
+        const order: string[] = []
+        const commit = jest.fn(async () => undefined)
+        const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas').mockImplementation(async () => {
+            order.push(`cascade after ${calls.map((c) => c.entity).join(',')}`)
+            return { names: ['navi'], restore: async () => undefined, commit }
+        })
+        try {
+            await chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.HARNESS])
+            // The cascade gets the transaction's manager, so the key grants commit or roll back with the canvas.
+            expect(cascade).toHaveBeenCalledWith('flow-1', 'ws-1', expect.objectContaining({ getRepository: expect.any(Function) }))
+            expect(order).toEqual([expect.stringMatching(/ChatFlow$/)])
+            expect(commit).toHaveBeenCalledTimes(1)
+        } finally {
+            cascade.mockRestore()
+        }
+    })
+
+    it('rolls the canvas back when the harness record cannot be removed', async () => {
+        mockRepo.findOne.mockResolvedValue(makeChatflow({ type: EnumChatflowType.HARNESS }))
+        trackDeletes()
+        const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas').mockRejectedValue(new Error('schedule store locked'))
+        try {
+            await expect(chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.HARNESS])).rejects.toThrow(
+                /schedule store locked/
+            )
+            expect(flowVersionsService.recordFlowDeletion).not.toHaveBeenCalled()
+            expect(removeFolderFromStorage).not.toHaveBeenCalled()
+        } finally {
+            cascade.mockRestore()
+        }
+    })
+
+    it('writes the harness record back when the transaction fails after the cascade ran', async () => {
+        mockRepo.findOne.mockResolvedValue(makeChatflow({ type: EnumChatflowType.HARNESS }))
+        const restore = jest.fn(async () => undefined)
+        const commit = jest.fn(async () => undefined)
+        const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas').mockResolvedValue({ names: ['navi'], restore, commit })
+        mockAppServer.AppDataSource.transaction.mockImplementationOnce(async (fn: (manager: any) => Promise<unknown>) => {
+            await fn({ getRepository: () => ({ ...mockRepo, delete: jest.fn(async () => ({ affected: 1, raw: [] })) }) })
+            throw new Error('commit failed')
+        })
+        try {
+            await expect(chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.HARNESS])).rejects.toThrow(
+                /commit failed/
+            )
+            expect(restore).toHaveBeenCalledTimes(1)
+            expect(commit).not.toHaveBeenCalled()
+        } finally {
+            cascade.mockRestore()
+        }
+    })
+
+    it('does not touch harness records for a non-harness flow', async () => {
+        trackDeletes()
+        const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas')
+        try {
+            await chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.CHATFLOW])
+            expect(cascade).not.toHaveBeenCalled()
+        } finally {
+            cascade.mockRestore()
+        }
+    })
+
     it('does not start the transaction for a flow type the caller may not delete', async () => {
         const calls = trackDeletes()
 

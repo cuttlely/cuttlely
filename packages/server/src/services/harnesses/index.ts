@@ -17,6 +17,7 @@ import { openHarnessRunTrace } from '../../metrics/tracing'
 import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
 import { safeHarnessName } from './apiAccess'
+import { harnessCanvasDelete } from './canvasDelete'
 import type { IHarnessCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 
@@ -24,7 +25,14 @@ import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 // require() cannot load the ESM harness package, so keep a real dynamic import.
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
 
+// Tests hand in their own harness modules. Null is the real package.
+let harnessModuleOverride: ((file: string) => Promise<any>) | null = null
+export function setHarnessModuleLoader(loader: ((file: string) => Promise<any>) | null) {
+    harnessModuleOverride = loader
+}
+
 export async function loadHarness(file: string) {
+    if (harnessModuleOverride) return harnessModuleOverride(file)
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
         const candidates = [path.join(dir, 'packages', 'harness', file), path.join(dir, 'harness', file)]
@@ -121,14 +129,17 @@ const listHarnesses = async (workspaceId?: string | null) => {
     for (const row of store.listHarnesses()) {
         const owner = await ownerOf(row)
         if (!inWorkspace(owner, ws)) continue
-        if (!row.workspaceId && owner) {
-            visible.push(store.claimWorkspace(row.name, owner) || { ...row, workspaceId: owner })
-        } else visible.push(row)
+        const shown = !row.workspaceId && owner ? store.claimWorkspace(row.name, owner) || { ...row, workspaceId: owner } : row
+        // An orphan stays on the list, marked, so it can be deleted from its card.
+        visible.push((await isOrphan(shown)) ? { ...shown, orphaned: true } : shown)
     }
     return visible
 }
 
-const getHarness = async (name: string, workspaceId?: string | null) => requireHarness(name, workspaceId)
+const getHarness = async (name: string, workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
+    return (await isOrphan(harness)) ? { ...harness, orphaned: true } : harness
+}
 
 const saveHarness = async (body: Record<string, unknown>, workspaceId?: string | null) => {
     const ws = workspaceOf(workspaceId)
@@ -151,6 +162,8 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
             // No resolved team is not this caller. The file, including its run history, stays as it is.
             if (!inWorkspace(owner, ws)) throw nameClash(name)
             if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
+        } else if (name) {
+            await clearStaleNameData(name)
         }
         const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
         profile.compileProfileCached(saved)
@@ -165,7 +178,8 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
 }
 
 // A canvas save uses the chat flow's team. A name that already belongs to another team is refused before the file is written.
-export async function assertNameAvailable(name: string, workspaceId?: string | null) {
+// `claiming` is a HARNESS canvas save that creates the record when the name is new.
+export async function assertNameAvailable(name: string, workspaceId?: string | null, opts: { claiming?: boolean } = {}) {
     const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
     let existing
@@ -174,7 +188,11 @@ export async function assertNameAvailable(name: string, workspaceId?: string | n
     } catch {
         return
     }
-    if (!existing) return
+    if (!existing) {
+        if (opts.claiming) await clearStaleNameData(name)
+        else await assertNotStaged(name)
+        return
+    }
     const owner = await ownerOf(existing)
     if (!inWorkspace(owner, ws)) throw nameClash(name)
     if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
@@ -262,18 +280,68 @@ const warmHarnesses = (names?: string[]) => {
         .catch((error) => logger.warn(`[harness] Hermes warm-up failed: ${getErrorMessage(error)}`))
 }
 
-// Tests replace removeSchedule to make it fail.
+// Tests replace these to make a step fail, or to stand in for the chat flow delete.
 export const harnessDeleteHooks = {
-    removeSchedule: async (name: string): Promise<unknown> => (await loadHarness('schedule.mjs')).deleteSchedule(name)
+    removeSchedule: async (name: string): Promise<unknown> => (await loadHarness('schedule.mjs')).deleteSchedule(name),
+    // The chat flow service registers its delete when it loads, so this module does not import it.
+    deleteCanvas: async (chatflowId: string, workspaceId: string): Promise<unknown> => {
+        if (!harnessCanvasDelete.run) {
+            throw new AppError(
+                StatusCodes.INTERNAL_SERVER_ERROR,
+                `The canvas ${chatflowId} could not be deleted: the chat flow service is not loaded.`
+            )
+        }
+        return harnessCanvasDelete.run(chatflowId, workspaceId)
+    }
 }
 
-const deleteHarness = async (name: string, workspaceId?: string | null) => {
-    const harness = await requireHarness(name, workspaceId)
-    // Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
-    // must not inherit the old key grants or the old owner's schedule.
+type HarnessRow = { name: string; chatflowId?: string | null; workspaceId?: string | null; [key: string]: unknown }
+type CanvasState = { state: 'present' | 'missing' | 'unknown'; workspaceId?: string | null; type?: string | null }
+
+// The canvas row a harness was built from. 'unknown' is a failed lookup: callers never treat it as a missing canvas.
+export function canvasRowQuery(dataSource: DataSource, chatflowId: string) {
+    const table = 'chat_flow'
+    const column = (name: string) => `${quoteIdent(dataSource, table)}.${quoteIdent(dataSource, name)}`
+    return dataSource
+        .createQueryBuilder()
+        .select(column('id'), 'id')
+        .addSelect(column('workspaceId'), 'workspaceId')
+        .addSelect(column('type'), 'type')
+        .from(table, table)
+        .where(`${column('id')} = :id`, { id: chatflowId })
+}
+
+export const harnessCanvasLookup = {
+    find: async (chatflowId: string): Promise<CanvasState> => {
+        try {
+            const row = await canvasRowQuery(getRunningExpressApp().AppDataSource, chatflowId).getRawOne()
+            if (!row) return { state: 'missing' }
+            const ws = row.workspaceId ?? row.workspaceid
+            return { state: 'present', workspaceId: typeof ws === 'string' && ws ? ws : null, type: row.type ?? null }
+        } catch (error) {
+            logger.warn(`[harness] canvas lookup failed: ${getErrorMessage(error)}`)
+            return { state: 'unknown' }
+        }
+    }
+}
+
+async function canvasState(record: { chatflowId?: string | null }): Promise<CanvasState | null> {
+    const chatflowId = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
+    if (!UUID.test(chatflowId)) return null
+    return harnessCanvasLookup.find(chatflowId)
+}
+
+// A harness built on a canvas whose canvas row is gone. A harness saved through the API has no canvas and is never an orphan.
+async function isOrphan(record: { chatflowId?: string | null }): Promise<boolean> {
+    return (await canvasState(record))?.state === 'missing'
+}
+
+// Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
+// must not inherit the old key grants or the old owner's schedule. The file holds the roster, specialists and playbooks.
+async function removeHarnessRecord(name: string, workspaceId: string) {
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
-        await removeHarnessFromKeyLists(harness.workspaceId || workspaceOf(workspaceId), name)
+        await removeHarnessFromKeyLists(workspaceId, name)
     } catch (error) {
         logger.warn(`[harness] ${name} was not deleted: removing it from API key lists failed: ${getErrorMessage(error)}`)
         throw new AppError(
@@ -292,7 +360,245 @@ const deleteHarness = async (name: string, workspaceId?: string | null) => {
     }
     const store = await loadHarness('store.mjs')
     store.deleteHarness(name)
+}
+
+// Run history and stored results of a deleted harness. Best effort: a leftover run row is not readable once the
+// harness is gone, because every run route needs the harness first.
+export async function purgeHarnessRuns(names: string[]) {
+    if (!names.length) return
+    try {
+        const lock = await loadHarness('lock.mjs')
+        lock.immediate((db: { prepare: (sql: string) => { all: (...a: unknown[]) => any[]; run: (...a: unknown[]) => unknown } }) => {
+            const tables = db
+                .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('run_history', 'run_results')")
+                .all()
+                .map((row: { name: string }) => row.name)
+            for (const table of tables) {
+                for (const name of names) db.prepare(`DELETE FROM ${table} WHERE harness_name = ?`).run(name)
+            }
+        })
+    } catch (error) {
+        logger.warn(`[harness] run history cleanup for ${names.join(', ')} failed: ${getErrorMessage(error)}`)
+    }
+}
+
+const STAGED = '.json.deleting'
+
+async function storeDir(): Promise<string> {
+    const { harnessStoreDir } = await loadHarness('paths.mjs')
+    return harnessStoreDir()
+}
+
+// A name that has no harness record yet. A schedule or run rows left under it by an earlier delete whose cleanup
+// failed are cleared first, so a new harness, possibly in another team, never sees the old team's history or schedule.
+// A failure refuses the save.
+// A staged canvas delete still holds the name until its transaction ends: it may roll back and need it again.
+async function assertNotStaged(name: string) {
+    if (fs.existsSync(path.join(await storeDir(), `${name}${STAGED}`))) {
+        throw new AppError(StatusCodes.CONFLICT, `Harness name "${name}" is being deleted. Try again in a moment.`)
+    }
+}
+
+// One writer per harness name in this process: a canvas delete holds the name from staging until its commit or
+// restore, and a canvas sync holds it from the name check through the record write, so the two never interleave.
+const nameLocks = new Map<string, Promise<void>>()
+export async function acquireNameLock(name: string): Promise<() => void> {
+    const previous = nameLocks.get(name) || Promise.resolve()
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const tail = previous.then(() => held)
+    nameLocks.set(name, tail)
+    await previous
+    let released = false
+    return () => {
+        if (released) return
+        released = true
+        release()
+        if (nameLocks.get(name) === tail) nameLocks.delete(name)
+    }
+}
+
+// A restart clears every in-process lock. Tests call this to stand in for one.
+export function resetNameLocks() {
+    nameLocks.clear()
+}
+
+export async function withNameLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    const release = await acquireNameLock(name)
+    try {
+        return await fn()
+    } finally {
+        release()
+    }
+}
+
+export async function clearStaleNameData(name: string) {
+    await assertNotStaged(name)
+    try {
+        await harnessDeleteHooks.removeSchedule(name)
+        const lock = await loadHarness('lock.mjs')
+        lock.immediate((db: { prepare: (sql: string) => { all: (...a: unknown[]) => any[]; run: (...a: unknown[]) => unknown } }) => {
+            const tables = db
+                .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('run_history', 'run_results')")
+                .all()
+                .map((row: { name: string }) => row.name)
+            for (const table of tables) db.prepare(`DELETE FROM ${table} WHERE harness_name = ?`).run(name)
+        })
+    } catch (error) {
+        logger.warn(`[harness] stale data under ${name} could not be cleared: ${getErrorMessage(error)}`)
+        throw new AppError(
+            StatusCodes.SERVICE_UNAVAILABLE,
+            `Harness "${name}" was not saved, because data left by an earlier harness with this name could not be cleared. Try again.`
+        )
+    }
+}
+
+// Moves a staged record back without ever replacing a record saved under the name since. COPYFILE_EXCL fails when one exists.
+function putBack(from: string, to: string) {
+    try {
+        fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL)
+    } catch (error) {
+        if ((error as { code?: string })?.code !== 'EEXIST') throw error
+        logger.warn(`[harness] ${path.basename(to)} was saved again while its delete was pending; the staged copy is dropped`)
+    }
+    fs.rmSync(from, { force: true })
+}
+
+type KeyListManager = Parameters<typeof import('./apiAccess').removeHarnessFromKeyLists>[2]
+
+/**
+ * The cascade from a HARNESS canvas delete. The chat flow delete calls this inside its database transaction, after the
+ * canvas row delete, with that transaction's manager:
+ * - API key grants are removed through the same manager, so they commit or roll back with the canvas.
+ * - Each record file is moved aside to `<name>.json.deleting`, not removed. `restore` moves it back when the transaction
+ *   fails; `commit` removes it after the transaction commits. A process that stops in between leaves the staged file,
+ *   and the startup cleanup puts it back when the canvas is still there or removes it when the canvas is gone.
+ * - The schedule and run history are in the harness database, outside the transaction. `commit` removes them, and a
+ *   later harness with the same name clears anything left (clearStaleNameData).
+ */
+export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: string, manager?: KeyListManager) {
+    const store = await loadHarness('store.mjs')
+    const rows: HarnessRow[] = store
+        .listHarnesses()
+        .filter((row: HarnessRow) => row.chatflowId === chatflowId && (!row.workspaceId || row.workspaceId === workspaceId))
+    const dir = await storeDir()
+    const staged: string[] = []
+    const releases: Array<() => void> = []
+    for (const row of rows) releases.push(await acquireNameLock(row.name))
+    const releaseAll = () => releases.forEach((release) => release())
+    const putAllBack = () => {
+        for (const name of staged) {
+            const from = path.join(dir, `${name}${STAGED}`)
+            if (fs.existsSync(from)) putBack(from, path.join(dir, `${name}.json`))
+        }
+    }
+    const restore = async () => {
+        try {
+            putAllBack()
+        } finally {
+            releaseAll()
+        }
+    }
+    try {
+        const { removeHarnessFromKeyLists } = await import('./apiAccess')
+        for (const row of rows) {
+            await removeHarnessFromKeyLists(row.workspaceId || workspaceId, row.name, manager)
+            fs.renameSync(path.join(dir, `${row.name}.json`), path.join(dir, `${row.name}${STAGED}`))
+            staged.push(row.name)
+        }
+    } catch (error) {
+        await restore()
+        throw error
+    }
+    const commit = async () => {
+        releaseAll()
+        for (const name of staged) {
+            fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
+            await harnessDeleteHooks
+                .removeSchedule(name)
+                .catch((error: unknown) => logger.warn(`[harness] schedule cleanup for deleted ${name} failed: ${getErrorMessage(error)}`))
+        }
+        await purgeHarnessRuns(staged)
+    }
+    return { names: [...staged], restore, commit }
+}
+
+// Startup: finish or undo a canvas delete that stopped between staging a record and the end of its transaction.
+async function settleStagedDeletes() {
+    const dir = await storeDir()
+    if (!fs.existsSync(dir)) return { restored: [] as string[], finished: [] as string[] }
+    const restored: string[] = []
+    const finished: string[] = []
+    for (const entry of fs.readdirSync(dir).filter((item) => item.endsWith(STAGED))) {
+        const file = path.join(dir, entry)
+        const name = entry.slice(0, -STAGED.length)
+        let row: HarnessRow
+        try {
+            row = JSON.parse(fs.readFileSync(file, 'utf8'))
+        } catch (error) {
+            logger.warn(`[harness] staged delete ${entry} could not be read: ${getErrorMessage(error)}`)
+            continue
+        }
+        const canvas = await canvasState(row)
+        if (canvas?.state === 'present') {
+            putBack(file, path.join(dir, `${name}.json`))
+            restored.push(name)
+        } else if (canvas?.state === 'missing') {
+            fs.rmSync(file, { force: true })
+            await harnessDeleteHooks.removeSchedule(name).catch(() => undefined)
+            finished.push(name)
+        }
+    }
+    await purgeHarnessRuns(finished)
+    return { restored, finished }
+}
+
+/**
+ * The card delete. A harness with its canvas goes through the chat flow delete, which removes the canvas, its messages
+ * and the harness record in one transaction. A harness without a canvas (saved through the API, or an orphan whose
+ * canvas is already gone) is removed directly.
+ */
+const deleteHarness = async (name: string, workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
+    const ws = harness.workspaceId || workspaceOf(workspaceId)
+    const canvas = await canvasState(harness)
+    if (canvas?.state === 'unknown') {
+        throw new AppError(
+            StatusCodes.SERVICE_UNAVAILABLE,
+            `Harness "${name}" was not deleted, because its canvas could not be read. Try again.`
+        )
+    }
+    if (canvas?.state === 'present' && canvas.type === 'HARNESS' && canvas.workspaceId === ws) {
+        await harnessDeleteHooks.deleteCanvas(harness.chatflowId, ws)
+    }
+    const store = await loadHarness('store.mjs')
+    if (store.getHarness(name)) await removeHarnessRecord(name, ws)
+    await purgeHarnessRuns([name])
     return { name, deleted: true }
+}
+
+/**
+ * Startup cleanup for harness records left behind by canvas deletes made before the cascade existed. Only a canvas
+ * lookup that answered "no such row" counts; a failed lookup leaves the record alone. Running it again finds nothing.
+ */
+export async function removeOrphanHarnesses() {
+    const settled = await settleStagedDeletes()
+    if (settled.restored.length) logger.info(`[harness] restored ${settled.restored.join(', ')}: the canvas delete did not finish`)
+    const store = await loadHarness('store.mjs')
+    const removed: string[] = []
+    for (const row of store.listHarnesses() as HarnessRow[]) {
+        if (!(await isOrphan(row))) continue
+        try {
+            const owner = await ownerOf(row)
+            await removeHarnessRecord(row.name, owner || '')
+            removed.push(row.name)
+        } catch (error) {
+            logger.warn(`[harness] orphan ${row.name} was kept: ${getErrorMessage(error)}`)
+        }
+    }
+    await purgeHarnessRuns(removed)
+    if (removed.length) logger.info(`[harness] removed ${removed.length} harness(es) whose canvas was deleted: ${removed.join(', ')}`)
+    return { removed: [...settled.finished, ...removed] }
 }
 
 const QUESTION_LIMIT = 100000
@@ -794,6 +1100,9 @@ const replayCheck = async (
 export default {
     startHarnessRuntime,
     backfillHarnessWorkspaces,
+    removeOrphanHarnesses,
+    removeHarnessesForCanvas,
+    withNameLock,
     assertNameAvailable,
     listHarnesses,
     getHarness,

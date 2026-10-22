@@ -417,14 +417,15 @@ test('the home page puts a play button on the hero and on every tile loop', () =
     const ids = [
         'watch-a-team-resolve-a-complaint',
         'one-complaint-three-specialists',
-        'ab-test-every-change-before-it-goes-live',
-        'made-for-real-teams',
         'agent-teams-that-power-your-apps',
         'use-a-team-from-your-app',
-        'small-context-big-answers',
         'tools-your-teams-use',
-        'start-in-minutes',
-        'bring-your-existing-flows'
+        'small-context-big-answers',
+        'ab-test-every-change-before-it-goes-live',
+        'made-for-real-teams',
+        'every-flow-an-mcp-server',
+        'integrations',
+        'start-in-minutes'
     ]
     let at = -1
     for (const id of ids) {
@@ -460,25 +461,63 @@ test('the home page keeps the old anchors, one testing video, and no testing til
     assert.equal((src.match(/aria-label="Play the testing video with sound"/g) || []).length, 1)
 })
 
-test('the demo follows the hero, the case study follows the demo, then the A/B section, and the demo copy shares a row with its video', () => {
+test('the demo opens the page, then the case study, then Teams, Cost and context and Safe deploys in that order', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
     assert.match(src, /<h2 id="test-every-change-title" class="cl-display">Replay every change before it goes live<\/h2>/)
     assert.match(src, /<h2 id="case-title" class="cl-display">Not the obvious answer<\/h2>/)
-    const proof = src.indexOf('class="cl-pillars"')
-    const integrations = src.indexOf('<section id="integrations"')
+    assert.equal(src.includes('class="cl-pillars"'), false, 'the pillars are folded into the sections')
+    const firstSection = src.indexOf('<section')
     const demo = src.indexOf('<section id="watch-a-team-resolve-a-complaint"')
     const caseStudy = src.indexOf('<section id="one-complaint-three-specialists"')
+    const teams = src.indexOf('<section id="agent-teams-that-power-your-apps"')
+    const context = src.indexOf('<section id="small-context-big-answers"')
     const ab = src.indexOf('<section id="ab-test-every-change-before-it-goes-live"')
-    assert.ok(proof < integrations && integrations < demo && demo < caseStudy && caseStudy < ab)
-    assert.equal(src.slice(proof, integrations).match(/<section/g), null, 'nothing sits between the pillars and Integrations')
-    assert.equal(src.slice(integrations + 1, demo).match(/<section/g), null, 'nothing sits between Integrations and the demo')
+    const mcp = src.indexOf('<section id="every-flow-an-mcp-server"')
+    const integrations = src.indexOf('<section id="integrations"')
+    assert.equal(firstSection, demo)
+    assert.ok(demo < caseStudy && caseStudy < teams && teams < context && context < ab && ab < mcp && mcp < integrations)
     assert.equal(src.slice(demo + 1, caseStudy).match(/<section/g), null, 'nothing sits between the demo and the case study')
-    assert.equal(src.slice(caseStudy + 1, ab).match(/<section/g), null, 'nothing sits between the case study and the A/B section')
     const showcase = src.slice(demo, caseStudy)
     assert.ok(showcase.indexOf('class="cl-showcase-copy"') < showcase.indexOf('class="cl-demo-window"'), 'copy comes before the video')
+    const next = showcase.slice(showcase.indexOf('</figure>'))
+    assert.deepEqual(
+        [...next.matchAll(/<a [^>]*href="([^"]+)"[^>]*>([^<]+)/g)].map((m) => [m[1], m[2].trim()]),
+        [['/quickstart/?ref=home-video', 'Get started in 10 minutes']]
+    )
     // An anchor span in the flow takes the first grid cell and pushes the copy onto a second row.
     assert.match(css, /\.cl-home \.cl-anchor \{\s*position: absolute;/)
+})
+
+test('each main section ends with its one action and its ref tag', () => {
+    const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    const section = (id) => {
+        const start = src.indexOf(`<section id="${id}"`)
+        return src.slice(start, src.indexOf('</section>', start))
+    }
+    const tools = section('tools-your-teams-use')
+    assert.match(tools.slice(tools.lastIndexOf('</ul>')), /href="\/quickstart\/\?ref=home-teams">Build your first team/)
+    const context = section('small-context-big-answers')
+    assert.match(context, /<h2 id="context-title" class="cl-display">Context handling built from the ground up to be lean\.<\/h2>/)
+    const contextEnd = context.slice(context.lastIndexOf('</ul>'))
+    assert.match(contextEnd, /npx cuttlely start/)
+    assert.match(contextEnd, /<CopyButton target="cl-context-npx" label="Copy the command npx cuttlely start" \/>/)
+    assert.equal(contextEnd.match(/<a /g)?.length ?? 0, 0)
+    assert.match(context, /PostgreSQL MCP node[\s\S]*from 2,562 to 663 tokens/)
+    assert.match(context, /In our internal benchmarks, on a made-up bakery database/)
+    const ab = section('ab-test-every-change-before-it-goes-live')
+    assert.match(ab, /Roll back the Live flow in one step\./)
+    assert.doesNotMatch(ab, /credential|Server Settings|settings/i)
+    const abEnd = ab.slice(ab.lastIndexOf('</ul>'))
+    assert.deepEqual(
+        [...abEnd.matchAll(/<a [^>]*href=\{?[`"]([^`"]+)/g)].map((m) => m[1]),
+        ['${REPO_URL}?ref=home-deploys']
+    )
+    assert.match(abEnd, /Star on GitHub/)
+    // The bakery figure sits only beside the ticked tables, never with the teams.
+    assert.equal((src.match(/2,562/g) || []).length, 1)
+    assert.equal((src.match(/built from the ground up/gi) || []).length, 1)
+    assert.doesNotMatch(src, /publish-check-results\.png/, 'the Publish check shot shows no price')
 })
 
 test('the video dialog centres itself in the viewport', () => {
@@ -489,19 +528,17 @@ test('the video dialog centres itself in the viewport', () => {
     assert.equal(/position:/.test(rule), false, 'the native modal positioning stays in charge')
 })
 
-test('Made for real teams follows the A/B section, links each card to a guide, and stacks on a phone', () => {
+test('the governance cards sit in Safe deploys, link each card to a guide, and stack on a phone', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
     const ab = src.indexOf('<section id="ab-test-every-change-before-it-goes-live"')
-    const teams = src.indexOf('<section id="made-for-real-teams"')
-    const agentTeams = src.indexOf('<section id="agent-teams-that-power-your-apps"')
-    assert.ok(ab < teams && teams < agentTeams)
-    assert.equal(src.slice(ab + 1, teams).match(/<section/g), null, 'nothing sits between the A/B section and Made for real teams')
-    assert.match(src, /<h2 id="real-teams-title" class="cl-display">Made for real teams<\/h2>/)
+    const cards = src.indexOf('id="made-for-real-teams"')
+    assert.ok(ab < cards && cards < src.indexOf('</section>', ab))
     const features = src.slice(src.indexOf('const teamFeatures'), src.indexOf('const installs'))
     const hrefs = [...features.matchAll(/href: '([^']+)'/g)].map((m) => m[1])
     assert.ok(hrefs.length >= 4 && hrefs.length <= 6, `${hrefs.length} cards`)
     for (const href of hrefs) assert.match(href, /^\/docs\/how-to\//)
+    assert.doesNotMatch(features, /API key|credential|Server Settings|settings/i)
     assert.match(css, /\.cl-team-cards \{\s*max-width: 68rem;\s*grid-template-columns: minmax\(0, 1fr\);/)
 })
 
@@ -609,20 +646,18 @@ test('the light hero headline gradient keeps 3.5:1 on the darkest point of the h
     )
 })
 
-test('the home Integrations section follows the pillars, leads with Orchestrate, links the external agent guide, and names no Flowise', () => {
+test('one Integrations section follows MCP, keeps the Orchestrate video, and names no Flowise', () => {
     const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const start = page.indexOf('<section id="integrations"')
-    assert.ok(start > page.indexOf('<strong>Build agent teams.</strong>'), 'Integrations section sits after the pillars')
-    assert.ok(start < page.indexOf('<section id="watch-a-team-resolve-a-complaint"'), 'Integrations section sits before the showcase')
+    assert.ok(start > page.indexOf('<section id="every-flow-an-mcp-server"'), 'Integrations sits after MCP')
+    assert.equal((page.match(/IBM watsonx Orchestrate<\/h2>/g) || []).length, 1, 'one Orchestrate section')
+    assert.equal(page.includes('<section id="call-your-flows-from-orchestrate"'), false)
+    assert.match(page, /<span id="call-your-flows-from-orchestrate" class="cl-anchor"/)
     const section = page.slice(start, page.indexOf('</section>', start))
-    assert.match(section, /Integrations for the enterprise/)
-    assert.match(section, /Example: call your agents from IBM watsonx Orchestrate/)
-    assert.match(
-        section,
-        /Cuttlely agents answer over a standard chat API, so enterprise platforms can call them\. Here's one we tested live: IBM watsonx Orchestrate\./
-    )
+    assert.match(section, /Call your flows from IBM watsonx Orchestrate/)
+    assert.match(section, /href="\/docs\/how-to\/orchestrate\/"/)
+    assert.match(section, /href="\/docs\/how-to\/orchestrate-mcp\/"/)
     assert.match(section, /href="\/docs\/api\/#call-a-chatflow-from-orchestrate"/)
-    assert.match(section, /Get started in 10 minutes/)
     assert.match(section, /<source src=\{mediaUrl\('\/media\/orchestrate-demo\.mp4'\)\} type="video\/mp4" \/>/)
     assert.match(section, /poster=\{mediaUrl\('\/media\/orchestrate-demo-poster\.webp'\)\}/)
     assert.match(section, /aria-label="Demo video: a Cuttlely agent called from IBM watsonx Orchestrate, with captions"/)
@@ -632,30 +667,63 @@ test('the home Integrations section follows the pillars, leads with Orchestrate,
         section,
         /<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the Orchestrate demo with sound">/
     )
-    assert.match(section, /Star on GitHub/)
     assert.doesNotMatch(section, /flowise|alternative|better than|partner|official|seamless|next-gen/i)
-    assert.doesNotMatch(section, /A2A/) // Version B. Delete this line when Version A ships.
-    assert.doesNotMatch(section, /MCP/)
-    const arrows = [...section.matchAll(/<a class="cl-link-arrow" href="([^"]+)"/g)].map((m) => m[1])
-    assert.deepEqual(arrows, ['/docs/api/#call-a-chatflow-from-orchestrate'])
+    assert.doesNotMatch(section, /A2A/)
 })
 
-test('the home page hero uses the production message house', () => {
-    const lead = 'Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.'
+test('the home page hero uses the Oct 21 copy, with the approved title and meta description', () => {
+    const lead =
+        'Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.'
+    const retired = 'The visual agent builder, ready for production.'
     const hero = readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
     const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const heroLead = hero.slice(hero.indexOf('<p class="cl-hero-lead">') + 24, hero.indexOf('</p>', hero.indexOf('cl-hero-lead')))
-    assert.match(hero, /The visual agent builder,/)
-    assert.match(hero, /ready for production\./)
+    assert.match(
+        hero,
+        /<h1 id="_top" class="cl-display cl-hero-title">Your applications <span class="cl-gradient-text">deserve agents<\/span><\/h1>/
+    )
     assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
+    assert.equal(hero.includes(retired), false)
+    assert.equal(page.includes(retired), false)
+    assert.ok(page.includes("tagline: 'Open-source agent platform · Apache-2.0'"))
+    assert.ok(page.includes("title: 'Cuttlely | Open-source agent platform for lean AI agent teams'"))
+    assert.ok(
+        page.includes(
+            "'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'"
+        )
+    )
+    assert.match(page, /<span class="cl-pair-label">Without it<\/span>\s*The whole database schema is pasted into the prompt\./)
     assert.ok(!/picks up where|next generation/i.test(hero))
     assert.ok(hero.includes('href="/flowise/"'))
     assert.ok(hero.includes('Already have flows? Bring them over'))
-    assert.ok(page.includes(`title: 'Cuttlely: the visual agent builder, ready for production'`))
-    assert.match(page, /Governance\./)
-    assert.match(page, /Lean context\./)
-    assert.match(page, /Build agent teams\./)
-    assert.doesNotMatch(page, /Import your Flowise JSON/)
+    // Primary quickstart, secondary GitHub, then the one-command proof row with its copy button.
+    const primary = hero.indexOf('cl-button cl-button-primary" href="/quickstart/?ref=home-hero"')
+    const secondary = hero.indexOf('cl-button cl-button-ghost" href={`${REPO_URL}?ref=home-hero`}')
+    const npx = hero.indexOf('npx cuttlely start</code>')
+    assert.ok(primary > 0 && primary < secondary && secondary < npx)
+    assert.match(hero, /<CopyButton target="cl-hero-npx" label="Copy the command npx cuttlely start" \/>/)
+    assert.match(
+        hero,
+        /Node 20\+ and Docker · <a href="\/quickstart\/\?ref=home-hero#docker-not-running">Docker not running\?<\/a> · <a href=\{`\$\{REPO_URL\}\?ref=home-hero`\}>github\.com\/cuttlely\/cuttlely<\/a>/
+    )
+    assert.doesNotMatch(`${hero}\n${page}`, /stargazers|shields\.io|star count/i, 'no live star count')
+    assert.doesNotMatch(page, /Import your Flowise JSON|flowise/i)
+})
+
+test('the copy button starts hidden and shows only once its script runs', () => {
+    const button = readFileSync(new URL('../src/components/CopyButton.astro', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
+    assert.match(button, /<button type="button" class="cl-copy" hidden data-copy-target=\{target\} aria-label=\{label\}>/)
+    assert.match(button, /button\.hidden = false/)
+    assert.match(css, /\.cl-copy\[hidden\] \{\s*display: none;/)
+})
+
+test('the site footer links the repository, the security policy and contributing, with no buttons', () => {
+    const footer = readFileSync(new URL('../src/components/SiteFooter.astro', import.meta.url), 'utf8')
+    assert.match(footer, /<a href=\{REPO_URL\}>GitHub<\/a>/)
+    assert.match(footer, /<a href="\/security\/">Security policy<\/a>/)
+    assert.match(footer, /CONTRIBUTING\.md`\}>Contributing<\/a>/)
+    assert.doesNotMatch(footer, /cl-button|<button/)
 })
 
 test('the home page ends with the sign-off line below the site footer, and other pages do not', () => {

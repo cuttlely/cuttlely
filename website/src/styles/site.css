@@ -255,6 +255,37 @@
 .cl-hero-from {
     margin: -1.15rem 0 2rem;
 }
+.cl-hero-start {
+    margin: -0.5rem 0 2rem;
+    max-width: 24rem;
+}
+.cl-terminal-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-right: 0.6rem;
+}
+.cl-terminal-inline pre {
+    flex: 1;
+    padding: 0.7rem 1rem;
+}
+.cl-hero-start-note {
+    margin: 0.5rem 0 0;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-2);
+}
+.cl-section-start {
+    max-width: 24rem;
+    margin: 2rem auto 0;
+}
+.cl-showcase-next {
+    grid-column: 1 / -1;
+    justify-content: center;
+    margin: 0;
+}
+.cl-copy[hidden] {
+    display: none;
+}
 .cl-actions-center {
     justify-content: center;
 }
@@ -1201,19 +1232,12 @@
 }
 
 /* Alternating sections sit on a full-width lavender-to-sky wash with two soft glows. */
-:root[data-theme='light']
-    :is(#ab-test-every-change-before-it-goes-live, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes) {
+:root[data-theme='light'] :is(#agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes) {
     position: relative;
     isolation: isolate;
     border-top-color: transparent;
 }
-:root[data-theme='light']
-    :is(
-        #ab-test-every-change-before-it-goes-live,
-        #agent-teams-that-power-your-apps,
-        #small-context-big-answers,
-        #start-in-minutes
-    )::before {
+:root[data-theme='light'] :is(#agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes)::before {
     content: '';
     position: absolute;
     inset: 0 -50vw;
@@ -1222,9 +1246,7 @@
         radial-gradient(36rem 18rem at 88% 100%, var(--cuttlely-wash-sky), transparent 70%), var(--cuttlely-wash);
     pointer-events: none;
 }
-:root[data-theme='light']
-    :is(#ab-test-every-change-before-it-goes-live, #agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes)
-    + .cl-section {
+:root[data-theme='light'] :is(#agent-teams-that-power-your-apps, #small-context-big-answers, #start-in-minutes) + .cl-section {
     border-top-color: transparent;
 }
 

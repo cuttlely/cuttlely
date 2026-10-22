@@ -8,9 +8,9 @@ import ZoomableImage from '../components/ZoomableImage.astro'
 import laptop from '../assets/cuttlely-mascot-laptop-512.webp'
 import careAnswer from '../content/docs/docs/images/try-the-demo/customer-care-answer.png'
 import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
-import publishCheck from '../content/docs/docs/images/versioning/publish-check-results.png'
 import serverSettings from '../content/docs/docs/images/server-settings/server-settings-all.png'
 import Focus from '../components/Focus.astro'
+import CopyButton from '../components/CopyButton.astro'
 import { mediaUrl as versionedMedia } from '../../scripts/media-version.mjs'
 import { REPO_URL } from '../../scripts/site-config.mjs'
 
@@ -99,13 +99,13 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
 const teamFeatures = [
     {
         title: 'Roles and permissions',
-        text: 'Owner, Admin, Builder and Viewer are built in, and you can add your own roles. Creating a credential or deleting a flow checks the permission first.',
+        text: 'Owner, Admin, Builder and Viewer are built in, and you can add your own roles. Deleting a flow checks the permission first.',
         href: '/docs/how-to/roles-and-permissions/',
         icon: 'approve-check-circle'
     },
     {
         title: 'Each team keeps its own work',
-        text: 'Flows, harnesses, credentials and API keys belong to one team. Another team gets not found.',
+        text: 'Flows and harnesses belong to one team. Another team gets not found.',
         href: '/docs/how-to/roles-and-permissions/#teams',
         icon: 'seti:folder'
     },
@@ -117,40 +117,9 @@ const teamFeatures = [
     },
     {
         title: 'Audit log',
-        text: 'Sign-ins, lockouts, invites, role changes and settings changes. Passwords, tokens and secret values are not stored.',
+        text: 'Sign-ins, lockouts, invites and role changes, with who did what and when.',
         href: '/docs/how-to/audit-log/',
         icon: 'list-format'
-    },
-    {
-        title: 'The owner runs the server',
-        text: 'Only the owner changes sign-in, the database, models and security in Server Settings, with a review step and a history.',
-        href: '/docs/how-to/server-settings/',
-        icon: 'setting'
-    },
-    {
-        title: 'On your own servers',
-        text: 'Docker, Render or from source, with SQLite or Postgres.',
-        href: '/docs/how-to/docker/',
-        icon: 'server'
-    }
-] as const
-
-const analystPoints = [
-    {
-        title: 'Safe by design',
-        text: 'Once you tick tables and views, it sees and can query only those, over a read-only connection. Anything else is refused before it runs.'
-    },
-    {
-        title: 'Lean and low-cost',
-        text: 'The prompt carries only the names and columns of what you ticked, never your whole schema. Details of a table are fetched when a question needs them, and materialized views are listed first.'
-    },
-    {
-        title: 'One Analyst per database',
-        text: 'Put a sales, a budget and a CRM Analyst in one team, each with its own database. Harness Prime sends each question to the right one.'
-    },
-    {
-        title: 'Yours to shape, no code',
-        text: "Write lookup rules in the Analyst's Rules box and routing rules in Harness Prime's instructions, and add tools beside it, such as Jira or your own MCP server."
     }
 ] as const
 
@@ -163,80 +132,18 @@ const installs = [
 
 <StarlightPage
     frontmatter={{
-        title: 'Cuttlely: the visual agent builder, ready for production',
+        title: 'Cuttlely | Open-source agent platform for lean AI agent teams',
         description:
-            'Open-source visual agent builder, ready for production: governance with drafts and side-by-side replay, lean context, and agent teams. Apache-2.0, self-hosted.',
+            'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.',
         template: 'splash',
-        hero: { tagline: 'Open source · Apache-2.0', actions: [] },
-        head: [{ tag: 'title', content: 'Cuttlely: the visual agent builder, ready for production' }],
+        hero: { tagline: 'Open-source agent platform · Apache-2.0', actions: [] },
+        head: [{ tag: 'title', content: 'Cuttlely | Open-source agent platform for lean AI agent teams' }],
         pagefind: false,
         tableOfContents: false
     }}
     hasSidebar={false}
 >
     <div class="cl-home not-content">
-        <ul class="cl-pillars" aria-label="What Cuttlely gives you">
-            <li>
-                <strong>Governance.</strong> Every edit waits in a draft while Live keeps serving. Before you publish, replay recent real questions on Live and
-                the draft, side by side. Gate Publish on a test set and roll Live back in one step. Roles, an audit log, and API keys that only run the teams
-                you tick.
-            </li>
-            <li>
-                <strong>Lean context.</strong> Each specialist gets a self-contained task, not the whole chat, and the analyst sees only the tables you tick.
-                Fewer tokens in our internal benchmarks, and every run shows what it used.
-            </li>
-            <li>
-                <strong>Build agent teams.</strong> Describe a team and Build with AI puts a first version on the canvas, with every part and connection checked.
-                Call it from your app with a scoped API key, or put it on a schedule.
-            </li>
-        </ul>
-
-        <section id="integrations" class="cl-section cl-band" aria-labelledby="integrations-orchestrate-title">
-            <p class="cl-kicker">Integrations for the enterprise</p>
-            <h2 id="integrations-orchestrate-title" class="cl-display">Example: call your agents from IBM watsonx Orchestrate</h2>
-            <p>Cuttlely agents answer over a standard chat API, so enterprise platforms can call them. Here's one we tested live: IBM watsonx Orchestrate.</p>
-            <ul class="cl-checks">
-                <li>
-                    <strong>External agent.</strong> Register a published chatflow under <strong>AI Gateway</strong> → <strong>Agent directory</strong> →
-                    <strong>Add agent</strong>. A native agent calls it as a collaborator, and chats keep context across turns.
-                </li>
-            </ul>
-            <figure class="cl-demo-window">
-                <div class="cl-video-stage">
-                    <video
-                        class="cl-demo-video"
-                        data-demo-video
-                        controls
-                        playsinline
-                        preload="none"
-                        width="1280"
-                        height="720"
-                        poster={mediaUrl('/media/orchestrate-demo-poster.webp')}
-                        aria-label="Demo video: a Cuttlely agent called from IBM watsonx Orchestrate, with captions"
-                        aria-describedby="cl-orchestrate-caption"
-                    >
-                        <source src={mediaUrl('/media/orchestrate-demo.mp4')} type="video/mp4" />
-                    </video>
-                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the Orchestrate demo with sound">
-                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
-                            <path d="M8 5v14l12-7z" fill="currentColor" />
-                        </svg>
-                    </button>
-                </div>
-                <figcaption id="cl-orchestrate-caption" class="cl-demo-caption">
-                    A 72-second narrated walkthrough with captions. A Cuttlely flow is added in Orchestrate as an external agent, a native agent hands it
-                    questions, the flow remembers the chat, and a wrong key gets no answer.
-                </figcaption>
-            </figure>
-            <p>
-                <a class="cl-link-arrow" href="/docs/api/#call-a-chatflow-from-orchestrate">External agent guide <Icon name="right-arrow" /></a>
-            </p>
-            <div class="cl-actions cl-actions-center">
-                <a class="cl-button cl-button-primary" href="/quickstart/">Get started in 10 minutes <Icon name="right-arrow" /></a>
-                <a class="cl-button cl-button-ghost" href={REPO_URL}><Icon name="github" /> Star on GitHub</a>
-            </div>
-        </section>
-
         <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
             <span id="chat-with-a-team-in-minutes" class="cl-anchor" aria-hidden="true"></span>
             <div class="cl-showcase-copy">
@@ -247,7 +154,6 @@ const installs = [
                     the account, an operations specialist traces the parcel, and a policy specialist checks the written policy, each with its own data and tools.
                     Harness Prime writes the decision, the reply and the actions, with the evidence. All the data is made up.
                 </p>
-                <a class="cl-link-arrow" href="/docs/how-to/try-the-demo/">Try the demo <Icon name="right-arrow" /></a>
             </div>
             <figure class="cl-demo-window">
                 <div class="cl-video-stage">
@@ -278,6 +184,9 @@ const installs = [
                     the team is routed at 1.9 seconds, and the full answer lands at 19.8 seconds. Across five runs the median is 16.5 seconds.
                 </figcaption>
             </figure>
+            <div class="cl-actions cl-showcase-next">
+                <a class="cl-button cl-button-primary" href="/quickstart/?ref=home-video">Get started in 10 minutes <Icon name="right-arrow" /></a>
+            </div>
         </section>
 
         <section id="one-complaint-three-specialists" class="cl-section cl-case" aria-labelledby="case-title">
@@ -352,132 +261,16 @@ const installs = [
             </div>
         </section>
 
-        <section id="ab-test-every-change-before-it-goes-live" class="cl-section cl-ab" aria-labelledby="test-every-change-title">
-            <span id="test-every-change-before-it-goes-live" class="cl-anchor" aria-hidden="true"></span>
-            <span id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-anchor" aria-hidden="true"></span>
-            <div class="cl-center">
-                <p class="cl-kicker">Draft vs Live</p>
-                <h2 id="test-every-change-title" class="cl-display">Replay every change before it goes live</h2>
-                <p class="cl-lead">
-                    Every edit saves to a draft while Live keeps serving your app. Compare asks real questions on Live and on the draft, side by side, and marks
-                    each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes.
-                </p>
-                <p>Test with up to 100 question-and-answer pairs, with more on the roadmap.</p>
-            </div>
-            <figure class="cl-demo-window cl-testing-window">
-                <div class="cl-video-stage cl-testing-stage">
-                    <video
-                        class="cl-demo-video"
-                        data-demo-video
-                        controls
-                        muted
-                        loop
-                        playsinline
-                        preload="none"
-                        width="1280"
-                        height="720"
-                        poster={mediaUrl('/media/products/testing-poster.webp')}
-                        aria-label="Testing video. Compare, score, then publish."
-                    >
-                        <source src={mediaUrl('/media/products/testing.webm')} type="video/webm" />
-                        <source src={mediaUrl('/media/products/testing.mp4')} type="video/mp4" />
-                        <track kind="captions" src={mediaUrl('/media/products/testing.vtt')} srclang="en" label="English" />
-                    </video>
-                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the testing video with sound">
-                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
-                            <path d="M8 5v14l12-7z" fill="currentColor" />
-                        </svg>
-                    </button>
-                </div>
-            </figure>
-            <div class="cl-testing-points">
-                <ul class="cl-checks">
-                    <li><strong>Drafts never touch Live.</strong> The API, embeds and shared links keep serving Live until you publish.</li>
-                    <li>
-                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
-                    </li>
-                    <li>
-                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
-                    </li>
-                    <li>
-                        <strong>Score the draft.</strong> Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft.
-                    </li>
-                    <li>
-                        <strong>Publish waits for a pass.</strong> The Passing test set gate is off until you turn it on, for a chatflow or an agentflow that starts from chat. Once on, Publish stays disabled until the current draft passes.
-                        <code>cuttlely check --gate</code> runs the same check in CI.
-                    </li>
-                    <li>
-                        <strong>Every version is kept.</strong> Open an old version as your draft or roll Live back in one step, and promote from Dev to Prod, which goes Live only when its owner selects <strong>Promote to Live</strong>.
-                    </li>
-                    <li>Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it.</li>
-                    <li>
-                        Dev and Prod connect to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, and can run the same side-by-side check. Each server keeps its own credentials; only their names travel.
-                    </li>
-                </ul>
-                <p class="cl-note">
-                    This covers Publish of the current draft only. Roll back Live, Promote from Dev, and <code>PUT /api/v1/chatflows/:id</code> still change Live.
-                    <a href="/docs/how-to/versioning/#require-a-passing-test-set-before-you-publish">See which paths stay open</a>.
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/ab-testing/">A/B test a change with Compare <Icon name="right-arrow" /></a>
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/tests-from-answers/">Turn real answers into tests <Icon name="right-arrow" /></a>
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/evaluations/">Evaluations <Icon name="right-arrow" /></a>
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/ci-gate/"><code>cuttlely check --gate</code> <Icon name="right-arrow" /></a>
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/versioning/">Version history guide <Icon name="right-arrow" /></a>
-                </p>
-            </div>
-            <figure class="cl-shot cl-testing-shot">
-                <Focus
-                    src={publishCheck}
-                    alt="The Publish dialog for Bakery helper after a check: What time do you open on Saturday? is marked Changed, with Live We open at 8 AM on Saturdays and Draft We open at 7 AM on Saturdays, next to a Same row for Do you have gluten-free bread today? where Live and Draft both say No, we bake gluten-free bread only on Tuesdays."
-                    cx={0.5}
-                    cy={0.7}
-                    zoom={1.45}
-                    ratio={4 / 3}
-                    widths={[960, 1440]}
-                    sizes="(min-width: 46rem) 46rem, 100vw"
-                />
-            </figure>
-        </section>
-
-        <section id="made-for-real-teams" class="cl-section" aria-labelledby="real-teams-title">
-            <div class="cl-center">
-                <p class="cl-kicker">For teams</p>
-                <h2 id="real-teams-title" class="cl-display">Made for real teams</h2>
-                <p class="cl-lead">Roles, separate teams, sign-in and an audit log, on a server you run.</p>
-            </div>
-            <ul class="cl-installs cl-team-cards">
-                {
-                    teamFeatures.map((item) => (
-                        <li>
-                            <a href={item.href}>
-                                <Icon name={item.icon} size="1.5rem" />
-                                <span class="cl-display">{item.title}</span>
-                                <span>{item.text}</span>
-                            </a>
-                        </li>
-                    ))
-                }
-            </ul>
-        </section>
-
         <section id="agent-teams-that-power-your-apps" class="cl-section cl-split" aria-labelledby="agent-teams-title">
             <div>
-                <p class="cl-kicker">How a team works</p>
+                <p class="cl-kicker">Teams</p>
                 <h2 id="agent-teams-title" class="cl-display">Agent teams that power your apps</h2>
                 <p class="cl-lead">Give your app a team instead of a single prompt. In Cuttlely, an agent team is called a harness.</p>
                 <ol class="cl-steps">
                     <li><strong>Harness Prime splits each question.</strong> The lead agent reads the question, sends each part to the right specialist, and writes one answer.</li>
                     <li><strong>Specialists do the work.</strong> Each one can have its own model, tools, playbooks and data.</li>
-                    <li><strong>The analyst brings the numbers.</strong> It queries real tables and hands back the actual numbers.</li>
+                    <li><strong>The analyst brings the numbers.</strong> It queries real tables and hands back the actual numbers. Put a sales, a budget and a CRM analyst in one team, each with its own database.</li>
+                    <li><strong>Build with AI drafts the team.</strong> Describe a team and a first version lands on the canvas, with every part and connection checked first.</li>
                 </ol>
                 <a class="cl-link-arrow" href="/docs/how-to/harnesses/">Harnesses guide <Icon name="right-arrow" /></a>
             </div>
@@ -489,26 +282,6 @@ const installs = [
                     sizes="(min-width: 68rem) 560px, 100vw"
                 />
             </figure>
-            <aside id="ask-your-database-in-plain-english" class="cl-callout" aria-labelledby="analyst-callout-title">
-                <p class="cl-kicker">The Analyst</p>
-                <h3 id="analyst-callout-title" class="cl-display">Ask your database in plain English</h3>
-                <p class="cl-callout-lead">Get answers backed by real queries against your own Postgres data, not guesses.</p>
-                <ul class="cl-callout-points">
-                    {
-                        analystPoints.map((point) => (
-                            <li>
-                                <strong>{point.title}</strong> {point.text}
-                            </li>
-                        ))
-                    }
-                </ul>
-                <p class="cl-callout-proof">
-                    <span class="cl-pair-label">Bakery demo</span>
-                    In our internal benchmarks, on a made-up bakery database, ticking 6 of 20 relations took the analyst's prompt from 2,562 to 663 tokens. Rerun it with
-                    <a href={`${REPO_URL}/blob/main/scripts/analyst-schema-tokens.mjs`}>scripts/analyst-schema-tokens.mjs</a>.
-                </p>
-                <a class="cl-link-arrow" href="/docs/how-to/analyst/">Analyst guide <Icon name="right-arrow" /></a>
-            </aside>
         </section>
 
         <section id="use-a-team-from-your-app" class="cl-section" aria-labelledby="api-title">
@@ -539,116 +312,6 @@ const installs = [
                 the timings, the sources and any images the team made.
             </p>
             <p class="cl-center"><a class="cl-link-arrow" href="/docs/api/">API guide <Icon name="right-arrow" /></a></p>
-        </section>
-
-        <section id="every-flow-an-mcp-server" class="cl-section" aria-labelledby="mcp-title">
-            <div class="cl-center">
-                <p class="cl-kicker">MCP</p>
-                <h2 id="mcp-title" class="cl-display">Every flow an MCP server.</h2>
-                <p class="cl-lead">Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish, and side-by-side replay shows what changed first.</p>
-            </div>
-            <ul class="cl-steps">
-                <li><strong>Off until you turn it on.</strong> Turn on MCP Server for a flow and you get an endpoint and a bearer token.</li>
-                <li><strong>Live or published flows only, each flow is one tool call.</strong> Calls run the published version, never the draft, with no memory between calls.</li>
-            </ul>
-            <p>Works with MCP clients via mcp-remote.</p>
-            <a class="cl-link-arrow" href="/docs/api/#mcp-endpoint">MCP endpoint guide <Icon name="right-arrow" /></a>
-        </section>
-
-        <section id="call-your-flows-from-orchestrate" class="cl-section" aria-labelledby="integrations-title">
-            <div class="cl-center">
-                <p class="cl-kicker">Integrations</p>
-                <h2 id="integrations-title" class="cl-display">Call your flows from IBM watsonx Orchestrate</h2>
-                <p class="cl-lead">Build a flow in Cuttlely and let your Orchestrate agents hand it questions.</p>
-            </div>
-            <ul class="cl-steps">
-                <li><strong>External agent.</strong> Register a published chatflow under AI Gateway → Agent directory → Add agent. A native agent calls it as a collaborator. The flow needs a bound API key.</li>
-                <li><strong>MCP toolkit.</strong> The guide shows how to import a flow with MCP Server turned on as a remote MCP toolkit.</li>
-            </ul>
-            <p>
-                <a class="cl-link-arrow" href="/docs/how-to/orchestrate/">External agent guide <Icon name="right-arrow" /></a>
-                <a class="cl-link-arrow" href="/docs/how-to/orchestrate-mcp/">MCP toolkit guide <Icon name="right-arrow" /></a>
-            </p>
-            <div class="cl-actions cl-actions-center">
-                <a class="cl-button cl-button-primary" href="/quickstart/">Get started in 10 minutes <Icon name="right-arrow" /></a>
-                <a class="cl-button cl-button-ghost" href={REPO_URL}><Icon name="github" /> Star on GitHub</a>
-            </div>
-        </section>
-
-        <section id="small-context-big-answers" class="cl-section" aria-labelledby="context-title">
-            <div class="cl-center">
-                <p class="cl-kicker">Keep prompts small</p>
-                <h2 id="context-title" class="cl-display">Small context, big answers</h2>
-                <p class="cl-lead">
-                    Long chats, big tables and long rule books don't have to mean long prompts. Cuttlely gives each agent only what its job needs, keeps your data
-                    where it lives, and shows you what every run used.
-                </p>
-            </div>
-            <ul class="cl-contrasts">
-                <li>
-                    <h3 class="cl-display">Each specialist gets its own job</h3>
-                    <p class="cl-pair">
-                        <span class="cl-pair-label">Typical</span>
-                        Every agent gets the whole chat history.
-                    </p>
-                    <p class="cl-pair cl-pair-cuttlely">
-                        <span class="cl-pair-label">Cuttlely</span>
-                        Harness Prime writes each specialist a task that stands on its own. The specialist gets that task and a short recap of the recent turns.
-                    </p>
-                </li>
-                <li>
-                    <h3 class="cl-display">Data stays in the database</h3>
-                    <p class="cl-pair">
-                        <span class="cl-pair-label">Typical</span>
-                        Query results are pasted into the prompt.
-                    </p>
-                    <p class="cl-pair cl-pair-cuttlely">
-                        <span class="cl-pair-label">Cuttlely</span>
-                        The analyst runs the query and hands back one page of rows. Say "show more" and it fetches the next page. Earlier pages stay out of the
-                        next prompt.
-                    </p>
-                </li>
-                <li>
-                    <h3 class="cl-display">Rules load when they're needed</h3>
-                    <p class="cl-pair">
-                        <span class="cl-pair-label">Typical</span>
-                        Every instruction sits in one giant system prompt.
-                    </p>
-                    <p class="cl-pair cl-pair-cuttlely">
-                        <span class="cl-pair-label">Cuttlely</span>
-                        Put long rules in playbooks. A specialist sees each playbook's name and when to use it, and opens the full text only when a question needs it.
-                    </p>
-                </li>
-                <li>
-                    <h3 class="cl-display">Short handoffs</h3>
-                    <p class="cl-pair">
-                        <span class="cl-pair-label">Typical</span>
-                        Whole documents are pasted into the prompt that writes the final answer.
-                    </p>
-                    <p class="cl-pair cl-pair-cuttlely">
-                        <span class="cl-pair-label">Cuttlely</span>
-                        Harness Prime reads a capped part of each specialist's answer, with the source names and a short snippet. The documents go back to your
-                        app in the response.
-                    </p>
-                </li>
-                <li>
-                    <h3 class="cl-display">See every token</h3>
-                    <p class="cl-pair">
-                        <span class="cl-pair-label">Typical</span>
-                        You find out what a run used on next month's bill.
-                    </p>
-                    <p class="cl-pair cl-pair-cuttlely">
-                        <span class="cl-pair-label">Cuttlely</span>
-                        The run card shows input and output tokens, cached tokens when the model reports them, and how long each step took. The API response
-                        carries the same numbers. The Publish check shows Live and the draft side by side with the tokens and time each one used. If a prompt
-                        had to be shortened, the run says so.
-                    </p>
-                </li>
-            </ul>
-            <p class="cl-center">
-                <a class="cl-link-arrow" href="/docs/how-to/context-and-tokens/">How Cuttlely keeps context small <Icon name="right-arrow" /></a>
-            </p>
-            <p class="cl-center">Lean context: fewer tokens in our internal benchmarks.</p>
         </section>
 
         <section id="tools-your-teams-use" class="cl-section" aria-labelledby="tools-title">
@@ -711,6 +374,266 @@ const installs = [
                     ))
                 }
             </ul>
+            <div class="cl-actions cl-actions-center">
+                <a class="cl-button cl-button-primary" href="/quickstart/?ref=home-teams">Build your first team <Icon name="right-arrow" /></a>
+            </div>
+        </section>
+
+        <section id="small-context-big-answers" class="cl-section" aria-labelledby="context-title">
+            <div class="cl-center">
+                <p class="cl-kicker">Cost and context</p>
+                <h2 id="context-title" class="cl-display">Context handling built from the ground up to be lean.</h2>
+                <p class="cl-lead">
+                    Long chats, big tables and long rule books don't have to mean long prompts. Cuttlely gives each agent only what its job needs, keeps your data
+                    where it lives, and shows you what every run used. <a href="/docs/how-to/context-and-tokens/">How Cuttlely keeps context small</a>.
+                </p>
+                <span id="ask-your-database-in-plain-english" class="cl-anchor" aria-hidden="true"></span>
+            </div>
+            <ul class="cl-contrasts">
+                <li>
+                    <h3 class="cl-display">Each specialist gets its own job</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        Every agent gets the whole chat history.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        Harness Prime writes each specialist a task that stands on its own. The specialist gets that task and a short recap of the recent turns.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">Data stays in the database</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        Query results are pasted into the prompt.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        The analyst runs the query and hands back one page of rows. Say "show more" and it fetches the next page. Earlier pages stay out of the
+                        next prompt.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">Only the tables you tick</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Without it</span>
+                        The whole database schema is pasted into the prompt.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        Tick tables and views in <strong>Tables and views</strong> on the PostgreSQL MCP node. The analyst's prompt gets one line for each, with
+                        its column names, and queries that read anything else are refused. In our internal benchmarks, on a made-up bakery database, ticking 6 of
+                        20 tables and views took the analyst's prompt from 2,562 to 663 tokens. Rerun it with
+                        <a href={`${REPO_URL}/blob/main/scripts/analyst-schema-tokens.mjs`}>scripts/analyst-schema-tokens.mjs</a>.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">Rules load when they're needed</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        Every instruction sits in one giant system prompt.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        Put long rules in playbooks. A specialist sees each playbook's name and when to use it, and opens the full text only when a question needs it.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">Short handoffs</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        Whole documents are pasted into the prompt that writes the final answer.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        Harness Prime reads a capped part of each specialist's answer, with the source names and a short snippet. The documents go back to your
+                        app in the response.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">See every token</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        You find out what a run used on next month's bill.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        The run card shows input and output tokens, cached tokens when the model reports them, and how long each step took. The API response
+                        carries the same numbers. The Publish check shows Live and the draft side by side with the tokens and time each one used. If a prompt
+                        had to be shortened, the run says so. The Usage page shows daily tokens and an estimated cost per flow and model, for models with a
+                        price set.
+                    </p>
+                </li>
+            </ul>
+            <p class="cl-center">Lean context: fewer tokens in our internal benchmarks.</p>
+            <div class="cl-section-start" role="group" aria-label="Start Cuttlely with one command">
+                <div class="cl-terminal cl-terminal-inline">
+                    <pre id="cl-context-npx"><code><span class="cl-prompt" aria-hidden="true">$ </span>npx cuttlely start</code></pre>
+                    <CopyButton target="cl-context-npx" label="Copy the command npx cuttlely start" />
+                </div>
+                <p class="cl-hero-start-note">Node 20+ and Docker</p>
+            </div>
+        </section>
+
+        <section id="ab-test-every-change-before-it-goes-live" class="cl-section cl-ab" aria-labelledby="test-every-change-title">
+            <span id="test-every-change-before-it-goes-live" class="cl-anchor" aria-hidden="true"></span>
+            <span id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-anchor" aria-hidden="true"></span>
+            <div class="cl-center">
+                <p class="cl-kicker">Safe deploys</p>
+                <h2 id="test-every-change-title" class="cl-display">Replay every change before it goes live</h2>
+                <p class="cl-lead">
+                    Every edit saves to a draft while Live keeps serving your app. Compare asks real questions on Live and on the draft, side by side, and marks
+                    each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes.
+                </p>
+                <p>Test with up to 100 question-and-answer pairs, with more on the roadmap.</p>
+            </div>
+            <figure class="cl-demo-window cl-testing-window">
+                <div class="cl-video-stage cl-testing-stage">
+                    <video
+                        class="cl-demo-video"
+                        data-demo-video
+                        controls
+                        muted
+                        loop
+                        playsinline
+                        preload="none"
+                        width="1280"
+                        height="720"
+                        poster={mediaUrl('/media/products/testing-poster.webp')}
+                        aria-label="Testing video. Compare, score, then publish."
+                    >
+                        <source src={mediaUrl('/media/products/testing.webm')} type="video/webm" />
+                        <source src={mediaUrl('/media/products/testing.mp4')} type="video/mp4" />
+                        <track kind="captions" src={mediaUrl('/media/products/testing.vtt')} srclang="en" label="English" />
+                    </video>
+                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the testing video with sound">
+                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+                            <path d="M8 5v14l12-7z" fill="currentColor" />
+                        </svg>
+                    </button>
+                </div>
+            </figure>
+            <div class="cl-testing-points">
+                <ul class="cl-checks">
+                    <li><strong>Drafts never touch Live.</strong> The API, embeds and shared links keep serving Live until you publish.</li>
+                    <li>
+                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
+                    </li>
+                    <li>
+                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
+                    </li>
+                    <li>
+                        <strong>Score the draft.</strong> Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft.
+                    </li>
+                    <li>
+                        <strong>Publish waits for a pass.</strong> The Passing test set gate is off until you turn it on, for a chatflow or an agentflow that starts from chat. Once on, Publish stays disabled until the current draft passes.
+                        <code>cuttlely check --gate</code> runs the same check in CI.
+                    </li>
+                    <li>
+                        <strong>Every version is kept.</strong> Open an old version as your draft. Roll back the Live flow in one step.
+                    </li>
+                    <li>Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it.</li>
+                </ul>
+                <p class="cl-note">
+                    This covers Publish of the current draft only. Roll back Live, Promote from Dev, and <code>PUT /api/v1/chatflows/:id</code> still change Live.
+                    <a href="/docs/how-to/versioning/#require-a-passing-test-set-before-you-publish">See which paths stay open</a>.
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/ab-testing/">A/B test a change with Compare <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/tests-from-answers/">Turn real answers into tests <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/evaluations/">Evaluations <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/ci-gate/"><code>cuttlely check --gate</code> <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/versioning/">Version history guide <Icon name="right-arrow" /></a>
+                </p>
+            </div>
+            <span id="made-for-real-teams" class="cl-anchor" aria-hidden="true"></span>
+            <h3 id="real-teams-title" class="cl-display cl-center">Governance for real teams</h3>
+            <ul class="cl-installs cl-team-cards">
+                {
+                    teamFeatures.map((item) => (
+                        <li>
+                            <a href={item.href}>
+                                <Icon name={item.icon} size="1.5rem" />
+                                <span class="cl-display">{item.title}</span>
+                                <span>{item.text}</span>
+                            </a>
+                        </li>
+                    ))
+                }
+            </ul>
+            <div class="cl-actions cl-actions-center">
+                <a class="cl-button cl-button-ghost" href={`${REPO_URL}?ref=home-deploys`}><Icon name="github" /> Star on GitHub</a>
+            </div>
+        </section>
+
+        <section id="every-flow-an-mcp-server" class="cl-section" aria-labelledby="mcp-title">
+            <div class="cl-center">
+                <p class="cl-kicker">MCP</p>
+                <h2 id="mcp-title" class="cl-display">Every flow an MCP server.</h2>
+                <p class="cl-lead">Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish, and side-by-side replay shows what changed first.</p>
+            </div>
+            <ul class="cl-steps">
+                <li><strong>Off until you turn it on.</strong> Turn on MCP Server for a flow and you get an endpoint and a bearer token.</li>
+                <li><strong>Live or published flows only, each flow is one tool call.</strong> Calls run the published version, never the draft, with no memory between calls.</li>
+            </ul>
+            <p>Works with MCP clients via mcp-remote.</p>
+            <a class="cl-link-arrow" href="/docs/api/#mcp-endpoint">MCP endpoint guide <Icon name="right-arrow" /></a>
+        </section>
+
+        <section id="integrations" class="cl-section cl-band" aria-labelledby="integrations-orchestrate-title">
+            <span id="call-your-flows-from-orchestrate" class="cl-anchor" aria-hidden="true"></span>
+            <p class="cl-kicker">Integrations</p>
+            <h2 id="integrations-orchestrate-title" class="cl-display">Call your flows from IBM watsonx Orchestrate</h2>
+            <p>Cuttlely agents answer over a standard chat API, so enterprise platforms can call them. Here's one we tested live: IBM watsonx Orchestrate.</p>
+            <ul class="cl-checks">
+                <li>
+                    <strong>External agent.</strong> Register a published chatflow under <strong>AI Gateway</strong> → <strong>Agent directory</strong> →
+                    <strong>Add agent</strong>. A native agent calls it as a collaborator, and chats keep context across turns. The flow needs a bound API key.
+                    <a href="/docs/how-to/orchestrate/">Orchestrate guide</a>.
+                </li>
+                <li>
+                    <strong>MCP toolkit.</strong> The guide shows how to import a flow with MCP Server turned on as a remote MCP toolkit.
+                    <a href="/docs/how-to/orchestrate-mcp/">MCP toolkit guide</a>.
+                </li>
+            </ul>
+            <figure class="cl-demo-window">
+                <div class="cl-video-stage">
+                    <video
+                        class="cl-demo-video"
+                        data-demo-video
+                        controls
+                        playsinline
+                        preload="none"
+                        width="1280"
+                        height="720"
+                        poster={mediaUrl('/media/orchestrate-demo-poster.webp')}
+                        aria-label="Demo video: a Cuttlely agent called from IBM watsonx Orchestrate, with captions"
+                        aria-describedby="cl-orchestrate-caption"
+                    >
+                        <source src={mediaUrl('/media/orchestrate-demo.mp4')} type="video/mp4" />
+                    </video>
+                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the Orchestrate demo with sound">
+                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+                            <path d="M8 5v14l12-7z" fill="currentColor" />
+                        </svg>
+                    </button>
+                </div>
+                <figcaption id="cl-orchestrate-caption" class="cl-demo-caption">
+                    A 72-second narrated walkthrough with captions. A Cuttlely flow is added in Orchestrate as an external agent, a native agent hands it
+                    questions, the flow remembers the chat, and a wrong key gets no answer.
+                </figcaption>
+            </figure>
+            <p>
+                <a class="cl-link-arrow" href="/docs/api/#call-a-chatflow-from-orchestrate">External agent guide <Icon name="right-arrow" /></a>
+            </p>
         </section>
 
         <section id="start-in-minutes" class="cl-section" aria-labelledby="run-title">
@@ -764,19 +687,12 @@ const installs = [
             </p>
         </section>
 
-        <section id="bring-your-existing-flows" class="cl-section cl-band" aria-labelledby="bring-title">
-            <h2 id="bring-title" class="cl-display">Bring your existing flows</h2>
-            <p>Have flows from another tool? The <strong>Import</strong> menu checks an export and opens it on the right canvas.</p>
-            <a class="cl-link-arrow" href="/docs/bring-your-flows/">What carries over <Icon name="right-arrow" /></a>
-        </section>
-
         <section class="cl-final" aria-labelledby="final-title">
             <Image src={laptop} alt="" widths={[200, 400]} sizes="200px" class="cl-final-mascot" />
             <h2 id="final-title" class="cl-display">See an agent team at work.</h2>
             <p>Start Cuttlely, add one model key, and the bakery team answers with a chart.</p>
             <div class="cl-actions cl-actions-center">
-                <a class="cl-button cl-button-primary" href="/quickstart/">Get started in 10 minutes <Icon name="right-arrow" /></a>
-                <a class="cl-button cl-button-ghost" href={REPO_URL}><Icon name="github" /> Star on GitHub</a>
+                <a class="cl-button cl-button-primary" href="/quickstart/?ref=home-final">Get started in 10 minutes <Icon name="right-arrow" /></a>
             </div>
         </section>
     </div>

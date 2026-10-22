@@ -15,6 +15,16 @@
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
+オープンソースのエージェントプラットフォーム · Apache-2.0
+
+最初から無駄のないエージェントチームを作れます。各エージェントには必要なものだけが渡ります。実行ごとの使用量とコストを確かめ、公開前に実際の質問を再実行できます。
+
+```bash
+npx cuttlely start
+```
+
+Node 20+ と Docker
+
 **本番に使える、ビジュアルなエージェントビルダー。**
 
 ドラッグ＆ドロップで作るエージェントに、本物のガバナンスと小さなコンテキストを。オープンソース、Apache-2.0。Cuttlely（「カドリー」と読みます）は、あなたが管理するインフラの上で動きます。変更はすべて下書きで待ち、公開する前に実際の質問を Live と下書きで並べて再実行でき、各スペシャリストには必要なタスクだけが渡ります。

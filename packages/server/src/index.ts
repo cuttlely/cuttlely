@@ -448,6 +448,10 @@ export async function start(): Promise<void> {
         await harnessesService.backfillHarnessWorkspaces().catch((error) => {
             logger.warn(`[harness] workspace backfill failed: ${error instanceof Error ? error.message : error}`)
         })
+        // Harness records whose canvas was deleted before the canvas delete cascaded. Runs once per start and is idempotent.
+        await harnessesService.removeOrphanHarnesses().catch((error) => {
+            logger.warn(`[harness] orphan cleanup failed: ${error instanceof Error ? error.message : error}`)
+        })
         await harnessesService.closeInterruptedRuns()
         await warnKeysMissingBoundHarnesses()
     }

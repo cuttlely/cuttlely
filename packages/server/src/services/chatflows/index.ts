@@ -26,6 +26,7 @@ import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
 import etlService, { orgIdForWorkspace } from '../../services/etl'
 import harnessesService from '../../services/harnesses'
+import { harnessCanvasDelete } from '../../services/harnesses/canvasDelete'
 import {
     assertCallerMayUseHarnesses,
     assertHarnessReferencesWellFormed,
@@ -155,13 +156,34 @@ const deleteChatflow = async (
 
         // The flow row and the rows that hold what people typed into it (leads with name, email and phone, messages,
         // feedback, upsert history) go in one transaction: if any of them fails, the flow stays and nothing is half gone.
-        const dbResponse = await appServer.AppDataSource.transaction(async (manager) => {
-            await manager.getRepository(Lead).delete({ chatflowid: chatflowId })
-            await manager.getRepository(ChatMessageFeedback).delete({ chatflowid: chatflowId })
-            await manager.getRepository(ChatMessage).delete({ chatflowid: chatflowId })
-            await manager.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
-            return manager.getRepository(ChatFlow).delete({ id: chatflowId })
-        })
+        // A HARNESS canvas takes its harness record (roster, specialists, playbooks) and its API key grants with it, inside
+        // the same transaction: a failure rolls the canvas back, and a failed commit puts the record back. The schedule and
+        // run history go after the commit.
+        let harnessCascade: { names: string[]; restore: () => Promise<void>; commit: () => Promise<void> } | undefined
+        let dbResponse
+        try {
+            dbResponse = await appServer.AppDataSource.transaction(async (manager) => {
+                await manager.getRepository(Lead).delete({ chatflowid: chatflowId })
+                await manager.getRepository(ChatMessageFeedback).delete({ chatflowid: chatflowId })
+                await manager.getRepository(ChatMessage).delete({ chatflowid: chatflowId })
+                await manager.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
+                const deleted = await manager.getRepository(ChatFlow).delete({ id: chatflowId })
+                if (chatflow.type === EnumChatflowType.HARNESS) {
+                    harnessCascade = await harnessesService.removeHarnessesForCanvas(chatflowId, workspaceId, manager)
+                }
+                return deleted
+            })
+        } catch (error) {
+            if (harnessCascade) {
+                await harnessCascade
+                    .restore()
+                    .catch((restoreError: unknown) =>
+                        logger.error(`[server]: harness record restore for ${chatflowId} failed: ${getErrorMessage(restoreError)}`)
+                    )
+            }
+            throw error
+        }
+        if (harnessCascade) await harnessCascade.commit()
         void flowVersionsService.recordFlowDeletion(chatflow, actor)
         // The flow's draft and Publish instantly setting go with it. A leftover row is harmless, so a failure here
         // does not stop the delete.
@@ -194,6 +216,10 @@ const deleteChatflow = async (
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: chatflowsService.deleteChatflow - ${getErrorMessage(error)}`)
     }
 }
+
+// The Agent Team card delete removes a harness with its canvas through this delete, so the cascade is the same either way.
+harnessCanvasDelete.run = async (chatflowId: string, workspaceId: string) =>
+    deleteChatflow(chatflowId, (await orgIdForWorkspace(workspaceId)) || '', workspaceId, [EnumChatflowType.HARNESS])
 
 /**
  * `harnessScope` is an API key's harness list: HARNESS canvases with another name are left out of the rows and the total.
@@ -891,7 +917,7 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     // Before any insert or update, so a refused key leaves no row behind. The sync checks the same caller again.
     assertCallerMayUseHarnesses(caller, [chatflow.name])
     // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
-    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
+    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, { claiming: true })
     const engine = await loadHarnessSync()
     try {
         engine.rosterFromFlow({
@@ -918,27 +944,30 @@ export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCall
         logger.warn(`[harness] workspace org lookup failed: ${getErrorMessage(error)}`)
     }
     try {
-        // A name that already belongs to another team is refused before the file is written.
-        await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
-        // Warnings are logged by the harness sync. The chatflow response has no warnings field.
-        await engine.syncHarnessFromFlow({
-            name: chatflow.name,
-            chatflowId: chatflow.id,
-            flowData: chatflow.flowData,
-            workspaceId: chatflow.workspaceId,
-            caller,
-            componentNodes,
-            flowOptions: {
-                appDataSource: appServer.AppDataSource,
-                databaseEntities,
-                logger,
+        // The name check and the record write hold the name, so a pending canvas delete of the same name cannot interleave.
+        await harnessesService.withNameLock(chatflow.name, async () => {
+            // A name that already belongs to another team, or one a pending delete still holds, is refused before the write.
+            await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
+            // Warnings are logged by the harness sync. The chatflow response has no warnings field.
+            await engine.syncHarnessFromFlow({
+                name: chatflow.name,
+                chatflowId: chatflow.id,
+                flowData: chatflow.flowData,
+                workspaceId: chatflow.workspaceId,
+                caller,
                 componentNodes,
-                chatflowid: chatflow.id,
-                workspaceId: chatflow.workspaceId || undefined,
-                orgId,
-                baseURL: process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`,
-                cachePool: appServer.cachePool
-            }
+                flowOptions: {
+                    appDataSource: appServer.AppDataSource,
+                    databaseEntities,
+                    logger,
+                    componentNodes,
+                    chatflowid: chatflow.id,
+                    workspaceId: chatflow.workspaceId || undefined,
+                    orgId,
+                    baseURL: process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`,
+                    cachePool: appServer.cachePool
+                }
+            })
         })
     } catch (error) {
         if (error instanceof AppError) throw error

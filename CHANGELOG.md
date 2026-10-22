@@ -7,11 +7,20 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Added
 
 -   The agent runtime's Python has pinned image and file libraries: matplotlib, seaborn, plotly with kaleido, numpy, pandas, networkx, graphviz, diagrams, reportlab, python-docx, openpyxl, xlsxwriter and python-pptx. The Docker image adds Graphviz `dot` and the Inter, Noto and DejaVu fonts, and the Docker build workflow runs a smoke test that renders a PNG, a PDF, a DOCX and an XLSX. `CUTTLELY_HERMES_ASSETS=0` leaves the libraries out of `scripts/setup-hermes.sh`. [Image and file libraries in the agent runtime](./docs/reference/hermes-assets.md).
+-   Each card on the Agent Team list has a delete button for owners and editors. A confirm dialog names the team, and the delete removes the team's canvas, chat messages, roster, specialists, playbooks, schedule, API key grants and run history. Anyone without delete permission gets 403.
+
+### Fixed
+
+-   Deleting a harness canvas now deletes its agent team in the same transaction, so no card is left behind without a canvas. On start, Cuttlely removes agent teams whose canvas was already deleted. A team whose canvas is gone shows a clear message when opened, and its card says the canvas was deleted and can be deleted.
 
 ### Changed
 
--   The public website home page has an Integrations for the enterprise section after the three pillars: Example: call your agents from IBM watsonx Orchestrate, with a 72-second narrated demo video (captions, poster first, loads on play).
+-   The public website home page has a new hero ("Your applications deserve agents", with a copyable `npx cuttlely start`) and is grouped into Teams, Cost and context, and Safe deploys, then Every flow an MCP server and one Integrations section that calls your flows from IBM watsonx Orchestrate, with the 72-second narrated demo video.
 -   When `npx cuttlely start` gives up waiting for the health check, it says to check the logs with `npx cuttlely logs` and then open the address once it answers, instead of saying Cuttlely is still starting.
+
+### Fixed
+
+-   A specialist with several tool nodes of one type, such as two Retriever Tool nodes, offered them all under the same name and sent every call to the first one. Each node is now offered under its own name input (made a valid tool name; nodes that share a name each get `__` and their node id as a suffix), and each call reaches the node it names.
 
 ## [1.3.1] - 2026-10-21
 

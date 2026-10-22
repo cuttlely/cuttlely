@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -469,6 +470,116 @@ export function readyToolSpecs(prepared) {
     })
 }
 
+// Tool names must match ^[A-Za-z0-9_-]{1,64}$, so anything else becomes an underscore.
+const TOOL_NAME_MAX = 64
+
+function edgeMark(char) {
+    return char === '_' || char === '-'
+}
+
+// Linear on any input: one replace, then the edges are trimmed by index rather than by an anchored regex.
+export function toolNameFrom(text) {
+    const name = String(text ?? '')
+        .slice(0, 1024)
+        .replace(/[^A-Za-z0-9_-]+/g, '_')
+        .replace(/_+/g, '_')
+    let start = 0
+    let end = name.length
+    while (start < end && edgeMark(name[start])) start += 1
+    while (end > start && edgeMark(name[end - 1])) end -= 1
+    return name.slice(start, end).slice(0, TOOL_NAME_MAX)
+}
+
+function baseToolName(binding) {
+    return (
+        toolNameFrom(binding?.inputs?.name) ||
+        toolNameFrom(binding?.nodeName) ||
+        toolNameFrom(binding?.serverName) ||
+        toolNameFrom(binding?.label) ||
+        'module'
+    )
+}
+
+const NODE_SUFFIX_MAX = 24
+
+function compareKeys(left, right) {
+    for (let i = 0; i < left.length; i += 1) {
+        if (left[i] < right[i]) return -1
+        if (left[i] > right[i]) return 1
+    }
+    return 0
+}
+
+// A cleaned name never holds two underscores in a row, so a suffix after "__" can never equal a plain
+// name, and adding a node can never take a name another node already has.
+function withSuffix(base, suffix) {
+    const tail = `__${suffix}`
+    return `${base.slice(0, TOOL_NAME_MAX - tail.length)}${tail}`
+}
+
+// A short suffix that belongs to the node: its id when that is short, else a hash of the id.
+function nodeSuffix(binding, index) {
+    const id = String(binding?.nodeId || '')
+    const clean = toolNameFrom(id)
+    // An id is used as is only when cleaning left it unchanged, so two ids never share a suffix that way.
+    if (clean && clean === id && clean.length <= NODE_SUFFIX_MAX) return clean
+    if (id) return `n${createHash('sha256').update(id).digest('hex').slice(0, 10)}`
+    return String(index + 1)
+}
+
+// One tool name per wired node, from the node's own name input. A name only that node wants is kept
+// as is. When nodes share a name, every one of them takes "__" and its node id as a suffix, so a name
+// always belongs to the same node. Plain and suffixed names never overlap, and suffixed names are given
+// out in node id order, so reordering, adding or removing other nodes never hands an advertised name
+// to a different node. reserved holds names already taken, such as the tools an MCP server advertises.
+export function specialistToolBindings(specialist, reserved = new Set()) {
+    const bindings = [...(specialist?.modules || []), ...(specialist?.mcpServers || [])]
+    const items = bindings.map((binding, index) => ({ binding, index, base: baseToolName(binding), suffix: nodeSuffix(binding, index) }))
+    const counts = new Map()
+    for (const item of items) counts.set(item.base, (counts.get(item.base) || 0) + 1)
+    const taken = new Set(reserved)
+    const names = new Map()
+    for (const item of items) {
+        if (counts.get(item.base) === 1 && !taken.has(item.base)) {
+            names.set(item, item.base)
+            taken.add(item.base)
+        }
+    }
+    const rest = items
+        .filter((item) => !names.has(item))
+        .sort((x, y) =>
+            compareKeys([x.base, x.suffix, String(x.binding?.nodeId || '')], [y.base, y.suffix, String(y.binding?.nodeId || '')])
+        )
+    for (const item of rest) {
+        let name = withSuffix(item.base, item.suffix)
+        // The counter keeps its room in the 64 characters, so this always ends.
+        for (let n = 2; taken.has(name); n += 1) name = withSuffix(item.base, `${item.suffix}_${n}`)
+        names.set(item, name)
+        taken.add(name)
+    }
+    return items.map((item) => ({ name: names.get(item), index: item.index, nodeId: item.binding?.nodeId || '', binding: item.binding }))
+}
+
+export function specialistToolName(specialist, binding, reserved) {
+    return specialistToolBindings(specialist, reserved).find((entry) => entry.binding === binding)?.name || baseToolName(binding)
+}
+
+// The gateway passes the node it advertised under the called name: a node id, or the binding's place.
+function routedBinding(specialist, options) {
+    const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
+    if (options.nodeId) return all.find((binding) => binding?.nodeId === options.nodeId) || null
+    if (Number.isInteger(options.bindingIndex)) return all[options.bindingIndex] || null
+    return null
+}
+
+function bindingForToolName(specialist, toolName) {
+    const entry = specialistToolBindings(specialist).find((item) => item.name === toolName)
+    if (!entry) return null
+    if (!entry.nodeId) return entry.binding
+    const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
+    return all.find((binding) => binding?.nodeId === entry.nodeId) || entry.binding
+}
+
 export function specialistByName(harness, name) {
     return (harness.specialists || []).find((specialist) => specialist.name === name) || null
 }
@@ -487,7 +598,10 @@ export async function executeSpecialistTool(harnessName, specialistName, toolNam
     }
     const modules = specialist.modules || []
     const mcpServers = specialist.mcpServers || []
+    // Route by the node behind the advertised name, so nodes of one type each get their own calls.
     const binding =
+        routedBinding(specialist, options) ||
+        bindingForToolName(specialist, toolName) ||
         modules.find((mod) => mod.nodeName === toolName || mod.label === toolName) ||
         mcpServers.find((mod) => mod.nodeName === toolName || mod.serverName === toolName || mod.label === toolName) ||
         modules[0] ||
