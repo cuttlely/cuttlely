@@ -1341,7 +1341,11 @@ async function runStep(context, step) {
     } catch (error) {
         throwIfClient(context)
         const ms = Date.now() - started
-        const message = overBudget(context) ? budgetFailure(context, specialist.name) : error.message
+        // A failure can quote a workspace path (a tool error, a traceback); it is masked here, before it reaches events,
+        // the trace, the stored message, the run record or the chief's prompt.
+        const message = overBudget(context)
+            ? budgetFailure(context, specialist.name)
+            : hideTurnImageDir(String(error?.message ?? ''), '', specialistWorkspaceRoot())
         emit(context, 'specialist', {
             phase: 'failed',
             name: specialist.name,
@@ -1514,7 +1518,11 @@ async function runHermesSpecialist(context, specialist, task) {
                   })
         noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: Date.now() })
         if (['failed', 'error', 'cancelled'].includes(status.status)) {
-            throw new HarnessError('specialist_failed', status.error || status.message || `Specialist "${specialist.name}" failed.`)
+            const failure = status.error || status.message
+            throw new HarnessError(
+                'specialist_failed',
+                failure ? hideTurnImageDir(String(failure), imageDir, specialistWorkspaceRoot()) : `Specialist "${specialist.name}" failed.`
+            )
         }
         attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
         noteTurnImages(context, specialist, specialistStarted, imageDir)
@@ -2182,7 +2190,12 @@ export async function warmHarnessProfiles({ names, baseUrl = hermesBaseUrl(), fe
                 await runHermesSpecialist(context, specialist, WARM_INPUT)
                 return { profile: specialist.profileName, status: 'warm', ms: Date.now() - started }
             } catch (error) {
-                return { profile: specialist.profileName, status: 'failed', ms: Date.now() - started, error: error.message }
+                return {
+                    profile: specialist.profileName,
+                    status: 'failed',
+                    ms: Date.now() - started,
+                    error: hideTurnImageDir(String(error?.message ?? ''), '', specialistWorkspaceRoot())
+                }
             }
         })
     )

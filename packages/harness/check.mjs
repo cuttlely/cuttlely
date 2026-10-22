@@ -2656,6 +2656,8 @@ try {
 }
 check('a bare model name is not a chief model', shorthandRecord?.code === 'missing_model', shorthandRecord?.message)
 
+// A specialist profile whose next run fails with this error, for the failure-path checks.
+let contractFailRun = null
 const contract = await startContractServer()
 const modelBaseUrl = `${contract.url}/v1`
 
@@ -3273,6 +3275,57 @@ check(
 )
 check('partial failure keeps the specialists that finished', partial.agents.filter((agent) => agent.status === 'completed').length === 4)
 check('the chief is told which specialist failed', partialHandoff.includes('### browser (failed)'), partialHandoff)
+
+{
+    // A failure that quotes the workspace path is masked on every channel: the answer's agents, the trace, the events,
+    // the stored chat message, the run record and the chief's prompt.
+    const { specialistWorkspace } = await import('./profile.mjs')
+    const root = path.dirname(specialistWorkspace('_'))
+    const rawPath = path.join(root, 'team--browser', 'chat-images', 'demo-run', 'deck.pptx')
+    contractFailRun = { profile: 'browser', error: `Traceback: open ${rawPath} failed in ${root}/team--browser` }
+    const events = []
+    let recorded = null
+    let leaked
+    try {
+        leaked = await runTeam('leak-fail-1', {
+            onEvent: (event) => events.push(event),
+            onRecorded: (row) => {
+                recorded = row
+            }
+        })
+    } finally {
+        contractFailRun = null
+    }
+    const leakHandoff = String(
+        teamCalls
+            .filter((entry) => String(entry.messages[0]?.content || '').startsWith('You are Harness Prime for the "team" harness.'))
+            .at(-1)
+            .messages.at(-1).content
+    )
+    const failedAgent = leaked.agents.find((agent) => agent.name === 'browser')
+    const storedLeak = JSON.stringify(attachHarnessToChatMessage({ role: 'apiMessage', content: '' }, leaked))
+    const channels = {
+        agents: JSON.stringify(leaked.agents),
+        trace: JSON.stringify(leaked.trace || {}),
+        events: JSON.stringify(events),
+        stored: storedLeak,
+        recorded: JSON.stringify(recorded || {}),
+        handoff: leakHandoff
+    }
+    const showing = Object.entries(channels)
+        .filter(([, text]) => text.includes(root))
+        .map(([name]) => name)
+    check(
+        'a specialist failure that quotes a workspace path is masked in agents, trace, events, the stored message, the run record and the handoff',
+        failedAgent?.status === 'failed' &&
+            String(failedAgent.error).includes('deck.pptx') &&
+            events.some((event) => JSON.stringify(event).includes('deck.pptx')) &&
+            leakHandoff.includes('### browser (failed)') &&
+            Boolean(recorded) &&
+            showing.length === 0,
+        JSON.stringify({ showing, error: failedAgent?.error })
+    )
+}
 
 const persisted = attachHarnessToChatMessage({ role: 'apiMessage', content: '' }, partial)
 const stored = JSON.parse(persisted.harnessPayload)
@@ -14683,7 +14736,10 @@ function startContractServer() {
             seen.push({ kind: 'run', profile, body: json, authorization, scope: req.headers['x-hermes-session-key'], at: Date.now() })
             const run = {
                 ready: Date.now() + 150,
-                status: { status: 'completed', output: `${profile} did: ${json.input}`, session_id: json.session_id },
+                status:
+                    contractFailRun?.profile && profile.includes(contractFailRun.profile)
+                        ? { status: 'failed', error: contractFailRun.error }
+                        : { status: 'completed', output: `${profile} did: ${json.input}`, session_id: json.session_id },
                 close() {}
             }
             runs.set(runId, run)
