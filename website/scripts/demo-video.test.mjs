@@ -673,7 +673,7 @@ test('one Integrations section follows MCP, keeps the Orchestrate video, and nam
 
 test('the home page hero uses the Oct 21 copy, with the approved title and meta description', () => {
     const lead =
-        'Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.'
+        'Orchestrate AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.'
     const retired = 'The visual agent builder, ready for production.'
     const hero = readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
     const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
@@ -685,11 +685,11 @@ test('the home page hero uses the Oct 21 copy, with the approved title and meta 
     assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
     assert.equal(hero.includes(retired), false)
     assert.equal(page.includes(retired), false)
-    assert.ok(page.includes("tagline: 'Open-source agent platform · Apache-2.0'"))
-    assert.ok(page.includes("title: 'Cuttlely | Open-source agent platform for lean AI agent teams'"))
+    assert.ok(page.includes("tagline: 'Context-aware agent orchestration · Open source, Apache-2.0'"))
+    assert.ok(page.includes("title: 'Cuttlely | Context-aware agent orchestration, open source'"))
     assert.ok(
         page.includes(
-            "'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'"
+            "'Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'"
         )
     )
     assert.match(page, /<span class="cl-pair-label">Without it<\/span>\s*The whole database schema is pasted into the prompt\./)
