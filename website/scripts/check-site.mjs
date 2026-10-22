@@ -47,16 +47,16 @@ const OTHER_APPS = ['n8n', ['lang', 'flow'].join(''), 'dify', ['keel', 'flow'].j
 const OTHER_APPS_RE = new RegExp(`\\b(${OTHER_APPS.join('|')})\\b`, 'i')
 
 const RETIRED_TAGLINE = 'The visual agent builder, ready for production.'
-const HOME_TITLE = 'Cuttlely | Open-source agent platform for lean AI agent teams'
+const HOME_TITLE = 'Cuttlely | Context-aware agent orchestration, open source'
 const HOME_META =
-    'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'
+    'Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'
 // Allowed once on the whole site: the heading of the home page's Cost and context section.
 const GROUND_UP = /built from the ground up/gi
 
 const HOME_LINES = [
-    'Open-source agent platform · Apache-2.0',
+    'Context-aware agent orchestration · Open source, Apache-2.0',
     'Your applications deserve agents',
-    'Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.',
+    'Orchestrate AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.',
     'Get started in 10 minutes',
     'Star on GitHub',
     'npx cuttlely start',

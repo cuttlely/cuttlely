@@ -7,7 +7,7 @@
 
 # Cuttlely docs
 
-Cuttlely is an open-source visual agent builder, ready for production. It gives your applications their own intelligent capabilities and coordinated agent teams. A team is a lead agent, Harness Prime, that splits each question among specialists, and in Cuttlely it is called a harness. Your app calls a team through the API, and people can chat with it on a share link or a website embed. Knowledge pipelines (ETL), visual workflows (chatflows and agentflows) and Build with AI give the teams what they need, and every change is a draft until you publish it. It all runs on infrastructure you control.
+Cuttlely orchestrates teams of AI agents and controls what context each one sees, using the tables, tools and rules you choose. It gives your applications their own intelligent capabilities and coordinated agent teams. A team is a lead agent, Harness Prime, that splits each question among specialists, and in Cuttlely it is called a harness. Your app calls a team through the API, and people can chat with it on a share link or a website embed. Knowledge pipelines (ETL), visual workflows (chatflows and agentflows) and Build with AI give the teams what they need, and every change is a draft until you publish it. It all runs on infrastructure you control.
 
 New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes), or watch a customer care team resolve a late-order complaint in about a minute with [Try the demo](./how-to/try-the-demo.md). Building an app? Start with the [API guide](./api.md), then [Use a team from your app](../README.md#use-a-team-from-your-app). The harness [Prediction API](./how-to/harnesses.md#prediction-api) section is the reference for harness responses and stream events.
 
