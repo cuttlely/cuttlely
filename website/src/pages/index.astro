@@ -205,6 +205,7 @@ const installs = [
                 <div class="cl-video-stage">
                     <video
                         class="cl-demo-video"
+                        data-demo-video
                         controls
                         playsinline
                         preload="none"
@@ -216,6 +217,11 @@ const installs = [
                     >
                         <source src={mediaUrl('/media/orchestrate-demo.mp4')} type="video/mp4" />
                     </video>
+                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the Orchestrate demo with sound">
+                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+                            <path d="M8 5v14l12-7z" fill="currentColor" />
+                        </svg>
+                    </button>
                 </div>
                 <figcaption id="cl-orchestrate-caption" class="cl-demo-caption">
                     A 72-second narrated walkthrough with captions. A Cuttlely flow is added in Orchestrate as an external agent, a native agent hands it
