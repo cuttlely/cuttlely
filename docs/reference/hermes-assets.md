@@ -55,4 +55,4 @@ The smoke test imports every library and renders a PNG, a PDF, a DOCX, two XLSX 
 
 ## Change a pin
 
-Edit `scripts/hermes-assets/requirements.in`, then run `node scripts/hermes-assets/compile.mjs` (needs `uv`). It recompiles `requirements.txt` against `hermes/uv.lock`, with the uv settings in `hermes/pyproject.toml` (such as its 14-day `exclude-newer` window), so a release newer than that window cannot be pinned yet. Check the license of every new package before you add it.
+Edit `scripts/hermes-assets/requirements.in`, then run `bash scripts/setup-hermes.sh --compile-assets` (needs `uv`). It recompiles `requirements.txt` against `hermes/uv.lock`, with the uv settings in `hermes/pyproject.toml` (such as its 14-day `exclude-newer` window), so a release newer than that window cannot be pinned yet. Check the license of every new package before you add it.

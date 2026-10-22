@@ -4,6 +4,7 @@
 #   bash scripts/setup-hermes.sh          # Python from hermes/.python-version (3.14), downloaded if missing
 #   bash scripts/setup-hermes.sh 3.12     # a version uv can find or download
 #   bash scripts/setup-hermes.sh /usr/bin/python3.12
+#   bash scripts/setup-hermes.sh --compile-assets   # recompile scripts/hermes-assets/requirements.txt only
 #
 # Python 3.14 installs the locked set from hermes/uv.lock. Upstream locks 3.14 only and marks every
 # runtime dependency `python_version >= '3.14'`, so 3.11-3.13 resolve those same requirements unfrozen.
@@ -22,6 +23,21 @@ AIOHTTP="aiohttp==3.14.4"
 if ! command -v uv >/dev/null 2>&1; then
     echo "uv is required. Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
     exit 1
+fi
+
+# Recompile the image and file libraries from requirements.in, pinned with hashes. hermes/uv.lock is the
+# constraint, so a shared package (Pillow, packaging, typing-extensions) keeps the version the runtime locks. It runs
+# in hermes/, so the uv settings in hermes/pyproject.toml (exclude-newer) apply as they do at install.
+if [[ "${1:-}" == "--compile-assets" ]]; then
+    ASSETS="$ROOT/scripts/hermes-assets"
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "$WORK"' EXIT
+    cd "$HERMES"
+    uv export --frozen --extra mcp --no-hashes --no-emit-project --no-header \
+        | sed -e 's/ *;.*$//' -e '/^ *#/d' -e '/^ *$/d' > "$WORK/constraints.txt"
+    uv pip compile "$ASSETS/requirements.in" -c "$WORK/constraints.txt" --python-version 3.14 --universal \
+        --generate-hashes --no-header --no-annotate -o "$ASSETS/requirements.txt"
+    exit 0
 fi
 
 cd "$HERMES"
