@@ -7840,6 +7840,28 @@ check(
                 `${path.dirname(specialistWorkspace('x'))}-other/a.csv`,
         JSON.stringify(imageContext.turnImages?.map((list) => list.map((image) => image.name)))
     )
+    {
+        // Paths anywhere in a specialist workspace show as file names, including nested chat-folder paths, quoted
+        // paths with spaces and file:// links. A path that only contains the workspaces folder is left as it is.
+        const root = path.dirname(specialistWorkspace('x'))
+        const assets = specialistWorkspace(coder.profileName)
+        const cases = [
+            [`Wrote ${path.join(coderDir, 'exports', 'deck.pptx')}.`, 'Wrote deck.pptx.'],
+            [`Open \`${path.join(assets, 'exports', 'Q3 Reports', 'deck (v2), final.pptx')}\` now`, 'Open `deck (v2), final.pptx` now'],
+            [`"${path.join(assets, 'out', 'a b.csv')}"`, '"a b.csv"'],
+            [`file://${path.join(assets, 'out', 'r.pdf')}`, 'r.pdf'],
+            [`(${assets})`, '(the workspace)'],
+            [`${coderDir}${path.sep}`, 'the chat'],
+            [`/backup${path.join(assets, 'exports', 'deck.pptx')}`, `/backup${path.join(assets, 'exports', 'deck.pptx')}`],
+            [`${root}-other${path.sep}a.csv`, `${root}-other${path.sep}a.csv`]
+        ]
+        const wrong = cases.filter(([input, expected]) => hideTurnImageDir(input, coderDir) !== expected)
+        check(
+            'answers show only file names for any path in a specialist workspace',
+            wrong.length === 0,
+            JSON.stringify(wrong.map(([input]) => [input, hideTurnImageDir(input, coderDir)]))
+        )
+    }
     removeTurnImageDir(coderDir)
     removeTurnImageDir(specialistWorkspace(coder.profileName))
     check(

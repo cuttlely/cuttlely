@@ -388,6 +388,24 @@ describe('Harness node specialist images', () => {
             const [mime, buffer] = addSingleFileToStorage.mock.calls[0]
             expect(mime).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation')
             expect(Buffer.compare(buffer, deck)).toBe(0)
+            // The same bytes go through the real local file storage: the stored name reads back as the deck.
+            const realStorage = jest.requireActual('../../../src/storageUtils')
+            const previous = { type: process.env.STORAGE_TYPE, path: process.env.BLOB_STORAGE_PATH }
+            process.env.STORAGE_TYPE = 'local'
+            process.env.BLOB_STORAGE_PATH = path.join(dir, 'storage')
+            try {
+                addSingleFileToStorage.mockImplementationOnce(realStorage.addSingleFileToStorage)
+                const [saved] = await storeHarnessImages(files, { orgId: 'org-1', chatflowid: 'flow-1', chatId: 'chat-1' })
+                const fileName = saved.data.replace('FILE-STORAGE::', '')
+                const downloaded = await realStorage.getFileFromStorage(fileName, 'org-1', 'flow-1', 'chat-1')
+                expect(Buffer.compare(downloaded, deck)).toBe(0)
+                expect(saved).toMatchObject({ type: 'pptx', name: 'q3_deck.pptx' })
+            } finally {
+                if (previous.type === undefined) delete process.env.STORAGE_TYPE
+                else process.env.STORAGE_TYPE = previous.type
+                if (previous.path === undefined) delete process.env.BLOB_STORAGE_PATH
+                else process.env.BLOB_STORAGE_PATH = previous.path
+            }
         } finally {
             fs.rmSync(dir, { recursive: true, force: true })
         }

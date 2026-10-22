@@ -134,32 +134,44 @@ export function turnImageNote(dir) {
 }
 
 // The folder is a server path; the answer names the file only. Any other path inside a specialist workspace, such as
-// <root>/<profile>/exports/report.pdf, is shown as its file name too, and a bare workspace folder as "the workspace".
-// root is the folder that holds every specialist workspace; it defaults to the one the chat folder sits in.
+// <root>/<profile>/exports/report.pdf, is shown as its file name too, the chat folder itself as "the chat" and a bare
+// workspace folder as "the workspace". root is the folder that holds every specialist workspace; it defaults to the
+// one the chat folder sits in.
 export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirname(path.dirname(dir))) : '') {
     if (typeof text !== 'string') return text
-    let out = text
+    let out = hideWorkspacePaths(text, root, dir)
+    // A chat folder outside the workspaces root still names its files only.
     if (dir) out = out.split(`${dir}${path.sep}`).join('').split(dir).join('the chat')
-    return hideWorkspacePaths(out, root)
+    return out
 }
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value.slice(0, -1) : value)
 
-export function hideWorkspacePaths(text, root) {
+export function hideWorkspacePaths(text, root, chatDir = '') {
     if (!root || typeof text !== 'string') return text
-    const base = root.length > 1 && root.endsWith(path.sep) ? root.slice(0, -1) : root
-    if (base === path.sep || base === '.' || !path.isAbsolute(base)) return text
+    const base = trimSep(root)
+    if (base === path.sep || !path.isAbsolute(base)) return text
+    const chat = chatDir ? trimSep(chatDir) : ''
     const sep = escapeRegExp(path.sep)
-    const pattern = new RegExp(`${escapeRegExp(base)}(?=${sep}|$|[^A-Za-z0-9._-])(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*)?`, 'g')
-    return text.replace(pattern, (match) => {
-        // Sentence punctuation after a path is not part of it.
-        const tail = /[.:!?]+$/.exec(match)?.[0] || ''
-        const parts = match
-            .slice(base.length, match.length - tail.length)
-            .split(path.sep)
-            .filter(Boolean)
-        return (parts.length <= 1 ? 'the workspace' : parts[parts.length - 1]) + tail
-    })
+    // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
+    const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://)?${escapeRegExp(base)}(?![A-Za-z0-9._~-])`
+    const shown = (full) => {
+        const rest = full.replace(/^file:\/\//, '')
+        if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'
+        const parts = rest.slice(base.length).split(path.sep).filter(Boolean)
+        return parts.length <= 1 ? 'the workspace' : parts[parts.length - 1]
+    }
+    // A quoted path may hold spaces and punctuation: everything up to the closing quote is the path.
+    const quoted = new RegExp(`(["'\`])(${head}[^"'\`\\n]*)\\1`, 'g')
+    const bare = new RegExp(`${head}(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*)?`, 'g')
+    return text
+        .replace(quoted, (match, quote, full) => `${quote}${shown(full)}${quote}`)
+        .replace(bare, (match) => {
+            // Sentence punctuation after a path is not part of it.
+            const tail = /[.:!?]+$/.exec(match)?.[0] || ''
+            return shown(match.slice(0, match.length - tail.length)) + tail
+        })
 }
 
 export function removeTurnImageDir(dir) {
