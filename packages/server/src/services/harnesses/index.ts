@@ -190,6 +190,7 @@ export async function assertNameAvailable(name: string, workspaceId?: string | n
     }
     if (!existing) {
         if (opts.claiming) await clearStaleNameData(name)
+        else await assertNotStaged(name)
         return
     }
     const owner = await ownerOf(existing)
@@ -391,11 +392,48 @@ async function storeDir(): Promise<string> {
 // A name that has no harness record yet. A schedule or run rows left under it by an earlier delete whose cleanup
 // failed are cleared first, so a new harness, possibly in another team, never sees the old team's history or schedule.
 // A failure refuses the save.
-export async function clearStaleNameData(name: string) {
-    // A staged canvas delete still holds the name until its transaction ends: it may roll back and need it again.
+// A staged canvas delete still holds the name until its transaction ends: it may roll back and need it again.
+async function assertNotStaged(name: string) {
     if (fs.existsSync(path.join(await storeDir(), `${name}${STAGED}`))) {
         throw new AppError(StatusCodes.CONFLICT, `Harness name "${name}" is being deleted. Try again in a moment.`)
     }
+}
+
+// One writer per harness name in this process: a canvas delete holds the name from staging until its commit or
+// restore, and a canvas sync holds it from the name check through the record write, so the two never interleave.
+const nameLocks = new Map<string, Promise<void>>()
+export async function acquireNameLock(name: string): Promise<() => void> {
+    const previous = nameLocks.get(name) || Promise.resolve()
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const tail = previous.then(() => held)
+    nameLocks.set(name, tail)
+    await previous
+    let released = false
+    return () => {
+        if (released) return
+        released = true
+        release()
+        if (nameLocks.get(name) === tail) nameLocks.delete(name)
+    }
+}
+
+// A restart clears every in-process lock. Tests call this to stand in for one.
+export function resetNameLocks() {
+    nameLocks.clear()
+}
+
+export async function withNameLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    const release = await acquireNameLock(name)
+    try {
+        return await fn()
+    } finally {
+        release()
+    }
+}
+
+export async function clearStaleNameData(name: string) {
+    await assertNotStaged(name)
     try {
         await harnessDeleteHooks.removeSchedule(name)
         const lock = await loadHarness('lock.mjs')
@@ -445,10 +483,20 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
         .filter((row: HarnessRow) => row.chatflowId === chatflowId && (!row.workspaceId || row.workspaceId === workspaceId))
     const dir = await storeDir()
     const staged: string[] = []
-    const restore = async () => {
+    const releases: Array<() => void> = []
+    for (const row of rows) releases.push(await acquireNameLock(row.name))
+    const releaseAll = () => releases.forEach((release) => release())
+    const putAllBack = () => {
         for (const name of staged) {
             const from = path.join(dir, `${name}${STAGED}`)
             if (fs.existsSync(from)) putBack(from, path.join(dir, `${name}.json`))
+        }
+    }
+    const restore = async () => {
+        try {
+            putAllBack()
+        } finally {
+            releaseAll()
         }
     }
     try {
@@ -463,6 +511,7 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
         throw error
     }
     const commit = async () => {
+        releaseAll()
         for (const name of staged) {
             fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
             await harnessDeleteHooks
@@ -1053,6 +1102,7 @@ export default {
     backfillHarnessWorkspaces,
     removeOrphanHarnesses,
     removeHarnessesForCanvas,
+    withNameLock,
     assertNameAvailable,
     listHarnesses,
     getHarness,

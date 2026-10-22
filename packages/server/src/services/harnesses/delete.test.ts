@@ -11,7 +11,13 @@ jest.mock('./apiAccess', () => ({
     removeHarnessFromKeyLists: jest.fn(async () => 0)
 }))
 
-import harnessesService, { harnessCanvasLookup, harnessDeleteHooks, removeHarnessesForCanvas, setHarnessModuleLoader } from './index'
+import harnessesService, {
+    resetNameLocks,
+    harnessCanvasLookup,
+    harnessDeleteHooks,
+    removeHarnessesForCanvas,
+    setHarnessModuleLoader
+} from './index'
 import { removeHarnessFromKeyLists } from './apiAccess'
 
 const TEAM = 'team-a'
@@ -94,6 +100,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+    resetNameLocks()
     setHarnessModuleLoader(null)
     Object.assign(harnessDeleteHooks, originalHooks)
     harnessCanvasLookup.find = originalFind
@@ -179,10 +186,12 @@ describe('canvas delete cascade', () => {
 
     it('a process that stopped mid-delete is settled at start: restored with its canvas, finished without it', async () => {
         await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)
+        resetNameLocks() // the process stopped
         await harnessesService.removeOrphanHarnesses()
         expect(has('navi')).toBe(true)
 
         await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)
+        resetNameLocks()
         canvases.delete(CANVAS_NAVI)
         const result = await harnessesService.removeOrphanHarnesses()
         expect(result.removed).toContain('navi')
@@ -216,6 +225,27 @@ describe('a reused name never sees an earlier harness data', () => {
         expect(runRows.filter((row) => row.harness === 'navi')).toHaveLength(2)
         await cascade.restore()
         expect(has('navi')).toBe(true)
+    })
+
+    it('a canvas sync of the name waits for the pending delete, then sees the restored record', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, { name: 'tx' } as any)
+        const seen: string[] = []
+        const sync = harnessesService.withNameLock('navi', async () => {
+            seen.push(has('navi') ? 'record' : fs.existsSync(path.join(storeDir, 'navi.json.deleting')) ? 'staged' : 'none')
+            await harnessesService.assertNameAvailable('navi', TEAM)
+        })
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(seen).toEqual([])
+        await cascade.restore()
+        await sync
+        expect(seen).toEqual(['record'])
+    })
+
+    it('a sync that reaches the name check while a delete is staged is refused', async () => {
+        await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, { name: 'tx' } as any)
+        // A restart drops the in-process lock: the staged file alone still holds the name.
+        resetNameLocks()
+        await expect(harnessesService.assertNameAvailable('navi', TEAM)).rejects.toMatchObject({ statusCode: 409 })
     })
 
     it('restore never replaces a record saved under the name since', async () => {

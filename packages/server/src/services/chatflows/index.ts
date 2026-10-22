@@ -944,27 +944,30 @@ export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCall
         logger.warn(`[harness] workspace org lookup failed: ${getErrorMessage(error)}`)
     }
     try {
-        // A name that already belongs to another team is refused before the file is written.
-        await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
-        // Warnings are logged by the harness sync. The chatflow response has no warnings field.
-        await engine.syncHarnessFromFlow({
-            name: chatflow.name,
-            chatflowId: chatflow.id,
-            flowData: chatflow.flowData,
-            workspaceId: chatflow.workspaceId,
-            caller,
-            componentNodes,
-            flowOptions: {
-                appDataSource: appServer.AppDataSource,
-                databaseEntities,
-                logger,
+        // The name check and the record write hold the name, so a pending canvas delete of the same name cannot interleave.
+        await harnessesService.withNameLock(chatflow.name, async () => {
+            // A name that already belongs to another team, or one a pending delete still holds, is refused before the write.
+            await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
+            // Warnings are logged by the harness sync. The chatflow response has no warnings field.
+            await engine.syncHarnessFromFlow({
+                name: chatflow.name,
+                chatflowId: chatflow.id,
+                flowData: chatflow.flowData,
+                workspaceId: chatflow.workspaceId,
+                caller,
                 componentNodes,
-                chatflowid: chatflow.id,
-                workspaceId: chatflow.workspaceId || undefined,
-                orgId,
-                baseURL: process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`,
-                cachePool: appServer.cachePool
-            }
+                flowOptions: {
+                    appDataSource: appServer.AppDataSource,
+                    databaseEntities,
+                    logger,
+                    componentNodes,
+                    chatflowid: chatflow.id,
+                    workspaceId: chatflow.workspaceId || undefined,
+                    orgId,
+                    baseURL: process.env.CUTTLELY_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`,
+                    cachePool: appServer.cachePool
+                }
+            })
         })
     } catch (error) {
         if (error instanceof AppError) throw error
