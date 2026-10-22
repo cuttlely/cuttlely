@@ -57,6 +57,7 @@ class HarnessSpecialist_Harness implements INode {
                 name: 'preset',
                 type: 'options',
                 optional: true,
+                additionalParams: true,
                 default: 'none',
                 options: [
                     { label: 'None', name: 'none', description: 'Only the instructions and tools set here.' },

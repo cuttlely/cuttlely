@@ -342,7 +342,7 @@ A specialist that can write files (Python, file tools or the terminal) can also 
 
 ### Make files with the assets preset
 
-Set **Preset** on a Harness Specialist to **Assets** for a specialist that makes polished PDF, DOCX, XLSX, CSV and PNG files. With **Name** left empty it is saved as `assets`. The preset:
+Under **Additional Parameters** on a Harness Specialist, set **Preset** to **Assets** for a specialist that makes polished PDF, DOCX, XLSX, CSV and PNG files. With **Name** left empty it is saved as `assets`. The preset:
 
 -   turns on **Code execution** and **Files**, so the publish check lists it with those abilities,
 -   puts its own instructions before the specialist's **Instructions**, and uses its own routing summary when **Routing summary** is empty,
