@@ -8,7 +8,7 @@ New to the code? [Build from source and run the dev server](../../docs/how-to/fr
 
 ```bash
 git fetch origin
-git switch -c <short-topic> origin/main     # or a separate worktree per change: git worktree add -b <topic> ../cuttlely-<topic> origin/main
+git switch -c <short-topic> origin/main     # prefer a separate clone per change; see MEMORY on pushing from a repo with linked worktrees
 pnpm install --frozen-lockfile
 pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
 ```
