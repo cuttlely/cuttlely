@@ -1,8 +1,8 @@
 // The images and files a harness turn returns, as the chat's own artifacts, each as a data URL. Images are PNG and
-// JPEG; files are PDF, DOCX, XLSX and CSV and keep their name so the chat can offer them as downloads.
+// JPEG; files are PDF, DOCX, XLSX, PPTX and CSV and keep their name so the chat can offer them as downloads.
 // The streamed run events carry only the names, so the harness canvas chat gets the bytes once, after the run.
 // The harness runtime (packages/harness/images.mjs) already checked each file's bytes and size limits.
-export type ChatArtifactType = 'png' | 'jpeg' | 'pdf' | 'docx' | 'xlsx' | 'csv'
+export type ChatArtifactType = 'png' | 'jpeg' | 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'csv'
 
 export interface ChatImage {
     type: ChatArtifactType
@@ -16,10 +16,11 @@ const MIME: Record<string, ChatArtifactType> = {
     'application/pdf': 'pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
     'text/csv': 'csv'
 }
 
-const FILE_TYPES = new Set<ChatArtifactType>(['pdf', 'docx', 'xlsx', 'csv'])
+const FILE_TYPES = new Set<ChatArtifactType>(['pdf', 'docx', 'xlsx', 'pptx', 'csv'])
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
 
 // The last path part, with anything but letters, digits, dot, dash and underscore replaced.

@@ -55,6 +55,7 @@ const {
     hermesSpecialistRequest,
     noteHermesUsage,
     HANDOFF_KEEP_CLOSING,
+    HANDOFF_FILES_AND_FAILURES,
     keepClosingLines,
     closingLines,
     noteTurnImages,
@@ -2733,6 +2734,15 @@ check(
     handoff.messages[0].content
 )
 check('Harness Prime is told to keep a specialist closing line', handoff.messages[0].content.includes(HANDOFF_KEEP_CLOSING))
+check(
+    'Harness Prime names files by name only and skips failure notes when the request was answered',
+    handoff.messages[0].content.includes(HANDOFF_FILES_AND_FAILURES) &&
+        !handoff.messages[0].content.includes('file paths') &&
+        !handoff.messages[0].content.includes('If a specialist failed, name it') &&
+        HANDOFF_FILES_AND_FAILURES.includes('do not mention steps or specialists that failed') &&
+        HANDOFF_FILES_AND_FAILURES.includes('do not list the files again'),
+    handoff.messages[0].content
+)
 {
     // A playbook can require a closing line; Harness Prime's rewrite must not drop it.
     const demoResult = {
@@ -7813,7 +7823,21 @@ check(
             turnImageDirFor(writer) === '' &&
             turnImageNote(coderDir).includes(coderDir) &&
             hideTurnImageDir(`Saved as ${path.join(coderDir, 'chart.png')} in ${coderDir}.`, coderDir) ===
-                'Saved as chart.png in the chat.',
+                'Saved as chart.png in the chat.' &&
+            hideTurnImageDir(
+                `Saved ${path.join(specialistWorkspace(coder.profileName), 'exports', 'q3', 'deck.pptx')} and ${path.join(
+                    specialistWorkspace(writer.profileName),
+                    'notes.md'
+                )}. Folder: ${specialistWorkspace(coder.profileName)}.`,
+                coderDir
+            ) === 'Saved deck.pptx and notes.md. Folder: the workspace.' &&
+            hideTurnImageDir(
+                `See ${path.join(specialistWorkspace(writer.profileName), 'out', 'a.csv')}`,
+                '',
+                path.dirname(specialistWorkspace('x'))
+            ) === 'See a.csv' &&
+            hideTurnImageDir(`${path.dirname(specialistWorkspace('x'))}-other/a.csv`, coderDir) ===
+                `${path.dirname(specialistWorkspace('x'))}-other/a.csv`,
         JSON.stringify(imageContext.turnImages?.map((list) => list.map((image) => image.name)))
     )
     removeTurnImageDir(coderDir)
@@ -7875,13 +7899,15 @@ check(
     fs.writeFileSync(path.join(fileDir, 'binary.csv'), Buffer.from([0x61, 0x00, 0x62]))
     fs.writeFileSync(path.join(fileDir, 'page.html'), '<h1>demo</h1>')
     fs.writeFileSync(path.join(fileDir, 'slides.pptx'), zipWith('ppt/presentation.xml'))
-    const files = turnFiles(fileDir, since, { specialist: 'assets' })
+    const files = turnFiles(fileDir, since, { specialist: 'assets', limits: { ...TURN_FILE_LIMITS, count: 8 } })
     check(
-        'PDF, DOCX, XLSX and CSV files are returned with their type, and renamed or other files are not',
+        'PDF, DOCX, XLSX, PPTX and CSV files are returned with their type, and renamed or other files are not',
         files
             .map((file) => `${file.name}:${file.type}`)
             .sort()
-            .join(',') === 'memo.docx:docx,orders.csv:csv,report.pdf:pdf,table.xlsx:xlsx' &&
+            .join(',') === 'memo.docx:docx,orders.csv:csv,report.pdf:pdf,slides.pptx:pptx,table.xlsx:xlsx' &&
+            files.find((file) => file.type === 'pptx').mime ===
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation' &&
             files.every((file) => file.specialist === 'assets' && file.bytes > 0) &&
             files.find((file) => file.type === 'csv').mime === 'text/csv' &&
             Buffer.from(files.find((file) => file.type === 'pdf').base64, 'base64')
@@ -7896,6 +7922,12 @@ check(
             matchesTurnType('png', Buffer.from('89504e470d0a1a0a00', 'hex')) &&
             !matchesTurnType('jpeg', Buffer.from('89504e470d0a1a0a00', 'hex')) &&
             !matchesTurnType('xlsx', zipWith('word/document.xml')) &&
+            matchesTurnType('pptx', zipWith('ppt/presentation.xml')) &&
+            !matchesTurnType('pptx', zipWith('word/document.xml')) &&
+            !matchesTurnType('pptx', zipOf(['ppt/presentation.xml'])) &&
+            !matchesTurnType('pptx', zipOf(['notes/ppt/presentation.xml.txt', '[Content_Types].xml'])) &&
+            !matchesTurnType('pptx', zipWith('ppt/presentation.xml').subarray(0, 60)) &&
+            !matchesTurnType('pptx', Buffer.from('%PDF-1.7')) &&
             !matchesTurnType('docx', Buffer.concat([Buffer.from('504b0304', 'hex'), Buffer.alloc(26), Buffer.from('word/document.xml')])) &&
             !matchesTurnType('docx', zipOf(['notes/word/document.xml.txt', '[Content_Types].xml'])) &&
             !matchesTurnType('docx', zipOf(['word/document.xml'])) &&
@@ -7955,7 +7987,7 @@ check(
     const note = turnImageNote('/demo/chat-images/run')
     check(
         'the task note names the file types and limits',
-        note.includes('PDF, DOCX, XLSX or CSV') && note.includes('10 MB each') && note.includes('20 MB per turn'),
+        note.includes('PDF, DOCX, XLSX, PPTX or CSV') && note.includes('10 MB each') && note.includes('20 MB per turn'),
         note
     )
     const fileContext = {}

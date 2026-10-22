@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import path from 'node:path'
 import { readClientSignal } from './abort.mjs'
 import { turnBudgetMs } from './budget.mjs'
 import {
@@ -475,11 +476,16 @@ function writesFiles(specialist) {
     return Boolean(specialist?.codeExecution || specialist?.fileAccess || specialist?.shell)
 }
 
+// The folder that holds every specialist's workspace. Paths under it are hidden in answers (see hideTurnImageDir).
+function specialistWorkspaceRoot() {
+    return path.dirname(specialistWorkspace('_'))
+}
+
 export function turnImageDirFor(specialist) {
     return writesFiles(specialist) && specialist.profileName ? newTurnImageDir(specialistWorkspace(specialist.profileName)) : ''
 }
 
-// Images and files (PDF, DOCX, XLSX, CSV) from the run's own folder. mergeTurnArtifacts applies the per-turn limits.
+// Images and files (PDF, DOCX, XLSX, PPTX, CSV) from the run's own folder. mergeTurnArtifacts applies the per-turn limits.
 export function noteTurnImages(context, specialist, since, dir) {
     if (!writesFiles(specialist) || !dir) return
     const images = turnImages(dir, since, { specialist: specialist.name })
@@ -925,6 +931,12 @@ export function routeAnalystNote(specialists) {
 
 export const HANDOFF_GROUNDING =
     'State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with "rows ", or a summary that starts with "returned ", keep that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. A database change is plain words such as "Dropped table", "Created table", or "Inserted 3 rows".'
+
+// Files a specialist made reach the chat as downloads on their own, once. The answer names them by file name and
+// does not repeat a file list or a server path. A step that failed on the way is not reported when the request was
+// still answered.
+export const HANDOFF_FILES_AND_FAILURES =
+    'Files the specialists made are attached to the chat as downloads already: refer to a file by its name only, and do not list the files again or include folder paths. If the results answer the request, do not mention steps or specialists that failed along the way. Only when a needed result is missing, say in one line which part could not be done.'
 
 export const HANDOFF_KEEP_CLOSING =
     'When a specialist result ends with a source, citation or reference line, such as a line that starts with "Source:", end your answer with that line exactly as written.'
@@ -1506,7 +1518,7 @@ async function runHermesSpecialist(context, specialist, task) {
         }
         attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
         noteTurnImages(context, specialist, specialistStarted, imageDir)
-        const text = typeof status.output === 'string' ? hideTurnImageDir(status.output, imageDir) : ''
+        const text = typeof status.output === 'string' ? hideTurnImageDir(status.output, imageDir, specialistWorkspaceRoot()) : ''
         if (!text.trim()) throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned nothing.`)
         return { text }
     } finally {
@@ -1885,7 +1897,7 @@ async function chiefHandoff(context, input, history, results) {
         `You are Harness Prime for the "${context.name}" harness.`,
         roster.chief?.instructions ? `Instructions: ${roster.chief.instructions}` : '',
         results.length
-            ? `Your specialists already did the work below. Answer the user from their results. Keep numbers, file paths, URLs, and script output exactly as given. If a specialist failed, name it and the reason in one line. ${HANDOFF_GROUNDING} ${HANDOFF_KEEP_CLOSING} The Tools line is the tool status for this turn. A step with no tool result did not run.`
+            ? `Your specialists already did the work below. Answer the user from their results. Keep numbers, URLs, and script output exactly as given. ${HANDOFF_FILES_AND_FAILURES} ${HANDOFF_GROUNDING} ${HANDOFF_KEEP_CLOSING} The Tools line is the tool status for this turn. A step with no tool result did not run.`
             : 'No specialist was needed. Answer the user directly and briefly.'
     ]
         .filter(Boolean)

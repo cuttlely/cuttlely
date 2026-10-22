@@ -336,6 +336,63 @@ describe('Harness node specialist images', () => {
         ])
     })
 
+    it('takes a PPTX from the specialist folder through turnFiles and storage to a named download', async () => {
+        const os = require('os')
+        const fs = require('fs')
+        const path = require('path')
+        const { execFileSync } = require('child_process')
+        // A stored (uncompressed) ZIP with the parts a presentation needs, written by a made-up specialist.
+        const zipOf = (names: string[]) => {
+            const locals: Buffer[] = []
+            const centrals: Buffer[] = []
+            let offset = 0
+            for (const name of names) {
+                const nameBytes = Buffer.from(name, 'utf8')
+                const local = Buffer.alloc(30)
+                local.writeUInt32LE(0x04034b50, 0)
+                local.writeUInt16LE(nameBytes.length, 26)
+                const central = Buffer.alloc(46)
+                central.writeUInt32LE(0x02014b50, 0)
+                central.writeUInt16LE(nameBytes.length, 28)
+                central.writeUInt32LE(offset, 42)
+                locals.push(local, nameBytes)
+                centrals.push(central, nameBytes)
+                offset += 30 + nameBytes.length
+            }
+            const directory = Buffer.concat(centrals)
+            const end = Buffer.alloc(22)
+            end.writeUInt32LE(0x06054b50, 0)
+            end.writeUInt16LE(names.length, 8)
+            end.writeUInt16LE(names.length, 10)
+            end.writeUInt32LE(directory.length, 12)
+            end.writeUInt32LE(offset, 16)
+            return Buffer.concat([...locals, directory, end])
+        }
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-pptx-'))
+        try {
+            const deck = zipOf(['[Content_Types].xml', 'ppt/presentation.xml'])
+            fs.writeFileSync(path.join(dir, 'q3 deck.pptx'), deck)
+            fs.writeFileSync(path.join(dir, 'renamed.pptx'), zipOf(['[Content_Types].xml', 'word/document.xml']))
+            const images = path.resolve(__dirname, '../../../../harness/images.mjs')
+            const script = `import { turnFiles } from ${JSON.stringify(
+                images
+            )}; process.stdout.write(JSON.stringify(turnFiles(${JSON.stringify(dir)}, 0, { specialist: 'assets' })))`
+            const files = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }))
+            expect(files.map((file: { name: string; type: string }) => [file.name, file.type])).toEqual([['q3 deck.pptx', 'pptx']])
+            expect(files[0].mime).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation')
+            const stored = await storeHarnessImages(files, { orgId: 'org-1', chatflowid: 'flow-1', chatId: 'chat-1' })
+            expect(stored).toHaveLength(1)
+            expect(stored[0].type).toBe('pptx')
+            expect(stored[0].name).toBe('q3_deck.pptx')
+            expect(stored[0].data).toMatch(/^FILE-STORAGE::harness_assets_\d+_0_q3_deck\.pptx$/)
+            const [mime, buffer] = addSingleFileToStorage.mock.calls[0]
+            expect(mime).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation')
+            expect(Buffer.compare(buffer, deck)).toBe(0)
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
     it('skips a file whose MIME type does not match its type', async () => {
         const mismatch = { type: 'pdf', mime: 'text/html', name: 'page.pdf', base64: 'PGgxPg==' }
         expect(await storeHarnessImages([mismatch], { chatflowid: 'flow-1', chatId: 'chat-1' })).toEqual([])

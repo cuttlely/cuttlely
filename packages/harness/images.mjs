@@ -6,7 +6,7 @@ import path from 'node:path'
 // PDF report. They go back to the chat as artifacts. Hidden folders, symlinks, empty files, files over the size limit
 // and files whose bytes do not match their extension are skipped.
 export const TURN_IMAGE_LIMITS = { count: 4, bytes: 5 * 1024 * 1024, depth: 3 }
-// PDF, DOCX, XLSX and CSV files: up to 4 per turn and 10 MB each.
+// PDF, DOCX, XLSX, PPTX and CSV files: up to 4 per turn and 10 MB each.
 export const TURN_FILE_LIMITS = { count: 4, bytes: 10 * 1024 * 1024, depth: 3 }
 // Images and files together, per turn. Newest first: whatever would go over this total is left out.
 export const TURN_ARTIFACT_BYTES = 20 * 1024 * 1024
@@ -24,11 +24,12 @@ export const TURN_FILE_TYPES = {
     '.pdf': { type: 'pdf', mime: 'application/pdf' },
     '.docx': { type: 'docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
     '.xlsx': { type: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+    '.pptx': { type: 'pptx', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
     '.csv': { type: 'csv', mime: 'text/csv' }
 }
 
 // The parts an Office file must have, read from the ZIP central directory.
-const OOXML_PART = { docx: 'word/document.xml', xlsx: 'xl/workbook.xml' }
+const OOXML_PART = { docx: 'word/document.xml', xlsx: 'xl/workbook.xml', pptx: 'ppt/presentation.xml' }
 const OOXML_CONTENT_TYPES = '[Content_Types].xml'
 const ZIP_MAX_ENTRIES = 10000
 
@@ -81,6 +82,7 @@ export function matchesTurnType(type, bytes) {
             return bytes.subarray(0, 5).toString('latin1') === '%PDF-'
         case 'docx':
         case 'xlsx':
+        case 'pptx':
             return isOoxml(type, bytes)
         case 'csv':
             return isCsvText(bytes)
@@ -123,7 +125,7 @@ export function turnImageNote(dir) {
     return dir
         ? [
               `To show an image in the chat, save it as a PNG or JPEG file in this folder: ${dir}`,
-              `To send a file to the chat as a download, save it there as a PDF, DOCX, XLSX or CSV file (up to ${
+              `To send a file to the chat as a download, save it there as a PDF, DOCX, XLSX, PPTX or CSV file (up to ${
                   TURN_FILE_LIMITS.bytes / MB
               } MB each, ${TURN_ARTIFACT_BYTES / MB} MB per turn in all).`,
               'Images and files saved anywhere else are not shown.'
@@ -131,10 +133,33 @@ export function turnImageNote(dir) {
         : ''
 }
 
-// The folder is a server path; the answer names the file only.
-export function hideTurnImageDir(text, dir) {
-    if (!dir || typeof text !== 'string') return text
-    return text.split(`${dir}${path.sep}`).join('').split(dir).join('the chat')
+// The folder is a server path; the answer names the file only. Any other path inside a specialist workspace, such as
+// <root>/<profile>/exports/report.pdf, is shown as its file name too, and a bare workspace folder as "the workspace".
+// root is the folder that holds every specialist workspace; it defaults to the one the chat folder sits in.
+export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirname(path.dirname(dir))) : '') {
+    if (typeof text !== 'string') return text
+    let out = text
+    if (dir) out = out.split(`${dir}${path.sep}`).join('').split(dir).join('the chat')
+    return hideWorkspacePaths(out, root)
+}
+
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+export function hideWorkspacePaths(text, root) {
+    if (!root || typeof text !== 'string') return text
+    const base = root.length > 1 && root.endsWith(path.sep) ? root.slice(0, -1) : root
+    if (base === path.sep || base === '.' || !path.isAbsolute(base)) return text
+    const sep = escapeRegExp(path.sep)
+    const pattern = new RegExp(`${escapeRegExp(base)}(?=${sep}|$|[^A-Za-z0-9._-])(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*)?`, 'g')
+    return text.replace(pattern, (match) => {
+        // Sentence punctuation after a path is not part of it.
+        const tail = /[.:!?]+$/.exec(match)?.[0] || ''
+        const parts = match
+            .slice(base.length, match.length - tail.length)
+            .split(path.sep)
+            .filter(Boolean)
+        return (parts.length <= 1 ? 'the workspace' : parts[parts.length - 1]) + tail
+    })
 }
 
 export function removeTurnImageDir(dir) {
