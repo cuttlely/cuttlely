@@ -63,7 +63,7 @@ const responsesReply = {
     usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 }
 }
 
-type Sent = { api: 'chat' | 'responses'; body: any }
+type Sent = { api: 'chat' | 'responses'; url: string; headers: Record<string, string>; body: any }
 
 let fetchSpy: jest.SpyInstance
 beforeEach(() => {
@@ -81,7 +81,12 @@ async function sendWithTool(nodeClass: any, inputs: Record<string, any>): Promis
     const fakeFetch = async (url: any, init?: any) => {
         const href = String(url?.url ?? url)
         const api: Sent['api'] = /\/responses(\?|$)/.test(href) ? 'responses' : 'chat'
-        sent.push({ api, body: JSON.parse(String(init?.body ?? '{}')) })
+        sent.push({
+            api,
+            url: href,
+            headers: Object.fromEntries(new Headers(init?.headers).entries()),
+            body: JSON.parse(String(init?.body ?? '{}'))
+        })
         return new Response(JSON.stringify(api === 'responses' ? responsesReply : completionReply), {
             status: 200,
             headers: { 'content-type': 'application/json' }
@@ -335,6 +340,42 @@ describe('AzureChatOpenAI request params', () => {
         const sent = await sendWithTool(AzureChatOpenAINode, { modelName: 'gpt-6-astra', reasoning: false, reasoningEffort: 'high' })
         expect(sent[0].api).toBe('responses')
         expect(sent[0].body.reasoning).toBeUndefined()
+    })
+
+    it('Responses calls go to the resource-level v1 endpoint with the deployment as model', async () => {
+        const sent = await sendWithTool(AzureChatOpenAINode, { modelName: 'gpt-6.1-sol', reasoning: true, reasoningEffort: 'high' })
+        expect(sent[0].url).toBe('https://inst.openai.azure.com/openai/v1/responses')
+        expect(sent[0].body.model).toBe('dep')
+        expect(sent[0].headers['api-key']).toBe('az-test')
+        expect(sent[0].body.reasoning).toEqual({ effort: 'high' })
+    })
+
+    it('gpt-5.6 Responses calls keep the reasoning in the body although the deployment name is not a model name', async () => {
+        const sent = await sendWithTool(AzureChatOpenAINode, {
+            modelName: 'gpt-5.6-luna',
+            reasoning: true,
+            reasoningEffort: 'low',
+            reasoningSummary: 'auto'
+        })
+        expect(sent[0].url).toBe('https://inst.openai.azure.com/openai/v1/responses')
+        expect(sent[0].body.model).toBe('dep')
+        expect(sent[0].body.reasoning).toEqual({ effort: 'low', summary: 'auto' })
+        expect(sent[0].body.temperature).toBeUndefined()
+    })
+
+    it('a custom base path is cut back to its resource for Responses calls', async () => {
+        const sent = await sendWithTool(AzureChatOpenAINode, {
+            modelName: 'gpt-6-astra',
+            basepath: 'https://custom.example.com/openai/deployments',
+            reasoning: true,
+            reasoningEffort: 'medium'
+        })
+        expect(sent[0].url).toBe('https://custom.example.com/openai/v1/responses')
+    })
+
+    it('chat completions calls stay on the deployment path', async () => {
+        const sent = await sendWithTool(AzureChatOpenAINode, { modelName: 'gpt-5.6-luna', reasoning: false })
+        expect(sent[0].url).toBe('https://inst.openai.azure.com/openai/deployments/dep/chat/completions?api-version=2025-04-01-preview')
     })
 
     it('Reasoning off on o3 sends no reasoning_effort', async () => {
