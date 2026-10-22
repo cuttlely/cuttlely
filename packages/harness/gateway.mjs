@@ -708,7 +708,9 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
     for (const ready of served.values()) for (const spec of ready) reserved.add(spec.name)
     const names = new Map(specialistToolBindings(specialist, reserved).map((entry) => [entry.binding, entry.name]))
     const tools = []
+    const nodeNamed = new Set()
     for (const binding of specialist.modules || []) {
+        nodeNamed.add(names.get(binding))
         tools.push(toolSpec(binding, 'Connected node', names.get(binding)))
         routes.set(names.get(binding), routeOf(binding))
     }
@@ -720,10 +722,13 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
         if (specs.length) tools.push(...specs)
         else if (ready.length) continue
         else {
+            nodeNamed.add(names.get(binding))
             tools.push(toolSpec(binding, 'Connected MCP server', names.get(binding)))
             routes.set(names.get(binding), routeOf(binding))
         }
     }
+    // A refused server's old aliases must not refuse a node that is listed under the same name.
+    for (const name of nodeNamed) refused.delete(name)
     // The sets belong to this specialist profile. A try must not replace the published profile's sets.
     if (profileName) {
         refusedSqlTools.set(refusalKey(profileName), refused)

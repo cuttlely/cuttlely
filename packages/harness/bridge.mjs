@@ -516,27 +516,35 @@ function nodeSuffix(binding, index) {
     return String(index + 1)
 }
 
-// One tool name per wired node, from the node's own name input. When nodes share a name, every one of
-// them takes its node id as a suffix, so a name always belongs to the same node: reordering or removing
-// other nodes never hands an advertised name to a different node. reserved holds names already taken,
-// such as the tools an MCP server advertises, and a node name never takes one of them.
+// One tool name per wired node, from the node's own name input. A name only that node wants is kept
+// as is. When nodes share a name, every one of them takes its node id as a suffix, so a name always
+// belongs to the same node. Plain names are claimed first and suffixed names are given out in node id
+// order, so reordering, adding or removing other nodes never hands an advertised name to a different
+// node. reserved holds names already taken, such as the tools an MCP server advertises.
 export function specialistToolBindings(specialist, reserved = new Set()) {
     const bindings = [...(specialist?.modules || []), ...(specialist?.mcpServers || [])]
-    const bases = bindings.map((binding) => baseToolName(binding))
+    const items = bindings.map((binding, index) => ({ binding, index, base: baseToolName(binding), suffix: nodeSuffix(binding, index) }))
     const counts = new Map()
-    for (const base of bases) counts.set(base, (counts.get(base) || 0) + 1)
+    for (const item of items) counts.set(item.base, (counts.get(item.base) || 0) + 1)
     const taken = new Set(reserved)
-    const entries = []
-    bindings.forEach((binding, index) => {
-        const base = bases[index]
-        const suffix = nodeSuffix(binding, index)
-        let name = counts.get(base) > 1 || taken.has(base) ? withSuffix(base, suffix) : base
+    const names = new Map()
+    for (const item of items) {
+        if (counts.get(item.base) === 1 && !taken.has(item.base)) {
+            names.set(item, item.base)
+            taken.add(item.base)
+        }
+    }
+    const rest = items
+        .filter((item) => !names.has(item))
+        .sort((x, y) => (x.base === y.base ? (x.suffix < y.suffix ? -1 : x.suffix > y.suffix ? 1 : 0) : x.base < y.base ? -1 : 1))
+    for (const item of rest) {
+        let name = withSuffix(item.base, item.suffix)
         // The counter keeps its room in the 64 characters, so this always ends.
-        for (let n = 2; taken.has(name); n += 1) name = withSuffix(base, `${suffix}_${n}`)
+        for (let n = 2; taken.has(name); n += 1) name = withSuffix(item.base, `${item.suffix}_${n}`)
+        names.set(item, name)
         taken.add(name)
-        entries.push({ name, index, nodeId: binding?.nodeId || '', binding })
-    })
-    return entries
+    }
+    return items.map((item) => ({ name: names.get(item), index: item.index, nodeId: item.binding?.nodeId || '', binding: item.binding }))
 }
 
 export function specialistToolName(specialist, binding, reserved) {

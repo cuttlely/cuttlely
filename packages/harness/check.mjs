@@ -12419,6 +12419,72 @@ await (async () => {
         })
         replies.push(JSON.parse(response.body).result)
     }
+    // A server whose first tool runs SQL is refused with its old aliases, but a node listed under its label is not.
+    class SqlFirstMcp {
+        async init() {
+            return [
+                {
+                    name: 'execute_sql',
+                    description: 'Run any SQL statement',
+                    schema: { type: 'object', properties: { sql: { type: 'string' } } },
+                    async invoke() {
+                        return 'sql ran'
+                    }
+                }
+            ]
+        }
+    }
+    saveHarness(
+        {
+            name: 'aliasrefuse',
+            workspaceId: 'w1',
+            chatflowId: 'flow-aliasrefuse',
+            chief: { instructions: 'Route the work.', model: toolModel },
+            specialists: [
+                {
+                    name: 'librarian',
+                    instructions: 'Search the stores.',
+                    shell: false,
+                    modules: [retriever('retrieverTool_9', 'database')],
+                    mcpServers: [{ ...mcpServers[0], nodeId: 'customMCP_9', label: 'database' }]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const aliasToken = 'S'.repeat(43)
+    registerProfileToken({
+        token: aliasToken,
+        harnessName: 'aliasrefuse',
+        specialistName: 'librarian',
+        profileName: 'aliasrefuse--librarian'
+    })
+    await maybeConfigure(
+        flowContext({
+            workspaceId: 'w1',
+            loadNode: async (nodeName) => {
+                if (nodeName === 'retrieverTool') return FakeRetrieverTool
+                if (nodeName === 'customMCP') return SqlFirstMcp
+                throw new Error(`unexpected node ${nodeName}`)
+            }
+        })
+    )
+    const aliasList = JSON.parse(
+        (await localRequest({ port: gateway.port, method: 'POST', path: '/harness/tools/list', token: aliasToken, body: {} })).body
+    )
+    const aliasNames = (aliasList.tools || []).map((tool) => tool.name)
+    const aliasReply = JSON.parse(
+        (
+            await localRequest({
+                port: gateway.port,
+                method: 'POST',
+                path: '/harness/tools/call',
+                token: aliasToken,
+                body: { name: 'database', arguments: { input: 'ask alias' } }
+            })
+        ).body
+    ).result
+    const aliasHit = seen.at(-1)
     await gateway.close()
     const expected = [
         'policy_handbook_retrieverTool_0',
@@ -12440,22 +12506,32 @@ await (async () => {
     const longNames = specialistToolBindings({
         modules: [0, 1, 2].map((n) => retriever(longId(n), 'y'.repeat(80)))
     }).map((entry) => entry.name)
+    // A node whose own name is another pair's suffixed name keeps it, in any order.
+    const cross = [retriever('a', 'foo'), retriever('b', 'foo'), retriever('c', 'foo_a')]
+    const crossNames = [cross, [cross[2], cross[0], cross[1]], [cross[1], cross[2], cross[0]]].map((list) => byNode(list))
+    const crossStable =
+        crossNames.every((map) => JSON.stringify(map, ['a', 'b', 'c']) === JSON.stringify(crossNames[0], ['a', 'b', 'c'])) &&
+        crossNames[0].c === 'foo_a'
     check(
         'several retrieverTool nodes on one specialist get their own tool names and each call reaches its own node',
         JSON.stringify(names) === JSON.stringify(expected) &&
             names.every((name) => /^[A-Za-z0-9_-]{1,64}$/.test(name)) &&
-            seen.length === 4 &&
-            seen.every((hit, index) => hit.node === modules[index].nodeId && hit.arg === `ask ${names[index]}`) &&
+            seen.length === 5 &&
+            JSON.stringify(aliasNames) === JSON.stringify(['database']) &&
+            aliasHit?.node === 'retrieverTool_9' &&
+            String(aliasReply).includes('ask alias') &&
+            seen.slice(0, 4).every((hit, index) => hit.node === modules[index].nodeId && hit.arg === `ask ${names[index]}`) &&
             replies.slice(0, 4).every((reply, index) => String(reply).includes(`ask ${names[index]}`)) &&
             mcpSeen.length === 1 &&
             String(replies[4]).startsWith('from mcp:') &&
             stable &&
+            crossStable &&
             new Set(longNames).size === 3 &&
             longNames.every((name) => name.length <= 64) &&
             toolNameFrom('a'.repeat(80)).length === 64 &&
             toolNameFrom(' kb: north/south ') === 'kb_north_south' &&
             toolNameFrom('-'.repeat(5000)) === '',
-        JSON.stringify({ names, seen, mcpSeen, replies, base, reversed, without, longNames })
+        JSON.stringify({ names, seen, mcpSeen, replies, base, reversed, without, longNames, crossNames, aliasNames, aliasReply })
     )
 })()
 
