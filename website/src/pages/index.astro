@@ -201,6 +201,27 @@ const installs = [
                     <strong>Add agent</strong>. A native agent calls it as a collaborator, and chats keep context across turns.
                 </li>
             </ul>
+            <figure class="cl-demo-window">
+                <div class="cl-video-stage">
+                    <video
+                        class="cl-demo-video"
+                        controls
+                        playsinline
+                        preload="none"
+                        width="1920"
+                        height="1080"
+                        poster={mediaUrl('/media/orchestrate-demo-poster.webp')}
+                        aria-label="Demo video: a Cuttlely agent called from IBM watsonx Orchestrate, with captions"
+                        aria-describedby="cl-orchestrate-caption"
+                    >
+                        <source src={mediaUrl('/media/orchestrate-demo.mp4')} type="video/mp4" />
+                    </video>
+                </div>
+                <figcaption id="cl-orchestrate-caption" class="cl-demo-caption">
+                    A 72-second narrated walkthrough with captions. A Cuttlely flow is added in Orchestrate as an external agent, a native agent hands it
+                    questions, the flow remembers the chat, and a wrong key gets no answer.
+                </figcaption>
+            </figure>
             <p>
                 <a class="cl-link-arrow" href="/docs/api/#call-a-chatflow-from-orchestrate">External agent guide <Icon name="right-arrow" /></a>
             </p>

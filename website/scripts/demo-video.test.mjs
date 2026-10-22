@@ -623,6 +623,10 @@ test('the home Integrations section follows the pillars, leads with Orchestrate,
     )
     assert.match(section, /href="\/docs\/api\/#call-a-chatflow-from-orchestrate"/)
     assert.match(section, /Get started in 10 minutes/)
+    assert.match(section, /<source src=\{mediaUrl\('\/media\/orchestrate-demo\.mp4'\)\} type="video\/mp4" \/>/)
+    assert.match(section, /poster=\{mediaUrl\('\/media\/orchestrate-demo-poster\.webp'\)\}/)
+    assert.match(section, /aria-label="Demo video: a Cuttlely agent called from IBM watsonx Orchestrate, with captions"/)
+    assert.match(section, /preload="none"/)
     assert.match(section, /Star on GitHub/)
     assert.doesNotMatch(section, /flowise|alternative|better than|partner|official|seamless|next-gen/i)
     assert.doesNotMatch(section, /A2A/) // Version B. Delete this line when Version A ships.
