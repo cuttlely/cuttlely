@@ -15,18 +15,24 @@
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
-**여러분의 애플리케이션에는 에이전트가 필요합니다.**
+**프로덕션에 바로 쓰는 비주얼 에이전트 빌더.**
 
-Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오픈소스 비주얼 그래프 에디터입니다. 에이전트와 도구를 캔버스에 끌어다 놓고 하나의 팀으로 연결하면 몇 분 만에 대화할 수 있고, 이어서 API로 앱에서 호출할 수 있습니다. 여러분이 관리하는 인프라 위에서 실행됩니다.
+끌어다 놓아 만드는 에이전트에 제대로 된 거버넌스와 가벼운 컨텍스트를 더합니다. 오픈소스, Apache-2.0. Cuttlely("커들리"로 읽습니다)는 여러분이 관리하는 인프라 위에서 실행됩니다. 모든 변경은 초안에서 기다리고, 게시하기 전에 실제 질문을 Live와 초안에서 나란히 다시 실행해 볼 수 있으며, 각 스페셜리스트는 필요한 작업만 받습니다.
+
+[10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
+
+**1.3.1이 나왔습니다.** 게시된 챗플로우나 에이전트플로우는 무엇이든 MCP 서버로 만들 수 있고, 게시된 챗플로우가 IBM watsonx Orchestrate 에이전트에 응답합니다. [변경 기록](./CHANGELOG.md#131---2026-10-21)
 
 ## 목차
 
 -   [팀이 불만을 해결하는 모습 보기](#watch-a-team-resolve-a-complaint)
--   [Live에 반영하기 전에 모든 변경을 A/B 테스트](#ab-test-every-change-before-it-goes-live)
+-   [Live에 반영하기 전에 모든 변경을 다시 실행해 확인](#replay-every-change-before-it-goes-live)
     -   [초안, 테스트, 버전 기록](#drafts-tests-and-version-history)
 -   [실제 팀을 위해](#made-for-real-teams)
 -   [앱을 움직이는 에이전트 팀](#agent-teams-that-power-your-apps)
 -   [앱에서 팀 사용하기](#use-a-team-from-your-app)
+-   [모든 플로우를 MCP 서버로](#every-flow-an-mcp-server)
+-   [IBM watsonx Orchestrate에서 플로우 호출하기](#call-a-flow-from-ibm-watsonx-orchestrate)
 -   [작은 컨텍스트, 큰 답변](#small-context-big-answers)
 -   [팀이 사용하는 도구](#tools-your-teams-use)
 -   [처음 10분](#your-first-10-minutes)
@@ -48,7 +54,9 @@ Cuttlely는 AI 에이전트를 만들고 오케스트레이션하기 위한 오�
 
 한 고객이 늦어진 주문에 대해 문의합니다. 고객 스페셜리스트가 계정을 읽고, 운영 스페셜리스트가 소포가 창고를 한 번도 떠나지 않았다는 사실을 찾아내며, 운영 쪽 작업이 끝나면 정책 스페셜리스트가 문서로 된 정책을 확인합니다. 각자 자신의 데이터와 도구를 가지고 있습니다. Harness Prime이 결정, 회신, 조치를 근거와 함께 작성합니다. [Try the demo](./docs/how-to/try-the-demo.md)를 사용하면 이 팀이 여러분의 모델 키로 열립니다.
 
-## Live에 반영하기 전에 모든 변경을 A/B 테스트
+## Live에 반영하기 전에 모든 변경을 다시 실행해 확인
+
+<a id="replay-every-change-before-it-goes-live"></a>
 
 <a id="ab-test-every-change-before-it-goes-live"></a>
 <a id="test-every-change-before-it-goes-live"></a>
@@ -141,6 +149,24 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산했고 `orders`는 픽업 요일을 확인했습니다. 전체 응답에는 토큰, 소요 시간, 출처, 팀이 만든 이미지도 들어 있습니다. 나머지는 [API 가이드](./docs/api.md)에서 다룹니다. API 키, 스트리밍, 대화 메모리, 파일 업로드, 오류, 그리고 키를 여러분의 서버에만 두는 실행 가능한 예제 웹 앱이 있습니다. 오래 걸리는 턴은 같은 키로 `POST /api/v1/harnesses/<name>/runs/async`에서 백그라운드로 시작하고 답변은 나중에 가져올 수 있으며, 하네스를 cron 일정으로 실행할 수도 있습니다: [API 키로 앱에서 실행하기](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [일정으로 실행하기](./docs/how-to/harnesses.md#run-it-on-a-schedule). 참고: [하네스용 Prediction API](./docs/how-to/harnesses.md#prediction-api), [챗플로우에서 하네스 호출하기](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
+## 모든 플로우를 MCP 서버로
+
+<a id="every-flow-an-mcp-server"></a>
+
+다른 에이전트가 여러분의 Live 플로우를 MCP로 호출할 수 있습니다. 편집한 내용은 게시할 때까지 초안에 남고, 무엇이 바뀌었는지는 먼저 나란히 다시 실행해 확인할 수 있습니다.
+
+-   **켜기 전에는 꺼져 있습니다.** 플로우의 **MCP Server**를 켜면 Streamable HTTP 엔드포인트(`/api/v1/mcp/<flow id>`)와 베어러 토큰이 생깁니다.
+-   **Live(게시된) 플로우만, 플로우 하나가 도구 호출 한 번입니다.** 호출은 게시된 버전을 실행하고 초안은 실행하지 않으며 이전 호출을 기억하지 않습니다. 플로우의 Rate Limit가 적용되고, 1 MB를 넘는 요청 본문은 거부됩니다.
+-   **mcp-remote를 통한 MCP 클라이언트.** MCP 서버를 로컬 명령으로 실행하는 클라이언트는 `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"`로 연결합니다. [mcp-remote로 연결하기](./docs/api.md#connect-with-mcp-remote)
+
+[MCP 엔드포인트 참고 문서](./docs/api.md#mcp-endpoint)
+
+## IBM watsonx Orchestrate에서 플로우 호출하기
+
+<a id="call-a-flow-from-ibm-watsonx-orchestrate"></a>
+
+게시된 챗플로우를 외부 에이전트로 등록하면 Orchestrate 네이티브 에이전트가 협업자로서 질문을 넘깁니다. 플로우에는 연결된 API 키가 필요하며, 키가 없는 플로우는 거부됩니다. 플로우를 원격 MCP 툴킷으로 가져오는 방법도 문서로 나와 있습니다. [Orchestrate에서 챗플로우 호출하기](./docs/how-to/orchestrate.md) · [챗플로우를 Orchestrate 툴킷으로 사용하기](./docs/how-to/orchestrate-mcp.md)
+
 ## 작은 컨텍스트, 큰 답변
 
 <a id="small-context-big-answers"></a>
@@ -149,7 +175,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 -   **스페셜리스트마다 자기 일을 맡깁니다.** 흔한 방식은 모든 에이전트에게 채팅 전체를 넘깁니다. Harness Prime은 스페셜리스트마다 그것만으로 완결되는 작업을 최근 대화의 짧은 요약과 함께 작성해 줍니다.
 -   **데이터는 데이터베이스에 둡니다.** 흔한 방식은 쿼리 결과를 프롬프트에 붙여 넣습니다. 애널리스트는 한 페이지 분량의 행만 돌려줍니다. "더 보여 줘"라고 하면 다음 페이지가 나옵니다. 앞선 페이지는 다음 프롬프트에 들어가지 않습니다.
--   **체크한 테이블만.** 흔한 방식은 데이터베이스 스키마 전체를 프롬프트에 붙여 넣습니다. URL로 연결한 데이터베이스에서 PostgreSQL MCP 노드의 **Tables and views**에서 테이블과 뷰를 체크하면, 애널리스트의 프롬프트에는 각각에 대해 열 이름이 담긴 한 줄만 들어갑니다. `describe` 도구는 애널리스트가 필요할 때 테이블 하나의 열, 키, 텍스트 값 샘플을 돌려줍니다. 가상의 베이커리 데모 데이터베이스에서 릴레이션 6개를 체크하면 663토큰, 스키마 전체는 2,562토큰입니다. 목록 아래 **Rules** 상자에는 어떤 뷰가 어떤 질문에 답하는지 같은, 그 애널리스트를 위한 지시를 2,000자까지 쓸 수 있습니다. Rules는 모델에 대한 지시일 뿐, 체크한 테이블을 넓히거나 쓰기를 허용하지 못합니다. [직접 규칙 쓰기](./docs/how-to/analyst.md#write-your-own-rules).
+-   **체크한 테이블만.** 흔한 방식은 데이터베이스 스키마 전체를 프롬프트에 붙여 넣습니다. URL로 연결한 데이터베이스에서 PostgreSQL MCP 노드의 **Tables and views**에서 테이블과 뷰를 체크하면, 애널리스트의 프롬프트에는 각각에 대해 열 이름이 담긴 한 줄만 들어갑니다. `describe` 도구는 애널리스트가 필요할 때 테이블 하나의 열, 키, 텍스트 값 샘플을 돌려줍니다. 내부 벤치마크에서, 가상의 베이커리 데이터베이스의 테이블과 뷰 20개 중 6개를 체크하자 애널리스트의 프롬프트가 2,562토큰에서 663토큰으로 줄었습니다. `scripts/analyst-schema-tokens.mjs`로 다시 실행할 수 있습니다. 목록 아래 **Rules** 상자에는 어떤 뷰가 어떤 질문에 답하는지 같은, 그 애널리스트를 위한 지시를 2,000자까지 쓸 수 있습니다. Rules는 모델에 대한 지시일 뿐, 체크한 테이블을 넓히거나 쓰기를 허용하지 못합니다. [직접 규칙 쓰기](./docs/how-to/analyst.md#write-your-own-rules).
 -   **규칙은 필요할 때 불러옵니다.** 흔한 방식은 모든 지시를 거대한 시스템 프롬프트 하나에 넣습니다. 긴 규칙은 플레이북에 넣습니다. 스페셜리스트는 질문에 필요할 때만 그것을 엽니다.
 -   **짧은 인계.** 흔한 방식은 최종 답변을 쓰는 프롬프트에 문서 전체를 붙여 넣습니다. Harness Prime은 각 스페셜리스트 답변 중 상한이 정해진 일부만 읽으며, 출처 이름과 짧은 발췌가 함께 붙습니다. 문서는 응답에 담겨 앱으로 돌아갑니다.
 -   **모든 토큰이 보입니다.** Run 카드에는 입력 토큰과 출력 토큰, 모델이 보고하는 경우 캐시된 토큰, 각 단계에 걸린 시간이 나옵니다. API 응답에도 같은 숫자가 담깁니다. Publish 검사는 Live와 초안을 각각 사용한 토큰과 시간과 함께 나란히 보여 줍니다.
@@ -202,7 +228,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
     Compose는 게시된 Cuttlely 이미지를 가져옵니다. 가져올 수 없으면 대신 체크아웃에서 이미지를 빌드하는데, 처음에는 몇 분이 걸리며 긴 빌드 단계마다 네 단계 중 몇 번째인지 표시됩니다. `docker compose ps`는 Cuttlely가 준비될 때까지 `(health: starting)`을, 준비되면 `(healthy)`를 보여 줍니다. [http://localhost:43117](http://localhost:43117)을 일찍 열면 **Cuttlely is starting** 페이지가 나오고, 준비되면 Cuttlely가 자동으로 열립니다.
 
-    Node.js 20 이상이 있으면 클론을 건너뛸 수 있습니다. `npx cuttlely start`가 이미지를 가져와 실행하므로 Docker는 필요합니다.
+    Node 20+와 Docker가 있으면 클론을 건너뛸 수 있습니다. `npx cuttlely start`가 이미지를 가져와 실행합니다.
 
     ```bash
     npx cuttlely start
@@ -210,10 +236,12 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
     이 명령은 `ghcr.io/cuttlely/cuttlely`를 가져오고, 준비되면 [http://localhost:43117](http://localhost:43117)을 엽니다. `stop`, `status`, `logs`, `upgrade`는 [npm으로 설치하기](./docs/how-to/docker.md#install-with-npm)에 있습니다.
 
+    Docker가 없다면 Node 24로 [소스에서 빌드하기](./docs/how-to/from-source.md)를 사용할 수 있습니다(`.nvmrc`는 24.15.0으로 고정되어 있습니다).
+
 2. 실행되면 서버가 일회용 설정 링크를 출력합니다. 다음 명령으로 확인합니다.
 
     ```bash
-    docker compose logs cuttlely | grep "No account yet"
+    docker compose logs cuttlely | grep "Setup code"
     ```
 
     아직 아무것도 없나요? 아직 시작하는 중입니다. 몇 초 뒤에 명령을 다시 실행하세요.
@@ -253,7 +281,7 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 <a id="bring-your-existing-flows"></a>
 
-다른 도구로 만든 플로우가 있나요? **Chatflows**의 **Import** 메뉴에는 **Import Flowise JSON**이 있어, Flowise 챗플로우나 에이전트플로우 내보내기 파일을 검사한 뒤 알맞은 캔버스에서 열어 주는 짧은 마법사가 열립니다. **Import Langflow JSON**은 간단한 Langflow 채팅을 불러옵니다. 무엇이 그대로 옮겨지고 무엇이 아직 지원되지 않는지는 [기존 플로우 가져오기](./docs/bring-your-flows.md)에 있습니다.
+다른 도구로 만든 플로우가 있나요? **Chatflows**의 **Import** 메뉴는 내보내기 파일을 검사한 뒤 알맞은 캔버스에서 한 번에 플로우 하나씩 엽니다. 자격 증명은 다시 고릅니다. 무엇이 그대로 옮겨지고 무엇이 아직 지원되지 않는지는 [기존 플로우 가져오기](./docs/bring-your-flows.md)에 있습니다.
 
 ## 기여하기
 
@@ -265,9 +293,9 @@ Harness Prime이 질문을 나눴습니다. `baker`는 주문 가격을 계산�
 
 <a id="about-and-credits"></a>
 
-Cuttlely는 Apache 2.0 라이선스의 오픈소스입니다. 릴리스마다 바뀐 내용은 [변경 기록](./CHANGELOG.md)에, 어떤 버전이 수정을 받는지는 [릴리스와 지원](./docs/releases.md)에 있습니다. 라이선스 전문은 [LICENSE.md](./LICENSE.md)에, 저작자 표시는 [NOTICE](./NOTICE)에 있습니다.
+Cuttlely는 Apache 2.0 라이선스의 오픈소스입니다. 릴리스마다 바뀐 내용은 [변경 기록](./CHANGELOG.md)에, 어떤 버전이 수정을 받는지는 [릴리스와 지원](./docs/releases.md)에 있습니다. 1.3.1에는 1.3.0까지의 버전을 위한 보안 수정 두 건이 들어 있습니다: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f), [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7). 라이선스 전문은 [LICENSE.md](./LICENSE.md)에, 저작자 표시는 [NOTICE](./NOTICE)에 있습니다.
 
-Cuttlely는 Flowise, Nous Research의 Hermes, React Flow를 비롯한 오픈소스 작업을 바탕으로 만들어졌습니다. [CREDITS.md](./CREDITS.md)에 각 프로젝트의 라이선스와 링크가 정리되어 있습니다.
+Cuttlely에는 Flowise, Nous Research의 Hermes, React Flow의 오픈소스 작업이 포함되어 있습니다. [CREDITS.md](./CREDITS.md)에 각 프로젝트의 라이선스와 링크가 정리되어 있습니다.
 
 ## 연락처
 

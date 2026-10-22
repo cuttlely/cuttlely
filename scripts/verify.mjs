@@ -102,6 +102,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'node-pack-index.test.mjs'),
             path.join(ROOT, 'packages', 'cli', 'test', 'cli.test.js'),
             path.join(ROOT, 'scripts', 'ci-examples.test.mjs'),
+            path.join(ROOT, 'scripts', 'orchestrate-mcp-sample.test.mjs'),
             path.join(ROOT, 'scripts', 'upgrade-check.test.mjs'),
             path.join(ROOT, 'scripts', 'outbound-guard.test.mjs'),
             path.join(ROOT, 'scripts', 'model-list.test.mjs'),
@@ -118,7 +119,10 @@ const STEPS = [
             path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
             path.join(ROOT, 'scripts', 'permission-keys.test.mjs'),
             path.join(ROOT, 'packages', 'ui', 'src', 'ui-component', 'markdown', 'math.test.mjs'),
-            path.join(ROOT, 'scripts', 'orchestrate-live-proxy.test.mjs')
+            path.join(ROOT, 'scripts', 'orchestrate-live-proxy.test.mjs'),
+            path.join(ROOT, 'scripts', 'orchestrate-samples.test.mjs'),
+            path.join(ROOT, 'scripts', 'pr-text-banned.test.mjs'),
+            path.join(ROOT, 'scripts', 'smoke-setup-code.test.mjs')
         ]
     },
     {
@@ -204,6 +208,9 @@ const STEPS = [
             'src/views/docstore/chunkPermissions.test.js',
             'src/views/canvas/canvasSavePermission.test.js',
             'src/views/marketplaces/templateUsePermission.test.js',
+            'src/utils/migrationScan.test.js',
+            'src/utils/normalizeCanvasFlow.test.js',
+            'src/ui-component/flow/migrationWizard.test.js',
             'src/utils/publishCheck.test.js',
             'src/utils/promote.test.js',
             'src/utils/itWorked.test.js',

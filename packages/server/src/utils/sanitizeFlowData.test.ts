@@ -1,224 +1,2786 @@
-import { flowDataForPublicChatbotConfig, isChatflowKeyProtected, sanitizeFlowDataForPublicEndpoint } from './sanitizeFlowData'
+import fs from 'fs'
+import path from 'path'
 
-const makeFlowData = (nodes: object[], edges: object[] = []) => JSON.stringify({ nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } })
+import {
+    buildTemplateFlow,
+    hasNamedSchemeAcrossBreak,
+    hasSchemeLike,
+    isChatflowKeyProtected,
+    publicChatbotDisplayConfig,
+    publicChatflowSummary,
+    rebuildHttpUrl,
+    sanitizeNodeInputs,
+    sanitizeToolTemplate
+} from './sanitizeFlowData'
 
-const makeNode = (inputs: Record<string, unknown>, inputParams: object[], extra: object = {}) => ({
-    id: 'node_0',
-    position: { x: 0, y: 0 },
-    type: 'customNode',
-    data: {
-        id: 'node_0',
-        name: 'testNode',
-        label: 'Test Node',
-        inputs,
-        inputParams,
-        ...extra
+const MARKER = 'FAKE_MARKER_'
+
+const promptParams = [
+    { name: 'prompt', type: 'string' },
+    { name: 'systemMessage', type: 'string' },
+    { name: 'systemMessagePrompt', type: 'string' },
+    { name: 'description', type: 'string' },
+    { name: 'label', type: 'string' },
+    { name: 'placeholder', type: 'string' },
+    { name: 'toolName', type: 'string' },
+    { name: 'agentName', type: 'string' },
+    { name: 'toolDescription', type: 'string' },
+    { name: 'requestsGetName', type: 'string' }
+]
+
+const schemaParams = [
+    ...promptParams,
+    { name: 'temperature', type: 'number' },
+    { name: 'streaming', type: 'boolean' },
+    {
+        name: 'reasoningEffort',
+        type: 'options',
+        options: [
+            { label: 'Low', name: 'low' },
+            { label: 'High', name: 'high' }
+        ]
+    },
+    {
+        name: 'stops',
+        type: 'multiOptions',
+        options: [
+            { label: 'A', name: 'alpha' },
+            { label: 'B', name: 'beta' }
+        ]
+    },
+    { name: 'modelName', type: 'asyncOptions' },
+    { name: 'basepath', type: 'string' },
+    { name: 'basePath', type: 'string' },
+    { name: 'config', type: 'json' },
+    { name: 'snippet', type: 'code' },
+    { name: 'secretField', type: 'password' },
+    { name: 'upload', type: 'file' },
+    { name: 'directory', type: 'folder' },
+    { name: 'when', type: 'date' },
+    { name: 'grid', type: 'datagrid' },
+    { name: 'relations', type: 'asyncMultiOptions' },
+    { name: 'rows', type: 'array' },
+    { name: 'headers', type: 'string' },
+    { name: 'requestsGetHeaders', type: 'json' },
+    { name: 'note', type: 'string' },
+    { name: 'credentialId', type: 'string' }
+]
+
+const percentEncode = (value: string) =>
+    Array.from(value)
+        .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+        .join('')
+
+const assignedText = (source: string, name: string): string => {
+    const back = new RegExp('(?:export\\s+)?(?:const|let)\\s+' + name + '\\s*=\\s*`([\\s\\S]*?)`')
+    const single = new RegExp('(?:export\\s+)?(?:const|let)\\s+' + name + "\\s*=\\s*'([^']*)'")
+    const match = source.match(back) || source.match(single)
+    if (!match) throw new Error('missing ' + name)
+    return match[1]
+}
+
+const readComponent = (rel: string) => {
+    const root = path.resolve(__dirname, '..', '..', '..', '..')
+    return fs.readFileSync(path.join(root, 'packages/components', rel), 'utf8')
+}
+
+const fromComponent = (rel: string, name: string) => assignedText(readComponent(rel), name)
+
+// Stock prompt text, including the built-in chain and agent defaults, plus long accent-free sentences.
+const ordinaryPrompts = (): string[] => {
+    const prompts = 'nodes/chains/ConversationalRetrievalQAChain/prompts.ts'
+    return [
+        'Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question.',
+        'Answer the question based only on the context provided',
+        'You are a helpful Moonbeam Bakery assistant. Answer briefly.',
+        'Always answer in English and keep replies short and polite',
+        'Please read the whole conversation and answer the latest question with a short polite reply that uses only the notes from the bakery counter and the hours posted on the door of the shop.',
+        'El asistente de la panaderia lee la conversacion completa y responde con una frase corta y educada usando solo las notas del mostrador y el horario publicado en la puerta de la tienda.',
+        'You are a helpful AI assistant.',
+        'Extract keywords from the query: {{query}}',
+        "You are a very smart physics professor. You are great at answering questions about physics in a concise and easy to understand manner. When you don't know the answer to a question you admit that you don't know.",
+        'You are a helpful assistant that translates {input_language} to {output_language}.',
+        fromComponent('nodes/chains/ConversationChain/ConversationChain.ts', 'systemMessage'),
+        fromComponent(prompts, 'CUSTOM_QUESTION_GENERATOR_CHAIN_PROMPT'),
+        fromComponent(prompts, 'RESPONSE_TEMPLATE'),
+        fromComponent(prompts, 'QA_TEMPLATE'),
+        fromComponent(prompts, 'REPHRASE_TEMPLATE'),
+        fromComponent('nodes/agents/XMLAgent/XMLAgent.ts', 'defaultSystemMessage'),
+        fromComponent('nodes/agents/ConversationalAgent/ConversationalAgent.ts', 'DEFAULT_PREFIX'),
+        fromComponent('nodes/retrievers/MultiQueryRetriever/MultiQueryRetriever.ts', 'defaultPrompt'),
+        fromComponent('nodes/multiagents/Supervisor/Supervisor.ts', 'sysPrompt'),
+        fromComponent('nodes/multiagents/Worker/Worker.ts', 'examplePrompt'),
+        fromComponent('nodes/sequentialagents/Agent/Agent.ts', 'examplePrompt'),
+        fromComponent('nodes/sequentialagents/Agent/Agent.ts', 'defaultApprovalPrompt'),
+        fromComponent('nodes/sequentialagents/ConditionAgent/ConditionAgent.ts', 'examplePrompt'),
+        fromComponent('nodes/sequentialagents/ConditionAgent/ConditionAgent.ts', 'exampleHumanPrompt'),
+        fromComponent('nodes/agentflow/prompt.ts', 'DEFAULT_SUMMARIZER_TEMPLATE'),
+        fromComponent('nodes/agentflow/prompt.ts', 'DEFAULT_HUMAN_INPUT_DESCRIPTION'),
+        fromComponent('nodes/agentflow/prompt.ts', 'CONDITION_AGENT_SYSTEM_PROMPT')
+    ]
+}
+
+const loadUiFunction = (rel: string, exportName: string) => {
+    const root = path.resolve(__dirname, '..', '..', '..', '..')
+    const source = fs
+        .readFileSync(path.join(root, rel), 'utf8')
+        .replace(/export function /g, 'function ')
+        .replace(/export const /g, 'const ')
+    return new Function(source + '\nreturn ' + exportName + ';')() as (...args: any[]) => any
+}
+
+const mulberry32 = (seed: number) => () => {
+    seed |= 0
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+}
+
+const secretShapes = (marker: string) => [
+    `sk-${marker}`,
+    `pk-${marker}`,
+    `ghp_${marker}`,
+    `xoxb-${marker}`,
+    `\u0455\u043a-${marker}`,
+    `https://cdn.example/a?utm_apikey=${marker}`,
+    `user:${marker}@files.example`,
+    `{not json sk-${marker}`,
+    `{"wrapped":"${marker}","prefix":"sk-abc"}`,
+    percentEncode(`sk-${marker}`),
+    JSON.stringify(`sk-${marker}`),
+    JSON.stringify(JSON.stringify(`pk-${marker}`)),
+    percentEncode(JSON.stringify(`ghp_${marker}`)),
+    `preamble ${'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6'} ${marker}`
+]
+
+describe('template inputs', () => {
+    const harmless = {
+        prompt: 'Hello "world" @ café, 10% off',
+        systemMessage: 'こんにちは。See the help page.',
+        systemMessagePrompt: 'Translate {input_language} to {output_language}.',
+        description: 'Looks up the bakery hours',
+        label: 'Greeting',
+        placeholder: 'Ask a question',
+        toolName: 'hours',
+        agentName: 'baker',
+        toolDescription: 'Reads the hours sheet',
+        requestsGetName: 'getHours',
+        temperature: 0.2,
+        streaming: false,
+        reasoningEffort: 'low',
+        stops: '["alpha","beta"]',
+        modelName: 'gpt-4.1-mini',
+        basepath: 'https://api.example.com/v1?utm_apikey=ignored#frag',
+        basePath: 'https://models.example/root'
     }
-})
 
-describe('sanitizeFlowDataForPublicEndpoint', () => {
-    it('strips password-type inputs', () => {
-        const flowData = makeFlowData([
-            makeNode({ apiKey: 'sk-secret', model: 'gpt-4' }, [
-                { name: 'apiKey', type: 'password' },
-                { name: 'model', type: 'string' }
-            ])
-        ])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data.inputs).not.toHaveProperty('apiKey')
-        expect(result.nodes[0].data.inputs.model).toBe('gpt-4')
-    })
-
-    it('strips file-type inputs', () => {
-        const flowData = makeFlowData([
-            makeNode({ filePath: '/data/secret.pdf', label: 'loader' }, [
-                { name: 'filePath', type: 'file' },
-                { name: 'label', type: 'string' }
-            ])
-        ])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data.inputs).not.toHaveProperty('filePath')
-        expect(result.nodes[0].data.inputs.label).toBe('loader')
-    })
-
-    it('strips folder-type inputs', () => {
-        const flowData = makeFlowData([
-            makeNode({ folderPath: '/home/user/docs', name: 'ingest' }, [
-                { name: 'folderPath', type: 'folder' },
-                { name: 'name', type: 'string' }
-            ])
-        ])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data.inputs).not.toHaveProperty('folderPath')
-        expect(result.nodes[0].data.inputs.name).toBe('ingest')
-    })
-
-    it('removes credential field from node data', () => {
-        const flowData = makeFlowData([makeNode({ model: 'gpt-4' }, [{ name: 'model', type: 'string' }], { credential: 'cred-uuid-123' })])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data).not.toHaveProperty('credential')
-    })
-
-    it('removes Authorization header from headers input, preserves other headers', () => {
-        const headers = JSON.stringify({ Authorization: 'Bearer secret-token', 'Content-Type': 'application/json' })
-        const flowData = makeFlowData([
-            makeNode({ headers, url: 'https://example.com' }, [
-                { name: 'headers', type: 'json' },
-                { name: 'url', type: 'string' }
-            ])
-        ])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        const sanitizedHeaders = JSON.parse(result.nodes[0].data.inputs.headers)
-        expect(sanitizedHeaders).not.toHaveProperty('Authorization')
-        expect(sanitizedHeaders['Content-Type']).toBe('application/json')
-    })
-
-    it('removes x-api-key header case-insensitively', () => {
-        const headers = JSON.stringify({ 'X-API-Key': 'my-key', Accept: 'application/json' })
-        const flowData = makeFlowData([makeNode({ headers }, [{ name: 'headers', type: 'json' }])])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        const sanitizedHeaders = JSON.parse(result.nodes[0].data.inputs.headers)
-        expect(sanitizedHeaders).not.toHaveProperty('X-API-Key')
-        expect(sanitizedHeaders.Accept).toBe('application/json')
-    })
-
-    it('removes Authorization from array-format headers (HTTP agentflow node)', () => {
-        const headers = [
-            { key: 'Authorization', value: 'Bearer secret-token' },
-            { key: 'Content-Type', value: 'application/json' }
-        ]
-        const flowData = makeFlowData([makeNode({ headers }, [{ name: 'headers', type: 'array' }])])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        const sanitizedHeaders = result.nodes[0].data.inputs.headers
-        expect(sanitizedHeaders).toEqual([{ key: 'Content-Type', value: 'application/json' }])
-    })
-
-    it('removes x-api-key case-insensitively from array-format headers', () => {
-        const headers = [
-            { key: 'X-API-Key', value: 'secret' },
-            { key: 'Accept', value: 'application/json' }
-        ]
-        const flowData = makeFlowData([makeNode({ headers }, [{ name: 'headers', type: 'array' }])])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        const sanitizedHeaders = result.nodes[0].data.inputs.headers
-        expect(sanitizedHeaders).toEqual([{ key: 'Accept', value: 'application/json' }])
-    })
-
-    it('preserves non-sensitive string inputs unchanged', () => {
-        const flowData = makeFlowData([
-            makeNode({ temperature: '0.7', maxTokens: '1024' }, [
-                { name: 'temperature', type: 'string' },
-                { name: 'maxTokens', type: 'number' }
-            ])
-        ])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data.inputs.temperature).toBe('0.7')
-        expect(result.nodes[0].data.inputs.maxTokens).toBe('1024')
-    })
-
-    it('preserves startAgentflow node inputs used by the embed widget', () => {
-        const formInputTypes = [{ name: 'email', type: 'string', label: 'Email' }]
-        const flowData = makeFlowData([
-            makeNode(
-                { startInputType: 'formInput', formTitle: 'Contact Us', formDescription: 'Fill out the form', formInputTypes },
-                [
-                    { name: 'startInputType', type: 'options' },
-                    { name: 'formTitle', type: 'string' },
-                    { name: 'formDescription', type: 'string' },
-                    { name: 'formInputTypes', type: 'datagrid' }
-                ],
-                { name: 'startAgentflow' }
-            )
-        ])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        const inputs = result.nodes[0].data.inputs
-        expect(inputs.startInputType).toBe('formInput')
-        expect(inputs.formTitle).toBe('Contact Us')
-        expect(inputs.formDescription).toBe('Fill out the form')
-        expect(inputs.formInputTypes).toEqual(formInputTypes)
-    })
-
-    it('returns empty nodes/edges structure for malformed flowData', () => {
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint('not-valid-json'))
-        expect(result).toEqual({ nodes: [], edges: [] })
-    })
-
-    it('returns the original string unchanged when flowDataString is empty', () => {
-        expect(sanitizeFlowDataForPublicEndpoint('')).toBe('')
-    })
-
-    it('sanitizes sensitive headers even when inputParams is missing', () => {
-        const flowData = makeFlowData([
-            {
-                id: 'n0',
-                type: 'x',
-                data: { inputs: { headers: { Authorization: 'Bearer secret', 'Content-Type': 'application/json' } } }
-            }
-        ])
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data.inputs.headers).not.toHaveProperty('Authorization')
-        expect(result.nodes[0].data.inputs.headers['Content-Type']).toBe('application/json')
-    })
-
-    it('does not crash when a node has no inputParams', () => {
-        const flowData = makeFlowData([{ id: 'n0', type: 'x', data: { inputs: { foo: 'bar' } } }])
-        expect(() => sanitizeFlowDataForPublicEndpoint(flowData)).not.toThrow()
-        const result = JSON.parse(sanitizeFlowDataForPublicEndpoint(flowData))
-        expect(result.nodes[0].data.inputs.foo).toBe('bar')
-    })
-})
-
-describe('flowDataForPublicChatbotConfig', () => {
-    const graph = makeFlowData([
-        makeNode(
-            {
-                startInputType: 'formInput',
-                formTitle: 'Contact',
-                formDescription: 'Hi',
-                formInputTypes: [{ name: 'email', type: 'string', label: 'Email' }],
-                startState: [{ key: 'token', value: 'sk-live' }],
-                webhookURL: 'https://internal.example/hook'
-            },
-            [],
-            { name: 'startAgentflow', credential: 'cred-start' }
-        ),
-        makeNode({ systemMessage: 'SECRET-PROMPT-CANARY' }, [], { name: 'chatOpenAI', credential: 'cred-openai' })
-    ])
-
-    it('treats a non-empty apikeyid as key-protected', () => {
-        expect(isChatflowKeyProtected('apikey-1')).toBe(true)
-        expect(isChatflowKeyProtected('')).toBe(false)
-        expect(isChatflowKeyProtected(null)).toBe(false)
-        expect(isChatflowKeyProtected(undefined)).toBe(false)
-    })
-
-    it('keeps the sanitized graph when the chatflow has no API key', () => {
-        const result = JSON.parse(flowDataForPublicChatbotConfig(graph, '')!)
-        expect(result.nodes).toHaveLength(2)
-        expect(JSON.stringify(result)).toContain('SECRET-PROMPT-CANARY')
-        expect(JSON.stringify(result)).not.toContain('cred-openai')
-    })
-
-    it('returns only the Start form fields for a key-protected chatflow', () => {
-        const raw = flowDataForPublicChatbotConfig(graph, 'apikey-1')!
-        expect(raw).not.toContain('SECRET-PROMPT-CANARY')
-        expect(raw).not.toContain('sk-live')
-        expect(raw).not.toContain('internal.example')
-        expect(raw).not.toContain('cred-start')
-        const result = JSON.parse(raw)
-        expect(result.edges).toEqual([])
-        expect(result.nodes).toHaveLength(1)
-        expect(result.nodes[0].data.inputs).toEqual({
-            startInputType: 'formInput',
-            formTitle: 'Contact',
-            formDescription: 'Hi',
-            formInputTypes: [{ name: 'email', type: 'string', label: 'Email' }]
+    it('keeps harmless prompts, typed values, listed options, and a rebuilt base path', () => {
+        const { inputs, dropped } = sanitizeNodeInputs(harmless, schemaParams as any)
+        expect(dropped).toEqual([])
+        expect(inputs).toEqual({
+            ...harmless,
+            basepath: 'https://api.example.com/v1',
+            basePath: 'https://models.example/root'
         })
     })
 
-    it('returns nothing when a key-protected chatflow has no Start node or the graph is not JSON', () => {
-        expect(flowDataForPublicChatbotConfig(makeFlowData([makeNode({ systemMessage: 'SECRET' }, [])]), 'apikey-1')).toBeUndefined()
-        expect(flowDataForPublicChatbotConfig('not-json', 'apikey-1')).toBeUndefined()
-        expect(flowDataForPublicChatbotConfig('', 'apikey-1')).toBeUndefined()
+    it('keeps a canvas link on an anchor and leaves every other undeclared value out', () => {
+        const { inputs, dropped } = sanitizeNodeInputs(
+            {
+                model: '{{chatOpenAI_0.data.instance}}',
+                tools: ['{{tool_0.data.instance}}', '{{tool_1.data.instance}}'],
+                openAIApiKey: `sk-${MARKER}ORPHAN`,
+                note: 'not declared here'
+            },
+            [],
+            [{ name: 'model' }, { name: 'tools' }],
+            new Set(['chatOpenAI_0', 'tool_0', 'tool_1'])
+        )
+        expect(inputs).toEqual({
+            model: '{{chatOpenAI_0.data.instance}}',
+            tools: ['{{tool_0.data.instance}}', '{{tool_1.data.instance}}']
+        })
+        expect(dropped.sort()).toEqual(['note', 'openAIApiKey'])
+        expect(JSON.stringify(inputs)).not.toContain(MARKER)
+    })
+
+    it('leaves a canvas link out when the anchor value is not only that link', () => {
+        const { inputs, dropped } = sanitizeNodeInputs(
+            { model: `{{chatOpenAI_0.data.instance}} sk-${MARKER}LINK`, tools: ['{{tool_0.data.instance}}', `sk-${MARKER}TOOL`] },
+            [],
+            [{ name: 'model' }, { name: 'tools' }],
+            new Set(['chatOpenAI_0', 'tool_0'])
+        )
+        expect(inputs).toEqual({})
+        expect(dropped).toEqual(['model', 'tools'])
+    })
+
+    it('keeps a canvas link only when it names a node in the same flow', () => {
+        const { inputs, dropped } = sanitizeNodeInputs(
+            {
+                model: '{{chatOpenAI_0.data.instance}}',
+                tools: ['{{tool_0.data.instance}}'],
+                missing: '{{missingNode_0.data.instance}}',
+                shaped: `{{sk-${MARKER}NODE_0.data.instance}}`,
+                nested: '{{chatOpenAI_0.data.instance.secret}}'
+            },
+            [],
+            [{ name: 'model' }, { name: 'tools' }, { name: 'missing' }, { name: 'shaped' }, { name: 'nested' }],
+            new Set(['chatOpenAI_0', 'tool_0'])
+        )
+        expect(inputs).toEqual({
+            model: '{{chatOpenAI_0.data.instance}}',
+            tools: ['{{tool_0.data.instance}}']
+        })
+        expect(dropped.sort()).toEqual(['missing', 'nested', 'shaped'])
+        expect(JSON.stringify(inputs)).not.toContain(MARKER)
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'llmChain_0',
+                        data: {
+                            name: 'llmChain',
+                            inputs: {
+                                model: '{{chatOpenAI_0.data.instance}}',
+                                gone: '{{missingNode_3.data.instance}}'
+                            }
+                        }
+                    },
+                    { id: 'chatOpenAI_0', data: { name: 'chatOpenAI', inputs: {} } }
+                ],
+                edges: []
+            },
+            {
+                llmChain: { name: 'llmChain', label: 'Chain', inputAnchors: [{ name: 'model' }, { name: 'gone' }] },
+                chatOpenAI: { name: 'chatOpenAI', label: 'OpenAI' }
+            }
+        )
+        const saved = (flow.nodes[0] as { data: { inputs: Record<string, unknown> } }).data.inputs
+        expect(saved.model).toBe('{{chatOpenAI_0.data.instance}}')
+        expect(saved.gone).toBeUndefined()
+        expect(JSON.stringify(flow)).not.toContain(MARKER)
+    })
+
+    it('drops a kept string whole when the normalized text has //, an @ between non-spaces, a scheme-like word, or a token prefix', () => {
+        const cases = [
+            `Use sk-${MARKER}ONE`,
+            `prefix pk-${MARKER}TWO`,
+            `ghp_${MARKER}THREE`,
+            `xoxp-${MARKER}FOUR`,
+            `\u0455\u043a-${MARKER}FIVE`,
+            `See https://example.com/cb?utm_apikey=${MARKER}SIX`,
+            `See https://example.com/cb#${MARKER}SEVEN`,
+            `user:${MARKER}EIGHT@files.example`,
+            `//user:${MARKER}SLASH@host`,
+            `//cdn.example/a?utm_apikey=${MARKER}QUERY`,
+            `//cdn.example/a#${MARKER}HASH`,
+            `https:example.com/a?x=${MARKER}SCHEME`,
+            `path/user:${MARKER}PATH@files.example`,
+            `hello a@b ${MARKER}AT`,
+            percentEncode(`sk-${MARKER}NINE`),
+            percentEncode(`//user:${MARKER}ENC@host`),
+            JSON.stringify(`pk-${MARKER}TEN`),
+            `{"hidden":"sk-${MARKER}ELEVEN"}`,
+            `{not json sk-${MARKER}TWELVE`,
+            `note ${'aB3dE9fG1hJ2kL4mN6pQ8rS0tU5vW7xY'} ${MARKER}RUN`
+        ]
+        for (const prompt of cases) {
+            const { inputs } = sanitizeNodeInputs({ prompt, temperature: 0.1 }, schemaParams as any)
+            expect(JSON.stringify(inputs)).not.toContain(MARKER)
+            expect(inputs.prompt).toBeUndefined()
+            expect(inputs.temperature).toBe(0.1)
+        }
+    })
+
+    it('drops a prompt when a control, encoded break, NBSP, or zero-width character sits before a token prefix', () => {
+        const prompts = [
+            `Use\nsk-${MARKER}A`,
+            `Use%0Ask-${MARKER}B`,
+            `Use\u200bsk-${MARKER}C`,
+            `Use\tsk-${MARKER}D`,
+            `Use\rsk-${MARKER}E`,
+            `Use\u00a0sk-${MARKER}F`,
+            `Use\u0001sk-${MARKER}G`,
+            `Use\u007fsk-${MARKER}H`,
+            `Use\u2028sk-${MARKER}I`,
+            `Use\ufeffsk-${MARKER}J`
+        ]
+        for (const prompt of prompts) {
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+            expect(inputs.prompt).toBeUndefined()
+            expect(inputs.temperature).toBe(0.2)
+            expect(dropped).toContain('prompt')
+            expect(JSON.stringify(inputs)).not.toContain(MARKER)
+        }
+    })
+
+    it('drops a token split by a zero-width character, a soft hyphen, a word joiner, or NBSP', () => {
+        const prompts = [
+            `Part ${'xa' + 'i-'}FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
+            `s\u200bk-${MARKER}INSIDE`,
+            `s\u00adk-${MARKER}SOFT`,
+            `sk\u2060-${MARKER}JOIN`,
+            'https:\u00a0/\u00a0/qa\u00a0:\u00a0pw\u00a0@\u00a0host'
+        ]
+        for (const prompt of prompts) {
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+            expect(inputs.prompt).toBeUndefined()
+            expect(inputs.temperature).toBe(0.2)
+            expect(dropped).toContain('prompt')
+            expect(JSON.stringify(inputs)).not.toContain(MARKER)
+            expect(JSON.stringify(inputs)).not.toContain('FAKE')
+        }
+        const modelName = 'AIzaFAKEqa9X7mP2\u200bvR8tY4wK1nB3cDzL\u200bs5Hj6Gf'
+        const asyncOption = sanitizeNodeInputs({ modelName, temperature: 0.3 }, schemaParams as any)
+        expect(asyncOption.inputs.modelName).toBeUndefined()
+        expect(asyncOption.inputs.temperature).toBe(0.3)
+        expect(JSON.stringify(asyncOption.inputs)).not.toContain('FAKE')
+        const kept = sanitizeNodeInputs({ prompt: 'Ask\u00a0about the hours today.' }, schemaParams as any)
+        expect(kept.inputs.prompt).toBe('Ask\u00a0about the hours today.')
+    })
+
+    it('keeps a safe tool template and leaves out func, schema, and the icon address on a match', () => {
+        const marker = 'FAKE' + 'TOOL' + '91'
+        const token = 'sk' + '-' + marker
+        const schema = [{ id: 0, property: 'city', description: 'City name', type: 'string', required: true }]
+        const schemaText = JSON.stringify(schema)
+        const func = 'const city = $city\nreturn String(city)'
+        const icon = 'https://cdn.example/icons/hammer.png?size=32#top'
+        const kept = sanitizeToolTemplate({ func, schema, iconSrc: icon })
+        expect(kept.func).toBe(func)
+        expect(kept.schema).toEqual(schema)
+        expect(kept.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+        expect(kept.dropped).toEqual([])
+        const keptText = sanitizeToolTemplate({ func, schema: schemaText, iconSrc: 'https://cdn.example/icons/hammer.png' })
+        expect(keptText.schema).toBe(schemaText)
+        expect(keptText.dropped).toEqual([])
+        const emptySchema = sanitizeToolTemplate({ schema: [], func: '' })
+        expect(emptySchema.schema).toEqual([])
+        expect(emptySchema.func).toBeUndefined()
+        expect(emptySchema.dropped).toEqual([])
+
+        const forms = [
+            token,
+            'pk' + '-' + marker,
+            'ghp' + '_' + marker,
+            'xoxb' + '-' + marker,
+            '\u0455\u043a-' + marker,
+            percentEncode(token),
+            JSON.stringify(token),
+            JSON.stringify(JSON.stringify('pk' + '-' + marker)),
+            percentEncode(JSON.stringify(token)),
+            's' + '\u200b' + 'k' + '-' + marker,
+            's' + '\u00ad' + 'k' + '-' + marker,
+            'sk' + '\u2060' + '-' + marker,
+            'note ' + 'aB3dE9fG1hJ2kL4mN6pQ8rS0tU5vW7xY' + ' ' + marker
+        ]
+        const addressForms = ['https://cdn.example/a?q=' + marker, 'user:' + marker + '@files.example', 'see //' + marker]
+        for (const form of forms) {
+            const original = {
+                func: form,
+                schema: [{ property: 'city', description: form, type: 'string', required: false }],
+                iconSrc: 'https://cdn.example/icons/' + encodeURIComponent(form) + '/hammer.png'
+            }
+            const snapshot = JSON.parse(JSON.stringify(original))
+            const result = sanitizeToolTemplate(original)
+            expect(original).toEqual(snapshot)
+            expect(result.func).toBeUndefined()
+            expect(result.schema).toBeUndefined()
+            expect(result.iconSrc).toBeUndefined()
+            expect(result.dropped).toEqual(['func', 'schema', 'iconSrc'])
+            expect(JSON.stringify(result)).not.toContain(marker)
+            expect(JSON.stringify(result)).not.toContain('FAKE')
+            const asText = sanitizeToolTemplate({ schema: JSON.stringify({ description: form }), func: 'return "ok"' })
+            expect(asText.schema).toBeUndefined()
+            expect(asText.func).toBe('return "ok"')
+            expect(asText.dropped).toEqual(['schema'])
+            expect(JSON.stringify(asText)).not.toContain(marker)
+        }
+        for (const form of addressForms) {
+            const original = {
+                func: form,
+                schema: [{ property: 'city', description: form, type: 'string', required: false }],
+                iconSrc: 'https://cdn.example/icons/' + encodeURIComponent(form) + '/hammer.png'
+            }
+            const result = sanitizeToolTemplate(original)
+            expect(result.func).toBe(form)
+            expect(result.schema).toBeUndefined()
+            expect(result.iconSrc).toBeUndefined()
+            expect(result.dropped).toEqual(['schema', 'iconSrc'])
+            const asText = sanitizeToolTemplate({ schema: JSON.stringify({ description: form }), func: 'return "ok"' })
+            expect(asText.schema).toBeUndefined()
+            expect(asText.func).toBe('return "ok"')
+            expect(JSON.stringify(asText)).not.toContain(marker)
+        }
+        const mixed = sanitizeToolTemplate({
+            func: 'return "ok"',
+            schema: token,
+            iconSrc: 'https://' + token + '.example.invalid/icon.png'
+        })
+        expect(mixed.func).toBe('return "ok"')
+        expect(mixed.schema).toBeUndefined()
+        expect(mixed.iconSrc).toBeUndefined()
+        expect(mixed.dropped).toEqual(['schema', 'iconSrc'])
+        expect(sanitizeToolTemplate({ func: 1, schema: 2, iconSrc: 'javascript:alert(1)' }).dropped).toEqual(['func', 'schema', 'iconSrc'])
+    })
+
+    it('drops a provider prefix on a prompt and on func', () => {
+        const prefix = ['x', 'ai', '-'].join('')
+        const samples = [
+            prefix + 'abc',
+            prefix + 'FAKE' + 'BODY' + '91',
+            ['X', 'AI', '-'].join('') + 'abc',
+            '\u0445\u0430\u0456-' + 'abc',
+            ['x', 'ai', '\u2010'].join('') + 'abc'
+        ]
+        for (const sample of samples) {
+            const prompt = sanitizeNodeInputs({ prompt: 'Use ' + sample, temperature: 0.2 }, schemaParams as any)
+            expect(prompt.inputs.prompt).toBeUndefined()
+            expect(prompt.inputs.temperature).toBe(0.2)
+            expect(sanitizeToolTemplate({ func: 'const t = "' + sample + '"' }).func).toBeUndefined()
+        }
+        const spaced = ['x', ' ai', '-'].join('') + 'abc'
+        expect(sanitizeNodeInputs({ prompt: spaced }, schemaParams as any).inputs.prompt).toBeUndefined()
+        expect(sanitizeToolTemplate({ func: 'const t = "' + spaced + '"' }).func).toBeUndefined()
+        const embedded = ['max', 'ai', '-', 'tool'].join('')
+        expect(sanitizeNodeInputs({ prompt: 'Use ' + embedded }, schemaParams as any).inputs.prompt).toBe('Use ' + embedded)
+        expect(sanitizeToolTemplate({ func: 'const name = "' + embedded + '"' }).func).toBe('const name = "' + embedded + '"')
+    })
+
+    it('drops text when a percent sequence is split by an invisible character', () => {
+        const marker = 'FAKE' + 'PCT' + '91'
+        const tail = 'k' + '-' + marker
+        const gaps = [
+            '\u200b',
+            '\u00ad',
+            '\u2060',
+            '\u00a0',
+            '\u0001',
+            '\ufeff',
+            '\u034f',
+            '\ufe0f',
+            '\u180b',
+            '\u115f',
+            '\u1160',
+            '\u17b4',
+            '\u3164',
+            '\uffa0',
+            '\u{1d173}',
+            '\u{e0020}'
+        ]
+        for (const gap of gaps) {
+            const prompts = [
+                '%' + gap + '73' + tail,
+                '%7' + gap + '3' + tail,
+                'note %' + gap + '2f%2f' + marker,
+                JSON.stringify('%' + gap + '73' + tail),
+                encodeURIComponent('%' + gap + '73' + tail)
+            ]
+            for (const prompt of prompts) {
+                const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+                expect(inputs.prompt).toBeUndefined()
+                expect(inputs.temperature).toBe(0.2)
+                expect(dropped).toContain('prompt')
+                expect(JSON.stringify(inputs)).not.toContain(marker)
+            }
+            const tool = sanitizeToolTemplate({
+                func: '%' + gap + '73' + tail,
+                schema: '[]',
+                iconSrc: 'https://cdn.example/icon.png'
+            })
+            expect(tool.func).toBeUndefined()
+            expect(tool.schema).toBe('[]')
+            expect(tool.iconSrc).toBe('https://cdn.example/icon.png')
+            expect(tool.dropped).toEqual(['func'])
+            expect(JSON.stringify(tool)).not.toContain(marker)
+        }
+        const kept = 'Ask\u00a0about the hours today. 100%\u00a0off.'
+        const safe = sanitizeNodeInputs({ prompt: kept }, schemaParams as any)
+        expect(safe.inputs.prompt).toBe(kept)
+        expect(safe.dropped).toEqual([])
+        const shown = '%' + '\u200b' + '73' + tail
+        expect(publicChatbotDisplayConfig({ title: 'Hours', welcomeMessage: shown }).welcomeMessage).toBe(shown)
+    })
+
+    it('reads unicode hyphens as an ASCII hyphen when checking text', () => {
+        const marker = 'FAKE' + 'DASH' + '91'
+        const dashes = ['\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212']
+        for (const dash of dashes) {
+            const prompt = 'sk' + dash + marker
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+            expect(inputs.prompt).toBeUndefined()
+            expect(inputs.temperature).toBe(0.2)
+            expect(dropped).toContain('prompt')
+            expect(JSON.stringify(inputs)).not.toContain(marker)
+            const tool = sanitizeToolTemplate({ func: prompt, schema: '[]', iconSrc: 'https://cdn.example/icon.png' })
+            expect(tool.func).toBeUndefined()
+            expect(tool.schema).toBe('[]')
+            expect(tool.iconSrc).toBe('https://cdn.example/icon.png')
+            expect(tool.dropped).toEqual(['func'])
+            expect(JSON.stringify(tool)).not.toContain(marker)
+        }
+        const encoded = encodeURIComponent('sk' + '\u2010' + marker)
+        const encodedInputs = sanitizeNodeInputs({ prompt: encoded }, schemaParams as any)
+        expect(encodedInputs.inputs.prompt).toBeUndefined()
+        expect(JSON.stringify(encodedInputs.inputs)).not.toContain(marker)
+        const kept = 'Pages 10\u201320 stay on the shelf.'
+        const safe = sanitizeNodeInputs({ prompt: kept }, schemaParams as any)
+        expect(safe.inputs.prompt).toBe(kept)
+        expect(safe.dropped).toEqual([])
+        const shown = 'sk' + '\u2010' + marker
+        expect(publicChatbotDisplayConfig({ title: 'Hours', welcomeMessage: shown }).welcomeMessage).toBe(shown)
+        expect(rebuildHttpUrl('https://cdn.example/' + encodeURIComponent(shown) + '/a.png')).toBeUndefined()
+    })
+
+    it('keeps a harmless prompt that spans more than one line', () => {
+        const prompts = [
+            'Hello "world" @ café, 10% off\nSee the help page.',
+            'Line one.\r\nLine two.\tThanks for asking.',
+            'Ask\u00a0about the hours today.'
+        ]
+        for (const prompt of prompts) {
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt }, schemaParams as any)
+            expect(inputs.prompt).toBe(prompt)
+            expect(dropped).toEqual([])
+        }
+    })
+
+    it('drops a named scheme when a tab or a line break follows the colon', () => {
+        const names = ['javascript', 'vbscript', 'data', 'file', 'blob', 'http', 'https']
+        const breaks = ['\n', '\r\n', '\r', '\u2028', '\u2029', '\t', '\v', '\f', ' \n', '\t\n', ' \u00a0\n']
+        for (const name of names) {
+            for (const gap of breaks) {
+                const prompt = name + ':' + gap + 'alert(1)'
+                const { inputs, dropped } = sanitizeNodeInputs({ prompt, temperature: 0.2 }, schemaParams as any)
+                expect(inputs.prompt).toBeUndefined()
+                expect(inputs.temperature).toBe(0.2)
+                expect(dropped).toContain('prompt')
+                const tool = sanitizeToolTemplate({ func: prompt, schema: '[]', iconSrc: 'https://cdn.example/icon.png' })
+                expect(tool.func).toBe(prompt)
+                expect(tool.schema).toBe('[]')
+                expect(tool.iconSrc).toBe('https://cdn.example/icon.png')
+                expect(tool.dropped).toEqual([])
+                const option = sanitizeNodeInputs({ modelName: prompt, temperature: 0.2 }, schemaParams as any)
+                expect(option.inputs.modelName).toBeUndefined()
+                expect(option.inputs.temperature).toBe(0.2)
+            }
+        }
+        const kept = [
+            'See the https: example in the notes.',
+            'See the https: example in the notes.\nThanks for asking.',
+            'Use\nhttps: only with a space on that line.',
+            'Chat History:\n{chat_history}',
+            'tools:\n\n{tools}',
+            'text:\n\n- next line',
+            'profile:\nname',
+            'metadata:\nvalue',
+            'Line one.\r\nLine two.\tThanks for asking.'
+        ]
+        for (const prompt of kept) {
+            const { inputs, dropped } = sanitizeNodeInputs({ prompt, modelName: prompt }, schemaParams as any)
+            expect(dropped).toEqual([])
+            expect(inputs.prompt).toBe(prompt)
+            expect(inputs.modelName).toBe(prompt)
+            const tool = sanitizeToolTemplate({
+                func: prompt,
+                schema: [{ property: 'note', description: prompt, type: 'string', required: false }],
+                iconSrc: 'https://cdn.example/icons/hammer.png'
+            })
+            expect(tool.dropped).toEqual([])
+            expect(tool.func).toBe(prompt)
+            expect(tool.schema).toEqual([{ property: 'note', description: prompt, type: 'string', required: false }])
+        }
+    })
+
+    it('keeps ordinary prompt sentences in template fields', () => {
+        const fields = [
+            'systemMessagePrompt',
+            'prompt',
+            'systemMessage',
+            'description',
+            'label',
+            'placeholder',
+            'toolName',
+            'agentName',
+            'toolDescription',
+            'requestsGetName',
+            'rephrasePrompt',
+            'responsePrompt',
+            'humanMessagePrompt'
+        ]
+        const params = [
+            ...fields.map((name) => ({ name, type: 'string' })),
+            { name: 'modelName', type: 'asyncOptions' },
+            { name: 'temperature', type: 'number' }
+        ]
+        const sentences = ordinaryPrompts()
+        expect(sentences.length).toBeGreaterThan(10)
+        for (const sentence of sentences) {
+            const inputs: Record<string, unknown> = { temperature: 0.2, modelName: sentence }
+            for (const field of fields) inputs[field] = sentence
+            const kept = sanitizeNodeInputs(inputs, params as any)
+            expect(kept.dropped).toEqual([])
+            expect(kept.inputs).toEqual(inputs)
+            const tool = sanitizeToolTemplate({
+                func: sentence,
+                schema: [{ property: 'note', description: sentence, type: 'string', required: false }],
+                iconSrc: 'https://cdn.example/icons/hammer.png?size=32#top'
+            })
+            expect(tool.func).toBe(sentence)
+            expect(tool.schema).toEqual([{ property: 'note', description: sentence, type: 'string', required: false }])
+            expect(tool.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+            expect(tool.dropped).toEqual([])
+            const flow = buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: 'conversationChain_0',
+                            type: 'customNode',
+                            position: { x: 12, y: 24 },
+                            width: 300,
+                            height: 180,
+                            data: {
+                                name: 'conversationChain',
+                                inputs: {
+                                    systemMessagePrompt: sentence,
+                                    description: sentence,
+                                    modelName: sentence,
+                                    model: '{{chatOpenAI_0.data.instance}}'
+                                }
+                            }
+                        },
+                        { id: 'chatOpenAI_0', type: 'customNode', position: { x: 0, y: 0 }, data: { name: 'chatOpenAI', inputs: {} } }
+                    ],
+                    edges: []
+                },
+                {
+                    conversationChain: {
+                        name: 'conversationChain',
+                        label: 'Conversation Chain',
+                        type: 'ConversationChain',
+                        inputParams: [
+                            { name: 'systemMessagePrompt', type: 'string' },
+                            { name: 'description', type: 'string' },
+                            { name: 'modelName', type: 'asyncOptions' }
+                        ],
+                        inputAnchors: [{ name: 'model', type: 'BaseChatModel' }]
+                    },
+                    chatOpenAI: { name: 'chatOpenAI', label: 'Chat Model', inputParams: [] }
+                }
+            )
+            expect(flow.droppedSettings).toEqual([])
+            const saved = (flow.nodes[0] as { data: { inputs: Record<string, unknown> } }).data.inputs
+            expect(saved.systemMessagePrompt).toBe(sentence)
+            expect(saved.description).toBe(sentence)
+            expect(saved.modelName).toBe(sentence)
+            expect(saved.model).toBe('{{chatOpenAI_0.data.instance}}')
+        }
+    })
+
+    it('drops the wrong JavaScript type for every kept kind', () => {
+        const wrong = {
+            temperature: `sk-${MARKER}NUM`,
+            streaming: `sk-${MARKER}BOOL`,
+            reasoningEffort: `sk-${MARKER}OPT`,
+            stops: `sk-${MARKER}MULTI`,
+            modelName: { name: `sk-${MARKER}ASYNC` },
+            prompt: { text: `sk-${MARKER}PROMPT` },
+            basepath: `user:${MARKER}URL@files.example`
+        }
+        const { inputs } = sanitizeNodeInputs(wrong, schemaParams as any)
+        expect(inputs).toEqual({})
+        expect(JSON.stringify(inputs)).not.toContain(MARKER)
+    })
+
+    it('keeps a plain UUID async option and drops another long random option', () => {
+        const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+        const upper = 'A1B2C3D4-E5F6-7890-ABCD-EF1234567890'
+        const { inputs } = sanitizeNodeInputs({ modelName: uuid, otherName: upper, noisy: 'aB3dE9fG1hJ2kL4mN6pQ8rS0tU5vW7xY' }, [
+            { name: 'modelName', type: 'asyncOptions' },
+            { name: 'otherName', type: 'asyncOptions' },
+            { name: 'noisy', type: 'asyncOptions' }
+        ] as any)
+        expect(inputs.modelName).toBe(uuid)
+        expect(inputs.otherName).toBe(upper)
+        expect(inputs.noisy).toBeUndefined()
+        const prompt = sanitizeNodeInputs({ prompt: uuid }, [{ name: 'prompt', type: 'string' }] as any)
+        expect(prompt.inputs.prompt).toBeUndefined()
+    })
+
+    it('drops option values that are not in the declared list, including a listed name of the wrong type', () => {
+        const { inputs } = sanitizeNodeInputs({ reasoningEffort: 'medium', stops: '["alpha","nope"]' }, schemaParams as any)
+        expect(inputs).toEqual({})
+        const typed = sanitizeNodeInputs({ reasoningEffort: 'low' }, [
+            { name: 'reasoningEffort', type: 'options', options: [{ name: 1 }] }
+        ] as any)
+        expect(typed.inputs).toEqual({})
+    })
+
+    it('fills every non-allowlisted input and every wrong-typed value with secret-shaped text and keeps none of the marker', () => {
+        const blockedNames = [
+            'config',
+            'snippet',
+            'secretField',
+            'upload',
+            'directory',
+            'when',
+            'grid',
+            'relations',
+            'rows',
+            'headers',
+            'requestsGetHeaders',
+            'note',
+            'credentialId'
+        ]
+        const rng = mulberry32(131)
+        for (let trial = 0; trial < 40; trial += 1) {
+            const marker = `${MARKER}${trial}_`
+            const shapes = secretShapes(marker)
+            const pick = () => shapes[Math.floor(rng() * shapes.length)]
+            const inputs: Record<string, unknown> = {
+                prompt: 'Hello "world" @ café, 10% off',
+                systemMessage: 'こんにちは',
+                temperature: 0.4,
+                streaming: true,
+                reasoningEffort: 'high',
+                modelName: 'gpt-4.1-mini',
+                basepath: 'https://api.example.com/v1'
+            }
+            for (const name of blockedNames) inputs[name] = pick()
+            inputs.undeclared = pick()
+            inputs.temperatureWrong = pick()
+            inputs.nested = { inner: [pick(), { again: pick() }] }
+            const params = [...schemaParams, { name: 'temperatureWrong', type: 'number' }, { name: 'nested', type: 'json' }]
+            const flow = buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: `chatOpenAI_${trial}`,
+                            data: {
+                                id: `chatOpenAI_${trial}`,
+                                label: 'Model',
+                                name: 'chatOpenAI',
+                                credential: pick(),
+                                inputParams: params,
+                                inputAnchors: [{ name: 'model' }],
+                                inputs: { ...inputs, model: '{{chatOpenAI_0.data.instance}}', prompt: pick() }
+                            }
+                        },
+                        { id: 'chatOpenAI_0', data: { id: 'chatOpenAI_0', name: 'chatOpenAI', inputs: {} } }
+                    ],
+                    edges: [{ id: 'e1' }]
+                },
+                {
+                    chatOpenAI: {
+                        name: 'chatOpenAI',
+                        label: 'Model',
+                        inputParams: params,
+                        inputAnchors: [{ name: 'model' }]
+                    }
+                }
+            )
+            expect(JSON.stringify(flow)).not.toContain(marker)
+            expect(JSON.stringify(flow)).not.toContain(MARKER)
+            const kept = (flow.nodes[0] as { data: { inputs: Record<string, unknown> } }).data.inputs
+            expect(kept.systemMessage).toBe('こんにちは')
+            expect(kept.temperature).toBe(0.4)
+            expect(kept.streaming).toBe(true)
+            expect(kept.reasoningEffort).toBe('high')
+            expect(kept.modelName).toBe('gpt-4.1-mini')
+            expect(kept.basepath).toBe('https://api.example.com/v1')
+            expect(kept.model).toBe('{{chatOpenAI_0.data.instance}}')
+            expect(kept.prompt).toBeUndefined()
+        }
+    })
+
+    it('keeps no marker in any decoded field when every input type is given a wrong value', () => {
+        const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+        const avatar = 'https://cdn.example/images/logo.png'
+        const decodeString = (value: string, depth: number): unknown => {
+            let current = value
+            for (let layer = 0; layer < 8; layer += 1) {
+                let decoded = current
+                try {
+                    decoded = decodeURIComponent(current)
+                } catch {
+                    decoded = current
+                }
+                try {
+                    const parsed = JSON.parse(decoded)
+                    if (typeof parsed === 'string') {
+                        current = parsed
+                        continue
+                    }
+                    if (parsed && typeof parsed === 'object') return fullyDecode(parsed, depth + 1)
+                } catch {
+                    // not JSON
+                }
+                if (decoded === current) return current
+                current = decoded
+            }
+            return current
+        }
+        const fullyDecode = (value: unknown, depth = 0): unknown => {
+            if (depth > 12) return value
+            if (typeof value === 'string') return decodeString(value, depth)
+            if (Array.isArray(value)) return value.map((item) => fullyDecode(item, depth + 1))
+            if (value && typeof value === 'object') {
+                const out: Record<string, unknown> = {}
+                for (const [key, child] of Object.entries(value)) {
+                    const decodedKey = fullyDecode(key, depth + 1)
+                    out[typeof decodedKey === 'string' ? decodedKey : key] = fullyDecode(child, depth + 1)
+                }
+                return out
+            }
+            return value
+        }
+        const expectNoMarker = (value: unknown) => {
+            const texts: string[] = []
+            const walk = (node: unknown) => {
+                if (typeof node === 'string') {
+                    texts.push(node)
+                    return
+                }
+                if (Array.isArray(node)) {
+                    node.forEach(walk)
+                    return
+                }
+                if (node && typeof node === 'object') {
+                    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+                        texts.push(key)
+                        walk(child)
+                    }
+                }
+            }
+            walk(fullyDecode(value))
+            for (const text of texts) expect(text).not.toContain(MARKER)
+        }
+        const componentParams = [
+            ...schemaParams,
+            { name: 'otherModel', type: 'asyncOptions' },
+            { name: 'baseURL', type: 'string' },
+            { name: 'credential', type: 'credential' }
+        ]
+        const rng = mulberry32(262)
+        for (let trial = 0; trial < 40; trial += 1) {
+            const marker = `${MARKER}${trial}_`
+            const shapes = [
+                `//user:${marker}@host`,
+                `//cdn.example/a?utm_apikey=${marker}`,
+                `//cdn.example/a#${marker}`,
+                `https:example.com/a?x=${marker}`,
+                `path/user:${marker}@files.example`
+            ]
+            const carry = (shape: string) => {
+                const forms = [shape, percentEncode(shape), JSON.stringify(shape), percentEncode(JSON.stringify(shape))]
+                return forms[Math.floor(rng() * forms.length)]
+            }
+            const carried = shapes.map((shape) => carry(shape))
+            const shaped = secretShapes(marker)
+            const secretText = (index: number) => carry(shaped[index % shaped.length])
+            // Each kind gets a JavaScript type it does not accept, or a secret-shaped string, including after percent and JSON decoding.
+            const inputs: Record<string, unknown> = {
+                prompt: 'Hello "world"',
+                systemMessage: 'a @ b',
+                description: 'こんにちは',
+                label: '10% off',
+                modelName: uuid,
+                model: '{{cache_0.data.instance}}',
+                missing: '{{missingNode_3.data.instance}}',
+                shaped: `{{sk-${marker}NODE_0.data.instance}}`,
+                temperature: trial % 2 === 0 ? carried[0] : { n: carried[0] },
+                streaming: trial % 2 === 0 ? carried[1] : [carried[1]],
+                reasoningEffort: { picked: carried[2] },
+                stops: { picked: carried[3] },
+                otherModel: trial % 2 === 0 ? { id: carried[4] } : [carried[4]],
+                placeholder: { text: carried[0] },
+                toolName: [carried[1]],
+                agentName: { name: carried[2] },
+                toolDescription: shapes[0],
+                requestsGetName: shapes[1],
+                note: shapes[2],
+                basePath: shapes[4],
+                basepath: carry(shapes[4]),
+                baseURL: trial % 2 === 0 ? { href: carried[3] } : shapes[3],
+                config: trial % 2 === 0 ? carried[0] : [carried[0]],
+                snippet: { body: carried[1] },
+                secretField: { secret: carried[2] },
+                upload: [carried[3]],
+                directory: { path: carried[4] },
+                credential: trial % 2 === 0 ? { id: carried[0] } : [carried[0]],
+                systemMessagePrompt: trial % 2 === 0 ? { text: secretText(0) } : secretText(7),
+                when: trial % 2 === 0 ? secretText(0) : { at: secretText(0) },
+                grid: trial % 2 === 0 ? [{ cell: secretText(1) }] : secretText(1),
+                relations: trial % 2 === 0 ? [secretText(2)] : { ids: secretText(2) },
+                rows: trial % 2 === 0 ? secretText(3) : [{ id: secretText(3) }],
+                headers: trial % 2 === 0 ? secretText(0) : { Authorization: secretText(0) },
+                requestsGetHeaders: trial % 2 === 0 ? { Authorization: secretText(1) } : [secretText(1)],
+                credentialId: trial % 2 === 0 ? secretText(6) : { id: secretText(6) }
+            }
+            const declaredTypes = new Set(componentParams.map((param) => param.type))
+            for (const param of schemaParams) {
+                expect(Object.prototype.hasOwnProperty.call(inputs, param.name)).toBe(true)
+                expect(declaredTypes.has(param.type)).toBe(true)
+            }
+            const flow = buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: 'llmChain_0',
+                            position: { x: 1, y: 2 },
+                            data: {
+                                id: 'llmChain_0',
+                                name: 'llmChain',
+                                label: `${marker}LABEL`,
+                                description: `${marker}DESC`,
+                                category: `${marker}CAT`,
+                                tags: [`${marker}TAG`],
+                                extraProp: `${marker}EXTRA`,
+                                credential: carry(shapes[2]),
+                                inputParams: componentParams.map((param) => ({ ...param, placeholder: `${marker}PLACE` })),
+                                inputAnchors: [{ name: 'model' }, { name: 'missing' }, { name: 'shaped' }],
+                                inputs
+                            }
+                        },
+                        { id: 'cache_0', data: { id: 'cache_0', name: 'cache', inputs: {} } },
+                        {
+                            id: 'mystery_0',
+                            secretNote: `${marker}NODE`,
+                            data: {
+                                id: 'mystery_0',
+                                name: 'notRegistered',
+                                label: `${marker}GHOST`,
+                                description: `${marker}GHOST`,
+                                category: `${marker}GHOST`,
+                                tags: [`${marker}GHOST`],
+                                extraProp: `${marker}GHOST`,
+                                inputParams: [{ name: 'prompt', type: 'string', placeholder: `${marker}GHOST` }],
+                                inputs: { prompt: shapes[0] }
+                            }
+                        }
+                    ],
+                    edges: [{ id: 'e1', source: 'llmChain_0', target: 'cache_0' }]
+                },
+                {
+                    llmChain: {
+                        name: 'llmChain',
+                        label: 'Chain',
+                        description: 'Runs a chain',
+                        category: 'Chains',
+                        tags: ['chain'],
+                        inputParams: componentParams,
+                        inputAnchors: [{ name: 'model' }, { name: 'missing' }, { name: 'shaped' }]
+                    },
+                    cache: { name: 'cache', label: 'Cache', inputParams: [], inputAnchors: [] }
+                }
+            )
+            expectNoMarker(flow)
+            const data = (flow.nodes[0] as { data: Record<string, unknown> }).data
+            const kept = data.inputs as Record<string, unknown>
+            expect(data.label).toBe('Chain')
+            expect(data.description).toBe('Runs a chain')
+            expect(data.category).toBe('Chains')
+            expect(data.tags).toEqual(['chain'])
+            expect(data.extraProp).toBeUndefined()
+            expect(data.inputParams).toEqual(
+                componentParams.map((param) => ({ ...param, id: `llmChain_0-input-${param.name}-${param.type}` }))
+            )
+            expect(kept.prompt).toBe('Hello "world"')
+            expect(kept.systemMessage).toBe('a @ b')
+            expect(kept.description).toBe('こんにちは')
+            expect(kept.label).toBe('10% off')
+            expect(kept.modelName).toBe(uuid)
+            expect(kept.model).toBe('{{cache_0.data.instance}}')
+            expect(kept.missing).toBeUndefined()
+            expect(kept.shaped).toBeUndefined()
+            expect(kept.basePath).toBeUndefined()
+            expect(kept.basepath).toBeUndefined()
+            expect(kept.baseURL).toBe(trial % 2 === 0 ? undefined : 'https://example.com/a')
+            expect(kept.toolDescription).toBeUndefined()
+            expect(kept.systemMessagePrompt).toBeUndefined()
+            expect(kept.when).toBeUndefined()
+            expect(kept.grid).toBeUndefined()
+            expect(kept.relations).toBeUndefined()
+            expect(kept.rows).toBeUndefined()
+            expect(kept.headers).toBeUndefined()
+            expect(kept.requestsGetHeaders).toBeUndefined()
+            expect(kept.credentialId).toBeUndefined()
+            expect((flow.nodes[2] as { secretNote?: unknown; data: unknown }).secretNote).toBeUndefined()
+            expect((flow.nodes[2] as { data: unknown }).data).toEqual({ id: 'mystery_0', selected: false, inputs: {} })
+            const display = publicChatbotDisplayConfig({
+                title: 'Hello "world"',
+                welcomeMessage: 'a @ b',
+                errorMessage: 'こんにちは',
+                textInput: { placeholder: '10% off' },
+                titleAvatarSrc: avatar,
+                botMessage: { avatarSrc: shapes[trial % 5] }
+            })
+            expect(display.titleAvatarSrc).toBe(avatar)
+            expect(display.welcomeMessage).toBe('a @ b')
+            expect((display.textInput as { placeholder: string }).placeholder).toBe('10% off')
+            expectNoMarker(display)
+        }
+    })
+
+    it('keeps no planted value in layout, connections, addresses, split text, or tool templates', () => {
+        const INVISIBLE =
+            /[\u0000-\u001f\u007f-\u009f\u00a0\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
+        const visible = (value: string) => value.replace(INVISIBLE, '').replace(/\s+/g, '').toLowerCase()
+        const decodeString = (value: string): unknown => {
+            let current = value
+            for (let layer = 0; layer < 8; layer += 1) {
+                let decoded = current
+                try {
+                    decoded = decodeURIComponent(current)
+                } catch {
+                    decoded = current
+                }
+                try {
+                    const parsed = JSON.parse(decoded)
+                    if (typeof parsed === 'string') {
+                        current = parsed
+                        continue
+                    }
+                    if (parsed && typeof parsed === 'object') return fullyDecode(parsed)
+                } catch {
+                    // not JSON
+                }
+                if (decoded === current) return current
+                current = decoded
+            }
+            return current
+        }
+        const fullyDecode = (value: unknown): unknown => {
+            if (typeof value === 'string') return decodeString(value)
+            if (Array.isArray(value)) return value.map((item) => fullyDecode(item))
+            if (value && typeof value === 'object') {
+                const out: Record<string, unknown> = {}
+                for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+                    const decodedKey = fullyDecode(key)
+                    out[typeof decodedKey === 'string' ? decodedKey : key] = fullyDecode(child)
+                }
+                return out
+            }
+            return value
+        }
+        const textsOf = (value: unknown): string[] => {
+            const texts: string[] = []
+            const walk = (node: unknown) => {
+                if (typeof node === 'string') {
+                    texts.push(node)
+                    return
+                }
+                if (Array.isArray(node)) {
+                    node.forEach(walk)
+                    return
+                }
+                if (node && typeof node === 'object') {
+                    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+                        texts.push(key)
+                        walk(child)
+                    }
+                }
+            }
+            walk(fullyDecode(value))
+            return texts
+        }
+        const expectClean = (value: unknown, banned: string[]) => {
+            const folded = textsOf(value).map(visible)
+            expect(folded.length).toBeGreaterThan(0)
+            for (const secret of banned) {
+                const needle = visible(secret)
+                if (needle.length < 8) continue
+                for (const text of folded) expect(text).not.toContain(needle)
+            }
+        }
+        const prefixes = ['sk-', 'pk-', 'ghp_', 'xoxb-', 'xoxp-']
+        const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        const hostAlphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
+        const marks = [
+            '\u200b',
+            '\u00ad',
+            '\u2060',
+            '\u00a0',
+            '\u034f',
+            '\ufe0f',
+            '\u180b',
+            '\u115f',
+            '\u1160',
+            '\u17b4',
+            '\u3164',
+            '\uffa0',
+            '\u{1d173}',
+            '\u{e0020}'
+        ]
+        const rng = mulberry32(131)
+        const pick = (chars: string, count: number) => {
+            let out = ''
+            for (let i = 0; i < count; i += 1) out += chars[Math.floor(rng() * chars.length)]
+            return out
+        }
+        const splitAt = (value: string) => {
+            const at = 1 + Math.floor(rng() * Math.max(1, value.length - 1))
+            return value.slice(0, at) + marks[Math.floor(rng() * marks.length)] + value.slice(at)
+        }
+        const sourceHandle = 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel'
+        const targetHandle = 'conversationChain_0-input-model-BaseChatModel'
+        const params = [
+            { name: 'prompt', type: 'string' },
+            { name: 'systemMessage', type: 'string' },
+            { name: 'systemMessagePrompt', type: 'string' },
+            { name: 'description', type: 'string' },
+            { name: 'rephrasePrompt', type: 'string' },
+            { name: 'responsePrompt', type: 'string' },
+            { name: 'humanMessagePrompt', type: 'string' },
+            { name: 'agentName', type: 'string' },
+            { name: 'modelName', type: 'asyncOptions' },
+            { name: 'otherModel', type: 'asyncOptions' },
+            { name: 'titleModel', type: 'asyncOptions' },
+            { name: 'basepath', type: 'string' },
+            { name: 'baseURL', type: 'string' }
+        ]
+        const dashes = ['\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212']
+        const chunked = (value: string, size: number) => {
+            const parts: string[] = []
+            for (let i = 0; i < value.length; i += size) parts.push(value.slice(i, i + size))
+            return parts.join(' ')
+        }
+        const corpus = ordinaryPrompts()
+        const fixed = [
+            `Part ${'xa' + 'i-'}FAKEqa9X7mP2vR8t\u200bY4wK1nB3cDzLs5Hj6Gf0\u200bUe7Wq`,
+            `AIzaFAKEqa9X7mP2\u200bvR8tY4wK1nB3cDzL\u200bs5Hj6Gf`,
+            `s\u200bk-FAKEqa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf`,
+            `s\u00adk-FAKEqa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf`,
+            `sk\u2060-FAKEqa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf`,
+            'https:\u00a0/\u00a0/qa\u00a0:\u00a0pw\u00a0@\u00a0host'
+        ]
+        for (let trial = 0; trial < 24; trial += 1) {
+            const marker = `${MARKER}${trial}_`
+            const body = `aZ9${pick(alphabet, 40)}`
+            const generated = prefixes[trial % prefixes.length] + body
+            const hostLabel = `sk-${pick(hostAlphabet, 40)}`
+            const shapes = secretShapes(marker)
+            const shortBody = 'Qa' + pick(alphabet, 8)
+            const shortToken = prefixes[(trial + 1) % prefixes.length] + shortBody
+            const hyphenToken = 'sk' + dashes[trial % dashes.length] + shortBody
+            const percentToken = '%' + marks[trial % marks.length] + '73' + 'k-' + shortBody
+            const size = trial % 2 === 0 ? 8 : 10
+            const spacedToken = shortToken.slice(0, 1) + (trial % 2 === 0 ? ' ' : '\n') + chunked(shortToken.slice(1), size)
+            const spacedLong = generated.slice(0, 1) + ' ' + chunked(generated.slice(1), size)
+            const sentence = corpus[trial % corpus.length]
+            const banned = [
+                marker,
+                generated,
+                body,
+                hostLabel,
+                shortBody,
+                shortToken,
+                'sk' + '-' + shortBody,
+                hyphenToken,
+                percentToken,
+                spacedToken,
+                spacedLong,
+                ...shapes,
+                ...fixed
+            ]
+            const pathSecret = shapes[trial % shapes.length]
+            const flow = buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: 'chatOpenAI_0',
+                            type: 'customNode',
+                            position: { x: 10, y: 20, note: generated },
+                            positionAbsolute: { x: 1, y: 2, note: generated },
+                            width: 300,
+                            height: generated,
+                            style: { note: shapes[0] },
+                            extent: generated,
+                            parentNode: generated,
+                            extraField: generated,
+                            data: {
+                                id: 'chatOpenAI_0',
+                                name: 'chatOpenAI',
+                                label: generated,
+                                inputs: {
+                                    prompt: trial % 2 === 0 ? splitAt(generated) : fixed[trial % fixed.length],
+                                    systemMessage: 'Ask\u00a0about the hours today.',
+                                    systemMessagePrompt: fixed[5],
+                                    description: sentence,
+                                    rephrasePrompt: hyphenToken,
+                                    responsePrompt: percentToken,
+                                    humanMessagePrompt: spacedToken,
+                                    agentName: shortToken,
+                                    modelName: splitAt(shapes[1]),
+                                    otherModel: spacedLong,
+                                    titleModel: sentence,
+                                    basepath:
+                                        trial % 2 === 0
+                                            ? `https://api.example.invalid/v1/${generated}/x`
+                                            : `https://api.example.invalid/services/T0FAKE/B0FAKE/${body}`,
+                                    baseURL: `https://${hostLabel}.example.invalid/v1`
+                                }
+                            }
+                        },
+                        {
+                            id: 'conversationChain_0',
+                            type: 'customNode',
+                            data: {
+                                id: 'conversationChain_0',
+                                name: 'conversationChain',
+                                inputs: { model: '{{chatOpenAI_0.data.instance}}' }
+                            }
+                        },
+                        generated,
+                        { id: generated, type: 'customNode', width: generated, data: { name: 'chatOpenAI', inputs: { prompt: generated } } }
+                    ],
+                    edges: [
+                        {
+                            id: 'eModel',
+                            source: 'chatOpenAI_0',
+                            target: 'conversationChain_0',
+                            sourceHandle,
+                            targetHandle,
+                            type: 'buttonedge'
+                        },
+                        {
+                            id: generated,
+                            source: 'chatOpenAI_0',
+                            target: 'conversationChain_0',
+                            sourceHandle: generated,
+                            targetHandle: generated,
+                            type: 'buttonedge',
+                            data: { label: generated },
+                            apiKey: shapes[2]
+                        },
+                        generated
+                    ]
+                },
+                {
+                    chatOpenAI: {
+                        name: 'chatOpenAI',
+                        label: 'OpenAI',
+                        type: 'ChatOpenAI',
+                        baseClasses: ['ChatOpenAI', 'BaseChatModel'],
+                        inputParams: params
+                    },
+                    conversationChain: {
+                        name: 'conversationChain',
+                        label: 'Conversation Chain',
+                        type: 'ConversationChain',
+                        inputAnchors: [{ name: 'model', type: 'BaseChatModel' }]
+                    }
+                }
+            )
+            const chat = flow.nodes.find((node) => (node as { id?: string }).id === 'chatOpenAI_0') as {
+                position?: unknown
+                width?: unknown
+                height?: unknown
+                style?: unknown
+                extent?: unknown
+                parentNode?: unknown
+                positionAbsolute?: unknown
+                extraField?: unknown
+                data: { inputs: Record<string, unknown> }
+            }
+            expect(chat.position).toEqual({ x: 10, y: 20 })
+            expect(chat.width).toBe(300)
+            expect(chat.height).toBeUndefined()
+            expect(chat.style).toBeUndefined()
+            expect(chat.extent).toBeUndefined()
+            expect(chat.parentNode).toBeUndefined()
+            expect(chat.positionAbsolute).toBeUndefined()
+            expect(chat.extraField).toBeUndefined()
+            expect(chat.data.inputs.systemMessage).toBe('Ask\u00a0about the hours today.')
+            expect(chat.data.inputs.description).toBe(sentence)
+            expect(chat.data.inputs.titleModel).toBe(sentence)
+            expect(chat.data.inputs.prompt).toBeUndefined()
+            expect(chat.data.inputs.modelName).toBeUndefined()
+            expect(chat.data.inputs.otherModel).toBeUndefined()
+            expect(chat.data.inputs.rephrasePrompt).toBeUndefined()
+            expect(chat.data.inputs.responsePrompt).toBeUndefined()
+            expect(chat.data.inputs.humanMessagePrompt).toBeUndefined()
+            expect(chat.data.inputs.agentName).toBeUndefined()
+            expect(chat.data.inputs.systemMessagePrompt).toBeUndefined()
+            expect(chat.data.inputs.basepath).toBeUndefined()
+            expect(chat.data.inputs.baseURL).toBeUndefined()
+            expect(flow.nodes).toHaveLength(2)
+            expect(flow.edges).toEqual([
+                {
+                    id: 'eModel',
+                    source: 'chatOpenAI_0',
+                    target: 'conversationChain_0',
+                    sourceHandle,
+                    targetHandle,
+                    type: 'buttonedge'
+                }
+            ])
+            expectClean(flow, banned)
+            const display = publicChatbotDisplayConfig({
+                title: 'Hours',
+                welcomeMessage: 'Ask about the hours today.',
+                titleAvatarSrc: `https://cdn.example/images/${encodeURIComponent(pathSecret)}.png`,
+                botMessage: { avatarSrc: `https://${hostLabel}.example.invalid/logo.png` }
+            })
+            expect(display.title).toBe('Hours')
+            expect(display.welcomeMessage).toBe('Ask about the hours today.')
+            expect(display.titleAvatarSrc).toBeUndefined()
+            expect((display.botMessage as { avatarSrc?: string } | undefined)?.avatarSrc).toBeUndefined()
+            expectClean(display, banned)
+            const encoded = [
+                generated,
+                splitAt(generated),
+                fixed[trial % fixed.length],
+                shapes[trial % shapes.length],
+                percentEncode(generated),
+                JSON.stringify(generated),
+                percentEncode(JSON.stringify(generated)),
+                JSON.stringify(JSON.stringify(shapes[trial % shapes.length]))
+            ]
+            const tools = [
+                sanitizeToolTemplate({
+                    func: encoded[0],
+                    schema: encoded[1],
+                    iconSrc: `https://api.example.invalid/v1/${encodeURIComponent(generated)}/icon.png`
+                }),
+                sanitizeToolTemplate({
+                    func: encoded[2],
+                    schema: [{ property: 'q', description: encoded[3], type: 'string', required: true }],
+                    iconSrc: `https://${hostLabel}.example.invalid/icon.png`
+                }),
+                sanitizeToolTemplate({
+                    func: encoded[4],
+                    schema: JSON.stringify({ description: encoded[5], note: fixed[trial % fixed.length] }),
+                    iconSrc: `https://cdn.example/icons/${encodeURIComponent(encoded[3])}.png`
+                }),
+                sanitizeToolTemplate({
+                    func: encoded[6],
+                    schema: encoded[7],
+                    iconSrc: `https://api.example.invalid/services/T0FAKE/B0FAKE/${body}/icon.png`
+                })
+            ]
+            for (const tool of tools) {
+                expect(tool.schema).toBeUndefined()
+                expect(tool.iconSrc).toBeUndefined()
+                expect(tool.dropped).toEqual(tool.func === undefined ? ['func', 'schema', 'iconSrc'] : ['schema', 'iconSrc'])
+                const needles = tool.func === undefined ? banned : banned.filter((item) => item !== fixed[5])
+                expectClean(tool, needles)
+            }
+            const planted = [
+                sanitizeToolTemplate({
+                    func: shortToken,
+                    schema: JSON.stringify({ description: hyphenToken, note: spacedToken }),
+                    iconSrc: 'https://cdn.example/' + encodeURIComponent(percentToken) + '/i.png'
+                }),
+                sanitizeToolTemplate({
+                    func: spacedLong,
+                    schema: [{ property: 'q', description: spacedToken, type: 'string', required: true }],
+                    iconSrc: 'https://cdn.example/' + encodeURIComponent(hyphenToken) + '/' + encodeURIComponent(spacedLong) + '/i.png'
+                }),
+                sanitizeToolTemplate({
+                    func: percentToken,
+                    schema: hyphenToken,
+                    iconSrc: 'https://cdn.example/' + encodeURIComponent(shortToken) + '/i.png'
+                })
+            ]
+            for (const tool of planted) {
+                expect(tool.func).toBeUndefined()
+                expect(tool.schema).toBeUndefined()
+                expect(tool.iconSrc).toBeUndefined()
+                expect(tool.dropped).toEqual(['func', 'schema', 'iconSrc'])
+                expectClean(tool, banned)
+            }
+            const mixed = sanitizeToolTemplate({
+                func: spacedToken,
+                schema: sentence,
+                iconSrc: 'https://cdn.example/icons/hammer.png'
+            })
+            expect(mixed.func).toBeUndefined()
+            expect(mixed.schema).toBe(sentence)
+            expect(mixed.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+            expect(mixed.dropped).toEqual(['func'])
+            expectClean(mixed, banned)
+            for (const prompt of corpus) {
+                const kept = sanitizeNodeInputs({ systemMessagePrompt: prompt, description: prompt, modelName: prompt }, [
+                    { name: 'systemMessagePrompt', type: 'string' },
+                    { name: 'description', type: 'string' },
+                    { name: 'modelName', type: 'asyncOptions' }
+                ] as any)
+                expect(kept.dropped).toEqual([])
+                expect(kept.inputs.systemMessagePrompt).toBe(prompt)
+                expect(kept.inputs.description).toBe(prompt)
+                expect(kept.inputs.modelName).toBe(prompt)
+                const safeTool = sanitizeToolTemplate({
+                    func: prompt,
+                    schema: [{ property: 'note', description: prompt, type: 'string', required: false }],
+                    iconSrc: 'https://cdn.example/icons/hammer.png'
+                })
+                expect(safeTool.dropped).toEqual([])
+                expect(safeTool.func).toBe(prompt)
+                expect(safeTool.schema).toEqual([{ property: 'note', description: prompt, type: 'string', required: false }])
+                expect(safeTool.iconSrc).toBe('https://cdn.example/icons/hammer.png')
+                expectClean(safeTool, banned)
+            }
+        }
+    })
+})
+
+describe('dropped settings report', () => {
+    it('names the node, its label, and each setting that was left out', () => {
+        const original = {
+            nodes: [
+                {
+                    id: 'chatOpenAI_0',
+                    position: { x: 1, y: 2 },
+                    data: {
+                        id: 'chatOpenAI_0',
+                        label: 'OpenAI',
+                        name: 'chatOpenAI',
+                        credential: 'cred-1',
+                        inputParams: schemaParams,
+                        inputAnchors: [{ name: 'model' }],
+                        inputs: {
+                            prompt: 'Hello "world" @ café, 10% off',
+                            temperature: 0.2,
+                            secretField: `sk-${MARKER}PW`,
+                            headers: `pk-${MARKER}HDR`,
+                            config: { token: `ghp_${MARKER}JSON` },
+                            note: 'free text',
+                            model: '{{other_0.data.instance}}',
+                            extra: `xoxb-${MARKER}EXTRA`
+                        }
+                    }
+                },
+                {
+                    id: 'other_0',
+                    data: { id: 'other_0', name: 'stickyNote', inputs: {} }
+                },
+                {
+                    id: 'plain_0',
+                    data: {
+                        id: 'plain_0',
+                        label: 'Note',
+                        name: 'stickyNote',
+                        inputParams: [{ name: 'label', type: 'string' }],
+                        inputs: { label: 'Fine' }
+                    }
+                }
+            ],
+            edges: [{ id: 'e1', source: 'a', target: 'b' }]
+        }
+        const snapshot = JSON.parse(JSON.stringify(original))
+        const flow = buildTemplateFlow(original, {
+            chatOpenAI: {
+                name: 'chatOpenAI',
+                label: 'OpenAI',
+                inputParams: schemaParams,
+                inputAnchors: [{ name: 'model' }]
+            },
+            stickyNote: {
+                name: 'stickyNote',
+                label: 'Note',
+                inputParams: [{ name: 'label', type: 'string' }]
+            }
+        })
+        expect(original).toEqual(snapshot)
+        expect(JSON.stringify(snapshot)).toContain(MARKER)
+        expect(JSON.stringify(flow)).not.toContain(MARKER)
+        expect(flow.edges).toEqual([])
+        expect(flow.droppedSettings).toEqual([
+            {
+                nodeId: 'chatOpenAI_0',
+                label: 'OpenAI',
+                inputs: ['secretField', 'headers', 'config', 'note', 'extra', 'credential']
+            }
+        ])
+        const saved = (flow.nodes[0] as { data: { inputs: Record<string, unknown>; credential?: unknown } }).data
+        expect(saved.credential).toBeUndefined()
+        expect(saved.inputs).toEqual({
+            prompt: 'Hello "world" @ café, 10% off',
+            temperature: 0.2,
+            model: '{{other_0.data.instance}}'
+        })
+        expect((flow.nodes[2] as { data: { inputs: Record<string, unknown> } }).data.inputs).toEqual({ label: 'Fine' })
+    })
+
+    it('keeps only a valid id, a known type, and finite position, width, and height', () => {
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'chatOpenAI_0',
+                        type: 'customNode',
+                        position: { x: 10, y: 20, apiKey: 'FAKEQA-POS' },
+                        positionAbsolute: { x: 10, y: 20, apiKey: 'FAKEQA-ABS' },
+                        width: 300,
+                        height: 'sk-FAKE-QA-WIDTH',
+                        style: { note: 'sk-FAKE-QA-STYLE' },
+                        extent: 'parent',
+                        parentNode: 'sk-FAKE-QA-PARENT',
+                        zIndex: 4,
+                        selected: true,
+                        data: { id: 'chatOpenAI_0', name: 'chatOpenAI', inputs: { prompt: 'Hello' } }
+                    },
+                    'sk-FAKE-QA-BARE',
+                    { id: 'not a node', type: 'evil', width: 'sk-FAKE-QA-WIDTH', data: { name: 'chatOpenAI', inputs: { prompt: 'Hi' } } }
+                ],
+                edges: []
+            },
+            { chatOpenAI: { name: 'chatOpenAI', label: 'OpenAI', inputParams: [{ name: 'prompt', type: 'string' }] } }
+        )
+        expect(JSON.stringify(flow)).not.toContain('FAKE')
+        expect(flow.nodes).toEqual([
+            {
+                id: 'chatOpenAI_0',
+                type: 'customNode',
+                position: { x: 10, y: 20 },
+                width: 300,
+                data: {
+                    id: 'chatOpenAI_0',
+                    name: 'chatOpenAI',
+                    label: 'OpenAI',
+                    selected: false,
+                    inputParams: [{ name: 'prompt', type: 'string', id: 'chatOpenAI_0-input-prompt-string' }],
+                    inputAnchors: [],
+                    inputs: { prompt: 'Hello' },
+                    outputAnchors: [
+                        {
+                            id: 'chatOpenAI_0-output-chatOpenAI-',
+                            name: 'chatOpenAI',
+                            label: 'chatOpenAI',
+                            description: '',
+                            type: ''
+                        }
+                    ],
+                    outputs: {}
+                }
+            }
+        ])
+        expect(flow.droppedSettings.map((row) => row.inputs)).toEqual([['node'], ['node']])
+    })
+
+    it('rebuilds a connection when the handles match the node anchors', () => {
+        const sourceHandle = 'chatOpenAI_0-output-chatOpenAI-ChatOpenAI|BaseChatModel'
+        const targetHandle = 'conversationChain_0-input-model-BaseChatModel'
+        const edgeId = `chatOpenAI_0-${sourceHandle}-conversationChain_0-${targetHandle}`
+        const promptHandle = 'conversationChain_0-input-systemMessagePrompt-string'
+        const agentSource = 'conditionAgentflow_0-output-0'
+        const agentTarget = 'directReplyAgentflow_0'
+        const agentEdgeId = `conditionAgentflow_0-${agentSource}-directReplyAgentflow_0-${agentTarget}`
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'chatOpenAI_0',
+                        type: 'customNode',
+                        data: { id: 'chatOpenAI_0', name: 'chatOpenAI', inputs: {} }
+                    },
+                    {
+                        id: 'conversationChain_0',
+                        type: 'customNode',
+                        data: { id: 'conversationChain_0', name: 'conversationChain', inputs: { model: '{{chatOpenAI_0.data.instance}}' } }
+                    },
+                    {
+                        id: 'conditionAgentflow_0',
+                        type: 'agentFlow',
+                        data: { id: 'conditionAgentflow_0', name: 'conditionAgentflow', inputs: {} }
+                    },
+                    {
+                        id: 'directReplyAgentflow_0',
+                        type: 'agentFlow',
+                        data: { id: 'directReplyAgentflow_0', name: 'directReplyAgentflow', inputs: {} }
+                    }
+                ],
+                edges: [
+                    {
+                        id: edgeId,
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle,
+                        type: 'buttonedge',
+                        data: { label: 'sk-FAKE-QA-EDGE' },
+                        apiKey: 'FAKEQA-EDGE-PLAIN'
+                    },
+                    {
+                        id: 'ePrompt',
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle: promptHandle,
+                        type: 'buttonedge'
+                    },
+                    {
+                        id: agentEdgeId,
+                        source: 'conditionAgentflow_0',
+                        target: 'directReplyAgentflow_0',
+                        sourceHandle: agentSource,
+                        targetHandle: agentTarget,
+                        type: 'agentFlow',
+                        data: { edgeLabel: 'sk-FAKE-QA-EDGE' }
+                    },
+                    {
+                        id: 'eBadHandle',
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle: 'chatOpenAI_0-output-other',
+                        targetHandle,
+                        type: 'buttonedge'
+                    },
+                    {
+                        id: 'eBadType',
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle,
+                        type: 'straight'
+                    },
+                    {
+                        id: 'sk-FAKE-QA-EDGE',
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle,
+                        type: 'buttonedge'
+                    },
+                    'sk-FAKE-QA-BARE',
+                    {
+                        id: 'eMissing',
+                        source: 'chatOpenAI_0',
+                        target: 'missing_0',
+                        sourceHandle,
+                        targetHandle: 'missing_0',
+                        type: 'buttonedge'
+                    }
+                ]
+            },
+            {
+                chatOpenAI: {
+                    name: 'chatOpenAI',
+                    label: 'OpenAI',
+                    type: 'ChatOpenAI',
+                    category: 'Chat Models',
+                    baseClasses: ['ChatOpenAI', 'BaseChatModel'],
+                    inputs: []
+                },
+                conversationChain: {
+                    name: 'conversationChain',
+                    label: 'Conversation Chain',
+                    type: 'ConversationChain',
+                    category: 'Chains',
+                    baseClasses: ['ConversationChain', 'BaseChain'],
+                    inputs: [
+                        { label: 'Chat Model', name: 'model', type: 'BaseChatModel' },
+                        { label: 'System Message', name: 'systemMessagePrompt', type: 'string' }
+                    ]
+                },
+                conditionAgentflow: {
+                    name: 'conditionAgentflow',
+                    label: 'Condition',
+                    category: 'Agent Flows',
+                    outputs: [{ name: '0' }, { name: '1' }]
+                },
+                directReplyAgentflow: {
+                    name: 'directReplyAgentflow',
+                    label: 'Direct Reply',
+                    category: 'Agent Flows'
+                }
+            }
+        )
+        expect(JSON.stringify(flow)).not.toContain('FAKE')
+        expect(flow.edges).toEqual([
+            {
+                id: edgeId,
+                source: 'chatOpenAI_0',
+                target: 'conversationChain_0',
+                sourceHandle,
+                targetHandle,
+                type: 'buttonedge'
+            },
+            {
+                id: 'ePrompt',
+                source: 'chatOpenAI_0',
+                target: 'conversationChain_0',
+                sourceHandle,
+                targetHandle: promptHandle,
+                type: 'buttonedge'
+            },
+            {
+                id: agentEdgeId,
+                source: 'conditionAgentflow_0',
+                target: 'directReplyAgentflow_0',
+                sourceHandle: agentSource,
+                targetHandle: agentTarget,
+                type: 'agentFlow'
+            }
+        ])
+    })
+
+    it('keeps the chat model connection when a saved chain is loaded from a template', () => {
+        const chatClasses = ['ChatOpenAI', 'BaseChatModel', 'BaseLanguageModel', 'Runnable']
+        const memoryClasses = ['BufferMemory', 'BaseChatMemory', 'BaseMemory']
+        const chainClasses = ['ConversationChain', 'LLMChain', 'BaseChain', 'Runnable']
+        const sourceHandle = `chatOpenAI_0-output-chatOpenAI-${chatClasses.join('|')}`
+        const memoryHandle = `bufferMemory_0-output-bufferMemory-${memoryClasses.join('|')}`
+        const modelTarget = 'conversationChain_0-input-model-BaseChatModel'
+        const memoryTarget = 'conversationChain_0-input-memory-BaseMemory'
+        const chatEdgeId = `chatOpenAI_0-${sourceHandle}-conversationChain_0-${modelTarget}`
+        const memoryEdgeId = `bufferMemory_0-${memoryHandle}-conversationChain_0-${memoryTarget}`
+        const chat = {
+            name: 'chatOpenAI',
+            label: 'OpenAI',
+            type: 'ChatOpenAI',
+            description: 'Chat model',
+            category: 'Chat Models',
+            baseClasses: chatClasses,
+            inputs: [] as { label: string; name: string; type: string }[]
+        }
+        const memory = {
+            name: 'bufferMemory',
+            label: 'Buffer Memory',
+            type: 'BufferMemory',
+            description: 'Remembers the chat',
+            category: 'Memory',
+            baseClasses: memoryClasses,
+            inputs: [] as { label: string; name: string; type: string }[]
+        }
+        const chain = {
+            name: 'conversationChain',
+            label: 'Conversation Chain',
+            type: 'ConversationChain',
+            description: 'Conversational chain',
+            category: 'Chains',
+            baseClasses: chainClasses,
+            inputs: [
+                { label: 'Chat Model', name: 'model', type: 'BaseChatModel' },
+                { label: 'Memory', name: 'memory', type: 'BaseMemory' }
+            ]
+        }
+        const forged = {
+            outputAnchors: [{ id: 'forged', note: 'sk-FAKE-QA-ANCHOR' }],
+            outputs: { secret: 'sk-FAKE-QA-OUT' }
+        }
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'chatOpenAI_0',
+                        type: 'customNode',
+                        position: { x: 40, y: 40 },
+                        data: { id: 'chatOpenAI_0', name: 'chatOpenAI', label: 'sk-FAKE-QA-LABEL', inputs: {}, ...forged }
+                    },
+                    {
+                        id: 'bufferMemory_0',
+                        type: 'customNode',
+                        position: { x: 40, y: 360 },
+                        data: { id: 'bufferMemory_0', name: 'bufferMemory', inputs: {}, ...forged }
+                    },
+                    {
+                        id: 'conversationChain_0',
+                        type: 'customNode',
+                        position: { x: 420, y: 40 },
+                        data: {
+                            id: 'conversationChain_0',
+                            name: 'conversationChain',
+                            inputs: {
+                                model: '{{chatOpenAI_0.data.instance}}',
+                                memory: '{{bufferMemory_0.data.instance}}'
+                            },
+                            ...forged
+                        }
+                    }
+                ],
+                edges: [
+                    {
+                        id: chatEdgeId,
+                        source: 'chatOpenAI_0',
+                        target: 'conversationChain_0',
+                        sourceHandle,
+                        targetHandle: modelTarget,
+                        type: 'buttonedge',
+                        data: { label: 'sk-FAKE-QA-EDGE' }
+                    },
+                    {
+                        id: memoryEdgeId,
+                        source: 'bufferMemory_0',
+                        target: 'conversationChain_0',
+                        sourceHandle: memoryHandle,
+                        targetHandle: memoryTarget,
+                        type: 'buttonedge'
+                    }
+                ]
+            },
+            { chatOpenAI: chat, bufferMemory: memory, conversationChain: chain }
+        )
+        expect(JSON.stringify(flow)).not.toContain('FAKE')
+        const chatData = (flow.nodes[0] as { data: Record<string, any> }).data
+        const chainData = (flow.nodes[2] as { data: Record<string, any> }).data
+        expect(chatData.outputAnchors).toEqual([
+            {
+                id: sourceHandle,
+                name: 'chatOpenAI',
+                label: 'ChatOpenAI',
+                description: 'Chat model',
+                type: chatClasses.join(' | ')
+            }
+        ])
+        expect(chatData.outputs).toEqual({})
+        expect(chainData.inputAnchors).toEqual([
+            { label: 'Chat Model', name: 'model', type: 'BaseChatModel', id: modelTarget },
+            { label: 'Memory', name: 'memory', type: 'BaseMemory', id: memoryTarget }
+        ])
+        expect(chainData.outputs).toEqual({})
+        expect(flow.edges).toEqual([
+            {
+                id: chatEdgeId,
+                source: 'chatOpenAI_0',
+                target: 'conversationChain_0',
+                sourceHandle,
+                targetHandle: modelTarget,
+                type: 'buttonedge'
+            },
+            {
+                id: memoryEdgeId,
+                source: 'bufferMemory_0',
+                target: 'conversationChain_0',
+                sourceHandle: memoryHandle,
+                targetHandle: memoryTarget,
+                type: 'buttonedge'
+            }
+        ])
+        const canvasJson = loadUiFunction('packages/ui/src/utils/flowiseImport.js', 'flowiseCanvasJson')
+        const normalizeCanvasFlow = loadUiFunction('packages/ui/src/utils/normalizeCanvasFlow.js', 'normalizeCanvasFlow')
+        const imported = normalizeCanvasFlow(JSON.parse(canvasJson(flow)), [chat, memory, chain])
+        expect(imported.edges).toEqual(flow.edges)
+        const importedChat = imported.nodes.find((node: { id: string }) => node.id === 'chatOpenAI_0')
+        const importedChain = imported.nodes.find((node: { id: string }) => node.id === 'conversationChain_0')
+        expect(importedChat.data.outputAnchors[0].id).toBe(imported.edges[0].sourceHandle)
+        expect(importedChain.data.inputAnchors.find((anchor: { name: string }) => anchor.name === 'model').id).toBe(
+            imported.edges[0].targetHandle
+        )
+        expect(imported.edges.map((edge: { targetHandle: string }) => edge.targetHandle)).toEqual([modelTarget, memoryTarget])
+    })
+
+    it('uses the node name when a label was not saved', () => {
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'customNode_0',
+                        data: {
+                            name: 'customNode',
+                            inputParams: [{ name: 'prompt', type: 'string' }],
+                            inputs: { prompt: `sk-${MARKER}P` }
+                        }
+                    }
+                ],
+                edges: []
+            },
+            { customNode: { name: 'customNode', inputParams: [{ name: 'prompt', type: 'string' }] } }
+        )
+        expect(flow.droppedSettings).toEqual([{ nodeId: 'customNode_0', label: 'customNode', inputs: ['prompt'] }])
+    })
+
+    it('rebuilds node text from the registered component and records an unknown component', () => {
+        const flow = buildTemplateFlow(
+            {
+                nodes: [
+                    {
+                        id: 'chatOpenAI_0',
+                        position: { x: 1, y: 2 },
+                        data: {
+                            id: 'chatOpenAI_0',
+                            name: 'chatOpenAI',
+                            label: `${MARKER}LABEL`,
+                            description: `${MARKER}DESC`,
+                            category: `${MARKER}CAT`,
+                            tags: [`${MARKER}TAG`],
+                            extraProp: `${MARKER}EXTRA`,
+                            inputParams: [{ name: 'prompt', type: 'string', placeholder: `${MARKER}PLACE` }],
+                            inputs: { prompt: 'Hello "world" @ café, 10% off' }
+                        }
+                    },
+                    {
+                        id: 'mystery_0',
+                        secretNote: `${MARKER}NODE`,
+                        data: {
+                            id: 'mystery_0',
+                            name: 'notRegistered',
+                            label: `${MARKER}GHOST`,
+                            description: `${MARKER}GHOST`,
+                            inputParams: [{ name: 'prompt', type: 'string', placeholder: `${MARKER}GHOST` }],
+                            inputs: { prompt: 'hello' }
+                        }
+                    }
+                ],
+                edges: []
+            },
+            {
+                chatOpenAI: {
+                    name: 'chatOpenAI',
+                    label: 'OpenAI',
+                    description: 'Chat model',
+                    category: 'Chat Models',
+                    tags: ['chat'],
+                    inputParams: [{ name: 'prompt', type: 'string', placeholder: 'Ask' }]
+                }
+            }
+        )
+        expect(JSON.stringify(flow)).not.toContain(MARKER)
+        const data = (flow.nodes[0] as { data: Record<string, unknown> }).data
+        expect(data.label).toBe('OpenAI')
+        expect(data.description).toBe('Chat model')
+        expect(data.category).toBe('Chat Models')
+        expect(data.tags).toEqual(['chat'])
+        expect(data.extraProp).toBeUndefined()
+        expect(data.inputParams).toEqual([{ name: 'prompt', type: 'string', placeholder: 'Ask', id: 'chatOpenAI_0-input-prompt-string' }])
+        expect(data.outputAnchors).toEqual([
+            {
+                id: 'chatOpenAI_0-output-chatOpenAI-',
+                name: 'chatOpenAI',
+                label: 'chatOpenAI',
+                description: 'Chat model',
+                type: ''
+            }
+        ])
+        expect(data.outputs).toEqual({})
+        expect(data.inputs).toEqual({ prompt: 'Hello "world" @ café, 10% off' })
+        expect((flow.nodes[1] as { secretNote?: unknown; data: unknown }).secretNote).toBeUndefined()
+        expect((flow.nodes[1] as { data: unknown }).data).toEqual({ id: 'mystery_0', selected: false, inputs: {} })
+        expect(flow.droppedSettings).toEqual([{ nodeId: 'mystery_0', label: 'mystery_0', inputs: ['prompt'] }])
+    })
+})
+
+describe('normal save, load, and export', () => {
+    it('does not run template building on chatflow save or on canvas export', () => {
+        const root = path.resolve(__dirname, '..', '..', '..', '..')
+        const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8')
+        const save = read('packages/server/src/services/chatflows/index.ts')
+        expect(save.includes('buildTemplateFlow')).toBe(false)
+        expect(save.includes('sanitizeNodeInputs')).toBe(false)
+        const exporter = read('packages/ui/src/utils/genericHelper.js')
+        const exportFn = exporter.slice(exporter.indexOf('export const generateExportFlowData'))
+        expect(exportFn.includes('buildTemplateFlow')).toBe(false)
+        expect(exportFn.includes('sanitizeNodeInputs')).toBe(false)
+        expect(exportFn.includes("type === 'password'")).toBe(true)
+        const importer = read('packages/ui/src/utils/exportImport.js')
+        expect(importer.includes('buildTemplateFlow')).toBe(false)
+        expect(importer.includes('sanitizeNodeInputs')).toBe(false)
+    })
+
+    it('leaves the flow object a save or load would store unchanged', () => {
+        const flow = {
+            nodes: [
+                {
+                    id: 'n1',
+                    data: {
+                        label: 'OpenAI',
+                        credential: `sk-${MARKER}SAVE`,
+                        inputParams: [{ name: 'config', type: 'json' }],
+                        inputs: { config: { secret: `sk-${MARKER}SAVE` }, prompt: `pk-${MARKER}SAVE` }
+                    }
+                }
+            ],
+            edges: []
+        }
+        const before = JSON.stringify(flow)
+        buildTemplateFlow(flow)
+        expect(JSON.stringify(flow)).toBe(before)
+        expect(before).toContain(MARKER)
+    })
+})
+
+describe('public display fields', () => {
+    it('keeps welcome text with quotes, @, non-English text, and a percent', () => {
+        expect(
+            publicChatbotDisplayConfig({
+                title: 'Hello "friend"',
+                welcomeMessage: 'Welcome @ café, 10% off',
+                errorMessage: 'Something went wrong',
+                starterPrompts: [{ prompt: 'こんにちは' }, { prompt: 'What is fresh?' }],
+                textInput: { placeholder: 'Ask "today"' },
+                generateNewSession: false,
+                fontSize: 16,
+                backgroundColor: '#fff',
+                titleBackgroundColor: '#3B81F6',
+                titleTextColor: '#ffffff',
+                botMessage: {
+                    showAvatar: true,
+                    backgroundColor: 'rgb(247, 248, 255)',
+                    textColor: 'rgba(48, 50, 53, 1)',
+                    avatarSrc: 'https://img.example/bot.png?utm_apikey=1#face',
+                    extra: 'no'
+                },
+                userMessage: { backgroundColor: '#11223344', textColor: 'not-a-color' },
+                chatFeedback: { status: true, email: 'owner@example.com' },
+                followUpPrompts: { status: false },
+                titleAvatarSrc: 'https://img.example/logo.png',
+                allowedOrigins: ['https://evil.example'],
+                overrideConfig: { openAIApiKey: `sk-${MARKER}PUB` }
+            })
+        ).toEqual({
+            title: 'Hello "friend"',
+            welcomeMessage: 'Welcome @ café, 10% off',
+            errorMessage: 'Something went wrong',
+            starterPrompts: [{ prompt: 'こんにちは' }, { prompt: 'What is fresh?' }],
+            textInput: { placeholder: 'Ask "today"' },
+            generateNewSession: false,
+            fontSize: 16,
+            backgroundColor: '#fff',
+            titleBackgroundColor: '#3B81F6',
+            titleTextColor: '#ffffff',
+            botMessage: {
+                showAvatar: true,
+                backgroundColor: 'rgb(247, 248, 255)',
+                textColor: 'rgba(48, 50, 53, 1)',
+                avatarSrc: 'https://img.example/bot.png'
+            },
+            userMessage: { backgroundColor: '#11223344' },
+            chatFeedback: { status: true },
+            followUpPrompts: { status: false },
+            titleAvatarSrc: 'https://img.example/logo.png'
+        })
+    })
+
+    it('leaves out colours, flags, numbers, and image addresses that do not match', () => {
+        const result = publicChatbotDisplayConfig({
+            title: 12,
+            welcomeMessage: { text: 'no' },
+            fontSize: '16',
+            generateNewSession: 'true',
+            backgroundColor: 'blue',
+            titleBackgroundColor: '#ffff',
+            botMessage: { showAvatar: 'yes', textColor: '#12', avatarSrc: 'javascript:alert(1)' },
+            titleAvatarSrc: 'https://user:pw@img.example/a.png',
+            starterPrompts: 'One',
+            chatFeedback: 'on'
+        })
+        expect(result).toEqual({})
+        expect(JSON.stringify(result)).not.toContain('user:pw@')
+    })
+
+    it('writes an address back as scheme, host, and path', () => {
+        expect(rebuildHttpUrl('https://img.example/a.png?utm_apikey=FAKE_MARKER_Q#x')).toBe('https://img.example/a.png')
+        expect(rebuildHttpUrl('https://cdn.example:8443/a.png?x=1')).toBe('https://cdn.example/a.png')
+        expect(rebuildHttpUrl('https:example.com/a?x=FAKE_MARKER_Q')).toBe('https://example.com/a')
+        expect(rebuildHttpUrl('https://cdn.example/images/logo.png')).toBe('https://cdn.example/images/logo.png')
+        expect(rebuildHttpUrl('https://cdn.example/images/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4.png')).toBeUndefined()
+        expect(rebuildHttpUrl('https://user:pw@img.example/a.png')).toBeUndefined()
+        expect(rebuildHttpUrl('//user:FAKE_MARKER_Q@host')).toBeUndefined()
+        expect(rebuildHttpUrl('//cdn.example/a?utm_apikey=FAKE_MARKER_Q')).toBeUndefined()
+        expect(rebuildHttpUrl('//cdn.example/a#FAKE_MARKER_Q')).toBeUndefined()
+        expect(rebuildHttpUrl('path/user:FAKE_MARKER_Q@files.example')).toBeUndefined()
+        expect(rebuildHttpUrl('https://cdn.example/user%3AFAKE_MARKER_Q%40host')).toBeUndefined()
+        expect(rebuildHttpUrl('https://cdn.example/%ZZ')).toBeUndefined()
+        expect(rebuildHttpUrl('http://files.example/logo.png')).toBe('http://files.example/logo.png')
+        expect(rebuildHttpUrl('https://api.example.invalid/v1/sk-FAKE-QA-INPATH/x')).toBeUndefined()
+        expect(rebuildHttpUrl('https://api.example.invalid/services/T0FAKE/B0FAKE/FAKEQAwebhookSECRETq9Xm2PvR8tY4wK1nB3')).toBeUndefined()
+        expect(rebuildHttpUrl('https://' + 'sk' + '-FAKEQAhostlabel.example.invalid/v1')).toBeUndefined()
+        expect(rebuildHttpUrl('https://b\u00fccher.example/menu')).toBeUndefined()
+        expect(rebuildHttpUrl('javascript:alert(1)')).toBeUndefined()
+        const { inputs } = sanitizeNodeInputs(
+            { basePath: 'path/user:FAKE_MARKER_Q@files.example', baseURL: 'https://models.example:9443/root?q=1#h' },
+            [...schemaParams, { name: 'baseURL', type: 'string' }] as any
+        )
+        expect(inputs).toEqual({ baseURL: 'https://models.example/root' })
+        expect(JSON.stringify(inputs)).not.toContain('FAKE_MARKER_')
+        expect(
+            publicChatbotDisplayConfig({
+                titleAvatarSrc: 'https://cdn.example/images/logo.png',
+                botMessage: { avatarSrc: 'https://cdn.example:8443/images/a.png?utm_apikey=FAKE_MARKER_Q#x' }
+            })
+        ).toEqual({
+            titleAvatarSrc: 'https://cdn.example/images/logo.png',
+            botMessage: { avatarSrc: 'https://cdn.example/images/a.png' }
+        })
+        const summary = publicChatflowSummary({
+            id: 'f1',
+            name: 'Bot',
+            isPublic: true,
+            apikeyid: '',
+            chatbotConfig: JSON.stringify({
+                title: 'Bot',
+                titleAvatarSrc: `https://img.example/a.png?x=${MARKER}IMG`,
+                allowedOrigins: ['https://no.example'],
+                overrideConfig: { openAIApiKey: `sk-${MARKER}SUM` }
+            })
+        })
+        expect(summary).toEqual({
+            id: 'f1',
+            name: 'Bot',
+            isPublic: true,
+            hasApiKey: false,
+            chatbotConfig: JSON.stringify({ title: 'Bot', titleAvatarSrc: 'https://img.example/a.png' })
+        })
+        expect(JSON.stringify(summary)).not.toContain(MARKER)
+        expect(isChatflowKeyProtected('apikey-1')).toBe(true)
+        expect(isChatflowKeyProtected('')).toBe(false)
+        expect(isChatflowKeyProtected(null)).toBe(false)
+    })
+
+    it('drops text that is longer than the field cap and keeps a starter list saved as an object', () => {
+        const result = publicChatbotDisplayConfig({
+            title: 'T'.repeat(81),
+            welcomeMessage: 'Hi',
+            starterPrompts: { 0: { prompt: 'A', extra: 'x' }, 1: { prompt: '' }, 2: null }
+        })
+        expect(result).toEqual({ welcomeMessage: 'Hi', starterPrompts: [{ prompt: 'A' }] })
+    })
+})
+
+describe('long crafted text', () => {
+    it('checks long repeated text in linear time', () => {
+        const samples = ['A'.repeat(200000), 'A'.repeat(200000) + ':', 'a1+.-'.repeat(40000) + ': ', ('A'.repeat(500) + ' ').repeat(400)]
+        for (const sample of samples) {
+            const started = Date.now()
+            sanitizeToolTemplate({ func: sample, schema: sample })
+            expect(Date.now() - started).toBeLessThan(2000)
+        }
+    })
+
+    it('keeps an address in func and still drops that address in a prompt', () => {
+        expect(sanitizeNodeInputs({ prompt: 'call mailto:someone' }, schemaParams as any).inputs.prompt).toBeUndefined()
+        expect(sanitizeToolTemplate({ func: 'call mailto:someone' }).func).toBe('call mailto:someone')
+        expect(sanitizeToolTemplate({ func: 'const url = "https://cdn.example/a"' }).func).toBe('const url = "https://cdn.example/a"')
+        expect(sanitizeToolTemplate({ func: 'see //cdn.example/a' }).func).toBe('see //cdn.example/a')
+        expect(sanitizeToolTemplate({ func: 'user:name@files.example' }).func).toBe('user:name@files.example')
+        expect(sanitizeToolTemplate({ func: 'Note: be brief' }).func).toBe('Note: be brief')
+        const described = sanitizeToolTemplate({
+            func: 'return "ok"',
+            schema: JSON.stringify({ description: 'https://cdn.example/a' })
+        })
+        expect(described.func).toBe('return "ok"')
+        expect(described.schema).toBeUndefined()
+        expect(described.dropped).toEqual(['schema'])
+    })
+})
+
+describe('built-in tool templates', () => {
+    it('keeps func and schema from every marketplace tool file', () => {
+        const dir = path.resolve(__dirname, '../../marketplaces/tools')
+        const files = fs
+            .readdirSync(dir)
+            .filter((name) => name.endsWith('.json'))
+            .sort()
+        expect(files).toHaveLength(13)
+        for (const file of files) {
+            const tool = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as {
+                func?: string
+                schema?: unknown
+                iconSrc?: string
+            }
+            const result = sanitizeToolTemplate(tool)
+            expect(result.dropped).toEqual([])
+            expect(result.func).toBe(tool.func)
+            if (typeof tool.schema === 'string') expect(result.schema).toBe(JSON.stringify(JSON.parse(tool.schema)))
+            else if (tool.schema !== undefined) expect(result.schema).toEqual(JSON.parse(JSON.stringify(tool.schema)))
+            if (typeof tool.iconSrc === 'string' && tool.iconSrc) expect(typeof result.iconSrc).toBe('string')
+        }
+    })
+})
+
+describe('built-in marketplace prompts', () => {
+    const safeStringName = /(?:prompt|systemmessage|description|label|placeholder|(?:tool|agent)name)$/i
+    const templateName = /^template$/i
+
+    const isPromptInput = (name: string, type: string): boolean =>
+        (type === 'string' && (safeStringName.test(name) || templateName.test(name))) || name === 'prompt'
+
+    it('keeps every prompt from the marketplace flows', () => {
+        const root = path.resolve(__dirname, '../../marketplaces')
+        const folders = fs.readdirSync(root).filter((name) => {
+            if (name === 'tools') return false
+            return fs.statSync(path.join(root, name)).isDirectory()
+        })
+        let found = 0
+        let sawOpenApiSystemMessage = false
+        for (const folder of folders) {
+            const dir = path.join(root, folder)
+            for (const file of fs.readdirSync(dir).filter((name) => name.endsWith('.json'))) {
+                const flow = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as {
+                    nodes?: Array<{
+                        id?: string
+                        data?: {
+                            name?: string
+                            inputs?: Record<string, unknown>
+                            inputParams?: Array<{ name?: string; type?: string }>
+                            inputAnchors?: Array<{ name?: string; type?: string }>
+                        }
+                    }>
+                }
+                const nodes = Array.isArray(flow.nodes) ? flow.nodes : []
+                const nodeIds = new Set(nodes.map((node) => node.id).filter((id): id is string => typeof id === 'string'))
+                const components: Record<string, unknown> = {}
+                for (const node of nodes) {
+                    const name = node.data?.name
+                    if (typeof name === 'string' && components[name] === undefined && node.data) components[name] = node.data
+                }
+                const built = buildTemplateFlow(flow, components)
+                for (const node of nodes) {
+                    const inputs = node.data?.inputs
+                    if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) continue
+                    const declared = [...(node.data?.inputParams ?? []), ...(node.data?.inputAnchors ?? [])]
+                    const sanitized = sanitizeNodeInputs(inputs, node.data?.inputParams, node.data?.inputAnchors, nodeIds)
+                    const saved = (built.nodes as Array<{ id?: string; data?: { inputs?: Record<string, unknown> } }>).find(
+                        (item) => item.id === node.id
+                    )?.data?.inputs
+                    for (const [name, value] of Object.entries(inputs)) {
+                        if (typeof value !== 'string' || value.length === 0) continue
+                        const match = declared.find((item) => item?.name === name)
+                        const type = typeof match?.type === 'string' ? match.type : ''
+                        if (!match || !isPromptInput(name, type)) continue
+                        found += 1
+                        expect(sanitized.inputs[name]).toBe(value)
+                        expect(saved?.[name]).toBe(value)
+                        if (folder === 'chatflows' && file === 'OpenAPI YAML Agent.json' && name === 'systemMessage') {
+                            sawOpenApiSystemMessage = true
+                            expect(value).toContain('**Receive User Input:**')
+                        }
+                    }
+                }
+            }
+        }
+        expect(found).toBeGreaterThanOrEqual(127)
+        expect(sawOpenApiSystemMessage).toBe(true)
+    })
+})
+
+describe('tool schema rebuild', () => {
+    const prefix = ['s', 'k', '-'].join('')
+    const hidden = (text: string) =>
+        Array.from(text)
+            .map((c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))
+            .join('')
+    const percent = (text: string) =>
+        Array.from(text)
+            .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+            .join('')
+
+    it('does not carry an earlier duplicate key into the saved schema', () => {
+        const marker = prefix + 'FAKE_MARKER_DUP' + 'qa9X7mP2vR8tY4wK1nB3cDzLs5Hj6Gf0Ue7Wq'
+        for (const wrapped of [hidden(marker), percent(marker), hidden(prefix + 'FAKE_MARKER_S')]) {
+            const schema = `{"name":"${wrapped}","name":"query"}`
+            const out = sanitizeToolTemplate({ schema })
+            const text = JSON.stringify(out)
+            expect(text).not.toContain('FAKE_MARKER')
+            expect(text).not.toContain('\\\\u')
+            expect(text).not.toContain('%')
+            if (out.schema !== undefined) expect(out.schema).toBe('{"name":"query"}')
+        }
+    })
+
+    it('rebuilds a clean schema string and object', () => {
+        const schema = '[{"property":"query","type":"string","description":"Search text","required":true}]'
+        expect(sanitizeToolTemplate({ schema }).schema).toBe(schema)
+        const obj = [{ property: 'query', type: 'string' }]
+        const out = sanitizeToolTemplate({ schema: obj }).schema
+        expect(out).toEqual(obj)
+        expect(out).not.toBe(obj)
+    })
+})
+
+describe('default-ignorable characters', () => {
+    const gaps = [
+        '\u034f',
+        '\ufe00',
+        '\ufe0f',
+        '\u180b',
+        '\u180d',
+        '\u115f',
+        '\u1160',
+        '\u17b4',
+        '\u17b5',
+        '\u3164',
+        '\uffa0',
+        '\u{1d173}',
+        '\u{e0020}',
+        '\u{e0100}'
+    ]
+    const body = 'FAKE_MARKER_DI' + 'qa9X7mP2vR8t'
+
+    it('drops a prefixed token split by any default-ignorable character', () => {
+        for (const gap of gaps) {
+            const token = 's' + gap + 'k' + '-' + body
+            const prompt = sanitizeNodeInputs({ prompt: 'Use ' + token }, schemaParams as any)
+            expect(prompt.inputs.prompt).toBeUndefined()
+            expect(sanitizeToolTemplate({ func: 'return "' + token + '"' }).func).toBeUndefined()
+            expect(rebuildHttpUrl('https://cdn.example/v1/' + encodeURIComponent(token) + '/x')).toBeUndefined()
+            expect(rebuildHttpUrl('https://' + 's' + gap + 'k-' + 'fakemarkerhost.example/x')).toBeUndefined()
+        }
+    })
+
+    it('keeps text that uses a variation selector on an emoji', () => {
+        const prompt = 'Welcome to Moonbeam Bakery \u2764\ufe0f Answer briefly.'
+        expect(sanitizeNodeInputs({ prompt }, schemaParams as any).inputs.prompt).toBe(prompt)
+    })
+})
+
+describe('scheme scans on long input', () => {
+    const size = 100000
+    const fill = (unit: string) => unit.repeat(Math.ceil(size / unit.length)).slice(0, size)
+    const inputs: Array<[string, string]> = [
+        ['one repeated letter', fill('a')],
+        ['one repeated digit', fill('7')],
+        ['alternating letters and digits', fill('a1')],
+        ['scheme characters only', fill('a1+.-')],
+        ['near-miss javascript', fill('javascrip')],
+        ['near-miss javascript with space', fill('javascrip ')],
+        ['near-miss https', fill('http')],
+        ['colon then space', fill('a: ')],
+        ['named scheme then spaces', 'x javascript:' + ' '.repeat(size)],
+        ['named scheme repeated', fill(' javascript: ')],
+        ['many colons', fill(':')]
+    ]
+
+    it.each(inputs)('%s finishes in linear time', (_name, text) => {
+        expect(text.length).toBeGreaterThanOrEqual(size)
+        const started = performance.now()
+        hasSchemeLike(text)
+        hasNamedSchemeAcrossBreak(text)
+        expect(performance.now() - started).toBeLessThan(200)
+    })
+
+    it('keeps the same answers', () => {
+        expect(hasSchemeLike('see mailto:x')).toBe(true)
+        expect(hasSchemeLike('Note: be brief')).toBe(false)
+        expect(hasSchemeLike('**Note:** be brief')).toBe(false)
+        expect(hasSchemeLike('ratio 1:2')).toBe(false)
+        expect(sanitizeNodeInputs({ prompt: '**Note:** be brief' }, schemaParams as any).inputs.prompt).toBe('**Note:** be brief')
+        expect(hasNamedSchemeAcrossBreak('javascript:\nalert')).toBe(true)
+        expect(hasNamedSchemeAcrossBreak('History:\nnext')).toBe(false)
+    })
+})
+
+describe('length and normalization caps', () => {
+    it('leaves out template text and addresses that are over the cap', () => {
+        const over = 'Hello. '.repeat(4000).slice(0, 20001)
+        const atCap = 'Hello. '.repeat(4000).slice(0, 20000)
+        expect(over.length).toBe(20001)
+        expect(atCap.length).toBe(20000)
+        const dropped = sanitizeNodeInputs({ prompt: over, temperature: 0.2 }, schemaParams as any)
+        expect(dropped.inputs.prompt).toBeUndefined()
+        expect(dropped.inputs.temperature).toBe(0.2)
+        expect(dropped.dropped).toContain('prompt')
+        const kept = sanitizeNodeInputs({ prompt: atCap }, schemaParams as any)
+        expect(kept.inputs.prompt).toBe(atCap)
+        expect(kept.dropped).toEqual([])
+        const tool = sanitizeToolTemplate({
+            func: over,
+            schema: over,
+            iconSrc: 'https://cdn.example/' + 'a'.repeat(9000) + '.png'
+        })
+        expect(tool.func).toBeUndefined()
+        expect(tool.schema).toBeUndefined()
+        expect(tool.iconSrc).toBeUndefined()
+        expect(tool.dropped).toEqual(['func', 'schema', 'iconSrc'])
+        expect(rebuildHttpUrl('https://cdn.example/' + 'a'.repeat(9000))).toBeUndefined()
+        expect(rebuildHttpUrl('https://cdn.example/' + 'a'.repeat(100))).toBe('https://cdn.example/' + 'a'.repeat(100))
+        const summary = publicChatflowSummary({
+            id: 'f1',
+            name: 'Bot',
+            isPublic: true,
+            apikeyid: '',
+            chatbotConfig: JSON.stringify({
+                title: 'T'.repeat(81),
+                welcomeMessage: 'Hi',
+                titleAvatarSrc: 'https://cdn.example/' + 'a'.repeat(9000)
+            })
+        })
+        expect(summary.chatbotConfig).toBe(JSON.stringify({ welcomeMessage: 'Hi' }))
+    })
+
+    it('leaves out a value when NFKC makes a run more than four times longer', () => {
+        const expanded = '\uFDFA'.repeat(8)
+        const dropped = sanitizeNodeInputs({ prompt: expanded, temperature: 0.1 }, schemaParams as any)
+        expect(dropped.inputs.prompt).toBeUndefined()
+        expect(dropped.inputs.temperature).toBe(0.1)
+        expect(sanitizeToolTemplate({ func: expanded, schema: '[]' }).func).toBeUndefined()
+        const mild = 'Answer briefly. ' + '\uFDFA'
+        expect(mild.normalize('NFKC').length).toBeLessThanOrEqual(mild.length * 4)
+        expect(sanitizeNodeInputs({ prompt: mild }, schemaParams as any).inputs.prompt).toBe(mild)
+    })
+})
+
+describe('entry point timing', () => {
+    const sizes = [100000, 200000]
+    const kinds: Array<[string, (size: number) => string]> = [
+        ['fdfa', (size) => '\uFDFA'.repeat(size)],
+        ['cyrillic', (size) => 'Привет '.repeat(Math.ceil(size / 'Привет '.length)).slice(0, size)],
+        ['slashes', (size) => '/'.repeat(size)],
+        ['hyphens', (size) => '\u2010\u2011\u2012\u2013\u2014\u2015\u2212'.repeat(Math.ceil(size / 7)).slice(0, size)],
+        ['quotes', (size) => '{"a":"b",'.repeat(Math.ceil(size / 9)).slice(0, size)],
+        [
+            'runs',
+            (size) => {
+                const block = Array.from({ length: 31 }, (_, index) => 'a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTu'[index % 29]).join('') + ' '
+                return block.repeat(Math.ceil(size / block.length)).slice(0, size)
+            }
+        ]
+    ]
+    const entries = [
+        'sanitizeNodeInputs',
+        'buildTemplateFlow',
+        'sanitizeToolTemplate',
+        'publicChatbotDisplayConfig',
+        'rebuildHttpUrl',
+        'publicChatflowSummary'
+    ] as const
+    const cases: Array<[string, number, (typeof entries)[number], (size: number) => string]> = []
+    for (const size of sizes) {
+        for (const [kind, make] of kinds) {
+            for (const entry of entries) cases.push([`${entry} ${kind} ${size}`, size, entry, make])
+        }
+    }
+
+    const runEntry = (entry: (typeof entries)[number], text: string) => {
+        if (entry === 'sanitizeNodeInputs') {
+            sanitizeNodeInputs(
+                { prompt: text, systemMessage: text, systemMessagePrompt: text, basepath: text, modelName: text },
+                schemaParams as any
+            )
+            return
+        }
+        if (entry === 'buildTemplateFlow') {
+            buildTemplateFlow(
+                {
+                    nodes: [
+                        {
+                            id: 'conversationChain_0',
+                            type: 'customNode',
+                            position: { x: 0, y: 0 },
+                            data: { name: 'conversationChain', inputs: { systemMessagePrompt: text, basepath: text } }
+                        }
+                    ],
+                    edges: []
+                },
+                {
+                    conversationChain: {
+                        name: 'conversationChain',
+                        label: 'Chain',
+                        inputParams: [
+                            { name: 'systemMessagePrompt', type: 'string' },
+                            { name: 'basepath', type: 'string' }
+                        ]
+                    }
+                }
+            )
+            return
+        }
+        if (entry === 'sanitizeToolTemplate') {
+            sanitizeToolTemplate({ func: text, schema: text, iconSrc: text })
+            return
+        }
+        if (entry === 'publicChatbotDisplayConfig') {
+            publicChatbotDisplayConfig({
+                title: text,
+                welcomeMessage: text,
+                errorMessage: text,
+                placeholder: text,
+                titleAvatarSrc: text,
+                starterPrompts: [{ prompt: text }],
+                botMessage: { avatarSrc: text },
+                textInput: { placeholder: text }
+            })
+            return
+        }
+        if (entry === 'rebuildHttpUrl') {
+            rebuildHttpUrl(text)
+            return
+        }
+        publicChatflowSummary({
+            id: 'f1',
+            name: text,
+            isPublic: true,
+            apikeyid: '',
+            chatbotConfig: text
+        })
+    }
+
+    it.each(cases)('%s finishes under 200 ms', (label, size, entry, make) => {
+        const text = make(size)
+        expect(text.length).toBe(size)
+        const started = performance.now()
+        runEntry(entry, text)
+        const elapsed = performance.now() - started
+        console.info(`timing ${label} ${elapsed.toFixed(1)}`)
+        expect(elapsed).toBeLessThan(200)
+    })
+})
+
+describe('non-ASCII hosts', () => {
+    it('leaves out an address whose host needs punycode', () => {
+        const lookalike = '\u0455k' + '-' + 'FAKEqa9X7mP2'
+        for (const url of [`https://${lookalike}.example/x`, 'https://b\u00fccher.example/menu', 'https://xn--bcher-kva.example/menu']) {
+            expect(rebuildHttpUrl(url)).toBeUndefined()
+            expect(sanitizeToolTemplate({ iconSrc: url }).iconSrc).toBeUndefined()
+            expect(sanitizeNodeInputs({ basepath: url }, schemaParams as any).inputs.basepath).toBeUndefined()
+        }
+        expect(rebuildHttpUrl('https://cdn.example/icons/hammer.png')).toBe('https://cdn.example/icons/hammer.png')
+    })
+})
+
+describe('tool func credential shapes', () => {
+    const pw = ['FAKE', 'pw', '7'].join('')
+    const fn = (body: string) => `const res = await fetch(${body})\nreturn res.text()`
+
+    it('leaves out func with a password in an address', () => {
+        for (const url of [
+            `'https://u:${pw}@api.example/v1'`,
+            `"http://admin:${pw}@10.0.0.1:8080/x"`,
+            '`ftp://u:' + pw + '@files.example`'
+        ]) {
+            expect(sanitizeToolTemplate({ func: fn(url) }).func).toBeUndefined()
+        }
+    })
+
+    it('leaves out func with a credential-named query parameter, any value', () => {
+        for (const name of ['api_key', 'APIKEY', 'key', 'Token', 'access_token', 'secret', 'password', 'sig']) {
+            for (const sep of ['?', '&', ';']) {
+                expect(
+                    sanitizeToolTemplate({ func: fn(`'https://api.example/v1?q=1${sep === '?' ? '&' : sep}${name}=x'`) }).func
+                ).toBeUndefined()
+                expect(
+                    sanitizeToolTemplate({ func: fn(`'https://api.example/v1${sep === '&' ? '?a=1&' : sep}${name}=${pw}'`) }).func
+                ).toBeUndefined()
+            }
+        }
+    })
+
+    it('leaves out func with Bearer or Basic and a literal value', () => {
+        for (const auth of ['Bearer ' + pw, 'bearer ' + pw, 'Basic ' + 'dTpGQUtFcHc3', 'BASIC\t' + pw]) {
+            expect(sanitizeToolTemplate({ func: `const headers = { Authorization: '${auth}' }` }).func).toBeUndefined()
+        }
+    })
+
+    it('keeps plain addresses, @, expressions, and placeholders', () => {
+        const kept = [
+            fn("'https://api.example/v1/items?limit=10&page=2'"),
+            'const to = "team@example.com"\nreturn to',
+            'const headers = { Authorization: `Bearer ${token}` }',
+            "const headers = { Authorization: 'Bearer ' + $vars.token }",
+            "const headers = { Authorization: 'Bearer SPIDER_API_KEY' }",
+            fn("'https://api.example/v1?monkey=1&keyword=bread'")
+        ]
+        for (const func of kept) expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+
+    it('scans long address-like code in linear time', () => {
+        for (const unit of ['a://', '://:', 'https://u:', '?key', 'Bearer ']) {
+            const text = unit.repeat(Math.ceil(200000 / unit.length))
+            const started = performance.now()
+            sanitizeToolTemplate({ func: text.slice(0, 19990) })
+            expect(performance.now() - started).toBeLessThan(200)
+        }
+    })
+})
+
+describe('tool func credential shapes split or without a scheme', () => {
+    const pw = ['FAKE', 'pw', '8'].join('')
+    const gaps = ['\u200b', '\u00a0', '\u2060', '\u00ad', '\ufe0f', '\u{e0020}']
+
+    it('leaves out a protocol-relative address with a password', () => {
+        expect(sanitizeToolTemplate({ func: `return fetch('//user:${pw}@api.example/v1')` }).func).toBeUndefined()
+    })
+
+    it('leaves out credential shapes split by an invisible character', () => {
+        for (const gap of gaps) {
+            const funcs = [
+                `return fetch('https:${gap}//user:${pw}@api.example/v1')`,
+                `return fetch('https://user:${gap}${pw}@api.example/v1')`,
+                `return fetch('https://api.example/v1?api${gap}_key=x')`,
+                `return fetch('https://api.example/v1?q=1&to${gap}ken=x')`,
+                `const h = { Authorization: 'Bear${gap}er ${pw}' }`,
+                `const h = { Authorization: 'Ba${gap}sic ${pw}' }`,
+                `const h = { Authorization: 'Bearer${gap}${pw}' }`,
+                `const h = { Authorization: 'Basic${gap}${pw}' }`
+            ]
+            for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBeUndefined()
+        }
+    })
+
+    it('keeps a line comment and a plain address', () => {
+        const func = "// fetch the menu: see docs\nreturn fetch('https://api.example/menu?limit=5')"
+        expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+})
+
+describe('tool func user info and split auth words', () => {
+    const pw = ['FAKE', 'pw', '9'].join('')
+    const gaps = ['\u200b', '\u00a0', '\u2060', '\u00ad', '\ufe0f', '\u{e0020}']
+
+    it('leaves out an address with a colon before the last @', () => {
+        for (const url of [`https://x@y:${pw}@api.example/v1`, `https://@user:${pw}@api.example/v1`, `//a@b@c:${pw}@api.example`]) {
+            expect(sanitizeToolTemplate({ func: `return fetch('${url}')` }).func).toBeUndefined()
+        }
+    })
+
+    it('keeps an address with @ but no password and a host with a port', () => {
+        for (const func of ["return fetch('https://api.example:8443/v1?to=a@b.example')", "return fetch('https://user@api.example/v1')"]) {
+            expect(sanitizeToolTemplate({ func }).func).toBe(func)
+        }
+    })
+
+    it('leaves out Bearer or Basic split by two invisible gaps or with invisibles before the value', () => {
+        for (const a of gaps) {
+            for (const b of gaps) {
+                const funcs = [
+                    `const h = { Authorization: 'Bear${a}er${b}${pw}' }`,
+                    `const h = { Authorization: 'B${a}asi${b}c ${pw}' }`,
+                    `const h = { Authorization: 'Bearer${a}${b}${pw}' }`,
+                    `const h = { Authorization: 'Basic ${a}${pw}' }`
+                ]
+                for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBeUndefined()
+            }
+        }
+    })
+})
+
+describe('tool func user info with quote characters', () => {
+    const pw = ['FAKE', 'pw', '10'].join('')
+    it('leaves out a password whose user info contains a quote or backtick', () => {
+        for (const q of ["'", '"', '`']) {
+            for (const url of [
+                `https://user:${pw}${q}@api.example/v1`,
+                `https://user:p${q}${pw}@api.example/v1`,
+                `https://x@y:${pw}${q}@api.example/v1`,
+                `https://@user:${pw}${q}@api.example/v1`,
+                `https://us${q}er:${pw}@api.example/v1`,
+                `https://x@y${q}:${pw}@api.example/v1`
+            ]) {
+                expect(sanitizeToolTemplate({ func: `return fetch(String.raw\`${url}\`)` }).func).toBeUndefined()
+                expect(sanitizeToolTemplate({ func: `const u = ${JSON.stringify(url)}` }).func).toBeUndefined()
+            }
+        }
+    })
+})
+
+describe('tool func auth word after a non-ASCII letter', () => {
+    const pw = ['FAKE', 'pw', '11'].join('')
+    it('leaves out Bearer or Basic right after a letter that is not ASCII', () => {
+        for (const lead of ['\u017f', '\u212a', '\u00e9', '\u0430']) {
+            for (const word of ['Bearer', 'Basic']) {
+                expect(sanitizeToolTemplate({ func: `const h = '${lead}${word} ${pw}'` }).func).toBeUndefined()
+            }
+        }
+    })
+    it('keeps an ASCII word that only ends in bearer', () => {
+        const func = "const cupbearer = 'x'\nreturn cupbearer"
+        expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+})
+
+describe('tool func user info in parser-accepted spellings', () => {
+    const pw = ['FAKE', 'pw', '12'].join('')
+    const fetchOf = (url: string) => `return fetch(${JSON.stringify(url)})`
+
+    it('leaves out a special scheme with zero, one, three, or four slashes, or backslashes', () => {
+        for (const scheme of ['https', 'http', 'HTTPS', 'wss', 'ftp']) {
+            for (const sep of [':', ':/', ':///', ':////', ':\\', ':\\/', ':/\\\\', ':\\\\']) {
+                const url = `${scheme}${sep}user:${pw}@host.example/x`
+                expect(new URL(url).password).not.toBe('')
+                expect(sanitizeToolTemplate({ func: fetchOf(url) }).func).toBeUndefined()
+            }
+        }
+    })
+
+    it('leaves out user info with whitespace the parser removes or keeps', () => {
+        const urls = [
+            `https://user:p w${pw}@host.example/x`,
+            `https://us er:${pw}@host.example/x`,
+            `https://user:p\nw${pw}@host.example/x`,
+            `https:/\n/user:${pw}@host.example/x`,
+            `https:\t\tuser:${pw}@host.example/x`,
+            `https://user:p\u2003w${pw}@host.example/x`,
+            `https://user:p\u3000w${pw}@host.example/x`,
+            `https://user:p\u000bw${pw}@host.example/x`,
+            `https://user:p\u000cw${pw}@host.example/x`
+        ]
+        for (const url of urls) expect(sanitizeToolTemplate({ func: fetchOf(url) }).func).toBeUndefined()
+    })
+
+    it('leaves out a credential query name split by whitespace', () => {
+        for (const q of ['?api_\nkey=x', '?to\tken=x', '?\rtoken=x', '&sec ret=x']) {
+            expect(sanitizeToolTemplate({ func: fetchOf(`https://api.example/v1${q}`) }).func).toBeUndefined()
+        }
+    })
+
+    it('keeps ordinary code with addresses, ports, and @', () => {
+        const funcs = [
+            "const res = await fetch('https://api.example:8443/v1/items?limit=10')\nconst to = 'team@example.com'\nreturn res.json()",
+            "// docs: https://api.example/docs\nconst x = { a: 1 }\nreturn 'ok'",
+            'const url = `https://api.example/v1/${id}`\nreturn fetch(url, { headers: { Authorization: `Bearer ${token}` } })'
+        ]
+        for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+
+    it('scans repeated scheme starts in linear time', () => {
+        for (const unit of ['http:', 'http:a:', 'http:a@', '//a:', 'ftp:\\\\']) {
+            const text = unit.repeat(Math.ceil(19990 / unit.length)).slice(0, 19990)
+            const started = performance.now()
+            sanitizeToolTemplate({ func: text })
+            expect(performance.now() - started).toBeLessThan(200)
+        }
+    })
+})
+
+describe('tool func auth word with any whitespace or escape before the value', () => {
+    const pw = ['FAKE', 'pw', '13'].join('')
+    it('leaves out Bearer or Basic followed by any whitespace or a whitespace escape', () => {
+        const gaps = [
+            '\u000b',
+            '\u000c',
+            '\u1680',
+            '\u2000',
+            '\u2005',
+            '\u200a',
+            '\u2003',
+            '\u2028',
+            '\u2029',
+            '\u205f',
+            '\u3000',
+            '\\t',
+            '\\v',
+            '\\f',
+            '\\n',
+            '\\r',
+            ' \\t ',
+            '\u200b\\v\u3000',
+            '\\f\u00a0\\n',
+            '\u2028 \\r\u2060'
+        ]
+        for (const word of ['Bearer', 'Basic']) {
+            for (const gap of gaps) {
+                expect(sanitizeToolTemplate({ func: `const h = { Authorization: "${word}${gap}${pw}" }` }).func).toBeUndefined()
+            }
+        }
+    })
+})
+
+describe('tool func auth word stays kept for expressions and other words', () => {
+    it('keeps cupbearer, a template expression, and a quoted concatenation after any separator', () => {
+        const funcs = [
+            "const cupbearer = 'x'\nreturn cupbearer",
+            'const h = { Authorization: `Bearer\\t${token}` }',
+            "const h = { Authorization: 'Basic\\v' + encoded }"
+        ]
+        for (const func of funcs) expect(sanitizeToolTemplate({ func }).func).toBe(func)
+    })
+})
+
+describe('tool func auth separator timing', () => {
+    it('checks long separator runs with no value in linear time', () => {
+        const units = ['\u00a0', '\u202f', '\ufeff', ' ', '\u00a0\u202f\ufeff', '\u3000\u200b', '\\t\u00a0', '\u000b\u000c']
+        for (const word of ['Bearer', 'Basic']) {
+            for (const unit of units) {
+                for (const size of [32, 1000, 19000]) {
+                    const func = word + unit.repeat(Math.ceil(size / unit.length)).slice(0, size) + '$'
+                    const started = performance.now()
+                    sanitizeToolTemplate({ func })
+                    expect(performance.now() - started).toBeLessThan(200)
+                }
+            }
+        }
     })
 })

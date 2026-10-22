@@ -651,13 +651,113 @@ export const decryptCredentialData = async (encryptedData: string | Buffer | Uin
     }
 }
 
+const MODEL_CREDENTIAL_CATEGORIES = new Set(['Chat Models', 'Embeddings'])
+
+/** HTTP status a prediction uses when a chat model or embeddings node needs a credential and none is selected. */
+export const MISSING_MODEL_CREDENTIAL_STATUS = 422
+
+export type ModelCredentialSource = {
+    credential?: { optional?: boolean | object }
+    category?: string
+    label?: string
+    name?: string
+}
+
+export type ModelCredentialNodeData = {
+    credential?: string
+    label?: string
+    name?: string
+    category?: string
+    inputs?: ICommonObject
+}
+
+export type CredentialLookupContext = {
+    instance?: ModelCredentialSource
+    nodeData?: ModelCredentialNodeData
+}
+
+export function missingModelCredentialMessage(label: string): string {
+    const name = String(label || '').trim() || 'chat model'
+    return `Pick a credential on the ${name} node.`
+}
+
+export class MissingModelCredentialError extends Error {
+    statusCode = MISSING_MODEL_CREDENTIAL_STATUS
+    constructor(label: string) {
+        super(missingModelCredentialMessage(label))
+        // Leave name as Error so the JSON error body matches other 4xx responses.
+    }
+}
+
+export function selectedModelCredentialId(nodeData?: ModelCredentialNodeData): string {
+    const inputs = nodeData?.inputs
+    const fromInputs = inputs && typeof inputs === 'object' ? String(inputs.credentialId || inputs.FLOWISE_CREDENTIAL_ID || '') : ''
+    return String(nodeData?.credential || fromInputs || '').trim()
+}
+
+export function credentialIsOptional(definition?: { optional?: boolean | object }): boolean {
+    return definition?.optional === true
+}
+
+// Credential-style input names: apiKey, apiToken, accessToken, bearerToken, a name ending in secret or secretKey,
+// and access, secret, private or client keys such as qianfanAccessKey, awsSecretKey or clientSecret.
+const INPUT_SECRET_KEY =
+    /api[_-]?(?:key|token)|(?:access|bearer)[_-]?token|secret(?:key)?$|(?:access|secret|private)[_-]?key|client[_-]?secret/i
+
+/**
+ * Override config and some tests put the provider key on the node inputs instead of selecting a stored credential.
+ */
+export function inputsProvideModelSecret(nodeData?: ModelCredentialNodeData): boolean {
+    const inputs = nodeData?.inputs
+    if (!inputs || typeof inputs !== 'object') return false
+    for (const [key, value] of Object.entries(inputs)) {
+        if (!INPUT_SECRET_KEY.test(key)) continue
+        if (typeof value === 'string' && value.trim()) return true
+    }
+    return false
+}
+
+/**
+ * Chat model and embeddings nodes that declare a required credential must have one selected.
+ * Optional credentials (Ollama, Cerebras, Azure when the process already has the provider variables) stay optional.
+ * A key already on the node inputs still counts, so override config and init tests can pass a key without a stored id.
+ */
+export function assertRequiredModelCredential(source: ModelCredentialSource | undefined, nodeData?: ModelCredentialNodeData): void {
+    const category = source?.category || nodeData?.category
+    if (!MODEL_CREDENTIAL_CATEGORIES.has(String(category || ''))) return
+    if (!source?.credential) return
+    if (credentialIsOptional(source.credential)) return
+    if (selectedModelCredentialId(nodeData)) return
+    if (inputsProvideModelSecret(nodeData)) return
+    const label = String(nodeData?.label || source.label || nodeData?.name || source.name || '').trim()
+    throw new MissingModelCredentialError(label)
+}
+
+function isClientStatusError(error: unknown): error is Error & { statusCode: number } {
+    if (!error || typeof error !== 'object') return false
+    const status = Number((error as { statusCode?: unknown }).statusCode)
+    return Number.isInteger(status) && status >= 400 && status < 500
+}
+
 /**
  * Get credential data
  * @param {string} selectedCredentialId
  * @param {ICommonObject} options
+ * @param {CredentialLookupContext} [context] Chat model or embeddings `init` passes the node instance so a missing required credential is 422.
  * @returns {Promise<ICommonObject>}
  */
-export const getCredentialData = async (selectedCredentialId: string, options: ICommonObject): Promise<ICommonObject> => {
+export const getCredentialData = async (
+    selectedCredentialId: string,
+    options: ICommonObject,
+    context?: CredentialLookupContext
+): Promise<ICommonObject> => {
+    const instance = context?.instance || (options?.nodeInstance as ModelCredentialSource | undefined)
+    const nodeData: ModelCredentialNodeData = {
+        ...(context?.nodeData || (options?.nodeData as ModelCredentialNodeData | undefined) || {}),
+        credential: selectedCredentialId
+    }
+    assertRequiredModelCredential(instance, nodeData)
+
     const appDataSource = options.appDataSource as DataSource
     const databaseEntities = options.databaseEntities as IDatabaseEntity
 
@@ -687,6 +787,7 @@ export const getCredentialData = async (selectedCredentialId: string, options: I
 
         return decryptedCredentialData
     } catch (e) {
+        if (isClientStatusError(e)) throw e
         throw new Error(e)
     }
 }

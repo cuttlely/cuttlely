@@ -267,7 +267,7 @@ export function checkSite(dist, { csp = null } = {}) {
         const flowise = fs.readFileSync(flowiseFile, 'utf8')
         const flowiseText = visibleText(flowise)
         for (const line of [
-            'Bring your Flowise flows.',
+            'Bring your flows over.',
             'Import a flow (2-min guide)',
             'Star on GitHub',
             'Not affiliated with FlowiseAI. Flowise names and trademarks remain with their owners.'
@@ -277,6 +277,28 @@ export function checkSite(dist, { csp = null } = {}) {
         if (/waitlist/i.test(flowiseText)) problems.push('flowise/index.html: shows waitlist copy')
         if (/runs your flows unchanged/i.test(flowiseText)) problems.push('flowise/index.html: claims flows run unchanged')
         if (/opens a draft/i.test(flowiseText)) problems.push('flowise/index.html: says the import opens a draft')
+    }
+    // The import format is named on /flowise/, but not in its opening (the title, the meta description, and the hero
+    // eyebrow, H1 and lead before the proof line). Elsewhere it appears only once, as the home hero href to /flowise/:
+    // the home page is read whole, so a header or footer link there counts too.
+    if (fs.existsSync(flowiseFile)) {
+        const flowise = fs.readFileSync(flowiseFile, 'utf8')
+        const title = (flowise.match(/<title>([\s\S]*?)<\/title>/) || ['', ''])[1]
+        const meta = (flowise.match(/<meta name="description" content="([^"]*)"/) || ['', ''])[1]
+        const heroCopy = (flowise.match(/class="cl-hero-copy"[\s\S]*?<\/div>/) || [''])[0]
+        const opening = heroCopy.split(/class="cl-hero-proof"/)[0]
+        if (/flowise/i.test(`${title} ${meta} ${visibleText(opening)}`)) {
+            problems.push('flowise/index.html: names the import format in its opening')
+        }
+    }
+    const mainOf = (html) => (html.match(/<main[\s\S]*<\/main>/) || [html])[0]
+    const homeHits = home.match(/flowise/gi) || []
+    const heroHrefs = home.match(/href="\/flowise\/"/g) || []
+    if (homeHits.length > 1) problems.push(`index.html: names the import format ${homeHits.length} times; only the hero link may`)
+    else if (homeHits.length === 1 && heroHrefs.length !== 1) problems.push('index.html: names the import format outside the hero link')
+    const faqFile = path.join(dist, 'faq/index.html')
+    if (fs.existsSync(faqFile) && /flowise/i.test(mainOf(fs.readFileSync(faqFile, 'utf8')))) {
+        problems.push('faq/index.html: names the import format; that belongs on /flowise/')
     }
     // A real site build has hashed /_astro assets. Fixtures used by unit tests do not.
     if (home && fs.existsSync(path.join(dist, '_astro'))) {

@@ -65,7 +65,7 @@ docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 
 <a id="sign-in"></a>
 
-新安裝沒有任何使用者。開啟 `docker compose logs cuttlely` 印出的設定連結，建立一個本機的擁有者帳號。也可以在終端機裡建立。
+新安裝沒有任何使用者。開啟 `docker compose logs cuttlely | grep "Setup code"` 印出的設定連結，建立一個本機的擁有者帳號。也可以在終端機裡建立。
 
 ```bash
 docker compose exec -u node -it -e CUTTLELY_LOCAL_ADMIN=true cuttlely pnpm user --email you@example.com

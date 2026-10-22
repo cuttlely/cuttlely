@@ -93,7 +93,7 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
                 return
             }
             const next = scanFlowiseMigration(parsed, { catalog: flowiseNodeCatalog })
-            if (next.code === 'langflow' || next.code === 'not-flowise') {
+            if (next.code === 'langflow' || next.code === 'not-flowise' || next.code === 'tool') {
                 setReport(null)
                 setParseError(next.reason)
                 setStep(0)
@@ -159,11 +159,15 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
                                 ))}
                             </Box>
                         )}
-                        {report.attention.map((line) => (
-                            <Typography variant='body2' key={line}>
-                                {line}
-                            </Typography>
-                        ))}
+                        {report.attention.length > 0 && (
+                            <Box component='ul' sx={{ m: 0, pl: 2.5 }}>
+                                {report.attention.map((line, index) => (
+                                    <Typography component='li' variant='body2' key={`${index}-${line}`} sx={{ mt: 0.5 }}>
+                                        {line}
+                                    </Typography>
+                                ))}
+                            </Box>
+                        )}
                     </Stack>
                 )}
                 {step === 2 && report && (
@@ -207,6 +211,15 @@ const FlowiseMigrationWizard = ({ open, onClose, onOpen }) => {
                             <Typography variant='body2'>
                                 This graph uses nodes Cuttlely can draw, with no credential slots left on the file.
                             </Typography>
+                        )}
+                        {report.attention.length > 0 && (
+                            <Box component='ul' sx={{ m: 0, pl: 2.5 }}>
+                                {report.attention.map((line, index) => (
+                                    <Typography component='li' variant='body2' key={`${index}-${line}`} sx={{ mt: 0.5 }}>
+                                        {line}
+                                    </Typography>
+                                ))}
+                            </Box>
                         )}
                     </Stack>
                 )}

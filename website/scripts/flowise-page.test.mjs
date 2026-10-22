@@ -11,11 +11,11 @@ function read(...parts) {
 }
 
 describe('Flowise import page wiring', () => {
-    it('is a site page, and the header, footer and home hero point at /flowise/', () => {
+    it('is a site page, only the home hero points at /flowise/, and the header and footer do not', () => {
         assert.equal(fs.existsSync(path.join(SITE, 'src/pages/flowise.astro')), true)
-        assert.match(read('src/components/HeaderLinks.astro'), /href: '\/flowise\/'/)
+        assert.doesNotMatch(read('src/components/HeaderLinks.astro'), /flowise/i)
         assert.match(read('src/components/PageTitle.astro'), /pathname\.startsWith\('\/flowise\/'\)/)
-        assert.match(read('src/components/SiteFooter.astro'), /href="\/flowise\/"/)
+        assert.doesNotMatch(read('src/components/SiteFooter.astro'), /flowise/i)
         const hero = read('src/components/Hero.astro')
         assert.match(hero, /href="\/flowise\/"/)
         assert.match(hero, /Already have flows\? Bring them over/)
@@ -23,9 +23,13 @@ describe('Flowise import page wiring', () => {
 
     it('keeps the approved title, pillars, buttons, quickstart, paths, disclaimer, and issue link, and leaves waitlist, unchanged-flows, sequential-agent, and whole-install claims out', () => {
         const page = read('src/pages/flowise.astro')
-        assert.match(page, /Bring your Flowise flows: import, no rebuild \| Cuttlely/)
+        assert.match(page, /Bring your flows over: import, no rebuild \| Cuttlely/)
         assert.match(page, /The visual agent builder, ready for production\./)
-        assert.match(page, /Bring your Flowise flows\./)
+        assert.match(page, /cl-hero-title">Bring your flows over\.<\/h1>/)
+        assert.doesNotMatch(page, /Bring your Flowise flows/)
+        assert.match(page, /id="security-advisories"/)
+        assert.match(page, /the six advisories on Flowise 3\.1\.4 that list no patched release/)
+        assert.match(page, /GHSA-8vvx-qvq9-5948/)
         assert.match(page, /Drag-and-drop agents with real governance and lean context\. Open source, Apache-2\.0\./)
         assert.match(page, /Import Flowise JSON opens a chatflow or agentflow on the canvas, node for node\./)
         assert.doesNotMatch(page, /picks up where|next generation/i)

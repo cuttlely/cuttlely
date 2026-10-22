@@ -351,7 +351,7 @@ const installs = [
             <span id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-anchor" aria-hidden="true"></span>
             <div class="cl-center">
                 <p class="cl-kicker">Draft vs Live</p>
-                <h2 id="test-every-change-title" class="cl-display">A/B test every change before it goes live</h2>
+                <h2 id="test-every-change-title" class="cl-display">Replay every change before it goes live</h2>
                 <p class="cl-lead">
                     Every edit saves to a draft while Live keeps serving your app. Compare asks real questions on Live and on the draft, side by side, and marks
                     each answer Same, Changed, or Error before you publish. Turn on the passing test set and Publish waits until the draft passes.
@@ -498,7 +498,7 @@ const installs = [
                 </ul>
                 <p class="cl-callout-proof">
                     <span class="cl-pair-label">Bakery demo</span>
-                    On a made-up bakery database, ticking 6 of 20 relations took the analyst's prompt from 2,562 to 663 tokens. Rerun it with
+                    In our internal benchmarks, on a made-up bakery database, ticking 6 of 20 relations took the analyst's prompt from 2,562 to 663 tokens. Rerun it with
                     <a href={`${REPO_URL}/blob/main/scripts/analyst-schema-tokens.mjs`}>scripts/analyst-schema-tokens.mjs</a>.
                 </p>
                 <a class="cl-link-arrow" href="/docs/how-to/analyst/">Analyst guide <Icon name="right-arrow" /></a>
@@ -533,6 +533,40 @@ const installs = [
                 the timings, the sources and any images the team made.
             </p>
             <p class="cl-center"><a class="cl-link-arrow" href="/docs/api/">API guide <Icon name="right-arrow" /></a></p>
+        </section>
+
+        <section id="every-flow-an-mcp-server" class="cl-section" aria-labelledby="mcp-title">
+            <div class="cl-center">
+                <p class="cl-kicker">MCP</p>
+                <h2 id="mcp-title" class="cl-display">Every flow an MCP server.</h2>
+                <p class="cl-lead">Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish, and side-by-side replay shows what changed first.</p>
+            </div>
+            <ul class="cl-steps">
+                <li><strong>Off until you turn it on.</strong> Turn on MCP Server for a flow and you get an endpoint and a bearer token.</li>
+                <li><strong>Live or published flows only, each flow is one tool call.</strong> Calls run the published version, never the draft, with no memory between calls.</li>
+            </ul>
+            <p>Works with MCP clients via mcp-remote.</p>
+            <a class="cl-link-arrow" href="/docs/api/#mcp-endpoint">MCP endpoint guide <Icon name="right-arrow" /></a>
+        </section>
+
+        <section id="call-your-flows-from-orchestrate" class="cl-section" aria-labelledby="integrations-title">
+            <div class="cl-center">
+                <p class="cl-kicker">Integrations</p>
+                <h2 id="integrations-title" class="cl-display">Call your flows from IBM watsonx Orchestrate</h2>
+                <p class="cl-lead">Build a flow in Cuttlely and let your Orchestrate agents hand it questions.</p>
+            </div>
+            <ul class="cl-steps">
+                <li><strong>External agent.</strong> Register a published chatflow under AI Gateway → Agent directory → Add agent. A native agent calls it as a collaborator. The flow needs a bound API key.</li>
+                <li><strong>MCP toolkit.</strong> The guide shows how to import a flow with MCP Server turned on as a remote MCP toolkit.</li>
+            </ul>
+            <p>
+                <a class="cl-link-arrow" href="/docs/how-to/orchestrate/">External agent guide <Icon name="right-arrow" /></a>
+                <a class="cl-link-arrow" href="/docs/how-to/orchestrate-mcp/">MCP toolkit guide <Icon name="right-arrow" /></a>
+            </p>
+            <div class="cl-actions cl-actions-center">
+                <a class="cl-button cl-button-primary" href="/quickstart/">Get started in 10 minutes <Icon name="right-arrow" /></a>
+                <a class="cl-button cl-button-ghost" href={REPO_URL}><Icon name="github" /> Star on GitHub</a>
+            </div>
         </section>
 
         <section id="small-context-big-answers" class="cl-section" aria-labelledby="context-title">
@@ -681,10 +715,10 @@ const installs = [
             </div>
             <ol class="cl-steps cl-start-steps">
                 <li>
-                    <strong>Start Cuttlely.</strong> Run <code>docker compose up -d</code> in a clone of the repository, or <code>npx cuttlely start</code> with Node.js 20 or newer. Both need Docker.
+                    <strong>Start Cuttlely.</strong> Run <code>docker compose up -d</code> in a clone of the repository, or <code>npx cuttlely start</code> with Node 20+ and Docker.
                 </li>
                 <li>
-                    <strong>Create your account.</strong> <code>cuttlely start</code> prints only the ready URL. The first-account setup link is on the <code>No account yet</code> line in <code>docker compose logs cuttlely</code> or <code>npx cuttlely logs</code>. Open that setup URL and create your account.
+                    <strong>Create your account.</strong> The server log prints a ready block with a one-time setup link (<code>/setup#code=...</code>) and a setup code. Show it with <code>docker compose logs cuttlely | grep "Setup code"</code> or <code>npx cuttlely logs</code>. Open that link, or open the app and paste the code.
                 </li>
                 <li>
                     <strong>Try the demo.</strong> On Chatflows, select <strong>Add a model key</strong>, paste a key from any chat model provider listed under <strong>Credentials</strong>, then select <strong>Try the demo</strong>. A customer care team opens with its chat ready.
@@ -735,8 +769,8 @@ const installs = [
             <h2 id="final-title" class="cl-display">See an agent team at work.</h2>
             <p>Start Cuttlely, add one model key, and the bakery team answers with a chart.</p>
             <div class="cl-actions cl-actions-center">
-                <a class="cl-button cl-button-primary" href="/quickstart/">Quickstart <Icon name="right-arrow" /></a>
-                <a class="cl-button cl-button-ghost" href={REPO_URL}><Icon name="github" /> GitHub</a>
+                <a class="cl-button cl-button-primary" href="/quickstart/">Get started in 10 minutes <Icon name="right-arrow" /></a>
+                <a class="cl-button cl-button-ghost" href={REPO_URL}><Icon name="github" /> Star on GitHub</a>
             </div>
         </section>
     </div>

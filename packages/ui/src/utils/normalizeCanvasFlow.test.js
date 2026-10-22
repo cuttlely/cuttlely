@@ -130,4 +130,28 @@ describe('raw canvas nodes', () => {
         expect(normalizeNodeData(data, postgresSpec)).toBe(data)
         expect(data.inputParams).toEqual([{ name: 'keep' }])
     })
+
+    it('copies a conversation chain system message into the current prompt field', () => {
+        const data = normalizeNodeData({
+            id: 'conversationChain_0',
+            name: 'conversationChain',
+            inputParams: [],
+            inputAnchors: [],
+            outputAnchors: [],
+            inputs: { systemMessage: 'Be brief.' }
+        })
+        expect(data.inputs.systemMessagePrompt).toBe('Be brief.')
+        expect(data.inputs.systemMessage).toBe('Be brief.')
+    })
+
+    it('does not overwrite a conversation prompt that is already set', () => {
+        const data = normalizeNodeData({
+            name: 'conversationChain',
+            inputParams: [],
+            inputAnchors: [],
+            outputAnchors: [],
+            inputs: { systemMessage: 'Old', systemMessagePrompt: 'New' }
+        })
+        expect(data.inputs.systemMessagePrompt).toBe('New')
+    })
 })

@@ -31,6 +31,8 @@ import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
 import { orchestrateContentTypeGuard, orchestrateJsonParser } from './routes/orchestrate'
+import { a2aBodyErrorHandler, a2aContentTypeGuard, a2aJsonParser, assertA2aPublicBaseUrl } from './routes/a2a'
+import { mcpJsonParser, unlessExternalJson, whenMcpEndpoint } from './utils/externalJsonLimit'
 import { attachIdentitySession } from './identity'
 import { apiV1Auth, isMcpEndpointPath, withoutDenylisted } from './identity/apiGate'
 import { sendMcpMethodNotAllowed } from './routes/mcp-endpoint/http'
@@ -48,7 +50,8 @@ import { Telemetry } from './utils/telemetry'
 import { validateAPIKey } from './utils/validateKey'
 import { getCorsOptions, getIframeSecurityHeaders, sanitizeMiddleware, validateCorsConfig } from './utils/XSS'
 import { identityStore } from './identity/production'
-import { announceFirstRunSetup } from './identity/setupCode'
+import { applyDocumentFrameHeaders, applySetupHeaders, isSetupDocumentPath } from './identity/sessionGuard'
+import { announceFirstRunSetup, createStartupPrinter, reissueExpiredSetupIfOpen, watchFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
 import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
@@ -211,10 +214,17 @@ export class App {
         const captureRawBody = (req: Request, _res: Response, buf: Buffer) => {
             ;(req as any).rawBody = buf
         }
-        // Parse Orchestrate bodies at 1 MB and refuse non-JSON before the 50 MB urlencoded parser runs.
+        assertA2aPublicBaseUrl()
+        // Parse A2A, Orchestrate, and MCP JSON at 1 MB, then skip the global file-size parser on
+        // those prefixes. body-parser leaves an already-parsed body alone, so a later 50 MB
+        // express.json would otherwise ignore the 1 MB cap.
         this.app.use('/api/v1/orchestrate', orchestrateContentTypeGuard, orchestrateJsonParser)
-        this.app.use(express.json({ limit: flowise_file_size_limit, verify: captureRawBody }))
-        this.app.use(express.urlencoded({ limit: flowise_file_size_limit, extended: true, verify: captureRawBody }))
+        this.app.use('/api/v1/a2a', a2aContentTypeGuard)
+        this.app.use('/api/v1/a2a', a2aJsonParser)
+        this.app.use('/api/v1/a2a', a2aBodyErrorHandler)
+        this.app.use(whenMcpEndpoint(mcpJsonParser))
+        this.app.use(unlessExternalJson(express.json({ limit: flowise_file_size_limit, verify: captureRawBody })))
+        this.app.use(unlessExternalJson(express.urlencoded({ limit: flowise_file_size_limit, extended: true, verify: captureRawBody })))
 
         // Unset TRUST_PROXY ignores X-Forwarded-For. Render sets TRUST_PROXY=1.
         this.app.set('trust proxy', resolveTrustProxy(process.env.TRUST_PROXY))
@@ -232,9 +242,7 @@ export class App {
         // Allow embedding from specified domains.
         const iframeSecurityHeaders = getIframeSecurityHeaders()
         this.app.use((req, res, next) => {
-            for (const [headerName, headerValue] of Object.entries(iframeSecurityHeaders)) {
-                res.setHeader(headerName, headerValue)
-            }
+            applyDocumentFrameHeaders(req.path, res, iframeSecurityHeaders)
             next()
         })
 
@@ -340,6 +348,12 @@ export class App {
                     sendMcpMethodNotAllowed(res)
                     return
                 }
+                if (isSetupDocumentPath(req.path)) {
+                    applySetupHeaders(res)
+                    void reissueExpiredSetupIfOpen(() => identityStore().countUsers(), localAdminEnabled()).catch((error) =>
+                        logger.warn(`[server]: Setup code check failed: ${error instanceof Error ? error.message : error}`)
+                    )
+                }
                 res.sendFile(uiBuild.indexHtml)
             })
         } else {
@@ -384,6 +398,7 @@ function flowNodeNames(flowData: string): string[] {
 let serverApp: App | undefined
 let httpServer: http.Server | undefined
 let onInitFailed: (() => Promise<void> | void) | null = null
+let stopSetupReminder: (() => void) | undefined
 
 /** Called when initDatabase fails, before the server listens. The start command uses it for safe boot. */
 export function setInitFailureHandler(next: (() => Promise<void> | void) | null): void {
@@ -439,14 +454,32 @@ export async function start(): Promise<void> {
     server.listen(port, host, () => {
         logger.info(`⚡️ [server]: Cuttlely Server is listening at ${host ? 'http://' + host : ''}:${port}`)
         // Ready only when the start worked. A database that cannot be reached was logged by databaseHealthFor.
-        if (!serverApp?.initError) for (const line of readyBanner(port, host)) logger.info(line)
-        else if (database?.current().ok) logger.error('⚠️ [server]: Cuttlely started with the error above, so it is not ready.')
-        announceFirstRunSetup(
-            port,
-            () => identityStore().countUsers(),
-            (line) => logger.info(line),
-            localAdminEnabled()
-        ).catch((err) => logger.warn(`[server]: First-run setup check failed: ${err}`))
+        if (serverApp?.initError) {
+            if (database?.current().ok) logger.error('⚠️ [server]: Cuttlely started with the error above, so it is not ready.')
+        } else {
+            void (async () => {
+                // Buffer until the ready block is flushed, then the same printer writes straight to the log.
+                const startupLog = createStartupPrinter((line) => logger.info(line))
+                let kind: 'setup' | 'recover' | 'none' = 'none'
+                try {
+                    kind = await announceFirstRunSetup(port, () => identityStore().countUsers(), startupLog.log, localAdminEnabled())
+                } catch (err) {
+                    logger.warn(`[server]: First-run setup check failed: ${err}`)
+                }
+                if (kind === 'setup') {
+                    startupLog.flush()
+                    stopSetupReminder = watchFirstRunSetup(
+                        port,
+                        () => identityStore().countUsers(),
+                        (line) => logger.info(line),
+                        localAdminEnabled()
+                    )
+                } else {
+                    for (const line of readyBanner(port, host)) logger.info(line)
+                    startupLog.flush()
+                }
+            })()
+        }
         serverApp?.warmNodes().catch((err) => logger.warn(`[server]: Node warm-up failed: ${err}`))
         harnessesService.startHarnessRuntime()
         harnessesService.warmHarnesses()
@@ -465,6 +498,8 @@ export async function start(): Promise<void> {
  */
 export async function shutdown(limitMs: number = drainTimeoutMs()): Promise<void> {
     const started = Date.now()
+    stopSetupReminder?.()
+    stopSetupReminder = undefined
     logger.info(`🛑 [server]: Shutting down: finishing open requests (up to ${Math.round(limitMs / 1000)}s), new requests get 503.`)
     // A schedule that comes due now would start a run the drain then has to cut off.
     stopHarnessScheduler()

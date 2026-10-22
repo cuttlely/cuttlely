@@ -92,10 +92,15 @@ describe('itWorked one-time log marker', () => {
         info.mockRestore()
     })
 
-    test('notifyFirstSuccess is fire-and-forget and never throws', async () => {
+    test('notifyFirstSuccess returns before the marker exists', async () => {
         const info = jest.spyOn(console, 'info').mockImplementation(() => undefined)
         const { notifyFirstSuccess } = await import('./itWorked')
+        const marker = path.join(dataDir, 'settings', 'it-worked.json')
         expect(() => notifyFirstSuccess()).not.toThrow()
+        expect(fs.existsSync(marker)).toBe(false)
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(fs.existsSync(marker)).toBe(true)
+        expect(info).toHaveBeenCalledTimes(1)
         info.mockRestore()
     })
 

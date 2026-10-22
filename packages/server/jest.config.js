@@ -25,7 +25,7 @@ module.exports = {
         ]
     },
     transformIgnorePatterns: [
-        '/node_modules/(?!(?:\\.pnpm/(?:htmlparser2|domelementtype|domhandler|domutils|entities|dom-serializer)@|(?:htmlparser2|domelementtype|domhandler|domutils|entities|dom-serializer)/))'
+        '/node_modules/(?!(?:\\.pnpm/(?:htmlparser2|domelementtype|domhandler|domutils|entities|dom-serializer|@a2a-js\\+sdk)@|(?:htmlparser2|domelementtype|domhandler|domutils|entities|dom-serializer|@a2a-js/sdk)/))'
     ],
 
     // Regular expression to find test files

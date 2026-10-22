@@ -116,7 +116,7 @@ class ChatBaiduWenxin_ChatModels implements INode {
         const penaltyScore = nodeData.inputs?.penaltyScore as string
         const userId = nodeData.inputs?.userId as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const qianfanAccessKey = getCredentialParam('qianfanAccessKey', credentialData, nodeData)
         const qianfanSecretKey = getCredentialParam('qianfanSecretKey', credentialData, nodeData)
 

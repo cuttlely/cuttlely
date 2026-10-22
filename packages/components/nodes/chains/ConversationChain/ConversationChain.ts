@@ -166,9 +166,17 @@ class ConversationChain_Chains implements INode {
     }
 }
 
+const resolveConversationSystemPrompt = (inputs?: ICommonObject): string => {
+    const current = inputs?.systemMessagePrompt
+    if (typeof current === 'string' && current.length > 0) return current
+    const older = inputs?.systemMessage
+    if (typeof older === 'string' && older.length > 0) return older
+    return systemMessage
+}
+
 const prepareChatPrompt = (nodeData: INodeData, humanImageMessages: MessageContentImageUrl[]) => {
     const memory = nodeData.inputs?.memory as FlowiseMemory
-    let prompt = nodeData.inputs?.systemMessagePrompt as string
+    let prompt = resolveConversationSystemPrompt(nodeData.inputs)
     prompt = transformBracesWithColon(prompt)
     const chatPromptTemplate = nodeData.inputs?.chatPromptTemplate as ChatPromptTemplate
     let model = nodeData.inputs?.model as BaseChatModel
@@ -265,4 +273,4 @@ const prepareChain = async (nodeData: INodeData, options: ICommonObject, session
     return conversationChain
 }
 
-module.exports = { nodeClass: ConversationChain_Chains }
+module.exports = { nodeClass: ConversationChain_Chains, resolveConversationSystemPrompt }

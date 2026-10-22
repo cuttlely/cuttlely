@@ -5,6 +5,11 @@ import { createLogger, format, transports } from 'winston'
 import config from './config' // should be replaced by node-config or similar
 import { isServerSettingsUrl } from '../settings/redact'
 
+const isExternalAgentLogUrl = (url: string): boolean => {
+    const lower = url.toLowerCase()
+    return lower.includes('/api/v1/a2a/') || lower.includes('/api/v1/orchestrate/')
+}
+
 const { combine, timestamp, printf, errors } = format
 
 let requestLogger: any
@@ -82,53 +87,78 @@ const SESSION_LOG_FIELDS = new Set([
     'newpassword',
     'credential',
     'setupcode',
+    'code',
     'email'
 ])
-const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'token', 'q', 'cursor'])
+const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'token', 'code', 'setupcode', 'q', 'cursor'])
+const MAX_NAME_DECODES = 16
+const PARAM_DELIMS = new Set(['?', '#', '&', ';', ' ', '\t', '\n', '\r'])
 
-function decodeQueryName(raw: string): string {
-    try {
-        return decodeURIComponent(raw.replace(/\+/g, ' '))
-    } catch {
-        return raw
+/** Percent-decode a name until it stops changing. Rounds are capped. */
+function fullyDecodeName(raw: string): string {
+    let current = raw
+    for (let i = 0; i < MAX_NAME_DECODES; i++) {
+        let next: string
+        try {
+            next = decodeURIComponent(current.replace(/\+/g, ' '))
+        } catch {
+            return current
+        }
+        if (next === current) return current
+        current = next
     }
+    return current
 }
 
-// q[]= and q[0]= keep the search when only the exact name q= is redacted. %71= is q after decoding.
+// q[]= and q[0]= keep the search when only the exact name q= is redacted. Names are matched after full decoding.
 function isRedactedQueryName(raw: string): boolean {
-    const name = decodeQueryName(raw).toLowerCase()
+    const name = fullyDecodeName(raw).toLowerCase()
     if (REDACTED_QUERY_NAMES.has(name)) return true
     return name.startsWith('q[') || name.startsWith('cursor[')
 }
 
-function redactQueryString(query: string): string {
-    return query
-        .split('&')
-        .map((part) => {
-            if (!part) return part
-            const eq = part.indexOf('=')
-            if (eq === -1) return part
-            const rawName = part.slice(0, eq)
-            if (!isRedactedQueryName(rawName)) return part
-            return `${rawName}=[redacted]`
-        })
-        .join('&')
+function redactApiKeyPath(value: string): string {
+    return value.replace(/(\/api\/v1\/(?:chatflows|verify)\/apikey\/)[^/?#]*/gi, '$1[redacted]')
 }
 
-function redactFragment(hash: string): string {
-    return hash.replace(/(token=)[^&#]*/gi, '$1[redacted]')
+/** Mask sensitive parameter values. The name is matched after it is fully percent-decoded. */
+function redactAssignments(value: string): string {
+    let out = ''
+    let i = 0
+    while (i < value.length) {
+        const boundary = i === 0 || PARAM_DELIMS.has(value.charAt(i - 1))
+        if (!boundary) {
+            out += value.charAt(i)
+            i += 1
+            continue
+        }
+        let endName = i
+        while (endName < value.length && value.charAt(endName) !== '=' && !PARAM_DELIMS.has(value.charAt(endName))) endName += 1
+        if (endName >= value.length || value.charAt(endName) !== '=') {
+            out += value.charAt(i)
+            i += 1
+            continue
+        }
+        const rawName = value.slice(i, endName)
+        let endValue = endName + 1
+        while (endValue < value.length && !PARAM_DELIMS.has(value.charAt(endValue))) endValue += 1
+        if (rawName && isRedactedQueryName(rawName)) out += `${rawName}=[redacted]`
+        else out += value.slice(i, endValue)
+        i = endValue
+    }
+    return out
 }
 
 /** Drop client session ids, session tokens, searches, page cursors, and API keys before a request line is written. */
 export function redactLoggedUrl(url: string): string {
-    const hashAt = url.indexOf('#')
-    const hash = hashAt === -1 ? '' : redactFragment(url.slice(hashAt))
-    const beforeHash = hashAt === -1 ? url : url.slice(0, hashAt)
-    const queryAt = beforeHash.indexOf('?')
-    const path = queryAt === -1 ? beforeHash : beforeHash.slice(0, queryAt)
-    const redactedPath = path.replace(/(\/api\/v1\/(?:chatflows|verify)\/apikey\/)[^/]*/gi, '$1[redacted]')
-    if (queryAt === -1) return redactedPath + hash
-    return `${redactedPath}?${redactQueryString(beforeHash.slice(queryAt + 1))}${hash}`
+    return redactAssignments(redactApiKeyPath(url))
+}
+
+/** Masks setup codes and tokens in any header value that can carry a URL, a query, or a bare name=value. */
+export function redactLoggedHeaderValue(value: unknown): unknown {
+    if (typeof value === 'string') return redactLoggedUrl(value)
+    if (Array.isArray(value)) return value.map((item) => redactLoggedHeaderValue(item))
+    return value
 }
 
 // A debug query value is untrusted. Two open-ended groups in a regex are polynomial on a long
@@ -201,14 +231,75 @@ function redactLoggedQuery(query: any): any {
     return sanitized
 }
 
-// Session cookies, the sealed AuthKit session, and the one-time invite token. Names are matched without letter case.
-const REDACTED_COOKIES = /(^|;\s*)(cuttlely_session|cuttlely-local-session|cuttlely-invite|wos-session)=[^;]*/gi
+// Session cookies, the sealed AuthKit session, the one-time invite token, and setup-code names.
+// Names are matched without letter case, after the same percent-decoding used for query names.
+const REDACTED_COOKIE_NAMES = new Set([
+    'cuttlely_session',
+    'cuttlely-local-session',
+    'cuttlely-invite',
+    'cuttlely-setup',
+    'wos-session',
+    'code',
+    'setupcode',
+    'token'
+])
 
 export function redactLoggedCookies(header: string): string {
-    return header.replace(REDACTED_COOKIES, (_match, lead: string, name: string) => `${lead}${name}=[redacted]`)
+    return header
+        .split(';')
+        .map((part) => {
+            const eq = part.indexOf('=')
+            if (eq === -1) return part
+            const rawLeft = part.slice(0, eq)
+            const leadLen = rawLeft.length - rawLeft.trimStart().length
+            const name = rawLeft.slice(leadLen)
+            if (!name || !REDACTED_COOKIE_NAMES.has(fullyDecodeName(name).toLowerCase())) return part
+            return `${rawLeft.slice(0, leadLen)}${name}=[redacted]`
+        })
+        .join(';')
+}
+
+function requestPath(url: string): string {
+    const hashAt = url.indexOf('#')
+    const beforeHash = hashAt === -1 ? url : url.slice(0, hashAt)
+    const queryAt = beforeHash.indexOf('?')
+    return queryAt === -1 ? beforeHash : beforeHash.slice(0, queryAt)
+}
+
+/** First-run setup and owner routes. Their logs keep method, path, and status only. */
+function isFirstRunSetupLog(url: string): boolean {
+    const path = requestPath(url).replace(/\/+$/, '') || '/'
+    const lower = path.toLowerCase()
+    if (lower === '/api/v1/account/register') return true
+    if (lower === '/organization-setup' || lower === '/server-setup' || lower === '/setup') return true
+    return lower === '/api/v1/server-setup' || lower.startsWith('/api/v1/server-setup/')
+}
+
+function getRequestEmoji(method: string): string {
+    const requetsEmojis: Record<string, string> = {
+        GET: '⬇️',
+        POST: '⬆️',
+        PUT: '🖊',
+        DELETE: '❌',
+        OPTION: '🔗'
+    }
+    return requetsEmojis[method] || '?'
 }
 
 export function expressRequestLogger(req: Request, res: Response, next: NextFunction): void {
+    const rawUrl = req.originalUrl || req.url || ''
+    if (isFirstRunSetupLog(rawUrl)) {
+        const pathOnly = requestPath(rawUrl)
+        const write = () => {
+            const line = `${getRequestEmoji(req.method)} ${req.method} ${pathOnly} ${res.statusCode}`
+            requestLogger.info(line)
+            logger.info(line)
+        }
+        if (typeof res?.on === 'function') res.on('finish', write)
+        next()
+        return
+    }
+
     const unwantedLogURLs = ['/api/v1/node-icon/', '/api/v1/components-credentials-icon/', '/api/v1/ping']
 
     if (/\/api\/v1\//i.test(req.url) && !unwantedLogURLs.some((url) => new RegExp(url, 'i').test(req.url))) {
@@ -226,7 +317,10 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
         if (isDebugLevel) {
             const sanitizedBody = sanitizeObject(req.body)
             const sanitizedQuery = redactLoggedQuery(req.query)
-            const sanitizedHeaders = { ...req.headers }
+            const sanitizedHeaders: Record<string, unknown> = {}
+            for (const [name, value] of Object.entries(req.headers)) {
+                sanitizedHeaders[name] = name === 'cookie' ? value : redactLoggedHeaderValue(value)
+            }
 
             const sensitiveHeaders = getSensitiveHeaderFields()
             sensitiveHeaders.forEach((header) => {
@@ -241,21 +335,10 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
             if (typeof sanitizedHeaders.cookie === 'string') sanitizedHeaders.cookie = redactLoggedCookies(sanitizedHeaders.cookie)
 
             // Server settings bodies can hold secrets (database password, API keys). Never log them, even at debug.
-            requestMetadata.request.body = isServerSettingsUrl(req.url) ? '[redacted]' : sanitizedBody
+            // Orchestrate and A2A bodies hold question text and raw context ids.
+            requestMetadata.request.body = isServerSettingsUrl(req.url) || isExternalAgentLogUrl(req.url) ? '[redacted]' : sanitizedBody
             requestMetadata.request.query = sanitizedQuery
             requestMetadata.request.headers = sanitizedHeaders
-        }
-
-        const getRequestEmoji = (method: string) => {
-            const requetsEmojis: Record<string, string> = {
-                GET: '⬇️',
-                POST: '⬆️',
-                PUT: '🖊',
-                DELETE: '❌',
-                OPTION: '🔗'
-            }
-
-            return requetsEmojis[method] || '?'
         }
 
         const loggedUrl = redactLoggedUrl(req.url)

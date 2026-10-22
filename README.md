@@ -15,18 +15,24 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
-**Your applications deserve agents.**
+**The visual agent builder, ready for production.**
 
-Cuttlely (said like "cuddly") is an open-source visual graph editor for building and orchestrating AI agents. Drag agents and tools onto a canvas, wire them into a team, chat with it in minutes, then call it from your app through the API. It runs on infrastructure you control.
+Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0. Cuttlely (said like "cuddly") runs on infrastructure you control: every change waits in a draft, you replay real questions on Live and the draft side by side before you publish, and each specialist gets only the task it needs.
+
+[Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
+
+**1.3.1 is out.** Any published chatflow or agentflow can be an MCP server, and published chatflows answer IBM watsonx Orchestrate agents. [Changelog](./CHANGELOG.md#131---2026-10-21)
 
 ## Contents
 
 -   [Watch a team resolve a complaint](#watch-a-team-resolve-a-complaint)
--   [A/B test every change before it goes live](#ab-test-every-change-before-it-goes-live)
+-   [Replay every change before it goes live](#replay-every-change-before-it-goes-live)
     -   [Drafts, tests, and version history](#drafts-tests-and-version-history)
 -   [Made for real teams](#made-for-real-teams)
 -   [Agent teams that power your apps](#agent-teams-that-power-your-apps)
 -   [Use a team from your app](#use-a-team-from-your-app)
+-   [Every flow an MCP server](#every-flow-an-mcp-server)
+-   [Call a flow from IBM watsonx Orchestrate](#call-a-flow-from-ibm-watsonx-orchestrate)
 -   [Small context, big answers](#small-context-big-answers)
 -   [Tools your teams use](#tools-your-teams-use)
 -   [Your first 10 minutes](#your-first-10-minutes)
@@ -46,8 +52,9 @@ Cuttlely (said like "cuddly") is an open-source visual graph editor for building
 
 A customer writes in about a late order. A customer specialist reads the account, an operations specialist finds that the parcel never left the warehouse, and a policy specialist checks the written policy once operations is done, each with its own data and tools. Harness Prime writes the decision, the reply and the actions, with the evidence. [Try the demo](./docs/how-to/try-the-demo.md) opens this team on your own model key.
 
-## A/B test every change before it goes live
+## Replay every change before it goes live
 
+<a id="ab-test-every-change-before-it-goes-live"></a>
 <a id="test-every-change-before-it-goes-live"></a>
 <a id="ship-changes-safely-draft-compare-publish-roll-back"></a>
 
@@ -130,13 +137,27 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime split the question: `baker` priced the order and `orders` checked the pickup day. The full response also has the tokens, the timings, the sources and any images the team made. The [API guide](./docs/api.md) covers the rest: API keys, streaming, conversation memory, file uploads, errors, and a runnable example web app that keeps your key on your server. For a long turn, the same key can start the run in the background with `POST /api/v1/harnesses/<name>/runs/async` and fetch the answer later, and a harness can also run on a cron schedule: [Run it from your app with an API key](./docs/how-to/harnesses.md#run-it-from-your-app-with-an-api-key), [Run it on a schedule](./docs/how-to/harnesses.md#run-it-on-a-schedule). Reference: [Prediction API for harnesses](./docs/how-to/harnesses.md#prediction-api) and [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
+## Every flow an MCP server.
+
+Other agents can call your Live flow over MCP. Your edits wait in a draft until you publish, and side-by-side replay shows what changed first.
+
+-   **Off until you turn it on.** Turn on **MCP Server** for a flow to get a Streamable HTTP endpoint (`/api/v1/mcp/<flow id>`) and a bearer token.
+-   **Live or published flows only, each flow is one tool call.** Calls run the published version, never the draft, and a call keeps no memory of earlier calls. The flow's Rate Limit applies, and request bodies over 1 MB are refused.
+-   **MCP clients via mcp-remote.** A client that starts MCP servers as local commands connects with `npx mcp-remote $CUTTLELY_URL/api/v1/mcp/<flow id> --header "Authorization: Bearer <MCP token>"`. [Connect with mcp-remote](./docs/api.md#connect-with-mcp-remote)
+
+[MCP endpoint reference](./docs/api.md#mcp-endpoint)
+
+## Call a flow from IBM watsonx Orchestrate
+
+Register a published chatflow as an external agent, and an Orchestrate native agent hands it questions as a collaborator. The flow needs a bound API key; a flow without one is refused. A documented path also imports a flow as a remote MCP toolkit. [Call a chatflow from Orchestrate](./docs/how-to/orchestrate.md) · [Use a chatflow as an Orchestrate toolkit](./docs/how-to/orchestrate-mcp.md)
+
 ## Small context, big answers
 
 Long chats, big tables and long rule books don't have to mean long prompts. Each agent sees only what its job needs, and every run shows the tokens it used.
 
 -   **Each specialist gets its own job.** A common pattern hands every agent the whole chat. Harness Prime writes each specialist a task that stands on its own, with a short recap of the recent turns.
 -   **Data stays in the database.** A common pattern pastes query results into the prompt. The analyst hands back one page of rows. Say "show more" for the next page. Earlier pages stay out of the next prompt.
--   **Only the tables you tick.** A common pattern pastes the whole database schema into the prompt. On a database connected by URL, tick tables and views in **Tables and views** on the PostgreSQL MCP node, and the analyst's prompt gets one line for each, with its column names. A `describe` tool returns one table's columns, keys and sample text values when the analyst needs them. On the made-up bakery demo database, six ticked relations take 663 tokens, against 2,562 for the whole schema. A **Rules** box under the list holds your own instructions for that analyst, up to 2,000 characters, such as which view answers which question. Rules guide the model; they cannot widen the ticked tables or allow writes. [Write your own rules](./docs/how-to/analyst.md#write-your-own-rules).
+-   **Only the tables you tick.** A common pattern pastes the whole database schema into the prompt. On a database connected by URL, tick tables and views in **Tables and views** on the PostgreSQL MCP node, and the analyst's prompt gets one line for each, with its column names. A `describe` tool returns one table's columns, keys and sample text values when the analyst needs them. In our internal benchmarks, on a made-up bakery database, ticking 6 of 20 tables and views took the analyst's prompt from 2,562 to 663 tokens. Rerun it with `scripts/analyst-schema-tokens.mjs`. A **Rules** box under the list holds your own instructions for that analyst, up to 2,000 characters, such as which view answers which question. Rules guide the model; they cannot widen the ticked tables or allow writes. [Write your own rules](./docs/how-to/analyst.md#write-your-own-rules).
 -   **Rules load when they're needed.** A common pattern puts every instruction in one giant system prompt. Long rules go in playbooks. A specialist opens one only when a question needs it.
 -   **Short handoffs.** A common pattern pastes whole documents into the prompt that writes the final answer. Harness Prime reads a capped part of each specialist's answer, with the source names and a short snippet. The documents go back to your app in the response.
 -   **See every token.** The run card shows input and output tokens, cached tokens when the model reports them, and the time each step took. The API response carries the same numbers. The Publish check shows Live and the draft side by side with the tokens and time each one used.
@@ -186,7 +207,7 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     Compose pulls the published Cuttlely image. If it cannot pull it, Compose builds the image from your checkout instead, which takes several minutes the first time, and each long build step says which of four it is. `docker compose ps` shows `(health: starting)` until Cuttlely is ready, then `(healthy)`. Opening [http://localhost:43117](http://localhost:43117) early shows a **Cuttlely is starting** page that opens Cuttlely by itself.
 
-    With Node.js 20 or newer you can skip the clone. This needs Docker, because `npx cuttlely start` pulls the image and runs it:
+    With Node 20+ and Docker you can skip the clone: `npx cuttlely start` pulls the image and runs it:
 
     ```bash
     npx cuttlely start
@@ -194,18 +215,22 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     That pulls `ghcr.io/cuttlely/cuttlely` and opens [http://localhost:43117](http://localhost:43117) when it is ready. [Install with npm](./docs/how-to/docker.md#install-with-npm) has `stop`, `status`, `logs` and `upgrade`.
 
-2. When it is up, the server prints a one-time setup link. Show it with:
+    No Docker? [Build from source](./docs/how-to/from-source.md) with Node 24 (`.nvmrc` pins 24.15.0).
+
+2. When it is up, the server prints a ready block with a one-time setup link and a setup code. Show it with:
 
     ```bash
-    docker compose logs cuttlely | grep "No account yet"
+    docker compose logs cuttlely | grep "Setup code"
     ```
+
+    Started with `npx cuttlely start`? Run `npx cuttlely logs` instead. Times in the server log, including the setup code expiry, are in UTC.
 
     Nothing yet? It is still starting. Run the command again in a few seconds.
 
 3. Open the link and create your account. The password needs at least 8 characters, including a lowercase letter, an uppercase letter, a digit and a special character. You are signed in and land on **Chatflows**.
-4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made customer care team opens with its chat open. Select the first starter question, a complaint about a late espresso machine. The run card shows Harness Prime sending the work to the customer and operations specialists, then to the policy specialist, and the answer gives the decision, the reply to the customer, the actions and the evidence. All the data is made up. [Try the demo](./docs/how-to/try-the-demo.md) shows each step, and the bakery quickstart on the same card.
+4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made customer care team opens with its chat open. Select the first starter question, a complaint about a late espresso machine. The run card shows Harness Prime sending the work to the customer, operations and policy specialists, which run in parallel, and the answer gives the decision, the reply to the customer, the actions and the evidence. All the data is made up. [Try the demo](./docs/how-to/try-the-demo.md) shows each step, and the bakery quickstart on the same card.
 
-    ![The customer care team's chat after the first starter question. The run card says Harness Prime sent work to customer, operations, then policy, each done, and the decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall, a store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)
+    ![The customer care team's chat after the first starter question. The run card says Harness Prime sent work to customer, operations and policy, each done, and the decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall, a store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)
 
 5. Build your own team: open **Harness · Agent Team**, select **New agent team**, then **Build with AI** (the sparkle button). Your model and key are already picked under **Chat model that builds**. Pick one of the examples and select **Build**, then open the chat and select a starter question.
 6. Next time, sign in at [http://localhost:43117/signin](http://localhost:43117/signin) with **Sign in**.
@@ -233,7 +258,7 @@ Full documentation, including running from source and the API reference: [docs/R
 
 ## Bring your existing flows
 
-Have flows from another tool? On **Chatflows**, the **Import** menu has **Import Flowise JSON**, which opens a short wizard that checks a Flowise chatflow or agentflow export and opens it on the right canvas, and **Import Langflow JSON** loads a simple Langflow chat. What carries over, and what is not supported yet: [Bring your existing flows](./docs/bring-your-flows.md).
+Have flows from another tool? On **Chatflows**, the **Import** menu checks an export and opens it on the right canvas, one flow at a time. You pick your credentials again. What carries over, and what is not supported yet: [Bring your existing flows](./docs/bring-your-flows.md).
 
 ## Contributing
 
@@ -241,9 +266,9 @@ Have flows from another tool? On **Chatflows**, the **Import** menu has **Import
 
 ## About and credits
 
-Cuttlely is open source under Apache 2.0. What changed in each release is in the [changelog](./CHANGELOG.md), and which versions get fixes is in [Releases and support](./docs/releases.md). The license text is in [LICENSE.md](./LICENSE.md), and attribution is in [NOTICE](./NOTICE).
+Cuttlely is open source under Apache 2.0. What changed in each release is in the [changelog](./CHANGELOG.md), and which versions get fixes is in [Releases and support](./docs/releases.md). 1.3.1 carries two security fixes for versions up to 1.3.0: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) and [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7). The license text is in [LICENSE.md](./LICENSE.md), and attribution is in [NOTICE](./NOTICE).
 
-Cuttlely builds on open-source work, including Flowise, Hermes from Nous Research and React Flow. [CREDITS.md](./CREDITS.md) lists each project with its license and link.
+Cuttlely includes open-source work from Flowise, Hermes from Nous Research and React Flow. [CREDITS.md](./CREDITS.md) lists each project with its license and link.
 
 ## Contact
 

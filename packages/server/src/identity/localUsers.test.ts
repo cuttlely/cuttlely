@@ -249,6 +249,7 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
         secure: false,
         now: NOW,
         ip: '203.0.113.8',
+        socketAddress: '203.0.113.8',
         internal: false,
         body: {},
         cookies: {},

@@ -77,7 +77,7 @@ class ChatTogetherAI_ChatModels implements INode {
         const temperature = nodeData.inputs?.temperature as string
         const streaming = nodeData.inputs?.streaming as boolean
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const togetherAIApiKey = getCredentialParam('togetherAIApiKey', credentialData, nodeData)
 
         const obj: any = {

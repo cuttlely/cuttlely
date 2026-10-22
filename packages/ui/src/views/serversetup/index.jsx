@@ -1,7 +1,7 @@
-// The one-time setup page: /server-setup?code=... from the server log, on a server where nobody can sign in yet
-// (for example Render without AuthKit). It reaches only Sign-in & identity: a first account with a password, or
-// AuthKit after a test sign-in. The link works once.
-import { useEffect, useState } from 'react'
+// The one-time setup page: /setup from the server log. One page for the first account and, when nobody can sign
+// in yet, the choice of password or AuthKit. The code arrives in the fragment and is removed from the address
+// before any request. The account form appears only after the code is accepted.
+import { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { alpha, useTheme } from '@mui/material/styles'
@@ -10,9 +10,15 @@ import { IconArrowLeft, IconCircleCheckFilled, IconKey, IconLock, IconShieldLock
 
 import Logo from '@/ui-component/extended/Logo'
 import Mascot from '@/ui-component/extended/Mascot'
+import accountApi from '@/api/account.api'
 import serverSetupApi from '@/api/serverSetup'
 import AuthKitWizard from '@/views/serversettings/AuthKitWizard'
-import { addressWithoutCode, fieldErrors, ownerProblems, setupProblem } from './model'
+import { t } from '@/i18n'
+import { store } from '@/store'
+import { loginSuccess } from '@/store/reducers/authSlice'
+import SetupCodeHelp from './SetupCodeHelp'
+import { openSetupPage, rememberSetupCode } from './openSetup'
+import { fieldErrors, ownerProblems, readSetupCode, setupProblem } from './model'
 
 const ChoiceCard = ({ icon: Icon, title, body, onClick, disabled, note, testId }) => {
     const theme = useTheme()
@@ -285,6 +291,160 @@ const Finished = ({ result }) => {
 
 Finished.propTypes = { result: PropTypes.object.isRequired }
 
+const CodeStep = ({ serviceName, error, saving, onSubmit }) => {
+    const [code, setCode] = useState('')
+    const [shown, setShown] = useState(false)
+    const missing = shown && !code.trim() ? t('setup.code.required') : ''
+    return (
+        <form
+            onSubmit={(event) => {
+                event.preventDefault()
+                setShown(true)
+                if (!code.trim()) return
+                onSubmit(code.trim())
+            }}
+            noValidate
+        >
+            <Stack gap={2.25}>
+                <Box>
+                    <Typography variant='h2' sx={{ fontSize: '1.45rem', fontWeight: 700 }}>
+                        {t('setup.code.label')}
+                    </Typography>
+                    <SetupCodeHelp serviceName={serviceName} />
+                </Box>
+                <TextField
+                    fullWidth
+                    label={t('setup.code.label')}
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    error={Boolean(missing || error)}
+                    helperText={missing || error || ' '}
+                    autoComplete='off'
+                    InputLabelProps={{ shrink: true }}
+                    inputProps={{ 'data-testid': 'setup-code', spellCheck: false }}
+                />
+                <Button
+                    type='submit'
+                    variant='contained'
+                    disableElevation
+                    disabled={saving}
+                    startIcon={saving ? <CircularProgress size={15} color='inherit' /> : null}
+                    sx={{ borderRadius: 2.5, py: 1.1 }}
+                    data-testid='setup-code-continue'
+                >
+                    {t('setup.code.continue')}
+                </Button>
+            </Stack>
+        </form>
+    )
+}
+
+CodeStep.propTypes = {
+    serviceName: PropTypes.string,
+    error: PropTypes.string,
+    saving: PropTypes.bool,
+    onSubmit: PropTypes.func.isRequired
+}
+
+/** Local-admin first account. The session cookie comes back on the same response. */
+const OwnerAccountForm = ({ code, nextPath }) => {
+    const navigate = useNavigate()
+    const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
+    const [shown, setShown] = useState(false)
+    const [serverErrors, setServerErrors] = useState({})
+    const [error, setError] = useState('')
+    const [saving, setSaving] = useState(false)
+    const problems = ownerProblems(form)
+    const set = (key) => (event) => {
+        setForm((now) => ({ ...now, [key]: event.target.value }))
+        setServerErrors((now) => ({ ...now, [key]: undefined }))
+    }
+    const problem = (key) => (shown ? problems[key] : undefined) ?? serverErrors[key]
+
+    const submit = async (event) => {
+        event.preventDefault()
+        setShown(true)
+        if (Object.keys(problems).length) return
+        setSaving(true)
+        setError('')
+        try {
+            const res = await accountApi.registerAccount({
+                user: { name: form.name.trim(), email: form.email.trim(), credential: form.password },
+                setupCode: code
+            })
+            const session = res?.data
+            if (!session?.id || !session?.email) {
+                setError(t('setup.owner.notSignedIn'))
+                setSaving(false)
+                return
+            }
+            store.dispatch(loginSuccess(session))
+            navigate(nextPath || '/', { replace: true })
+        } catch (failure) {
+            setServerErrors(fieldErrors(failure?.response?.data?.errors))
+            setError(failure?.response?.data?.message || 'Something went wrong. Try again.')
+            setSaving(false)
+        }
+    }
+
+    const field = (key, label, extra = {}) => (
+        <TextField
+            fullWidth
+            label={label}
+            value={form[key]}
+            onChange={set(key)}
+            error={Boolean(problem(key))}
+            helperText={problem(key) ?? extra.help}
+            type={extra.type ?? 'text'}
+            autoComplete={extra.autoComplete}
+            InputLabelProps={{ shrink: true }}
+            inputProps={{ 'data-testid': `setup-${key}`, spellCheck: false }}
+        />
+    )
+
+    return (
+        <form onSubmit={submit} noValidate>
+            <Stack gap={2.25}>
+                <Box>
+                    <Typography variant='h2' sx={{ fontSize: '1.45rem', fontWeight: 700 }}>
+                        Create the owner account
+                    </Typography>
+                    <Typography color='text.secondary' sx={{ mt: 0.75 }}>
+                        You sign in with this email and password. Account setup does not make any external connections, and data stays on
+                        this server.
+                    </Typography>
+                </Box>
+                {field('name', 'Your name', { autoComplete: 'name' })}
+                {field('email', 'Email', { type: 'email', autoComplete: 'email' })}
+                {field('password', 'Password', {
+                    type: 'password',
+                    autoComplete: 'new-password',
+                    help: 'At least 8 characters, with a lowercase letter, an uppercase letter, a digit and a symbol.'
+                })}
+                {field('confirm', 'Password again', { type: 'password', autoComplete: 'new-password' })}
+                {error && (
+                    <Alert severity='error' sx={{ borderRadius: 2.5 }}>
+                        {error}
+                    </Alert>
+                )}
+                <Button
+                    type='submit'
+                    variant='contained'
+                    disableElevation
+                    disabled={saving}
+                    startIcon={saving ? <CircularProgress size={15} color='inherit' /> : null}
+                    sx={{ borderRadius: 2.5, py: 1.1 }}
+                    data-testid='setup-create-account'
+                >
+                    {saving ? t('setup.owner.saving') : t('setup.owner.submit')}
+                </Button>
+            </Stack>
+        </form>
+    )
+}
+
+OwnerAccountForm.propTypes = { code: PropTypes.string.isRequired, nextPath: PropTypes.string }
+
 const ServerSetupPage = () => {
     const navigate = useNavigate()
     const [params] = useSearchParams()
@@ -293,28 +453,77 @@ const ServerSetupPage = () => {
     const [problem, setProblem] = useState(null)
     const [wizard, setWizard] = useState(false)
     const [result, setResult] = useState(null)
+    const [serviceName, setServiceName] = useState('')
+    const [acceptedCode, setAcceptedCode] = useState('')
+    const [codeError, setCodeError] = useState('')
+    const [codeSaving, setCodeSaving] = useState(false)
+    const [nextPath, setNextPath] = useState('/')
+    const acceptedGate = useRef(false)
     const resume = params.get('authkit') === 'done' || params.get('authkit') === 'expired'
 
     useEffect(() => {
-        const code = params.get('code')
-        const run = async () => {
-            try {
-                if (code) {
-                    await serverSetupApi.open(code)
-                    window.history.replaceState(null, '', addressWithoutCode(window.location.href))
-                }
-                const res = await serverSetupApi.getState()
-                setState(res.data)
+        const read = readSetupCode(window.location.href)
+        const code = rememberSetupCode(read.code)
+        setNextPath(read.next || '/')
+        window.history.replaceState(null, '', read.href)
+        const controller = new AbortController()
+        const hooks = {
+            onServiceName: (name) => setServiceName(name || ''),
+            onOwner: (accepted) => {
+                setAcceptedCode(accepted)
+                setStage('owner')
+            },
+            onChoose: (data, wizardOn) => {
+                setState(data)
                 setStage('choose')
-                if (resume) setWizard(true)
-            } catch (failure) {
-                setProblem(setupProblem(failure))
+                setWizard(Boolean(wizardOn))
+            },
+            onCode: (message) => {
+                setCodeError(message || '')
+                setStage('code')
+            },
+            onClosed: (next) => {
+                setProblem(next)
                 setStage('closed')
             }
         }
-        run()
+        openSetupPage({
+            code,
+            resume,
+            api: serverSetupApi,
+            signal: controller.signal,
+            accepted: acceptedGate,
+            hooks
+        })
+        return () => controller.abort()
+        // The code is read once, on open. Later address changes are not a new setup.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    const submitCode = async (code) => {
+        setCodeSaving(true)
+        setCodeError('')
+        try {
+            const begun = await serverSetupApi.begin(code)
+            if (begun.data?.next === 'owner') {
+                setAcceptedCode(code)
+                setStage('owner')
+                return
+            }
+            const res = await serverSetupApi.getState()
+            setState(res.data)
+            setStage('choose')
+        } catch (failure) {
+            const next = setupProblem(failure)
+            if (next.retry || !next.closed) {
+                setCodeError(next.message || '')
+                setCodeSaving(false)
+                return
+            }
+            setProblem(next)
+            setStage('closed')
+        }
+    }
 
     if (stage === 'opening')
         return (
@@ -352,6 +561,20 @@ const ServerSetupPage = () => {
         return (
             <Shell>
                 <PasswordForm onBack={() => setStage('choose')} onDone={setResult} />
+            </Shell>
+        )
+
+    if (stage === 'code')
+        return (
+            <Shell pose='laptop'>
+                <CodeStep serviceName={serviceName} error={codeError} saving={codeSaving} onSubmit={submitCode} />
+            </Shell>
+        )
+
+    if (stage === 'owner')
+        return (
+            <Shell>
+                <OwnerAccountForm code={acceptedCode} nextPath={nextPath} />
             </Shell>
         )
 

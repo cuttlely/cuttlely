@@ -1,0 +1,15 @@
+# IBM watsonx Orchestrate ADK toolkit for a published Cuttlely chatflow.
+# Import: orchestrate toolkits import -f bakery-hours.toolkit.yaml -a bakery_hours_mcp
+# Fill in server_url. Do not put the MCP token in this file.
+# Made-up bakery: Crumb & Co. Flow name "Bakery hours" → expected MCP
+# server name cuttlely-bakery-hours. [LIVE-TEST]: confirm the name Orchestrate shows.
+spec_version: v1
+kind: mcp
+name: bakery_hours
+description: Answers Crumb and Co opening hours and holiday closures.
+transport: streamable_http
+server_url: https://cuttlely.example.com/api/v1/mcp/11111111-2222-4333-8444-555555555555
+tools:
+    - '*'
+connections:
+    - bakery_hours_mcp

@@ -8,7 +8,7 @@ New to the code? [Build from source and run the dev server](../../docs/how-to/fr
 
 ```bash
 git fetch origin
-git switch -c <short-topic> origin/main     # or a separate worktree per change: git worktree add -b <topic> ../cuttlely-<topic> origin/main
+git switch -c <short-topic> origin/main     # prefer a separate clone per change; see MEMORY on pushing from a repo with linked worktrees
 pnpm install --frozen-lockfile
 pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
 ```
@@ -165,6 +165,10 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `DISABLE_CUTTLELY_TELEMETRY`                                | unset                                       | `true` turns usage events off. When both disable variables are set, this name is used.                                                                                                                                                                                                          |
 | `METRICS_PREFIX`                                            | unset                                       | Optional prefix for published metric names. Unset keeps today's names.                                                                                                                                                                                                                          |
 | `CUTTLELY_MCP_VALIDATOR_PATH`                               | the built components `core.js`              | Host-only dev/test hook: the server process loads this file to run the Custom MCP checks on raw specialist servers. A value that differs from the default is logged once at use.                                                                                                                |
+| `A2A_PUBLIC_BASE_URL`                                       | unset                                       | Origin written on the A2A agent card. No path, no trailing slash. Unset uses `Host` and `X-Forwarded-Proto` (D103)                                                                                                                                                                              |
+| `A2A_TASK_TEXT_MAX_BYTES`                                   | `65536`                                     | Max UTF-8 bytes of a stored A2A question (refused) or answer (cut with `[truncated]`). Below the marker length, the default is used (D105)                                                                                                                                                      |
+| `A2A_TASK_BYTES_PER_FLOW`                                   | `67108864`                                  | Aggregate stored-task bytes per flow. Oldest completed tasks are evicted first when a write would pass it; a just-finished answer is shortened if the flow is still over (D105)                                                                                                                 |
+| `A2A_TASK_CAP_PER_FLOW`                                     | `1000`                                      | Max stored A2A tasks per flow. Oldest final tasks are evicted first; all-open is refused (D103, D105)                                                                                                                                                                                           |
 
 ## Gotchas
 

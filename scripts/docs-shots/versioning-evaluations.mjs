@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { freePort, waitForPing } from '../smoke-server.mjs'
+import { freePort, setupCodeFromLogs, waitForPing } from '../smoke-server.mjs'
 import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -138,15 +138,17 @@ async function boot(extra = {}) {
     return app
 }
 
-async function signUp(base) {
+async function signUp(app) {
+    const setupCode = setupCodeFromLogs(app.logs)
+    if (!setupCode) throw new Error('the server log had no setup code')
     json(
-        await api(`${base}/api/v1/account/register`, {
+        await api(`${app.base}/api/v1/account/register`, {
             method: 'POST',
-            body: { user: { name: OWNER, email: EMAIL, credential: PASSWORD } }
+            body: { user: { name: OWNER, email: EMAIL, credential: PASSWORD }, setupCode }
         }),
         'register'
     )
-    const loggedIn = await api(`${base}/api/v1/auth/login`, {
+    const loggedIn = await api(`${app.base}/api/v1/auth/login`, {
         method: 'POST',
         body: { email: EMAIL, password: PASSWORD }
     })
@@ -754,7 +756,7 @@ async function main() {
     }
     console.log('boot dev')
     const dev = await boot(githubEnv)
-    const cookie = await signUp(dev.base)
+    const cookie = await signUp(dev)
     const browser = await launchBrowser()
     stops.push(() => browser.close())
     const page = await openPage(browser, dev.base)
@@ -1418,7 +1420,7 @@ async function main() {
 
     console.log('boot prod')
     const prod = await boot(githubEnv)
-    const prodCookie = await signUp(prod.base)
+    const prodCookie = await signUp(prod)
     await credential(prod.base, prodCookie, 'OpenAI main')
     json(
         await api(`${prod.base}/api/v1/flow-versions/environment`, {

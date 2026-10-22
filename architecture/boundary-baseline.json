@@ -190,6 +190,36 @@
             "to": "packages/server/src/commands/base.ts"
         },
         {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/routes/predictions/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/services/apikey/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/controllers/a2a/index.test.ts",
+            "to": "packages/server/src/utils/rateLimit.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
             "from": "packages/server/src/controllers/chat-messages/removeAll.test.ts",
             "to": "packages/server/src/controllers/chat-messages/index.ts",
             "reason": "the test drives the inherited clear-messages handler it covers"
@@ -440,6 +470,16 @@
             "to": "packages/server/src/DataSource.ts"
         },
         {
+            "from": "packages/server/src/identity/sqlStore.mysql.test.ts",
+            "to": "packages/server/src/database/migrations/mariadb/index.ts",
+            "reason": "the live MySQL and MariaDB setup-code test runs each dialect's migration list"
+        },
+        {
+            "from": "packages/server/src/identity/sqlStore.mysql.test.ts",
+            "to": "packages/server/src/database/migrations/mysql/index.ts",
+            "reason": "the live MySQL and MariaDB setup-code test runs each dialect's migration list"
+        },
+        {
             "from": "packages/server/src/identity/workspaceScope.test.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
@@ -464,6 +504,21 @@
         {
             "from": "packages/server/src/middlewares/errors/index.test.ts",
             "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/routes/a2a/index.ts",
+            "to": "packages/server/src/controllers/predictions/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/routes/a2a/index.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/routes/a2a/index.ts",
+            "to": "packages/server/src/utils/logger.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
         {
             "from": "packages/server/src/routes/apiKeyCaseBypass.test.ts",
@@ -616,6 +671,36 @@
         {
             "from": "packages/server/src/routes/server-settings/index.ts",
             "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/a2a/a2aEncoder.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.test.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.ts",
+            "to": "packages/server/src/services/predictions/index.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
+        },
+        {
+            "from": "packages/server/src/services/a2a/executor.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts",
+            "reason": "A2A adapter runs a published chatflow through prediction, session ownership, and the SSE encoder"
         },
         {
             "from": "packages/server/src/services/builder/index.ts",
@@ -1779,6 +1864,21 @@
         },
         {
             "from": "packages/ui/src/views/serversetup/index.jsx",
+            "to": "packages/ui/src/api/account.api.js",
+            "reason": "The setup page posts the first account and signs that browser in with the session from the register response."
+        },
+        {
+            "from": "packages/ui/src/views/serversetup/index.jsx",
+            "to": "packages/ui/src/store/index.jsx",
+            "reason": "The setup page posts the first account and signs that browser in with the session from the register response."
+        },
+        {
+            "from": "packages/ui/src/views/serversetup/index.jsx",
+            "to": "packages/ui/src/store/reducers/authSlice.js",
+            "reason": "The setup page posts the first account and signs that browser in with the session from the register response."
+        },
+        {
+            "from": "packages/ui/src/views/serversetup/index.jsx",
             "to": "packages/ui/src/ui-component/extended/Logo.jsx"
         },
         {
@@ -1876,6 +1976,16 @@
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
             "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
+        },
+        {
+            "from": "packages/ui/src/utils/migrationScan.test.js",
+            "to": "packages/ui/src/utils/flowiseCatalog.js",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "from": "packages/ui/src/utils/migrationScan.test.js",
+            "to": "packages/ui/src/utils/flowiseMigration.mjs",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         }
     ],
     "r5Edges": [
@@ -1905,6 +2015,14 @@
         {
             "path": "packages/components/nodes/agentflow/Agent/Agent.tokens.test.ts",
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
+        },
+        {
+            "path": "packages/components/nodes/chains/ConversationChain/conversationPrompt.test.ts",
+            "reason": "Unit test for the inherited conversation chain prompt fallback"
+        },
+        {
+            "path": "packages/components/src/missingModelCredential.test.ts",
+            "reason": "The missing-credential tests stay next to getCredentialData and the chat model nodes they exercise."
         },
         {
             "path": "packages/node-pack-caches-memory/credentials/DynamodbMemoryApi.credential.ts",
@@ -2895,6 +3013,10 @@
             "reason": "Pack manifest files ship with the vector store pack."
         },
         {
+            "path": "packages/server/src/controllers/chatflows/publicChatflow.test.ts",
+            "reason": "tests for inherited public config endpoints and template saving"
+        },
+        {
             "path": "packages/server/src/database/migrations/mariadb/1795000000000-AddDatasetRowSource.ts",
             "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
         },
@@ -2975,8 +3097,16 @@
             "reason": "The executions paging test lives next to the service it checks."
         },
         {
+            "path": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
+            "reason": "tests for inherited public config endpoints and template saving"
+        },
+        {
             "path": "packages/server/src/services/settings/publicPayload.test.ts",
             "reason": "The public settings payload test stays with the settings service it checks."
+        },
+        {
+            "path": "packages/server/src/services/validation/fixtures/llm-chain.json",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         },
         {
             "path": "packages/server/src/utils/buildAgentflow.harness-usage.test.ts",
@@ -2991,8 +3121,28 @@
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
         },
         {
+            "path": "packages/server/src/utils/externalJsonLimit.test.ts",
+            "reason": "1 MB JSON parsers for A2A, Orchestrate, and MCP skip the global file-size parser"
+        },
+        {
+            "path": "packages/server/src/utils/externalJsonLimit.ts",
+            "reason": "1 MB JSON parsers for A2A, Orchestrate, and MCP skip the global file-size parser"
+        },
+        {
+            "path": "packages/server/src/utils/missingModelCredential.prediction.test.ts",
+            "reason": "The missing-credential HTTP test stays next to the prediction error path it exercises."
+        },
+        {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
             "reason": "Server unit test for geolocation when the database package is absent."
+        },
+        {
+            "path": "packages/server/src/utils/upsertErrors.test.ts",
+            "reason": "The vector upsert error helper and its test stay next to the inherited upsert path they serve."
+        },
+        {
+            "path": "packages/server/src/utils/upsertErrors.ts",
+            "reason": "The vector upsert error helper and its test stay next to the inherited upsert path they serve."
         },
         {
             "path": "packages/ui/src/ui-component/dialog/AddRatedAnswersDialog.jsx",
@@ -3009,6 +3159,26 @@
         {
             "path": "packages/ui/src/ui-component/dialog/AddToTestSetDialog.test.js",
             "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/ui/src/ui-component/flow/migrationWizard.test.js",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/__fixtures__/import/agentic-rag-v2.json",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/__fixtures__/import/make-webhook.json",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/__fixtures__/import/text-to-sql.json",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/migrationScan.test.js",
+            "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         },
         {
             "path": "packages/ui/src/views/datasets/datasetRowLabel.js",

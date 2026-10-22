@@ -123,7 +123,7 @@ class ChatHuggingFace_ChatModels implements INode {
         const cache = nodeData.inputs?.cache as BaseCache
         const stop = nodeData.inputs?.stop as string
 
-        const credentialData = await getCredentialData(nodeData.credential ?? '', options)
+        const credentialData = await getCredentialData(nodeData.credential ?? '', options, { instance: this, nodeData })
         const huggingFaceApiKey = getCredentialParam('huggingFaceApiKey', credentialData, nodeData)
 
         if (!huggingFaceApiKey) {

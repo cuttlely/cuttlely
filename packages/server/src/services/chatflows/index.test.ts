@@ -942,75 +942,101 @@ const secretGraph = JSON.stringify({
 })
 
 describe('getSinglePublicChatbotConfig', () => {
-    it('does not return the flow graph when the chatflow has an API key', async () => {
+    const savedConfig = JSON.stringify({
+        title: 'Bot',
+        titleAvatarSrc: 'https://img.example/a.png',
+        welcomeMessage: 'Hello',
+        starterPrompts: { 0: { prompt: 'What is new?' }, 1: { prompt: 'use sk-FAKE-START-1 please' } },
+        botMessage: { showAvatar: true, avatarSrc: 'https://img.example/b.png', backgroundColor: '#fff', extra: 'x' },
+        textInput: { placeholder: 'Ask', sendButtonColor: '#123456' },
+        chatFeedback: { status: true },
+        allowedOrigins: ['https://ok.example'],
+        overrideConfig: { openAIApiKey: 'sk-FAKE-OVERRIDE-1' },
+        leads: { status: true, email: 'owner@example.com' },
+        flowData: 'x'
+    })
+
+    it.each([
+        ['private', { isPublic: false, apikeyid: '' }],
+        ['key-protected', { apikeyid: 'apikey-1' }],
+        ['public', { isPublic: true, apikeyid: '' }]
+    ])('returns only display fields for a %s chatflow, never flowData', async (_label, extra) => {
         mockRepo.findOneBy.mockResolvedValue({
             id: 'flow-1',
-            apikeyid: 'apikey-1',
-            chatbotConfig: JSON.stringify({ title: 'Bot', allowedOrigins: ['https://ok.example'] }),
+            chatbotConfig: savedConfig,
             flowData: secretGraph,
-            textToSpeech: null
+            textToSpeech: null,
+            ...extra
         })
 
         const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
         const serialized = JSON.stringify(result)
 
-        expect(serialized).not.toContain('SECRET-PROMPT-CANARY')
-        expect(serialized).not.toContain('cred-openai')
-        expect(serialized).not.toContain('cred-secret')
-        expect(serialized).not.toContain('sk-live')
-        expect(serialized).not.toContain('internal.example')
-        expect(serialized).not.toContain('llm-1')
-        expect(serialized).not.toContain('allowedOrigins')
-        expect(result.title).toBe('Bot')
-
-        const flow = JSON.parse(result.flowData)
-        expect(flow.nodes).toHaveLength(1)
-        expect(flow.edges).toEqual([])
-        expect(flow.nodes[0].data).toEqual({
-            name: 'startAgentflow',
-            inputs: {
-                startInputType: 'formInput',
-                formTitle: 'Contact',
-                formDescription: 'Hi',
-                formInputTypes: [{ name: 'email', type: 'string', label: 'Email' }]
-            }
-        })
-    })
-
-    it('omits flowData for a key-protected chatflow with no Start node', async () => {
-        mockRepo.findOneBy.mockResolvedValue({
-            id: 'flow-1',
-            apikeyid: 'apikey-1',
-            chatbotConfig: JSON.stringify({ title: 'Bot' }),
-            flowData: JSON.stringify({
-                nodes: [{ id: 'llm-1', data: { name: 'chatOpenAI', inputs: { systemMessage: 'SECRET-PROMPT-CANARY' } } }],
-                edges: []
-            }),
-            textToSpeech: null
-        })
-
-        const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
+        expect(Object.keys(result).sort()).toEqual(
+            [
+                'botMessage',
+                'chatFeedback',
+                'isTTSEnabled',
+                'starterPrompts',
+                'textInput',
+                'title',
+                'titleAvatarSrc',
+                'uploads',
+                'welcomeMessage'
+            ].sort()
+        )
         expect(result).not.toHaveProperty('flowData')
-        expect(JSON.stringify(result)).not.toContain('SECRET-PROMPT-CANARY')
+        expect(result.title).toBe('Bot')
+        expect(result.botMessage).toEqual({ showAvatar: true, avatarSrc: 'https://img.example/b.png', backgroundColor: '#fff' })
+        expect(result.textInput).toEqual({ placeholder: 'Ask', sendButtonColor: '#123456' })
+        expect(result.starterPrompts).toEqual([{ prompt: 'What is new?' }, { prompt: 'use sk-FAKE-START-1 please' }])
+        for (const sample of [
+            'SECRET-PROMPT-CANARY',
+            'cred-openai',
+            'sk-FAKE-OVERRIDE',
+            'allowedOrigins',
+            'overrideConfig',
+            'owner@example.com'
+        ]) {
+            expect(serialized).not.toContain(sample)
+        }
     })
 
-    it('returns the sanitized graph when the chatflow has no API key', async () => {
+    it('checks colours, flags, and image addresses by shape and keeps plain display text', async () => {
         mockRepo.findOneBy.mockResolvedValue({
             id: 'flow-1',
+            isPublic: true,
             apikeyid: '',
-            chatbotConfig: JSON.stringify({ title: 'Bot' }),
-            flowData: secretGraph,
-            textToSpeech: null
+            textToSpeech: null,
+            chatbotConfig: JSON.stringify({
+                title: 'Hello "there"',
+                welcomeMessage: 'Welcome @ café, 10% off',
+                starterPrompts: [{ prompt: 'こんにちは' }, { prompt: 'Plain question' }],
+                titleAvatarSrc: 'https://user:pw@img.example/a.png',
+                botMessage: {
+                    showAvatar: 'yes',
+                    textColor: 'blue',
+                    backgroundColor: '#fff',
+                    avatarSrc: 'https://img.example/b.png?utm_apikey=1'
+                }
+            })
         })
 
         const result = await chatflowsService.getSinglePublicChatbotConfig('flow-1')
         const serialized = JSON.stringify(result)
-        expect(serialized).toContain('SECRET-PROMPT-CANARY')
-        expect(serialized).not.toContain('cred-openai')
-        expect(serialized).not.toContain('cred-secret')
-        const flow = JSON.parse(result.flowData)
-        expect(flow.nodes).toHaveLength(2)
-        expect(flow.edges).toHaveLength(1)
+
+        expect(result.title).toBe('Hello "there"')
+        expect(result.welcomeMessage).toBe('Welcome @ café, 10% off')
+        expect(result.starterPrompts).toEqual([{ prompt: 'こんにちは' }, { prompt: 'Plain question' }])
+        expect(result.titleAvatarSrc).toBeUndefined()
+        expect(result.botMessage).toEqual({ backgroundColor: '#fff', avatarSrc: 'https://img.example/b.png' })
+        expect(serialized).not.toContain('user:pw@')
+        expect(serialized).not.toContain('utm_apikey')
+    })
+
+    it('answers 404 for a missing chatflow', async () => {
+        mockRepo.findOneBy.mockResolvedValue(null)
+        await expect(chatflowsService.getSinglePublicChatbotConfig('nope')).rejects.toMatchObject({ statusCode: 404 })
     })
 })
 

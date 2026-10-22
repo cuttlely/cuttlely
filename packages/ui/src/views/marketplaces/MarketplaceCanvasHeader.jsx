@@ -10,12 +10,14 @@ import { StyledButton } from '@/ui-component/button/StyledButton'
 import { IconCopy, IconChevronLeft } from '@tabler/icons-react'
 import { Available } from '@/ui-component/rbac/available'
 import { templateUsePermission } from './templateUsePermission'
+import { templateSettingsMessage } from '@/utils/templateSettingsNote'
 
 // ==============================|| CANVAS HEADER ||============================== //
 
 const MarketplaceCanvasHeader = ({ flowName, flowData, legacy, templateType, onChatflowCopy }) => {
     const theme = useTheme()
     const navigate = useNavigate()
+    const settingsNote = templateSettingsMessage(flowData)
 
     return (
         <>
@@ -41,17 +43,25 @@ const MarketplaceCanvasHeader = ({ flowName, flowData, legacy, templateType, onC
                     </Avatar>
                 </ButtonBase>
             </Box>
-            <Box sx={{ flexGrow: 1 }}>
-                <Stack flexDirection='row'>
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                <Stack flexDirection='column' sx={{ ml: 2, minWidth: 0 }}>
                     <Typography
                         sx={{
                             fontSize: '1.5rem',
-                            fontWeight: 600,
-                            ml: 2
+                            fontWeight: 600
                         }}
                     >
                         {flowName}
                     </Typography>
+                    {settingsNote ? (
+                        <Typography
+                            variant='body2'
+                            role='status'
+                            sx={{ color: theme.palette.text.secondary, whiteSpace: 'normal', maxWidth: 720 }}
+                        >
+                            {settingsNote}
+                        </Typography>
+                    ) : null}
                 </Stack>
             </Box>
             {legacy ? (

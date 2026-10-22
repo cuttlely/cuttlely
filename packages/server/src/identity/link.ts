@@ -106,6 +106,7 @@ export async function linkWorkosUser(store: IdentityStore, identity: WorkosIdent
         if (!allow) return { ok: false, reason: 'bootstrap-unset' }
         if (mailboxKey(identity.email) !== mailboxKey(allow)) return { ok: false, reason: 'bootstrap-denied' }
         try {
+            // An open first-run code is retired in this same createOwner transaction.
             const user = await store.createOwner({
                 email: identity.email,
                 name: displayName(identity),

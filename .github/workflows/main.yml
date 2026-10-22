@@ -3,7 +3,7 @@ on:
     pull_request:
         branches:
             - '**'
-        types: [opened, synchronize, reopened, ready_for_review]
+        types: [opened, synchronize, reopened, ready_for_review, edited]
     schedule:
         # Daily full run on main (UTC). There are no push-to-main runs.
         - cron: '17 9 * * *'
@@ -31,6 +31,15 @@ jobs:
               run: node scripts/proprietary-paths.mjs ${{ github.event_name == 'pull_request' && '--base HEAD^1' || '' }}
             - name: media size
               run: node scripts/media-size.mjs
+            # Checked-in list in scripts/pr-text-banned.mjs. Not PR_TEXT_BANNED, not a secret.
+            # fetch-depth stays 2: this step reads the pull request title and body only.
+            # pull_request.types includes edited so a title or body change is checked again.
+            - name: PR text banned words
+              if: github.event_name == 'pull_request'
+              env:
+                  PR_TITLE: ${{ github.event.pull_request.title }}
+                  PR_BODY: ${{ github.event.pull_request.body }}
+              run: node scripts/pr-text-banned.mjs
             - uses: pnpm/action-setup@v6
             - name: Use Node.js 24.15.0
               uses: actions/setup-node@v7
@@ -140,6 +149,28 @@ jobs:
               if: always()
               continue-on-error: true
               run: node scripts/health-report.mjs
+
+    # npx CLI (required by the Node 20 fix): the CLI's unit tests, including the start path's health wait with
+    # simulated connection resets and a never-settling fetch in a fresh process, on every Node the CLI supports
+    # (package.json engines ">=20"). No install: the CLI has no dependencies.
+    cli-node:
+        name: cli-node (${{ matrix.node }})
+        needs: changes
+        if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.code == 'true'
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                node: ['20', '22', '24.15.0']
+        steps:
+            - uses: actions/checkout@v7
+            - name: Use Node.js ${{ matrix.node }}
+              uses: actions/setup-node@v7
+              with:
+                  node-version: ${{ matrix.node }}
+            - name: CLI tests
+              working-directory: packages/cli
+              run: node --version && node --test test/cli.test.js
 
     # Analyst table selection against every supported Postgres major (advisory): same gating as build. The scope
     # check reads Postgres query trees and catalogs, so each major runs scripts/analyst-relations.test.mjs.

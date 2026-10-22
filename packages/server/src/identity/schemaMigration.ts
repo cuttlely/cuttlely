@@ -533,3 +533,53 @@ export async function removeAuthKitSwitchTable(runner: QueryRunner): Promise<voi
     const dialect = dialectOf(runner)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_authkit_switch')}`)
 }
+
+function setupCodeTableSql(dialect: Dialect): string {
+    return `CREATE TABLE ${q(dialect, 'identity_setup_code')} (
+        ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,
+        ${q(dialect, 'codeHmac')} varchar(64) NOT NULL,
+        ${q(dialect, 'issuedAt')} bigint NOT NULL,
+        ${q(dialect, 'expiresAt')} bigint NOT NULL,
+        ${q(dialect, 'consumedAt')} bigint NULL
+    )`
+}
+
+/** One row for the first-run setup code: HMAC, when it was issued, when it expires, and when it was used. */
+export async function addSetupCode(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (await tableExists(runner, dialect, 'identity_setup_code')) return
+    await runner.query(setupCodeTableSql(dialect))
+}
+
+export async function removeSetupCode(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_setup_code')}`)
+}
+
+/**
+ * HMAC and expiry of the setup code replaced because it had already expired.
+ * Nullable so a row from the earlier migration still loads. Adding them again is a no-op.
+ */
+export async function addSetupCodePrevious(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (!(await tableExists(runner, dialect, 'identity_setup_code'))) return
+    const table = q(dialect, 'identity_setup_code')
+    if (!(await columnExists(runner, dialect, 'identity_setup_code', 'previousCodeHmac'))) {
+        await runner.query(`ALTER TABLE ${table} ADD COLUMN ${q(dialect, 'previousCodeHmac')} varchar(64) NULL`)
+    }
+    if (!(await columnExists(runner, dialect, 'identity_setup_code', 'previousExpiresAt'))) {
+        await runner.query(`ALTER TABLE ${table} ADD COLUMN ${q(dialect, 'previousExpiresAt')} bigint NULL`)
+    }
+}
+
+export async function removeSetupCodePrevious(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (!(await tableExists(runner, dialect, 'identity_setup_code'))) return
+    const table = q(dialect, 'identity_setup_code')
+    if (await columnExists(runner, dialect, 'identity_setup_code', 'previousExpiresAt')) {
+        await runner.query(`ALTER TABLE ${table} DROP COLUMN ${q(dialect, 'previousExpiresAt')}`)
+    }
+    if (await columnExists(runner, dialect, 'identity_setup_code', 'previousCodeHmac')) {
+        await runner.query(`ALTER TABLE ${table} DROP COLUMN ${q(dialect, 'previousCodeHmac')}`)
+    }
+}

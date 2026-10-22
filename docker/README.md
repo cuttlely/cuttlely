@@ -6,7 +6,7 @@ The install is the repository root [docker-compose.yml](../docker-compose.yml). 
 docker compose up -d
 ```
 
-Open [http://localhost:43117](http://localhost:43117) after ping returns `pong`. On a fresh install the server log prints a one-time setup link for the first account (`docker compose logs cuttlely | grep "No account yet"`). The steps are in the root [README](../README.md#your-first-10-minutes).
+Open [http://localhost:43117](http://localhost:43117) after ping returns `pong`. On a fresh install the server log prints a ready block with a one-time setup link and a setup code (`docker compose logs cuttlely | grep "Setup code"`). The steps are in the root [README](../README.md#your-first-10-minutes).
 
 [docker/docker-compose.yml](./docker-compose.yml) uses the same image and the same SQLite paths, for a Compose command run in this directory. The service name is `cuttlely`. `CUTTLELY_IMAGE` in [.env.example](../.env.example) pins a release or names your own build. Image versions and upgrades are in [docs/how-to/docker.md](../docs/how-to/docker.md#image-versions).
 

@@ -34,7 +34,10 @@ export const validateFlowData = (
 
     // Validate each node
     for (const node of nodes) {
-        if (node.data.name === 'stickyNoteAgentflow') continue
+        const nodeName = typeof node.data?.name === 'string' ? node.data.name : ''
+        const nodeType = typeof node.data?.type === 'string' ? node.data.type : ''
+        // Notes sit beside the graph. Skip every sticky-note card, including agent-canvas notes.
+        if (nodeName.toLowerCase().startsWith('stickynote') || nodeType.toLowerCase().startsWith('stickynote')) continue
 
         const nodeIssues: string[] = []
 

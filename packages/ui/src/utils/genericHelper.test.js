@@ -255,4 +255,45 @@ describe('export of a node that is not installed', () => {
         expect(out.nodes[0].data.inputs.analystRules).toBe(rules)
         expect(out.nodes[0].data.inputParams.find((param) => param.name === 'analystRules').maxLength).toBe(2000)
     })
+
+    it('keeps a string and a json value, including secret-shaped text, and still skips password and file', () => {
+        const marker = 'FAKE_MARKER_EXPORT'
+        const flow = {
+            nodes: [
+                {
+                    id: 'n1',
+                    data: {
+                        id: 'n1',
+                        label: 'Model',
+                        name: 'chatOpenAI',
+                        type: 'ChatOpenAI',
+                        inputParams: [
+                            { name: 'prompt', type: 'string' },
+                            { name: 'config', type: 'json' },
+                            { name: 'secretField', type: 'password' },
+                            { name: 'upload', type: 'file' }
+                        ],
+                        inputAnchors: [],
+                        inputs: {
+                            prompt: `hello ${marker}`,
+                            config: { token: marker },
+                            secretField: `sk-${marker}`,
+                            upload: marker
+                        },
+                        outputAnchors: [],
+                        outputs: {},
+                        selected: true
+                    }
+                }
+            ],
+            edges: []
+        }
+        const out = generateExportFlowData(JSON.parse(JSON.stringify(flow)), ['chatOpenAI'])
+        expect(out.nodes[0].data.inputs.prompt).toBe(`hello ${marker}`)
+        expect(out.nodes[0].data.inputs.config).toEqual({ token: marker })
+        expect(out.nodes[0].data.inputs.secretField).toBeUndefined()
+        expect(out.nodes[0].data.inputs.upload).toBeUndefined()
+        expect(JSON.stringify(out)).toContain(marker)
+        expect(JSON.stringify(out)).not.toContain(`sk-${marker}`)
+    })
 })

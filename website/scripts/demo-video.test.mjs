@@ -463,7 +463,7 @@ test('the home page keeps the old anchors, one testing video, and no testing til
 test('the demo follows the hero, the case study follows the demo, then the A/B section, and the demo copy shares a row with its video', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const css = readFileSync(new URL('../src/styles/site.css', import.meta.url), 'utf8')
-    assert.match(src, /<h2 id="test-every-change-title" class="cl-display">A\/B test every change before it goes live<\/h2>/)
+    assert.match(src, /<h2 id="test-every-change-title" class="cl-display">Replay every change before it goes live<\/h2>/)
     assert.match(src, /<h2 id="case-title" class="cl-display">Not the obvious answer<\/h2>/)
     const proof = src.indexOf('class="cl-pillars"')
     const integrations = src.indexOf('<section id="integrations"')

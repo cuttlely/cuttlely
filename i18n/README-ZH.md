@@ -65,7 +65,7 @@ docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 
 <a id="sign-in"></a>
 
-新安装没有任何用户。打开 `docker compose logs cuttlely` 打印的设置链接，创建一个本地的所有者账号。也可以在终端里创建。
+新安装没有任何用户。打开 `docker compose logs cuttlely | grep "Setup code"` 打印的设置链接，创建一个本地的所有者账号。也可以在终端里创建。
 
 ```bash
 docker compose exec -u node -it -e CUTTLELY_LOCAL_ADMIN=true cuttlely pnpm user --email you@example.com

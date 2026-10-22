@@ -1,6 +1,6 @@
 {
     "name": "cuttlely-workspace",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "private": true,
     "license": "Apache-2.0",
     "description": "The open-source agent platform for applications.",
@@ -89,6 +89,7 @@
         "overrides": {
             "prebuild-install": "7.1.3",
             "axios": "1.20.0",
+            "follow-redirects": "1.16.1",
             "body-parser": "2.3.0",
             "braces": "3.0.3",
             "cross-spawn": "7.0.6",
@@ -185,7 +186,8 @@
             "unctx>unplugin": "-",
             "@babel/core": "7.29.7",
             "@babel/helpers": "7.29.7",
-            "ibm-cloud-sdk-core@5": "^5.9.0"
+            "ibm-cloud-sdk-core@5": "^5.9.0",
+            "ajv@>=7 <8.18.0": "8.18.0"
         }
     },
     "packageManager": "pnpm@10.33.4",

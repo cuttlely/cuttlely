@@ -16,7 +16,7 @@ describe('starting page', () => {
         expect(page).not.toBeNull()
         const port = page!.port()
         setBootStep('Loading the building blocks')
-        const html = await get(port, '/organization-setup')
+        const html = await get(port, '/setup')
         expect(html.status).toBe(503)
         expect(html.type).toContain('text/html')
         expect(html.body).toContain('Cuttlely is starting')
