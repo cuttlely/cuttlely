@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -499,31 +500,55 @@ function baseToolName(binding) {
     )
 }
 
+const NODE_SUFFIX_MAX = 24
+
 function withSuffix(base, suffix) {
     const tail = `_${suffix}`
-    return `${base.slice(0, Math.max(1, TOOL_NAME_MAX - tail.length))}${tail}`.slice(0, TOOL_NAME_MAX)
+    return `${base.slice(0, TOOL_NAME_MAX - tail.length)}${tail}`
 }
 
-// One tool name per wired node, from the node's own name input. Two nodes that would share a name
-// keep the first as is and give the next one its node id as a suffix, so the name does not move
-// when other nodes are added or removed.
-export function specialistToolBindings(specialist) {
+// A short suffix that belongs to the node: its id when that is short, else a hash of the id.
+function nodeSuffix(binding, index) {
+    const id = String(binding?.nodeId || '')
+    const clean = toolNameFrom(id)
+    if (clean && clean.length <= NODE_SUFFIX_MAX) return clean
+    if (id) return `n${createHash('sha256').update(id).digest('hex').slice(0, 10)}`
+    return String(index + 1)
+}
+
+// One tool name per wired node, from the node's own name input. When nodes share a name, every one of
+// them takes its node id as a suffix, so a name always belongs to the same node: reordering or removing
+// other nodes never hands an advertised name to a different node. reserved holds names already taken,
+// such as the tools an MCP server advertises, and a node name never takes one of them.
+export function specialistToolBindings(specialist, reserved = new Set()) {
     const bindings = [...(specialist?.modules || []), ...(specialist?.mcpServers || [])]
-    const taken = new Set()
+    const bases = bindings.map((binding) => baseToolName(binding))
+    const counts = new Map()
+    for (const base of bases) counts.set(base, (counts.get(base) || 0) + 1)
+    const taken = new Set(reserved)
     const entries = []
     bindings.forEach((binding, index) => {
-        const base = baseToolName(binding)
-        let name = base
-        if (taken.has(name)) name = withSuffix(base, toolNameFrom(binding?.nodeId) || String(index + 1))
-        for (let n = 2; taken.has(name); n += 1) name = withSuffix(base, `${toolNameFrom(binding?.nodeId) || index + 1}_${n}`)
+        const base = bases[index]
+        const suffix = nodeSuffix(binding, index)
+        let name = counts.get(base) > 1 || taken.has(base) ? withSuffix(base, suffix) : base
+        // The counter keeps its room in the 64 characters, so this always ends.
+        for (let n = 2; taken.has(name); n += 1) name = withSuffix(base, `${suffix}_${n}`)
         taken.add(name)
-        entries.push({ name, nodeId: binding?.nodeId || '', binding })
+        entries.push({ name, index, nodeId: binding?.nodeId || '', binding })
     })
     return entries
 }
 
-export function specialistToolName(specialist, binding) {
-    return specialistToolBindings(specialist).find((entry) => entry.binding === binding)?.name || baseToolName(binding)
+export function specialistToolName(specialist, binding, reserved) {
+    return specialistToolBindings(specialist, reserved).find((entry) => entry.binding === binding)?.name || baseToolName(binding)
+}
+
+// The gateway passes the node it advertised under the called name: a node id, or the binding's place.
+function routedBinding(specialist, options) {
+    const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
+    if (options.nodeId) return all.find((binding) => binding?.nodeId === options.nodeId) || null
+    if (Number.isInteger(options.bindingIndex)) return all[options.bindingIndex] || null
+    return null
 }
 
 function bindingForToolName(specialist, toolName) {
@@ -554,6 +579,7 @@ export async function executeSpecialistTool(harnessName, specialistName, toolNam
     const mcpServers = specialist.mcpServers || []
     // Route by the node behind the advertised name, so nodes of one type each get their own calls.
     const binding =
+        routedBinding(specialist, options) ||
         bindingForToolName(specialist, toolName) ||
         modules.find((mod) => mod.nodeName === toolName || mod.label === toolName) ||
         mcpServers.find((mod) => mod.nodeName === toolName || mod.serverName === toolName || mod.label === toolName) ||

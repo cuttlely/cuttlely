@@ -6,7 +6,7 @@ import { noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.m
 import { isAnalystQueryTool } from './context.mjs'
 import { SQL_TOOL_REFUSED, enforcesTables, runsSql } from './sql-tools.mjs'
 import { analystScopeKey, withAnalystScope } from './runtime/analyst-store.mjs'
-import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpecs, specialistToolName } from './bridge.mjs'
+import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpecs, specialistToolBindings } from './bridge.mjs'
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
@@ -685,9 +685,15 @@ function writeStream(res, { id, created, model, content, toolCalls, reason, usag
 async function toolSpecs(record, specialistName, ctx, profileName) {
     const specialist = specialistOf(record, specialistName)
     if (!specialist) return []
-    const tools = []
     const refused = new Set()
-    for (const binding of specialist.modules || []) tools.push(toolSpec(binding, 'Connected node', specialistToolName(specialist, binding)))
+    const routes = new Map()
+    const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
+    const routeOf = (binding) => {
+        const index = all.indexOf(binding)
+        return binding?.nodeId ? { nodeId: binding.nodeId, index } : { index }
+    }
+    // MCP servers advertise their own tool names, so those are read first and no node name may take one.
+    const served = new Map()
     for (const binding of specialist.mcpServers || []) {
         if (!isFlowiseMcpBinding(binding)) continue
         const prepared = await prepareModule(binding, '', {
@@ -696,17 +702,39 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
             flowOptions: ctx.flowOptions,
             nodeCache: ctx.nodeCache
         })
-        const ready = readyToolSpecs(prepared)
-        const specs = refuseSqlTools(profileName, specialistName, binding, ready, refused, specialistToolName(specialist, binding))
+        served.set(binding, readyToolSpecs(prepared))
+    }
+    const reserved = new Set()
+    for (const ready of served.values()) for (const spec of ready) reserved.add(spec.name)
+    const names = new Map(specialistToolBindings(specialist, reserved).map((entry) => [entry.binding, entry.name]))
+    const tools = []
+    for (const binding of specialist.modules || []) {
+        tools.push(toolSpec(binding, 'Connected node', names.get(binding)))
+        routes.set(names.get(binding), routeOf(binding))
+    }
+    for (const binding of specialist.mcpServers || []) {
+        if (!served.has(binding)) continue
+        const ready = served.get(binding)
+        const specs = refuseSqlTools(profileName, specialistName, binding, ready, refused, names.get(binding))
+        for (const spec of ready) if (!routes.has(spec.name)) routes.set(spec.name, routeOf(binding))
         if (specs.length) tools.push(...specs)
         else if (ready.length) continue
-        else tools.push(toolSpec(binding, 'Connected MCP server', specialistToolName(specialist, binding)))
+        else {
+            tools.push(toolSpec(binding, 'Connected MCP server', names.get(binding)))
+            routes.set(names.get(binding), routeOf(binding))
+        }
     }
-    // The set belongs to this specialist profile. A try must not replace the published profile's set.
-    if (profileName) refusedSqlTools.set(refusalKey(profileName), refused)
+    // The sets belong to this specialist profile. A try must not replace the published profile's sets.
+    if (profileName) {
+        refusedSqlTools.set(refusalKey(profileName), refused)
+        toolRoutes.set(refusalKey(profileName), routes)
+    }
     if (!tools.length && !refused.size) tools.push(toolSpec({}, 'Bound Flowise module'))
     return tools
 }
+
+// The node behind each advertised tool name, per profile, so a call runs the node it was listed for.
+const toolRoutes = new Map()
 
 // SQL tools from an MCP server that cannot limit its tables are not offered, and a call to one is refused.
 const refusedSqlTools = new Map()
@@ -734,6 +762,12 @@ function refuseSqlTools(profileName, specialistName, binding, specs, refused, ow
         for (const name of [binding.nodeName, binding.serverName, binding.label, ownName]) if (name) refused.add(name)
     }
     return kept
+}
+
+function routeFor(profileName, toolName) {
+    const route = profileName ? toolRoutes.get(refusalKey(profileName))?.get(toolName) : null
+    if (!route) return {}
+    return route.nodeId ? { nodeId: route.nodeId } : { bindingIndex: route.index }
 }
 
 export function isRefusedSqlTool(profileName, toolName) {
@@ -765,7 +799,7 @@ async function callTool(req, res, meta) {
     const callId = hermesToolCallId(body, args)
     delete args._cuttlelyCallId
     // A call can come before any tool list in this process, after a restart for example.
-    if (meta.profileName && !refusedSqlTools.has(refusalKey(meta.profileName))) {
+    if (meta.profileName && (!refusedSqlTools.has(refusalKey(meta.profileName)) || !toolRoutes.has(refusalKey(meta.profileName)))) {
         await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
     }
     if (isRefusedSqlTool(meta.profileName, body.name)) {
@@ -776,6 +810,7 @@ async function callTool(req, res, meta) {
         scope,
         () =>
             executeSpecialistTool(record.name, meta.specialistName, body.name, args, {
+                ...routeFor(meta.profileName, body.name),
                 harness: record,
                 componentNodes: ctx.componentNodes,
                 loadNode: ctx.loadNode,

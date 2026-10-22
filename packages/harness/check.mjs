@@ -12341,6 +12341,22 @@ await (async () => {
             }
         }
     }
+    const mcpSeen = []
+    class HandbookMcp {
+        async init() {
+            return [
+                {
+                    name: 'policy_handbook',
+                    description: 'The server tool that shares a name with a retriever',
+                    schema: { type: 'object', properties: { input: { type: 'string' } } },
+                    async invoke(args) {
+                        mcpSeen.push(args)
+                        return `from mcp: ${JSON.stringify(args)}`
+                    }
+                }
+            ]
+        }
+    }
     const retriever = (nodeId, name) => ({
         nodeId,
         nodeName: 'retrieverTool',
@@ -12354,6 +12370,15 @@ await (async () => {
         retriever('retrieverTool_2', 'pricing_faq'),
         retriever('retrieverTool_3', '')
     ]
+    const mcpServers = [
+        {
+            nodeId: 'customMCP_0',
+            nodeName: 'customMCP',
+            label: 'Handbook server',
+            category: 'Tools (MCP)',
+            inputs: { mcpServerConfig: JSON.stringify({ command: 'do-not-launch' }) }
+        }
+    ]
     const toolModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo', inputs: { modelName: 'gpt-4.1' } })
     saveHarness(
         {
@@ -12361,7 +12386,7 @@ await (async () => {
             workspaceId: 'w1',
             chatflowId: 'flow-retrievers',
             chief: { instructions: 'Route the work.', model: toolModel },
-            specialists: [{ name: 'librarian', instructions: 'Search the stores.', shell: false, modules, mcpServers: [] }]
+            specialists: [{ name: 'librarian', instructions: 'Search the stores.', shell: false, modules, mcpServers }]
         },
         { overwrite: true }
     )
@@ -12373,6 +12398,7 @@ await (async () => {
             workspaceId: 'w1',
             loadNode: async (nodeName) => {
                 if (nodeName === 'retrieverTool') return FakeRetrieverTool
+                if (nodeName === 'customMCP') return HandbookMcp
                 throw new Error(`unexpected node ${nodeName}`)
             }
         })
@@ -12394,19 +12420,42 @@ await (async () => {
         replies.push(JSON.parse(response.body).result)
     }
     await gateway.close()
-    const again = specialistToolBindings({ modules: [...modules].reverse() }).map((entry) => entry.name)
-    const expected = ['policy_handbook', 'pricing_faq', 'pricing_faq_retrieverTool_2', 'retrieverTool']
+    const expected = [
+        'policy_handbook_retrieverTool_0',
+        'pricing_faq_retrieverTool_1',
+        'pricing_faq_retrieverTool_2',
+        'retrieverTool',
+        'policy_handbook'
+    ]
+    // A name stays with its node when the others are reordered or removed.
+    const byNode = (list) => Object.fromEntries(specialistToolBindings({ modules: list }).map((entry) => [entry.nodeId, entry.name]))
+    const base = byNode(modules)
+    const reversed = byNode([...modules].reverse())
+    const without = byNode(modules.filter((mod) => mod.nodeId !== 'retrieverTool_1'))
+    const stable =
+        Object.keys(base).every((id) => base[id] === reversed[id]) &&
+        Object.entries(without).every(([id, name]) => name === base[id] || !Object.values(base).includes(name))
+    // Three nodes with one name and long ids that share their first 70 characters still get distinct names.
+    const longId = (n) => `${'x'.repeat(70)}${n}`
+    const longNames = specialistToolBindings({
+        modules: [0, 1, 2].map((n) => retriever(longId(n), 'y'.repeat(80)))
+    }).map((entry) => entry.name)
     check(
         'several retrieverTool nodes on one specialist get their own tool names and each call reaches its own node',
         JSON.stringify(names) === JSON.stringify(expected) &&
             names.every((name) => /^[A-Za-z0-9_-]{1,64}$/.test(name)) &&
             seen.length === 4 &&
             seen.every((hit, index) => hit.node === modules[index].nodeId && hit.arg === `ask ${names[index]}`) &&
-            replies.every((reply, index) => String(reply).includes(`ask ${names[index]}`)) &&
-            again.includes('retrieverTool') &&
+            replies.slice(0, 4).every((reply, index) => String(reply).includes(`ask ${names[index]}`)) &&
+            mcpSeen.length === 1 &&
+            String(replies[4]).startsWith('from mcp:') &&
+            stable &&
+            new Set(longNames).size === 3 &&
+            longNames.every((name) => name.length <= 64) &&
             toolNameFrom('a'.repeat(80)).length === 64 &&
-            toolNameFrom(' kb: north/south ') === 'kb_north_south',
-        JSON.stringify({ names, seen, replies, again })
+            toolNameFrom(' kb: north/south ') === 'kb_north_south' &&
+            toolNameFrom('-'.repeat(5000)) === '',
+        JSON.stringify({ names, seen, mcpSeen, replies, base, reversed, without, longNames })
     )
 })()
 
