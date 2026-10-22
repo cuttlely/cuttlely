@@ -11,7 +11,7 @@
 # Both paths also install the Hermes mcp extra. The post-check imports aiohttp, cli, and mcp.
 #
 # The image and file libraries (charts, PDF, DOCX, XLSX, PPTX) come from scripts/hermes-assets/requirements.txt,
-# pinned with hashes and checked against hermes/uv.lock. CUTTLELY_HERMES_ASSETS=0 leaves them out.
+# pinned with hashes and checked against hermes/uv.lock, on Python 3.14 only. CUTTLELY_HERMES_ASSETS=0 leaves them out.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -90,7 +90,13 @@ fi
 
 uv pip install --python "$PYTHON" "$AIOHTTP"
 
-if [[ "${CUTTLELY_HERMES_ASSETS:-1}" != "0" ]]; then
+# The asset pins are compiled for Python 3.14, the locked path (NumPy and NetworkX need 3.12 or newer), so other
+# versions skip them with a note instead of failing the setup.
+if [[ "${CUTTLELY_HERMES_ASSETS:-1}" == "0" ]]; then
+    echo "CUTTLELY_HERMES_ASSETS=0: leaving out the image and file libraries."
+elif [[ "$VERSION" != "3.14" ]]; then
+    echo "The image and file libraries (scripts/hermes-assets/requirements.txt) are pinned for Python 3.14; skipping them on $VERSION."
+else
     echo "Installing the image and file libraries (scripts/hermes-assets/requirements.txt)."
     uv pip install --python "$PYTHON" --require-hashes -r "$ROOT/scripts/hermes-assets/requirements.txt"
 fi

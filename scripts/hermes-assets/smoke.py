@@ -5,7 +5,8 @@
 Imports every library from scripts/hermes-assets/requirements.in, renders a PNG, a PDF, a DOCX, an XLSX and a
 PPTX from made-up data, and checks each file's signature. Graphviz (`dot`) and the bundled fonts are checked when
 the system has them, which the Docker image does. Plotly static export runs when a Chromium is available
-(BROWSER_PATH, set in the image unless INCLUDE_BROWSER=0). Exits non-zero on the first failure.
+(BROWSER_PATH, set in the image); with HERMES_ASSETS_REQUIRE_SYSTEM=1 a missing Chromium fails unless the image was
+built with INCLUDE_BROWSER=0. Exits non-zero on the first failure.
 """
 
 import importlib
@@ -164,6 +165,8 @@ def main():
         figure = go.Figure(go.Bar(x=frame["month"], y=frame["orders"]))
         figure.write_image(out / "plotly.png", width=400, height=300)
         check(out / "plotly.png", PNG)
+    elif os.environ.get("HERMES_ASSETS_REQUIRE_SYSTEM") == "1" and not Path("/etc/cuttlely/no-browser").exists():
+        raise SystemExit("BROWSER_PATH is not set to a Chromium, and this image was not built with INCLUDE_BROWSER=0")
     else:
         print("skip plotly static export: BROWSER_PATH is not set to a Chromium")
 

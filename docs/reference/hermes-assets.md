@@ -4,7 +4,7 @@ The agent runtime's Python (`hermes/.venv`) has libraries for charts, diagrams a
 
 ## What is installed
 
-`scripts/setup-hermes.sh` installs `scripts/hermes-assets/requirements.txt` after the runtime's own locked packages. That file pins every package and its dependencies with hashes. Packages the runtime also uses, such as Pillow, keep the version in `hermes/uv.lock`. Set `CUTTLELY_HERMES_ASSETS=0` when you run the script to leave them out.
+`scripts/setup-hermes.sh` installs `scripts/hermes-assets/requirements.txt` after the runtime's own locked packages. That file pins every package and its dependencies with hashes. Packages the runtime also uses, such as Pillow, keep the version in `hermes/uv.lock`. The pins are for Python 3.14, the runtime's locked version; with another Python the script skips them and says so. Set `CUTTLELY_HERMES_ASSETS=0` when you run the script to leave them out.
 
 | Package     | Version | Use                                         | License                        |
 | ----------- | ------- | ------------------------------------------- | ------------------------------ |
@@ -51,8 +51,8 @@ docker run --rm --entrypoint bash -e HERMES_ASSETS_REQUIRE_SYSTEM=1 cuttlely \
     -c 'hermes/.venv/bin/python scripts/hermes-assets/smoke.py /tmp/hermes-assets-smoke'
 ```
 
-The smoke test imports every library and renders a PNG, a PDF, a DOCX, two XLSX files and a PPTX from made-up data, then checks each file's signature. With `HERMES_ASSETS_REQUIRE_SYSTEM=1` it also fails when `dot`, `fc-list` or one of the Inter, Noto Sans and DejaVu Sans fonts is missing. The Docker build workflow runs it on every image it builds.
+The smoke test imports every library and renders a PNG, a PDF, a DOCX, two XLSX files and a PPTX from made-up data, then checks each file's signature. With `HERMES_ASSETS_REQUIRE_SYSTEM=1` it also fails when `dot`, `fc-list` or one of the Inter, Noto Sans and DejaVu Sans fonts is missing, and when Plotly cannot find Chromium in an image not built with `INCLUDE_BROWSER=0`. The Docker build workflow runs it on every image it builds.
 
 ## Change a pin
 
-Edit `scripts/hermes-assets/requirements.in`, then run `bash scripts/setup-hermes.sh --compile-assets` (needs `uv`). It recompiles `requirements.txt` against `hermes/uv.lock`, with the uv settings in `hermes/pyproject.toml` (such as its 14-day `exclude-newer` window), so a release newer than that window cannot be pinned yet. Check the license of every new package before you add it.
+Edit `scripts/hermes-assets/requirements.in`, then run `bash scripts/setup-hermes.sh --compile-assets` (needs `uv`). It recompiles `requirements.txt` against `hermes/uv.lock`, with the uv settings in `hermes/pyproject.toml` (such as its 14-day `exclude-newer` window), so a release newer than that window cannot be pinned yet, except for the packages `hermes/pyproject.toml` exempts under `exclude-newer-package` (such as NumPy, Pillow and packaging). Check the license of every new package before you add it.
