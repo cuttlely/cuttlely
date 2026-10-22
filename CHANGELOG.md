@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-22
+
 ### Added
 
 -   Harness specialists can send PDF, DOCX, XLSX and CSV files to the chat as downloads, next to PNG and JPEG images. The app chat, the messages dialog, the share link and the embed show a download card. Each file is checked by its bytes, with up to 4 files of 10 MB each and 20 MB per turn for images and files together. [Harnesses](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
@@ -18,6 +20,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Changed
 
 -   The public website home page has a new hero ("Your applications deserve agents", with a copyable `npx cuttlely start`) and is grouped into Teams, Cost and context, and Safe deploys, then Every flow an MCP server and one Integrations section that calls your flows from IBM watsonx Orchestrate, with the 72-second narrated demo video.
+-   The version examples in the `cuttlely` package README, the Docker guide and the embed guide name 1.3.2.
 -   When `npx cuttlely start` gives up waiting for the health check, it says to check the logs with `npx cuttlely logs` and then open the address once it answers, instead of saying Cuttlely is still starting.
 
 ### Fixed
@@ -450,7 +453,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/cuttlely/cuttlely/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/cuttlely/cuttlely/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/cuttlely/cuttlely/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/cuttlely/cuttlely/compare/v1.1.0...v1.2.0
