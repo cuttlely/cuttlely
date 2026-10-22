@@ -6,6 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   The public website home page has an Integrations for the enterprise section after the three pillars: Example: call your agents from IBM watsonx Orchestrate, with a 72-second narrated demo video (captions, poster first, loads on play).
 -   When `npx cuttlely start` gives up waiting for the health check, it says to check the logs with `npx cuttlely logs` and then open the address once it answers, instead of saying Cuttlely is still starting.
 
 ## [1.3.1] - 2026-10-21
@@ -30,7 +31,6 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The README intro and the public FAQ note that Cuttlely is said like "cuddly".
 -   The public website leads with "The visual agent builder, ready for production." Home-page benchmark copy states the bakery analyst prompt sizes (2,562 to 663 tokens on a made-up bakery database) without score ratios. The Analyst guide's rules-check table says "all passed" instead of a score. Made for real teams names SQLite or Postgres; Server Settings still accepts only those two. The site changelog omits the 1.3.0 paper-page line.
 -   The import page, the home hero link, and the FAQ import entry stay.
--   The public website home page has an Integrations for the enterprise section after the three pillars: Example: call your agents from IBM watsonx Orchestrate.
 -   The home hero link to `/flowise/` reads Already have flows? Bring them over.
 -   The project site home page shows a poster for each video until you click play, so the first load does not fetch the files. Product-tile silent loops start only after that click, one at a time, and not when Save-Data is on. A hero that was playing with sound returns to the poster when it ends or is scrolled off screen. The media files are smaller, hashed `/media`, `/social` and `/_astro` assets are cached for a year, the Open Graph image URL carries a content hash, and the site build uses Astro 7.4.0 (Node 22.22 or newer).
 -   README, translated README, and docs links to `/media` files carry the same content hash the site uses, so a year-long cache still picks up a new encode.
