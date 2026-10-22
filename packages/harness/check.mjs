@@ -2658,6 +2658,8 @@ check('a bare model name is not a chief model', shorthandRecord?.code === 'missi
 
 // A specialist profile whose next run fails with this error, for the failure-path checks.
 let contractFailRun = null
+// A workspace path the team's inline tools (lookup_order, the notes retriever) put in their results, when set.
+let teamToolPath = ''
 const contract = await startContractServer()
 const modelBaseUrl = `${contract.url}/v1`
 
@@ -2699,7 +2701,7 @@ const teamNodes = async (nodeName) => {
                     description: 'Look up an order by id',
                     schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
                     async invoke(args) {
-                        return `order ${args.id} shipped`
+                        return teamToolPath ? `order ${args.id} shipped, label at ${teamToolPath}` : `order ${args.id} shipped`
                     }
                 }
             }
@@ -2709,6 +2711,9 @@ const teamNodes = async (nodeName) => {
         async init() {
             return {
                 async similaritySearch(query) {
+                    if (teamToolPath) {
+                        return [{ pageContent: `retrieved note for ${query} from ${teamToolPath}`, metadata: { source: teamToolPath } }]
+                    }
                     return [{ pageContent: `retrieved note for ${query}`, metadata: { source: 'notes.md' } }]
                 }
             }
@@ -3284,6 +3289,7 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
     const rawPath = path.join(root, 'team--browser', 'chat-images', 'demo-run', 'deck.pptx')
     // The tool preview and the streamed text quote the path too; the streamed path is split across two deltas.
     const [deltaHead, deltaRest] = [rawPath.slice(0, 12), rawPath.slice(12)]
+    teamToolPath = path.join(root, 'team--files', 'labels', 'order 7.pdf')
     contractFailRun = {
         profile: 'browser',
         error: `Traceback: open ${rawPath} failed in ${root}/team--browser`,
@@ -3306,6 +3312,7 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
         })
     } finally {
         contractFailRun = null
+        teamToolPath = ''
     }
     const leakHandoff = String(
         teamCalls
@@ -3321,7 +3328,8 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
         events: JSON.stringify(events),
         stored: storedLeak,
         recorded: JSON.stringify(recorded || {}),
-        handoff: leakHandoff
+        handoff: leakHandoff,
+        sources: JSON.stringify(leaked.sources || [])
     }
     const showing = Object.entries(channels)
         .filter(([, text]) => text.includes(root))
@@ -3337,6 +3345,8 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
                 .map((event) => event.text)
                 .join('') === 'Opening deck.pptx now ' &&
             leakHandoff.includes('### browser (failed)') &&
+            channels.events.includes('order 7.pdf') &&
+            channels.sources.includes('order 7.pdf') &&
             Boolean(recorded) &&
             showing.length === 0,
         JSON.stringify({ showing, error: failedAgent?.error })
@@ -7925,6 +7935,8 @@ check(
             // Quoted text with two paths keeps its words, and each path shows as its name.
             [`"${path.join(assets, 'a.pdf')} and ${path.join(assets, 'b.pdf')}"`, '"a.pdf and b.pdf"'],
             [`mv '${path.join(assets, 'a.pdf')}' '${path.join(assets, 'b.pdf')}'`, "mv 'a.pdf' 'b.pdf'"],
+            [`"${path.join(assets, 'a.pdf')} failed; see https://example.org/help"`, '"a.pdf failed; see https://example.org/help"'],
+            [`"${path.join(assets, 'Q3 Reports', 'a.pdf')} and ${path.join(assets, 'b.pdf')}"`, '"a.pdf and b.pdf"'],
             [`file://${path.join(assets, 'out', 'r.pdf')}`, 'r.pdf'],
             [`(${assets})`, '(the workspace)'],
             [`${coderDir}${path.sep}`, 'the chat'],

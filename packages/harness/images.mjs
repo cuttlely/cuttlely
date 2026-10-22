@@ -150,7 +150,7 @@ const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value
 export function hideWorkspacePaths(text, root, chatDir = '') {
     if (!root || typeof text !== 'string') return text
     const base = trimSep(root)
-    if (base === path.sep || !path.isAbsolute(base)) return text
+    if (base === path.sep || !path.isAbsolute(base) || !text.includes(base)) return text
     const chat = chatDir ? trimSep(chatDir) : ''
     const sep = escapeRegExp(path.sep)
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
@@ -170,19 +170,28 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
     // A bare root followed by a space and a relative path is a sibling folder whose name starts with the root's name.
     const word = `[^\\s'"\`<>()\\[\\]{}|,;${sep}][^\\s'"\`<>()\\[\\]{}|,;]*${sep}`
     const bare = new RegExp(`${head}(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*|(?![ \\t]+${word}))`, 'g')
-    const roots = new RegExp(head, 'g')
     const bareOnly = (value) =>
         value.replace(bare, (match) => {
             // Sentence punctuation after a path is not part of it.
             const tail = /[.:!?]+$/.exec(match)?.[0] || ''
             return shown(match.slice(0, match.length - tail.length)) + tail
         })
+    // In quoted text a path may hold spaces; it ends where prose starts (", ", "; ", " and ", " to ", an arrow, a URL)
+    // or where the next path starts. The rest keeps its words, and any further path in it is masked too.
+    const prose = /[;,]\s|\s(?:and|or|to|then|from|into|failed|because)\s|\s*(?:->|→|=>)\s*|\s\S*:\/\//
+    const quotedPaths = (full) => {
+        const start = new RegExp(`^${head}`).exec(full)?.[0].length || 0
+        const after = full.slice(start)
+        const next = new RegExp(`\\s(?=${head})`).exec(after)
+        const stop = prose.exec(after)
+        const cut = Math.min(next ? next.index : Infinity, stop ? stop.index : Infinity)
+        if (cut === Infinity) return shown(full)
+        return shown(full.slice(0, start + cut)) + bareOnly(full.slice(start + cut))
+    }
     let out = text
     for (const quoted of quotes) {
         // Quoted text naming two or more paths ("a.pdf and b.pdf", a move error) keeps its words; each path is masked.
-        out = out.replace(quoted, (match, full) =>
-            (full.match(roots) || []).length > 1 ? `${match[0]}${bareOnly(full)}${match[0]}` : `${match[0]}${shown(full)}${match[0]}`
-        )
+        out = out.replace(quoted, (match, full) => `${match[0]}${quotedPaths(full)}${match[0]}`)
     }
     return bareOnly(out)
 }

@@ -208,9 +208,17 @@ export async function runHarness(args = {}) {
     const tryName = args.record?.tryId ? tryProfileName(args.record.tryId) : ''
     if (tryName) noteLiveTry(tryName)
     try {
-        result = await runHarnessTurn(args)
+        // The answer, the trace and every record of the turn leave without workspace paths, whichever path ran.
+        result = maskWorkspacePaths(await runHarnessTurn(args))
         return result
     } catch (error) {
+        if (error && typeof error.message === 'string') {
+            try {
+                error.message = maskWorkspacePaths(error.message)
+            } catch {
+                // A frozen error keeps its message.
+            }
+        }
         failure = error
         throw error
     } finally {
@@ -650,10 +658,33 @@ async function runRoster(context, input) {
     return payload
 }
 
+// Paths inside any specialist's workspace are shown as file names in every string of a value: events, specialist
+// results and sources, and the turn's result. Data URLs and very long strings (file bytes) are left as they are.
+const MASK_MAX_CHARS = 1_000_000
+export function maskWorkspacePaths(value, depth = 0) {
+    if (typeof value === 'string') {
+        if (value.length > MASK_MAX_CHARS || value.startsWith('data:')) return value
+        return hideTurnImageDir(value, '', specialistWorkspaceRoot())
+    }
+    if (!value || typeof value !== 'object' || depth > 12) return value
+    if (Array.isArray(value)) return value.map((item) => maskWorkspacePaths(item, depth + 1))
+    const proto = Object.getPrototypeOf(value)
+    if (proto !== Object.prototype && proto !== null) return value
+    const out = {}
+    for (const [key, item] of Object.entries(value)) out[key] = maskWorkspacePaths(item, depth + 1)
+    return out
+}
+
 function emit(context, type, data = {}) {
     if (context?.clientSignal?.aborted) return
     // `at` is the event's own clock. The server builds trace spans from these events and does not send a tracer into this process.
-    emitHarnessEvent(context?.onEvent, { type, harness: context?.name, chatId: context?.chatId, ...data, at: Date.now() })
+    emitHarnessEvent(context?.onEvent, {
+        type,
+        harness: context?.name,
+        chatId: context?.chatId,
+        ...maskWorkspacePaths(data),
+        at: Date.now()
+    })
 }
 
 function modelCallRows(calls) {
@@ -1427,12 +1458,18 @@ function analystQueryCount(context, name) {
 }
 
 async function runSpecialistOnce(context, specialist, task) {
-    const out =
-        specialist.profileName && needsAgentLoop(specialist)
-            ? await runHermesSpecialist(context, specialist, task)
-            : await runInlineSpecialist(context, specialist, task)
-    // Every specialist's answer, Hermes or inline, reaches Harness Prime and the chat without workspace paths.
-    return out && typeof out.text === 'string' ? { ...out, text: hideTurnImageDir(out.text, '', specialistWorkspaceRoot()) } : out
+    let out
+    try {
+        out =
+            specialist.profileName && needsAgentLoop(specialist)
+                ? await runHermesSpecialist(context, specialist, task)
+                : await runInlineSpecialist(context, specialist, task)
+    } finally {
+        // Streamed text still held back for a whole path is sent, masked, once the specialist stops.
+        forwardDelta(context, specialist, '', true)
+    }
+    // Every specialist's answer and sources, Hermes or inline, reach Harness Prime and the chat without workspace paths.
+    return maskWorkspacePaths(out)
 }
 
 // Hermes builds its system prompt from the profile's SOUL.md, which already holds the specialist's
@@ -1609,7 +1646,7 @@ async function runInlineSpecialist(context, specialist, task) {
         const reply = await callModel(context, model, {
             messages: specialistPrompt(context, specialist, task, soul),
             role: 'specialist',
-            onDelta: (text) => emitSpecialistPartial(context, specialist, text),
+            onDelta: (text) => forwardDelta(context, specialist, String(text ?? '')),
             specialist
         })
         return { text: reply.content }
@@ -1641,7 +1678,7 @@ async function runInlineSpecialist(context, specialist, task) {
         messages: specialistPrompt(context, specialist, task, soul),
         tools,
         role: 'specialist',
-        onDelta: (text) => emitSpecialistPartial(context, specialist, text),
+        onDelta: (text) => forwardDelta(context, specialist, String(text ?? '')),
         specialist
     })
     if (!reply.toolCalls.length) return { text: reply.content }
@@ -2097,7 +2134,7 @@ async function runDirectTool(context, specialist, input) {
         throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
     }
     emitTool(context, { phase: 'done', specialist: specialist.name, name: toolLabel })
-    const text = output.text.trim()
+    const text = maskWorkspacePaths(output.text.trim())
     const finished = Date.now()
     if (!text) {
         emit(context, 'specialist', {
