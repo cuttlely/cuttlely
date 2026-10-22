@@ -165,15 +165,26 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
     }
     // A quoted path may hold spaces and punctuation: everything up to the same closing quote is the path, so a
     // backticked or double-quoted path may hold an apostrophe.
-    const quotes = ['"', "'", '`'].map((quote) => new RegExp(`${quote}(${head}[^${quote}\\n]*)${quote}`, 'g'))
-    const bare = new RegExp(`${head}(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*)?`, 'g')
+    // A quoted path starts with the root and a separator, or is the root alone; "<root> backup/..." is another folder.
+    const quotes = ['"', "'", '`'].map((quote) => new RegExp(`${quote}(${head}(?:${sep}[^${quote}\\n]*)?)${quote}`, 'g'))
+    // A bare root followed by a space and a relative path is a sibling folder whose name starts with the root's name.
+    const word = `[^\\s'"\`<>()\\[\\]{}|,;${sep}][^\\s'"\`<>()\\[\\]{}|,;]*${sep}`
+    const bare = new RegExp(`${head}(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*|(?![ \\t]+${word}))`, 'g')
+    const roots = new RegExp(head, 'g')
+    const bareOnly = (value) =>
+        value.replace(bare, (match) => {
+            // Sentence punctuation after a path is not part of it.
+            const tail = /[.:!?]+$/.exec(match)?.[0] || ''
+            return shown(match.slice(0, match.length - tail.length)) + tail
+        })
     let out = text
-    for (const quoted of quotes) out = out.replace(quoted, (match, full) => `${match[0]}${shown(full)}${match[0]}`)
-    return out.replace(bare, (match) => {
-        // Sentence punctuation after a path is not part of it.
-        const tail = /[.:!?]+$/.exec(match)?.[0] || ''
-        return shown(match.slice(0, match.length - tail.length)) + tail
-    })
+    for (const quoted of quotes) {
+        // Quoted text naming two or more paths ("a.pdf and b.pdf", a move error) keeps its words; each path is masked.
+        out = out.replace(quoted, (match, full) =>
+            (full.match(roots) || []).length > 1 ? `${match[0]}${bareOnly(full)}${match[0]}` : `${match[0]}${shown(full)}${match[0]}`
+        )
+    }
+    return bareOnly(out)
 }
 
 export function removeTurnImageDir(dir) {

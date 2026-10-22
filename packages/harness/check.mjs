@@ -3282,7 +3282,18 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
     const { specialistWorkspace } = await import('./profile.mjs')
     const root = path.dirname(specialistWorkspace('_'))
     const rawPath = path.join(root, 'team--browser', 'chat-images', 'demo-run', 'deck.pptx')
-    contractFailRun = { profile: 'browser', error: `Traceback: open ${rawPath} failed in ${root}/team--browser` }
+    // The tool preview and the streamed text quote the path too; the streamed path is split across two deltas.
+    const [deltaHead, deltaRest] = [rawPath.slice(0, 12), rawPath.slice(12)]
+    contractFailRun = {
+        profile: 'browser',
+        error: `Traceback: open ${rawPath} failed in ${root}/team--browser`,
+        frames: [
+            { event: 'tool.started', tool: 'terminal' },
+            { event: 'tool.completed', tool: 'terminal', error: true, preview: `cat: ${rawPath}: No such file` },
+            { event: 'message.delta', delta: `Opening ${deltaHead}` },
+            { event: 'message.delta', delta: `${deltaRest} now ` }
+        ]
+    }
     const events = []
     let recorded = null
     let leaked
@@ -3320,6 +3331,11 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
         failedAgent?.status === 'failed' &&
             String(failedAgent.error).includes('deck.pptx') &&
             events.some((event) => JSON.stringify(event).includes('deck.pptx')) &&
+            events.some((event) => JSON.stringify(event).includes('cat: deck.pptx: No such file')) &&
+            events
+                .filter((event) => event.type === 'partial' && event.specialist === 'browser')
+                .map((event) => event.text)
+                .join('') === 'Opening deck.pptx now ' &&
             leakHandoff.includes('### browser (failed)') &&
             Boolean(recorded) &&
             showing.length === 0,
@@ -7902,6 +7918,13 @@ check(
             [`Wrote ${path.join(coderDir, 'exports', 'deck.pptx')}.`, 'Wrote deck.pptx.'],
             [`Open \`${path.join(assets, 'exports', 'Q3 Reports', 'deck (v2), final.pptx')}\` now`, 'Open `deck (v2), final.pptx` now'],
             [`"${path.join(assets, 'out', 'a b.csv')}"`, '"a b.csv"'],
+            // A sibling folder whose name starts with the root's name is not the root.
+            [`"${root} backup/team/report.pdf"`, `"${root} backup/team/report.pdf"`],
+            [`${root} backup/team/report.pdf`, `${root} backup/team/report.pdf`],
+            [`in ${root} and more`, 'in the workspace and more'],
+            // Quoted text with two paths keeps its words, and each path shows as its name.
+            [`"${path.join(assets, 'a.pdf')} and ${path.join(assets, 'b.pdf')}"`, '"a.pdf and b.pdf"'],
+            [`mv '${path.join(assets, 'a.pdf')}' '${path.join(assets, 'b.pdf')}'`, "mv 'a.pdf' 'b.pdf'"],
             [`file://${path.join(assets, 'out', 'r.pdf')}`, 'r.pdf'],
             [`(${assets})`, '(the workspace)'],
             [`${coderDir}${path.sep}`, 'the chat'],
@@ -14740,6 +14763,9 @@ function startContractServer() {
                     contractFailRun?.profile && profile.includes(contractFailRun.profile)
                         ? { status: 'failed', error: contractFailRun.error }
                         : { status: 'completed', output: `${profile} did: ${json.input}`, session_id: json.session_id },
+                ...(contractFailRun?.profile && profile.includes(contractFailRun.profile) && contractFailRun.frames
+                    ? { frames: contractFailRun.frames }
+                    : {}),
                 close() {}
             }
             runs.set(runId, run)
@@ -14768,6 +14794,9 @@ function startContractServer() {
                         // The client already left.
                     }
                 }
+            }
+            if (run?.frames) {
+                for (const frame of run.frames) res.write(`data: ${JSON.stringify(frame)}\n\n`)
             }
             if (options.deltas) {
                 for (const frame of [

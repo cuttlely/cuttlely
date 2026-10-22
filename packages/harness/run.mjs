@@ -693,9 +693,10 @@ function toolsFor(context, name) {
 
 function emitTool(context, data) {
     if (!context.toolLog) context.toolLog = []
-    const detail = data.detail ? String(data.detail) : ''
+    // A tool's detail (a preview, an error) can quote a workspace path; it is masked before the log, events and trace.
+    const detail = data.detail ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
     const callId = typeof data.callId === 'string' ? data.callId.trim() : ''
-    const emitted = { ...data }
+    const emitted = { ...data, ...(detail ? { detail } : {}) }
     delete emitted.callId
     if (data.phase === 'start') {
         context.toolLog.push({
@@ -1391,10 +1392,20 @@ function hermesEventCallId(event) {
     return ''
 }
 
+// Streamed text is sent up to its last whitespace, masked, so a workspace path split across two deltas is masked
+// whole; the rest waits for the next delta or the end of the run.
+function forwardDelta(context, specialist, delta, flush = false) {
+    if (!context._deltaTail) context._deltaTail = new Map()
+    const text = (context._deltaTail.get(specialist.name) || '') + delta
+    const cut = flush ? text.length : Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1
+    context._deltaTail.set(specialist.name, text.slice(cut))
+    if (cut > 0) emitSpecialistPartial(context, specialist, hideTurnImageDir(text.slice(0, cut), '', specialistWorkspaceRoot()))
+}
+
 function forwardHermes(context, specialist, event) {
     const kind = event?.event
     if (kind === 'message.delta' && event.delta) {
-        emitSpecialistPartial(context, specialist, String(event.delta))
+        forwardDelta(context, specialist, String(event.delta))
         return
     }
     if (kind !== 'tool.started' && kind !== 'tool.completed') return
@@ -1416,8 +1427,12 @@ function analystQueryCount(context, name) {
 }
 
 async function runSpecialistOnce(context, specialist, task) {
-    if (specialist.profileName && needsAgentLoop(specialist)) return runHermesSpecialist(context, specialist, task)
-    return runInlineSpecialist(context, specialist, task)
+    const out =
+        specialist.profileName && needsAgentLoop(specialist)
+            ? await runHermesSpecialist(context, specialist, task)
+            : await runInlineSpecialist(context, specialist, task)
+    // Every specialist's answer, Hermes or inline, reaches Harness Prime and the chat without workspace paths.
+    return out && typeof out.text === 'string' ? { ...out, text: hideTurnImageDir(out.text, '', specialistWorkspaceRoot()) } : out
 }
 
 // Hermes builds its system prompt from the profile's SOUL.md, which already holds the specialist's
@@ -1517,6 +1532,7 @@ async function runHermesSpecialist(context, specialist, task) {
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })
         noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: Date.now() })
+        forwardDelta(context, specialist, '', true)
         if (['failed', 'error', 'cancelled'].includes(status.status)) {
             const failure = status.error || status.message
             throw new HarnessError(
