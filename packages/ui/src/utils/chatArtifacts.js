@@ -32,16 +32,22 @@ export function fileArtifactHref(item, baseURL) {
     return null
 }
 
+// A stored name with a stray % (not a valid escape) is kept as written instead of throwing.
+const safeDecode = (value) => {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
 // The name to save as: the artifact's own name, or the stored file name without the harness_<specialist>_<time>_<n>_ prefix.
 export function fileArtifactName(item) {
     const named = typeof item?.name === 'string' ? item.name : ''
     let stored = ''
     if (!named && typeof item?.data === 'string') {
         const match = /[?&]fileName=([^&]+)/.exec(item.data)
-        stored = (match ? decodeURIComponent(match[1]) : item.data.replace(/^FILE-STORAGE::/, '')).replace(
-            /^harness_[A-Za-z0-9_-]*?_\d+_\d+_/,
-            ''
-        )
+        stored = (match ? safeDecode(match[1]) : item.data.replace(/^FILE-STORAGE::/, '')).replace(/^harness_[A-Za-z0-9_-]*?_\d+_\d+_/, '')
         if (stored.startsWith('data:')) stored = ''
     }
     const name = (named || stored)

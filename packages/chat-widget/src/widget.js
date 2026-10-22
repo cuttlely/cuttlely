@@ -672,14 +672,19 @@ export class ChatWidget {
 
     // The name to save an image as, with the extension of its type.
     imageArtifactName(item) {
-        const name = fileArtifactName(item)
+        const name = item.data.startsWith('data:') && typeof item.name !== 'string' ? '' : fileArtifactName(item)
         const ext = item.type === 'jpeg' ? 'jpg' : item.type
         const known = ext === 'jpg' ? /\.jpe?g$/i : new RegExp(`\\.${ext}$`, 'i')
         return known.test(name) ? name : `${name.replace(/\.[^.]*$/, '') || 'image'}.${ext}`
     }
 
     renderImageArtifact(item) {
-        const direct = safeUrl(item.data, { image: true, base: this.base })
+        // A PNG, JPEG, GIF or WebP data URL of the artifact's own type shows as it is, at any length.
+        const mime = item.type === 'jpg' ? 'jpeg' : item.type
+        const dataUrl = new RegExp(`^data:image/${mime};base64,[A-Za-z0-9+/]+={0,2}$`).test(item.data)
+        // A stored image is a FILE-STORAGE:: entry or a bare file name; anything else with a scheme is not read from storage.
+        const stored = item.data.startsWith('FILE-STORAGE::') || !/[:/\\]/.test(item.data)
+        const direct = dataUrl ? item.data : safeUrl(item.data, { image: true, base: this.base })
         const src = direct && !item.data.startsWith('/') ? direct : this.api.fileUrl(this.chatId, item.data)
         const figure = h('figure', { class: 'dc-figure' })
         const img = h('img', { src, alt: 'Chart from the answer', loading: 'lazy' })
@@ -700,13 +705,12 @@ export class ChatWidget {
                     // fall through to the placeholder
                 }
             }
-            figure.replaceChildren(h('div', { class: 'dc-figure-missing', html: icons.image }, ['This chart could not be shown here.']))
+            // The download link, if any, stays under the placeholder.
+            img.replaceWith(h('div', { class: 'dc-figure-missing', html: icons.image }, ['This chart could not be shown here.']))
         })
         figure.append(img)
-        // Stored images and data URLs get a download link under the picture; a link to another site does not.
-        const mime = item.type === 'jpg' ? 'jpeg' : item.type
-        const dataUrl = new RegExp(`^data:image/${mime};base64,[A-Za-z0-9+/]+={0,2}$`).test(item.data)
-        if (src !== direct || dataUrl) {
+        // Stored images and image data URLs of the artifact's type get a download link; a link to another site does not.
+        if (stored || dataUrl) {
             const name = this.imageArtifactName(item)
             const label = (item.type === 'jpeg' ? 'jpg' : item.type).toUpperCase()
             figure.append(this.renderDownloadLink(item, name, label, ' dc-image-download'))

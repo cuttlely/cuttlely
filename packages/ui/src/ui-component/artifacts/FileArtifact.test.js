@@ -84,6 +84,12 @@ describe('file artifacts in the chat', () => {
         })
     })
 
+    test('a stored name with a stray percent sign does not throw', () => {
+        const url = `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=chart%complete.png`
+        expect(imageArtifactDownload({ type: 'png', data: url }, BASE).name).toBe('chart_complete.png')
+        expect(fileArtifactName({ type: 'csv', data: `${BASE}/api/v1/get-upload-file?fileName=a%zz.csv` })).toBe('a_zz.csv')
+    })
+
     test('a chat image from elsewhere or of another type has no download', () => {
         expect(imageArtifactDownload({ type: 'png', data: 'https://elsewhere.example/a.png' }, BASE)).toBeNull()
         expect(imageArtifactDownload({ type: 'png', data: 'data:image/svg+xml;base64,PHN2Zz4=' }, BASE)).toBeNull()

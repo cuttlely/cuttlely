@@ -299,6 +299,54 @@ describe('chat widget', () => {
         assert.equal(photo.getAttribute('href'), 'data:image/jpeg;base64,/9j/4AAQ')
     })
 
+    it('offers no download for a data URL that is not an image of the artifact type', async () => {
+        const big = `data:image/png;base64,${'iVBORw0KGgo'.repeat(800)}AAAA`
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'Charts.' },
+                    {
+                        event: 'artifacts',
+                        data: [
+                            { type: 'png', data: 'data:text/html;base64,PGgxPmhpPC9oMT4=' },
+                            { type: 'png', data: 'data:image/svg+xml;base64,PHN2Zz4=' },
+                            { type: 'jpeg', data: 'data:image/png;base64,iVBORw0KGgo=' },
+                            { type: 'png', data: 'javascript:alert(1)' },
+                            { type: 'png', data: big }
+                        ]
+                    },
+                    { event: 'metadata', data: { chatId: 'chat-u', chatMessageId: 'm' } }
+                ])
+        })
+        await type(t, 'Unsafe charts')
+        await until(() => t.$$('.dc-figure').length === 5 && !t.widget.busy)
+        const links = t.$$('.dc-image-download')
+        assert.equal(links.length, 1, 'only the long PNG data URL is offered')
+        assert.equal(links[0].getAttribute('href'), big)
+        assert.equal(links[0].getAttribute('download'), 'image.png')
+        assert.equal(t.$$('.dc-figure img')[4].getAttribute('src'), big, 'a long image data URL shows as it is')
+        assert.equal(
+            t.$$('.dc-artifacts a[href^="data:text"], .dc-artifacts a[href^="javascript"], .dc-artifacts a[href^="data:image/svg"]').length,
+            0
+        )
+    })
+
+    it('keeps the download link when a stored image cannot be shown', async () => {
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'Chart.' },
+                    { event: 'artifacts', data: [{ type: 'png', data: 'FILE-STORAGE::harness_assets_1_0_gone.png' }] },
+                    { event: 'metadata', data: { chatId: 'chat-g', chatMessageId: 'm' } }
+                ])
+        })
+        await type(t, 'Chart')
+        await until(() => t.$('.dc-figure img') && !t.widget.busy)
+        t.$('.dc-figure img').dispatchEvent(new window.Event('error'))
+        await until(() => t.$('.dc-figure-missing'))
+        assert.equal(t.$('.dc-figure .dc-image-download').getAttribute('download'), 'gone.png')
+    })
+
     it('downloads a stored image with the session token when the chat has one', async () => {
         const t = setup({
             predict: () =>
