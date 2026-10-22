@@ -127,10 +127,15 @@ function flagOn(value: unknown): boolean {
     return value === true || value === 'true'
 }
 
+// The Assets preset turns on code execution and files (packages/harness/presets.mjs).
+const PRESET_ACTING: Record<string, string[]> = { assets: ['enableCodeExecution', 'enableFileAccess'] }
+
 // Shell, browser, code and files can change something outside the answer. A specialist without them only
 // uses the tools connected on the canvas, and those nodes are listed on their own.
 export function harnessActingLabels(inputs?: Record<string, any>): string[] {
-    return HARNESS_ACTING.filter(([key]) => flagOn(inputs?.[key])).map(([, label]) => label)
+    const presetKey = typeof inputs?.preset === 'string' ? inputs.preset.trim().toLowerCase() : ''
+    const preset = Object.hasOwn(PRESET_ACTING, presetKey) ? PRESET_ACTING[presetKey] : []
+    return HARNESS_ACTING.filter(([key]) => flagOn(inputs?.[key]) || preset.includes(key)).map(([, label]) => label)
 }
 
 export function isRiskyNode(name: string, category: string, inputs?: Record<string, any>): boolean {

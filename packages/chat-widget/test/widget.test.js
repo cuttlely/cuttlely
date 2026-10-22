@@ -237,6 +237,77 @@ describe('chat widget', () => {
         assert.equal(t.$('.dc-figure-missing').textContent, 'This chart could not be shown here.')
     })
 
+    it('offers files a harness specialist made as download links', async () => {
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'The report is ready.' },
+                    {
+                        event: 'artifacts',
+                        data: [
+                            { type: 'pdf', data: 'FILE-STORAGE::harness_assets_1700000000000_0_q1-report.pdf', name: 'q1-report.pdf' },
+                            { type: 'csv', data: 'FILE-STORAGE::harness_assets_1700000000000_1_orders.csv' },
+                            { type: 'xlsx', data: 'https://elsewhere.example/table.xlsx', name: 'table.xlsx' }
+                        ]
+                    },
+                    { event: 'metadata', data: { chatId: 'chat-f', chatMessageId: 'm' } }
+                ])
+        })
+        await type(t, 'Quarterly report')
+        await until(() => t.$$('.dc-file').length === 2 && !t.widget.busy)
+        const [pdf, csv] = t.$$('.dc-file')
+        assert.equal(pdf.getAttribute('download'), 'q1-report.pdf')
+        assert.equal(pdf.querySelector('.dc-file-type').textContent, 'PDF')
+        assert.equal(csv.getAttribute('download'), 'orders.csv', 'name falls back to the stored file name')
+        // jsdom does not navigate; the test only reads the link the click leaves.
+        pdf.addEventListener('click', (event) => event.preventDefault())
+        pdf.click()
+        assert.match(
+            pdf.getAttribute('href'),
+            /\/api\/v1\/get-upload-file\?chatflowId=.*&chatId=chat-f&fileName=harness_assets_1700000000000_0_q1-report\.pdf&download=true$/
+        )
+        assert.equal(t.$$('.dc-artifacts a[href^="https://elsewhere"]').length, 0, 'a file from outside the chat storage is not offered')
+    })
+
+    it('downloads a file with the session token when the chat has one', async () => {
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'The memo is ready.' },
+                    { event: 'artifacts', data: [{ type: 'docx', data: 'FILE-STORAGE::harness_assets_1_0_memo.docx', name: 'memo.docx' }] },
+                    { event: 'metadata', data: { chatId: 'chat-d', chatMessageId: 'm', sessionToken: 'tok-d' } }
+                ]),
+            file: () => new Response(new Blob([new Uint8Array([80, 75, 3, 4])]), { status: 200 })
+        })
+        await type(t, 'Write the memo')
+        await until(() => t.$('.dc-file') && !t.widget.busy)
+        const created = []
+        const saved = []
+        const original = URL.createObjectURL
+        const click = window.HTMLAnchorElement.prototype.click
+        URL.createObjectURL = (blob) => {
+            created.push(blob)
+            return 'blob:memo'
+        }
+        // The saved blob link is not followed in jsdom; record what it would save.
+        window.HTMLAnchorElement.prototype.click = function () {
+            if (this.getAttribute('href') === 'blob:memo') return saved.push(this.getAttribute('download'))
+            return click.call(this)
+        }
+        try {
+            t.$('.dc-file').click()
+            await until(() => saved.length === 1)
+        } finally {
+            URL.createObjectURL = original
+            window.HTMLAnchorElement.prototype.click = click
+        }
+        assert.equal(created.length, 1)
+        assert.deepEqual(saved, ['memo.docx'])
+        const read = t.server.calls.find((c) => c.path === '/api/v1/get-upload-file')
+        assert.equal(read.headers['x-cuttlely-session-token'], 'tok-d')
+        assert.match(read.search, /chatId=chat-d&fileName=harness_assets_1_0_memo\.docx&download=true$/)
+    })
+
     it('handles a JSON answer from a flow that does not stream', async () => {
         const t = setup({ predict: () => json(200, { text: 'Closed on Mondays.', chatId: 'c2', sessionToken: 't2', chatMessageId: 'm2' }) })
         await type(t, 'Open Monday?')

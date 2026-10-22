@@ -5,6 +5,7 @@ import { compileProfileCached } from './profile.mjs'
 import { specialistHandoffChars } from './context.mjs'
 import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
 import { toolCallingWarnings } from './tool-fallback.mjs'
+import { SPECIALIST_PRESETS, presetName } from './presets.mjs'
 
 function boolInput(value) {
     return value === true || value === 'true'
@@ -174,7 +175,8 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
         },
         specialists: specialists.map((specialist) => {
             const inputs = specialist.data?.inputs || {}
-            const specialistName = inputs.specialistName || inputs.name
+            const preset = presetName(inputs.preset)
+            const specialistName = inputs.specialistName || inputs.name || (preset ? SPECIALIST_PRESETS[preset].name : '')
             if (!specialistName) {
                 throw new HarnessError('bad_roster', `A specialist on harness "${name}" is missing a name.`)
             }
@@ -194,6 +196,7 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
             const models = connectedChatModels(specialist.id, graph, `specialist "${specialistName}"`)
             return {
                 name: specialistName,
+                ...(preset ? { preset } : {}),
                 instructions: inputs.instructions || '',
                 ...(routingSummaryText(inputs.routingSummary) ? { summary: routingSummaryText(inputs.routingSummary) } : {}),
                 ...(playbookList(inputs.playbooks).length ? { playbooks: playbookList(inputs.playbooks) } : {}),
@@ -204,8 +207,8 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
                 mcpServers,
                 shell: boolInput(inputs.enableShell),
                 browser: boolInput(inputs.enableBrowser),
-                codeExecution: boolInput(inputs.enableCodeExecution),
-                fileAccess: boolInput(inputs.enableFileAccess)
+                codeExecution: boolInput(inputs.enableCodeExecution) || Boolean(preset && SPECIALIST_PRESETS[preset].codeExecution),
+                fileAccess: boolInput(inputs.enableFileAccess) || Boolean(preset && SPECIALIST_PRESETS[preset].fileAccess)
             }
         })
     }

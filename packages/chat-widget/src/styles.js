@@ -169,6 +169,10 @@ button:disabled { cursor: default; opacity: 0.5; }
 .dc-figure { margin: 0; border: 1px solid var(--dc-border); border-radius: 14px; overflow: hidden; background: #fff; }
 .dc-figure img { display: block; width: 100%; height: auto; }
 .dc-figure-missing { padding: 14px; font-size: 0.88em; color: var(--dc-muted); background: var(--dc-surface); display: flex; gap: 8px; align-items: center; }
+.dc-file { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--dc-border); border-radius: 14px; background: var(--dc-surface); color: inherit; text-decoration: none; }
+.dc-file:hover, .dc-file:focus-visible { border-color: var(--dc-accent, currentColor); }
+.dc-file-type { font-size: 0.72em; font-weight: 700; letter-spacing: 0.04em; padding: 3px 6px; border-radius: 6px; background: var(--dc-border); }
+.dc-file-name { font-size: 0.9em; overflow-wrap: anywhere; }
 .dc-html-frame { width: 100%; min-height: 220px; border: 1px solid var(--dc-border); border-radius: 14px; background: #fff; }
 .dc-sources { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .dc-sources-label { font-size: 0.78em; font-weight: 600; color: var(--dc-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 2px; }

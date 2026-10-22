@@ -129,37 +129,54 @@ class Harness_Harness implements INode {
 }
 
 type HarnessImage = { type?: string; mime?: string; name?: string; specialist?: string; base64?: string; data?: string }
+type StoredArtifact = { type: string; data: string; name?: string }
 
-// Images a specialist wrote this turn arrive as bytes. They are saved in the chat's file storage, and the chat gets
-// the usual image artifacts. A publish check replay stores nothing.
-async function storeHarnessImages(artifacts: unknown, options: ICommonObject): Promise<Array<{ type: string; data: string }>> {
+// The artifact types a harness turn may return, with the MIME type each is stored as. The harness runtime checked
+// the bytes against the type (packages/harness/images.mjs). PDF, DOCX, XLSX and CSV keep a name for the download.
+const HARNESS_ARTIFACT_MIMES: Record<string, string> = {
+    png: 'image/png',
+    jpeg: 'image/jpeg',
+    pdf: 'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    csv: 'text/csv'
+}
+const HARNESS_FILE_TYPES = new Set(['pdf', 'docx', 'xlsx', 'csv'])
+
+// Images and files a specialist wrote this turn arrive as bytes. They are saved in the chat's file storage, and the
+// chat gets the usual artifacts: images show inline, files as downloads. A publish check replay stores nothing.
+async function storeHarnessImages(artifacts: unknown, options: ICommonObject): Promise<StoredArtifact[]> {
     const list = Array.isArray(artifacts) ? (artifacts as HarnessImage[]) : []
-    const stored: Array<{ type: string; data: string }> = []
+    const stored: StoredArtifact[] = []
     for (const [index, item] of list.entries()) {
         if (!item || typeof item.base64 !== 'string') {
-            if (item && typeof item.type === 'string' && typeof item.data === 'string') stored.push({ type: item.type, data: item.data })
+            if (item && typeof item.type === 'string' && typeof item.data === 'string') {
+                stored.push({ type: item.type, data: item.data, ...(typeof item.name === 'string' ? { name: item.name } : {}) })
+            }
             continue
         }
         // buildChatflow marks a publish check with cuttlelyReplay; agentflow runs pass replay.
         if (options?.replay || options?.cuttlelyReplay || !options?.chatflowid || !options?.chatId) continue
-        if (item.type !== 'png' && item.type !== 'jpeg') continue
-        const base = String(item.name || `image-${index + 1}`)
+        const mime = typeof item.type === 'string' ? HARNESS_ARTIFACT_MIMES[item.type] : undefined
+        if (!mime || (item.mime && item.mime !== mime)) continue
+        const isFile = HARNESS_FILE_TYPES.has(item.type as string)
+        const base = String(item.name || `${isFile ? 'file' : 'image'}-${index + 1}`)
             .split('/')
             .pop()
             ?.replace(/[^A-Za-z0-9._-]/g, '_')
         const fileName = `harness_${String(item.specialist || 'specialist').replace(/[^A-Za-z0-9_-]/g, '_')}_${Date.now()}_${index}_${base}`
         try {
             const result = await addSingleFileToStorage(
-                item.mime || (item.type === 'png' ? 'image/png' : 'image/jpeg'),
+                mime,
                 Buffer.from(item.base64, 'base64'),
                 fileName,
                 options.orgId,
                 options.chatflowid,
                 options.chatId
             )
-            stored.push({ type: item.type, data: result.path })
+            stored.push({ type: item.type as string, data: result.path, ...(isFile ? { name: base } : {}) })
         } catch (error) {
-            console.error('Harness could not store a specialist image:', error instanceof Error ? error.message : error)
+            console.error('Harness could not store a specialist file:', error instanceof Error ? error.message : error)
         }
     }
     return stored
@@ -202,7 +219,7 @@ async function uploadedImages(options: ICommonObject): Promise<string[]> {
 
 // The harness final event carries image names only. As the chatflow's ending node, the stored images go to a live
 // chat the way a Tool Agent sends its artifacts, so they show without reloading the chat.
-function streamStoredImages(options: ICommonObject, artifacts: Array<{ type: string; data: string }>) {
+function streamStoredImages(options: ICommonObject, artifacts: StoredArtifact[]) {
     const sse = options?.sseStreamer
     const chatId = options?.chatId as string
     if (!artifacts.length || !chatId || typeof sse?.streamArtifactsEvent !== 'function') return

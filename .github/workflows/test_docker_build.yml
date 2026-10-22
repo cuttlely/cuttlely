@@ -67,6 +67,8 @@ jobs:
             - run: docker build --no-cache -t cuttlely .
             - name: Image and file libraries smoke test
               run: docker run --rm --entrypoint bash -e HERMES_ASSETS_REQUIRE_SYSTEM=1 cuttlely -c 'hermes/.venv/bin/python scripts/hermes-assets/smoke.py /tmp/hermes-assets-smoke'
+            - name: Assets style kit tests
+              run: docker run --rm --entrypoint bash cuttlely -c 'hermes/.venv/bin/python packages/harness/presets/assets/test_cuttlely_assets.py'
             - name: Use Node.js 24.15.0
               id: node
               continue-on-error: true

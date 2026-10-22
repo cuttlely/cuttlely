@@ -53,6 +53,23 @@ class HarnessSpecialist_Harness implements INode {
                 placeholder: 'researcher'
             },
             {
+                label: 'Preset',
+                name: 'preset',
+                type: 'options',
+                optional: true,
+                default: 'none',
+                options: [
+                    { label: 'None', name: 'none', description: 'Only the instructions and tools set here.' },
+                    {
+                        label: 'Assets',
+                        name: 'assets',
+                        description:
+                            'Makes PDF, DOCX, XLSX, CSV and PNG files with a shared style kit and sends them to the chat. Turns on Code execution and Files. An empty Name becomes assets.'
+                    }
+                ],
+                description: 'Optional. A ready-made specialist. Its instructions come first; Instructions here are added after them.'
+            },
+            {
                 label: 'Instructions',
                 name: 'instructions',
                 type: 'string',

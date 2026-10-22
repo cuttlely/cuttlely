@@ -295,6 +295,52 @@ describe('Harness node specialist images', () => {
         expect(addSingleFileToStorage).not.toHaveBeenCalled()
     })
 
+    it('stores PDF, DOCX, XLSX and CSV files with their name for the download', async () => {
+        const files = [
+            {
+                type: 'pdf',
+                mime: 'application/pdf',
+                name: 'reports/q1 report.pdf',
+                specialist: 'assets',
+                base64: Buffer.from('%PDF-1.7').toString('base64')
+            },
+            {
+                type: 'docx',
+                mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                name: 'memo.docx',
+                specialist: 'assets',
+                base64: Buffer.from('PK').toString('base64')
+            },
+            {
+                type: 'xlsx',
+                mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                name: 'table.xlsx',
+                specialist: 'assets',
+                base64: Buffer.from('PK').toString('base64')
+            },
+            { type: 'csv', mime: 'text/csv', name: 'orders.csv', specialist: 'assets', base64: Buffer.from('a,b\n').toString('base64') }
+        ]
+        const stored = await storeHarnessImages(files, { orgId: 'org-1', chatflowid: 'flow-1', chatId: 'chat-1' })
+        expect(stored.map((item: { type: string; name?: string }) => [item.type, item.name])).toEqual([
+            ['pdf', 'q1_report.pdf'],
+            ['docx', 'memo.docx'],
+            ['xlsx', 'table.xlsx'],
+            ['csv', 'orders.csv']
+        ])
+        expect(stored[0].data).toMatch(/^FILE-STORAGE::harness_assets_\d+_0_q1_report\.pdf$/)
+        expect(addSingleFileToStorage.mock.calls.map((call: unknown[]) => call[0])).toEqual([
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'text/csv'
+        ])
+    })
+
+    it('skips a file whose MIME type does not match its type', async () => {
+        const mismatch = { type: 'pdf', mime: 'text/html', name: 'page.pdf', base64: 'PGgxPg==' }
+        expect(await storeHarnessImages([mismatch], { chatflowid: 'flow-1', chatId: 'chat-1' })).toEqual([])
+    })
+
     it('skips a type the chat cannot show', async () => {
         const gif = { ...png, type: 'gif', mime: 'image/gif', name: 'a.gif' }
         expect(await storeHarnessImages([gif], { chatflowid: 'flow-1', chatId: 'chat-1' })).toEqual([])
