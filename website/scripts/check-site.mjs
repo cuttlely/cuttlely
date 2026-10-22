@@ -46,7 +46,10 @@ const SCORE_CLAIMS = [
 const OTHER_APPS = ['n8n', ['lang', 'flow'].join(''), 'dify', ['keel', 'flow'].join(''), 'heym', ['migrate', 'flows'].join(''), 'ashes']
 const OTHER_APPS_RE = new RegExp(`\\b(${OTHER_APPS.join('|')})\\b`, 'i')
 
-const TAGLINE = 'The visual agent builder, ready for production.'
+const RETIRED_TAGLINE = 'The visual agent builder, ready for production.'
+const HOME_TITLE = 'Cuttlely | Open-source agent platform for lean AI agent teams'
+const HOME_META =
+    'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'
 // Allowed once on the whole site: the heading of the home page's Cost and context section.
 const GROUND_UP = /built from the ground up/gi
 
@@ -268,10 +271,9 @@ export function checkSite(dist, { csp = null } = {}) {
     }
     const homeTitle = (home.match(/<title>([\s\S]*?)<\/title>/) || ['', ''])[1]
     const homeMeta = (home.match(/<meta name="description" content="([^"]*)"/) || ['', ''])[1]
-    if (!homeTitle.includes(TAGLINE)) problems.push('index.html: the title is missing the tagline')
-    if (!homeMeta.includes(TAGLINE)) problems.push('index.html: the meta description is missing the tagline')
-    const heroBlock = (home.match(/class="cl-hero-copy"[\s\S]*?class="cl-hero-art"/) || [''])[0]
-    if (heroBlock.includes(TAGLINE)) problems.push('index.html: the tagline belongs in the title and meta description, not the hero')
+    if (homeTitle !== HOME_TITLE) problems.push(`index.html: the title is not "${HOME_TITLE}"`)
+    if (homeMeta !== HOME_META) problems.push('index.html: the meta description is not the approved one')
+    if (home.includes(RETIRED_TAGLINE)) problems.push('index.html: shows the retired tagline')
     if (!home.includes('href="/quickstart/?ref=home-hero"')) problems.push('index.html: the hero quickstart link has no ref tag')
     if (!home.includes('href="/flowise/"')) {
         problems.push('index.html: missing href="/flowise/"')

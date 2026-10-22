@@ -25,7 +25,7 @@ npx cuttlely start
 
 Node 20+ and Docker
 
-**The visual agent builder, ready for production.**
+**Open-source agent platform for lean AI agent teams.**
 
 Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0. Cuttlely (said like "cuddly") runs on infrastructure you control: every change waits in a draft, you replay real questions on Live and the draft side by side before you publish, and each specialist gets only the task it needs.
 

@@ -671,10 +671,10 @@ test('one Integrations section follows MCP, keeps the Orchestrate video, and nam
     assert.doesNotMatch(section, /A2A/)
 })
 
-test('the home page hero uses the Oct 21 copy and keeps the tagline in the title and meta description', () => {
+test('the home page hero uses the Oct 21 copy, with the approved title and meta description', () => {
     const lead =
         'Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.'
-    const tagline = 'The visual agent builder, ready for production.'
+    const retired = 'The visual agent builder, ready for production.'
     const hero = readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
     const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     const heroLead = hero.slice(hero.indexOf('<p class="cl-hero-lead">') + 24, hero.indexOf('</p>', hero.indexOf('cl-hero-lead')))
@@ -683,10 +683,16 @@ test('the home page hero uses the Oct 21 copy and keeps the tagline in the title
         /<h1 id="_top" class="cl-display cl-hero-title">Your applications <span class="cl-gradient-text">deserve agents<\/span><\/h1>/
     )
     assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
-    assert.equal(hero.includes(tagline), false)
+    assert.equal(hero.includes(retired), false)
+    assert.equal(page.includes(retired), false)
     assert.ok(page.includes("tagline: 'Open-source agent platform · Apache-2.0'"))
-    assert.ok(page.includes(`title: 'Cuttlely | ${tagline}'`))
-    assert.ok(page.includes(`'${tagline} Build AI agent teams`))
+    assert.ok(page.includes("title: 'Cuttlely | Open-source agent platform for lean AI agent teams'"))
+    assert.ok(
+        page.includes(
+            "'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'"
+        )
+    )
+    assert.match(page, /<span class="cl-pair-label">Without it<\/span>\s*The whole database schema is pasted into the prompt\./)
     assert.ok(!/picks up where|next generation/i.test(hero))
     assert.ok(hero.includes('href="/flowise/"'))
     assert.ok(hero.includes('Already have flows? Bring them over'))

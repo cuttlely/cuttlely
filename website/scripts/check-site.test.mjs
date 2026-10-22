@@ -17,7 +17,7 @@ function site(files) {
 
 const head =
     '<link rel="canonical" href="https://cuttlely.com/"><meta property="og:image" content="https://cuttlely.com/social/og-light.png">'
-const home = `<html><head>${head}<title>Cuttlely | The visual agent builder, ready for production.</title><meta name="description" content="The visual agent builder, ready for production. Build AI agent teams."><meta charset="utf-8"></head><body><div class="cl-hero-copy"><p>Open-source agent platform · Apache-2.0</p><h1>Your applications <span>deserve agents</span></h1><p>Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.</p><a href="/quickstart/?ref=home-hero">Get started in 10 minutes</a><a href="https://github.com/cuttlely/cuttlely?ref=home-hero">Star on GitHub</a><pre>npx cuttlely start</pre><p>Node 20+ and Docker</p><a href="/flowise/">Already have flows? Bring them over</a></div><div class="cl-hero-art"></div><h2 id="ctx">Context handling built from the ground up to be lean.</h2><p>Roll back the Live flow in one step</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/docs/#build">Docs</a><section id="integrations"></section></body></html>`
+const home = `<html><head>${head}<title>Cuttlely | Open-source agent platform for lean AI agent teams</title><meta name="description" content="Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish."><meta charset="utf-8"></head><body><div class="cl-hero-copy"><p>Open-source agent platform · Apache-2.0</p><h1>Your applications <span>deserve agents</span></h1><p>Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.</p><a href="/quickstart/?ref=home-hero">Get started in 10 minutes</a><a href="https://github.com/cuttlely/cuttlely?ref=home-hero">Star on GitHub</a><pre>npx cuttlely start</pre><p>Node 20+ and Docker</p><a href="/flowise/">Already have flows? Bring them over</a></div><div class="cl-hero-art"></div><h2 id="ctx">Context handling built from the ground up to be lean.</h2><p>Roll back the Live flow in one step</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/docs/#build">Docs</a><section id="integrations"></section></body></html>`
 const base = {
     'index.html': home,
     '404.html': `<html><head>${head}</head><body>Not found</body></html>`,
@@ -172,13 +172,14 @@ describe('check-site message house', () => {
         })
         const problems = checkSite(dir).problems.join('\n')
         assert.match(problems, /missing "Your applications deserve agents"/)
-        assert.match(problems, /the title is missing the tagline/)
+        assert.match(problems, /the title is not/)
+        assert.match(problems, /meta description is not the approved one/)
     })
 
-    it('keeps the tagline out of the hero and needs the hero ref tag', () => {
+    it('fails the retired tagline anywhere on the home page and needs the hero ref tag', () => {
         const inHero = home.replace('<h1>', '<p>The visual agent builder, ready for production.</p><h1>').replace('?ref=home-hero"', '"')
         const problems = checkSite(site({ ...base, 'index.html': inHero })).problems.join('\n')
-        assert.match(problems, /not the hero/)
+        assert.match(problems, /retired tagline/)
         assert.match(problems, /no ref tag/)
     })
 
