@@ -2427,6 +2427,18 @@ export interface OpenAIReasoningInputs {
 export interface OpenAIReasoningFields {
     reasoning?: OpenAIReasoningTypes.Reasoning
     useResponsesApi?: boolean
+    /** Reasoning for models LangChain does not treat as reasoning models, spread into the request body. */
+    modelKwargs?: { reasoning: OpenAIReasoningTypes.Reasoning }
+}
+
+/**
+ * Whether @langchain/openai sends the `reasoning` field for this model name. It only does for names
+ * starting with o<digit> or gpt-5 (not gpt-5-chat), and silently drops it for every other model.
+ */
+export function langchainSendsReasoning(name: string): boolean {
+    if (!name) return false
+    if (/^o\d/.test(name)) return true
+    return name.startsWith('gpt-5') && !name.startsWith('gpt-5-chat')
 }
 
 const GPT_LATER = /gpt-(?:[6-9]|[1-9]\d)(?![\d])/
@@ -2488,6 +2500,7 @@ function toggleOn(value: OpenAIReasoningInputs['enabled']): boolean {
  *   so LangChain sends no reasoning effort and the model uses its default. A Reasoning Effort or Summary left
  *   in the saved inputs is ignored.
  * - Toggle on: the chosen effort and summary. 'None' on a model without it sends no effort.
+ * - gpt-6 and later get the reasoning in modelKwargs, because LangChain drops `reasoning` for those names.
  * - Responses API: on GPT-6 always, and on gpt-5.6 and later unless the effort sent is 'none', because chat
  *   completions refuses function tools there.
  */
@@ -2514,7 +2527,12 @@ export function openAIReasoningFields(modelName: string, inputs: OpenAIReasoning
     }
 
     const fields: OpenAIReasoningFields = {}
-    if (Object.keys(reasoning).length) fields.reasoning = reasoning
+    if (Object.keys(reasoning).length) {
+        // LangChain drops `reasoning` for gpt-6 and later, so those models get it through modelKwargs,
+        // which LangChain spreads into the Responses API request body as is.
+        if (langchainSendsReasoning(modelName)) fields.reasoning = reasoning
+        else fields.modelKwargs = { reasoning }
+    }
     const sendsNone = reasoning.effort === 'none'
     if (chatCompletionsRefusesFunctionTools(modelName) || (needsResponsesApiForToolsWithReasoning(modelName) && !sendsNone)) {
         fields.useResponsesApi = true

@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   The ChatOpenAI and Azure ChatOpenAI nodes honor the **Reasoning** toggle. With it off, a Reasoning Effort saved earlier is no longer sent: gpt-5.1 to gpt-5.x get `reasoning_effort` `none`, and gpt-5, o-series, GPT-6 and other reasoning models get no reasoning effort (GPT-6 models refuse `none`). This fixes `400 Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions` on a Tool Agent, an Agent node or a harness driven by gpt-5.6. **Reasoning Effort** has a **None** option. gpt-5.6 with any effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools. gpt-6.1-sol gets effort `low` in place of `minimal`, which it refuses.
+-   The ChatOpenAI and Azure ChatOpenAI nodes honor the **Reasoning** toggle. With it off, a Reasoning Effort saved earlier is no longer sent: gpt-5.1 to gpt-5.x get `reasoning_effort` `none`, and gpt-5, o-series, GPT-6 and other reasoning models get no reasoning effort (GPT-6 models refuse `none`). This fixes `400 Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions` on a Tool Agent, an Agent node or a harness driven by gpt-5.6. **Reasoning Effort** has a **None** option. gpt-5.6 with any effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools. GPT-6 models now actually send their Reasoning Effort and Summary in the request's `reasoning` field (before, LangChain dropped them for GPT-6 names), and gpt-6.1-sol gets effort `low` in place of `minimal`, which it refuses.
 
 ## [1.3.2] - 2026-10-22
 

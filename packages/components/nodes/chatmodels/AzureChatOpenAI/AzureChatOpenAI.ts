@@ -269,6 +269,7 @@ class AzureChatOpenAI_ChatModels implements INode {
             })
             if (fields.reasoning) obj.reasoning = fields.reasoning
             if (fields.useResponsesApi) obj.useResponsesApi = true
+            if (fields.modelKwargs) obj.modelKwargs = { ...obj.modelKwargs, ...fields.modelKwargs }
         }
 
         const multiModalOption: IMultiModalOption = {

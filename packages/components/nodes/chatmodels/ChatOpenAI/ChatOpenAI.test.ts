@@ -108,7 +108,7 @@ afterAll(() => {
 describe('openAIReasoningFields', () => {
     it('gpt-6.1-sol gets low instead of minimal, which it refuses', () => {
         expect(openAIReasoningFields('gpt-6.1-sol', { enabled: true, effort: 'minimal' })).toEqual({
-            reasoning: { effort: 'low' },
+            modelKwargs: { reasoning: { effort: 'low' } },
             useResponsesApi: true
         })
         expect(openAIReasoningFields('gpt-5', { enabled: true, effort: 'minimal' })).toEqual({ reasoning: { effort: 'minimal' } })
@@ -143,7 +143,7 @@ describe('openAIReasoningFields', () => {
         expect(openAIReasoningFields('gpt-6-astra', { enabled: false, effort: 'high' })).toEqual({ useResponsesApi: true })
         expect(openAIReasoningFields('gpt-6.1-sol', { enabled: true, effort: 'none' })).toEqual({ useResponsesApi: true })
         expect(openAIReasoningFields('gpt-6-luna', { enabled: true, effort: 'low' })).toEqual({
-            reasoning: { effort: 'low' },
+            modelKwargs: { reasoning: { effort: 'low' } },
             useResponsesApi: true
         })
     })
@@ -230,6 +230,73 @@ describe('ChatOpenAI request params', () => {
         expect(sent[0].body.reasoning?.effort).toBeUndefined()
     })
 
+    it('gpt-6.1-sol with effort minimal sends reasoning effort low in the /responses body', async () => {
+        const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-6.1-sol', reasoning: true, reasoningEffort: 'minimal' })
+        expect(sent).toHaveLength(1)
+        expect(sent[0].api).toBe('responses')
+        expect(sent[0].body.reasoning).toEqual({ effort: 'low' })
+        expect(sent[0].body.reasoning_effort).toBeUndefined()
+        expect(sent[0].body.temperature).toBeUndefined()
+        expect(sent[0].body.tools[0].name).toBe('lookup')
+    })
+
+    it('gpt-6-astra with high and a summary sends both in the /responses body', async () => {
+        const sent = await sendWithTool(ChatOpenAINode, {
+            modelName: 'gpt-6-astra',
+            reasoning: true,
+            reasoningEffort: 'high',
+            reasoningSummary: 'auto'
+        })
+        expect(sent[0].api).toBe('responses')
+        expect(sent[0].body.reasoning).toEqual({ effort: 'high', summary: 'auto' })
+    })
+
+    it('gpt-6-luna with medium sends it in the /responses body', async () => {
+        const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-6-luna', reasoning: true, reasoningEffort: 'medium' })
+        expect(sent[0].api).toBe('responses')
+        expect(sent[0].body.reasoning).toEqual({ effort: 'medium' })
+    })
+
+    it('gpt-5 and gpt-5-mini keep effort minimal on chat completions', async () => {
+        for (const modelName of ['gpt-5', 'gpt-5-mini']) {
+            const sent = await sendWithTool(ChatOpenAINode, { modelName, reasoning: true, reasoningEffort: 'minimal' })
+            expect(sent[0].api).toBe('chat')
+            expect(sent[0].body.reasoning_effort).toBe('minimal')
+            expect(sent[0].body.reasoning).toBeUndefined()
+        }
+    })
+
+    it('gpt-5.6-mini with Reasoning off or effort None sends reasoning_effort none on chat completions', async () => {
+        for (const inputs of [
+            { reasoning: false, reasoningEffort: 'high' },
+            { reasoning: true, reasoningEffort: 'none' }
+        ]) {
+            const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-5.6-mini', ...inputs })
+            expect(sent[0].api).toBe('chat')
+            expect(sent[0].body.reasoning_effort).toBe('none')
+            expect(sent[0].body.reasoning).toBeUndefined()
+            expect(sent[0].body.temperature).toBeUndefined()
+        }
+    })
+
+    it('gpt-5.6 and o3 send no unsupported fields', async () => {
+        const gpt56 = await sendWithTool(ChatOpenAINode, {
+            modelName: 'gpt-5.6',
+            temperature: '0.5',
+            reasoning: true,
+            reasoningEffort: 'high'
+        })
+        expect(gpt56[0].api).toBe('responses')
+        expect(gpt56[0].body.reasoning).toEqual({ effort: 'high' })
+        expect(gpt56[0].body.reasoning_effort).toBeUndefined()
+        expect(gpt56[0].body.temperature).toBeUndefined()
+        const o3 = await sendWithTool(ChatOpenAINode, { modelName: 'o3', temperature: '0.5', reasoning: true, reasoningEffort: 'high' })
+        expect(o3[0].api).toBe('chat')
+        expect(o3[0].body.reasoning_effort).toBe('high')
+        expect(o3[0].body.reasoning).toBeUndefined()
+        expect(o3[0].body.temperature).toBeUndefined()
+    })
+
     it('a non-reasoning model is unchanged', async () => {
         const sent = await sendWithTool(ChatOpenAINode, {
             modelName: 'gpt-4.1',
@@ -255,6 +322,19 @@ describe('AzureChatOpenAI request params', () => {
         expect(sent[0].api).toBe('responses')
         expect(sent[0].body.reasoning).toEqual({ effort: 'medium' })
         expect(sent[0].body.tools[0].name).toBe('lookup')
+    })
+
+    it('gpt-6.1-sol with minimal sends reasoning effort low in the /responses body', async () => {
+        const sent = await sendWithTool(AzureChatOpenAINode, { modelName: 'gpt-6.1-sol', reasoning: true, reasoningEffort: 'minimal' })
+        expect(sent[0].api).toBe('responses')
+        expect(sent[0].body.reasoning).toEqual({ effort: 'low' })
+        expect(sent[0].body.tools[0].name).toBe('lookup')
+    })
+
+    it('gpt-6-astra with Reasoning off sends no reasoning field', async () => {
+        const sent = await sendWithTool(AzureChatOpenAINode, { modelName: 'gpt-6-astra', reasoning: false, reasoningEffort: 'high' })
+        expect(sent[0].api).toBe('responses')
+        expect(sent[0].body.reasoning).toBeUndefined()
     })
 
     it('Reasoning off on o3 sends no reasoning_effort', async () => {
