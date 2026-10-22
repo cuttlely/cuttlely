@@ -502,6 +502,14 @@ function baseToolName(binding) {
 
 const NODE_SUFFIX_MAX = 24
 
+function compareKeys(left, right) {
+    for (let i = 0; i < left.length; i += 1) {
+        if (left[i] < right[i]) return -1
+        if (left[i] > right[i]) return 1
+    }
+    return 0
+}
+
 // A cleaned name never holds two underscores in a row, so a suffix after "__" can never equal a plain
 // name, and adding a node can never take a name another node already has.
 function withSuffix(base, suffix) {
@@ -513,7 +521,8 @@ function withSuffix(base, suffix) {
 function nodeSuffix(binding, index) {
     const id = String(binding?.nodeId || '')
     const clean = toolNameFrom(id)
-    if (clean && clean.length <= NODE_SUFFIX_MAX) return clean
+    // An id is used as is only when cleaning left it unchanged, so two ids never share a suffix that way.
+    if (clean && clean === id && clean.length <= NODE_SUFFIX_MAX) return clean
     if (id) return `n${createHash('sha256').update(id).digest('hex').slice(0, 10)}`
     return String(index + 1)
 }
@@ -538,7 +547,9 @@ export function specialistToolBindings(specialist, reserved = new Set()) {
     }
     const rest = items
         .filter((item) => !names.has(item))
-        .sort((x, y) => (x.base === y.base ? (x.suffix < y.suffix ? -1 : x.suffix > y.suffix ? 1 : 0) : x.base < y.base ? -1 : 1))
+        .sort((x, y) =>
+            compareKeys([x.base, x.suffix, String(x.binding?.nodeId || '')], [y.base, y.suffix, String(y.binding?.nodeId || '')])
+        )
     for (const item of rest) {
         let name = withSuffix(item.base, item.suffix)
         // The counter keeps its room in the 64 characters, so this always ends.

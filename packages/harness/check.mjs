@@ -12512,6 +12512,13 @@ await (async () => {
     const pair = byNode(cross.slice(0, 2))
     const added = byNode(cross)
     const addStable = pair.a === added.a && pair.b === added.b && added.c === 'foo_a' && pair.a === 'foo__a'
+    // Ids that clean to the same text still keep their own names in any order.
+    const twins = [retriever('retrieverTool_1', 'faq'), retriever('retrieverTool__1', 'faq'), retriever('retrieverTool 1', 'faq')]
+    const twinNames = [twins, [...twins].reverse(), [twins[1], twins[2], twins[0]]].map((list) => byNode(list))
+    const twinStable =
+        twinNames.every((map) => twins.every((mod) => map[mod.nodeId] === twinNames[0][mod.nodeId])) &&
+        new Set(Object.values(twinNames[0])).size === 3 &&
+        byNode(twins.slice(1))['retrieverTool__1'] === twinNames[0]['retrieverTool__1']
     const crossStable =
         crossNames.every((map) => JSON.stringify(map, ['a', 'b', 'c']) === JSON.stringify(crossNames[0], ['a', 'b', 'c'])) &&
         crossNames[0].c === 'foo_a'
@@ -12530,12 +12537,13 @@ await (async () => {
             stable &&
             crossStable &&
             addStable &&
+            twinStable &&
             new Set(longNames).size === 3 &&
             longNames.every((name) => name.length <= 64) &&
             toolNameFrom('a'.repeat(80)).length === 64 &&
             toolNameFrom(' kb: north/south ') === 'kb_north_south' &&
             toolNameFrom('-'.repeat(5000)) === '',
-        JSON.stringify({ names, seen, mcpSeen, replies, base, reversed, without, longNames, crossNames, aliasNames, aliasReply })
+        JSON.stringify({ names, seen, mcpSeen, replies, base, reversed, without, longNames, crossNames, twinNames, aliasNames, aliasReply })
     )
 })()
 
