@@ -1242,19 +1242,19 @@ describe('deleteChatflow', () => {
         mockRepo.findOne.mockResolvedValue(makeChatflow({ type: EnumChatflowType.HARNESS }))
         const calls = trackDeletes()
         const order: string[] = []
+        const commit = jest.fn(async () => undefined)
         const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas').mockImplementation(async () => {
             order.push(`cascade after ${calls.map((c) => c.entity).join(',')}`)
-            return { names: ['navi'], restore: async () => undefined }
+            return { names: ['navi'], restore: async () => undefined, commit }
         })
-        const purge = jest.spyOn(harnessesService, 'purgeHarnessRuns').mockResolvedValue(undefined)
         try {
             await chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.HARNESS])
-            expect(cascade).toHaveBeenCalledWith('flow-1', 'ws-1')
+            // The cascade gets the transaction's manager, so the key grants commit or roll back with the canvas.
+            expect(cascade).toHaveBeenCalledWith('flow-1', 'ws-1', expect.objectContaining({ getRepository: expect.any(Function) }))
             expect(order).toEqual([expect.stringMatching(/ChatFlow$/)])
-            expect(purge).toHaveBeenCalledWith(['navi'])
+            expect(commit).toHaveBeenCalledTimes(1)
         } finally {
             cascade.mockRestore()
-            purge.mockRestore()
         }
     })
 
@@ -1276,7 +1276,8 @@ describe('deleteChatflow', () => {
     it('writes the harness record back when the transaction fails after the cascade ran', async () => {
         mockRepo.findOne.mockResolvedValue(makeChatflow({ type: EnumChatflowType.HARNESS }))
         const restore = jest.fn(async () => undefined)
-        const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas').mockResolvedValue({ names: ['navi'], restore })
+        const commit = jest.fn(async () => undefined)
+        const cascade = jest.spyOn(harnessesService, 'removeHarnessesForCanvas').mockResolvedValue({ names: ['navi'], restore, commit })
         mockAppServer.AppDataSource.transaction.mockImplementationOnce(async (fn: (manager: any) => Promise<unknown>) => {
             await fn({ getRepository: () => ({ ...mockRepo, delete: jest.fn(async () => ({ affected: 1, raw: [] })) }) })
             throw new Error('commit failed')
@@ -1286,6 +1287,7 @@ describe('deleteChatflow', () => {
                 /commit failed/
             )
             expect(restore).toHaveBeenCalledTimes(1)
+            expect(commit).not.toHaveBeenCalled()
         } finally {
             cascade.mockRestore()
         }

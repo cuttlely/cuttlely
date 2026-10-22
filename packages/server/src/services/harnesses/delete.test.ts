@@ -19,27 +19,36 @@ const CANVAS_NAVI = '11111111-1111-4111-8111-111111111111'
 const CANVAS_GONE = '22222222-2222-4222-8222-222222222222'
 
 type Row = { name: string; chatflowId?: string; workspaceId?: string; specialists: unknown[] }
-let files: Map<string, Row>
 let runRows: Array<{ table: string; harness: string }>
 let schedules: Set<string>
 let canvases: Map<string, { workspaceId: string; type: string } | 'fail'>
 let storeDir: string
+let failRuns = false
+
+const fileOf = (name: string) => path.join(storeDir, `${name}.json`)
+const has = (name: string) => fs.existsSync(fileOf(name))
+const write = (row: Row) => fs.writeFileSync(fileOf(row.name), JSON.stringify(row))
 
 const fakeModules = (file: string) => {
     if (file === 'store.mjs') {
         return Promise.resolve({
-            listHarnesses: () => [...files.values()].map((row) => ({ ...row })),
-            getHarness: (name: string) => (files.has(name) ? { ...files.get(name) } : null),
-            deleteHarness: (name: string) => void files.delete(name),
-            claimWorkspace: (name: string) => files.get(name)
+            listHarnesses: () =>
+                fs
+                    .readdirSync(storeDir)
+                    .filter((entry) => entry.endsWith('.json'))
+                    .map((entry) => JSON.parse(fs.readFileSync(path.join(storeDir, entry), 'utf8'))),
+            getHarness: (name: string) => (has(name) ? JSON.parse(fs.readFileSync(fileOf(name), 'utf8')) : null),
+            deleteHarness: (name: string) => fs.rmSync(fileOf(name), { force: true }),
+            claimWorkspace: (name: string) => JSON.parse(fs.readFileSync(fileOf(name), 'utf8'))
         })
     }
     if (file === 'schedule.mjs') return Promise.resolve({ deleteSchedule: (name: string) => schedules.delete(name) })
     if (file === 'paths.mjs') return Promise.resolve({ harnessStoreDir: () => storeDir })
     if (file === 'lock.mjs') {
         return Promise.resolve({
-            immediate: (fn: (db: unknown) => void) =>
-                fn({
+            immediate: (fn: (db: unknown) => void) => {
+                if (failRuns) throw new Error('harness database locked')
+                return fn({
                     prepare: (sql: string) => ({
                         all: () => [{ name: 'run_history' }, { name: 'run_results' }],
                         run: (name: string) => {
@@ -48,6 +57,7 @@ const fakeModules = (file: string) => {
                         }
                     })
                 })
+            }
         })
     }
     return Promise.reject(new Error(`unexpected module ${file}`))
@@ -58,11 +68,10 @@ const originalFind = harnessCanvasLookup.find
 
 beforeEach(() => {
     storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-delete-'))
-    files = new Map([
-        ['navi', { name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] }],
-        ['NAVI-B', { name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] }],
-        ['navi-harness', { name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] }]
-    ])
+    failRuns = false
+    write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
+    write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
+    write({ name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     runRows = ['navi', 'NAVI-B', 'navi-harness'].flatMap((harness) => [
         { table: 'run_history', harness },
         { table: 'run_results', harness }
@@ -78,7 +87,8 @@ beforeEach(() => {
     // Stands in for the chat flow delete: the canvas row goes, and the cascade runs inside the same step.
     harnessDeleteHooks.deleteCanvas = jest.fn(async (chatflowId: string, workspaceId: string) => {
         canvases.delete(chatflowId)
-        await removeHarnessesForCanvas(chatflowId, workspaceId)
+        const cascade = await removeHarnessesForCanvas(chatflowId, workspaceId)
+        await cascade.commit()
     })
     ;(removeHarnessFromKeyLists as jest.Mock).mockClear()
 })
@@ -95,9 +105,9 @@ describe('card delete', () => {
         await expect(harnessesService.deleteHarness('navi', TEAM)).resolves.toEqual({ name: 'navi', deleted: true })
         expect(harnessDeleteHooks.deleteCanvas).toHaveBeenCalledWith(CANVAS_NAVI, TEAM)
         expect(canvases.has(CANVAS_NAVI)).toBe(false)
-        expect(files.has('navi')).toBe(false)
+        expect(has('navi')).toBe(false)
         expect(schedules.has('navi')).toBe(false)
-        expect(removeHarnessFromKeyLists).toHaveBeenCalledWith(TEAM, 'navi')
+        expect(removeHarnessFromKeyLists).toHaveBeenCalledWith(TEAM, 'navi', undefined)
         expect(runRows.some((row) => row.harness === 'navi')).toBe(false)
         expect(runRows.filter((row) => row.harness === 'NAVI-B')).toHaveLength(2)
     })
@@ -105,71 +115,121 @@ describe('card delete', () => {
     it('removes a harness with no canvas directly', async () => {
         await harnessesService.deleteHarness('NAVI-B', TEAM)
         expect(harnessDeleteHooks.deleteCanvas).not.toHaveBeenCalled()
-        expect(files.has('NAVI-B')).toBe(false)
+        expect(has('NAVI-B')).toBe(false)
     })
 
     it('deletes an orphan card', async () => {
         await harnessesService.deleteHarness('navi-harness', TEAM)
-        expect(files.has('navi-harness')).toBe(false)
+        expect(has('navi-harness')).toBe(false)
     })
 
     it('keeps the harness when the canvas cannot be read', async () => {
         canvases.set(CANVAS_NAVI, 'fail')
         await expect(harnessesService.deleteHarness('navi', TEAM)).rejects.toMatchObject({ statusCode: 503 })
-        expect(files.has('navi')).toBe(true)
+        expect(has('navi')).toBe(true)
     })
 
     it('is a 404 for another team', async () => {
         await expect(harnessesService.deleteHarness('navi', 'team-b')).rejects.toMatchObject({ statusCode: 404 })
-        expect(files.has('navi')).toBe(true)
+        expect(has('navi')).toBe(true)
     })
 })
 
 describe('canvas delete cascade', () => {
-    it('removes every harness record built on the canvas', async () => {
-        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM)
+    const manager = { name: 'the canvas transaction' } as any
+
+    it('removes key grants in the canvas transaction and stages the record until the commit', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)
         expect(cascade.names).toEqual(['navi'])
-        expect(files.has('navi')).toBe(false)
+        expect(removeHarnessFromKeyLists).toHaveBeenCalledWith(TEAM, 'navi', manager)
+        expect(has('navi')).toBe(false)
+        expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(true)
+        // Nothing outside the transaction is gone before the commit.
+        expect(schedules.has('navi')).toBe(true)
+        await cascade.commit()
+        expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(false)
         expect(schedules.has('navi')).toBe(false)
-        expect(files.has('NAVI-B')).toBe(true)
+        expect(runRows.some((row) => row.harness === 'navi')).toBe(false)
+        expect(has('NAVI-B')).toBe(true)
+    })
+
+    it('restore puts the record back when the transaction fails, with its schedule and runs untouched', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)
+        await cascade.restore()
+        expect(JSON.parse(fs.readFileSync(fileOf('navi'), 'utf8'))).toMatchObject({
+            name: 'navi',
+            chatflowId: CANVAS_NAVI,
+            workspaceId: TEAM
+        })
+        expect(schedules.has('navi')).toBe(true)
+        expect(runRows.filter((row) => row.harness === 'navi')).toHaveLength(2)
+    })
+
+    it('throws and keeps the record when the key lists cannot be changed, so the transaction rolls back', async () => {
+        ;(removeHarnessFromKeyLists as jest.Mock).mockRejectedValueOnce(new Error('api key table locked'))
+        await expect(removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)).rejects.toThrow(/api key table locked/)
+        expect(has('navi')).toBe(true)
     })
 
     it('leaves a record in another team alone', async () => {
-        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, 'team-b')
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, 'team-b', manager)
         expect(cascade.names).toEqual([])
-        expect(files.has('navi')).toBe(true)
+        expect(has('navi')).toBe(true)
     })
 
-    it('throws and keeps the record when its schedule cannot be removed, so the transaction rolls back', async () => {
-        harnessDeleteHooks.removeSchedule = async () => {
-            throw new Error('schedule store locked')
-        }
-        await expect(removeHarnessesForCanvas(CANVAS_NAVI, TEAM)).rejects.toMatchObject({ statusCode: 500 })
-        expect(files.has('navi')).toBe(true)
+    it('a process that stopped mid-delete is settled at start: restored with its canvas, finished without it', async () => {
+        await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)
+        await harnessesService.removeOrphanHarnesses()
+        expect(has('navi')).toBe(true)
+
+        await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)
+        canvases.delete(CANVAS_NAVI)
+        const result = await harnessesService.removeOrphanHarnesses()
+        expect(result.removed).toContain('navi')
+        expect(has('navi')).toBe(false)
+        expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(false)
+        expect(schedules.has('navi')).toBe(false)
+    })
+})
+
+describe('a reused name never sees an earlier harness data', () => {
+    it('clears run rows and a schedule left under a new name before a canvas claims it', async () => {
+        runRows.push({ table: 'run_history', harness: 'navi-c' }, { table: 'run_results', harness: 'navi-c' })
+        schedules.add('navi-c')
+        await harnessesService.assertNameAvailable('navi-c', 'team-b', { claiming: true })
+        expect(runRows.some((row) => row.harness === 'navi-c')).toBe(false)
+        expect(schedules.has('navi-c')).toBe(false)
     })
 
-    it('restore writes the record back when the transaction fails after the cascade', async () => {
-        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM)
-        await cascade.restore()
-        const written = JSON.parse(fs.readFileSync(path.join(storeDir, 'navi.json'), 'utf8'))
-        expect(written).toMatchObject({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM })
+    it('refuses the save when the leftovers cannot be cleared', async () => {
+        runRows.push({ table: 'run_history', harness: 'navi-c' })
+        failRuns = true
+        await expect(harnessesService.assertNameAvailable('navi-c', 'team-b', { claiming: true })).rejects.toMatchObject({
+            statusCode: 503
+        })
+    })
+
+    it('a canvas that only names a harness does not clear anything', async () => {
+        runRows.push({ table: 'run_history', harness: 'navi-c' })
+        await harnessesService.assertNameAvailable('navi-c', 'team-b')
+        expect(runRows.some((row) => row.harness === 'navi-c')).toBe(true)
     })
 })
 
 describe('orphan cleanup migration', () => {
     it('removes records whose canvas is gone and is idempotent', async () => {
         await expect(harnessesService.removeOrphanHarnesses()).resolves.toEqual({ removed: ['navi-harness'] })
-        expect(files.has('navi-harness')).toBe(false)
+        expect(has('navi-harness')).toBe(false)
         expect(schedules.has('navi-harness')).toBe(false)
         expect(runRows.some((row) => row.harness === 'navi-harness')).toBe(false)
-        expect([...files.keys()].sort()).toEqual(['NAVI-B', 'navi'])
+        expect(['NAVI-B', 'navi'].map(has)).toEqual([true, true])
         await expect(harnessesService.removeOrphanHarnesses()).resolves.toEqual({ removed: [] })
     })
 
     it('keeps a record when the canvas lookup fails', async () => {
         canvases.set(CANVAS_GONE, 'fail')
         await expect(harnessesService.removeOrphanHarnesses()).resolves.toEqual({ removed: [] })
-        expect(files.has('navi-harness')).toBe(true)
+        expect(has('navi-harness')).toBe(true)
     })
 })
 

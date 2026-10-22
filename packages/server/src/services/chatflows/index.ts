@@ -156,9 +156,10 @@ const deleteChatflow = async (
 
         // The flow row and the rows that hold what people typed into it (leads with name, email and phone, messages,
         // feedback, upsert history) go in one transaction: if any of them fails, the flow stays and nothing is half gone.
-        // A HARNESS canvas takes its harness record (roster, specialists, playbooks, key grants, schedule) with it, inside
-        // the same transaction: a failed record delete rolls the canvas back, and a failed commit writes the record back.
-        let harnessCascade: { names: string[]; restore: () => Promise<void> } | undefined
+        // A HARNESS canvas takes its harness record (roster, specialists, playbooks) and its API key grants with it, inside
+        // the same transaction: a failure rolls the canvas back, and a failed commit puts the record back. The schedule and
+        // run history go after the commit.
+        let harnessCascade: { names: string[]; restore: () => Promise<void>; commit: () => Promise<void> } | undefined
         let dbResponse
         try {
             dbResponse = await appServer.AppDataSource.transaction(async (manager) => {
@@ -168,7 +169,7 @@ const deleteChatflow = async (
                 await manager.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
                 const deleted = await manager.getRepository(ChatFlow).delete({ id: chatflowId })
                 if (chatflow.type === EnumChatflowType.HARNESS) {
-                    harnessCascade = await harnessesService.removeHarnessesForCanvas(chatflowId, workspaceId)
+                    harnessCascade = await harnessesService.removeHarnessesForCanvas(chatflowId, workspaceId, manager)
                 }
                 return deleted
             })
@@ -182,7 +183,7 @@ const deleteChatflow = async (
             }
             throw error
         }
-        if (harnessCascade?.names.length) await harnessesService.purgeHarnessRuns(harnessCascade.names)
+        if (harnessCascade) await harnessCascade.commit()
         void flowVersionsService.recordFlowDeletion(chatflow, actor)
         // The flow's draft and Publish instantly setting go with it. A leftover row is harmless, so a failure here
         // does not stop the delete.
@@ -916,7 +917,7 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     // Before any insert or update, so a refused key leaves no row behind. The sync checks the same caller again.
     assertCallerMayUseHarnesses(caller, [chatflow.name])
     // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
-    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
+    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, { claiming: true })
     const engine = await loadHarnessSync()
     try {
         engine.rosterFromFlow({
