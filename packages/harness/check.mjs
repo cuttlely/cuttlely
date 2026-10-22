@@ -7962,7 +7962,9 @@ check(
                 '"report.pdf could not be copied over /tmp/output.pdf"'
             ],
             [`"${path.join(assets, 'Q3 and Q4', 'deck.pptx')}"`, '"deck.pptx"'],
-            [`"${path.join(assets, 'Q3; old', 'a.pdf')} moved"`, `"Q3; old${path.sep}a.pdf moved"`]
+            [`"${path.join(assets, 'Q3; old', 'a.pdf')} moved"`, `"Q3; old${path.sep}a.pdf moved"`],
+            [`"${path.join(assets, 'report.pdf')} failed during read/write"`, '"report.pdf failed during read/write"'],
+            [`"${path.join(assets, 'report.pdf')} and/or deck.pptx"`, '"report.pdf and/or deck.pptx"']
         ]
         // A chat folder outside the root (another root passed in) is still masked, with the same start boundary.
         const elsewhere = path.join(os.tmpdir(), 'cuttlely-chat', 'run1')
@@ -7976,7 +7978,26 @@ check(
         hideTurnImageDir(`"${assets}${path.sep}a${' '.repeat(32000)}b"`, coderDir)
         hideTurnImageDir(`"${assets}${path.sep}${'a b/'.repeat(16000)}"`, coderDir)
         hideTurnImageDir(`'${`${assets}${path.sep}x `.repeat(4000)}'`, coderDir)
-        const { maskWorkspacePaths } = await import('./run.mjs')
+        const { maskWorkspacePaths, bufferStream, rootPrefixAt } = await import('./run.mjs')
+        // A stream split anywhere, even inside the workspaces folder's name, never sends the raw path.
+        const streamed = `See ${path.join(assets, 'out', 'report.pdf')} now. `
+        const splitLeaks = []
+        for (let at = 1; at < streamed.length; at += 1) {
+            const sent = []
+            const streamContext = {}
+            for (const piece of [streamed.slice(0, at), streamed.slice(at)]) {
+                bufferStream(streamContext, 'answer', piece, false, (text) => sent.push(text))
+            }
+            bufferStream(streamContext, 'answer', '', true, (text) => sent.push(text))
+            if (sent.join('') !== 'See report.pdf now. ' || sent.some((text) => text.includes(root))) splitLeaks.push(at)
+        }
+        check('a streamed path split at any point is masked whole', splitLeaks.length === 0, JSON.stringify(splitLeaks))
+        check(
+            'a stream ending partway into a workspaces folder with spaces waits for the rest',
+            rootPrefixAt('See /var/cuttlely ', '/var/cuttlely data/workspaces') === 4 &&
+                rootPrefixAt('See file:///var/cu', '/var/cuttlely data/workspaces') === 4 &&
+                rootPrefixAt('See you ', '/var/cuttlely data/workspaces') === 8
+        )
         const maskedValue = maskWorkspacePaths({
             text: `data: ${path.join(assets, 'r.pdf')}`,
             data: `data:text/plain,${assets}`,

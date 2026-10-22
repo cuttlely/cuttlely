@@ -181,6 +181,7 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
     // file extension, otherwise it ends at the first space. The rest keeps its words, and any further path is masked.
     const badFolder = /^\s|\s$|[;:<>|?*]|, /
     const fileEnd = /\.[A-Za-z0-9]{1,8}$/
+    const namedFile = /\.[A-Za-z0-9]{1,8}\s/
     const space = /\s/g
     const quotedPaths = (full) => {
         const start = new RegExp(`^${head}`).exec(full)?.[0].length || 0
@@ -191,7 +192,8 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
             const next = full.indexOf(s, pos + 1)
             if (next !== -1) {
                 const folder = full.slice(pos + 1, next)
-                if (folder && !badFolder.test(folder)) {
+                // A file name followed by words ("report.pdf failed during read/write") is not a folder.
+                if (folder && !badFolder.test(folder) && !namedFile.test(folder)) {
                     pos = next
                     continue
                 }

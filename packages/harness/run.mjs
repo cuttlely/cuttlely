@@ -606,7 +606,7 @@ async function runRoster(context, input) {
             context.chatId,
             question,
             text,
-            sourceNames([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])])
+            sourceNames(maskWorkspacePaths([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])]))
         )
     }
     const timings = { routeMs: routed - started, specialistsMs: finished - routed, handoffMs: Date.now() - finished }
@@ -1395,7 +1395,8 @@ async function runStep(context, step) {
             ...specialistEventFields(context, specialist, [], true),
             ...phaseCalls(context, 'specialist', specialist.name)
         })
-        return {
+        // The task can hold staged upload paths; the failed step goes to Prime's prompt masked whole.
+        return maskWorkspacePaths({
             name: specialist.name,
             status: 'failed',
             task,
@@ -1406,7 +1407,7 @@ async function runStep(context, step) {
             sources: [],
             ms,
             soul: specialistSoul(specialist)
-        }
+        })
     }
 }
 
@@ -1433,7 +1434,7 @@ function hermesEventCallId(event) {
 // Streamed text is sent up to its last whitespace, masked, so a workspace path split across two deltas is masked
 // whole; a last word that may start a path waits for the next delta or the end of the stream. Each stream (a specialist, the chief's route or
 // answer) keeps its own tail.
-function bufferStream(context, key, delta, flush, send) {
+export function bufferStream(context, key, delta, flush, send) {
     if (!context._deltaTail) context._deltaTail = new Map()
     const text = (context._deltaTail.get(key) || '') + delta
     let cut = flush ? text.length : Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1
@@ -1441,8 +1442,24 @@ function bufferStream(context, key, delta, flush, send) {
     const last = text.slice(cut)
     const mayStartLink = [...'file://'].some((_, index) => last.endsWith('file://'.slice(0, index + 1)))
     if (!flush && !last.includes(path.sep) && !last.includes('/') && !mayStartLink) cut = text.length
+    // The workspaces folder's own name may hold spaces: text that ends partway into it waits too.
+    if (!flush) cut = Math.min(cut, rootPrefixAt(text))
     context._deltaTail.set(key, text.slice(cut))
     if (cut > 0) send(hideTurnImageDir(text.slice(0, cut), '', specialistWorkspaceRoot()))
+}
+
+// Where the text's end starts a prefix of the workspaces folder (or its file:// link), or its length when it does not.
+export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
+    let at = text.length
+    for (const full of [root, `file://${root}`]) {
+        for (let index = Math.max(0, text.length - full.length); index < at; index += 1) {
+            if (full.startsWith(text.slice(index))) {
+                at = index
+                break
+            }
+        }
+    }
+    return at
 }
 
 function forwardDelta(context, specialist, delta, flush = false) {
@@ -2196,7 +2213,7 @@ async function runDirectTool(context, specialist, input) {
             context
         )}, ${reportNote(context)}`
     )
-    if (!context.replay) appendTurn(name, chatId, question, text, sourceNames(output.documents))
+    if (!context.replay) appendTurn(name, chatId, question, text, sourceNames(maskWorkspacePaths(output.documents)))
     const filledInput = typeof value === 'string' ? value : JSON.stringify(value ?? '')
     const agent = publicAgent(context, specialist, {
         name: specialist.name,
