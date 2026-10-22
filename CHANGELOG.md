@@ -9,6 +9,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The public website home page has an Integrations for the enterprise section after the three pillars: Example: call your agents from IBM watsonx Orchestrate, with a 72-second narrated demo video (captions, poster first, loads on play).
 -   When `npx cuttlely start` gives up waiting for the health check, it says to check the logs with `npx cuttlely logs` and then open the address once it answers, instead of saying Cuttlely is still starting.
 
+### Fixed
+
+-   A specialist with several tool nodes of one type, such as two Retriever Tool nodes, offered them all under the same name and sent every call to the first one. Each node is now offered under its own name input (made a valid tool name; a repeated name gets the node id as a suffix), and each call reaches the node it names.
+
 ## [1.3.1] - 2026-10-21
 
 ### Added

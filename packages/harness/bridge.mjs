@@ -469,6 +469,63 @@ export function readyToolSpecs(prepared) {
     })
 }
 
+// Tool names must match ^[A-Za-z0-9_-]{1,64}$, so anything else becomes an underscore.
+const TOOL_NAME_MAX = 64
+
+export function toolNameFrom(text) {
+    return String(text ?? '')
+        .trim()
+        .replace(/[^A-Za-z0-9_-]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^[_-]+|[_-]+$/g, '')
+        .slice(0, TOOL_NAME_MAX)
+}
+
+function baseToolName(binding) {
+    return (
+        toolNameFrom(binding?.inputs?.name) ||
+        toolNameFrom(binding?.nodeName) ||
+        toolNameFrom(binding?.serverName) ||
+        toolNameFrom(binding?.label) ||
+        'module'
+    )
+}
+
+function withSuffix(base, suffix) {
+    const tail = `_${suffix}`
+    return `${base.slice(0, Math.max(1, TOOL_NAME_MAX - tail.length))}${tail}`.slice(0, TOOL_NAME_MAX)
+}
+
+// One tool name per wired node, from the node's own name input. Two nodes that would share a name
+// keep the first as is and give the next one its node id as a suffix, so the name does not move
+// when other nodes are added or removed.
+export function specialistToolBindings(specialist) {
+    const bindings = [...(specialist?.modules || []), ...(specialist?.mcpServers || [])]
+    const taken = new Set()
+    const entries = []
+    bindings.forEach((binding, index) => {
+        const base = baseToolName(binding)
+        let name = base
+        if (taken.has(name)) name = withSuffix(base, toolNameFrom(binding?.nodeId) || String(index + 1))
+        for (let n = 2; taken.has(name); n += 1) name = withSuffix(base, `${toolNameFrom(binding?.nodeId) || index + 1}_${n}`)
+        taken.add(name)
+        entries.push({ name, nodeId: binding?.nodeId || '', binding })
+    })
+    return entries
+}
+
+export function specialistToolName(specialist, binding) {
+    return specialistToolBindings(specialist).find((entry) => entry.binding === binding)?.name || baseToolName(binding)
+}
+
+function bindingForToolName(specialist, toolName) {
+    const entry = specialistToolBindings(specialist).find((item) => item.name === toolName)
+    if (!entry) return null
+    if (!entry.nodeId) return entry.binding
+    const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
+    return all.find((binding) => binding?.nodeId === entry.nodeId) || entry.binding
+}
+
 export function specialistByName(harness, name) {
     return (harness.specialists || []).find((specialist) => specialist.name === name) || null
 }
@@ -487,7 +544,9 @@ export async function executeSpecialistTool(harnessName, specialistName, toolNam
     }
     const modules = specialist.modules || []
     const mcpServers = specialist.mcpServers || []
+    // Route by the node behind the advertised name, so nodes of one type each get their own calls.
     const binding =
+        bindingForToolName(specialist, toolName) ||
         modules.find((mod) => mod.nodeName === toolName || mod.label === toolName) ||
         mcpServers.find((mod) => mod.nodeName === toolName || mod.serverName === toolName || mod.label === toolName) ||
         modules[0] ||

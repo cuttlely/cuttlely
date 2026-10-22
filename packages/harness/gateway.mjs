@@ -6,7 +6,7 @@ import { noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.m
 import { isAnalystQueryTool } from './context.mjs'
 import { SQL_TOOL_REFUSED, enforcesTables, runsSql } from './sql-tools.mjs'
 import { analystScopeKey, withAnalystScope } from './runtime/analyst-store.mjs'
-import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpecs } from './bridge.mjs'
+import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpecs, specialistToolName } from './bridge.mjs'
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
@@ -687,7 +687,7 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
     if (!specialist) return []
     const tools = []
     const refused = new Set()
-    for (const binding of specialist.modules || []) tools.push(toolSpec(binding, 'Connected node'))
+    for (const binding of specialist.modules || []) tools.push(toolSpec(binding, 'Connected node', specialistToolName(specialist, binding)))
     for (const binding of specialist.mcpServers || []) {
         if (!isFlowiseMcpBinding(binding)) continue
         const prepared = await prepareModule(binding, '', {
@@ -697,10 +697,10 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
             nodeCache: ctx.nodeCache
         })
         const ready = readyToolSpecs(prepared)
-        const specs = refuseSqlTools(profileName, specialistName, binding, ready, refused)
+        const specs = refuseSqlTools(profileName, specialistName, binding, ready, refused, specialistToolName(specialist, binding))
         if (specs.length) tools.push(...specs)
         else if (ready.length) continue
-        else tools.push(toolSpec(binding, 'Connected MCP server'))
+        else tools.push(toolSpec(binding, 'Connected MCP server', specialistToolName(specialist, binding)))
     }
     // The set belongs to this specialist profile. A try must not replace the published profile's set.
     if (profileName) refusedSqlTools.set(refusalKey(profileName), refused)
@@ -715,7 +715,7 @@ function refusalKey(profileName) {
     return String(profileName || '')
 }
 
-function refuseSqlTools(profileName, specialistName, binding, specs, refused) {
+function refuseSqlTools(profileName, specialistName, binding, specs, refused, ownName) {
     if (enforcesTables(binding)) return specs
     const before = refusedSqlTools.get(refusalKey(profileName))
     const kept = []
@@ -731,7 +731,7 @@ function refuseSqlTools(profileName, specialistName, binding, specs, refused) {
     }
     // A call by the server's own name runs its first tool, so that name is refused with it.
     if (specs.length && runsSql(specs[0])) {
-        for (const name of [binding.nodeName, binding.serverName, binding.label]) if (name) refused.add(name)
+        for (const name of [binding.nodeName, binding.serverName, binding.label, ownName]) if (name) refused.add(name)
     }
     return kept
 }
@@ -740,8 +740,8 @@ export function isRefusedSqlTool(profileName, toolName) {
     return Boolean(refusedSqlTools.get(refusalKey(profileName))?.has(toolName))
 }
 
-function toolSpec(binding, kind) {
-    const name = binding.nodeName || binding.serverName || binding.label || 'module'
+function toolSpec(binding, kind, ownName) {
+    const name = ownName || binding.nodeName || binding.serverName || binding.label || 'module'
     const label = binding.label || binding.nodeName || binding.serverName || 'node'
     const detail = binding.description ? ` ${binding.description}` : ''
     return {

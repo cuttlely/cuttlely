@@ -12326,6 +12326,91 @@ await (async () => {
 })()
 
 await (async () => {
+    const { specialistToolBindings, toolNameFrom } = await import('./bridge.mjs')
+    const seen = []
+    class FakeRetrieverTool {
+        async init(nodeData) {
+            const own = nodeData?.inputs?.name || 'unnamed'
+            return {
+                name: own,
+                schema: { _def: { typeName: 'ZodString' } },
+                async invoke(arg) {
+                    seen.push({ node: nodeData?.id, own, arg })
+                    return `from ${own}: ${arg}`
+                }
+            }
+        }
+    }
+    const retriever = (nodeId, name) => ({
+        nodeId,
+        nodeName: 'retrieverTool',
+        label: 'Retriever Tool',
+        category: 'Tools',
+        inputs: { name, description: `Search ${name}.` }
+    })
+    const modules = [
+        retriever('retrieverTool_0', 'policy handbook'),
+        retriever('retrieverTool_1', 'pricing_faq'),
+        retriever('retrieverTool_2', 'pricing_faq'),
+        retriever('retrieverTool_3', '')
+    ]
+    const toolModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name: 'retrievers',
+            workspaceId: 'w1',
+            chatflowId: 'flow-retrievers',
+            chief: { instructions: 'Route the work.', model: toolModel },
+            specialists: [{ name: 'librarian', instructions: 'Search the stores.', shell: false, modules, mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const { registerProfileToken } = await import('./gateway.mjs')
+    const token = 'R'.repeat(43)
+    registerProfileToken({ token, harnessName: 'retrievers', specialistName: 'librarian', profileName: 'retrievers--librarian' })
+    await maybeConfigure(
+        flowContext({
+            workspaceId: 'w1',
+            loadNode: async (nodeName) => {
+                if (nodeName === 'retrieverTool') return FakeRetrieverTool
+                throw new Error(`unexpected node ${nodeName}`)
+            }
+        })
+    )
+    const gateway = await openGateway()
+    const listed = JSON.parse(
+        (await localRequest({ port: gateway.port, method: 'POST', path: '/harness/tools/list', token, body: {} })).body
+    )
+    const names = (listed.tools || []).map((tool) => tool.name)
+    const replies = []
+    for (const name of names) {
+        const response = await localRequest({
+            port: gateway.port,
+            method: 'POST',
+            path: '/harness/tools/call',
+            token,
+            body: { name, arguments: { input: `ask ${name}` } }
+        })
+        replies.push(JSON.parse(response.body).result)
+    }
+    await gateway.close()
+    const again = specialistToolBindings({ modules: [...modules].reverse() }).map((entry) => entry.name)
+    const expected = ['policy_handbook', 'pricing_faq', 'pricing_faq_retrieverTool_2', 'retrieverTool']
+    check(
+        'several retrieverTool nodes on one specialist get their own tool names and each call reaches its own node',
+        JSON.stringify(names) === JSON.stringify(expected) &&
+            names.every((name) => /^[A-Za-z0-9_-]{1,64}$/.test(name)) &&
+            seen.length === 4 &&
+            seen.every((hit, index) => hit.node === modules[index].nodeId && hit.arg === `ask ${names[index]}`) &&
+            replies.every((reply, index) => String(reply).includes(`ask ${names[index]}`)) &&
+            again.includes('retrieverTool') &&
+            toolNameFrom('a'.repeat(80)).length === 64 &&
+            toolNameFrom(' kb: north/south ') === 'kb_north_south',
+        JSON.stringify({ names, seen, replies, again })
+    )
+})()
+
+await (async () => {
     const { specialistSessionId } = await import('./specialist-run.mjs')
     const { currentAnalystScope, openAnalystRunScopes, queryAnalyst } = await import('./runtime/analyst-store.mjs')
     const { latestAnalystCursor } = await import('./analyst-capture.mjs')
