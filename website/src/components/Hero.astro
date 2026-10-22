@@ -1,5 +1,5 @@
 ---
-// The home page hero: headline, tagline, the two main actions, the three install commands and the mascot.
+// The home page hero: kicker, headline, supporting line, the two main actions, the one-command start and the mascot.
 // Starlight renders this component only for pages with `hero` in their frontmatter (the home page).
 import { Image } from 'astro:assets'
 import mascot from '../assets/cuttlely-mascot-primary-1024.webp'
@@ -19,35 +19,32 @@ const tagline = hero.tagline ?? ''
                 {tagline}
             </p>
         )}
-        <h1 id="_top" class="cl-display cl-hero-title">The visual agent builder, <span class="cl-gradient-text">ready for production.</span></h1>
-        <p class="cl-hero-lead">Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.</p>
-        <p class="cl-hero-proof">Every change waits in a draft. Replay real questions on Live and the draft, side by side, before you publish.</p>
+        <h1 id="_top" class="cl-display cl-hero-title">Your applications <span class="cl-gradient-text">deserve agents</span></h1>
+        <p class="cl-hero-lead">Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.</p>
         <div class="cl-actions">
-            <a class="cl-button cl-button-primary" href="/quickstart/">
+            <a class="cl-button cl-button-primary" href="/quickstart/?ref=home-hero">
                 Get started in 10 minutes
                 <Icon name="right-arrow" size="1.1em" />
             </a>
-            <a class="cl-button cl-button-ghost" href={REPO_URL}>
+            <a class="cl-button cl-button-ghost" href={`${REPO_URL}?ref=home-hero`}>
                 <Icon name="github" size="1.1em" />
                 Star on GitHub
             </a>
         </div>
+        <div class="cl-hero-start" role="group" aria-label="Start Cuttlely with one command">
+            <div class="cl-terminal cl-terminal-inline">
+                <pre id="cl-hero-npx"><code><span class="cl-prompt" aria-hidden="true">$ </span>npx cuttlely start</code></pre>
+                <CopyButton target="cl-hero-npx" label="Copy the command npx cuttlely start" />
+            </div>
+            <p class="cl-hero-start-note">Node 20+ and Docker · <a href="/quickstart/?ref=home-hero#docker-not-running">Docker not running?</a> · <a href={`${REPO_URL}?ref=home-hero`}>github.com/cuttlely/cuttlely</a></p>
+        </div>
         <p class="cl-hero-from">
+            <span id="bring-your-existing-flows" class="cl-anchor" aria-hidden="true"></span>
             <a class="cl-link-arrow" href="/flowise/">Already have flows? Bring them over <Icon name="right-arrow" /></a>
         </p>
         <p class="cl-hero-from">
             1.3.1: every flow an MCP server, and Orchestrate. <a href="/changelog/">What's new</a> · <a href="https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f">Security advisory</a>
         </p>
-        <div class="cl-terminal" role="group" aria-label="Install Cuttlely with Docker">
-            <div class="cl-terminal-bar">
-                <span class="cl-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span class="cl-terminal-title">Three commands. Docker and one model key.</span>
-                <CopyButton target="cl-install" />
-            </div>
-            <pre id="cl-install"><code><span class="cl-prompt" aria-hidden="true">$ </span>git clone https://github.com/cuttlely/cuttlely.git
-<span class="cl-prompt" aria-hidden="true">$ </span>cd cuttlely
-<span class="cl-prompt" aria-hidden="true">$ </span>docker compose up -d</code></pre>
-        </div>
     </div>
     <div class="cl-hero-art" aria-hidden="true">
         <div class="cl-orb"></div>

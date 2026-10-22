@@ -15,6 +15,16 @@
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
+오픈소스 에이전트 플랫폼 · Apache-2.0
+
+처음부터 가볍게 설계된 AI 에이전트 팀을 만드세요. 각 에이전트는 필요한 것만 봅니다. 실행마다 무엇을 쓰고 비용이 얼마인지 확인하고, 게시하기 전에 실제 질문을 다시 실행해 보세요.
+
+```bash
+npx cuttlely start
+```
+
+Node 20+ 및 Docker
+
 **프로덕션에 바로 쓰는 비주얼 에이전트 빌더.**
 
 끌어다 놓아 만드는 에이전트에 제대로 된 거버넌스와 가벼운 컨텍스트를 더합니다. 오픈소스, Apache-2.0. Cuttlely("커들리"로 읽습니다)는 여러분이 관리하는 인프라 위에서 실행됩니다. 모든 변경은 초안에서 기다리고, 게시하기 전에 실제 질문을 Live와 초안에서 나란히 다시 실행해 볼 수 있으며, 각 스페셜리스트는 필요한 작업만 받습니다.

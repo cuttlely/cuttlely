@@ -12,6 +12,17 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BRANCH, HOME_ANCHORS, REPO_URL, ROOT_PAGES } from './site-config.mjs'
+
+// Appended to the quickstart page. The home hero's "Docker not running?" link points at #docker-not-running.
+export const QUICKSTART_END = `
+## Docker not running?
+
+- Install Docker Desktop, or Docker Engine on Linux.
+- Start it.
+- Check it with \`docker info\`, then run \`npx cuttlely start\` again.
+
+[Running? A star helps other developers find Cuttlely.](https://github.com/cuttlely/cuttlely?ref=quickstart-end)
+`
 import { repoMediaLinkProblems } from './media-version.mjs'
 
 const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -287,7 +298,7 @@ export function sync({ check = true, write = true } = {}) {
     // docs/images, next to the pages, so relative image paths resolve.
     if (write) fs.cpSync(path.join(REPO, 'docs', 'images'), path.join(OUT, 'docs', 'images'), { recursive: true })
 
-    // Quickstart: the README section "Your first 10 minutes".
+    // Quickstart: the README section "Your first 10 minutes", then the Docker help (the home hero links to it) and the star line.
     const readme = read('README.md')
     const quick = readmeSection(readme, 'Your first 10 minutes')
     titles['/quickstart/'] = 'Quickstart'
@@ -300,7 +311,7 @@ export function sync({ check = true, write = true } = {}) {
             extra: { tableOfContents: false }
         }) +
             rewriteLinks(quick, 'README.md', repoExists, problems) +
-            '\n',
+            QUICKSTART_END,
         write
     )
 

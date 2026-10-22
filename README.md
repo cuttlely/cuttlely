@@ -15,6 +15,16 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
+Open-source agent platform · Apache-2.0
+
+Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.
+
+```bash
+npx cuttlely start
+```
+
+Node 20+ and Docker
+
 **The visual agent builder, ready for production.**
 
 Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0. Cuttlely (said like "cuddly") runs on infrastructure you control: every change waits in a draft, you replay real questions on Live and the draft side by side before you publish, and each specialist gets only the task it needs.
