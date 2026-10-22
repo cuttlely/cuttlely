@@ -92,7 +92,28 @@ async function sendWithTool(nodeClass: any, inputs: Record<string, any>): Promis
     return sent
 }
 
+// Every test in this file runs with no OpenAI or xAI key, restored afterwards.
+const prevKeys = { OPENAI_API_KEY: process.env.OPENAI_API_KEY, XAI_API_KEY: process.env.XAI_API_KEY }
+beforeAll(() => {
+    delete process.env.OPENAI_API_KEY
+    delete process.env.XAI_API_KEY
+})
+afterAll(() => {
+    for (const [key, value] of Object.entries(prevKeys)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+    }
+})
+
 describe('openAIReasoningFields', () => {
+    it('gpt-6.1-sol gets low instead of minimal, which it refuses', () => {
+        expect(openAIReasoningFields('gpt-6.1-sol', { enabled: true, effort: 'minimal' })).toEqual({
+            reasoning: { effort: 'low' },
+            useResponsesApi: true
+        })
+        expect(openAIReasoningFields('gpt-5', { enabled: true, effort: 'minimal' })).toEqual({ reasoning: { effort: 'minimal' } })
+    })
+
     it('knows which models take effort none', () => {
         expect(supportsReasoningEffortNone('gpt-5.6-luna')).toBe(true)
         expect(supportsReasoningEffortNone('gpt-5.1')).toBe(true)
@@ -153,15 +174,6 @@ describe('openAIReasoningFields', () => {
 })
 
 describe('ChatOpenAI request params', () => {
-    const prevOpenAI = process.env.OPENAI_API_KEY
-    beforeAll(() => {
-        delete process.env.OPENAI_API_KEY
-        delete process.env.XAI_API_KEY
-    })
-    afterAll(() => {
-        if (prevOpenAI !== undefined) process.env.OPENAI_API_KEY = prevOpenAI
-    })
-
     it('gpt-5.6-luna with Reasoning off and a leftover effort sends reasoning_effort none on chat completions', async () => {
         const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-5.6-luna', reasoning: false, reasoningEffort: 'medium' })
         expect(sent).toHaveLength(1)

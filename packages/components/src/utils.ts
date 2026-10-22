@@ -2471,6 +2471,11 @@ export function chatCompletionsRefusesFunctionTools(name: string): boolean {
     return GPT_LATER.test(name)
 }
 
+/** gpt-6.1-sol refuses effort 'minimal' (OpenAI's reasoning guide); it gets 'low', the nearest effort it accepts. */
+function refusesMinimalEffort(name: string): boolean {
+    return /gpt-6\.1-sol/.test(name)
+}
+
 function toggleOn(value: OpenAIReasoningInputs['enabled']): boolean {
     return value === true || value === 'true'
 }
@@ -2497,6 +2502,8 @@ export function openAIReasoningFields(modelName: string, inputs: OpenAIReasoning
         const effort = inputs.effort ? String(inputs.effort) : ''
         if (effort === 'none') {
             if (noneOk) reasoning.effort = 'none' as OpenAIReasoningTypes.ReasoningEffort
+        } else if (effort === 'minimal' && refusesMinimalEffort(modelName)) {
+            reasoning.effort = 'low' as OpenAIReasoningTypes.ReasoningEffort
         } else if (effort) {
             reasoning.effort = effort as OpenAIReasoningTypes.ReasoningEffort
         }
