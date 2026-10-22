@@ -48,17 +48,19 @@ export function zipEntryNames(bytes) {
     const size = bytes.readUInt32LE(end + 12)
     const offset = bytes.readUInt32LE(end + 16)
     if (count === 0 || count > ZIP_MAX_ENTRIES || offset + size > end) return null
+    // Every entry must sit inside the declared directory, and the entries must fill it exactly.
+    const limit = offset + size
     const names = []
     let at = offset
     for (let i = 0; i < count; i++) {
-        if (at + 46 > end || bytes.readUInt32LE(at) !== 0x02014b50) return null
+        if (at + 46 > limit || bytes.readUInt32LE(at) !== 0x02014b50) return null
         const nameLength = bytes.readUInt16LE(at + 28)
         const next = at + 46 + nameLength + bytes.readUInt16LE(at + 30) + bytes.readUInt16LE(at + 32)
-        if (next > end) return null
+        if (next > limit) return null
         names.push(bytes.subarray(at + 46, at + 46 + nameLength).toString('utf8'))
         at = next
     }
-    return names
+    return at === limit ? names : null
 }
 
 function isOoxml(type, bytes) {
@@ -224,8 +226,8 @@ function artifactBytes(item) {
     return typeof item?.base64 === 'string' ? Math.floor((item.base64.length * 3) / 4) : 0
 }
 
-// The turn's artifacts: images (count limit), then files (count limit), each the same file once. An item that would
-// take the turn over the byte total is left out and named in `skipped`.
+// The turn's artifacts: images and files, each up to its count limit and the same file once, then newest first
+// across both. An item that would take the turn over the byte total is left out and named in `skipped`.
 export function mergeTurnArtifacts(
     imageLists,
     fileLists,
@@ -234,7 +236,10 @@ export function mergeTurnArtifacts(
     const artifacts = []
     const skipped = []
     let used = 0
-    for (const item of [...mergeTurnImages(imageLists || [], imageCount), ...mergeTurnImages(fileLists || [], fileCount)]) {
+    // Images and files together, newest first, so older items are the ones the byte total leaves out.
+    const candidates = [...mergeTurnImages(imageLists || [], imageCount), ...mergeTurnImages(fileLists || [], fileCount)]
+    candidates.sort((a, b) => (Number(b?.mtime) || 0) - (Number(a?.mtime) || 0))
+    for (const item of candidates) {
         const size = artifactBytes(item)
         if (used + size > totalBytes) {
             skipped.push(item.name)

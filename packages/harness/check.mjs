@@ -7899,6 +7899,15 @@ check(
             !matchesTurnType('docx', Buffer.concat([Buffer.from('504b0304', 'hex'), Buffer.alloc(26), Buffer.from('word/document.xml')])) &&
             !matchesTurnType('docx', zipOf(['notes/word/document.xml.txt', '[Content_Types].xml'])) &&
             !matchesTurnType('docx', zipOf(['word/document.xml'])) &&
+            !matchesTurnType(
+                'docx',
+                (() => {
+                    // A directory that declares 0 bytes while real entries follow it is malformed.
+                    const zip = Buffer.from(zipWith('word/document.xml'))
+                    zip.writeUInt32LE(0, zip.length - 10)
+                    return zip
+                })()
+            ) &&
             !matchesTurnType('xlsx', zipWith('xl/workbook.xml').subarray(0, 60)) &&
             !matchesTurnType('csv', Buffer.from([0xc3, 0x28])) &&
             matchesTurnType('csv', Buffer.from('café,1\n')) &&
@@ -7927,12 +7936,21 @@ check(
     const older = { type: 'csv', name: 'old.csv', specialist: 'writer', mtime: 1000, bytes: 4, base64: 'YSxiCg==' }
     const draft = { type: 'pdf', name: 'report.pdf', specialist: 'assets', mtime: 2000, bytes: 4, base64: 'JVBERi0=' }
     const revised = { ...draft, mtime: 3000, bytes: 5 }
-    const ordered = mergeTurnArtifacts([], [[older], [draft], [revised]], { fileCount: 2 })
+    const third = { type: 'csv', name: 'mid.csv', specialist: 'writer', mtime: 2500, bytes: 4, base64: 'YSxiCg==' }
+    const ordered = mergeTurnArtifacts([], [[older], [draft], [third], [revised]], { fileCount: 2 })
     check(
         'the turn keeps the newest files first across specialists and the newest revision of a file',
-        ordered.artifacts.map((item) => `${item.name}:${item.bytes}`).join(',') === 'report.pdf:5,old.csv:4' &&
+        ordered.artifacts.map((item) => `${item.name}:${item.bytes}`).join(',') === 'report.pdf:5,mid.csv:4' &&
             ordered.artifacts.every((item) => !('mtime' in item)),
         JSON.stringify(ordered)
+    )
+    const oldImage = { type: 'png', name: 'old.png', specialist: 'assets', mtime: 1000, bytes: 8, base64: 'iVBORw==' }
+    const newDoc = { type: 'pdf', name: 'new.pdf', specialist: 'assets', mtime: 4000, bytes: 8, base64: 'JVBERi0=' }
+    const mixed = mergeTurnArtifacts([[oldImage]], [[newDoc]], { totalBytes: 10 })
+    check(
+        'a newer file wins the byte total over an older image',
+        mixed.artifacts.map((item) => item.name).join(',') === 'new.pdf' && mixed.skipped.join(',') === 'old.png',
+        JSON.stringify(mixed)
     )
     const note = turnImageNote('/demo/chat-images/run')
     check(
