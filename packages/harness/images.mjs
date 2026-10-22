@@ -27,8 +27,44 @@ export const TURN_FILE_TYPES = {
     '.csv': { type: 'csv', mime: 'text/csv' }
 }
 
-// The part an Office file must have. A ZIP stores each part name in plain text in its headers.
+// The parts an Office file must have, read from the ZIP central directory.
 const OOXML_PART = { docx: 'word/document.xml', xlsx: 'xl/workbook.xml' }
+const OOXML_CONTENT_TYPES = '[Content_Types].xml'
+const ZIP_MAX_ENTRIES = 10000
+
+// The entry names in a ZIP's central directory, or null when the archive is malformed. Reads stay inside the buffer.
+export function zipEntryNames(bytes) {
+    if (!Buffer.isBuffer(bytes) || bytes.length < 22 || !bytes.subarray(0, 4).equals(ZIP_SIGNATURE)) return null
+    // The end-of-central-directory record is in the last 22 bytes plus up to 65535 bytes of comment.
+    let end = -1
+    for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 22 - 65535); at--) {
+        if (bytes.readUInt32LE(at) === 0x06054b50) {
+            end = at
+            break
+        }
+    }
+    if (end < 0) return null
+    const count = bytes.readUInt16LE(end + 10)
+    const size = bytes.readUInt32LE(end + 12)
+    const offset = bytes.readUInt32LE(end + 16)
+    if (count === 0 || count > ZIP_MAX_ENTRIES || offset + size > end) return null
+    const names = []
+    let at = offset
+    for (let i = 0; i < count; i++) {
+        if (at + 46 > end || bytes.readUInt32LE(at) !== 0x02014b50) return null
+        const nameLength = bytes.readUInt16LE(at + 28)
+        const next = at + 46 + nameLength + bytes.readUInt16LE(at + 30) + bytes.readUInt16LE(at + 32)
+        if (next > end) return null
+        names.push(bytes.subarray(at + 46, at + 46 + nameLength).toString('utf8'))
+        at = next
+    }
+    return names
+}
+
+function isOoxml(type, bytes) {
+    const names = zipEntryNames(bytes)
+    return Boolean(names && names.includes(OOXML_CONTENT_TYPES) && names.includes(OOXML_PART[type]))
+}
 
 // True when the bytes are the type the extension says. A renamed file, such as a ZIP saved as .docx or a PDF saved
 // as .csv, does not reach the chat.
@@ -43,7 +79,7 @@ export function matchesTurnType(type, bytes) {
             return bytes.subarray(0, 5).toString('latin1') === '%PDF-'
         case 'docx':
         case 'xlsx':
-            return bytes.subarray(0, 4).equals(ZIP_SIGNATURE) && bytes.includes(Buffer.from(OOXML_PART[type], 'latin1'))
+            return isOoxml(type, bytes)
         case 'csv':
             return isCsvText(bytes)
         default:
@@ -151,6 +187,7 @@ function scanTurnFolder(dir, since, types, limits, specialist) {
             mime: item.kind.mime,
             name: item.name,
             specialist,
+            mtime: item.mtime,
             bytes: bytes.length,
             base64: bytes.toString('base64')
         })
@@ -170,7 +207,9 @@ export function turnFiles(dir, since, { specialist = '', limits = TURN_FILE_LIMI
 export function mergeTurnImages(lists, limit = TURN_IMAGE_LIMITS.count) {
     const seen = new Set()
     const out = []
-    for (const image of lists.flat()) {
+    // Specialists finish in any order, so sort the whole turn by write time, newest first.
+    const items = lists.flat().sort((a, b) => (Number(b?.mtime) || 0) - (Number(a?.mtime) || 0))
+    for (const image of items) {
         const key = `${image.specialist}/${image.name}`
         if (seen.has(key)) continue
         seen.add(key)
@@ -202,7 +241,9 @@ export function mergeTurnArtifacts(
             continue
         }
         used += size
-        artifacts.push(item)
+        // The write time only orders the turn; it is not part of the artifact.
+        const { mtime: _mtime, ...artifact } = item
+        artifacts.push(artifact)
     }
     return { artifacts, skipped }
 }

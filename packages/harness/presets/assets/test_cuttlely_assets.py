@@ -61,6 +61,8 @@ class StyleKitTest(unittest.TestCase):
         self.assertTrue(ws["A1"].font.bold)
         self.assertEqual(ws["A1"].fill.fgColor.rgb[-6:], kit.TABLE_THEME["header_fill"].lstrip("#"))
         self.assertEqual(ws.freeze_panes, "A2")
+        self.assertEqual(ws["C2"].value, "=SUM(B2:B3)")
+        self.assertEqual(ws["C2"].data_type, "s")
 
     def test_csv_keeps_formula_like_text_as_text(self):
         path = kit.csv_table(self.out / "orders.csv", ROWS)

@@ -7838,7 +7838,34 @@ check(
     )
     const fileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-files-'))
     const since = Date.now() - 5000
-    const zipWith = (part) => Buffer.concat([Buffer.from('504b0304', 'hex'), Buffer.alloc(26), Buffer.from(part, 'latin1')])
+    // A stored (uncompressed) ZIP with the named, empty entries: local headers, central directory and end record.
+    const zipOf = (names) => {
+        const locals = []
+        const centrals = []
+        let offset = 0
+        for (const name of names) {
+            const nameBytes = Buffer.from(name, 'utf8')
+            const local = Buffer.alloc(30)
+            local.writeUInt32LE(0x04034b50, 0)
+            local.writeUInt16LE(nameBytes.length, 26)
+            const central = Buffer.alloc(46)
+            central.writeUInt32LE(0x02014b50, 0)
+            central.writeUInt16LE(nameBytes.length, 28)
+            central.writeUInt32LE(offset, 42)
+            locals.push(local, nameBytes)
+            centrals.push(central, nameBytes)
+            offset += 30 + nameBytes.length
+        }
+        const directory = Buffer.concat(centrals)
+        const end = Buffer.alloc(22)
+        end.writeUInt32LE(0x06054b50, 0)
+        end.writeUInt16LE(names.length, 8)
+        end.writeUInt16LE(names.length, 10)
+        end.writeUInt32LE(directory.length, 12)
+        end.writeUInt32LE(offset, 16)
+        return Buffer.concat([...locals, directory, end])
+    }
+    const zipWith = (part) => zipOf(['[Content_Types].xml', part])
     fs.writeFileSync(path.join(fileDir, 'report.pdf'), '%PDF-1.7\n%made-up\n')
     fs.writeFileSync(path.join(fileDir, 'memo.docx'), zipWith('word/document.xml'))
     fs.writeFileSync(path.join(fileDir, 'table.xlsx'), zipWith('xl/workbook.xml'))
@@ -7869,6 +7896,10 @@ check(
             matchesTurnType('png', Buffer.from('89504e470d0a1a0a00', 'hex')) &&
             !matchesTurnType('jpeg', Buffer.from('89504e470d0a1a0a00', 'hex')) &&
             !matchesTurnType('xlsx', zipWith('word/document.xml')) &&
+            !matchesTurnType('docx', Buffer.concat([Buffer.from('504b0304', 'hex'), Buffer.alloc(26), Buffer.from('word/document.xml')])) &&
+            !matchesTurnType('docx', zipOf(['notes/word/document.xml.txt', '[Content_Types].xml'])) &&
+            !matchesTurnType('docx', zipOf(['word/document.xml'])) &&
+            !matchesTurnType('xlsx', zipWith('xl/workbook.xml').subarray(0, 60)) &&
             !matchesTurnType('csv', Buffer.from([0xc3, 0x28])) &&
             matchesTurnType('csv', Buffer.from('café,1\n')) &&
             !matchesTurnType('svg', Buffer.from('<svg/>')) &&
@@ -7891,6 +7922,17 @@ check(
             merged.skipped.join(',') === 'big.pdf' &&
             TURN_ARTIFACT_BYTES === 20 * 1024 * 1024,
         JSON.stringify(merged)
+    )
+    // Two specialists finish out of order; the newer revision of the same file wins and the oldest is the one capped.
+    const older = { type: 'csv', name: 'old.csv', specialist: 'writer', mtime: 1000, bytes: 4, base64: 'YSxiCg==' }
+    const draft = { type: 'pdf', name: 'report.pdf', specialist: 'assets', mtime: 2000, bytes: 4, base64: 'JVBERi0=' }
+    const revised = { ...draft, mtime: 3000, bytes: 5 }
+    const ordered = mergeTurnArtifacts([], [[older], [draft], [revised]], { fileCount: 2 })
+    check(
+        'the turn keeps the newest files first across specialists and the newest revision of a file',
+        ordered.artifacts.map((item) => `${item.name}:${item.bytes}`).join(',') === 'report.pdf:5,old.csv:4' &&
+            ordered.artifacts.every((item) => !('mtime' in item)),
+        JSON.stringify(ordered)
     )
     const note = turnImageNote('/demo/chat-images/run')
     check(

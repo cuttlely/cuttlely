@@ -324,6 +324,11 @@ def xlsx_table(path, rows, sheet="Sheet1", header=True):
     ws.title = sheet[:31] or "Sheet1"
     for row in rows:
         ws.append(row)
+    # Text that starts with "=" stays text: the kit never writes formulas from table data.
+    for row in ws.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.startswith("="):
+                cell.data_type = "s"
     font = FONTS["sans"][0]
     rule = Side(style="thin", color=_hex(TABLE_THEME["rule"]))
     band = PatternFill("solid", fgColor=_hex(TABLE_THEME["band_fill"]))
