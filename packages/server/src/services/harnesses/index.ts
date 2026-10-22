@@ -417,15 +417,13 @@ const deleteHarness = async (name: string, workspaceId?: string | null) => {
             `Harness "${name}" was not deleted, because its canvas could not be read. Try again.`
         )
     }
-    let canvasDeleted = false
     if (canvas?.state === 'present' && canvas.type === 'HARNESS' && canvas.workspaceId === ws) {
         await harnessDeleteHooks.deleteCanvas(harness.chatflowId, ws)
-        canvasDeleted = true
     }
     const store = await loadHarness('store.mjs')
     if (store.getHarness(name)) await removeHarnessRecord(name, ws)
     await purgeHarnessRuns([name])
-    return { name, deleted: true, canvasDeleted }
+    return { name, deleted: true }
 }
 
 /**

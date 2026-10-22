@@ -92,7 +92,7 @@ afterEach(() => {
 
 describe('card delete', () => {
     it('removes the canvas, the record, its schedule, key grants and runs', async () => {
-        await expect(harnessesService.deleteHarness('navi', TEAM)).resolves.toEqual({ name: 'navi', deleted: true, canvasDeleted: true })
+        await expect(harnessesService.deleteHarness('navi', TEAM)).resolves.toEqual({ name: 'navi', deleted: true })
         expect(harnessDeleteHooks.deleteCanvas).toHaveBeenCalledWith(CANVAS_NAVI, TEAM)
         expect(canvases.has(CANVAS_NAVI)).toBe(false)
         expect(files.has('navi')).toBe(false)
