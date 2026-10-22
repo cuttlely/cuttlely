@@ -134,7 +134,7 @@ const PRESET_ACTING: Record<string, string[]> = { assets: ['enableCodeExecution'
 // uses the tools connected on the canvas, and those nodes are listed on their own.
 export function harnessActingLabels(inputs?: Record<string, any>): string[] {
     const presetKey = typeof inputs?.preset === 'string' ? inputs.preset.trim().toLowerCase() : ''
-    const preset = Object.hasOwn(PRESET_ACTING, presetKey) ? PRESET_ACTING[presetKey] : []
+    const preset = Object.prototype.hasOwnProperty.call(PRESET_ACTING, presetKey) ? PRESET_ACTING[presetKey] : []
     return HARNESS_ACTING.filter(([key]) => flagOn(inputs?.[key]) || preset.includes(key)).map(([, label]) => label)
 }
 
