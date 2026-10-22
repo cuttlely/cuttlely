@@ -76,7 +76,7 @@ class ChatOpenAI_ChatModels implements INode {
             {
                 label: 'Reasoning',
                 description:
-                    'Whether the model reasons. Only applicable for reasoning models (gpt-5 and o-series models only). Off sends reasoning effort none on gpt-5.1 and later, and no reasoning effort on other models',
+                    'Whether the model reasons. Only applicable for reasoning models (gpt-5 and o-series models only). Off sends reasoning effort none on gpt-5.1 to gpt-5.x, and no reasoning effort on other models, which then use their default (GPT-6 has no none)',
                 name: 'reasoning',
                 type: 'boolean',
                 default: false,
@@ -86,14 +86,14 @@ class ChatOpenAI_ChatModels implements INode {
             {
                 label: 'Reasoning Effort',
                 description:
-                    'Constrains effort on reasoning. Only applicable for reasoning models (gpt-5 and o-series models only). On gpt-5.6 and later, an effort other than None uses the Responses API, because chat completions does not accept function tools with reasoning on those models',
+                    'Constrains effort on reasoning. Only applicable for reasoning models (gpt-5 and o-series models only). gpt-5.6 with an effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools',
                 name: 'reasoningEffort',
                 type: 'options',
                 options: [
                     {
                         label: 'None',
                         name: 'none',
-                        description: 'No reasoning. gpt-5.1 and later only; other models send no effort'
+                        description: 'No reasoning. gpt-5.1 to gpt-5.x only; other models send no effort'
                     },
                     {
                         label: 'Low',

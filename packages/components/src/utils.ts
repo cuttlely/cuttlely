@@ -2437,27 +2437,37 @@ function gpt5Minor(name: string): number | undefined {
 }
 
 /**
- * Models that accept reasoning effort 'none': gpt-5.1 and later, and gpt-6 and later.
+ * Models that accept reasoning effort 'none': gpt-5.1 through gpt-5.x.
  * gpt-5, gpt-5-mini and gpt-5-nano, o-series and codex-mini do not (their lowest is 'minimal' or 'low').
- * Codex and -pro variants are left out: they do not document 'none'.
+ * Codex and -pro variants do not document 'none'. GPT-6 models are left out: OpenAI's reasoning guide says
+ * gpt-6-astra answers 'none' with HTTP 400 and gpt-6.1-sol supports neither 'none' nor 'minimal'.
  */
 export function supportsReasoningEffortNone(name: string): boolean {
     if (!name || !isReasoningModelOpenAI(name)) return false
     if (/codex/.test(name) || /-pro(?:$|-)/.test(name)) return false
     const minor = gpt5Minor(name)
-    if (minor !== undefined) return minor >= 1
-    return GPT_LATER.test(name)
+    return minor !== undefined && minor >= 1
 }
 
 /**
- * Models that refuse function tools together with a reasoning effort other than 'none' on
- * /v1/chat/completions ("Function tools with reasoning_effort are not supported ... use /v1/responses"):
- * gpt-5.6 and later, and gpt-6 and later. Those calls go to the Responses API instead.
+ * Models whose function tools on /v1/chat/completions work only with reasoning effort 'none'
+ * ("Function tools with reasoning_effort are not supported ... use /v1/responses"): gpt-5.6 and later,
+ * and every GPT-6 model. gpt-5.6 reasons at 'medium' when no effort is sent.
  */
 export function needsResponsesApiForToolsWithReasoning(name: string): boolean {
     if (!name || !isReasoningModelOpenAI(name)) return false
     const minor = gpt5Minor(name)
     if (minor !== undefined) return minor >= 6
+    return GPT_LATER.test(name)
+}
+
+/**
+ * Models with no function calling on /v1/chat/completions at any effort: GPT-6 and later
+ * (OpenAI's reasoning guide names gpt-6-astra and gpt-6.1-sol).
+ */
+export function chatCompletionsRefusesFunctionTools(name: string): boolean {
+    if (!name || !isReasoningModelOpenAI(name)) return false
+    if (gpt5Minor(name) !== undefined) return false
     return GPT_LATER.test(name)
 }
 
@@ -2469,35 +2479,39 @@ function toggleOn(value: OpenAIReasoningInputs['enabled']): boolean {
  * Reasoning fields for a ChatOpenAI or AzureChatOpenAI node.
  *
  * - Not a reasoning model: nothing.
- * - Toggle off: effort 'none' where the model accepts it, otherwise no reasoning field at all, so
- *   LangChain sends no reasoning_effort. A Reasoning Effort or Summary left in the saved inputs is ignored.
- * - Toggle on: the chosen effort and summary. 'None' on a model without it sends no effort. A real effort
- *   on gpt-5.6 and later also turns on the Responses API, because chat completions refuses function tools
- *   with a reasoning effort on those models.
+ * - Toggle off: effort 'none' where the model accepts it (gpt-5.1 to gpt-5.x), otherwise no reasoning field,
+ *   so LangChain sends no reasoning effort and the model uses its default. A Reasoning Effort or Summary left
+ *   in the saved inputs is ignored.
+ * - Toggle on: the chosen effort and summary. 'None' on a model without it sends no effort.
+ * - Responses API: on GPT-6 always, and on gpt-5.6 and later unless the effort sent is 'none', because chat
+ *   completions refuses function tools there.
  */
 export function openAIReasoningFields(modelName: string, inputs: OpenAIReasoningInputs): OpenAIReasoningFields {
     if (!modelName || !isReasoningModelOpenAI(modelName)) return {}
     const noneOk = supportsReasoningEffortNone(modelName)
 
-    if (!toggleOn(inputs.enabled)) {
-        return noneOk ? { reasoning: { effort: 'none' as OpenAIReasoningTypes.ReasoningEffort } } : {}
-    }
-
     const reasoning: OpenAIReasoningTypes.Reasoning = {}
-    const effort = inputs.effort ? String(inputs.effort) : ''
-    if (effort === 'none') {
+    if (!toggleOn(inputs.enabled)) {
         if (noneOk) reasoning.effort = 'none' as OpenAIReasoningTypes.ReasoningEffort
-    } else if (effort) {
-        reasoning.effort = effort as OpenAIReasoningTypes.ReasoningEffort
-    }
-    // A summary only makes sense when the model reasons.
-    if (inputs.summary && effort !== 'none') {
-        reasoning.summary = inputs.summary as OpenAIReasoningTypes.Reasoning['summary']
+    } else {
+        const effort = inputs.effort ? String(inputs.effort) : ''
+        if (effort === 'none') {
+            if (noneOk) reasoning.effort = 'none' as OpenAIReasoningTypes.ReasoningEffort
+        } else if (effort) {
+            reasoning.effort = effort as OpenAIReasoningTypes.ReasoningEffort
+        }
+        // A summary only makes sense when the model reasons.
+        if (inputs.summary && effort !== 'none') {
+            reasoning.summary = inputs.summary as OpenAIReasoningTypes.Reasoning['summary']
+        }
     }
 
     const fields: OpenAIReasoningFields = {}
     if (Object.keys(reasoning).length) fields.reasoning = reasoning
-    if (effort && effort !== 'none' && needsResponsesApiForToolsWithReasoning(modelName)) fields.useResponsesApi = true
+    const sendsNone = reasoning.effort === 'none'
+    if (chatCompletionsRefusesFunctionTools(modelName) || (needsResponsesApiForToolsWithReasoning(modelName) && !sendsNone)) {
+        fields.useResponsesApi = true
+    }
     return fields
 }
 

@@ -17,7 +17,12 @@ jest.mock('../../../src/utils', () => {
     }
 })
 
-import { openAIReasoningFields, supportsReasoningEffortNone, needsResponsesApiForToolsWithReasoning } from '../../../src/utils'
+import {
+    chatCompletionsRefusesFunctionTools,
+    openAIReasoningFields,
+    supportsReasoningEffortNone,
+    needsResponsesApiForToolsWithReasoning
+} from '../../../src/utils'
 
 const { nodeClass: ChatOpenAINode } = require('./ChatOpenAI')
 const { nodeClass: AzureChatOpenAINode } = require('../AzureChatOpenAI/AzureChatOpenAI')
@@ -91,7 +96,10 @@ describe('openAIReasoningFields', () => {
     it('knows which models take effort none', () => {
         expect(supportsReasoningEffortNone('gpt-5.6-luna')).toBe(true)
         expect(supportsReasoningEffortNone('gpt-5.1')).toBe(true)
-        expect(supportsReasoningEffortNone('gpt-6-luna')).toBe(true)
+        expect(supportsReasoningEffortNone('gpt-6-luna')).toBe(false)
+        expect(supportsReasoningEffortNone('gpt-6-astra')).toBe(false)
+        expect(supportsReasoningEffortNone('gpt-6.1-sol')).toBe(false)
+        expect(supportsReasoningEffortNone('gpt-5.4-pro')).toBe(false)
         expect(supportsReasoningEffortNone('gpt-5')).toBe(false)
         expect(supportsReasoningEffortNone('gpt-5-mini')).toBe(false)
         expect(supportsReasoningEffortNone('o3')).toBe(false)
@@ -105,6 +113,18 @@ describe('openAIReasoningFields', () => {
         expect(needsResponsesApiForToolsWithReasoning('gpt-5.2')).toBe(false)
         expect(needsResponsesApiForToolsWithReasoning('gpt-5')).toBe(false)
         expect(needsResponsesApiForToolsWithReasoning('o4-mini')).toBe(false)
+        expect(chatCompletionsRefusesFunctionTools('gpt-6-astra')).toBe(true)
+        expect(chatCompletionsRefusesFunctionTools('gpt-6.1-sol')).toBe(true)
+        expect(chatCompletionsRefusesFunctionTools('gpt-5.6-luna')).toBe(false)
+    })
+
+    it('GPT-6 never gets effort none and always uses the Responses API', () => {
+        expect(openAIReasoningFields('gpt-6-astra', { enabled: false, effort: 'high' })).toEqual({ useResponsesApi: true })
+        expect(openAIReasoningFields('gpt-6.1-sol', { enabled: true, effort: 'none' })).toEqual({ useResponsesApi: true })
+        expect(openAIReasoningFields('gpt-6-luna', { enabled: true, effort: 'low' })).toEqual({
+            reasoning: { effort: 'low' },
+            useResponsesApi: true
+        })
     })
 
     it('toggle off ignores a saved effort and summary', () => {
@@ -126,7 +146,9 @@ describe('openAIReasoningFields', () => {
         })
         expect(openAIReasoningFields('gpt-5', { enabled: true, effort: 'none' })).toEqual({})
         expect(openAIReasoningFields('o3', { enabled: true, effort: 'low' })).toEqual({ reasoning: { effort: 'low' } })
-        expect(openAIReasoningFields('gpt-5.6-luna', { enabled: true })).toEqual({})
+        // gpt-5.6 reasons at medium when no effort is sent, so tools need the Responses API
+        expect(openAIReasoningFields('gpt-5.6-luna', { enabled: true })).toEqual({ useResponsesApi: true })
+        expect(openAIReasoningFields('gpt-5.2', { enabled: true })).toEqual({})
     })
 })
 
@@ -180,6 +202,20 @@ describe('ChatOpenAI request params', () => {
         const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-5.2', reasoning: true, reasoningEffort: 'low' })
         expect(sent[0].api).toBe('chat')
         expect(sent[0].body.reasoning_effort).toBe('low')
+    })
+
+    it('gpt-6-astra with Reasoning off sends no effort none and uses the Responses API for tools', async () => {
+        const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-6-astra', reasoning: false, reasoningEffort: 'high' })
+        expect(sent).toHaveLength(1)
+        expect(sent[0].api).toBe('responses')
+        expect(sent[0].body.reasoning).toBeUndefined()
+        expect(sent[0].body.tools[0].name).toBe('lookup')
+    })
+
+    it('gpt-6.1-sol with effort None sends no effort and uses the Responses API', async () => {
+        const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-6.1-sol', reasoning: true, reasoningEffort: 'none' })
+        expect(sent[0].api).toBe('responses')
+        expect(sent[0].body.reasoning?.effort).toBeUndefined()
     })
 
     it('a non-reasoning model is unchanged', async () => {
