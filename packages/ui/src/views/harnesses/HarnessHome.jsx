@@ -15,6 +15,7 @@ import HarnessRunTrace, { questionFromInputPreview, tryItTraceQuestion } from '@
 import { harnessCanvasRunPath, harnessRunPath } from '@/utils/harnessCanvasChat'
 import { emptyTrace, failTrace, reduceHarnessEvent } from '../../../../../packages/harness/trace.mjs'
 import HarnessSchedule from './HarnessSchedule'
+import { harnessOpenProblem } from '@/utils/harnessCard'
 
 const STATUS_COLOR = {
     succeeded: 'success',
@@ -165,6 +166,24 @@ const HarnessHome = () => {
             setRunning(false)
             reloadRuns()
         }
+    }
+
+    // An orphan (its canvas was deleted), a deleted team, or a failed load gets a clear message, not the run page.
+    const problem = harnessApi.loading ? null : harnessOpenProblem(harness, harnessApi.error)
+    if (problem) {
+        return (
+            <MainCard>
+                <Stack flexDirection='column' sx={{ gap: 3 }}>
+                    <ViewHeader isBackButton onBack={() => navigate('/harnesses')} title={harness?.name || name} />
+                    <Alert severity={problem.severity}>{problem.message}</Alert>
+                    <Box>
+                        <Button variant='outlined' onClick={() => navigate('/harnesses')} sx={{ borderRadius: 2 }}>
+                            Back to agent teams
+                        </Button>
+                    </Box>
+                </Stack>
+            </MainCard>
+        )
     }
 
     return (

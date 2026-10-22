@@ -4,6 +4,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Each card on the Agent Team list has a delete button for owners and editors. A confirm dialog names the team, and the delete removes the team's canvas, chat messages, roster, specialists, playbooks, schedule, API key grants and run history. Anyone without delete permission gets 403.
+
+### Fixed
+
+-   Deleting a harness canvas now deletes its agent team in the same transaction, so no card is left behind without a canvas. On start, Cuttlely removes agent teams whose canvas was already deleted. A team whose canvas is gone shows a clear message when opened, and its card says the canvas was deleted and can be deleted.
+
 ### Changed
 
 -   The public website home page has a new hero ("Your applications deserve agents", with a copyable `npx cuttlely start`) and is grouped into Teams, Cost and context, and Safe deploys, then Every flow an MCP server and one Integrations section that calls your flows from IBM watsonx Orchestrate, with the 72-second narrated demo video.

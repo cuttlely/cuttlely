@@ -1,21 +1,22 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { Box, Stack, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack, Typography } from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 
 import harnessesApi from '@/api/harnesses'
 import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import MainCard from '@/ui-component/cards/MainCard'
 import ItemCard from '@/ui-component/cards/ItemCard'
-import { PermissionButton, StyledPermissionButton } from '@/ui-component/button/RBACButtons'
+import { PermissionButton, PermissionIconButton, StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import WhichFlow from '@/ui-component/flow/WhichFlow'
 import { t } from '@/i18n'
 import TryTheDemo from '@/ui-component/flow/TryTheDemo'
 import { HARNESS_LABEL } from '@/ui-component/flow/buildChoices'
 import useApi from '@/hooks/useApi'
+import { HARNESS_DELETE_PERMISSION, harnessCardDescription, harnessDeleteBody, harnessDeleteTitle } from '@/utils/harnessCard'
 
-import { IconPlus, IconTemplate } from '@tabler/icons-react'
+import { IconPlus, IconTemplate, IconTrash } from '@tabler/icons-react'
 
 const actionButtonSx = {
     height: 40,
@@ -31,6 +32,29 @@ const Harnesses = () => {
     const theme = useTheme()
     const listApi = useApi(harnessesApi.listHarnesses)
     const [search, setSearch] = useState('')
+    const [pendingDelete, setPendingDelete] = useState(null)
+    const [deleting, setDeleting] = useState(false)
+    const [deleteError, setDeleteError] = useState('')
+
+    const confirmDelete = async () => {
+        if (!pendingDelete) return
+        setDeleting(true)
+        setDeleteError('')
+        try {
+            await harnessesApi.deleteHarness(pendingDelete.name)
+            setPendingDelete(null)
+            listApi.request()
+        } catch (error) {
+            const status = error?.response?.status
+            setDeleteError(
+                status === 403
+                    ? 'You do not have permission to delete this agent team.'
+                    : error?.response?.data?.message || 'The agent team was not deleted. Try again.'
+            )
+        } finally {
+            setDeleting(false)
+        }
+    }
 
     useEffect(() => {
         listApi.request()
@@ -136,21 +160,60 @@ const Harnesses = () => {
                 ) : (
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 2 }}>
                         {harnesses.map((harness) => (
-                            <ItemCard
-                                key={harness.name}
-                                data={{
-                                    name: harness.name,
-                                    description: harness.description || `${harness.specialists?.length || 0} specialists`,
-                                    type: 'HARNESS',
-                                    updatedDate: harness.updatedAt || harness.updatedDate,
-                                    iconSrc: undefined
-                                }}
-                                onClick={() => navigate(`/harnesses/${encodeURIComponent(harness.name)}`)}
-                            />
+                            <Box key={harness.name} sx={{ position: 'relative' }}>
+                                <ItemCard
+                                    data={{
+                                        name: harness.name,
+                                        description: harnessCardDescription(harness),
+                                        type: 'HARNESS',
+                                        updatedDate: harness.updatedAt || harness.updatedDate,
+                                        iconSrc: undefined
+                                    }}
+                                    onClick={() => navigate(`/harnesses/${encodeURIComponent(harness.name)}`)}
+                                />
+                                <PermissionIconButton
+                                    permissionId={HARNESS_DELETE_PERMISSION}
+                                    aria-label={`Delete ${harness.name}`}
+                                    title='Delete'
+                                    size='small'
+                                    color='error'
+                                    onClick={(event) => {
+                                        event.stopPropagation()
+                                        setDeleteError('')
+                                        setPendingDelete(harness)
+                                    }}
+                                    sx={{ position: 'absolute', top: 8, right: 8 }}
+                                >
+                                    <IconTrash size={18} />
+                                </PermissionIconButton>
+                            </Box>
                         ))}
                     </Box>
                 )}
             </Stack>
+            <Dialog
+                open={Boolean(pendingDelete)}
+                onClose={() => !deleting && setPendingDelete(null)}
+                aria-labelledby='harness-delete-title'
+            >
+                <DialogTitle id='harness-delete-title'>{pendingDelete ? harnessDeleteTitle(pendingDelete.name) : ''}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>{pendingDelete ? harnessDeleteBody(pendingDelete) : ''}</DialogContentText>
+                    {deleteError && (
+                        <Typography color='error' sx={{ mt: 1.5 }}>
+                            {deleteError}
+                        </Typography>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setPendingDelete(null)} disabled={deleting}>
+                        Cancel
+                    </Button>
+                    <Button color='error' variant='contained' onClick={confirmDelete} disabled={deleting}>
+                        {deleting ? 'Deleting' : 'Delete'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </MainCard>
     )
 }

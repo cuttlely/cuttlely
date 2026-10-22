@@ -1,7 +1,7 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import { StatusCodes } from 'http-status-codes'
-import { IsNull, Not } from 'typeorm'
+import { EntityManager, IsNull, Not } from 'typeorm'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { AuditType, safeRecordAudit } from '../../identity/auditLog'
@@ -56,10 +56,10 @@ async function storedKey(id: string): Promise<StoredKey | null | undefined> {
  * A deleted harness leaves every key's list in that team, so a later harness with the same name is not granted.
  * One transaction: either every list drops the name or none does, and a failure reaches the caller.
  */
-export async function removeHarnessFromKeyLists(workspaceId: string, name: string): Promise<number> {
-    const { getDataSource } = await import('../../DataSource')
+export async function removeHarnessFromKeyLists(workspaceId: string, name: string, inTransaction?: EntityManager): Promise<number> {
     const { ApiKey } = await import('../../database/entities/ApiKey')
-    return getDataSource().transaction(async (manager) => {
+    // A caller's transaction (the canvas delete) keeps the key lists in step with the canvas row.
+    const run = async (manager: EntityManager) => {
         const repo = manager.getRepository(ApiKey)
         let changed = 0
         for (const key of await repo.findBy({ workspaceId })) {
@@ -70,7 +70,10 @@ export async function removeHarnessFromKeyLists(workspaceId: string, name: strin
             changed += 1
         }
         return changed
-    })
+    }
+    if (inTransaction) return run(inTransaction)
+    const { getDataSource } = await import('../../DataSource')
+    return getDataSource().transaction(run)
 }
 
 /**
