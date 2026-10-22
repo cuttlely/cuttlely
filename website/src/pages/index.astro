@@ -191,6 +191,52 @@ const installs = [
             </li>
         </ul>
 
+        <section id="integrations" class="cl-section cl-band" aria-labelledby="integrations-orchestrate-title">
+            <p class="cl-kicker">Integrations for the enterprise</p>
+            <h2 id="integrations-orchestrate-title" class="cl-display">Example: call your agents from IBM watsonx Orchestrate</h2>
+            <p>Cuttlely agents answer over a standard chat API, so enterprise platforms can call them. Here's one we tested live: IBM watsonx Orchestrate.</p>
+            <ul class="cl-checks">
+                <li>
+                    <strong>External agent.</strong> Register a published chatflow under <strong>AI Gateway</strong> → <strong>Agent directory</strong> →
+                    <strong>Add agent</strong>. A native agent calls it as a collaborator, and chats keep context across turns.
+                </li>
+            </ul>
+            <figure class="cl-demo-window">
+                <div class="cl-video-stage">
+                    <video
+                        class="cl-demo-video"
+                        data-demo-video
+                        controls
+                        playsinline
+                        preload="none"
+                        width="1280"
+                        height="720"
+                        poster={mediaUrl('/media/orchestrate-demo-poster.webp')}
+                        aria-label="Demo video: a Cuttlely agent called from IBM watsonx Orchestrate, with captions"
+                        aria-describedby="cl-orchestrate-caption"
+                    >
+                        <source src={mediaUrl('/media/orchestrate-demo.mp4')} type="video/mp4" />
+                    </video>
+                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the Orchestrate demo with sound">
+                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+                            <path d="M8 5v14l12-7z" fill="currentColor" />
+                        </svg>
+                    </button>
+                </div>
+                <figcaption id="cl-orchestrate-caption" class="cl-demo-caption">
+                    A 72-second narrated walkthrough with captions. A Cuttlely flow is added in Orchestrate as an external agent, a native agent hands it
+                    questions, the flow remembers the chat, and a wrong key gets no answer.
+                </figcaption>
+            </figure>
+            <p>
+                <a class="cl-link-arrow" href="/docs/api/#call-a-chatflow-from-orchestrate">External agent guide <Icon name="right-arrow" /></a>
+            </p>
+            <div class="cl-actions cl-actions-center">
+                <a class="cl-button cl-button-primary" href="/quickstart/">Get started in 10 minutes <Icon name="right-arrow" /></a>
+                <a class="cl-button cl-button-ghost" href={REPO_URL}><Icon name="github" /> Star on GitHub</a>
+            </div>
+        </section>
+
         <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
             <span id="chat-with-a-team-in-minutes" class="cl-anchor" aria-hidden="true"></span>
             <div class="cl-showcase-copy">

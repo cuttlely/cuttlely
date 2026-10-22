@@ -256,6 +256,12 @@ export function checkSite(dist, { csp = null } = {}) {
     if (!home.includes('Already have flows? Bring them over')) {
         problems.push('index.html: missing Already have flows? Bring them over home link')
     }
+    const integrations = home.match(/<section id="integrations"[\s\S]*?<\/section>/)
+    if (!integrations) {
+        problems.push('index.html: missing the Integrations section')
+    } else if (/flowise/i.test(integrations[0])) {
+        problems.push('index.html: the Integrations section names Flowise')
+    }
     const flowiseFile = path.join(dist, 'flowise/index.html')
     if (fs.existsSync(flowiseFile)) {
         const flowise = fs.readFileSync(flowiseFile, 'utf8')

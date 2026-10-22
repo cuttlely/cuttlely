@@ -466,11 +466,13 @@ test('the demo follows the hero, the case study follows the demo, then the A/B s
     assert.match(src, /<h2 id="test-every-change-title" class="cl-display">Replay every change before it goes live<\/h2>/)
     assert.match(src, /<h2 id="case-title" class="cl-display">Not the obvious answer<\/h2>/)
     const proof = src.indexOf('class="cl-pillars"')
+    const integrations = src.indexOf('<section id="integrations"')
     const demo = src.indexOf('<section id="watch-a-team-resolve-a-complaint"')
     const caseStudy = src.indexOf('<section id="one-complaint-three-specialists"')
     const ab = src.indexOf('<section id="ab-test-every-change-before-it-goes-live"')
-    assert.ok(proof < demo && demo < caseStudy && caseStudy < ab)
-    assert.equal(src.slice(proof, demo).match(/<section/g), null, 'nothing sits between the pillars and the demo')
+    assert.ok(proof < integrations && integrations < demo && demo < caseStudy && caseStudy < ab)
+    assert.equal(src.slice(proof, integrations).match(/<section/g), null, 'nothing sits between the pillars and Integrations')
+    assert.equal(src.slice(integrations + 1, demo).match(/<section/g), null, 'nothing sits between Integrations and the demo')
     assert.equal(src.slice(demo + 1, caseStudy).match(/<section/g), null, 'nothing sits between the demo and the case study')
     assert.equal(src.slice(caseStudy + 1, ab).match(/<section/g), null, 'nothing sits between the case study and the A/B section')
     const showcase = src.slice(demo, caseStudy)
@@ -605,6 +607,37 @@ test('the light hero headline gradient keeps 3.5:1 on the darkest point of the h
         css,
         /:root\[data-theme='light'\] \.cl-hero-title \.cl-gradient-text \{\s*background-image: var\(--cuttlely-gradient-headline\);/
     )
+})
+
+test('the home Integrations section follows the pillars, leads with Orchestrate, links the external agent guide, and names no Flowise', () => {
+    const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    const start = page.indexOf('<section id="integrations"')
+    assert.ok(start > page.indexOf('<strong>Build agent teams.</strong>'), 'Integrations section sits after the pillars')
+    assert.ok(start < page.indexOf('<section id="watch-a-team-resolve-a-complaint"'), 'Integrations section sits before the showcase')
+    const section = page.slice(start, page.indexOf('</section>', start))
+    assert.match(section, /Integrations for the enterprise/)
+    assert.match(section, /Example: call your agents from IBM watsonx Orchestrate/)
+    assert.match(
+        section,
+        /Cuttlely agents answer over a standard chat API, so enterprise platforms can call them\. Here's one we tested live: IBM watsonx Orchestrate\./
+    )
+    assert.match(section, /href="\/docs\/api\/#call-a-chatflow-from-orchestrate"/)
+    assert.match(section, /Get started in 10 minutes/)
+    assert.match(section, /<source src=\{mediaUrl\('\/media\/orchestrate-demo\.mp4'\)\} type="video\/mp4" \/>/)
+    assert.match(section, /poster=\{mediaUrl\('\/media\/orchestrate-demo-poster\.webp'\)\}/)
+    assert.match(section, /aria-label="Demo video: a Cuttlely agent called from IBM watsonx Orchestrate, with captions"/)
+    assert.match(section, /preload="none"/)
+    assert.match(section, /data-demo-video/, 'the script restores the parked source on play')
+    assert.match(
+        section,
+        /<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the Orchestrate demo with sound">/
+    )
+    assert.match(section, /Star on GitHub/)
+    assert.doesNotMatch(section, /flowise|alternative|better than|partner|official|seamless|next-gen/i)
+    assert.doesNotMatch(section, /A2A/) // Version B. Delete this line when Version A ships.
+    assert.doesNotMatch(section, /MCP/)
+    const arrows = [...section.matchAll(/<a class="cl-link-arrow" href="([^"]+)"/g)].map((m) => m[1])
+    assert.deepEqual(arrows, ['/docs/api/#call-a-chatflow-from-orchestrate'])
 })
 
 test('the home page hero uses the production message house', () => {
