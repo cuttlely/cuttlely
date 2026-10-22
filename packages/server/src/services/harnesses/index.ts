@@ -24,7 +24,14 @@ import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 // require() cannot load the ESM harness package, so keep a real dynamic import.
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
 
+// Tests hand in their own harness modules. Null is the real package.
+let harnessModuleOverride: ((file: string) => Promise<any>) | null = null
+export function setHarnessModuleLoader(loader: ((file: string) => Promise<any>) | null) {
+    harnessModuleOverride = loader
+}
+
 export async function loadHarness(file: string) {
+    if (harnessModuleOverride) return harnessModuleOverride(file)
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
         const candidates = [path.join(dir, 'packages', 'harness', file), path.join(dir, 'harness', file)]
@@ -121,14 +128,17 @@ const listHarnesses = async (workspaceId?: string | null) => {
     for (const row of store.listHarnesses()) {
         const owner = await ownerOf(row)
         if (!inWorkspace(owner, ws)) continue
-        if (!row.workspaceId && owner) {
-            visible.push(store.claimWorkspace(row.name, owner) || { ...row, workspaceId: owner })
-        } else visible.push(row)
+        const shown = !row.workspaceId && owner ? store.claimWorkspace(row.name, owner) || { ...row, workspaceId: owner } : row
+        // An orphan stays on the list, marked, so it can be deleted from its card.
+        visible.push((await isOrphan(shown)) ? { ...shown, orphaned: true } : shown)
     }
     return visible
 }
 
-const getHarness = async (name: string, workspaceId?: string | null) => requireHarness(name, workspaceId)
+const getHarness = async (name: string, workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
+    return (await isOrphan(harness)) ? { ...harness, orphaned: true } : harness
+}
 
 const saveHarness = async (body: Record<string, unknown>, workspaceId?: string | null) => {
     const ws = workspaceOf(workspaceId)
@@ -262,18 +272,64 @@ const warmHarnesses = (names?: string[]) => {
         .catch((error) => logger.warn(`[harness] Hermes warm-up failed: ${getErrorMessage(error)}`))
 }
 
-// Tests replace removeSchedule to make it fail.
+// Tests replace these to make a step fail, or to stand in for the chat flow delete.
 export const harnessDeleteHooks = {
-    removeSchedule: async (name: string): Promise<unknown> => (await loadHarness('schedule.mjs')).deleteSchedule(name)
+    removeSchedule: async (name: string): Promise<unknown> => (await loadHarness('schedule.mjs')).deleteSchedule(name),
+    deleteCanvas: async (chatflowId: string, workspaceId: string): Promise<unknown> => {
+        const { default: chatflowsService } = await import('../chatflows')
+        const { EnumChatflowType } = await import('../../database/entities/ChatFlow')
+        const orgId = (await orgIdForWorkspace(workspaceId)) || ''
+        return chatflowsService.deleteChatflow(chatflowId, orgId, workspaceId, [EnumChatflowType.HARNESS])
+    }
 }
 
-const deleteHarness = async (name: string, workspaceId?: string | null) => {
-    const harness = await requireHarness(name, workspaceId)
-    // Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
-    // must not inherit the old key grants or the old owner's schedule.
+type HarnessRow = { name: string; chatflowId?: string | null; workspaceId?: string | null; [key: string]: unknown }
+type CanvasState = { state: 'present' | 'missing' | 'unknown'; workspaceId?: string | null; type?: string | null }
+
+// The canvas row a harness was built from. 'unknown' is a failed lookup: callers never treat it as a missing canvas.
+export function canvasRowQuery(dataSource: DataSource, chatflowId: string) {
+    const table = 'chat_flow'
+    const column = (name: string) => `${quoteIdent(dataSource, table)}.${quoteIdent(dataSource, name)}`
+    return dataSource
+        .createQueryBuilder()
+        .select(column('id'), 'id')
+        .addSelect(column('workspaceId'), 'workspaceId')
+        .addSelect(column('type'), 'type')
+        .from(table, table)
+        .where(`${column('id')} = :id`, { id: chatflowId })
+}
+
+export const harnessCanvasLookup = {
+    find: async (chatflowId: string): Promise<CanvasState> => {
+        try {
+            const row = await canvasRowQuery(getRunningExpressApp().AppDataSource, chatflowId).getRawOne()
+            if (!row) return { state: 'missing' }
+            const ws = row.workspaceId ?? row.workspaceid
+            return { state: 'present', workspaceId: typeof ws === 'string' && ws ? ws : null, type: row.type ?? null }
+        } catch (error) {
+            logger.warn(`[harness] canvas lookup failed: ${getErrorMessage(error)}`)
+            return { state: 'unknown' }
+        }
+    }
+}
+
+async function canvasState(record: { chatflowId?: string | null }): Promise<CanvasState | null> {
+    const chatflowId = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
+    if (!UUID.test(chatflowId)) return null
+    return harnessCanvasLookup.find(chatflowId)
+}
+
+// A harness built on a canvas whose canvas row is gone. A harness saved through the API has no canvas and is never an orphan.
+async function isOrphan(record: { chatflowId?: string | null }): Promise<boolean> {
+    return (await canvasState(record))?.state === 'missing'
+}
+
+// Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
+// must not inherit the old key grants or the old owner's schedule. The file holds the roster, specialists and playbooks.
+async function removeHarnessRecord(name: string, workspaceId: string) {
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
-        await removeHarnessFromKeyLists(harness.workspaceId || workspaceOf(workspaceId), name)
+        await removeHarnessFromKeyLists(workspaceId, name)
     } catch (error) {
         logger.warn(`[harness] ${name} was not deleted: removing it from API key lists failed: ${getErrorMessage(error)}`)
         throw new AppError(
@@ -292,7 +348,105 @@ const deleteHarness = async (name: string, workspaceId?: string | null) => {
     }
     const store = await loadHarness('store.mjs')
     store.deleteHarness(name)
-    return { name, deleted: true }
+}
+
+// Run history and stored results of a deleted harness. Best effort: a leftover run row is not readable once the
+// harness is gone, because every run route needs the harness first.
+export async function purgeHarnessRuns(names: string[]) {
+    if (!names.length) return
+    try {
+        const lock = await loadHarness('lock.mjs')
+        lock.immediate((db: { prepare: (sql: string) => { all: (...a: unknown[]) => any[]; run: (...a: unknown[]) => unknown } }) => {
+            const tables = db
+                .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('run_history', 'run_results')")
+                .all()
+                .map((row: { name: string }) => row.name)
+            for (const table of tables) {
+                for (const name of names) db.prepare(`DELETE FROM ${table} WHERE harness_name = ?`).run(name)
+            }
+        })
+    } catch (error) {
+        logger.warn(`[harness] run history cleanup for ${names.join(', ')} failed: ${getErrorMessage(error)}`)
+    }
+}
+
+async function restoreRecords(rows: HarnessRow[]) {
+    if (!rows.length) return
+    const { harnessStoreDir } = await loadHarness('paths.mjs')
+    const dir = harnessStoreDir()
+    fs.mkdirSync(dir, { recursive: true })
+    for (const row of rows) fs.writeFileSync(path.join(dir, `${row.name}.json`), JSON.stringify(row, null, 2))
+}
+
+/**
+ * The cascade from a HARNESS canvas delete. The chat flow delete calls this inside its database transaction, after the
+ * canvas row delete: a failure here rolls the canvas back, and `restore` writes the records back when the transaction
+ * itself fails after this ran.
+ */
+export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: string) {
+    const store = await loadHarness('store.mjs')
+    const rows: HarnessRow[] = store
+        .listHarnesses()
+        .filter((row: HarnessRow) => row.chatflowId === chatflowId && (!row.workspaceId || row.workspaceId === workspaceId))
+    const removed: HarnessRow[] = []
+    try {
+        for (const row of rows) {
+            await removeHarnessRecord(row.name, row.workspaceId || workspaceId)
+            removed.push(row)
+        }
+    } catch (error) {
+        await restoreRecords(removed)
+        throw error
+    }
+    return { names: removed.map((row) => row.name), restore: () => restoreRecords(removed) }
+}
+
+/**
+ * The card delete. A harness with its canvas goes through the chat flow delete, which removes the canvas, its messages
+ * and the harness record in one transaction. A harness without a canvas (saved through the API, or an orphan whose
+ * canvas is already gone) is removed directly.
+ */
+const deleteHarness = async (name: string, workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
+    const ws = harness.workspaceId || workspaceOf(workspaceId)
+    const canvas = await canvasState(harness)
+    if (canvas?.state === 'unknown') {
+        throw new AppError(
+            StatusCodes.SERVICE_UNAVAILABLE,
+            `Harness "${name}" was not deleted, because its canvas could not be read. Try again.`
+        )
+    }
+    let canvasDeleted = false
+    if (canvas?.state === 'present' && canvas.type === 'HARNESS' && canvas.workspaceId === ws) {
+        await harnessDeleteHooks.deleteCanvas(harness.chatflowId, ws)
+        canvasDeleted = true
+    }
+    const store = await loadHarness('store.mjs')
+    if (store.getHarness(name)) await removeHarnessRecord(name, ws)
+    await purgeHarnessRuns([name])
+    return { name, deleted: true, canvasDeleted }
+}
+
+/**
+ * Startup cleanup for harness records left behind by canvas deletes made before the cascade existed. Only a canvas
+ * lookup that answered "no such row" counts; a failed lookup leaves the record alone. Running it again finds nothing.
+ */
+export async function removeOrphanHarnesses() {
+    const store = await loadHarness('store.mjs')
+    const removed: string[] = []
+    for (const row of store.listHarnesses() as HarnessRow[]) {
+        if (!(await isOrphan(row))) continue
+        try {
+            const owner = await ownerOf(row)
+            await removeHarnessRecord(row.name, owner || '')
+            removed.push(row.name)
+        } catch (error) {
+            logger.warn(`[harness] orphan ${row.name} was kept: ${getErrorMessage(error)}`)
+        }
+    }
+    await purgeHarnessRuns(removed)
+    if (removed.length) logger.info(`[harness] removed ${removed.length} harness(es) whose canvas was deleted: ${removed.join(', ')}`)
+    return { removed }
 }
 
 const QUESTION_LIMIT = 100000
@@ -794,6 +948,9 @@ const replayCheck = async (
 export default {
     startHarnessRuntime,
     backfillHarnessWorkspaces,
+    removeOrphanHarnesses,
+    removeHarnessesForCanvas,
+    purgeHarnessRuns,
     assertNameAvailable,
     listHarnesses,
     getHarness,

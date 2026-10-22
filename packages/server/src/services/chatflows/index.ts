@@ -155,13 +155,33 @@ const deleteChatflow = async (
 
         // The flow row and the rows that hold what people typed into it (leads with name, email and phone, messages,
         // feedback, upsert history) go in one transaction: if any of them fails, the flow stays and nothing is half gone.
-        const dbResponse = await appServer.AppDataSource.transaction(async (manager) => {
-            await manager.getRepository(Lead).delete({ chatflowid: chatflowId })
-            await manager.getRepository(ChatMessageFeedback).delete({ chatflowid: chatflowId })
-            await manager.getRepository(ChatMessage).delete({ chatflowid: chatflowId })
-            await manager.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
-            return manager.getRepository(ChatFlow).delete({ id: chatflowId })
-        })
+        // A HARNESS canvas takes its harness record (roster, specialists, playbooks, key grants, schedule) with it, inside
+        // the same transaction: a failed record delete rolls the canvas back, and a failed commit writes the record back.
+        let harnessCascade: { names: string[]; restore: () => Promise<void> } | undefined
+        let dbResponse
+        try {
+            dbResponse = await appServer.AppDataSource.transaction(async (manager) => {
+                await manager.getRepository(Lead).delete({ chatflowid: chatflowId })
+                await manager.getRepository(ChatMessageFeedback).delete({ chatflowid: chatflowId })
+                await manager.getRepository(ChatMessage).delete({ chatflowid: chatflowId })
+                await manager.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
+                const deleted = await manager.getRepository(ChatFlow).delete({ id: chatflowId })
+                if (chatflow.type === EnumChatflowType.HARNESS) {
+                    harnessCascade = await harnessesService.removeHarnessesForCanvas(chatflowId, workspaceId)
+                }
+                return deleted
+            })
+        } catch (error) {
+            if (harnessCascade) {
+                await harnessCascade
+                    .restore()
+                    .catch((restoreError: unknown) =>
+                        logger.error(`[server]: harness record restore for ${chatflowId} failed: ${getErrorMessage(restoreError)}`)
+                    )
+            }
+            throw error
+        }
+        if (harnessCascade?.names.length) await harnessesService.purgeHarnessRuns(harnessCascade.names)
         void flowVersionsService.recordFlowDeletion(chatflow, actor)
         // The flow's draft and Publish instantly setting go with it. A leftover row is harmless, so a failure here
         // does not stop the delete.
