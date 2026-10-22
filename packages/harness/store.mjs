@@ -3,6 +3,7 @@ import path from 'node:path'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { specialistHandoffChars } from './context.mjs'
 import { harnessStoreDir } from './paths.mjs'
+import { normalizePresetSpecialist } from './presets.mjs'
 
 // A specialist's routing summary: what Harness Prime reads to choose it, so the router does not carry every
 // specialist's full instructions.
@@ -203,6 +204,7 @@ export function saveHarness(record, { overwrite = false } = {}) {
     }
     const names = new Set()
     for (const specialist of record.specialists) {
+        normalizePresetSpecialist(specialist)
         assertHarnessName(specialist.name)
         if (names.has(specialist.name)) {
             throw new HarnessError('bad_roster', `Specialist "${specialist.name}" is listed twice on harness "${record.name}".`)

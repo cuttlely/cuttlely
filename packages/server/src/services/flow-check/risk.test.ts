@@ -181,6 +181,11 @@ describe('risky harness specialists', () => {
         ])
     })
 
+    test('the Assets preset counts as code execution and files', () => {
+        expect(riskySteps([harness({ preset: 'assets' })])).toEqual([{ id: 'clerk', label: 'clerk (Code execution, Files)' }])
+        expect(riskySteps([harness({ preset: 'none' })])).toEqual([])
+    })
+
     test('the chatflow Harness tool is still risky', () => {
         expect(isRiskyNode('harness', 'Harness')).toBe(true)
     })

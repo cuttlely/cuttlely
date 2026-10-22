@@ -83,6 +83,8 @@ import { flowContext } from '@/store/context/ReactFlowContext'
 import { shouldToastOnStreamEnd, useItWorkedNotice } from '@/utils/itWorked'
 
 // Const
+import FileArtifact from '@/ui-component/artifacts/FileArtifact'
+import { isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
 import { baseURL, maxScroll } from '@/store/constant'
 import { acceptChatSubmit, harnessCanvasRunPath } from '@/utils/harnessCanvasChat'
 import { harnessMessageText } from '@/utils/harnessStream'
@@ -737,6 +739,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     'FILE-STORAGE::',
                     ''
                 )}`
+            } else if (isFileArtifact(artifact)) {
+                artifact.data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
             }
         })
         setMessages((prevMessages) => {
@@ -1542,6 +1546,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                 'FILE-STORAGE::',
                                 ''
                             )}`
+                        } else if (isFileArtifact(artifact)) {
+                            artifact.data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
                         }
                     })
                 }
@@ -2496,6 +2502,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     'FILE-STORAGE::',
                     ''
                 )}`
+            } else if (isFileArtifact(artifact)) {
+                newArtifacts[i].data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
             }
         }
         return newArtifacts
@@ -2527,6 +2535,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     />
                 </Card>
             )
+        } else if (isFileArtifact(item)) {
+            return <FileArtifact key={index} item={item} />
         } else if (item.type === 'html') {
             return (
                 <div style={{ marginTop: '20px' }}>

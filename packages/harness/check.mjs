@@ -7759,7 +7759,9 @@ check(
     fs.utimesSync(path.join(imageDir, 'old-chart.png'), new Date(since - 60000), new Date(since - 60000))
     fs.mkdirSync(path.join(imageDir, 'charts'))
     fs.writeFileSync(path.join(imageDir, 'charts', 'cake-sales.png'), pngBytes)
-    fs.writeFileSync(path.join(imageDir, 'photo.JPG'), pngBytes)
+    const jpegBytes = Buffer.from('ffd8ffe000104a464946', 'hex')
+    fs.writeFileSync(path.join(imageDir, 'photo.JPG'), jpegBytes)
+    fs.writeFileSync(path.join(imageDir, 'renamed.png'), jpegBytes)
     fs.writeFileSync(path.join(imageDir, 'notes.txt'), 'demo')
     fs.writeFileSync(path.join(imageDir, 'empty.png'), '')
     fs.mkdirSync(path.join(imageDir, '.cache'))
@@ -7767,12 +7769,13 @@ check(
     fs.symlinkSync(path.join(imageDir, 'charts', 'cake-sales.png'), path.join(imageDir, 'linked.png'))
     const found = turnImages(imageDir, since, { specialist: 'analyst' })
     check(
-        'images a specialist wrote this turn are returned with their bytes, and nothing else is',
+        'images a specialist wrote this turn are returned with their bytes, and nothing else is (a JPEG saved as .png is not)',
         found
             .map((image) => image.name)
             .sort()
             .join(',') === 'charts/cake-sales.png,photo.JPG' &&
-            found.every((image) => image.specialist === 'analyst' && Buffer.from(image.base64, 'base64').equals(pngBytes)) &&
+            found.every((image) => image.specialist === 'analyst') &&
+            Buffer.from(found.find((image) => image.name === 'charts/cake-sales.png').base64, 'base64').equals(pngBytes) &&
             found.find((image) => image.name === 'photo.JPG').type === 'jpeg',
         JSON.stringify(found.map((image) => image.name))
     )
@@ -7825,6 +7828,209 @@ check(
     check('a workspace that cannot take the image folder runs the task without images', newTurnImageDir(blocked) === '')
     fs.rmSync(blocked, { force: true })
     fs.rmSync(imageDir, { recursive: true, force: true })
+}
+
+{
+    // Files a specialist wrote this turn (PDF, DOCX, XLSX, CSV) go back to the chat as downloads when their bytes
+    // match the extension, within the per-file and per-turn limits.
+    const { turnFiles, matchesTurnType, mergeTurnArtifacts, TURN_FILE_LIMITS, TURN_ARTIFACT_BYTES, turnImageNote } = await import(
+        './images.mjs'
+    )
+    const fileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-files-'))
+    const since = Date.now() - 5000
+    // A stored (uncompressed) ZIP with the named, empty entries: local headers, central directory and end record.
+    const zipOf = (names) => {
+        const locals = []
+        const centrals = []
+        let offset = 0
+        for (const name of names) {
+            const nameBytes = Buffer.from(name, 'utf8')
+            const local = Buffer.alloc(30)
+            local.writeUInt32LE(0x04034b50, 0)
+            local.writeUInt16LE(nameBytes.length, 26)
+            const central = Buffer.alloc(46)
+            central.writeUInt32LE(0x02014b50, 0)
+            central.writeUInt16LE(nameBytes.length, 28)
+            central.writeUInt32LE(offset, 42)
+            locals.push(local, nameBytes)
+            centrals.push(central, nameBytes)
+            offset += 30 + nameBytes.length
+        }
+        const directory = Buffer.concat(centrals)
+        const end = Buffer.alloc(22)
+        end.writeUInt32LE(0x06054b50, 0)
+        end.writeUInt16LE(names.length, 8)
+        end.writeUInt16LE(names.length, 10)
+        end.writeUInt32LE(directory.length, 12)
+        end.writeUInt32LE(offset, 16)
+        return Buffer.concat([...locals, directory, end])
+    }
+    const zipWith = (part) => zipOf(['[Content_Types].xml', part])
+    fs.writeFileSync(path.join(fileDir, 'report.pdf'), '%PDF-1.7\n%made-up\n')
+    fs.writeFileSync(path.join(fileDir, 'memo.docx'), zipWith('word/document.xml'))
+    fs.writeFileSync(path.join(fileDir, 'table.xlsx'), zipWith('xl/workbook.xml'))
+    fs.writeFileSync(path.join(fileDir, 'orders.csv'), 'month,orders\nJan,12\n')
+    fs.writeFileSync(path.join(fileDir, 'fake.pdf'), '<html>not a pdf</html>')
+    fs.writeFileSync(path.join(fileDir, 'zip.docx'), zipWith('xl/workbook.xml'))
+    fs.writeFileSync(path.join(fileDir, 'binary.csv'), Buffer.from([0x61, 0x00, 0x62]))
+    fs.writeFileSync(path.join(fileDir, 'page.html'), '<h1>demo</h1>')
+    fs.writeFileSync(path.join(fileDir, 'slides.pptx'), zipWith('ppt/presentation.xml'))
+    const files = turnFiles(fileDir, since, { specialist: 'assets' })
+    check(
+        'PDF, DOCX, XLSX and CSV files are returned with their type, and renamed or other files are not',
+        files
+            .map((file) => `${file.name}:${file.type}`)
+            .sort()
+            .join(',') === 'memo.docx:docx,orders.csv:csv,report.pdf:pdf,table.xlsx:xlsx' &&
+            files.every((file) => file.specialist === 'assets' && file.bytes > 0) &&
+            files.find((file) => file.type === 'csv').mime === 'text/csv' &&
+            Buffer.from(files.find((file) => file.type === 'pdf').base64, 'base64')
+                .toString()
+                .startsWith('%PDF-'),
+        JSON.stringify(files.map((file) => file.name))
+    )
+    check(
+        'file types are checked by their bytes',
+        matchesTurnType('pdf', Buffer.from('%PDF-1.4')) &&
+            !matchesTurnType('pdf', Buffer.from('PDF')) &&
+            matchesTurnType('png', Buffer.from('89504e470d0a1a0a00', 'hex')) &&
+            !matchesTurnType('jpeg', Buffer.from('89504e470d0a1a0a00', 'hex')) &&
+            !matchesTurnType('xlsx', zipWith('word/document.xml')) &&
+            !matchesTurnType('docx', Buffer.concat([Buffer.from('504b0304', 'hex'), Buffer.alloc(26), Buffer.from('word/document.xml')])) &&
+            !matchesTurnType('docx', zipOf(['notes/word/document.xml.txt', '[Content_Types].xml'])) &&
+            !matchesTurnType('docx', zipOf(['word/document.xml'])) &&
+            !matchesTurnType(
+                'docx',
+                (() => {
+                    // A directory that declares 0 bytes while real entries follow it is malformed.
+                    const zip = Buffer.from(zipWith('word/document.xml'))
+                    zip.writeUInt32LE(0, zip.length - 10)
+                    return zip
+                })()
+            ) &&
+            !matchesTurnType('xlsx', zipWith('xl/workbook.xml').subarray(0, 60)) &&
+            !matchesTurnType('csv', Buffer.from([0xc3, 0x28])) &&
+            matchesTurnType('csv', Buffer.from('café,1\n')) &&
+            !matchesTurnType('svg', Buffer.from('<svg/>')) &&
+            !matchesTurnType('pdf', Buffer.alloc(0))
+    )
+    const capped = turnFiles(fileDir, since, { limits: { ...TURN_FILE_LIMITS, count: 2 } })
+    const tooBig = turnFiles(fileDir, since, { limits: { ...TURN_FILE_LIMITS, bytes: 8 } })
+    check(
+        'the per-file count and size limits hold',
+        capped.length === 2 && tooBig.length === 0 && TURN_FILE_LIMITS.bytes === 10 * 1024 * 1024 && TURN_FILE_LIMITS.count === 4,
+        JSON.stringify({ capped: capped.length, tooBig: tooBig.map((file) => file.name) })
+    )
+    const image = { type: 'png', name: 'chart.png', specialist: 'assets', bytes: 6, base64: 'iVBORw==' }
+    const big = { type: 'pdf', name: 'big.pdf', specialist: 'assets', bytes: 15, base64: 'JVBERi0=' }
+    const small = { type: 'csv', name: 'small.csv', specialist: 'assets', bytes: 4, base64: 'YSxiCg==' }
+    const merged = mergeTurnArtifacts([[image]], [[big, small, small]], { totalBytes: 12 })
+    check(
+        'the per-turn byte total leaves out a file that would go over it and keeps the rest',
+        merged.artifacts.map((item) => item.name).join(',') === 'chart.png,small.csv' &&
+            merged.skipped.join(',') === 'big.pdf' &&
+            TURN_ARTIFACT_BYTES === 20 * 1024 * 1024,
+        JSON.stringify(merged)
+    )
+    // Two specialists finish out of order; the newer revision of the same file wins and the oldest is the one capped.
+    const older = { type: 'csv', name: 'old.csv', specialist: 'writer', mtime: 1000, bytes: 4, base64: 'YSxiCg==' }
+    const draft = { type: 'pdf', name: 'report.pdf', specialist: 'assets', mtime: 2000, bytes: 4, base64: 'JVBERi0=' }
+    const revised = { ...draft, mtime: 3000, bytes: 5 }
+    const third = { type: 'csv', name: 'mid.csv', specialist: 'writer', mtime: 2500, bytes: 4, base64: 'YSxiCg==' }
+    const ordered = mergeTurnArtifacts([], [[older], [draft], [third], [revised]], { fileCount: 2 })
+    check(
+        'the turn keeps the newest files first across specialists and the newest revision of a file',
+        ordered.artifacts.map((item) => `${item.name}:${item.bytes}`).join(',') === 'report.pdf:5,mid.csv:4' &&
+            ordered.artifacts.every((item) => !('mtime' in item)),
+        JSON.stringify(ordered)
+    )
+    const oldImage = { type: 'png', name: 'old.png', specialist: 'assets', mtime: 1000, bytes: 8, base64: 'iVBORw==' }
+    const newDoc = { type: 'pdf', name: 'new.pdf', specialist: 'assets', mtime: 4000, bytes: 8, base64: 'JVBERi0=' }
+    const mixed = mergeTurnArtifacts([[oldImage]], [[newDoc]], { totalBytes: 10 })
+    check(
+        'a newer file wins the byte total over an older image',
+        mixed.artifacts.map((item) => item.name).join(',') === 'new.pdf' && mixed.skipped.join(',') === 'old.png',
+        JSON.stringify(mixed)
+    )
+    const note = turnImageNote('/demo/chat-images/run')
+    check(
+        'the task note names the file types and limits',
+        note.includes('PDF, DOCX, XLSX or CSV') && note.includes('10 MB each') && note.includes('20 MB per turn'),
+        note
+    )
+    const fileContext = {}
+    noteTurnImages(
+        fileContext,
+        { name: 'assets', profileName: 'demo-files--assets', codeExecution: true, fileAccess: true },
+        since,
+        fileDir
+    )
+    check(
+        'a run keeps the images and the files it wrote apart',
+        !fileContext.turnImages && fileContext.turnFiles?.[0]?.length === 4,
+        JSON.stringify(Object.keys(fileContext))
+    )
+    fs.rmSync(fileDir, { recursive: true, force: true })
+}
+
+{
+    // The 'assets' preset: Code execution and Files on, the style kit in the workspace, its instructions in the soul.
+    const { SPECIALIST_PRESETS, ASSETS_KIT_FILE, installPresetKit, normalizePresetSpecialist, presetName, presetInstructions } =
+        await import('./presets.mjs')
+    const { specialistSoul, specialistSummary } = await import('./profile.mjs')
+    const assets = normalizePresetSpecialist({ preset: 'Assets', instructions: 'Use the bakery colors only for headings.' })
+    check(
+        'the assets preset names the specialist, turns on Python and files, and keeps its own instructions after the preset',
+        assets.name === 'assets' &&
+            assets.preset === 'assets' &&
+            assets.codeExecution === true &&
+            assets.fileAccess === true &&
+            presetInstructions(assets).startsWith(SPECIALIST_PRESETS.assets.instructions) &&
+            presetInstructions(assets).endsWith('Use the bakery colors only for headings.') &&
+            specialistSoul(assets).includes('cuttlely_assets') &&
+            specialistSummary(assets) === SPECIALIST_PRESETS.assets.summary &&
+            specialistSummary({ ...assets, summary: 'Own summary.' }) === 'Own summary.',
+        JSON.stringify(assets)
+    )
+    const plain = normalizePresetSpecialist({ name: 'writer', preset: 'constructor', instructions: 'Write.' })
+    check(
+        'an unknown preset is dropped and changes nothing',
+        !('preset' in plain) &&
+            presetName('constructor') === '' &&
+            presetName('none') === '' &&
+            !plain.codeExecution &&
+            presetInstructions(plain) === 'Write.',
+        JSON.stringify(plain)
+    )
+    const presetFlow = {
+        nodes: [
+            { id: 'chief', data: { name: 'harnessChief', inputs: {} } },
+            { id: 'spec', data: { name: 'harnessSpecialist', inputs: { preset: 'assets', instructions: 'Bakery reports.' } } },
+            { id: 'grok', data: { name: 'chatXAI', category: 'Chat Models', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } }
+        ],
+        edges: [{ source: 'grok', target: 'chief' }]
+    }
+    await syncHarnessFromFlow({ name: 'preset-assets', chatflowId: 'canvas-preset-assets', flowData: presetFlow })
+    const savedPreset = getHarness('preset-assets')?.specialists?.[0]
+    check(
+        'a canvas specialist with Preset set to Assets and no name saves as assets with Python and files on',
+        savedPreset?.name === 'assets' &&
+            savedPreset.preset === 'assets' &&
+            savedPreset.codeExecution === true &&
+            savedPreset.fileAccess === true &&
+            savedPreset.instructions === 'Bakery reports.',
+        JSON.stringify(savedPreset)
+    )
+    const kitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-kit-'))
+    const written = installPresetKit(assets, kitDir)
+    check(
+        'the style kit is copied into the working directory',
+        written.length === 1 &&
+            path.basename(written[0]) === ASSETS_KIT_FILE &&
+            fs.readFileSync(written[0], 'utf8').includes('TABLE_THEME') &&
+            installPresetKit(plain, kitDir).length === 0
+    )
+    fs.rmSync(kitDir, { recursive: true, force: true })
 }
 
 function usageReply(messages, tools) {

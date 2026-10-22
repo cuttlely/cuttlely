@@ -70,6 +70,8 @@ import AddRatedAnswersDialog, { singleFeedbackRating } from '@/ui-component/dial
 // Utils
 import { isValidURL, removeDuplicateURL } from '@/utils/genericHelper'
 import useNotifier from '@/utils/useNotifier'
+import FileArtifact from '@/ui-component/artifacts/FileArtifact'
+import { isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
 import { baseURL } from '@/store/constant'
 
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
@@ -540,6 +542,8 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                         artifact.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatmsg.chatflowid}&chatId=${
                             chatmsg.chatId
                         }&fileName=${artifact.data.replace('FILE-STORAGE::', '')}`
+                    } else if (isFileArtifact(artifact)) {
+                        artifact.data = storedFileArtifactUrl(baseURL, chatmsg.chatflowid, chatmsg.chatId, artifact.data)
                     }
                 })
             }
@@ -816,6 +820,8 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                 newArtifacts[i].data = `${baseURL}/api/v1/get-upload-file?chatflowId=${
                     dialogProps.chatflow.id
                 }&chatId=${selectedChatId}&fileName=${data.replace('FILE-STORAGE::', '')}`
+            } else if (isFileArtifact(artifact)) {
+                newArtifacts[i].data = storedFileArtifactUrl(baseURL, dialogProps.chatflow.id, selectedChatId, artifact.data)
             }
         }
         return newArtifacts
@@ -847,6 +853,8 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                     />
                 </Card>
             )
+        } else if (isFileArtifact(item)) {
+            return <FileArtifact key={index} item={item} />
         } else if (item.type === 'html') {
             return (
                 <div style={{ marginTop: '20px' }}>

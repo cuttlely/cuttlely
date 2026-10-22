@@ -12,6 +12,7 @@ import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { dataRoot, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
+import { installPresetKit, presetInstructions, presetSummary } from './presets.mjs'
 import { parseRelationSelection } from './runtime/analyst-relations.mjs'
 
 const require = createRequire(import.meta.url)
@@ -644,7 +645,7 @@ export function analystRulesSection(specialist) {
 // What Harness Prime reads about a specialist when it chooses who does the work: the routing summary when
 // there is one, otherwise the start of the instructions. The specialist itself still gets all of them.
 export function specialistSummary(specialist, fallback = 'Do the work on your allowlist.') {
-    const summary = routingSummaryText(specialist?.summary)
+    const summary = routingSummaryText(specialist?.summary) || presetSummary(specialist)
     if (summary) return summary
     const instructions = String(specialist?.instructions || '').trim()
     if (!instructions) return fallback
@@ -676,7 +677,7 @@ export function playbookLines(playbooks) {
 }
 
 export function specialistSoul(specialist, env = process.env) {
-    const lines = [specialist.instructions || 'Do the work on your allowlist.']
+    const lines = [presetInstructions(specialist) || 'Do the work on your allowlist.']
     if (specialist.browser) lines.push('Use the browser tools to open pages. Report what the page says.')
     if (specialist.codeExecution) lines.push('Run Python with execute_code. Report the script and its exact output.')
     if (specialist.fileAccess) lines.push('Write files with write_file under your working directory. Report each path you wrote.')
@@ -741,6 +742,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile) {
     fs.mkdirSync(dir, { recursive: true })
     const workspace = specialistWorkspace(specialist.profileName)
     fs.mkdirSync(workspace, { recursive: true })
+    installPresetKit(specialist, workspace)
     writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])

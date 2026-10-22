@@ -68,8 +68,28 @@ function normalizeArtifacts(data) {
     const list = Array.isArray(data) ? data : []
     return list
         .filter((item) => item && typeof item === 'object' && typeof item.data === 'string')
-        .map((item) => ({ type: String(item.type || ''), data: item.data }))
+        .map((item) => ({
+            type: String(item.type || ''),
+            data: item.data,
+            ...(typeof item.name === 'string' && item.name ? { name: item.name.slice(0, 200) } : {})
+        }))
         .slice(0, 8)
+}
+
+// Files a harness specialist made (PDF, DOCX, XLSX, CSV) are offered as downloads from the chat's file storage.
+export const FILE_ARTIFACT_TYPES = ['pdf', 'docx', 'xlsx', 'csv']
+
+// The name to save as: the artifact's own name, or the stored file name without the harness_<specialist>_<time>_<n>_ prefix.
+export function fileArtifactName(item) {
+    const named = typeof item?.name === 'string' ? item.name : ''
+    const stored = String(item?.data || '')
+        .replace(/^FILE-STORAGE::/, '')
+        .replace(/^harness_[A-Za-z0-9_-]*?_\d+_\d+_/, '')
+    const name = (named || stored)
+        .split('/')
+        .pop()
+        .replace(/[^A-Za-z0-9._-]/g, '_')
+    return name || `file.${item?.type || 'bin'}`
 }
 
 function parseFollowUps(value) {
@@ -600,6 +620,11 @@ export class ChatWidget {
         for (const item of list) {
             if (item.type === 'png' || item.type === 'jpeg' || item.type === 'jpg' || item.type === 'gif' || item.type === 'webp') {
                 wrap.append(this.renderImageArtifact(item))
+            } else if (FILE_ARTIFACT_TYPES.includes(item.type) && item.data.startsWith('FILE-STORAGE::')) {
+                wrap.append(this.renderFileArtifact(item))
+            } else if (FILE_ARTIFACT_TYPES.includes(item.type)) {
+                // A file is only offered from this chat's file storage; anything else is not shown.
+                continue
             } else if (item.type === 'html') {
                 // No scripts, forms or same-origin access: the sandbox has no allow tokens at all.
                 const frame = h('iframe', { class: 'dc-html-frame', sandbox: '', title: 'Answer content', loading: 'lazy' })
@@ -610,6 +635,34 @@ export class ChatWidget {
             }
         }
         return wrap
+    }
+
+    renderFileArtifact(item) {
+        const name = fileArtifactName(item)
+        const href = () => `${this.api.fileUrl(this.chatId, item.data)}&download=true`
+        const link = h('a', { class: 'dc-file', href: href(), download: name, rel: 'noopener', title: `Download ${name}` }, [
+            h('span', { class: 'dc-file-type', text: item.type.toUpperCase() }),
+            h('span', { class: 'dc-file-name', text: name })
+        ])
+        link.addEventListener('click', async (event) => {
+            // A plain link can't carry the session token, so with a token the file is read with it, for the chat id
+            // known now, and saved from the blob.
+            if (!this.sessionToken || !this.chatId) {
+                link.href = href()
+                return
+            }
+            event.preventDefault()
+            try {
+                const blob = await this.api.fileBlob(href(), this.sessionToken)
+                const url = URL.createObjectURL(blob)
+                const save = h('a', { href: url, download: name })
+                save.click()
+                setTimeout(() => URL.revokeObjectURL(url), 30000)
+            } catch {
+                link.replaceWith(h('div', { class: 'dc-figure-missing', html: icons.alert }, [`${name} could not be downloaded here.`]))
+            }
+        })
+        return link
     }
 
     renderImageArtifact(item) {

@@ -2,17 +2,107 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-// Images a specialist wrote in its own workspace during this turn, such as a chart from execute_code. They go back
-// to the chat as artifacts. Hidden folders, symlinks, empty files and files over the size limit are skipped.
+// Images and files a specialist wrote in its own workspace during this turn, such as a chart from execute_code or a
+// PDF report. They go back to the chat as artifacts. Hidden folders, symlinks, empty files, files over the size limit
+// and files whose bytes do not match their extension are skipped.
 export const TURN_IMAGE_LIMITS = { count: 4, bytes: 5 * 1024 * 1024, depth: 3 }
+// PDF, DOCX, XLSX and CSV files: up to 4 per turn and 10 MB each.
+export const TURN_FILE_LIMITS = { count: 4, bytes: 10 * 1024 * 1024, depth: 3 }
+// Images and files together, per turn. Newest first: whatever would go over this total is left out.
+export const TURN_ARTIFACT_BYTES = 20 * 1024 * 1024
+
+const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex')
+const ZIP_SIGNATURE = Buffer.from('504b0304', 'hex')
+
 const IMAGE_TYPES = {
     '.png': { type: 'png', mime: 'image/png' },
     '.jpg': { type: 'jpeg', mime: 'image/jpeg' },
     '.jpeg': { type: 'jpeg', mime: 'image/jpeg' }
 }
 
-// Each specialist run gets its own image folder in its workspace, named by a fresh id. Only that folder is read, so
-// two chats running the same specialist at once never pick up each other's images. The folder is removed after.
+export const TURN_FILE_TYPES = {
+    '.pdf': { type: 'pdf', mime: 'application/pdf' },
+    '.docx': { type: 'docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    '.xlsx': { type: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+    '.csv': { type: 'csv', mime: 'text/csv' }
+}
+
+// The parts an Office file must have, read from the ZIP central directory.
+const OOXML_PART = { docx: 'word/document.xml', xlsx: 'xl/workbook.xml' }
+const OOXML_CONTENT_TYPES = '[Content_Types].xml'
+const ZIP_MAX_ENTRIES = 10000
+
+// The entry names in a ZIP's central directory, or null when the archive is malformed. Reads stay inside the buffer.
+export function zipEntryNames(bytes) {
+    if (!Buffer.isBuffer(bytes) || bytes.length < 22 || !bytes.subarray(0, 4).equals(ZIP_SIGNATURE)) return null
+    // The end-of-central-directory record is in the last 22 bytes plus up to 65535 bytes of comment.
+    let end = -1
+    for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 22 - 65535); at--) {
+        if (bytes.readUInt32LE(at) === 0x06054b50) {
+            end = at
+            break
+        }
+    }
+    if (end < 0) return null
+    const count = bytes.readUInt16LE(end + 10)
+    const size = bytes.readUInt32LE(end + 12)
+    const offset = bytes.readUInt32LE(end + 16)
+    if (count === 0 || count > ZIP_MAX_ENTRIES || offset + size > end) return null
+    // Every entry must sit inside the declared directory, and the entries must fill it exactly.
+    const limit = offset + size
+    const names = []
+    let at = offset
+    for (let i = 0; i < count; i++) {
+        if (at + 46 > limit || bytes.readUInt32LE(at) !== 0x02014b50) return null
+        const nameLength = bytes.readUInt16LE(at + 28)
+        const next = at + 46 + nameLength + bytes.readUInt16LE(at + 30) + bytes.readUInt16LE(at + 32)
+        if (next > limit) return null
+        names.push(bytes.subarray(at + 46, at + 46 + nameLength).toString('utf8'))
+        at = next
+    }
+    return at === limit ? names : null
+}
+
+function isOoxml(type, bytes) {
+    const names = zipEntryNames(bytes)
+    return Boolean(names && names.includes(OOXML_CONTENT_TYPES) && names.includes(OOXML_PART[type]))
+}
+
+// True when the bytes are the type the extension says. A renamed file, such as a ZIP saved as .docx or a PDF saved
+// as .csv, does not reach the chat.
+export function matchesTurnType(type, bytes) {
+    if (!Buffer.isBuffer(bytes) || bytes.length === 0) return false
+    switch (type) {
+        case 'png':
+            return bytes.subarray(0, 8).equals(PNG_SIGNATURE)
+        case 'jpeg':
+            return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+        case 'pdf':
+            return bytes.subarray(0, 5).toString('latin1') === '%PDF-'
+        case 'docx':
+        case 'xlsx':
+            return isOoxml(type, bytes)
+        case 'csv':
+            return isCsvText(bytes)
+        default:
+            return false
+    }
+}
+
+// CSV is UTF-8 text: no NUL bytes and no invalid sequences.
+function isCsvText(bytes) {
+    if (bytes.includes(0)) return false
+    try {
+        new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+        return true
+    } catch {
+        return false
+    }
+}
+
+// Each specialist run gets its own folder for chat images and files in its workspace, named by a fresh id. Only that
+// folder is read, so two chats running the same specialist at once never pick up each other's files. The folder is
+// removed after. The folder name is the one images have always used.
 export const TURN_IMAGE_FOLDER = 'chat-images'
 
 export function newTurnImageDir(workspace) {
@@ -27,9 +117,17 @@ export function newTurnImageDir(workspace) {
     return dir
 }
 
+const MB = 1024 * 1024
+
 export function turnImageNote(dir) {
     return dir
-        ? `To show an image in the chat, save it as a PNG or JPEG file in this folder: ${dir}\nImages saved anywhere else are not shown.`
+        ? [
+              `To show an image in the chat, save it as a PNG or JPEG file in this folder: ${dir}`,
+              `To send a file to the chat as a download, save it there as a PDF, DOCX, XLSX or CSV file (up to ${
+                  TURN_FILE_LIMITS.bytes / MB
+              } MB each, ${TURN_ARTIFACT_BYTES / MB} MB per turn in all).`,
+              'Images and files saved anywhere else are not shown.'
+          ].join('\n')
         : ''
 }
 
@@ -44,7 +142,7 @@ export function removeTurnImageDir(dir) {
     fs.rmSync(dir, { recursive: true, force: true })
 }
 
-export function turnImages(dir, since, { specialist = '', limits = TURN_IMAGE_LIMITS } = {}) {
+function scanTurnFolder(dir, since, types, limits, specialist) {
     const found = []
     const walk = (folder, depth) => {
         let entries
@@ -61,7 +159,7 @@ export function turnImages(dir, since, { specialist = '', limits = TURN_IMAGE_LI
                 continue
             }
             if (!entry.isFile()) continue
-            const kind = IMAGE_TYPES[path.extname(entry.name).toLowerCase()]
+            const kind = types[path.extname(entry.name).toLowerCase()]
             if (!kind) continue
             let stat
             try {
@@ -75,28 +173,45 @@ export function turnImages(dir, since, { specialist = '', limits = TURN_IMAGE_LI
     }
     if (dir) walk(dir, 0)
     found.sort((a, b) => b.mtime - a.mtime || a.name.localeCompare(b.name))
-    const images = []
-    for (const item of found.slice(0, limits.count)) {
+    const out = []
+    for (const item of found) {
+        if (out.length >= limits.count) break
+        let bytes
         try {
-            images.push({
-                type: item.kind.type,
-                mime: item.kind.mime,
-                name: item.name,
-                specialist,
-                base64: fs.readFileSync(item.full).toString('base64')
-            })
+            bytes = fs.readFileSync(item.full)
         } catch {
             // A file removed after the scan is skipped.
+            continue
         }
+        if (bytes.length === 0 || bytes.length > limits.bytes || !matchesTurnType(item.kind.type, bytes)) continue
+        out.push({
+            type: item.kind.type,
+            mime: item.kind.mime,
+            name: item.name,
+            specialist,
+            mtime: item.mtime,
+            bytes: bytes.length,
+            base64: bytes.toString('base64')
+        })
     }
-    return images
+    return out
+}
+
+export function turnImages(dir, since, { specialist = '', limits = TURN_IMAGE_LIMITS } = {}) {
+    return scanTurnFolder(dir, since, IMAGE_TYPES, limits, specialist)
+}
+
+export function turnFiles(dir, since, { specialist = '', limits = TURN_FILE_LIMITS } = {}) {
+    return scanTurnFolder(dir, since, TURN_FILE_TYPES, limits, specialist)
 }
 
 // One list for the turn: newest specialist images first, the same file once, capped at the count limit.
 export function mergeTurnImages(lists, limit = TURN_IMAGE_LIMITS.count) {
     const seen = new Set()
     const out = []
-    for (const image of lists.flat()) {
+    // Specialists finish in any order, so sort the whole turn by write time, newest first.
+    const items = lists.flat().sort((a, b) => (Number(b?.mtime) || 0) - (Number(a?.mtime) || 0))
+    for (const image of items) {
         const key = `${image.specialist}/${image.name}`
         if (seen.has(key)) continue
         seen.add(key)
@@ -104,6 +219,38 @@ export function mergeTurnImages(lists, limit = TURN_IMAGE_LIMITS.count) {
         if (out.length >= limit) break
     }
     return out
+}
+
+function artifactBytes(item) {
+    if (Number.isFinite(item?.bytes)) return item.bytes
+    return typeof item?.base64 === 'string' ? Math.floor((item.base64.length * 3) / 4) : 0
+}
+
+// The turn's artifacts: images and files, each up to its count limit and the same file once, then newest first
+// across both. An item that would take the turn over the byte total is left out and named in `skipped`.
+export function mergeTurnArtifacts(
+    imageLists,
+    fileLists,
+    { imageCount = TURN_IMAGE_LIMITS.count, fileCount = TURN_FILE_LIMITS.count, totalBytes = TURN_ARTIFACT_BYTES } = {}
+) {
+    const artifacts = []
+    const skipped = []
+    let used = 0
+    // Images and files together, newest first, so older items are the ones the byte total leaves out.
+    const candidates = [...mergeTurnImages(imageLists || [], imageCount), ...mergeTurnImages(fileLists || [], fileCount)]
+    candidates.sort((a, b) => (Number(b?.mtime) || 0) - (Number(a?.mtime) || 0))
+    for (const item of candidates) {
+        const size = artifactBytes(item)
+        if (used + size > totalBytes) {
+            skipped.push(item.name)
+            continue
+        }
+        used += size
+        // The write time only orders the turn; it is not part of the artifact.
+        const { mtime: _mtime, ...artifact } = item
+        artifacts.push(artifact)
+    }
+    return { artifacts, skipped }
 }
 
 // Images the user attached to this turn. Harness Prime sees them on its routing and answer calls. Only PNG, JPEG,

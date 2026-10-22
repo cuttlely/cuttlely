@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Harness specialists can send PDF, DOCX, XLSX and CSV files to the chat as downloads, next to PNG and JPEG images. The app chat, the messages dialog, the share link and the embed show a download card. Each file is checked by its bytes, with up to 4 files of 10 MB each and 20 MB per turn for images and files together. [Harnesses](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
+-   A Harness Specialist **Preset** with one choice, **Assets**: a specialist named `assets` by default that makes PDF, DOCX, XLSX, CSV and PNG files with a shared style kit (palette, fonts, table and chart themes). [Make files with the assets preset](./docs/how-to/harnesses.md#make-files-with-the-assets-preset).
 -   The agent runtime's Python has pinned image and file libraries: matplotlib, seaborn, plotly with kaleido, numpy, pandas, networkx, graphviz, diagrams, reportlab, python-docx, openpyxl, xlsxwriter and python-pptx. The Docker image adds Graphviz `dot` and the Inter, Noto and DejaVu fonts, and the Docker build workflow runs a smoke test that renders a PNG, a PDF, a DOCX and an XLSX. `CUTTLELY_HERMES_ASSETS=0` leaves the libraries out of `scripts/setup-hermes.sh`. [Image and file libraries in the agent runtime](./docs/reference/hermes-assets.md).
 -   Each card on the Agent Team list has a delete button for owners and editors. A confirm dialog names the team, and the delete removes the team's canvas, chat messages, roster, specialists, playbooks, schedule, API key grants and run history. Anyone without delete permission gets 403.
 

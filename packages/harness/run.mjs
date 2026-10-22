@@ -56,11 +56,12 @@ import {
 import { specialistSessionId } from './specialist-run.mjs'
 import {
     hideTurnImageDir,
-    mergeTurnImages,
+    mergeTurnArtifacts,
     newTurnImageDir,
     promptImages,
     removeTurnImageDir,
     turnImageNote,
+    turnFiles,
     turnImages,
     withPromptImages
 } from './images.mjs'
@@ -478,12 +479,19 @@ export function turnImageDirFor(specialist) {
     return writesFiles(specialist) && specialist.profileName ? newTurnImageDir(specialistWorkspace(specialist.profileName)) : ''
 }
 
+// Images and files (PDF, DOCX, XLSX, CSV) from the run's own folder. mergeTurnArtifacts applies the per-turn limits.
 export function noteTurnImages(context, specialist, since, dir) {
     if (!writesFiles(specialist) || !dir) return
     const images = turnImages(dir, since, { specialist: specialist.name })
-    if (!images.length) return
-    if (!context.turnImages) context.turnImages = []
-    context.turnImages.push(images)
+    if (images.length) {
+        if (!context.turnImages) context.turnImages = []
+        context.turnImages.push(images)
+    }
+    const files = turnFiles(dir, since, { specialist: specialist.name })
+    if (files.length) {
+        if (!context.turnFiles) context.turnFiles = []
+        context.turnFiles.push(files)
+    }
 }
 
 function noteTruncated(context, names) {
@@ -618,14 +626,17 @@ async function runRoster(context, input) {
             `), handoff ${timings.handoffMs}ms, profile ${profileNote(context)}, ${reportNote(context)}`
     )
     const sources = [...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])]
-    // Image bytes ride on the returned payload only; the Harness node stores them for the chat. Events carry the names.
-    const artifacts = mergeTurnImages(context.turnImages || [])
+    // Image and file bytes ride on the returned payload only; the Harness node stores them for the chat. Events carry
+    // the names.
+    const { artifacts, skipped } = mergeTurnArtifacts(context.turnImages || [], context.turnFiles || [])
+    if (skipped.length) console.info(`[harness] ${context.name} left out ${skipped.length} file(s) over the per-turn size limit`)
     const payload = { text, harness: context.name, agents, sources, artifacts, timings, report, trace }
     emit(context, 'final', {
         text,
         agents,
         sources,
         artifacts: artifacts.map(({ type, name, specialist }) => ({ type, name, specialist })),
+        ...(skipped.length ? { skippedArtifacts: skipped } : {}),
         timings,
         report,
         trace
