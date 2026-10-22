@@ -7964,7 +7964,9 @@ check(
             [`"${path.join(assets, 'Q3 and Q4', 'deck.pptx')}"`, '"deck.pptx"'],
             [`"${path.join(assets, 'Q3; old', 'a.pdf')} moved"`, `"Q3; old${path.sep}a.pdf moved"`],
             [`"${path.join(assets, 'report.pdf')} failed during read/write"`, '"report.pdf failed during read/write"'],
-            [`"${path.join(assets, 'report.pdf')} and/or deck.pptx"`, '"report.pdf and/or deck.pptx"']
+            [`"${path.join(assets, 'report.pdf')} and/or deck.pptx"`, '"report.pdf and/or deck.pptx"'],
+            [`"${path.join(assets, 'README')} failed during read/write"`, '"README failed during read/write"'],
+            [`"${path.join(assets, 'out')} is not a folder/file"`, '"out is not a folder/file"']
         ]
         // A chat folder outside the root (another root passed in) is still masked, with the same start boundary.
         const elsewhere = path.join(os.tmpdir(), 'cuttlely-chat', 'run1')
@@ -7992,6 +7994,35 @@ check(
             if (sent.join('') !== 'See report.pdf now. ' || sent.some((text) => text.includes(root))) splitLeaks.push(at)
         }
         check('a streamed path split at any point is masked whole', splitLeaks.length === 0, JSON.stringify(splitLeaks))
+        // A workspaces folder with spaces, and a quoted folder with spaces, split at every point.
+        const spaced = '/var/cuttlely data/workspaces'
+        const spacedLeaks = []
+        for (const said of [`See ${spaced}/agent/report.pdf now. `, `Open "${spaced}/agent/My Reports/report.pdf" now. `]) {
+            for (let at = 1; at < said.length; at += 1) {
+                const sent = []
+                const streamContext = {}
+                for (const piece of [said.slice(0, at), said.slice(at)]) {
+                    bufferStream(streamContext, 'answer', piece, false, (text) => sent.push(text), spaced)
+                }
+                bufferStream(streamContext, 'answer', '', true, (text) => sent.push(text), spaced)
+                const joined = sent.join('')
+                if (sent.some((text) => /cuttlely|workspaces|Reports/.test(text)) || !joined.includes('report.pdf')) {
+                    spacedLeaks.push([at, joined])
+                }
+            }
+        }
+        check('a stream with spaces in the workspace path is masked at every split', spacedLeaks.length === 0, JSON.stringify(spacedLeaks))
+        let deep = { note: path.join(assets, 'deep.pdf') }
+        for (let level = 0; level < 100; level += 1) deep = { deep }
+        const looped = { note: path.join(assets, 'loop.pdf') }
+        looped.self = looped
+        const deepText = JSON.stringify(maskWorkspacePaths({ deep, keyed: { [path.join(assets, 'k.pdf')]: 'failed' } }))
+        const loopText = JSON.stringify(maskWorkspacePaths(looped))
+        check(
+            'deep values, cycles and object keys are masked too',
+            !deepText.includes(root) && deepText.includes('"k.pdf":"failed"') && !loopText.includes(root) && loopText.includes('loop.pdf'),
+            deepText.slice(-300) + loopText
+        )
         check(
             'a stream ending partway into a workspaces folder with spaces waits for the rest',
             rootPrefixAt('See /var/cuttlely ', '/var/cuttlely data/workspaces') === 4 &&

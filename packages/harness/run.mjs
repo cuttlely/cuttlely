@@ -660,19 +660,33 @@ async function runRoster(context, input) {
     return payload
 }
 
-// Paths inside any specialist's workspace are shown as file names in every string of a value: events, specialist
-// results and sources, and the turn's result. Only file bytes are left as they are: a "base64" field, and a "data"
-// field holding a data URL.
+// Paths inside any specialist's workspace are shown as file names in every string of a value, keys included: events,
+// specialist results and sources, and the turn's result. Only file bytes are left as they are: a "base64" field, and a
+// "data" field holding a data URL. Anything nested deeper than MASK_DEPTH, or a repeated reference to an object being
+// masked, is replaced by a placeholder rather than passed on unmasked.
+const MASK_DEPTH = 64
 const fileBytes = (key, item) => key === 'base64' || (key === 'data' && typeof item === 'string' && item.startsWith('data:'))
-export function maskWorkspacePaths(value, depth = 0) {
-    if (typeof value === 'string') return hideTurnImageDir(value, '', specialistWorkspaceRoot())
-    if (!value || typeof value !== 'object' || depth > 12) return value
-    if (Array.isArray(value)) return value.map((item) => maskWorkspacePaths(item, depth + 1))
+const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
+export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
+    if (typeof value === 'string') return maskText(value)
+    if (!value || typeof value !== 'object') return value
     const proto = Object.getPrototypeOf(value)
-    if (proto !== Object.prototype && proto !== null) return value
-    const out = {}
-    for (const [key, item] of Object.entries(value)) out[key] = fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1)
-    return out
+    if (!Array.isArray(value) && proto !== Object.prototype && proto !== null) return value
+    if (depth >= MASK_DEPTH || open.has(value)) return '[nested data]'
+    open.add(value)
+    try {
+        if (Array.isArray(value)) return value.map((item) => maskWorkspacePaths(item, depth + 1, open))
+        const out = {}
+        for (const [key, item] of Object.entries(value)) {
+            let name = maskText(key)
+            // Two keys that mask to the same name keep both values.
+            for (let n = 2; name !== key && Object.hasOwn(out, name); n += 1) name = `${maskText(key)} (${n})`
+            out[name] = fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1, open)
+        }
+        return out
+    } finally {
+        open.delete(value)
+    }
 }
 
 function emit(context, type, data = {}) {
@@ -1434,7 +1448,7 @@ function hermesEventCallId(event) {
 // Streamed text is sent up to its last whitespace, masked, so a workspace path split across two deltas is masked
 // whole; a last word that may start a path waits for the next delta or the end of the stream. Each stream (a specialist, the chief's route or
 // answer) keeps its own tail.
-export function bufferStream(context, key, delta, flush, send) {
+export function bufferStream(context, key, delta, flush, send, root = specialistWorkspaceRoot()) {
     if (!context._deltaTail) context._deltaTail = new Map()
     const text = (context._deltaTail.get(key) || '') + delta
     let cut = flush ? text.length : Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1
@@ -1442,10 +1456,27 @@ export function bufferStream(context, key, delta, flush, send) {
     const last = text.slice(cut)
     const mayStartLink = [...'file://'].some((_, index) => last.endsWith('file://'.slice(0, index + 1)))
     if (!flush && !last.includes(path.sep) && !last.includes('/') && !mayStartLink) cut = text.length
-    // The workspaces folder's own name may hold spaces: text that ends partway into it waits too.
-    if (!flush) cut = Math.min(cut, rootPrefixAt(text))
+    // The workspaces folder's own name may hold spaces: text that ends partway into it waits too, and so does a path
+    // from the last place the folder appears (with its opening quote) until a line ends after it, since a quoted
+    // path may hold spaces. A held path that grows past STREAM_HOLD is sent at its last whitespace.
+    if (!flush) cut = Math.min(cut, rootPrefixAt(text, root), openPathAt(text, root))
+    if (!flush && text.length - cut > STREAM_HOLD) {
+        cut = Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1 || text.length
+    }
     context._deltaTail.set(key, text.slice(cut))
-    if (cut > 0) send(hideTurnImageDir(text.slice(0, cut), '', specialistWorkspaceRoot()))
+    if (cut > 0) send(hideTurnImageDir(text.slice(0, cut), '', root))
+}
+
+const STREAM_HOLD = 16 * 1024
+
+// Where the last mention of the workspaces folder starts (at its opening quote or file:// link) when no line has
+// ended after it, or the text's length.
+export function openPathAt(text, root = specialistWorkspaceRoot()) {
+    let at = text.lastIndexOf(root)
+    if (at < 0 || text.indexOf('\n', at) >= 0) return text.length
+    if (text.slice(Math.max(0, at - 7), at) === 'file://') at -= 7
+    if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
+    return at
 }
 
 // Where the text's end starts a prefix of the workspaces folder (or its file:// link), or its length when it does not.
@@ -1459,8 +1490,12 @@ export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
             }
         }
     }
+    // An opening quote just before it (or at the very end) stays with the path, so a quoted path is read whole.
+    if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
     return at
 }
+
+const QUOTE_CHARS = '"\'`'
 
 function forwardDelta(context, specialist, delta, flush = false) {
     bufferStream(context, `specialist:${specialist.name}`, delta, flush, (text) => emitSpecialistPartial(context, specialist, text))

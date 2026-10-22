@@ -176,36 +176,42 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
             const tail = /[.:!?]+$/.exec(match)?.[0] || ''
             return shown(match.slice(0, match.length - tail.length)) + tail
         })
-    // In quoted text a path may hold spaces. It is read one folder at a time, in a single pass: a folder name has no
-    // leading or trailing space and none of ;:<>|?* or ", ". The last part is the rest of the quote when that ends in a
-    // file extension, otherwise it ends at the first space. The rest keeps its words, and any further path is masked.
-    const badFolder = /^\s|\s$|[;:<>|?*]|, /
+    // In quoted text a path may hold spaces only when the whole quote reads as one path: every folder name is
+    // non-empty, has no leading or trailing space, none of ;:<>|?* or ", " and no file name followed by words, and the
+    // last part ends in a file extension. Otherwise the path ends at the first space, and the rest keeps its words
+    // ("README failed during read/write"); any further path in it is masked too. The check is one pass.
+    const badFolder = /^\s|\s$|[;:<>|?*]|, |\.[A-Za-z0-9]{1,8}\s/
     const fileEnd = /\.[A-Za-z0-9]{1,8}$/
-    const namedFile = /\.[A-Za-z0-9]{1,8}\s/
-    const space = /\s/g
+    const space = /\s/
+    const onePath = (rest) => {
+        if (!space.test(rest)) return true
+        const parts = rest.split(path.sep)
+        if (parts[0] !== '') return false
+        const last = parts.pop()
+        return fileEnd.test(last) && parts.slice(1).every((folder) => folder && !badFolder.test(folder))
+    }
+    // Where a path that does not fill the quote ends: at the first space after a file name whose folders are all
+    // valid ("Q3 Reports/a.pdf and ..."), else at the first space. One pass; each check looks back a few characters.
+    const pathEnd = (rest) => {
+        let segment = 0
+        let folders = rest.startsWith(path.sep)
+        for (let index = 1; index < rest.length; index += 1) {
+            const char = rest[index]
+            if (char === path.sep) {
+                const folder = rest.slice(segment + 1, index)
+                folders = folders && Boolean(folder) && !badFolder.test(folder)
+                segment = index
+            } else if (folders && /\s/.test(char) && fileEnd.test(rest.slice(Math.max(segment + 1, index - 9), index))) {
+                return index
+            }
+        }
+        return rest.search(space)
+    }
     const quotedPaths = (full) => {
         const start = new RegExp(`^${head}`).exec(full)?.[0].length || 0
-        const s = path.sep
-        let pos = start
-        let end = full.length
-        while (pos < full.length && full[pos] === s) {
-            const next = full.indexOf(s, pos + 1)
-            if (next !== -1) {
-                const folder = full.slice(pos + 1, next)
-                // A file name followed by words ("report.pdf failed during read/write") is not a folder.
-                if (folder && !badFolder.test(folder) && !namedFile.test(folder)) {
-                    pos = next
-                    continue
-                }
-            } else if (fileEnd.test(full.slice(pos + 1))) {
-                break
-            }
-            space.lastIndex = pos + 1
-            const gap = space.exec(full)
-            end = gap ? gap.index : full.length
-            break
-        }
-        if (end === full.length) return shown(full)
+        const rest = full.slice(start)
+        if (onePath(rest)) return shown(full)
+        const end = start + pathEnd(rest)
         return shown(full.slice(0, end)) + bareOnly(full.slice(end))
     }
     let out = text
