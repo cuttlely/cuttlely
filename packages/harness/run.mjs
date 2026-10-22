@@ -598,6 +598,8 @@ async function runRoster(context, input) {
     if (!text.trim()) {
         throw new HarnessError('empty_output', `Harness "${context.name}" finished without a Harness Prime answer.`)
     }
+    // The stored turn feeds the next prompt and the chat history; it holds file names, never workspace paths.
+    text = maskWorkspacePaths(text)
     if (!context.replay) {
         appendTurn(
             context.name,
@@ -659,19 +661,17 @@ async function runRoster(context, input) {
 }
 
 // Paths inside any specialist's workspace are shown as file names in every string of a value: events, specialist
-// results and sources, and the turn's result. Data URLs and very long strings (file bytes) are left as they are.
-const MASK_MAX_CHARS = 1_000_000
+// results and sources, and the turn's result. Only file bytes are left as they are: a "base64" field, and a "data"
+// field holding a data URL.
+const fileBytes = (key, item) => key === 'base64' || (key === 'data' && typeof item === 'string' && item.startsWith('data:'))
 export function maskWorkspacePaths(value, depth = 0) {
-    if (typeof value === 'string') {
-        if (value.length > MASK_MAX_CHARS || value.startsWith('data:')) return value
-        return hideTurnImageDir(value, '', specialistWorkspaceRoot())
-    }
+    if (typeof value === 'string') return hideTurnImageDir(value, '', specialistWorkspaceRoot())
     if (!value || typeof value !== 'object' || depth > 12) return value
     if (Array.isArray(value)) return value.map((item) => maskWorkspacePaths(item, depth + 1))
     const proto = Object.getPrototypeOf(value)
     if (proto !== Object.prototype && proto !== null) return value
     const out = {}
-    for (const [key, item] of Object.entries(value)) out[key] = maskWorkspacePaths(item, depth + 1)
+    for (const [key, item] of Object.entries(value)) out[key] = fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1)
     return out
 }
 
@@ -1208,12 +1208,18 @@ async function routeSteps(context, input, history) {
         .join('\n')
     const fitted = fitChiefMessages({ system, memory: context.memoryBlock || '', history, user: input, budget: chiefContextTokens() })
     noteTruncated(context, fitted.truncated)
-    const reply = await callModel(context, chiefModel(context.roster), {
-        messages: withPromptImages(fitted.messages, context.images),
-        json: true,
-        role: 'route',
-        onDelta: (text) => emit(context, 'partial', { phase: 'route', text })
-    })
+    const routeStream = chiefStream(context, 'route')
+    let reply
+    try {
+        reply = await callModel(context, chiefModel(context.roster), {
+            messages: withPromptImages(fitted.messages, context.images),
+            json: true,
+            role: 'route',
+            onDelta: routeStream.onDelta
+        })
+    } finally {
+        routeStream.flush()
+    }
     let parsedSteps = forceAnalystRoute(input, parseSteps(reply.content, specialists, input), specialists)
     const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
     if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
@@ -1356,7 +1362,8 @@ async function runStep(context, step) {
             ...specialistEventFields(context, specialist, out.sources),
             ...phaseCalls(context, 'specialist', specialist.name)
         })
-        return {
+        // Grounding adds analyst payloads after the specialist's own result was masked; the step result is masked whole.
+        return maskWorkspacePaths({
             name: specialist.name,
             status: 'completed',
             task,
@@ -1369,7 +1376,7 @@ async function runStep(context, step) {
             ...(specialist.handoffChars ? { handoffChars: specialist.handoffChars } : {}),
             ...(out.analystPayloads ? { analystPayloads: out.analystPayloads } : {}),
             ...(out.ungrounded ? { ungrounded: true, error: out.text } : {})
-        }
+        })
     } catch (error) {
         throwIfClient(context)
         const ms = Date.now() - started
@@ -1424,13 +1431,30 @@ function hermesEventCallId(event) {
 }
 
 // Streamed text is sent up to its last whitespace, masked, so a workspace path split across two deltas is masked
-// whole; the rest waits for the next delta or the end of the run.
-function forwardDelta(context, specialist, delta, flush = false) {
+// whole; a last word that may start a path waits for the next delta or the end of the stream. Each stream (a specialist, the chief's route or
+// answer) keeps its own tail.
+function bufferStream(context, key, delta, flush, send) {
     if (!context._deltaTail) context._deltaTail = new Map()
-    const text = (context._deltaTail.get(specialist.name) || '') + delta
-    const cut = flush ? text.length : Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1
-    context._deltaTail.set(specialist.name, text.slice(cut))
-    if (cut > 0) emitSpecialistPartial(context, specialist, hideTurnImageDir(text.slice(0, cut), '', specialistWorkspaceRoot()))
+    const text = (context._deltaTail.get(key) || '') + delta
+    let cut = flush ? text.length : Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1
+    // A last word with no separator that does not end like the start of "file://" cannot hold a path yet, so it is sent too.
+    const last = text.slice(cut)
+    const mayStartLink = [...'file://'].some((_, index) => last.endsWith('file://'.slice(0, index + 1)))
+    if (!flush && !last.includes(path.sep) && !last.includes('/') && !mayStartLink) cut = text.length
+    context._deltaTail.set(key, text.slice(cut))
+    if (cut > 0) send(hideTurnImageDir(text.slice(0, cut), '', specialistWorkspaceRoot()))
+}
+
+function forwardDelta(context, specialist, delta, flush = false) {
+    bufferStream(context, `specialist:${specialist.name}`, delta, flush, (text) => emitSpecialistPartial(context, specialist, text))
+}
+
+function chiefStream(context, phase) {
+    const send = (text) => emit(context, 'partial', { phase, text })
+    return {
+        onDelta: (text) => bufferStream(context, `chief:${phase}`, String(text ?? ''), false, send),
+        flush: () => bufferStream(context, `chief:${phase}`, '', true, send)
+    }
 }
 
 function forwardHermes(context, specialist, event) {
@@ -1618,7 +1642,7 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         const slotIndex = slots.findIndex((tool, index) => !used.has(index) && tool.callId === callId)
         if (slotIndex < 0) continue
         used.add(slotIndex)
-        slots[slotIndex].detail = JSON.stringify({ result: JSON.stringify(item.result) })
+        slots[slotIndex].detail = maskWorkspacePaths(JSON.stringify({ result: JSON.stringify(item.result) }))
     }
 }
 
@@ -1977,11 +2001,17 @@ async function chiefHandoff(context, input, history, results) {
     const handoffStarted = Date.now()
     emit(context, 'handoff', { phase: 'start', model: configuredModel(context, null) })
     try {
-        const reply = await callModel(context, chiefModel(roster), {
-            messages: withPromptImages(fitted.messages, context.images),
-            role: 'handoff',
-            onDelta: (text) => emit(context, 'partial', { phase: 'answer', text })
-        })
+        const answerStream = chiefStream(context, 'answer')
+        let reply
+        try {
+            reply = await callModel(context, chiefModel(roster), {
+                messages: withPromptImages(fitted.messages, context.images),
+                role: 'handoff',
+                onDelta: answerStream.onDelta
+            })
+        } finally {
+            answerStream.flush()
+        }
         throwIfClient(context)
         const handed = roleCalls(context, 'handoff')
         const last = handed.at(-1)

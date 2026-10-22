@@ -28,6 +28,8 @@ const {
     specialistSummary
 } = await import('./profile.mjs')
 const { appendMessage, readMessages, readPromptContext, sessionKey } = await import('./session.mjs')
+// A workspace path the scripted Harness Prime quotes in its answer, when set.
+let chiefQuotedPath = ''
 const { chiefContextTokens, estimateTokens, specialistContextTokens, DEFAULT_CHIEF_CONTEXT_TOKENS, DEFAULT_SPECIALIST_CONTEXT_TOKENS } =
     await import('./context.mjs')
 const {
@@ -3290,6 +3292,7 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
     // The tool preview and the streamed text quote the path too; the streamed path is split across two deltas.
     const [deltaHead, deltaRest] = [rawPath.slice(0, 12), rawPath.slice(12)]
     teamToolPath = path.join(root, 'team--files', 'labels', 'order 7.pdf')
+    chiefQuotedPath = teamToolPath
     contractFailRun = {
         profile: 'browser',
         error: `Traceback: open ${rawPath} failed in ${root}/team--browser`,
@@ -3313,6 +3316,7 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
     } finally {
         contractFailRun = null
         teamToolPath = ''
+        chiefQuotedPath = ''
     }
     const leakHandoff = String(
         teamCalls
@@ -3329,7 +3333,9 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
         stored: storedLeak,
         recorded: JSON.stringify(recorded || {}),
         handoff: leakHandoff,
-        sources: JSON.stringify(leaked.sources || [])
+        sources: JSON.stringify(leaked.sources || []),
+        answer: String(leaked.text || ''),
+        turn: JSON.stringify(readMessages('team', 'leak-fail-1', 50))
     }
     const showing = Object.entries(channels)
         .filter(([, text]) => text.includes(root))
@@ -3347,6 +3353,8 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
             leakHandoff.includes('### browser (failed)') &&
             channels.events.includes('order 7.pdf') &&
             channels.sources.includes('order 7.pdf') &&
+            channels.answer.includes('see order 7.pdf') &&
+            channels.turn.includes('see order 7.pdf') &&
             Boolean(recorded) &&
             showing.length === 0,
         JSON.stringify({ showing, error: failedAgent?.error })
@@ -7947,7 +7955,14 @@ check(
             [`Saved in ${assets}.`, 'Saved in the workspace.'],
             [`\`${path.join(assets, 'exports', "Bob's Reports", 'deck.pptx')}\``, '`deck.pptx`'],
             [`"${path.join(assets, "Bob's", 'a.csv')}" and '${path.join(assets, 'x y', 'b.csv')}'`, `"a.csv" and 'b.csv'`],
-            [`/backup${path.join(coderDir, 'exports', 'deck.pptx')}`, `/backup${path.join(coderDir, 'exports', 'deck.pptx')}`]
+            [`/backup${path.join(coderDir, 'exports', 'deck.pptx')}`, `/backup${path.join(coderDir, 'exports', 'deck.pptx')}`],
+            // A quoted path ends at its file name; the prose and any outside path after it keep their words.
+            [
+                `"${path.join(assets, 'report.pdf')} could not be copied over /tmp/output.pdf"`,
+                '"report.pdf could not be copied over /tmp/output.pdf"'
+            ],
+            [`"${path.join(assets, 'Q3 and Q4', 'deck.pptx')}"`, '"deck.pptx"'],
+            [`"${path.join(assets, 'Q3; old', 'a.pdf')} moved"`, `"Q3; old${path.sep}a.pdf moved"`]
         ]
         // A chat folder outside the root (another root passed in) is still masked, with the same start boundary.
         const elsewhere = path.join(os.tmpdir(), 'cuttlely-chat', 'run1')
@@ -7956,6 +7971,27 @@ check(
             [`/backup${path.join(elsewhere, 'deck.pptx')}`, `/backup${path.join(elsewhere, 'deck.pptx')}`]
         ].filter(([input, expected]) => hideTurnImageDir(input, elsewhere, root) !== expected)
         const wrong = [...outside, ...cases.filter(([input, expected]) => hideTurnImageDir(input, coderDir) !== expected)]
+        // Quoted text is read in one pass: a long quote of spaces or folders after the root stays fast.
+        const slowStarted = Date.now()
+        hideTurnImageDir(`"${assets}${path.sep}a${' '.repeat(32000)}b"`, coderDir)
+        hideTurnImageDir(`"${assets}${path.sep}${'a b/'.repeat(16000)}"`, coderDir)
+        hideTurnImageDir(`'${`${assets}${path.sep}x `.repeat(4000)}'`, coderDir)
+        const { maskWorkspacePaths } = await import('./run.mjs')
+        const maskedValue = maskWorkspacePaths({
+            text: `data: ${path.join(assets, 'r.pdf')}`,
+            data: `data:text/plain,${assets}`,
+            base64: assets,
+            rows: [{ note: path.join(assets, 'x', 'n.csv') }]
+        })
+        check(
+            'only file bytes are left unmasked in a harness value',
+            maskedValue.text === 'data: r.pdf' &&
+                maskedValue.data === `data:text/plain,${assets}` &&
+                maskedValue.base64 === assets &&
+                maskedValue.rows[0].note === 'n.csv',
+            JSON.stringify(maskedValue)
+        )
+        check('a long quoted path is masked in linear time', Date.now() - slowStarted < 1000, String(Date.now() - slowStarted))
         check(
             'answers show only file names for any path in a specialist workspace',
             wrong.length === 0,
@@ -14661,7 +14697,9 @@ function scriptedReply(messages, tools) {
     }
     if (system.startsWith('You are Harness Prime')) {
         const names = [...user.matchAll(/^### ([^ ]+) \(/gm)].map((found) => found[1])
-        return { content: `answer:${plain.length - 2}|${names.join(',')}` }
+        // With chiefQuotedPath set, the chief's own answer quotes a workspace path too.
+        const quoted = chiefQuotedPath ? ` see ${chiefQuotedPath}` : ''
+        return { content: `answer:${plain.length - 2}|${names.join(',')}${quoted}` }
     }
     return { content: `specialist:${user}` }
 }

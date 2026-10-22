@@ -176,17 +176,35 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
             const tail = /[.:!?]+$/.exec(match)?.[0] || ''
             return shown(match.slice(0, match.length - tail.length)) + tail
         })
-    // In quoted text a path may hold spaces; it ends where prose starts (", ", "; ", " and ", " to ", an arrow, a URL)
-    // or where the next path starts. The rest keeps its words, and any further path in it is masked too.
-    const prose = /[;,]\s|\s(?:and|or|to|then|from|into|failed|because)\s|\s*(?:->|→|=>)\s*|\s\S*:\/\//
+    // In quoted text a path may hold spaces. It is read one folder at a time, in a single pass: a folder name has no
+    // leading or trailing space and none of ;:<>|?* or ", ". The last part is the rest of the quote when that ends in a
+    // file extension, otherwise it ends at the first space. The rest keeps its words, and any further path is masked.
+    const badFolder = /^\s|\s$|[;:<>|?*]|, /
+    const fileEnd = /\.[A-Za-z0-9]{1,8}$/
+    const space = /\s/g
     const quotedPaths = (full) => {
         const start = new RegExp(`^${head}`).exec(full)?.[0].length || 0
-        const after = full.slice(start)
-        const next = new RegExp(`\\s(?=${head})`).exec(after)
-        const stop = prose.exec(after)
-        const cut = Math.min(next ? next.index : Infinity, stop ? stop.index : Infinity)
-        if (cut === Infinity) return shown(full)
-        return shown(full.slice(0, start + cut)) + bareOnly(full.slice(start + cut))
+        const s = path.sep
+        let pos = start
+        let end = full.length
+        while (pos < full.length && full[pos] === s) {
+            const next = full.indexOf(s, pos + 1)
+            if (next !== -1) {
+                const folder = full.slice(pos + 1, next)
+                if (folder && !badFolder.test(folder)) {
+                    pos = next
+                    continue
+                }
+            } else if (fileEnd.test(full.slice(pos + 1))) {
+                break
+            }
+            space.lastIndex = pos + 1
+            const gap = space.exec(full)
+            end = gap ? gap.index : full.length
+            break
+        }
+        if (end === full.length) return shown(full)
+        return shown(full.slice(0, end)) + bareOnly(full.slice(end))
     }
     let out = text
     for (const quoted of quotes) {
