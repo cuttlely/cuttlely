@@ -275,11 +275,12 @@ const warmHarnesses = (names?: string[]) => {
 // Tests replace these to make a step fail, or to stand in for the chat flow delete.
 export const harnessDeleteHooks = {
     removeSchedule: async (name: string): Promise<unknown> => (await loadHarness('schedule.mjs')).deleteSchedule(name),
-    deleteCanvas: async (chatflowId: string, workspaceId: string): Promise<unknown> => {
-        const { default: chatflowsService } = await import('../chatflows')
-        const { EnumChatflowType } = await import('../../database/entities/ChatFlow')
-        const orgId = (await orgIdForWorkspace(workspaceId)) || ''
-        return chatflowsService.deleteChatflow(chatflowId, orgId, workspaceId, [EnumChatflowType.HARNESS])
+    // The chat flow service registers its delete when it loads, so this module does not import it.
+    deleteCanvas: async (chatflowId: string, _workspaceId: string): Promise<unknown> => {
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `The canvas ${chatflowId} could not be deleted: the chat flow service is not loaded.`
+        )
     }
 }
 
