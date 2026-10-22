@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import FileArtifact from './FileArtifact'
-import { fileArtifactHref, fileArtifactName, isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
+import ImageDownloadButton from './ImageDownloadButton'
+import { fileArtifactHref, fileArtifactName, imageArtifactDownload, isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
 
 const BASE = 'https://cuttlely.example'
 const render = (item) => renderToStaticMarkup(createElement(ThemeProvider, { theme: createTheme() }, createElement(FileArtifact, { item })))
@@ -69,6 +70,45 @@ describe('file artifacts in the chat', () => {
             const source = fs.readFileSync(path.join(__dirname, file), 'utf8')
             expect(source).toContain('<FileArtifact key={index} item={item} />')
             expect(source).toContain('storedFileArtifactUrl(baseURL')
+        }
+    })
+
+    test('a chat image downloads from the file route with download=true and its stored name', () => {
+        const url = `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=harness_assets_1700000000000_0_sales-chart.png`
+        expect(imageArtifactDownload({ type: 'png', data: url }, BASE)).toEqual({ href: `${url}&download=true`, name: 'sales-chart.png' })
+        expect(imageArtifactDownload({ type: 'png', data: `${url}&download=true` }, BASE).href).toBe(`${url}&download=true`)
+        expect(imageArtifactDownload({ type: 'jpeg', name: 'photo', data: url.replace('.png', '.jpg') }, BASE).name).toBe('photo.jpg')
+        expect(imageArtifactDownload({ type: 'png', data: 'data:image/png;base64,iVBORw0KGgo=' }, BASE)).toEqual({
+            href: 'data:image/png;base64,iVBORw0KGgo=',
+            name: 'file.png'
+        })
+    })
+
+    test('a chat image from elsewhere or of another type has no download', () => {
+        expect(imageArtifactDownload({ type: 'png', data: 'https://elsewhere.example/a.png' }, BASE)).toBeNull()
+        expect(imageArtifactDownload({ type: 'png', data: 'data:image/svg+xml;base64,PHN2Zz4=' }, BASE)).toBeNull()
+        expect(imageArtifactDownload({ type: 'jpeg', data: 'data:image/png;base64,iVBORw0KGgo=' }, BASE)).toBeNull()
+        expect(imageArtifactDownload({ type: 'html', data: `${BASE}/api/v1/get-upload-file?fileName=a.html` }, BASE)).toBeNull()
+        expect(imageArtifactDownload(null, BASE)).toBeNull()
+    })
+
+    test('renders a download button for a chat image and nothing for one it does not offer', () => {
+        const draw = (item) =>
+            renderToStaticMarkup(createElement(ThemeProvider, { theme: createTheme() }, createElement(ImageDownloadButton, { item })))
+        const html = draw({ type: 'png', data: `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=harness_a_1_0_chart.png` })
+        expect(html).toContain('data-testid="chat-image-download"')
+        expect(html).toContain('download="chart.png"')
+        expect(html).toContain('aria-label="Download chart.png"')
+        expect(html).toContain('fileName=harness_a_1_0_chart.png&amp;download=true')
+        expect(draw({ type: 'png', data: 'https://elsewhere.example/a.png' })).toBe('')
+    })
+
+    test('the chat and the messages dialog put the download button on image cards', () => {
+        const fs = require('fs')
+        const path = require('path')
+        for (const file of ['../../views/chatmessage/ChatMessage.jsx', '../dialog/ViewMessagesDialog.jsx']) {
+            const source = fs.readFileSync(path.join(__dirname, file), 'utf8')
+            expect(source).toContain('<ImageDownloadButton item={item} />')
         }
     })
 })

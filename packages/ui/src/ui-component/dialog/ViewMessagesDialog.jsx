@@ -71,6 +71,7 @@ import AddRatedAnswersDialog, { singleFeedbackRating } from '@/ui-component/dial
 import { isValidURL, removeDuplicateURL } from '@/utils/genericHelper'
 import useNotifier from '@/utils/useNotifier'
 import FileArtifact from '@/ui-component/artifacts/FileArtifact'
+import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
 import { isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
 import { baseURL } from '@/store/constant'
 
@@ -837,7 +838,8 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                         m: 0,
                         mt: 2,
                         mb: 2,
-                        flex: '0 0 auto'
+                        flex: '0 0 auto',
+                        position: 'relative'
                     }}
                 >
                     <CardMedia
@@ -851,6 +853,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                             objectFit: 'cover'
                         }}
                     />
+                    <ImageDownloadButton item={item} />
                 </Card>
             )
         } else if (isFileArtifact(item)) {

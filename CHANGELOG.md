@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   PNG and JPEG images in the chat can be downloaded. The app chat and the messages dialog show a download button on each image card, and the share link and the embed show a download link under each image. A stored image downloads with its file name, and the embed reads it with the chat's session token when it has one. Images from other sites get no download.
+
 ## [1.3.2] - 2026-10-22
 
 ### Added

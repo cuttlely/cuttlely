@@ -84,6 +84,7 @@ import { shouldToastOnStreamEnd, useItWorkedNotice } from '@/utils/itWorked'
 
 // Const
 import FileArtifact from '@/ui-component/artifacts/FileArtifact'
+import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
 import { isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
 import { baseURL, maxScroll } from '@/store/constant'
 import { acceptChatSubmit, harnessCanvasRunPath } from '@/utils/harnessCanvasChat'
@@ -2519,7 +2520,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         m: 0,
                         mt: 2,
                         mb: 2,
-                        flex: '0 0 auto'
+                        flex: '0 0 auto',
+                        position: 'relative'
                     }}
                 >
                     <CardMedia
@@ -2533,6 +2535,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                             objectFit: 'cover'
                         }}
                     />
+                    <ImageDownloadButton item={item} />
                 </Card>
             )
         } else if (isFileArtifact(item)) {

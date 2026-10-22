@@ -638,16 +638,21 @@ export class ChatWidget {
     }
 
     renderFileArtifact(item) {
-        const name = fileArtifactName(item)
-        const href = () => `${this.api.fileUrl(this.chatId, item.data)}&download=true`
-        const link = h('a', { class: 'dc-file', href: href(), download: name, rel: 'noopener', title: `Download ${name}` }, [
-            h('span', { class: 'dc-file-type', text: item.type.toUpperCase() }),
+        return this.renderDownloadLink(item, fileArtifactName(item), item.type.toUpperCase())
+    }
+
+    // A download link for a stored file or image (FILE-STORAGE::name), or for an image already given as a data URL.
+    renderDownloadLink(item, name, label, extraClass = '') {
+        const stored = !item.data.startsWith('data:')
+        const href = () => (stored ? `${this.api.fileUrl(this.chatId, item.data)}&download=true` : item.data)
+        const link = h('a', { class: `dc-file${extraClass}`, href: href(), download: name, rel: 'noopener', title: `Download ${name}` }, [
+            h('span', { class: 'dc-file-type', text: label }),
             h('span', { class: 'dc-file-name', text: name })
         ])
         link.addEventListener('click', async (event) => {
             // A plain link can't carry the session token, so with a token the file is read with it, for the chat id
             // known now, and saved from the blob.
-            if (!this.sessionToken || !this.chatId) {
+            if (!stored || !this.sessionToken || !this.chatId) {
                 link.href = href()
                 return
             }
@@ -663,6 +668,14 @@ export class ChatWidget {
             }
         })
         return link
+    }
+
+    // The name to save an image as, with the extension of its type.
+    imageArtifactName(item) {
+        const name = fileArtifactName(item)
+        const ext = item.type === 'jpeg' ? 'jpg' : item.type
+        const known = ext === 'jpg' ? /\.jpe?g$/i : new RegExp(`\\.${ext}$`, 'i')
+        return known.test(name) ? name : `${name.replace(/\.[^.]*$/, '') || 'image'}.${ext}`
     }
 
     renderImageArtifact(item) {
@@ -690,6 +703,14 @@ export class ChatWidget {
             figure.replaceChildren(h('div', { class: 'dc-figure-missing', html: icons.image }, ['This chart could not be shown here.']))
         })
         figure.append(img)
+        // Stored images and data URLs get a download link under the picture; a link to another site does not.
+        const mime = item.type === 'jpg' ? 'jpeg' : item.type
+        const dataUrl = new RegExp(`^data:image/${mime};base64,[A-Za-z0-9+/]+={0,2}$`).test(item.data)
+        if (src !== direct || dataUrl) {
+            const name = this.imageArtifactName(item)
+            const label = (item.type === 'jpeg' ? 'jpg' : item.type).toUpperCase()
+            figure.append(this.renderDownloadLink(item, name, label, ' dc-image-download'))
+        }
         return figure
     }
 
