@@ -73,7 +73,7 @@ beforeEach(() => {
 })
 afterEach(() => fetchSpy.mockRestore())
 
-async function sendWithTool(nodeClass: any, inputs: Record<string, any>): Promise<Sent[]> {
+async function sendWithTool(nodeClass: any, inputs: Record<string, any>, toolOptions?: Record<string, any>): Promise<Sent[]> {
     const node = new nodeClass()
     const model = await node.init({ id: 'n1', inputs: { streaming: false, ...inputs }, credential: 'c1' }, '', {})
     const sent: Sent[] = []
@@ -93,7 +93,10 @@ async function sendWithTool(nodeClass: any, inputs: Record<string, any>): Promis
         })
     }
     fetchSpy.mockImplementation(fakeFetch as any)
-    await model.bindTools([lookupTool]).invoke('hello')
+    await model
+        .bindTools([lookupTool], toolOptions)
+        .withConfig({ tags: ['t'] })
+        .invoke('hello')
     return sent
 }
 
@@ -382,5 +385,48 @@ describe('AzureChatOpenAI request params', () => {
         const sent = await sendWithTool(AzureChatOpenAINode, { modelName: 'o3', reasoning: false, reasoningEffort: 'high' })
         expect(sent[0].api).toBe('chat')
         expect(sent[0].body.reasoning_effort).toBeUndefined()
+    })
+})
+
+describe('tool_choice on the Responses API', () => {
+    const cases: [string, any, any][] = [
+        ['required', 'required', 'required'],
+        ['any', 'any', 'required'],
+        ['auto', 'auto', 'auto'],
+        ['none', 'none', 'none'],
+        ['a named function', 'lookup', { type: 'function', name: 'lookup' }],
+        ['a named function object', { type: 'function', function: { name: 'lookup' } }, { type: 'function', name: 'lookup' }]
+    ]
+    for (const [label, choice, expected] of cases) {
+        it(`OpenAI /responses carries ${label} through bindTools and withConfig`, async () => {
+            const sent = await sendWithTool(
+                ChatOpenAINode,
+                { modelName: 'gpt-6-astra', reasoning: true, reasoningEffort: 'high' },
+                { tool_choice: choice }
+            )
+            expect(sent[0].api).toBe('responses')
+            expect(sent[0].body.tool_choice).toEqual(expected)
+            expect(sent[0].body.reasoning).toEqual({ effort: 'high' })
+            expect(sent[0].body.tools[0].name).toBe('lookup')
+        })
+        it(`Azure /responses carries ${label}`, async () => {
+            const sent = await sendWithTool(
+                AzureChatOpenAINode,
+                { modelName: 'gpt-5.6-luna', reasoning: true, reasoningEffort: 'medium' },
+                { tool_choice: choice }
+            )
+            expect(sent[0].url).toBe('https://inst.openai.azure.com/openai/v1/responses')
+            expect(sent[0].body.tool_choice).toEqual(expected)
+        })
+    }
+    it('without a tool_choice none is sent on /responses', async () => {
+        const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-6-astra', reasoning: true, reasoningEffort: 'high' })
+        expect(sent[0].body.tool_choice).toBeUndefined()
+    })
+    it('chat completions keeps required as before', async () => {
+        const sent = await sendWithTool(ChatOpenAINode, { modelName: 'gpt-5.6-luna', reasoning: false }, { tool_choice: 'required' })
+        expect(sent[0].api).toBe('chat')
+        expect(sent[0].body.tool_choice).toBe('required')
+        expect(sent[0].body.reasoning_effort).toBe('none')
     })
 })

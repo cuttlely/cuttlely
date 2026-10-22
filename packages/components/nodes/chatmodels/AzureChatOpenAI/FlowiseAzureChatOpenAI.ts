@@ -1,4 +1,5 @@
-import { AzureChatOpenAI as LangchainAzureChatOpenAI, ChatOpenAIResponses } from '@langchain/openai'
+import { AzureChatOpenAI as LangchainAzureChatOpenAI } from '@langchain/openai'
+import { ToolChoiceResponses } from '../ChatOpenAI/FlowiseChatOpenAI'
 import { IMultiModalOption, IVisionChatModal } from '../../../src'
 
 export type AzureChatOpenAIConstructorFields = ConstructorParameters<typeof LangchainAzureChatOpenAI>[0]
@@ -24,7 +25,7 @@ export function azureResponsesBaseURL(fields: { azureOpenAIBasePath?: string; az
  * deployment), and the reasoning settings sent in the body through modelKwargs, because LangChain only sends
  * `reasoning` for model names it recognises and a deployment name can be anything.
  */
-function azureResponsesClient(fields: AzureChatOpenAIConstructorFields): ChatOpenAIResponses | undefined {
+function azureResponsesClient(fields: AzureChatOpenAIConstructorFields): ToolChoiceResponses | undefined {
     const f = (fields ?? {}) as any
     const baseURL = azureResponsesBaseURL(f)
     const deployment = f.azureOpenAIApiDeploymentName ?? f.deploymentName
@@ -42,7 +43,7 @@ function azureResponsesClient(fields: AzureChatOpenAIConstructorFields): ChatOpe
     ]) {
         delete rest[key]
     }
-    return new ChatOpenAIResponses({
+    return new ToolChoiceResponses({
         ...rest,
         model: deployment,
         modelName: deployment,
