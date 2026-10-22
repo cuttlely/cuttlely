@@ -1974,7 +1974,7 @@
         },
         {
             "from": "packages/server/src/services/chatflows/index.ts",
-            "to": "packages/server/src/services/harnesses/canvasDelete",
+            "to": "packages/server/src/services/harnesses/canvasDelete.ts",
             "reason": "The chat flow delete registers itself so the Agent Team card delete can remove a harness canvas without the harness service importing the chat flow service."
         },
         {
