@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   The ChatOpenAI and Azure ChatOpenAI nodes honor the **Reasoning** toggle. With it off, a Reasoning Effort saved earlier is no longer sent: gpt-5.1 and later get `reasoning_effort` `none`, and gpt-5, o-series and other reasoning models get no reasoning effort. This fixes `400 Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions` on a Tool Agent, an Agent node or a harness driven by gpt-5.6. **Reasoning Effort** has a **None** option. With Reasoning on and an effort other than None, gpt-5.6 and later use the Responses API, because chat completions does not accept function tools with reasoning on those models.
+
 ## [1.3.2] - 2026-10-22
 
 ### Added

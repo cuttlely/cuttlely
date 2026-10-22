@@ -2,6 +2,7 @@ import { ChatOpenAI as LangchainChatOpenAI, ChatOpenAIFields } from '@langchain/
 import { BaseCache } from '@langchain/core/caches'
 import { ICommonObject, IMultiModalOption, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { getBaseClasses, getCredentialData, getCredentialParam, isReasoningModelOpenAI } from '../../../src/utils'
+import { openAIReasoningFields } from '../../../src/openaiReasoning'
 import { ChatOpenAI } from './FlowiseChatOpenAI'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { OpenAI as OpenAIClient } from 'openai'
@@ -75,7 +76,8 @@ class ChatOpenAI_ChatModels implements INode {
             },
             {
                 label: 'Reasoning',
-                description: 'Whether the model supports reasoning. Only applicable for reasoning models (gpt-5 and o-series models only)',
+                description:
+                    'Whether the model reasons. Only applicable for reasoning models (gpt-5 and o-series models only). Off sends reasoning effort none on gpt-5.1 and later, and no reasoning effort on other models',
                 name: 'reasoning',
                 type: 'boolean',
                 default: false,
@@ -84,10 +86,16 @@ class ChatOpenAI_ChatModels implements INode {
             },
             {
                 label: 'Reasoning Effort',
-                description: 'Constrains effort on reasoning. Only applicable for reasoning models (gpt-5 and o-series models only)',
+                description:
+                    'Constrains effort on reasoning. Only applicable for reasoning models (gpt-5 and o-series models only). On gpt-5.6 and later, an effort other than None uses the Responses API, because chat completions does not accept function tools with reasoning on those models',
                 name: 'reasoningEffort',
                 type: 'options',
                 options: [
+                    {
+                        label: 'None',
+                        name: 'none',
+                        description: 'No reasoning. gpt-5.1 and later only; other models send no effort'
+                    },
                     {
                         label: 'Low',
                         name: 'low'
@@ -232,7 +240,7 @@ class ChatOpenAI_ChatModels implements INode {
         const strictToolCalling = nodeData.inputs?.strictToolCalling as boolean
         const basePath = nodeData.inputs?.basepath as string
         const baseOptions = nodeData.inputs?.baseOptions
-        const reasoningEffort = nodeData.inputs?.reasoningEffort as OpenAIClient.ReasoningEffort | null
+        const reasoningEffort = nodeData.inputs?.reasoningEffort as OpenAIClient.ReasoningEffort | 'none' | null
         const reasoningSummary = nodeData.inputs?.reasoningSummary as 'auto' | 'concise' | 'detailed' | null
         const allowImageUploads = nodeData.inputs?.allowImageUploads as boolean
 
@@ -267,14 +275,13 @@ class ChatOpenAI_ChatModels implements INode {
         if (isReasoningModelOpenAI(modelName)) {
             delete obj.temperature
             delete obj.stop
-            const reasoning: OpenAIClient.Reasoning = {}
-            if (reasoningEffort) {
-                reasoning.effort = reasoningEffort
-            }
-            if (reasoningSummary) {
-                reasoning.summary = reasoningSummary
-            }
-            obj.reasoning = reasoning
+            const fields = openAIReasoningFields(modelName, {
+                enabled: nodeData.inputs?.reasoning as boolean | string | undefined,
+                effort: reasoningEffort,
+                summary: reasoningSummary
+            })
+            if (fields.reasoning) obj.reasoning = fields.reasoning
+            if (fields.useResponsesApi) obj.useResponsesApi = true
         }
 
         let parsedBaseOptions: any | undefined = undefined
