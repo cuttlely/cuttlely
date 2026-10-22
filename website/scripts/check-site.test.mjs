@@ -183,6 +183,11 @@ describe('check-site message house', () => {
         assert.match(problems, /no ref tag/)
     })
 
+    it('fails the retired tagline when inline markup splits it', () => {
+        const split = home.replace('<h1>', '<p>The <em>visual</em> agent builder,\n<span>ready for produc<b>tion</b>.</span></p><h1>')
+        assert.match(checkSite(site({ ...base, 'index.html': split })).problems.join('\n'), /retired tagline/)
+    })
+
     it('allows built from the ground up only in the Cost and context heading', () => {
         assert.deepEqual(checkSite(site(base)).problems, [])
         const twice = home.replace('<p>Roll back', '<p>Built from the ground up.</p><p>Roll back')

@@ -66,7 +66,8 @@ export default defineConfig({
                     tag: 'meta',
                     attrs: {
                         property: 'og:image:alt',
-                        content: 'Cuttlely. Open-source agent platform for lean AI agent teams. Apache-2.0.'
+                        content:
+                            'Cuttlely. Your applications deserve agents. Open-source agent platform for lean AI agent teams. Apache-2.0.'
                     }
                 },
                 { tag: 'meta', attrs: { name: 'twitter:image', content: ogImage } }

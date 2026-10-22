@@ -273,7 +273,13 @@ export function checkSite(dist, { csp = null } = {}) {
     const homeMeta = (home.match(/<meta name="description" content="([^"]*)"/) || ['', ''])[1]
     if (homeTitle !== HOME_TITLE) problems.push(`index.html: the title is not "${HOME_TITLE}"`)
     if (homeMeta !== HOME_META) problems.push('index.html: the meta description is not the approved one')
-    if (home.includes(RETIRED_TAGLINE)) problems.push('index.html: shows the retired tagline')
+    const homeTight = home
+        .replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+    if (home.includes(RETIRED_TAGLINE) || homeText.includes(RETIRED_TAGLINE) || homeTight.includes(RETIRED_TAGLINE))
+        problems.push('index.html: shows the retired tagline')
     if (!home.includes('href="/quickstart/?ref=home-hero"')) problems.push('index.html: the hero quickstart link has no ref tag')
     if (!home.includes('href="/flowise/"')) {
         problems.push('index.html: missing href="/flowise/"')
