@@ -154,7 +154,7 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
     const chat = chatDir ? trimSep(chatDir) : ''
     const sep = escapeRegExp(path.sep)
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
-    const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://)?${escapeRegExp(base)}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~-])`
+    const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://)?${escapeRegExp(base)}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~.${sep}-])`
     const shown = (full) => {
         const rest = full.replace(/^file:\/\//, '')
         if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'

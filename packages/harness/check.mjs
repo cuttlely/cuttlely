@@ -7854,6 +7854,9 @@ check(
             [`${coderDir}${path.sep}`, 'the chat'],
             [`/backup${path.join(assets, 'exports', 'deck.pptx')}`, `/backup${path.join(assets, 'exports', 'deck.pptx')}`],
             [`${root}-other${path.sep}a.csv`, `${root}-other${path.sep}a.csv`],
+            [`${root}.${path.sep}exports${path.sep}deck.pptx`, `${root}.${path.sep}exports${path.sep}deck.pptx`],
+            [`${root}..${path.sep}deck.pptx`, `${root}..${path.sep}deck.pptx`],
+            [`Saved in ${assets}.`, 'Saved in the workspace.'],
             [`\`${path.join(assets, 'exports', "Bob's Reports", 'deck.pptx')}\``, '`deck.pptx`'],
             [`"${path.join(assets, "Bob's", 'a.csv')}" and '${path.join(assets, 'x y', 'b.csv')}'`, `"a.csv" and 'b.csv'`],
             [`/backup${path.join(coderDir, 'exports', 'deck.pptx')}`, `/backup${path.join(coderDir, 'exports', 'deck.pptx')}`]
