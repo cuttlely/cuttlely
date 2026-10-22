@@ -12326,6 +12326,228 @@ await (async () => {
 })()
 
 await (async () => {
+    const { specialistToolBindings, toolNameFrom } = await import('./bridge.mjs')
+    const seen = []
+    class FakeRetrieverTool {
+        async init(nodeData) {
+            const own = nodeData?.inputs?.name || 'unnamed'
+            return {
+                name: own,
+                schema: { _def: { typeName: 'ZodString' } },
+                async invoke(arg) {
+                    seen.push({ node: nodeData?.id, own, arg })
+                    return `from ${own}: ${arg}`
+                }
+            }
+        }
+    }
+    const mcpSeen = []
+    class HandbookMcp {
+        async init() {
+            return [
+                {
+                    name: 'policy_handbook',
+                    description: 'The server tool that shares a name with a retriever',
+                    schema: { type: 'object', properties: { input: { type: 'string' } } },
+                    async invoke(args) {
+                        mcpSeen.push(args)
+                        return `from mcp: ${JSON.stringify(args)}`
+                    }
+                }
+            ]
+        }
+    }
+    const retriever = (nodeId, name) => ({
+        nodeId,
+        nodeName: 'retrieverTool',
+        label: 'Retriever Tool',
+        category: 'Tools',
+        inputs: { name, description: `Search ${name}.` }
+    })
+    const modules = [
+        retriever('retrieverTool_0', 'policy handbook'),
+        retriever('retrieverTool_1', 'pricing_faq'),
+        retriever('retrieverTool_2', 'pricing_faq'),
+        retriever('retrieverTool_3', '')
+    ]
+    const mcpServers = [
+        {
+            nodeId: 'customMCP_0',
+            nodeName: 'customMCP',
+            label: 'Handbook server',
+            category: 'Tools (MCP)',
+            inputs: { mcpServerConfig: JSON.stringify({ command: 'do-not-launch' }) }
+        }
+    ]
+    const toolModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name: 'retrievers',
+            workspaceId: 'w1',
+            chatflowId: 'flow-retrievers',
+            chief: { instructions: 'Route the work.', model: toolModel },
+            specialists: [{ name: 'librarian', instructions: 'Search the stores.', shell: false, modules, mcpServers }]
+        },
+        { overwrite: true }
+    )
+    const { registerProfileToken } = await import('./gateway.mjs')
+    const token = 'R'.repeat(43)
+    registerProfileToken({ token, harnessName: 'retrievers', specialistName: 'librarian', profileName: 'retrievers--librarian' })
+    await maybeConfigure(
+        flowContext({
+            workspaceId: 'w1',
+            loadNode: async (nodeName) => {
+                if (nodeName === 'retrieverTool') return FakeRetrieverTool
+                if (nodeName === 'customMCP') return HandbookMcp
+                throw new Error(`unexpected node ${nodeName}`)
+            }
+        })
+    )
+    const gateway = await openGateway()
+    const listed = JSON.parse(
+        (await localRequest({ port: gateway.port, method: 'POST', path: '/harness/tools/list', token, body: {} })).body
+    )
+    const names = (listed.tools || []).map((tool) => tool.name)
+    const replies = []
+    for (const name of names) {
+        const response = await localRequest({
+            port: gateway.port,
+            method: 'POST',
+            path: '/harness/tools/call',
+            token,
+            body: { name, arguments: { input: `ask ${name}` } }
+        })
+        replies.push(JSON.parse(response.body).result)
+    }
+    // A server whose first tool runs SQL is refused with its old aliases, but a node listed under its label is not.
+    class SqlFirstMcp {
+        async init() {
+            return [
+                {
+                    name: 'execute_sql',
+                    description: 'Run any SQL statement',
+                    schema: { type: 'object', properties: { sql: { type: 'string' } } },
+                    async invoke() {
+                        return 'sql ran'
+                    }
+                }
+            ]
+        }
+    }
+    saveHarness(
+        {
+            name: 'aliasrefuse',
+            workspaceId: 'w1',
+            chatflowId: 'flow-aliasrefuse',
+            chief: { instructions: 'Route the work.', model: toolModel },
+            specialists: [
+                {
+                    name: 'librarian',
+                    instructions: 'Search the stores.',
+                    shell: false,
+                    modules: [retriever('retrieverTool_9', 'database')],
+                    mcpServers: [{ ...mcpServers[0], nodeId: 'customMCP_9', label: 'database' }]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const aliasToken = 'S'.repeat(43)
+    registerProfileToken({
+        token: aliasToken,
+        harnessName: 'aliasrefuse',
+        specialistName: 'librarian',
+        profileName: 'aliasrefuse--librarian'
+    })
+    await maybeConfigure(
+        flowContext({
+            workspaceId: 'w1',
+            loadNode: async (nodeName) => {
+                if (nodeName === 'retrieverTool') return FakeRetrieverTool
+                if (nodeName === 'customMCP') return SqlFirstMcp
+                throw new Error(`unexpected node ${nodeName}`)
+            }
+        })
+    )
+    const aliasList = JSON.parse(
+        (await localRequest({ port: gateway.port, method: 'POST', path: '/harness/tools/list', token: aliasToken, body: {} })).body
+    )
+    const aliasNames = (aliasList.tools || []).map((tool) => tool.name)
+    const aliasReply = JSON.parse(
+        (
+            await localRequest({
+                port: gateway.port,
+                method: 'POST',
+                path: '/harness/tools/call',
+                token: aliasToken,
+                body: { name: 'database', arguments: { input: 'ask alias' } }
+            })
+        ).body
+    ).result
+    const aliasHit = seen.at(-1)
+    await gateway.close()
+    const expected = [
+        'policy_handbook__retrieverTool_0',
+        'pricing_faq__retrieverTool_1',
+        'pricing_faq__retrieverTool_2',
+        'retrieverTool',
+        'policy_handbook'
+    ]
+    // A name stays with its node when the others are reordered or removed.
+    const byNode = (list) => Object.fromEntries(specialistToolBindings({ modules: list }).map((entry) => [entry.nodeId, entry.name]))
+    const base = byNode(modules)
+    const reversed = byNode([...modules].reverse())
+    const without = byNode(modules.filter((mod) => mod.nodeId !== 'retrieverTool_1'))
+    const stable =
+        Object.keys(base).every((id) => base[id] === reversed[id]) &&
+        Object.entries(without).every(([id, name]) => name === base[id] || !Object.values(base).includes(name))
+    // Three nodes with one name and long ids that share their first 70 characters still get distinct names.
+    const longId = (n) => `${'x'.repeat(70)}${n}`
+    const longNames = specialistToolBindings({
+        modules: [0, 1, 2].map((n) => retriever(longId(n), 'y'.repeat(80)))
+    }).map((entry) => entry.name)
+    // A node whose own name is another pair's suffixed name keeps it, in any order.
+    const cross = [retriever('a', 'foo'), retriever('b', 'foo'), retriever('c', 'foo_a')]
+    const crossNames = [cross, [cross[2], cross[0], cross[1]], [cross[1], cross[2], cross[0]]].map((list) => byNode(list))
+    const pair = byNode(cross.slice(0, 2))
+    const added = byNode(cross)
+    const addStable = pair.a === added.a && pair.b === added.b && added.c === 'foo_a' && pair.a === 'foo__a'
+    // Ids that clean to the same text still keep their own names in any order.
+    const twins = [retriever('retrieverTool_1', 'faq'), retriever('retrieverTool__1', 'faq'), retriever('retrieverTool 1', 'faq')]
+    const twinNames = [twins, [...twins].reverse(), [twins[1], twins[2], twins[0]]].map((list) => byNode(list))
+    const twinStable =
+        twinNames.every((map) => twins.every((mod) => map[mod.nodeId] === twinNames[0][mod.nodeId])) &&
+        new Set(Object.values(twinNames[0])).size === 3 &&
+        byNode(twins.slice(1))['retrieverTool__1'] === twinNames[0]['retrieverTool__1']
+    const crossStable =
+        crossNames.every((map) => JSON.stringify(map, ['a', 'b', 'c']) === JSON.stringify(crossNames[0], ['a', 'b', 'c'])) &&
+        crossNames[0].c === 'foo_a'
+    check(
+        'several retrieverTool nodes on one specialist get their own tool names and each call reaches its own node',
+        JSON.stringify(names) === JSON.stringify(expected) &&
+            names.every((name) => /^[A-Za-z0-9_-]{1,64}$/.test(name)) &&
+            seen.length === 5 &&
+            JSON.stringify(aliasNames) === JSON.stringify(['database']) &&
+            aliasHit?.node === 'retrieverTool_9' &&
+            String(aliasReply).includes('ask alias') &&
+            seen.slice(0, 4).every((hit, index) => hit.node === modules[index].nodeId && hit.arg === `ask ${names[index]}`) &&
+            replies.slice(0, 4).every((reply, index) => String(reply).includes(`ask ${names[index]}`)) &&
+            mcpSeen.length === 1 &&
+            String(replies[4]).startsWith('from mcp:') &&
+            stable &&
+            crossStable &&
+            addStable &&
+            twinStable &&
+            new Set(longNames).size === 3 &&
+            longNames.every((name) => name.length <= 64) &&
+            toolNameFrom('a'.repeat(80)).length === 64 &&
+            toolNameFrom(' kb: north/south ') === 'kb_north_south' &&
+            toolNameFrom('-'.repeat(5000)) === '',
+        JSON.stringify({ names, seen, mcpSeen, replies, base, reversed, without, longNames, crossNames, twinNames, aliasNames, aliasReply })
+    )
+})()
+
+await (async () => {
     const { specialistSessionId } = await import('./specialist-run.mjs')
     const { currentAnalystScope, openAnalystRunScopes, queryAnalyst } = await import('./runtime/analyst-store.mjs')
     const { latestAnalystCursor } = await import('./analyst-capture.mjs')
