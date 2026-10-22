@@ -273,12 +273,9 @@ export function checkSite(dist, { csp = null } = {}) {
     const homeMeta = (home.match(/<meta name="description" content="([^"]*)"/) || ['', ''])[1]
     if (homeTitle !== HOME_TITLE) problems.push(`index.html: the title is not "${HOME_TITLE}"`)
     if (homeMeta !== HOME_META) problems.push('index.html: the meta description is not the approved one')
-    const homeTight = home
-        .replace(/<script\b[\s\S]*?<\/script\b[^>]*>/gi, '')
-        .replace(/<[^>]+>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/\s+/g, ' ')
-    if (home.includes(RETIRED_TAGLINE) || homeText.includes(RETIRED_TAGLINE) || homeTight.includes(RETIRED_TAGLINE))
+    // Visible text with all whitespace dropped, so a tag inside a word cannot split the tagline.
+    const homeTight = homeText.replace(/\s+/g, '')
+    if (home.includes(RETIRED_TAGLINE) || homeText.includes(RETIRED_TAGLINE) || homeTight.includes(RETIRED_TAGLINE.replace(/\s+/g, '')))
         problems.push('index.html: shows the retired tagline')
     if (!home.includes('href="/quickstart/?ref=home-hero"')) problems.push('index.html: the hero quickstart link has no ref tag')
     if (!home.includes('href="/flowise/"')) {
