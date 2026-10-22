@@ -25,7 +25,8 @@ import { getErrorMessage } from '../../errors/utils'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
 import etlService, { orgIdForWorkspace } from '../../services/etl'
-import harnessesService, { harnessDeleteHooks } from '../../services/harnesses'
+import harnessesService from '../../services/harnesses'
+import { harnessCanvasDelete } from '../../services/harnesses/canvasDelete'
 import {
     assertCallerMayUseHarnesses,
     assertHarnessReferencesWellFormed,
@@ -216,7 +217,7 @@ const deleteChatflow = async (
 }
 
 // The Agent Team card delete removes a harness with its canvas through this delete, so the cascade is the same either way.
-harnessDeleteHooks.deleteCanvas = async (chatflowId: string, workspaceId: string) =>
+harnessCanvasDelete.run = async (chatflowId: string, workspaceId: string) =>
     deleteChatflow(chatflowId, (await orgIdForWorkspace(workspaceId)) || '', workspaceId, [EnumChatflowType.HARNESS])
 
 /**

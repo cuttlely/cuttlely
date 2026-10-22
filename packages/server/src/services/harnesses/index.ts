@@ -17,6 +17,7 @@ import { openHarnessRunTrace } from '../../metrics/tracing'
 import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
 import { safeHarnessName } from './apiAccess'
+import { harnessCanvasDelete } from './canvasDelete'
 import type { IHarnessCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
 
@@ -276,11 +277,14 @@ const warmHarnesses = (names?: string[]) => {
 export const harnessDeleteHooks = {
     removeSchedule: async (name: string): Promise<unknown> => (await loadHarness('schedule.mjs')).deleteSchedule(name),
     // The chat flow service registers its delete when it loads, so this module does not import it.
-    deleteCanvas: async (chatflowId: string, _workspaceId: string): Promise<unknown> => {
-        throw new AppError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `The canvas ${chatflowId} could not be deleted: the chat flow service is not loaded.`
-        )
+    deleteCanvas: async (chatflowId: string, workspaceId: string): Promise<unknown> => {
+        if (!harnessCanvasDelete.run) {
+            throw new AppError(
+                StatusCodes.INTERNAL_SERVER_ERROR,
+                `The canvas ${chatflowId} could not be deleted: the chat flow service is not loaded.`
+            )
+        }
+        return harnessCanvasDelete.run(chatflowId, workspaceId)
     }
 }
 

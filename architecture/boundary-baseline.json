@@ -1973,6 +1973,11 @@
             "reason": "the inherited stats route parses feedbackType with the shared filter"
         },
         {
+            "from": "packages/server/src/services/chatflows/index.ts",
+            "to": "packages/server/src/services/harnesses/canvasDelete",
+            "reason": "The chat flow delete registers itself so the Agent Team card delete can remove a harness canvas without the harness service importing the chat flow service."
+        },
+        {
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
             "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
