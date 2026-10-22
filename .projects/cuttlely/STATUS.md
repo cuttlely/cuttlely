@@ -70,4 +70,5 @@ Cuttlely 1.3.1. The product version is the root `package.json`, `packages/server
 -   sanitize-html is 2.18.1 in `pnpm-lock.yaml` ([#250](https://github.com/cuttlely/cuttlely/pull/250)), which clears Dependabot alert 221.
 -   `npx cuttlely start` on Node 20: the health wait keeps the event loop alive, times out each try and retries through resets; the `cli-node` CI job runs the CLI tests on Node 20, 22 and 24 ([#252](https://github.com/cuttlely/cuttlely/pull/252), in the `v1.3.1` tag and its npm package).
 -   `npx cuttlely start` health timeout: the message points at `npx cuttlely logs` and no longer says Cuttlely is still starting (CHANGELOG Unreleased).
+-   For 1.3.2, in review: pinned image and file libraries in the agent runtime (`scripts/hermes-assets/`), with Graphviz and the Inter, Noto and DejaVu fonts in the Docker image and a smoke test in the Docker build workflow (CHANGELOG Unreleased).
 -   The hermes patch set and `hermes/CUTTLELY_VENDOR.lock` fingerprint are saved again with `pnpm hermes:vendor --save-patches` after the Pillow and certifi pins from #248, so `pnpm hermes:vendor --check` and `pnpm verify` pass on `main`.

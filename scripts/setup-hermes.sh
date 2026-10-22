@@ -4,10 +4,14 @@
 #   bash scripts/setup-hermes.sh          # Python from hermes/.python-version (3.14), downloaded if missing
 #   bash scripts/setup-hermes.sh 3.12     # a version uv can find or download
 #   bash scripts/setup-hermes.sh /usr/bin/python3.12
+#   bash scripts/setup-hermes.sh --compile-assets   # recompile scripts/hermes-assets/requirements.txt only
 #
 # Python 3.14 installs the locked set from hermes/uv.lock. Upstream locks 3.14 only and marks every
 # runtime dependency `python_version >= '3.14'`, so 3.11-3.13 resolve those same requirements unfrozen.
 # Both paths also install the Hermes mcp extra. The post-check imports aiohttp, cli, and mcp.
+#
+# The image and file libraries (charts, PDF, DOCX, XLSX, PPTX) come from scripts/hermes-assets/requirements.txt,
+# pinned with hashes and checked against hermes/uv.lock, on Python 3.14 only. CUTTLELY_HERMES_ASSETS=0 leaves them out.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,6 +23,21 @@ AIOHTTP="aiohttp==3.14.4"
 if ! command -v uv >/dev/null 2>&1; then
     echo "uv is required. Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
     exit 1
+fi
+
+# Recompile the image and file libraries from requirements.in, pinned with hashes. hermes/uv.lock is the
+# constraint, so a shared package (Pillow, packaging, typing-extensions) keeps the version the runtime locks. It runs
+# in hermes/, so the uv settings in hermes/pyproject.toml (exclude-newer) apply as they do at install.
+if [[ "${1:-}" == "--compile-assets" ]]; then
+    ASSETS="$ROOT/scripts/hermes-assets"
+    WORK="$(mktemp -d)"
+    trap 'rm -rf "$WORK"' EXIT
+    cd "$HERMES"
+    uv export --frozen --extra mcp --no-hashes --no-emit-project --no-header \
+        | sed -e 's/ *;.*$//' -e '/^ *#/d' -e '/^ *$/d' > "$WORK/constraints.txt"
+    uv pip compile "$ASSETS/requirements.in" -c "$WORK/constraints.txt" --python-version 3.14 --universal \
+        --generate-hashes --no-header --no-annotate -o "$ASSETS/requirements.txt"
+    exit 0
 fi
 
 cd "$HERMES"
@@ -70,6 +89,17 @@ PY
 fi
 
 uv pip install --python "$PYTHON" "$AIOHTTP"
+
+# The asset pins are compiled for Python 3.14, the locked path (NumPy and NetworkX need 3.12 or newer), so other
+# versions skip them with a note instead of failing the setup.
+if [[ "${CUTTLELY_HERMES_ASSETS:-1}" == "0" ]]; then
+    echo "CUTTLELY_HERMES_ASSETS=0: leaving out the image and file libraries."
+elif [[ "$VERSION" != "3.14" ]]; then
+    echo "The image and file libraries (scripts/hermes-assets/requirements.txt) are pinned for Python 3.14; skipping them on $VERSION."
+else
+    echo "Installing the image and file libraries (scripts/hermes-assets/requirements.txt)."
+    uv pip install --python "$PYTHON" --require-hashes -r "$ROOT/scripts/hermes-assets/requirements.txt"
+fi
 
 if ! IMPORT_ERROR="$("$PYTHON" -c 'import aiohttp, cli, mcp' 2>&1)"; then
     echo "hermes/.venv was created, but it cannot import Hermes:" >&2

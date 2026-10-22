@@ -109,7 +109,9 @@ ARG INCLUDE_BROWSER=1
 ARG INCLUDE_NODE_PACKS=1
 
 # Runtime system packages: git for version history and ETL sources, Chromium for browser tools, python3 as the
-# fallback Python, curl for the health check, util-linux for setpriv in the entrypoint.
+# fallback Python, curl for the health check, util-linux for setpriv in the entrypoint. Graphviz (`dot`), fontconfig,
+# and the Inter, Noto and DejaVu fonts are for the agent runtime's chart and document libraries
+# (scripts/hermes-assets/requirements.txt).
 # INCLUDE_BROWSER=0 skips Chromium and the cuttlely-chromium symlink, and writes /etc/cuttlely/no-browser.
 RUN if [ "$INCLUDE_BROWSER" != "0" ] && [ "$INCLUDE_BROWSER" != "1" ]; then \
         echo "INCLUDE_BROWSER must be 0 or 1" >&2; \
@@ -119,7 +121,12 @@ RUN if [ "$INCLUDE_BROWSER" != "0" ] && [ "$INCLUDE_BROWSER" != "1" ]; then \
         bash \
         ca-certificates \
         curl \
+        fontconfig \
+        fonts-dejavu-core \
+        fonts-inter \
+        fonts-noto-core \
         git \
+        graphviz \
         python3 \
         $(if [ "$INCLUDE_BROWSER" = "1" ]; then echo chromium; fi) \
         util-linux \
@@ -146,6 +153,8 @@ COPY --from=build --chown=node:node /usr/src/cuttlely /usr/src/cuttlely
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/cuttlely-chromium
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
+# Plotly static export (kaleido) drives this Chromium. With INCLUDE_BROWSER=0 the path is missing and only that export fails.
+ENV BROWSER_PATH=/usr/local/bin/cuttlely-chromium
 
 WORKDIR /usr/src/cuttlely
 

@@ -6,6 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   The agent runtime's Python has pinned image and file libraries: matplotlib, seaborn, plotly with kaleido, numpy, pandas, networkx, graphviz, diagrams, reportlab, python-docx, openpyxl, xlsxwriter and python-pptx. The Docker image adds Graphviz `dot` and the Inter, Noto and DejaVu fonts, and the Docker build workflow runs a smoke test that renders a PNG, a PDF, a DOCX and an XLSX. `CUTTLELY_HERMES_ASSETS=0` leaves the libraries out of `scripts/setup-hermes.sh`. [Image and file libraries in the agent runtime](./docs/reference/hermes-assets.md).
 -   Each card on the Agent Team list has a delete button for owners and editors. A confirm dialog names the team, and the delete removes the team's canvas, chat messages, roster, specialists, playbooks, schedule, API key grants and run history. Anyone without delete permission gets 403.
 
 ### Fixed

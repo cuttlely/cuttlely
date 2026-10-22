@@ -1,0 +1,17 @@
+# Image and file libraries for the agent runtime (hermes/.venv). scripts/setup-hermes.sh installs the compiled
+# requirements.txt next to this file. Every package here is Apache-2.0 compatible; docs/reference/hermes-assets.md
+# lists each license. To change a pin, edit this file and run: bash scripts/setup-hermes.sh --compile-assets
+matplotlib==3.11.2
+seaborn==0.13.2
+plotly==7.1.0
+kaleido==1.5.0
+numpy==2.5.4
+pandas==3.0.6
+networkx==3.7
+graphviz==0.20.3
+diagrams==0.25.1
+reportlab==5.0.1
+python-docx==1.2.0
+openpyxl==3.1.5
+xlsxwriter==3.2.9
+python-pptx==1.0.2
