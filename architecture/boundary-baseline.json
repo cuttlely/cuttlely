@@ -3158,6 +3158,10 @@
             "reason": "Chat file artifact card and helpers, used by the inherited chat message views"
         },
         {
+            "path": "packages/ui/src/ui-component/artifacts/ImageDownloadButton.jsx",
+            "reason": "Chat image download button, next to FileArtifact"
+        },
+        {
             "path": "packages/ui/src/ui-component/dialog/AddRatedAnswersDialog.jsx",
             "reason": "Dataset row rating migrations and the dialog that adds rated answers to a dataset."
         },

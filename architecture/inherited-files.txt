@@ -1671,6 +1671,7 @@ packages/ui/src/themes/typography.js
 packages/ui/src/ui-component/array/ArrayRenderer.jsx
 packages/ui/src/ui-component/artifacts/FileArtifact.jsx
 packages/ui/src/ui-component/artifacts/FileArtifact.test.js
+packages/ui/src/ui-component/artifacts/ImageDownloadButton.jsx
 packages/ui/src/ui-component/button/AnimateButton.jsx
 packages/ui/src/ui-component/button/CopyToClipboardButton.jsx
 packages/ui/src/ui-component/button/FlowListMenu.jsx
