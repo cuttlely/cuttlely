@@ -239,6 +239,7 @@ packages/components/nodes/chatmodels/ChatNvdiaNIM/nvdia.svg
 packages/components/nodes/chatmodels/ChatOllama/ChatOllama.ts
 packages/components/nodes/chatmodels/ChatOllama/FlowiseChatOllama.ts
 packages/components/nodes/chatmodels/ChatOllama/Ollama.svg
+packages/components/nodes/chatmodels/ChatOpenAI/ChatOpenAI.test.ts
 packages/components/nodes/chatmodels/ChatOpenAI/ChatOpenAI.ts
 packages/components/nodes/chatmodels/ChatOpenAI/FlowiseChatOpenAI.ts
 packages/components/nodes/chatmodels/ChatOpenAI/openai.svg

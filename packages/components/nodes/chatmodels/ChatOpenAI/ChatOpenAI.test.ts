@@ -17,7 +17,7 @@ jest.mock('../../../src/utils', () => {
     }
 })
 
-import { openAIReasoningFields, supportsReasoningEffortNone, needsResponsesApiForToolsWithReasoning } from '../../../src/openaiReasoning'
+import { openAIReasoningFields, supportsReasoningEffortNone, needsResponsesApiForToolsWithReasoning } from '../../../src/utils'
 
 const { nodeClass: ChatOpenAINode } = require('./ChatOpenAI')
 const { nodeClass: AzureChatOpenAINode } = require('../AzureChatOpenAI/AzureChatOpenAI')
