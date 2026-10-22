@@ -3150,6 +3150,14 @@
             "reason": "The vector upsert error helper and its test stay next to the inherited upsert path they serve."
         },
         {
+            "path": "packages/ui/src/ui-component/artifacts/FileArtifact.jsx",
+            "reason": "Chat file artifact card and helpers, used by the inherited chat message views"
+        },
+        {
+            "path": "packages/ui/src/ui-component/artifacts/FileArtifact.test.js",
+            "reason": "Chat file artifact card and helpers, used by the inherited chat message views"
+        },
+        {
             "path": "packages/ui/src/ui-component/dialog/AddRatedAnswersDialog.jsx",
             "reason": "Dataset row rating migrations and the dialog that adds rated answers to a dataset."
         },
@@ -3180,6 +3188,10 @@
         {
             "path": "packages/ui/src/utils/__fixtures__/import/text-to-sql.json",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/utils/chatArtifacts.js",
+            "reason": "Chat file artifact card and helpers, used by the inherited chat message views"
         },
         {
             "path": "packages/ui/src/utils/migrationScan.test.js",
