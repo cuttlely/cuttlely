@@ -502,8 +502,10 @@ function baseToolName(binding) {
 
 const NODE_SUFFIX_MAX = 24
 
+// A cleaned name never holds two underscores in a row, so a suffix after "__" can never equal a plain
+// name, and adding a node can never take a name another node already has.
 function withSuffix(base, suffix) {
-    const tail = `_${suffix}`
+    const tail = `__${suffix}`
     return `${base.slice(0, TOOL_NAME_MAX - tail.length)}${tail}`
 }
 
@@ -517,10 +519,10 @@ function nodeSuffix(binding, index) {
 }
 
 // One tool name per wired node, from the node's own name input. A name only that node wants is kept
-// as is. When nodes share a name, every one of them takes its node id as a suffix, so a name always
-// belongs to the same node. Plain names are claimed first and suffixed names are given out in node id
-// order, so reordering, adding or removing other nodes never hands an advertised name to a different
-// node. reserved holds names already taken, such as the tools an MCP server advertises.
+// as is. When nodes share a name, every one of them takes "__" and its node id as a suffix, so a name
+// always belongs to the same node. Plain and suffixed names never overlap, and suffixed names are given
+// out in node id order, so reordering, adding or removing other nodes never hands an advertised name
+// to a different node. reserved holds names already taken, such as the tools an MCP server advertises.
 export function specialistToolBindings(specialist, reserved = new Set()) {
     const bindings = [...(specialist?.modules || []), ...(specialist?.mcpServers || [])]
     const items = bindings.map((binding, index) => ({ binding, index, base: baseToolName(binding), suffix: nodeSuffix(binding, index) }))

@@ -11,7 +11,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   A specialist with several tool nodes of one type, such as two Retriever Tool nodes, offered them all under the same name and sent every call to the first one. Each node is now offered under its own name input (made a valid tool name; nodes that share a name each get their node id as a suffix), and each call reaches the node it names.
+-   A specialist with several tool nodes of one type, such as two Retriever Tool nodes, offered them all under the same name and sent every call to the first one. Each node is now offered under its own name input (made a valid tool name; nodes that share a name each get `__` and their node id as a suffix), and each call reaches the node it names.
 
 ## [1.3.1] - 2026-10-21
 

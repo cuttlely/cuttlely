@@ -12487,9 +12487,9 @@ await (async () => {
     const aliasHit = seen.at(-1)
     await gateway.close()
     const expected = [
-        'policy_handbook_retrieverTool_0',
-        'pricing_faq_retrieverTool_1',
-        'pricing_faq_retrieverTool_2',
+        'policy_handbook__retrieverTool_0',
+        'pricing_faq__retrieverTool_1',
+        'pricing_faq__retrieverTool_2',
         'retrieverTool',
         'policy_handbook'
     ]
@@ -12509,6 +12509,9 @@ await (async () => {
     // A node whose own name is another pair's suffixed name keeps it, in any order.
     const cross = [retriever('a', 'foo'), retriever('b', 'foo'), retriever('c', 'foo_a')]
     const crossNames = [cross, [cross[2], cross[0], cross[1]], [cross[1], cross[2], cross[0]]].map((list) => byNode(list))
+    const pair = byNode(cross.slice(0, 2))
+    const added = byNode(cross)
+    const addStable = pair.a === added.a && pair.b === added.b && added.c === 'foo_a' && pair.a === 'foo__a'
     const crossStable =
         crossNames.every((map) => JSON.stringify(map, ['a', 'b', 'c']) === JSON.stringify(crossNames[0], ['a', 'b', 'c'])) &&
         crossNames[0].c === 'foo_a'
@@ -12526,6 +12529,7 @@ await (async () => {
             String(replies[4]).startsWith('from mcp:') &&
             stable &&
             crossStable &&
+            addStable &&
             new Set(longNames).size === 3 &&
             longNames.every((name) => name.length <= 64) &&
             toolNameFrom('a'.repeat(80)).length === 64 &&
