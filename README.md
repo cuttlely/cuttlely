@@ -17,7 +17,7 @@ English | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [繁體中
 
 Open-source agent platform · Apache-2.0
 
-Cuttlely is open-source, context-aware agent orchestration: you build AI agent teams visually, and each agent gets only the context it needs, so you see what every run uses and costs before you publish. See what each run uses and costs, and replay real questions before you publish.
+Cuttlely is open-source, context-aware agent orchestration: you build AI agent teams visually, and each agent gets only the context it needs, so you see what every run uses and costs before you publish. Replay real questions on Live and a draft, side by side, before anything changes.
 
 ```bash
 npx cuttlely start
