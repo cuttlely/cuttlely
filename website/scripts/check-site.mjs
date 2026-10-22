@@ -22,7 +22,6 @@ export const BANNED = [
 ]
 
 const RETIRED_COPY = [
-    { needle: 'Your applications deserve agents', why: 'the retired headline' },
     { needle: 'agent platform for applications', why: 'the retired tagline' },
     { needle: 'zero failed runs', why: 'a ratio-style benchmark claim' },
     { needle: '3.7 times', why: 'a ratio-style benchmark claim' },
@@ -47,9 +46,23 @@ const SCORE_CLAIMS = [
 const OTHER_APPS = ['n8n', ['lang', 'flow'].join(''), 'dify', ['keel', 'flow'].join(''), 'heym', ['migrate', 'flows'].join(''), 'ashes']
 const OTHER_APPS_RE = new RegExp(`\\b(${OTHER_APPS.join('|')})\\b`, 'i')
 
+const RETIRED_TAGLINE = 'The visual agent builder, ready for production.'
+const HOME_TITLE = 'Cuttlely | Open-source agent platform for lean AI agent teams'
+const HOME_META =
+    'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'
+// Allowed once on the whole site: the heading of the home page's Cost and context section.
+const GROUND_UP = /built from the ground up/gi
+
 const HOME_LINES = [
-    'The visual agent builder, ready for production.',
-    'Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.',
+    'Open-source agent platform · Apache-2.0',
+    'Your applications deserve agents',
+    'Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.',
+    'Get started in 10 minutes',
+    'Star on GitHub',
+    'npx cuttlely start',
+    'Node 20+ and Docker',
+    'Context handling built from the ground up to be lean.',
+    'Roll back the Live flow in one step',
     'Copyright 2026 The Cuttlely Authors'
 ]
 
@@ -145,7 +158,8 @@ export function checkSite(dist, { csp = null } = {}) {
                 continue
             }
             links += 1
-            const [p, anchor] = href.split('#')
+            const [withQuery, anchor] = href.split('#')
+            const p = withQuery.split('?')[0]
             const target = p ? (p.startsWith('/') ? p : new URL(p, `https://x${pageUrl}`).pathname) : pageUrl
             const targetFile = resolveFile(dist, target)
             if (!targetFile) {
@@ -177,6 +191,11 @@ export function checkSite(dist, { csp = null } = {}) {
         for (const { re, why } of BANNED) {
             const hit = text.match(re) || html.match(re)
             if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)
+        }
+        const groundUp = html.match(GROUND_UP) || []
+        const groundUpHeading = /<h2\b[^>]*>Context handling built from the ground up to be lean\.<\/h2>/.test(html)
+        if (groundUp.length && !(page === 'index.html' && groundUp.length === 1 && groundUpHeading)) {
+            problems.push(`${page}: says built from the ground up outside the Cost and context heading`)
         }
         for (const item of RETIRED_COPY) {
             if (item.needle !== 'whitepaper' && isChangelog(page)) continue
@@ -250,6 +269,15 @@ export function checkSite(dist, { csp = null } = {}) {
     for (const line of HOME_LINES) {
         if (!homeText.includes(line) && !home.includes(line)) problems.push(`index.html: missing "${line}"`)
     }
+    const homeTitle = (home.match(/<title>([\s\S]*?)<\/title>/) || ['', ''])[1]
+    const homeMeta = (home.match(/<meta name="description" content="([^"]*)"/) || ['', ''])[1]
+    if (homeTitle !== HOME_TITLE) problems.push(`index.html: the title is not "${HOME_TITLE}"`)
+    if (homeMeta !== HOME_META) problems.push('index.html: the meta description is not the approved one')
+    // Visible text with all whitespace dropped, so a tag inside a word cannot split the tagline.
+    const homeTight = homeText.replace(/\s+/g, '')
+    if (home.includes(RETIRED_TAGLINE) || homeText.includes(RETIRED_TAGLINE) || homeTight.includes(RETIRED_TAGLINE.replace(/\s+/g, '')))
+        problems.push('index.html: shows the retired tagline')
+    if (!home.includes('href="/quickstart/?ref=home-hero"')) problems.push('index.html: the hero quickstart link has no ref tag')
     if (!home.includes('href="/flowise/"')) {
         problems.push('index.html: missing href="/flowise/"')
     }
