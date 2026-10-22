@@ -7853,9 +7853,18 @@ check(
             [`(${assets})`, '(the workspace)'],
             [`${coderDir}${path.sep}`, 'the chat'],
             [`/backup${path.join(assets, 'exports', 'deck.pptx')}`, `/backup${path.join(assets, 'exports', 'deck.pptx')}`],
-            [`${root}-other${path.sep}a.csv`, `${root}-other${path.sep}a.csv`]
+            [`${root}-other${path.sep}a.csv`, `${root}-other${path.sep}a.csv`],
+            [`\`${path.join(assets, 'exports', "Bob's Reports", 'deck.pptx')}\``, '`deck.pptx`'],
+            [`"${path.join(assets, "Bob's", 'a.csv')}" and '${path.join(assets, 'x y', 'b.csv')}'`, `"a.csv" and 'b.csv'`],
+            [`/backup${path.join(coderDir, 'exports', 'deck.pptx')}`, `/backup${path.join(coderDir, 'exports', 'deck.pptx')}`]
         ]
-        const wrong = cases.filter(([input, expected]) => hideTurnImageDir(input, coderDir) !== expected)
+        // A chat folder outside the root (another root passed in) is still masked, with the same start boundary.
+        const elsewhere = path.join(os.tmpdir(), 'cuttlely-chat', 'run1')
+        const outside = [
+            [`${path.join(elsewhere, 'exports', 'deck.pptx')} in ${elsewhere}.`, 'deck.pptx in the chat.'],
+            [`/backup${path.join(elsewhere, 'deck.pptx')}`, `/backup${path.join(elsewhere, 'deck.pptx')}`]
+        ].filter(([input, expected]) => hideTurnImageDir(input, elsewhere, root) !== expected)
+        const wrong = [...outside, ...cases.filter(([input, expected]) => hideTurnImageDir(input, coderDir) !== expected)]
         check(
             'answers show only file names for any path in a specialist workspace',
             wrong.length === 0,

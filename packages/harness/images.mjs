@@ -139,10 +139,9 @@ export function turnImageNote(dir) {
 // one the chat folder sits in.
 export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirname(path.dirname(dir))) : '') {
     if (typeof text !== 'string') return text
-    let out = hideWorkspacePaths(text, root, dir)
+    const out = hideWorkspacePaths(text, root, dir)
     // A chat folder outside the workspaces root still names its files only.
-    if (dir) out = out.split(`${dir}${path.sep}`).join('').split(dir).join('the chat')
-    return out
+    return dir ? hideWorkspacePaths(out, dir, dir) : out
 }
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -155,23 +154,26 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
     const chat = chatDir ? trimSep(chatDir) : ''
     const sep = escapeRegExp(path.sep)
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
-    const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://)?${escapeRegExp(base)}(?![A-Za-z0-9._~-])`
+    const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://)?${escapeRegExp(base)}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~-])`
     const shown = (full) => {
         const rest = full.replace(/^file:\/\//, '')
         if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'
         const parts = rest.slice(base.length).split(path.sep).filter(Boolean)
+        // Under the chat folder itself every path is a file name; under the root the first part is a workspace.
+        if (base === chat) return parts.length ? parts[parts.length - 1] : 'the chat'
         return parts.length <= 1 ? 'the workspace' : parts[parts.length - 1]
     }
-    // A quoted path may hold spaces and punctuation: everything up to the closing quote is the path.
-    const quoted = new RegExp(`(["'\`])(${head}[^"'\`\\n]*)\\1`, 'g')
+    // A quoted path may hold spaces and punctuation: everything up to the same closing quote is the path, so a
+    // backticked or double-quoted path may hold an apostrophe.
+    const quotes = ['"', "'", '`'].map((quote) => new RegExp(`${quote}(${head}[^${quote}\\n]*)${quote}`, 'g'))
     const bare = new RegExp(`${head}(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*)?`, 'g')
-    return text
-        .replace(quoted, (match, quote, full) => `${quote}${shown(full)}${quote}`)
-        .replace(bare, (match) => {
-            // Sentence punctuation after a path is not part of it.
-            const tail = /[.:!?]+$/.exec(match)?.[0] || ''
-            return shown(match.slice(0, match.length - tail.length)) + tail
-        })
+    let out = text
+    for (const quoted of quotes) out = out.replace(quoted, (match, full) => `${match[0]}${shown(full)}${match[0]}`)
+    return out.replace(bare, (match) => {
+        // Sentence punctuation after a path is not part of it.
+        const tail = /[.:!?]+$/.exec(match)?.[0] || ''
+        return shown(match.slice(0, match.length - tail.length)) + tail
+    })
 }
 
 export function removeTurnImageDir(dir) {
