@@ -472,13 +472,21 @@ export function readyToolSpecs(prepared) {
 // Tool names must match ^[A-Za-z0-9_-]{1,64}$, so anything else becomes an underscore.
 const TOOL_NAME_MAX = 64
 
+function edgeMark(char) {
+    return char === '_' || char === '-'
+}
+
+// Linear on any input: one replace, then the edges are trimmed by index rather than by an anchored regex.
 export function toolNameFrom(text) {
-    return String(text ?? '')
-        .trim()
+    const name = String(text ?? '')
+        .slice(0, 1024)
         .replace(/[^A-Za-z0-9_-]+/g, '_')
         .replace(/_+/g, '_')
-        .replace(/^[_-]+|[_-]+$/g, '')
-        .slice(0, TOOL_NAME_MAX)
+    let start = 0
+    let end = name.length
+    while (start < end && edgeMark(name[start])) start += 1
+    while (end > start && edgeMark(name[end - 1])) end -= 1
+    return name.slice(start, end).slice(0, TOOL_NAME_MAX)
 }
 
 function baseToolName(binding) {
