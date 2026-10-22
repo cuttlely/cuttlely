@@ -13,9 +13,9 @@ const REPO = path.resolve(SITE, '..')
 const WIDTH = 1200
 const HEIGHT = 630
 const OUT = path.join(SITE, 'public', 'social', 'og-light.png')
-const HEADLINE = 'The visual agent builder,'
-const HEADLINE_ACCENT = 'ready for production.'
-const SUBLINE = 'Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.'
+const HEADLINE = 'Your applications'
+const HEADLINE_ACCENT = 'deserve agents'
+const SUBLINE = 'Open-source agent platform for lean AI agent teams. Apache-2.0.'
 
 function fontFace(fontFile, family) {
     const abs = path.resolve(fontFile).split(path.sep).join('/')
@@ -48,8 +48,8 @@ export async function renderOg({ out = OUT } = {}) {
     await sharp(logoPath).resize({ width: 280, withoutEnlargement: true }).png().toFile(logoPng)
     await sharp(mascotPath).resize({ width: 520, withoutEnlargement: true }).png().toFile(mascotPng)
 
-    const subFirst = 'Drag-and-drop agents with real governance'
-    const subSecond = 'and lean context. Open source, Apache-2.0.'
+    const subFirst = 'Open-source agent platform'
+    const subSecond = 'for lean AI agent teams. Apache-2.0.'
     if (`${subFirst} ${subSecond}` !== SUBLINE) throw new Error('og subline wrap must match the approved line')
     const textSvgWrapped = Buffer.from(
         `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
@@ -73,8 +73,8 @@ export async function renderOg({ out = OUT } = {}) {
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bg)"/>
   <text x="72" y="310" class="ink" font-size="52">${HEADLINE}</text>
   <text x="72" y="378" class="accent" font-size="52">${HEADLINE_ACCENT}</text>
-  <text x="72" y="450" class="sub" font-size="22">${subFirst}</text>
-  <text x="72" y="484" class="sub" font-size="22">${subSecond}</text>
+  <text x="72" y="450" class="sub" font-size="26">${subFirst}</text>
+  <text x="72" y="490" class="sub" font-size="26">${subSecond}</text>
 </svg>`
     )
 

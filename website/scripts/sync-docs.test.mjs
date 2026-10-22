@@ -124,3 +124,17 @@ describe('sync-docs', () => {
         assert.ok(out.includes('-   Also keep this.'))
     })
 })
+
+it('the quickstart ends with the Docker help the hero links to, then the star line', async () => {
+    const { QUICKSTART_END } = await import('./sync-docs.mjs')
+    assert.match(QUICKSTART_END, /\n## Docker not running\?\n/)
+    assert.match(
+        QUICKSTART_END,
+        /- Install Docker Desktop, or Docker Engine on Linux\.\n- Start it\.\n- Check it with `docker info`, then run `npx cuttlely start` again\./
+    )
+    assert.ok(
+        QUICKSTART_END.trimEnd().endsWith(
+            '[Running? A star helps other developers find Cuttlely.](https://github.com/cuttlely/cuttlely?ref=quickstart-end)'
+        )
+    )
+})

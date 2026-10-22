@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   The public website home page has an Integrations for the enterprise section after the three pillars: Example: call your agents from IBM watsonx Orchestrate, with a 72-second narrated demo video (captions, poster first, loads on play).
+-   The public website home page has a new hero ("Your applications deserve agents", with a copyable `npx cuttlely start`) and is grouped into Teams, Cost and context, and Safe deploys, then Every flow an MCP server and one Integrations section that calls your flows from IBM watsonx Orchestrate, with the 72-second narrated demo video.
 -   When `npx cuttlely start` gives up waiting for the health check, it says to check the logs with `npx cuttlely logs` and then open the address once it answers, instead of saying Cuttlely is still starting.
 
 ## [1.3.1] - 2026-10-21
