@@ -482,8 +482,8 @@ export class AgentExecutor extends BaseChain<ChainValues, AgentExecutorOutput> {
                                 toolOutput = toolOutput.split(SOURCE_DOCUMENTS_PREFIX)[0]
                             }
                             if (typeof toolOutput === 'string' && toolOutput.includes(ARTIFACTS_PREFIX)) {
-                                const [output, artifactJson] = toolOutput.split(ARTIFACTS_PREFIX)
-                                toolOutput = output + toolArtifactNote(artifactJson)
+                                // The used-tools record can reach the user (a return-direct tool streams it), so it gets no model note.
+                                toolOutput = toolOutput.split(ARTIFACTS_PREFIX)[0]
                             }
                             let toolInput
                             if (typeof toolOutput === 'string' && toolOutput.includes(TOOL_ARGS_PREFIX)) {
