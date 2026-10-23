@@ -121,13 +121,44 @@ const truncateUtf8 = (text: string, maxBytes: number): string => {
     return buf.toString('utf8', 0, end)
 }
 
-export function truncateA2aStoredAnswer(text: string, maxBytes = a2aTaskTextMaxBytes()): string {
+// One generated file link on its own paragraph (fileLinks.ts): `[Download name](https://...)` or an image link.
+const FILE_LINK_LINE = /^!?\[[^[\]\n]*\]\(https?:\/\/[^\s()<>]+\)$/
+
+/** Cuts plain text to `maxBytes` with the truncation mark, never ending inside a Markdown link. */
+function cutAnswerText(text: string, maxBytes: number): string {
     const size = utf8Bytes(text)
     if (size <= maxBytes) return text
     const mark = A2A_ANSWER_TRUNCATE_MARK
     const markBytes = utf8Bytes(mark)
     if (maxBytes < markBytes) return ''
-    return `${truncateUtf8(text, maxBytes - markBytes)}${mark}`
+    let kept = truncateUtf8(text, maxBytes - markBytes)
+    const open = kept.lastIndexOf('[')
+    if (open >= 0 && /^\[[^\]\n]*(\](\([^)\n]*)?)?$/.test(kept.slice(open))) {
+        kept = kept.slice(0, open > 0 && kept[open - 1] === '!' ? open - 1 : open)
+    }
+    return `${kept}${mark}`
+}
+
+/**
+ * The answer cut to `maxBytes`. File links at the end of the answer are kept whole (up to half the room) and the text
+ * before them is cut instead; a link that does not fit is left out whole, never cut.
+ */
+export function truncateA2aStoredAnswer(text: string, maxBytes = a2aTaskTextMaxBytes()): string {
+    if (utf8Bytes(text) <= maxBytes) return text
+    const paragraphs = text.split('\n\n')
+    const links: string[] = []
+    while (paragraphs.length > 1 && FILE_LINK_LINE.test(paragraphs[paragraphs.length - 1])) links.unshift(paragraphs.pop() as string)
+    const kept: string[] = []
+    let linkBytes = 0
+    for (const link of links) {
+        const size = utf8Bytes(link) + 2
+        if (linkBytes + size > Math.floor(maxBytes / 2)) continue
+        kept.push(link)
+        linkBytes += size
+    }
+    const body = cutAnswerText(paragraphs.join('\n\n'), Math.max(0, maxBytes - linkBytes))
+    if (!kept.length) return body
+    return body ? `${body}\n\n${kept.join('\n\n')}` : kept.join('\n\n')
 }
 
 const statusMessageText = (row: A2aStoredTask): string | undefined => {

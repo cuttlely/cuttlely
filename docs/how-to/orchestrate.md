@@ -79,6 +79,14 @@ A2A continuity uses A2A `contextId`, not `X-IBM-THREAD-ID`. Do not send `X-IBM-T
 
 Set `A2A_PUBLIC_BASE_URL` to the public origin (scheme and host, no path, no trailing slash) so the card's `url` matches the address Orchestrate would call.
 
+## Images and files in Orchestrate answers
+
+Orchestrate shows only the answer text, so images and files the flow stored for the chat (for example a harness diagram or a PDF) are added to the end of the answer as Markdown, on both `/api/v1/orchestrate` and A2A, streaming and non-streaming: an inline Markdown image (an exclamation mark, then `[name](url)`) for PNG, JPEG, GIF and WebP images and `[Download name](url)` for other files. When streaming, the links arrive after the answer as one final delta (A2A: in the last answer chunk).
+
+Each link is an absolute `GET /api/v1/get-upload-file` address on the public origin (`A2A_PUBLIC_BASE_URL`, else the request host). It is signed for that one file, in that chat of that flow, so it opens without the API key; it cannot open another chat's files. Only plain stored file names are linked (spaces and non-ASCII letters are fine): no folders, no server paths. Image links have no `download=true`, and get-upload-file serves PNG, JPEG, GIF and WebP inline so they show in place; other files are downloads. If the server has no signing secret, files are left out rather than sent as links that would need the key. Made-up `attachment:` links are removed from the answer, streamed or not.
+
+`EXTERNAL_FILE_LINK_TTL_SECONDS` sets how long these links work. The default is `3600` (1 hour); values are clamped to `60` .. `86400` (24 hours), and anything that is not a whole number uses the default. Links in the Cuttlely chat itself keep their 15-minute lifetime.
+
 The card `name` is the flow name. The card `description` and each skill description are the fixed sentence `Cuttlely chatflow <flow name>`. For the Larkfield Home orders demo that is `Cuttlely chatflow Larkfield Home orders`.
 
 The sample YAML uses these names:

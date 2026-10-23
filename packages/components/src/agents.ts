@@ -28,6 +28,35 @@ import { getErrorMessage } from './error'
 
 export const SOURCE_DOCUMENTS_PREFIX = '\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n'
 export const ARTIFACTS_PREFIX = '\n\n----FLOWISE_ARTIFACTS----\n\n'
+
+/**
+ * What the model reads in place of a tool's artifacts: the files' names and that they are attached to the answer
+ * automatically. Without it the model only sees that a file was made and writes its own `attachment:` or path link,
+ * which opens nothing. No storage paths are shown.
+ */
+export function toolArtifactNote(artifactJson: string | undefined): string {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse((artifactJson ?? '').split(TOOL_ARGS_PREFIX)[0])
+    } catch {
+        return ''
+    }
+    const all: any[] = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? [parsed] : []
+    // Only files kept in storage are attached to the answer; inline artifacts (html, markdown, json and the like) are not.
+    const list = all.filter((item) => typeof item?.data === 'string' && item.data.startsWith('FILE-STORAGE::'))
+    const names = list
+        .map((item: any) => {
+            const raw = typeof item?.name === 'string' && item.name ? item.name : typeof item?.type === 'string' ? `${item.type} file` : ''
+            return String(raw.split(/[\\/]/).pop() ?? '')
+                .replace(/[^A-Za-z0-9 ._-]/g, '')
+                .trim()
+                .slice(0, 80)
+        })
+        .filter(Boolean)
+    if (!list.length) return ''
+    const what = names.length ? `: ${names.join(', ')}` : ''
+    return `\n\n(${list.length} file(s) from this tool are attached to the final answer automatically${what}. Do not write links, file paths or attachment: URLs for them; refer to them by name in plain words.)`
+}
 export const TOOL_ARGS_PREFIX = '\n\n----FLOWISE_TOOL_ARGS----\n\n'
 
 /**
@@ -453,6 +482,7 @@ export class AgentExecutor extends BaseChain<ChainValues, AgentExecutorOutput> {
                                 toolOutput = toolOutput.split(SOURCE_DOCUMENTS_PREFIX)[0]
                             }
                             if (typeof toolOutput === 'string' && toolOutput.includes(ARTIFACTS_PREFIX)) {
+                                // The used-tools record can reach the user (a return-direct tool streams it), so it gets no model note.
                                 toolOutput = toolOutput.split(ARTIFACTS_PREFIX)[0]
                             }
                             let toolInput
@@ -515,7 +545,8 @@ export class AgentExecutor extends BaseChain<ChainValues, AgentExecutorOutput> {
                     }
                     if (typeof observation === 'string' && observation.includes(ARTIFACTS_PREFIX)) {
                         const observationArray = observation.split(ARTIFACTS_PREFIX)
-                        observation = observationArray[0]
+                        // The note is for the model; a return-direct tool's output goes to the user as is, so it gets none.
+                        observation = observationArray[0] + ((tool as any)?.returnDirect ? '' : toolArtifactNote(observationArray[1]))
                         try {
                             const artifact = JSON.parse(observationArray[1])
                             artifacts.push(artifact)

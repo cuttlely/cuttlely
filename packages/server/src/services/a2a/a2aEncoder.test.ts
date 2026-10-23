@@ -18,3 +18,36 @@ describe('makeA2aEncoder', () => {
         expect(a2aSseData({ a: 1 })).toBe('data: {"a":1}\n\n')
     })
 })
+
+describe('makeA2aEncoder artifacts', () => {
+    const meta = { rpcId: 1, taskId: 't', contextId: 'c', artifactId: 'a' }
+    const artifacts = { kind: 'event' as const, payload: { event: 'artifacts', data: [] } }
+    const token = { kind: 'event' as const, payload: { event: 'token', data: 'Hi' } }
+    const parse = (s: string | null) => JSON.parse(String(s).slice(6)).result
+
+    it('notes artifacts without sending a chunk, between tokens too', () => {
+        const seen: unknown[] = []
+        const encoder = makeA2aEncoder(meta, (a) => seen.push(a))
+        expect(parse(encoder(token as any)).append).toBe(false)
+        expect(encoder(artifacts as any)).toBeNull()
+        expect(seen).toEqual([[]])
+        expect(parse(encoder(token as any)).append).toBe(true)
+        expect(makeA2aEncoder(meta)(artifacts as any)).toBeNull()
+    })
+})
+
+describe('makeA2aEncoder attachment filter', () => {
+    it('removes attachment: links from streamed tokens and flushes held text', () => {
+        const meta = { rpcId: 1, taskId: 't', contextId: 'c', artifactId: 'a' }
+        const encoder = makeA2aEncoder(meta)
+        const text = (s: string | null) => (s ? JSON.parse(s.slice(6)).result.artifact.parts[0].text : '')
+        const out = ['Hi ', '![c](attach', 'ment:c.png)', ' bye ['].map((t) =>
+            text(encoder({ kind: 'event', payload: { event: 'token', data: t } } as any))
+        )
+        expect(out.join('') + encoder.flush()).toBe('Hi  bye [')
+        expect(encoder.started()).toBe(true)
+        const held = makeA2aEncoder(meta)
+        expect(held({ kind: 'event', payload: { event: 'token', data: '[1, 2' } } as any)).toBeNull()
+        expect(held.started()).toBe(false)
+    })
+})

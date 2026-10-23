@@ -12,6 +12,15 @@ import { SSEEncoder } from '../../utils/SSEStreamer'
 import predictionsServices from '../../services/predictions'
 import { waitingForApproval } from '../../services/usage'
 import { answerText } from '../../services/orchestrate/completion'
+import {
+    ArtifactLinker,
+    dropAttachmentLinks,
+    fileLinkContext,
+    LinkedArtifact,
+    makeArtifactLinker,
+    resultArtifacts,
+    withArtifactLinks
+} from '../orchestrate/fileLinks'
 import { flowHasMemory } from '../../services/orchestrate/mapRequest'
 import { a2aSseData, makeA2aEncoder, silentA2aEncoder } from './a2aEncoder'
 import {
@@ -33,6 +42,7 @@ import {
     a2aPublicTask,
     a2aTaskStore,
     a2aTaskTextMaxBytes,
+    truncateA2aStoredAnswer,
     isoNow,
     utf8Bytes
 } from './taskStore'
@@ -169,7 +179,11 @@ const bindRun = (
     return owned
 }
 
-type RunOutcome = { kind: 'canceled' } | { kind: 'disconnected' } | { kind: 'failed'; text: string } | { kind: 'completed'; text: string }
+type RunOutcome =
+    | { kind: 'canceled' }
+    | { kind: 'disconnected' }
+    | { kind: 'failed'; text: string }
+    | { kind: 'completed'; text: string; tail?: string }
 
 export function classifyOutcome(opts: { row: A2aStoredTask; signal?: AbortSignal; error?: unknown; result?: unknown }): RunOutcome {
     if (storedCanceled(opts.row)) return { kind: 'canceled' }
@@ -186,7 +200,7 @@ export function classifyOutcome(opts: { row: A2aStoredTask; signal?: AbortSignal
 export async function executeMessage(opts: {
     req: Request
     res: Response
-    chatflow: { id: string; apikeyid?: string | null; flowData?: string | null }
+    chatflow: { id: string; apikeyid?: string | null; flowData?: string | null; workspaceId?: string | null }
     rpcId: JsonRpcId
     params: Record<string, unknown>
     stream: boolean
@@ -222,12 +236,16 @@ export async function executeMessage(opts: {
     const sseStreamer = getRunningExpressApp().sseStreamer
     const sink = opts.stream ? opts.res : noopSink
     let sentToken = false
-    const inner = opts.stream
-        ? makeA2aEncoder({ rpcId: opts.rpcId, taskId: row.task.id, contextId, artifactId: row.artifactId })
-        : silentA2aEncoder
+    // Signed links for the files this run stores, scoped to this flow and this context's chat.
+    const linker = makeArtifactLinker(await fileLinkContext(opts.req, opts.chatflow, boundIds.chatId))
+    const streamEncoder = opts.stream
+        ? makeA2aEncoder({ rpcId: opts.rpcId, taskId: row.task.id, contextId, artifactId: row.artifactId }, linker.collect)
+        : undefined
+    const inner: SSEEncoder = streamEncoder ?? silentA2aEncoder
     const encoder: SSEEncoder = (frame) => {
         const encoded = inner(frame)
-        if (encoded && frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
+        // A token may be held back by the attachment filter; it still counts as streamed (the flush sends it).
+        if (streamEncoder && frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
         return encoded
     }
 
@@ -276,10 +294,21 @@ export async function executeMessage(opts: {
         try {
             const apiResponse = await predictionsServices.buildChatflow(opts.req)
             outcome = classifyOutcome({ row, signal, result: apiResponse })
+            if (outcome.kind === 'completed')
+                outcome = completedWithLinks(outcome.text, apiResponse, linker, sentToken, streamEncoder?.flush() ?? '')
         } catch (error) {
             outcome = classifyOutcome({ row, signal, error })
         }
-        applyOutcome({ row, outcome, sentToken, stream: opts.stream, res: opts.res, rpcId: opts.rpcId, signal })
+        applyOutcome({
+            row,
+            outcome,
+            sentToken,
+            appended: streamEncoder?.started() ?? false,
+            stream: opts.stream,
+            res: opts.res,
+            rpcId: opts.rpcId,
+            signal
+        })
         if (opts.log.rpc === '-') opts.log.rpc = 'ok'
     } catch (error) {
         runError = error
@@ -288,6 +317,7 @@ export async function executeMessage(opts: {
                 row,
                 outcome: classifyOutcome({ row, signal, error }),
                 sentToken,
+                appended: streamEncoder?.started() ?? false,
                 stream: opts.stream,
                 res: opts.res,
                 rpcId: opts.rpcId,
@@ -319,10 +349,46 @@ export async function executeMessage(opts: {
     }
 }
 
+type Completed = { kind: 'completed'; text: string; tail?: string }
+
+/**
+ * The stored answer carries every file link, kept whole when the answer is cut to the task text limit. A streamed run
+ * that already sent tokens gets the held-back token text and the files not yet sent as the last chunk (`tail`);
+ * otherwise the final chunk replaces the stream and carries them all.
+ */
+export function completedWithLinks(
+    text: string,
+    result: unknown,
+    linker: ArtifactLinker,
+    sentToken: boolean,
+    heldText = '',
+    limit = a2aTaskTextMaxBytes()
+): Completed {
+    const rest = sentToken ? linker.take(resultArtifacts(result)) : ''
+    const tail = heldText + (rest ? `\n\n${rest}` : '')
+    const clean = dropAttachmentLinks(text).trimEnd()
+    // Links use the room the answer leaves, and at least half the limit when the answer is long (the answer is then cut
+    // to make room). A link that does not fit is left out whole; the others still go in.
+    const linkBudget = Math.max(limit - utf8Bytes(clean), Math.floor(limit / 2))
+    const links: LinkedArtifact[] = []
+    let linkBytes = 0
+    for (const link of linker.all(resultArtifacts(result))) {
+        const size = utf8Bytes(link.markdown) + 2
+        if (linkBytes + size > linkBudget) continue
+        links.push(link)
+        linkBytes += size
+    }
+    const body = truncateA2aStoredAnswer(clean, Math.max(0, limit - linkBytes))
+    const full = withArtifactLinks(body, links)
+    return { kind: 'completed', text: full, ...(tail ? { tail } : {}) }
+}
+
 function applyOutcome(opts: {
     row: A2aStoredTask
     outcome: RunOutcome
     sentToken: boolean
+    /** An answer chunk was already sent (tokens held back by the filter send none), so the last one appends. */
+    appended?: boolean
     stream: boolean
     res: Response
     rpcId: JsonRpcId
@@ -386,8 +452,8 @@ function applyOutcome(opts: {
                         kind: 'artifact-update',
                         taskId: row.task.id,
                         contextId: row.contextId,
-                        artifact: { artifactId: row.artifactId, name: 'answer', parts: [{ kind: 'text', text: '' }] },
-                        append: true,
+                        artifact: { artifactId: row.artifactId, name: 'answer', parts: [{ kind: 'text', text: outcome.tail ?? '' }] },
+                        append: opts.appended ?? true,
                         lastChunk: true
                     })
                 )

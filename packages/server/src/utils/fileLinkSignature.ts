@@ -64,14 +64,19 @@ export function signFileLink(
 }
 
 /** The download address for a file in an Agent answer: signed when the server can sign, plain otherwise. */
-export function fileDownloadUrl(baseURL: string, target: FileLinkTarget, now: number = Date.now()): string {
+export function fileDownloadUrl(
+    baseURL: string,
+    target: FileLinkTarget,
+    now: number = Date.now(),
+    ttlSeconds: number = FILE_LINK_TTL_SECONDS
+): string {
     const params = new URLSearchParams({
         chatflowId: target.chatflowId,
         chatId: target.chatId,
         fileName: target.fileName,
         download: 'true'
     })
-    const signed = signFileLink(target, now)
+    const signed = signFileLink(target, now, ttlSeconds)
     if (signed) {
         params.set('expires', String(signed.expires))
         params.set('signature', signed.signature)
