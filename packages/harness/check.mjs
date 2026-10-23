@@ -75,6 +75,7 @@ const {
     defaultRouteSpecialist,
     ROUTE_JSON_RETRY,
     ROUTE_RAW_PREVIEW_CHARS,
+    routeRawPreview,
     runSteps,
     withEarlierResult,
     ROUTE_AFTER,
@@ -2919,6 +2920,20 @@ check(
     readRouteJson('```' + '\t'.repeat(200000))
     readRouteJson('{'.repeat(200000))
     readRouteJson('```json\n' + '```'.repeat(50000))
+    const quoted = parseRouteSteps('Vault HA uses {"mode":"raft"} storage.', roster, 'q')
+    const secretPreview = routeRawPreview(
+        'Use Bearer abc.def.ghi and sk-ABCDEFGHIJKL, api_key=zz-made-up-1, "password": "hunter2" at postgres://u:p@db/x'
+    )
+    check(
+        'JSON that is not a route, quoted in prose, does not count as a routing reply',
+        !quoted.ok && readRouteJson('{"mode":"raft"}') === undefined && parseRouteSteps('{"steps":[]}', roster, 'q').ok,
+        JSON.stringify(quoted)
+    )
+    check(
+        'the routing reply preview removes credentials',
+        !/abc\.def|ABCDEFGHIJKL|zz-made-up-1|hunter2|u:p@db/.test(secretPreview) && secretPreview.includes('[redacted]'),
+        secretPreview
+    )
     check('reading a long unreadable routing reply stays fast', Date.now() - slowStart < 1000, `${Date.now() - slowStart}ms`)
     check(
         'a fenced or wrapped routing reply routes to the one specialist it names',

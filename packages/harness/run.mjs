@@ -76,7 +76,7 @@ import { appendTurn, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
-import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
+import { buildRunTrace, publicModelLabel, publicSources, publicTask, redactSecrets, snapshotSpecialist, sumCallTokens } from './trace.mjs'
 
 let runtimeContextFor = null
 
@@ -1495,12 +1495,19 @@ const EARLIER_RESULT_CHARS = 6000
 // The router is asked for JSON, but a model can wrap it in a code fence, put prose around it, or answer in prose.
 // readRouteJson finds the JSON: the whole reply, a fenced block, or the first balanced {...} or [...] in it.
 // It returns undefined when there is none.
+// A routing reply is a list of steps or an object with a steps list. Other JSON inside prose (for example a config
+// snippet the model quoted) is not a route.
+function isRouteShape(value) {
+    return Array.isArray(value) || (Boolean(value) && typeof value === 'object' && Array.isArray(value.steps))
+}
+
 export function readRouteJson(content) {
     const text = String(content ?? '').trim()
     if (!text) return undefined
     const tryParse = (value) => {
         try {
-            return JSON.parse(value)
+            const parsed = JSON.parse(value)
+            return isRouteShape(parsed) ? parsed : undefined
         } catch {
             return undefined
         }
@@ -1611,7 +1618,11 @@ const ROUTE_JSON_SCAN_TRIES = 64
 
 // What the trace and the log keep of a router reply that held no JSON: workspace paths masked, then capped.
 export function routeRawPreview(content) {
-    const text = String(maskWorkspacePaths(String(content ?? '')))
+    // The preview reaches logs, events and saved traces: paths become file names and credentials are removed.
+    const text = redactSecrets(String(maskWorkspacePaths(String(content ?? '')))).replace(
+        /\b(api[_-]?key|access[_-]?token|token|password|secret)(["']?\s*[:=]\s*["']?)[^\s"',}]+/gi,
+        '$1$2[redacted]'
+    )
     return text.length > ROUTE_RAW_PREVIEW_CHARS ? `${text.slice(0, ROUTE_RAW_PREVIEW_CHARS)}…` : text
 }
 

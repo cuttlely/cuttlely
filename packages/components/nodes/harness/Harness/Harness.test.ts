@@ -693,4 +693,31 @@ describe('Harness node as an agent tool', () => {
         rememberToolPayload({}, { text: 'ignored' })
         expect(holder).toEqual([{ text: 'Vault HA uses Raft.', harness: 'NAVI-Agentic', trace: { tokens: { prompt: 10, completion: 4 } } }])
     })
+    it('routes the user message through the tool in a chat flow and in an agent flow', async () => {
+        const WORKSPACE = '11111111-1111-4111-8111-111111111111'
+        mockHarnessRuns.current = { text: 'Raft.', harness: 'bakery', trace: { tokens: { prompt: 3, completion: 1 } } }
+        queuedRun.mockReset()
+        queuedRun.mockImplementation(async () => mockHarnessRuns.current)
+        const inputs: unknown[] = []
+        queuedRun.mockImplementation(async (opts?: Record<string, unknown>) => {
+            inputs.push(opts?.input)
+            return { ...mockHarnessRuns.current }
+        })
+        const node = new HarnessNode()
+        const holder: unknown[] = []
+        const chatTool = await node.init({ inputs: { harnessName: 'bakery' } } as never, 'tell me about vault ha', {
+            chatId: 'c1',
+            workspaceId: WORKSPACE,
+            harnessToolPayloads: holder
+        })
+        await chatTool.func(task)
+        const agentTool = await node.init({ inputs: { harnessName: 'bakery' } } as never, '', {
+            chatId: 'c1',
+            workspaceId: WORKSPACE,
+            harnessUserMessage: 'and in raft mode?'
+        })
+        await agentTool.func(task)
+        expect(inputs).toEqual(['tell me about vault ha', 'and in raft mode?'])
+        expect(holder).toHaveLength(1)
+    })
 })

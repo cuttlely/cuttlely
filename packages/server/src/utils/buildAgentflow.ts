@@ -1343,7 +1343,9 @@ const executeNode = async ({
             // A harness tool on this canvas records against the agentflow. The tool closes over these params.
             recordTokenUsage: recordCompletedRun,
             ...harnessNodeOptions(harnessCaller),
-            ...(harnessToolPayloads ? { harnessToolPayloads } : {})
+            ...(harnessToolPayloads ? { harnessToolPayloads } : {}),
+            // An Agent initializes its tools with no input; a Harness tool routes this message instead of the agent task.
+            harnessUserMessage: typeof finalInput === 'string' ? finalInput : ''
         }
 
         // Execute node. tracedNode is a no-op check when run traces are off.

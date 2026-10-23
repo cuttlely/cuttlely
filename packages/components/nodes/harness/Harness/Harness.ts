@@ -93,7 +93,13 @@ class Harness_Harness implements INode {
 
     async init(nodeData: INodeData, input: string, options: ICommonObject): Promise<any> {
         const harnessName = selectedHarness(nodeData)
-        const userMessage = typeof input === 'string' ? input : ''
+        // A chat flow passes the question as the input. An agent flow Agent passes '' and sets harnessUserMessage.
+        const userMessage =
+            typeof input === 'string' && input.trim()
+                ? input
+                : typeof options?.harnessUserMessage === 'string'
+                ? options.harnessUserMessage
+                : ''
         const streamed = { answer: false }
         const tool = new DynamicTool({
             name: 'harness',
