@@ -15,7 +15,7 @@ import predictionsServices from '../../services/predictions'
 import { answerText } from '../../services/orchestrate/completion'
 import { chatCompletionBody, ibmDeltaFrame, IbmEncoderMeta, makeIbmEncoder } from '../../services/orchestrate/ibmEncoder'
 import { mapOrchestrateRequest } from '../../services/orchestrate/mapRequest'
-import { fileLinkContext, makeArtifactLinker, resultArtifacts, withArtifactLinks } from '../../services/externalAgent/fileLinks'
+import { fileLinkContext, makeArtifactLinker, resultArtifacts, withArtifactLinks } from '../../services/orchestrate/fileLinks'
 
 type OrchestrateRequest = Request & { orchestrate?: unknown }
 

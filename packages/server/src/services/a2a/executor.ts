@@ -12,7 +12,7 @@ import { SSEEncoder } from '../../utils/SSEStreamer'
 import predictionsServices from '../../services/predictions'
 import { waitingForApproval } from '../../services/usage'
 import { answerText } from '../../services/orchestrate/completion'
-import { ArtifactLinker, fileLinkContext, makeArtifactLinker, resultArtifacts, withArtifactLinks } from '../externalAgent/fileLinks'
+import { ArtifactLinker, fileLinkContext, makeArtifactLinker, resultArtifacts, withArtifactLinks } from '../orchestrate/fileLinks'
 import { flowHasMemory } from '../../services/orchestrate/mapRequest'
 import { a2aSseData, makeA2aEncoder, silentA2aEncoder } from './a2aEncoder'
 import {

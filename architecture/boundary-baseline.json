@@ -167,6 +167,11 @@
             "to": "packages/components/src/storage/LocalStorageProvider.ts"
         },
         {
+            "from": "packages/components/src/toolArtifactNote.test.ts",
+            "to": "packages/components/src/agents.ts",
+            "reason": "Orchestrate and A2A file links read the flow's workspace organization and sign get-upload-file links; the tool note test covers agents.ts"
+        },
+        {
             "from": "packages/node-pack-vector-stores/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
             "to": "packages/components/package.json",
             "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
@@ -1046,6 +1051,11 @@
             "from": "packages/server/src/services/harnesses/schedules.ts",
             "to": "packages/server/src/utils/logger.ts",
             "reason": "The harness scheduler logs each due time with the shared server logger, and the Schedule card uses the shared permission button and role check like the harness page beside it."
+        },
+        {
+            "from": "packages/server/src/services/orchestrate/fileLinks.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts",
+            "reason": "Orchestrate and A2A file links read the flow's workspace organization and sign get-upload-file links; the tool note test covers agents.ts"
         },
         {
             "from": "packages/server/src/services/orchestrate/ibmEncoder.ts",
