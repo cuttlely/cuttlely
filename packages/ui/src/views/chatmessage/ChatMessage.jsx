@@ -85,7 +85,7 @@ import { shouldToastOnStreamEnd, useItWorkedNotice } from '@/utils/itWorked'
 // Const
 import FileArtifact from '@/ui-component/artifacts/FileArtifact'
 import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
-import { isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
+import { isFileArtifact, storedFileArtifactUrl, storedImageArtifactUrl } from '@/utils/chatArtifacts'
 import { baseURL, maxScroll } from '@/store/constant'
 import { acceptChatSubmit, harnessCanvasRunPath } from '@/utils/harnessCanvasChat'
 import { harnessMessageText } from '@/utils/harnessStream'
@@ -736,10 +736,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
     const updateLastMessageArtifacts = (artifacts) => {
         artifacts.forEach((artifact) => {
             if (artifact.type === 'png' || artifact.type === 'jpeg') {
-                artifact.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowid}&chatId=${chatId}&fileName=${artifact.data.replace(
-                    'FILE-STORAGE::',
-                    ''
-                )}`
+                artifact.data = storedImageArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
             } else if (isFileArtifact(artifact)) {
                 artifact.data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
             }
@@ -1543,10 +1540,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     obj.artifacts = message.artifacts
                     obj.artifacts.forEach((artifact) => {
                         if (artifact.type === 'png' || artifact.type === 'jpeg') {
-                            artifact.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowid}&chatId=${chatId}&fileName=${artifact.data.replace(
-                                'FILE-STORAGE::',
-                                ''
-                            )}`
+                            artifact.data = storedImageArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
                         } else if (isFileArtifact(artifact)) {
                             artifact.data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
                         }
@@ -2499,10 +2493,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
             const artifact = newArtifacts[i]
             if (artifact && (artifact.type === 'png' || artifact.type === 'jpeg')) {
                 const data = artifact.data
-                newArtifacts[i].data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowid}&chatId=${chatId}&fileName=${data.replace(
-                    'FILE-STORAGE::',
-                    ''
-                )}`
+                newArtifacts[i].data = storedImageArtifactUrl(baseURL, chatflowid, chatId, data)
             } else if (isFileArtifact(artifact)) {
                 newArtifacts[i].data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
             }

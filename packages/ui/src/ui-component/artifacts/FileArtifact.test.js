@@ -6,7 +6,14 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import FileArtifact from './FileArtifact'
 import ImageDownloadButton from './ImageDownloadButton'
-import { fileArtifactHref, fileArtifactName, imageArtifactDownload, isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
+import {
+    fileArtifactHref,
+    fileArtifactName,
+    imageArtifactDownload,
+    isFileArtifact,
+    storedFileArtifactUrl,
+    storedImageArtifactUrl
+} from '@/utils/chatArtifacts'
 
 const BASE = 'https://cuttlely.example'
 const render = (item) => renderToStaticMarkup(createElement(ThemeProvider, { theme: createTheme() }, createElement(FileArtifact, { item })))
@@ -115,6 +122,26 @@ describe('file artifacts in the chat', () => {
         for (const file of ['../../views/chatmessage/ChatMessage.jsx', '../dialog/ViewMessagesDialog.jsx']) {
             const source = fs.readFileSync(path.join(__dirname, file), 'utf8')
             expect(source).toContain('<ImageDownloadButton item={item} />')
+        }
+    })
+    test('a stored chat image keeps & # + in its name through the link and the download', () => {
+        const url = storedImageArtifactUrl(BASE, 'f', 'c', 'FILE-STORAGE::a&b#c+d.png')
+        expect(url).toBe(`${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=a%26b%23c%2Bd.png`)
+        expect(new URL(url).searchParams.get('fileName')).toBe('a&b#c+d.png')
+        expect(new URL(url).searchParams.get('chatId')).toBe('c')
+        const download = imageArtifactDownload({ type: 'png', data: url }, BASE)
+        expect(download.href).toBe(`${url}&download=true`)
+        expect(new URL(download.href).searchParams.get('fileName')).toBe('a&b#c+d.png')
+        expect(download.name).toBe('a_b_c_d.png')
+    })
+
+    test('the chat and the messages dialog build image links with storedImageArtifactUrl', () => {
+        const fs = require('fs')
+        const path = require('path')
+        for (const file of ['../../views/chatmessage/ChatMessage.jsx', '../dialog/ViewMessagesDialog.jsx']) {
+            const source = fs.readFileSync(path.join(__dirname, file), 'utf8')
+            expect(source).not.toMatch(/fileName=\$\{(artifact\.data|data)\.replace/)
+            expect(source).toContain('storedImageArtifactUrl(baseURL, ')
         }
     })
 })
