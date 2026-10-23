@@ -1495,14 +1495,24 @@ export function readRouteJson(content) {
     }
     const whole = tryParse(text)
     if (whole !== undefined) return whole
-    for (const match of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
-        const fenced = tryParse(match[1].trim())
+    // Fences are found with indexOf, not a regular expression, so a long reply stays linear.
+    for (let open = text.indexOf('```'); open !== -1; ) {
+        const close = text.indexOf('```', open + 3)
+        if (close === -1) break
+        const body = text.slice(open + 3, close).replace(/^json\b/i, '')
+        const fenced = tryParse(body.trim())
         if (fenced !== undefined) return fenced
+        open = text.indexOf('```', close + 3)
     }
-    for (let start = 0; start < text.length; start += 1) {
-        const open = text[start]
+    // A bounded scan for the first balanced object or array: a routing reply is short, and a long run of
+    // unmatched brackets must not turn into quadratic work.
+    const scan = text.slice(0, ROUTE_JSON_SCAN_CHARS)
+    let attempts = 0
+    for (let start = 0; start < scan.length && attempts < ROUTE_JSON_SCAN_TRIES; start += 1) {
+        const open = scan[start]
         if (open !== '{' && open !== '[') continue
-        const slice = balancedSlice(text, start)
+        attempts += 1
+        const slice = balancedSlice(scan, start)
         if (!slice) continue
         const parsed = tryParse(slice)
         if (parsed !== undefined && typeof parsed === 'object' && parsed !== null) return parsed
@@ -1583,6 +1593,8 @@ export function parseSteps(content, specialists, input, chief) {
 export const ROUTE_JSON_RETRY =
     'Your last reply was not JSON. Do not answer the request. Reply with only the routing JSON: {"steps":[{"specialist":"NAME","task":"...","after":""}]}.'
 export const ROUTE_RAW_PREVIEW_CHARS = 500
+const ROUTE_JSON_SCAN_CHARS = 20000
+const ROUTE_JSON_SCAN_TRIES = 64
 
 // What the trace and the log keep of a router reply that held no JSON: workspace paths masked, then capped.
 export function routeRawPreview(content) {

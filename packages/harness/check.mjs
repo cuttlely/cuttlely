@@ -2915,6 +2915,11 @@ check(
     const prose = parseSteps('I would ask the knowledge specialist to explain Vault HA.', roster, 'tell me about vault ha')
     const chosen = parseSteps('No JSON here.', roster, 'q', { defaultSpecialist: 'Postgres' })
     const unknownDefault = parseSteps('No JSON here.', roster, 'q', { defaultSpecialist: 'nobody' })
+    const slowStart = Date.now()
+    readRouteJson('```' + '\t'.repeat(200000))
+    readRouteJson('{'.repeat(200000))
+    readRouteJson('```json\n' + '```'.repeat(50000))
+    check('reading a long unreadable routing reply stays fast', Date.now() - slowStart < 1000, `${Date.now() - slowStart}ms`)
     check(
         'a fenced or wrapped routing reply routes to the one specialist it names',
         fenced.length === 1 && fenced[0].specialist.name === 'knowledge' && wrapped.length === 1 && wrapped[0].specialist.name === 'vault',
