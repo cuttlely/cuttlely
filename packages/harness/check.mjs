@@ -7992,6 +7992,9 @@ check(
             [1, "x='/tmp/a b' y", "x='a server path' y"],
             // Rule 1 + 3a: a {/[ token that cannot be JSON is split and its quotes open as usual.
             [1, '{note:"/tmp/private file.txt"}', '{note:"a server path"}'],
+            // Rules 2, 3, 7: a path candidate reads on through a quoted span and is masked whole.
+            [3, '/tmp/cache:"private folder" done', 'a server path" done'],
+            [3, '/var/cuttlely/workspaces/a/x:"private folder" done', 'the workspace" done'],
             [1, '{note:"/var/cuttlely/workspaces/a/private file.txt"}', '{note:"the workspace"}'],
             [6, '{"a":true,"b":null,"c":[1,2]}', '{"a":true,"b":null,"c":[1,2]}'],
             [6, 'README requires checking docs/report.md', 'README requires checking docs/report.md'],
@@ -8119,6 +8122,16 @@ check(
                 scanWorkspaceText(capped, '/' + 'x'.repeat(1024), root) === 'a server path' &&
                     scanWorkspaceText(capped, 'remaining ', root) === ' '
             )
+            {
+                // Rule 7: nothing of a path candidate is sent before its quoted span closes.
+                const quotedState = workspaceMaskState()
+                const early = [...'/tmp/cache:"private folder'].map((char) => scanWorkspaceText(quotedState, char, root)).join('')
+                check(
+                    'rule 7: a path candidate with a quoted span is held until the span closes',
+                    early === '' && scanWorkspaceText(quotedState, '" done', root, true) === 'a server path" done',
+                    JSON.stringify(early)
+                )
+            }
             {
                 // Rule 7 + 3a: a backslash path whose first segment is past the prefix limit still hits the cap.
                 const longState = workspaceMaskState()

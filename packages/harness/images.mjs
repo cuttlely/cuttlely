@@ -269,7 +269,9 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         if (!state.quote && !state.overflow && QUOTES.includes(char) && !state.slash) {
             if (LEAD.test(state.token)) state.quote = char
             else if (!state.json && /[^A-Za-z0-9_.~%\/\\-]$/.test(state.token)) {
-                finish()
+                // A token that is already a path candidate reads on through the quoted span and is
+                // masked whole at its boundary; only other text is judged on its own first.
+                if (!state.capCandidate) finish()
                 state.quote = char
             }
         }
