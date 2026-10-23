@@ -2,7 +2,7 @@
 
 STATUS 2026-10-22: 1.3.2 (#265: version 1.3.2, CHANGELOG dated 2026-10-22 covering #260, #261, #262, #264, install pins at 1.3.2) is the release PR; the v1.3.2 tag, GitHub release, npm packages and `ghcr.io/cuttlely/cuttlely:1.3.2` follow its merge. Before it, v1.3.1 was tagged on the merge of #253, with npm and `ghcr.io/cuttlely/cuttlely:1.3.1` published; the 1.3.1 CHANGELOG Security line cites GHSA-4p9j-8j59-gwr7 and GHSA-2v98-33pc-jj6f.
 
-Aimed at 1.3.3 (branch `fix/harness-file-downloads`): harness specialists can send PPTX files (OOXML part `ppt/presentation.xml`), answers show only file names for any path in a specialist workspace, and Harness Prime names files without folders and skips failure notes when the request was answered.
+Aimed at 1.4.0 (branch `fix/harness-file-downloads`): harness specialists can send PPTX files (OOXML part `ppt/presentation.xml`), answers show only file names for any path in a specialist workspace, and Harness Prime names files without folders and skips failure notes when the request was answered.
 
 In 1.3.2 (#260): a specialist with several nodes of one type (for example two retrieverTool nodes) lists one gateway tool per node, named from that node's own name input (made a valid tool name; nodes that share a name each get "\_\_" and their node id as suffix, and no node takes a name an MCP server advertises), and the gateway routes a call to the node it listed under that name. Check: `several retrieverTool nodes on one specialist get their own tool names and each call reaches its own node`.
 

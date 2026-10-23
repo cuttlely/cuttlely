@@ -8083,6 +8083,28 @@ check(
             'getters, serializers, deep fields, upper-case file links and on-disk lower-case folders are masked',
             maskError(getterError).code === 'getter.pdf' &&
                 maskError(serialError) !== serialError &&
+                (() => {
+                    class ToolError extends Error {
+                        get message() {
+                            return `Cannot open ${assets}/inherited.pdf`
+                        }
+                    }
+                    const nested = Object.assign(new Error(`open ${assets}/n.pdf`), {
+                        meta: Object.defineProperty({}, 'detail', {
+                            enumerable: true,
+                            get: () => {
+                                throw new Error(`${assets}/deep.pdf`)
+                            }
+                        })
+                    })
+                    try {
+                        const inherited = maskError(new ToolError())
+                        const masked = maskError(nested)
+                        return !inherited.message.includes(assets) && masked.meta.detail === '[data]'
+                    } catch {
+                        return false
+                    }
+                })() &&
                 !JSON.stringify(maskError(serialError)).includes(assets) &&
                 !JSON.stringify(
                     maskError(Object.assign(new Error(`open ${assets}/a.pdf`), { toJSON: () => ({ message: `${assets}/b.pdf` }) }))

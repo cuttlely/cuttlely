@@ -699,7 +699,21 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     try {
         if (Array.isArray(value)) return value.map((item) => maskWorkspacePaths(item, depth + 1, open))
         const out = {}
-        for (const [key, item] of Object.entries(value)) {
+        // Each enumerable own field is read on its own; one that cannot be read (a getter that throws) becomes a
+        // placeholder.
+        let keys
+        try {
+            keys = Object.keys(value)
+        } catch {
+            return '[data]'
+        }
+        for (const key of keys) {
+            let item
+            try {
+                item = value[key]
+            } catch {
+                item = '[data]'
+            }
             const shown = maskText(key)
             let name = shown
             // Two keys that end up with the same name keep both values, in either order.
@@ -721,12 +735,27 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
 // An error leaves with its message, stack and fields masked. One that cannot be changed (a frozen error) is replaced
 // by a masked copy with the same prototype, name and fields, such as its code.
 export function maskError(error, depth = 0, seen = new WeakSet()) {
+    // Masking never throws: anything it cannot read gives a plain placeholder error.
+    try {
+        return rebuildError(error, depth, seen)
+    } catch {
+        return new Error('[error]')
+    }
+}
+function rebuildError(error, depth, seen) {
     // A thrown string or object is masked too; other thrown values carry no text.
     if (typeof error === 'string') return maskWorkspacePaths(error)
     if (!error || typeof error !== 'object') return error
     if (!(error instanceof Error)) return maskWorkspacePaths(error)
     // An error that names no workspace folder anywhere is passed on as it is.
-    if (!mentionsWorkspace(error)) return error
+    const inherited = ['message', 'name', 'stack'].some((key) => {
+        try {
+            return mentionsWorkspace(error[key])
+        } catch {
+            return true
+        }
+    })
+    if (!inherited && !mentionsWorkspace(error)) return error
     if (depth >= 8 || seen.has(error)) return new Error('[nested error]')
     seen.add(error)
     // Otherwise it is rebuilt with the same prototype and every own field (enumerable or not, the cause included),
@@ -746,6 +775,18 @@ export function maskError(error, depth = 0, seen = new WeakSet()) {
         masked.writable = true
         masked.value = item instanceof Error ? maskError(item, depth + 1, seen) : maskWorkspacePaths(item)
         Object.defineProperty(copy, name, masked)
+    }
+    // A message, name or stack read from the prototype (a class getter) is kept as a masked own field.
+    for (const key of ['message', 'name', 'stack']) {
+        if (Object.hasOwn(copy, key)) continue
+        let item
+        try {
+            item = error[key]
+        } catch {
+            item = undefined
+        }
+        if (typeof item === 'string')
+            Object.defineProperty(copy, key, { value: maskWorkspacePaths(item), enumerable: false, writable: true, configurable: true })
     }
     // A serializer (own or inherited) is replaced by one that masks what the original returns.
     const serializer = serializerOf(error)
