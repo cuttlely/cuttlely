@@ -1,5 +1,7 @@
 # Status
 
+Handoff 2026-10-23: #268 (ChatOpenAI and Azure ChatOpenAI honor the Reasoning toggle; GPT-6 and gpt-5.6 tool calls use the Responses API) has main merged in after #267 and merges next for 1.4.0, then #269.
+
 STATUS 2026-10-22: 1.3.2 (#265: version 1.3.2, CHANGELOG dated 2026-10-22 covering #260, #261, #262, #264, install pins at 1.3.2) is the release PR; the v1.3.2 tag, GitHub release, npm packages and `ghcr.io/cuttlely/cuttlely:1.3.2` follow its merge. Before it, v1.3.1 was tagged on the merge of #253, with npm and `ghcr.io/cuttlely/cuttlely:1.3.1` published; the 1.3.1 CHANGELOG Security line cites GHSA-4p9j-8j59-gwr7 and GHSA-2v98-33pc-jj6f.
 
 Aimed at 1.4.0 (branch `fix/harness-file-downloads`): harness specialists can send PPTX files (OOXML part `ppt/presentation.xml`), answers show only file names for any path in a specialist workspace, and Harness Prime names files without folders and skips failure notes when the request was answered.
