@@ -395,6 +395,12 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
                 throw new HarnessError('not_found', `Harness job ${id} was not found.`)
             }
             if (job.status === 'succeeded') {
+                // The worker can write its last events and finish the job between the read above and this one, so
+                // read the events once more: the final event carries the run header's token totals.
+                for (const row of readEvents(id, seq)) {
+                    seq = row.seq
+                    onEvent?.(row.event)
+                }
                 forgetJobImageBytes(id, job.result)
                 return job.result
             }

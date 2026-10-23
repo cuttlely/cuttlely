@@ -647,6 +647,7 @@ async function runRoster(context, input) {
         handoffTokens: sumCallTokens(handoffCalls),
         handoffFallback: handoffLast?.fallback || '',
         handoffStatus: handoffCalls.length ? 'done' : 'skipped',
+        routeParse: context.routeParse,
         question
     })
     console.info(
@@ -1415,7 +1416,41 @@ async function routeSteps(context, input, history) {
     } finally {
         routeStream.flush()
     }
-    let parsedSteps = forceAnalystRoute(input, parseSteps(reply.content, specialists, input), specialists)
+    let routed = parseRouteSteps(reply.content, specialists, input)
+    if (!routed.ok) {
+        // One retry with a JSON-only reminder. The first reply stays in the trace and the log.
+        context.routeParse = { error: 'not_json', rawPreview: routeRawPreview(reply.content), retried: true }
+        console.warn(
+            `[harness] ${context.name} router reply was not JSON (chat ${context.chatId}); retrying once: ${context.routeParse.rawPreview}`
+        )
+        const retryMessages = [
+            ...fitted.messages,
+            { role: 'assistant', content: String(reply.content ?? '') },
+            { role: 'user', content: ROUTE_JSON_RETRY }
+        ]
+        const retry = await callModel(context, chiefModel(context.roster), {
+            messages: withPromptImages(retryMessages, context.images),
+            json: true,
+            role: 'route'
+        })
+        routed = parseRouteSteps(retry.content, specialists, input)
+        if (!routed.ok) {
+            const fallback = defaultRouteSpecialist(specialists, context.roster.chief)
+            context.routeParse = {
+                error: 'not_json',
+                rawPreview: routeRawPreview(retry.content),
+                retried: true,
+                fallback: fallback?.name || ''
+            }
+            console.warn(
+                `[harness] ${context.name} router reply was still not JSON (chat ${context.chatId}); sending the request to ${
+                    fallback?.name || 'no specialist'
+                }: ${context.routeParse.rawPreview}`
+            )
+            routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input }] : [] }
+        }
+    }
+    let parsedSteps = forceAnalystRoute(input, routed.steps, specialists)
     const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
     if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
     const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
@@ -1423,15 +1458,16 @@ async function routeSteps(context, input, history) {
     const steps = pageRoute.steps
     if (steps.length === 1 && !steps[0].paging) steps[0].task = expandSingleSpecialistTask(input, steps[0].task)
     context.routeSteps = publicSteps(steps)
-    const routed = roleCalls(context, 'route')
-    const last = routed.at(-1)
+    const routedCalls = roleCalls(context, 'route')
+    const last = routedCalls.at(-1)
     emit(context, 'route', {
         phase: 'done',
         steps: context.routeSteps,
         ms: Date.now() - started,
         ...(last?.model ? { model: last.model } : {}),
         ...(last?.fallback ? { fallback: last.fallback } : {}),
-        ...(sumCallTokens(routed) ? { tokens: sumCallTokens(routed) } : {}),
+        ...(sumCallTokens(routedCalls) ? { tokens: sumCallTokens(routedCalls) } : {}),
+        ...(context.routeParse ? { parseError: context.routeParse.error, rawPreview: context.routeParse.rawPreview } : {}),
         ...phaseCalls(context, 'route')
     })
     return steps
@@ -1444,13 +1480,72 @@ export const ROUTE_AFTER =
     'list it after that step and add "after": "NAME" to it. It then waits for that step and gets its result with the task.'
 const EARLIER_RESULT_CHARS = 6000
 
-export function parseSteps(content, specialists, input) {
-    let parsed
-    try {
-        parsed = JSON.parse(content)
-    } catch {
-        return specialists.map((specialist) => ({ specialist, task: input }))
+// The router is asked for JSON, but a model can wrap it in a code fence, put prose around it, or answer in prose.
+// readRouteJson finds the JSON: the whole reply, a fenced block, or the first balanced {...} or [...] in it.
+// It returns undefined when there is none.
+export function readRouteJson(content) {
+    const text = String(content ?? '').trim()
+    if (!text) return undefined
+    const tryParse = (value) => {
+        try {
+            return JSON.parse(value)
+        } catch {
+            return undefined
+        }
     }
+    const whole = tryParse(text)
+    if (whole !== undefined) return whole
+    for (const match of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+        const fenced = tryParse(match[1].trim())
+        if (fenced !== undefined) return fenced
+    }
+    for (let start = 0; start < text.length; start += 1) {
+        const open = text[start]
+        if (open !== '{' && open !== '[') continue
+        const slice = balancedSlice(text, start)
+        if (!slice) continue
+        const parsed = tryParse(slice)
+        if (parsed !== undefined && typeof parsed === 'object' && parsed !== null) return parsed
+    }
+    return undefined
+}
+
+function balancedSlice(text, start) {
+    const stack = []
+    let inString = false
+    let escaped = false
+    for (let index = start; index < text.length; index += 1) {
+        const ch = text[index]
+        if (inString) {
+            if (escaped) escaped = false
+            else if (ch === '\\') escaped = true
+            else if (ch === '"') inString = false
+            continue
+        }
+        if (ch === '"') inString = true
+        else if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']')
+        else if (ch === '}' || ch === ']') {
+            if (stack.pop() !== ch) return null
+            if (!stack.length) return text.slice(start, index + 1)
+        }
+    }
+    return null
+}
+
+// The specialist a route that cannot be read goes to: the chief's default when it names a specialist on the
+// roster, otherwise the first specialist. Never every specialist.
+export function defaultRouteSpecialist(specialists, chief) {
+    const list = specialists || []
+    const wanted = String(chief?.defaultSpecialist || '')
+        .trim()
+        .toLowerCase()
+    return (wanted && list.find((specialist) => specialist.name.toLowerCase() === wanted)) || list[0] || null
+}
+
+// Reads the router reply. ok is false when the reply holds no JSON; steps is then empty.
+export function parseRouteSteps(content, specialists, input) {
+    const parsed = readRouteJson(content)
+    if (parsed === undefined || parsed === null || typeof parsed !== 'object') return { ok: false, steps: [] }
     const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.steps) ? parsed.steps : []
     const byName = new Map(specialists.map((specialist) => [specialist.name.toLowerCase(), specialist]))
     const steps = []
@@ -1474,7 +1569,25 @@ export function parseSteps(content, specialists, input) {
             ...(after && after !== specialist && seen.has(after.name) ? { after: after.name } : {})
         })
     }
-    return steps
+    return { ok: true, steps }
+}
+
+// A reply with no JSON goes to one default specialist with the whole request, never to every specialist.
+export function parseSteps(content, specialists, input, chief) {
+    const parsed = parseRouteSteps(content, specialists, input)
+    if (parsed.ok) return parsed.steps
+    const fallback = defaultRouteSpecialist(specialists, chief)
+    return fallback ? [{ specialist: fallback, task: input }] : []
+}
+
+export const ROUTE_JSON_RETRY =
+    'Your last reply was not JSON. Do not answer the request. Reply with only the routing JSON: {"steps":[{"specialist":"NAME","task":"...","after":""}]}.'
+export const ROUTE_RAW_PREVIEW_CHARS = 500
+
+// What the trace and the log keep of a router reply that held no JSON: workspace paths masked, then capped.
+export function routeRawPreview(content) {
+    const text = String(maskWorkspacePaths(String(content ?? '')))
+    return text.length > ROUTE_RAW_PREVIEW_CHARS ? `${text.slice(0, ROUTE_RAW_PREVIEW_CHARS)}…` : text
 }
 
 // Steps without "after" start together. A step with "after" starts when that step finishes, with its result.

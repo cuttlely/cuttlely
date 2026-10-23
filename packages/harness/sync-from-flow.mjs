@@ -170,6 +170,9 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
         credentials: previous?.credentials,
         chief: {
             instructions: chiefs[0].data?.inputs?.instructions || '',
+            ...(typeof chiefs[0].data?.inputs?.defaultSpecialist === 'string' && chiefs[0].data.inputs.defaultSpecialist.trim()
+                ? { defaultSpecialist: chiefs[0].data.inputs.defaultSpecialist.trim() }
+                : {}),
             model: chiefModels.model,
             ...(chiefModels.fallback ? { fallbackModel: chiefModels.fallback } : {})
         },

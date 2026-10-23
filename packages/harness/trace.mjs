@@ -560,7 +560,35 @@ function noteTool(specialists, event) {
     return withSpecialist({ specialists: next }, name, { tools: settleToolChips(tools) })
 }
 
+// Until the final event brings the run's report, the header total is the sum of the steps that have reported.
+export function liveTraceTokens(trace) {
+    const parts = [trace?.route?.tokens, ...(trace?.specialists || []).map((item) => item.tokens), trace?.handoff?.tokens]
+    let prompt = 0
+    let completion = 0
+    let cached = 0
+    let seen = false
+    let cachedSeen = false
+    for (const part of parts) {
+        if (!part || (part.prompt == null && part.completion == null)) continue
+        seen = true
+        prompt += Number(part.prompt) || 0
+        completion += Number(part.completion) || 0
+        if (part.cached != null) {
+            cachedSeen = true
+            cached += Number(part.cached) || 0
+        }
+    }
+    if (!seen) return { prompt: null, completion: null }
+    return { prompt, completion, ...(cachedSeen ? { cached } : {}) }
+}
+
 export function reduceHarnessEvent(trace, event) {
+    const next = reduceHarnessStep(trace, event)
+    if (!event || typeof event !== 'object' || event.type === 'final' || !next || next === trace) return next
+    return { ...next, tokens: liveTraceTokens(next) }
+}
+
+function reduceHarnessStep(trace, event) {
     const current = trace || emptyTrace(event?.harness)
     if (!event || typeof event !== 'object') return current
     if (event.type === 'final') {
@@ -596,6 +624,7 @@ export function reduceHarnessEvent(trace, event) {
             model: event.model || next.route.model,
             fallback: event.fallback || next.route.fallback || '',
             tokens: event.tokens === undefined ? next.route.tokens : event.tokens,
+            ...(event.parseError ? { parseError: String(event.parseError), rawPreview: String(event.rawPreview || '') } : {}),
             steps: Array.isArray(event.steps)
                 ? event.steps.map((step) => ({
                       specialist: step.specialist,
@@ -683,6 +712,7 @@ export function buildRunTrace({
     handoffFallback = '',
     handoffStatus = '',
     directDetail = null,
+    routeParse = null,
     question = ''
 } = {}) {
     const routeMs = timings.routeMs ?? 0
@@ -714,6 +744,7 @@ export function buildRunTrace({
             model: routeModel || '',
             fallback: routeFallback || '',
             tokens: routeTokens,
+            ...(routeParse?.error ? { parseError: String(routeParse.error), rawPreview: String(routeParse.rawPreview || '') } : {}),
             steps: (steps || []).map((step) => ({
                 specialist: step.specialist || step.name || '',
                 task: publicTask(step.task),

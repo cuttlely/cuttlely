@@ -70,6 +70,11 @@ const {
     ROUTE_ANALYST,
     forceAnalystRoute,
     parseSteps,
+    parseRouteSteps,
+    readRouteJson,
+    defaultRouteSpecialist,
+    ROUTE_JSON_RETRY,
+    ROUTE_RAW_PREVIEW_CHARS,
     runSteps,
     withEarlierResult,
     ROUTE_AFTER,
@@ -2893,6 +2898,143 @@ check(
         specialist: salesSpecialist?.messages?.at(-1)?.content
     })
 )
+
+// 1.4.1: a routing reply that is not plain JSON never sends the turn to the whole roster.
+{
+    const roster = ['vault', 'kafka', 'knowledge', 'postgres', 'ops'].map((name) => ({ name, instructions: `${name} work.` }))
+    const fenced = parseSteps(
+        'Here is the plan:\n```json\n{"steps":[{"specialist":"knowledge","task":"Explain Vault HA."}]}\n```\nDone.',
+        roster,
+        'tell me about vault ha'
+    )
+    const wrapped = parseSteps(
+        'Sure. {"steps":[{"specialist":"vault","task":"Explain HA {raft} mode."}]} That is all.',
+        roster,
+        'tell me about vault ha'
+    )
+    const prose = parseSteps('I would ask the knowledge specialist to explain Vault HA.', roster, 'tell me about vault ha')
+    const chosen = parseSteps('No JSON here.', roster, 'q', { defaultSpecialist: 'Postgres' })
+    const unknownDefault = parseSteps('No JSON here.', roster, 'q', { defaultSpecialist: 'nobody' })
+    check(
+        'a fenced or wrapped routing reply routes to the one specialist it names',
+        fenced.length === 1 && fenced[0].specialist.name === 'knowledge' && wrapped.length === 1 && wrapped[0].specialist.name === 'vault',
+        JSON.stringify({ fenced, wrapped })
+    )
+    check(
+        'a prose routing reply goes to one default specialist, never to the whole roster',
+        prose.length === 1 &&
+            prose[0].specialist.name === 'vault' &&
+            prose[0].task === 'tell me about vault ha' &&
+            chosen.length === 1 &&
+            chosen[0].specialist.name === 'postgres' &&
+            unknownDefault[0].specialist.name === 'vault' &&
+            defaultRouteSpecialist(roster, { defaultSpecialist: 'ops' }).name === 'ops' &&
+            !parseRouteSteps('prose', roster, 'q').ok &&
+            readRouteJson('```\n[{"specialist":"ops","task":"t"}]\n```')?.[0]?.specialist === 'ops',
+        JSON.stringify({ prose, chosen, unknownDefault })
+    )
+}
+saveHarness(
+    {
+        name: 'route-recover',
+        chief: {
+            instructions: 'Send each question to one specialist.',
+            defaultSpecialist: 'knowledge',
+            model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } })
+        },
+        specialists: ['vault', 'kafka', 'knowledge', 'postgres', 'ops', 'k8s', 'terraform', 'python', 'notes'].map((name) => ({
+            name,
+            instructions: `${name} work.`,
+            modules: [],
+            mcpServers: []
+        }))
+    },
+    { overwrite: true }
+)
+const longTask =
+    'You MUST explain HashiCorp Vault high availability in depth. Cover the integrated storage (Raft) backend, active and standby nodes, request forwarding, performance standbys, auto-unseal, and failure handling. Give clear headings and a short summary. Use /srv/cuttlely/workspaces/knowledge/notes.md if it helps.'
+async function routeRecoverTurn(chatId, routeReplies) {
+    const calls = []
+    const events = []
+    const warned = []
+    const warn = console.warn
+    console.warn = (...args) => warned.push(args.join(' '))
+    let routeCount = 0
+    try {
+        const run = await runHarness({
+            name: 'route-recover',
+            chatId,
+            input: longTask,
+            baseUrl: contract.url,
+            modelBaseUrl,
+            onEvent: (event) => events.push(event),
+            loadNode: async (nodeName) => {
+                if (nodeName !== 'scriptedChat') throw new Error(`unexpected ${nodeName}`)
+                return recordingChat(calls, (messages) => {
+                    const plain = plainChatMessages(messages)
+                    const system = String(plain[0]?.content || '')
+                    if (system.includes('You route work')) return { content: routeReplies[Math.min(routeCount++, routeReplies.length - 1)] }
+                    return { content: `specialist:${String(plain.at(-1)?.content || '').slice(0, 40)}` }
+                })
+            }
+        })
+        return { run, calls, events, warned, routeCount }
+    } finally {
+        console.warn = warn
+    }
+}
+{
+    const prose =
+        'The best fit is the knowledge specialist, who should explain Vault HA, see /srv/cuttlely/workspaces/knowledge/notes.md. ' +
+        'x'.repeat(900)
+    const first = await routeRecoverTurn('route-recover-1', [
+        JSON.stringify({ steps: [{ specialist: 'knowledge', task: 'Explain Vault HA.' }] })
+    ])
+    const retried = await routeRecoverTurn('route-recover-1', [
+        prose,
+        JSON.stringify({ steps: [{ specialist: 'vault', task: 'Explain Vault HA.' }] })
+    ])
+    const retryCall = retried.calls.filter((entry) => String(entry.messages[0]?.content || '').includes('You route work'))[1]
+    check(
+        'a follow-up turn with a long imperative task and history routes to one specialist on the first try',
+        first.run.trace?.route?.steps?.length === 1 && first.routeCount === 1 && !first.run.trace?.route?.parseError,
+        JSON.stringify(first.run.trace?.route)
+    )
+    check(
+        'a prose routing reply is asked once more for JSON, and the JSON retry routes to one specialist',
+        retried.routeCount === 2 &&
+            retried.run.trace?.route?.steps?.length === 1 &&
+            retried.run.trace.route.steps[0].specialist === 'vault' &&
+            retried.run.agents.length === 1 &&
+            String(plainChatMessages(retryCall?.messages || []).at(-1)?.content || '') === ROUTE_JSON_RETRY &&
+            retried.run.trace.route.parseError === 'not_json',
+        JSON.stringify({ route: retried.run.trace?.route, count: retried.routeCount })
+    )
+    const fallback = await routeRecoverTurn('route-recover-2', [prose, prose])
+    const route = fallback.run.trace?.route || {}
+    const routeDone = fallback.events.find((event) => event.type === 'route' && event.phase === 'done')
+    check(
+        'two prose routing replies go to the default specialist only, with the masked reply in the trace and the log',
+        fallback.routeCount === 2 &&
+            route.steps?.length === 1 &&
+            route.steps[0].specialist === 'knowledge' &&
+            fallback.run.agents.length === 1 &&
+            route.parseError === 'not_json' &&
+            typeof route.rawPreview === 'string' &&
+            route.rawPreview.length <= ROUTE_RAW_PREVIEW_CHARS + 1 &&
+            route.rawPreview.startsWith('The best fit is the knowledge specialist') &&
+            !route.rawPreview.includes('/srv/cuttlely/workspaces') &&
+            routeDone?.parseError === 'not_json' &&
+            routeDone?.rawPreview === route.rawPreview &&
+            fallback.warned.some((line) => line.includes('route-recover') && !line.includes('/srv/cuttlely/workspaces')),
+        JSON.stringify({
+            agents: fallback.run.agents.length,
+            len: route.rawPreview?.length,
+            done: routeDone && { p: routeDone.parseError, same: routeDone.rawPreview === route.rawPreview, keys: Object.keys(routeDone) },
+            types: fallback.events.map((e) => e.type + ':' + (e.status || e.phase)).slice(0, 6)
+        })
+    )
+}
 
 // Flowise retriever tools return text + SOURCE_DOCUMENTS_PREFIX + JSON. The model reads only the text; the documents
 // become payload sources, with absolute server paths reduced to the file name (pressure-test Section 2, S2-2).
@@ -8991,7 +9133,15 @@ liveTrace = reduceHarnessEvent(liveTrace, {
     tokens: { prompt: 11, completion: 7 },
     sources: [{ name: 'notes.md' }]
 })
+const beforeFinalTokens = liveTrace.tokens
 liveTrace = reduceHarnessEvent(liveTrace, { type: 'final', trace: usageRun.trace })
+check(
+    'the live run header adds up the step tokens before the final event, and final replaces them',
+    beforeFinalTokens?.prompt === 11 &&
+        beforeFinalTokens?.completion === 7 &&
+        JSON.stringify(liveTrace.tokens) === JSON.stringify(usageRun.trace.tokens),
+    JSON.stringify({ beforeFinalTokens, after: liveTrace.tokens })
+)
 check(
     'a live trace follows route, tool, and specialist events until final',
     liveTool?.name === 'lookup' &&
@@ -9001,6 +9151,23 @@ check(
         explainTruncation('specialist:writer.instructions').includes('writer'),
     JSON.stringify({ harness: liveTrace.harness, specialist: liveTrace.specialists?.[0]?.name })
 )
+{
+    const toolSaved = JSON.stringify({
+        text: 'Agent reply.',
+        harness: 'token-usage',
+        agents: [],
+        sources: [],
+        artifacts: [],
+        trace: usageRun.trace,
+        viaTool: true
+    })
+    const reloaded = traceFromPayload(toolSaved)
+    check(
+        'a harness trace saved with an agent tool reply restores the run header token totals on reload',
+        reloaded?.tokens?.prompt != null && JSON.stringify(reloaded.tokens) === JSON.stringify(usageRun.trace.tokens),
+        JSON.stringify(reloaded?.tokens)
+    )
+}
 check(
     'an older harness payload still becomes a trace',
     traceFromPayload({
@@ -9291,6 +9458,28 @@ check(
     callerPayload.callerChatflowId === 'caller-flow' && callerPayload.workspaceId === 'ws-caller',
     JSON.stringify(callerPayload)
 )
+{
+    const { appendEvent, finishJob, waitForJob } = await import('./queue.mjs')
+    const lateJob = enqueueHarnessJob({ name: 'queue-worker', chatId: 'late-final-job', input: 'Hi' })
+    appendEvent(lateJob.id, { type: 'route', status: 'done' })
+    const seen = []
+    const lateResult = await waitForJob(lateJob.id, {
+        timeoutMs: 2000,
+        onEvent: (event) => {
+            seen.push(event.type)
+            if (event.type === 'route') {
+                appendEvent(lateJob.id, { type: 'final', trace: { tokens: { prompt: 5, completion: 2 } } })
+                finishJob(lateJob.id, { status: 'succeeded', result: { text: 'done' } })
+            }
+        }
+    })
+    queueDatabase().prepare('DELETE FROM jobs WHERE id = ?').run(lateJob.id)
+    check(
+        'the waiter reads the final event written just before the job finished',
+        lateResult.text === 'done' && seen.join(',') === 'route,final',
+        seen.join(',')
+    )
+}
 {
     const { finishJob, waitForJob } = await import('./queue.mjs')
     const imageJob = enqueueHarnessJob({ name: 'queue-worker', chatId: 'image-bytes-job', input: 'Draw' })

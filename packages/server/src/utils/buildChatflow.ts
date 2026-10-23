@@ -684,6 +684,7 @@ export const executeFlow = async ({
             logger.debug(`[server]: [${orgId}]: Start building flow ${chatflowid}`)
 
             /*** BFS to traverse from Starting Nodes to Ending Node ***/
+            const harnessToolPayloads: Record<string, any>[] = []
             const reactFlowNodes = await buildFlow({
                 startingNodeIds,
                 reactFlowNodes: nodes,
@@ -715,7 +716,8 @@ export const executeFlow = async ({
                 updateStorageUsage,
                 checkStorage,
                 cuttlelyReplay: replay === true,
-                harnessCaller
+                harnessCaller,
+                harnessToolPayloads
             })
 
             const setVariableNodesOutput = getSetVariableNodesOutput(reactFlowNodes)
@@ -1013,6 +1015,11 @@ export const executeFlow = async ({
                     chatId,
                     memoryType,
                     sessionId
+                }
+                const toolHarness = !result?.harness ? harnessToolPayloadFor(harnessToolPayloads, resultText) : undefined
+                if (toolHarness) {
+                    // The harness ran as an agent tool: keep its trace so a reload shows the run header and token totals.
+                    apiMessage.harnessPayload = JSON.stringify(toolHarness)
                 }
                 if (result?.harness) {
                     const harnessPayload = {
@@ -1420,3 +1427,23 @@ const incrementFailedMetricCounter = (metricsProvider: IMetricsProvider, isInter
 }
 
 export { shouldAutoPlayTTS, generateTTSForResponseStream }
+
+/**
+ * The harness payload to save with an agent reply when a Harness node ran as the agent's tool. The last call wins, and
+ * the text is the reply the chat shows, so a reload renders the same answer with that run's header and token totals.
+ */
+export function harnessToolPayloadFor(payloads: Record<string, any>[] | undefined, replyText: string) {
+    const last = Array.isArray(payloads) ? payloads[payloads.length - 1] : undefined
+    if (!last || typeof last !== 'object' || !last.trace) return undefined
+    return {
+        text: replyText,
+        harness: last.harness,
+        agents: Array.isArray(last.agents) ? last.agents : [],
+        sources: Array.isArray(last.sources) ? last.sources : [],
+        artifacts: [],
+        ...(last.timings ? { timings: last.timings } : {}),
+        ...(last.report ? { report: last.report } : {}),
+        trace: last.trace,
+        viaTool: true
+    }
+}

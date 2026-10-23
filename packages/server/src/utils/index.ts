@@ -525,6 +525,8 @@ type BuildFlowParams = {
     /** Publish-check replay: node init must not export model or tool spans. */
     cuttlelyReplay?: boolean
     harnessCaller?: IHarnessCaller
+    // Filled by a Harness node attached as a tool, so the chat saves that harness trace with the reply.
+    harnessToolPayloads?: unknown[]
 }
 
 /**
@@ -563,7 +565,8 @@ export const buildFlow = async ({
     updateStorageUsage,
     checkStorage,
     cuttlelyReplay,
-    harnessCaller
+    harnessCaller,
+    harnessToolPayloads
 }: BuildFlowParams) => {
     const flowNodes = cloneDeep(reactFlowNodes)
 
@@ -684,6 +687,7 @@ export const buildFlow = async ({
                         // A Harness tool closes over this object. The ending-node path does not use it.
                         recordTokenUsage: recordCompletedRun,
                         ...harnessNodeOptions(harnessCaller),
+                        ...(harnessToolPayloads ? { harnessToolPayloads } : {}),
                         ...(cuttlelyReplay ? { cuttlelyReplay: true } : {})
                     })
                 let outputResult = isUpsert

@@ -39,7 +39,9 @@ const {
     storeHarnessImages,
     harnessToolOutput,
     streamStoredImages,
-    uploadedImages
+    uploadedImages,
+    harnessToolInput,
+    rememberToolPayload
 } = require('./Harness')
 const { addSingleFileToStorage, getFileFromStorage } = require('../../../src/storageUtils')
 
@@ -664,5 +666,31 @@ describe('Harness token recording', () => {
         expect(result.text).toBe('Loaf is ready.')
         expect(result.harness).toBe('bakery')
         expect(result.harnessPayload).toEqual(payload)
+    })
+})
+
+describe('Harness node as an agent tool', () => {
+    const task = 'You MUST explain HashiCorp Vault high availability in depth, with headings and a summary.'
+    it('routes the message the person sent by default, as a direct harness run does', () => {
+        expect(harnessToolInput({ inputs: {} } as never, 'tell me about vault ha', task)).toBe('tell me about vault ha')
+        expect(harnessToolInput({ inputs: { inputSource: 'user' } } as never, 'and in raft mode?', task)).toBe('and in raft mode?')
+    })
+    it('uses the agent task when the card asks for it or the message is empty', () => {
+        expect(harnessToolInput({ inputs: { inputSource: 'agent' } } as never, 'tell me about vault ha', task)).toBe(task)
+        expect(harnessToolInput({ inputs: {} } as never, '   ', task)).toBe(task)
+    })
+    it('keeps the run payload, without file bytes, for the chat to save with the reply', () => {
+        const holder: unknown[] = []
+        rememberToolPayload(
+            { harnessToolPayloads: holder },
+            {
+                text: 'Vault HA uses Raft.',
+                harness: 'NAVI-Agentic',
+                trace: { tokens: { prompt: 10, completion: 4 } },
+                artifacts: [{ name: 'chart.png', base64: 'ZGVtbw==' }]
+            }
+        )
+        rememberToolPayload({}, { text: 'ignored' })
+        expect(holder).toEqual([{ text: 'Vault HA uses Raft.', harness: 'NAVI-Agentic', trace: { tokens: { prompt: 10, completion: 4 } } }])
     })
 })
