@@ -50,7 +50,13 @@ const getAgentCard = async (req: Request, res: Response, next: NextFunction) => 
 const handleRpc = async (req: A2aRequest, res: Response, next: NextFunction) => {
     const log = logOf(res)
     try {
-        const chatflow = res.locals.chatflow as { id: string; apikeyid?: string | null; flowData?: string | null; name?: string }
+        const chatflow = res.locals.chatflow as {
+            id: string
+            apikeyid?: string | null
+            flowData?: string | null
+            name?: string
+            workspaceId?: string | null
+        }
         if (!chatflow?.id) {
             throw new ExternalAgentError(StatusCodes.NOT_FOUND, 'flow_not_found', 'invalid_request_error', 'Flow not found')
         }

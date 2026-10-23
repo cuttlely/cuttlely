@@ -185,3 +185,54 @@ describe('A2A executor helpers', () => {
         expect(res.write).toHaveBeenCalled()
     })
 })
+
+describe('completedWithLinks', () => {
+    const { completedWithLinks } = jest.requireActual('./executor')
+    const utf8 = (s: string) => Buffer.byteLength(s)
+    const { makeArtifactLinker } = jest.requireActual('../orchestrate/fileLinks')
+    const { setFileLinkSecretForTests } = jest.requireActual('../../utils/fileLinkSignature')
+    const ctx = { baseURL: 'https://navi.example', orgId: 'org-1', chatflowId: 'flow-1', chatId: 'chat-1', ttlSeconds: 3600 }
+    const result = { artifacts: [{ type: 'pdf', data: 'FILE-STORAGE::deck.pdf' }] }
+    beforeEach(() => setFileLinkSecretForTests('a2a-links-secret'))
+    afterEach(() => setFileLinkSecretForTests(undefined))
+
+    it('keeps the links whole when a long answer is cut to the task text limit', () => {
+        const out = completedWithLinks('x'.repeat(5000), result, makeArtifactLinker(ctx), false, '', 1024)
+        expect(Buffer.byteLength(out.text)).toBeLessThanOrEqual(1024)
+        expect(out.text).toMatch(
+            /\[truncated\]\n\n\[Download deck\.pdf\]\(https:\/\/navi\.example\/api\/v1\/get-upload-file\?[^)]+signature=[^)]+\)$/
+        )
+        expect(out.tail).toBeUndefined()
+    })
+
+    it('sends held text and unsent links as the tail of a streamed run, and drops attachment: links', () => {
+        const linker = makeArtifactLinker(ctx)
+        const out = completedWithLinks('Done ![d](attachment:d.pdf)', result, linker, true, 'held')
+        expect(out.text).toMatch(/^Done\n\n\[Download deck\.pdf\]/)
+        expect(out.tail).toMatch(/^held\n\n\[Download deck\.pdf\]/)
+    })
+
+    it('uses the room a short answer leaves, beyond half the limit, and keeps later links that fit', () => {
+        const linker = makeArtifactLinker(ctx)
+        const many = {
+            artifacts: [
+                { type: 'pdf', data: 'FILE-STORAGE::deck.pdf' },
+                { type: 'pdf', data: 'FILE-STORAGE::' + 'r'.repeat(200) + '.pdf' }
+            ]
+        }
+        const one = utf8(completedWithLinks('', { artifacts: [many.artifacts[0]] }, makeArtifactLinker(ctx), false, '', 100000).text)
+        const limit = one + 10
+        expect(one).toBeGreaterThan(limit / 2)
+        const out = completedWithLinks('Done', many, linker, false, '', limit)
+        expect(out.text).toMatch(/^Done\n\n\[Download deck\.pdf\]/)
+        expect(utf8(out.text)).toBeLessThanOrEqual(limit)
+    })
+
+    it('links files from streamed artifacts frames in the tail and the stored answer', () => {
+        const linker = makeArtifactLinker(ctx)
+        linker.collect([{ type: 'png', data: 'FILE-STORAGE::chart.png' }])
+        const out = completedWithLinks('Done', result, linker, true, '')
+        expect(out.tail).toMatch(/^\n\n!\[chart\.png\]\([^)]+\)\n\n\[Download deck\.pdf\]/)
+        expect(out.text).toMatch(/^Done\n\n!\[chart\.png\][^\n]+\n\n\[Download deck\.pdf\]/)
+    })
+})

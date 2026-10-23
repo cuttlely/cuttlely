@@ -15,6 +15,7 @@ import predictionsServices from '../../services/predictions'
 import { answerText } from '../../services/orchestrate/completion'
 import { chatCompletionBody, ibmDeltaFrame, IbmEncoderMeta, makeIbmEncoder } from '../../services/orchestrate/ibmEncoder'
 import { mapOrchestrateRequest } from '../../services/orchestrate/mapRequest'
+import { fileLinkContext, makeArtifactLinker, resultArtifacts, withArtifactLinks } from '../../services/orchestrate/fileLinks'
 
 type OrchestrateRequest = Request & { orchestrate?: unknown }
 
@@ -35,7 +36,12 @@ const writeIfOpen = (res: Response, chunk: string): void => {
 
 const createCompletion = async (req: OrchestrateRequest, res: Response, next: NextFunction) => {
     try {
-        const chatflow = res.locals.chatflow as { id: string; apikeyid?: string | null; flowData?: string | null }
+        const chatflow = res.locals.chatflow as {
+            id: string
+            apikeyid?: string | null
+            flowData?: string | null
+            workspaceId?: string | null
+        }
         if (!chatflow?.id) {
             throw new ExternalAgentError(StatusCodes.NOT_FOUND, 'flow_not_found', 'invalid_request_error', 'Flow not found')
         }
@@ -61,19 +67,22 @@ const createCompletion = async (req: OrchestrateRequest, res: Response, next: Ne
 
         const chatId = owned.chatId
         watchClientDisconnect(res)
+        // Signed links for the files this run stores, scoped to this flow and this chat.
+        const linker = makeArtifactLinker(await fileLinkContext(req, chatflow, chatId))
 
         if (!mapped.stream) {
             echoThread()
             const apiResponse = await predictionsServices.buildChatflow(req)
-            return res.status(StatusCodes.OK).json(chatCompletionBody(meta, answerText(apiResponse)))
+            const content = withArtifactLinks(answerText(apiResponse), linker.links(resultArtifacts(apiResponse)))
+            return res.status(StatusCodes.OK).json(chatCompletionBody(meta, content))
         }
 
         const sseStreamer = getRunningExpressApp().sseStreamer
         let sentToken = false
-        const inner = makeIbmEncoder(meta)
+        const inner = makeIbmEncoder(meta, linker.collect)
         const encoder: SSEEncoder = (frame) => {
             const encoded = inner(frame)
-            if (encoded && frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
+            if (frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
             return encoded
         }
 
@@ -100,7 +109,15 @@ const createCompletion = async (req: OrchestrateRequest, res: Response, next: Ne
                 await getRunningExpressApp().redisSubscriber.subscribe(chatId)
             }
             const apiResponse = await predictionsServices.buildChatflow(req)
-            if (!sentToken) writeIfOpen(res, ibmDeltaFrame(meta, answerText(apiResponse)))
+            if (!sentToken) {
+                const content = withArtifactLinks(answerText(apiResponse), linker.links(resultArtifacts(apiResponse)))
+                writeIfOpen(res, ibmDeltaFrame(meta, content))
+            } else {
+                // Held-back token text, then the links for every file the run stored, as one final delta.
+                const rest = linker.take(resultArtifacts(apiResponse))
+                const tail = inner.flush() + (rest ? `\n\n${rest}` : '')
+                if (tail) writeIfOpen(res, ibmDeltaFrame(meta, tail))
+            }
         } catch (error) {
             logger.error(`[orchestrate] run failed: ${getErrorMessage(error)}`)
             const code = errorEventDetails(error).code

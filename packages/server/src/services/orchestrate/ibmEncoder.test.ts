@@ -93,3 +93,19 @@ describe(`ibmEncoder (spec.yaml ${COMMIT})`, () => {
         expect(deltaSchema.parse(delta).choices[0].delta.content).toBe('Hello')
     })
 })
+
+describe('makeIbmEncoder artifacts', () => {
+    const meta = { responseId: 'chatcmpl-1', threadId: 't-1', model: 'm', created: 1 }
+    const frame = { kind: 'event' as const, payload: { event: 'artifacts', data: [{ type: 'png', data: 'FILE-STORAGE::a.png' }] } }
+
+    it('notes artifacts without sending anything, so links never land inside the streamed text', () => {
+        const seen: unknown[] = []
+        const encoder = makeIbmEncoder(meta, (a) => seen.push(a))
+        const tok = (data: string) => encoder({ kind: 'event', payload: { event: 'token', data } } as any)
+        const text = (s: string | null) => (s ? deltaSchema.parse(JSON.parse(s.split('data: ')[1])).choices[0].delta.content : '')
+        const out = [tok('See ![x](attach'), encoder(frame as any), tok('ment:x.png) done')].map(text)
+        expect(out.join('') + encoder.flush()).toBe('See  done')
+        expect(seen).toEqual([frame.payload.data])
+        expect(makeIbmEncoder(meta)(frame as any)).toBeNull()
+    })
+})

@@ -34,7 +34,12 @@ jest.mock('../../utils/getRunningExpressApp', () => {
         getRunningExpressApp: () => ({
             AppDataSource: {
                 getRepository: (entity: { name: string }) => ({
-                    findOneBy: async ({ id }: { id: string }) => (entity.name === 'ChatFlow' ? mockDb.chatflows.get(id) ?? null : null)
+                    findOneBy: async ({ id }: { id: string }) =>
+                        entity.name === 'ChatFlow'
+                            ? mockDb.chatflows.get(id) ?? null
+                            : entity.name === 'Workspace' && id === 'ws-1'
+                            ? { id, organizationId: 'org-1' }
+                            : null
                 })
             },
             sseStreamer: mockState.streamer,
@@ -74,6 +79,7 @@ import { threadChatId } from '../../utils/externalThread'
 import { configureSessionOwnershipForTests, createMemoryGrantStore, resetSessionOwnershipForTests } from '../../utils/sessionOwnership'
 import apikeyService from '../../services/apikey'
 import { RateLimiterManager } from '../../utils/rateLimit'
+import { setFileLinkSecretForTests, verifyFileLink } from '../../utils/fileLinkSignature'
 
 const WS = 'ws-1'
 const SECRET = 'orchestrate-http-test-secret'
@@ -665,5 +671,117 @@ describe('Orchestrate overlap, abort, queue, limits, and logs', () => {
         expect(lines).not.toContain(THREAD)
         expect(lines).not.toContain('Authorization')
         expect(lines).not.toContain('Ada-thread')
+    })
+})
+
+describe('Orchestrate file links', () => {
+    const ARTIFACTS = [
+        { type: 'png', data: 'FILE-STORAGE::harness_python_1_0_chart.png' },
+        { type: 'pdf', data: 'FILE-STORAGE::harness_assets_1_1_deck.pdf', name: 'deck.pdf' },
+        { type: 'png', data: 'FILE-STORAGE::../other-chat/secret.png' },
+        { type: 'png', data: 'data:image/png;base64,AAAA' }
+    ]
+    const linkUrls = (text: string) => [...text.matchAll(/\]\((https?:[^)]+)\)/g)].map((m) => new URL(m[1]))
+
+    beforeEach(() => setFileLinkSecretForTests('orchestrate-file-link-test-secret'))
+    afterEach(() => {
+        setFileLinkSecretForTests(undefined)
+        delete process.env.EXTERNAL_FILE_LINK_TTL_SECONDS
+    })
+
+    it('adds signed image and download links for this chat to the non-streaming body, and no attachment: links', async () => {
+        mockBuildChatflow.mockImplementation(async (req: any) => ({
+            text: 'Here is the chart ![chart](attachment:chart.png)',
+            chatId: req.body.chatId,
+            artifacts: ARTIFACTS
+        }))
+        const res = await post(K, hi, withKey({ 'X-IBM-THREAD-ID': THREAD }))
+        expect(res.status).toBe(200)
+        const content = completionSchema.parse(res.body).choices[0].message.content
+        expect(content).not.toContain('attachment:')
+        expect(content).toMatch(/^Here is the chart\n\n!\[harness_python_1_0_chart\.png\]\(http/)
+        expect(content).toContain('[Download deck.pdf](http')
+        expect(content).not.toContain('secret.png')
+        expect(content).not.toContain('base64')
+        expect(content).not.toContain('FILE-STORAGE')
+        expect(content).not.toContain('org-1')
+        const urls = linkUrls(content)
+        expect(urls).toHaveLength(2)
+        const chatId = threadChatId({ id: K, apikeyid: 'apikey-k' }, THREAD).chatId
+        for (const url of urls) {
+            expect(url.pathname).toBe('/api/v1/get-upload-file')
+            expect(url.searchParams.get('chatId')).toBe(chatId)
+            const expires = Number(url.searchParams.get('expires'))
+            expect(expires - Date.now() / 1000).toBeGreaterThan(3500)
+            expect(expires - Date.now() / 1000).toBeLessThanOrEqual(3600)
+            const target = {
+                orgId: 'org-1',
+                chatflowId: K,
+                chatId,
+                fileName: String(url.searchParams.get('fileName'))
+            }
+            expect(verifyFileLink(target, url.searchParams.get('expires'), url.searchParams.get('signature'))).toBe('valid')
+            expect(
+                verifyFileLink({ ...target, chatId: 'another-chat' }, url.searchParams.get('expires'), url.searchParams.get('signature'))
+            ).toBe('invalid')
+        }
+    })
+
+    it('streams the answer, then every file link (artifacts frame and result) in one final delta', async () => {
+        mockBuildChatflow.mockImplementation(async (req: any) => {
+            const chatId = req.body.chatId
+            mockState.streamer.streamTokenEvent(chatId, 'Done.')
+            mockState.streamer.streamArtifactsEvent(chatId, [ARTIFACTS[0]])
+            return { text: 'Done.', chatId, artifacts: ARTIFACTS }
+        })
+        const streamed = await streamRequest(K, streamBody(), withKey())
+        expect(streamed.status).toBe(200)
+        const frames = parseIbmFrames(String(streamed.body))
+        const contents = frames.map((f: any) => f.choices[0].delta.content as string)
+        expect(contents[0]).toBe('Done.')
+        expect(contents[1]).toMatch(/^\n\n!\[harness_python_1_0_chart\.png\]\(http[^)]+\)\n\n\[Download deck\.pdf\]\(http/)
+        expect(contents).toHaveLength(2)
+        expect(contents.join('')).not.toContain('secret.png')
+    })
+
+    it('puts the answer before the links when a run streams artifacts but no tokens', async () => {
+        mockBuildChatflow.mockImplementation(async (req: any) => {
+            mockState.streamer.streamArtifactsEvent(req.body.chatId, [ARTIFACTS[0]])
+            return { text: 'Answer', chatId: req.body.chatId, artifacts: [ARTIFACTS[0]] }
+        })
+        const streamed = await streamRequest(K, streamBody(), withKey())
+        const contents = parseIbmFrames(String(streamed.body)).map((f: any) => f.choices[0].delta.content as string)
+        expect(contents).toHaveLength(1)
+        expect(contents[0]).toMatch(/^Answer\n\n!\[harness_python_1_0_chart\.png\]\(http/)
+    })
+
+    it('removes attachment: links from streamed tokens and sends the image link without download', async () => {
+        mockBuildChatflow.mockImplementation(async (req: any) => {
+            const chatId = req.body.chatId
+            for (const t of ['See ', '![chart](attach', 'ment:chart.png)', ' ok [']) mockState.streamer.streamTokenEvent(chatId, t)
+            return { text: 'See ![chart](attachment:chart.png) ok [', chatId, artifacts: [ARTIFACTS[0]] }
+        })
+        const streamed = await streamRequest(K, streamBody(), withKey())
+        const text = ibmText(String(streamed.body))
+        expect(text).not.toContain('attachment:')
+        expect(text).toMatch(/^See {2}ok \[\n\n!\[harness_python_1_0_chart\.png\]\(http/)
+        expect(linkUrls(text)[0].searchParams.has('download')).toBe(false)
+    })
+
+    it('adds no links when the server cannot sign them', async () => {
+        setFileLinkSecretForTests(undefined)
+        const prev = process.env.TOKEN_HASH_SECRET
+        delete process.env.TOKEN_HASH_SECRET
+        const prevPath = process.env.SECRETKEY_PATH
+        process.env.SECRETKEY_PATH = '/nonexistent-cuttlely-test'
+        try {
+            mockBuildChatflow.mockImplementation(async (req: any) => ({ text: 'Hi', chatId: req.body.chatId, artifacts: ARTIFACTS }))
+            const res = await post(K, hi, withKey())
+            expect(completionSchema.parse(res.body).choices[0].message.content).toBe('Hi')
+        } finally {
+            if (prev !== undefined) process.env.TOKEN_HASH_SECRET = prev
+            if (prevPath !== undefined) process.env.SECRETKEY_PATH = prevPath
+            else delete process.env.SECRETKEY_PATH
+        }
     })
 })

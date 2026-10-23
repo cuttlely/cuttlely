@@ -79,6 +79,8 @@ jest.mock('./getRunningExpressApp', () => {
 })
 
 // Imported after the mocks.
+import { artifactLinks } from '../services/orchestrate/fileLinks'
+import { setFileLinkSecretForTests } from './fileLinkSignature'
 import feedbackRouter from '../routes/feedback'
 import getUploadFileRouter from '../routes/get-upload-file'
 import openaiAssistantsFileRouter from '../routes/openai-assistants-files'
@@ -428,6 +430,26 @@ describe("Flow access: get-upload-file and the assistants file download check ac
             expect(Buffer.from(res.body).toString()).toBe('file body of canary.txt')
         }
         expect(mockState.storageReads).toEqual([`${K}/${CHAT_K}/canary.txt`, `${K}/${CHAT_K}/canary.txt`, `${F}/${CHAT_F}/canary.txt`])
+    })
+
+    it('17c: an Orchestrate/A2A file link opens that file with no key; the same signature on another chat or file does not', async () => {
+        setFileLinkSecretForTests('orchestrate-link-secret')
+        try {
+            const ctx = { baseURL: 'https://h.example', orgId: 'org-1', chatflowId: K, chatId: CHAT_K, ttlSeconds: 3600 }
+            const [link] = artifactLinks([{ type: 'txt', data: 'FILE-STORAGE::canary.txt' }], ctx)
+            const url = new URL(link.markdown.match(/\((https:[^)]+)\)$/)![1])
+            const query = Object.fromEntries(url.searchParams)
+            const ok = await getUploadFile(query)
+            expect(ok.status).toBe(200)
+            expect(Buffer.from(ok.body).toString()).toBe('file body of canary.txt')
+            for (const changed of [{ chatId: CHAT_K2 }, { fileName: 'other.txt' }, { chatflowId: K2 }] as Record<string, string>[]) {
+                const res = await getUploadFile({ ...query, ...changed })
+                expect([401, 403]).toContain(res.status)
+            }
+            expect(mockState.storageReads).toEqual([`${K}/${CHAT_K}/canary.txt`])
+        } finally {
+            setFileLinkSecretForTests(undefined)
+        }
     })
 
     it('17b: a caller who can open the flow but does not own the chat id gets 403 and the file is not read', async () => {
