@@ -50,7 +50,7 @@ const RETIRED_TAGLINE = 'The visual agent builder, ready for production.'
 const HOME_TITLE = 'Cuttlely | Context-aware agent orchestration, open source'
 const HOME_META =
     'Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'
-// Allowed once on the whole site: the heading of the home page's Cost and context section.
+// Retired with the old Cost and context heading; allowed nowhere on the site.
 const GROUND_UP = /built from the ground up/gi
 
 const HOME_LINES = [
@@ -61,7 +61,8 @@ const HOME_LINES = [
     'Star on GitHub',
     'npx cuttlely start',
     'Node 20+ and Docker',
-    'Context handling built from the ground up to be lean.',
+    'Put your agents on a token diet.',
+    'In our internal benchmarks, ticking only the needed tables on the PostgreSQL MCP node cut 2,562 tokens to 663.',
     'Roll back the Live flow in one step',
     'Copyright 2026 The Cuttlely Authors'
 ]
@@ -193,9 +194,8 @@ export function checkSite(dist, { csp = null } = {}) {
             if (hit) problems.push(`${page}: shows ${why} ("${hit[0]}")`)
         }
         const groundUp = html.match(GROUND_UP) || []
-        const groundUpHeading = /<h2\b[^>]*>Context handling built from the ground up to be lean\.<\/h2>/.test(html)
-        if (groundUp.length && !(page === 'index.html' && groundUp.length === 1 && groundUpHeading)) {
-            problems.push(`${page}: says built from the ground up outside the Cost and context heading`)
+        if (groundUp.length) {
+            problems.push(`${page}: says built from the ground up, retired with the old Cost and context heading`)
         }
         for (const item of RETIRED_COPY) {
             if (item.needle !== 'whitepaper' && isChangelog(page)) continue

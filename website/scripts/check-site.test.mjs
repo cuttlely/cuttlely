@@ -17,7 +17,7 @@ function site(files) {
 
 const head =
     '<link rel="canonical" href="https://cuttlely.com/"><meta property="og:image" content="https://cuttlely.com/social/og-light.png">'
-const home = `<html><head>${head}<title>Cuttlely | Context-aware agent orchestration, open source</title><meta name="description" content="Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish."><meta charset="utf-8"></head><body><div class="cl-hero-copy"><p>Context-aware agent orchestration · Open source, Apache-2.0</p><h1>Your applications <span>deserve agents</span></h1><p>Orchestrate AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.</p><a href="/quickstart/?ref=home-hero">Get started in 10 minutes</a><a href="https://github.com/cuttlely/cuttlely?ref=home-hero">Star on GitHub</a><pre>npx cuttlely start</pre><p>Node 20+ and Docker</p><a href="/flowise/">Already have flows? Bring them over</a></div><div class="cl-hero-art"></div><h2 id="ctx">Context handling built from the ground up to be lean.</h2><p>Roll back the Live flow in one step</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/docs/#build">Docs</a><section id="integrations"></section></body></html>`
+const home = `<html><head>${head}<title>Cuttlely | Context-aware agent orchestration, open source</title><meta name="description" content="Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish."><meta charset="utf-8"></head><body><div class="cl-hero-copy"><p>Context-aware agent orchestration · Open source, Apache-2.0</p><h1>Your applications <span>deserve agents</span></h1><p>Orchestrate AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.</p><a href="/quickstart/?ref=home-hero">Get started in 10 minutes</a><a href="https://github.com/cuttlely/cuttlely?ref=home-hero">Star on GitHub</a><pre>npx cuttlely start</pre><p>Node 20+ and Docker</p><a href="/flowise/">Already have flows? Bring them over</a></div><div class="cl-hero-art"></div><h2 id="ctx">Put your agents on a token diet.</h2><p>In our internal benchmarks, ticking only the needed tables on the PostgreSQL MCP node cut 2,562 tokens to 663.</p><p>Roll back the Live flow in one step</p><p>Copyright 2026 The Cuttlely Authors</p><a href="/docs/#build">Docs</a><section id="integrations"></section></body></html>`
 const base = {
     'index.html': home,
     '404.html': `<html><head>${head}</head><body>Not found</body></html>`,
@@ -188,10 +188,10 @@ describe('check-site message house', () => {
         assert.match(checkSite(site({ ...base, 'index.html': split })).problems.join('\n'), /retired tagline/)
     })
 
-    it('allows built from the ground up only in the Cost and context heading', () => {
+    it('fails built from the ground up anywhere', () => {
         assert.deepEqual(checkSite(site(base)).problems, [])
         const twice = home.replace('<p>Roll back', '<p>Built from the ground up.</p><p>Roll back')
-        assert.match(checkSite(site({ ...base, 'index.html': twice })).problems.join('\n'), /outside the Cost and context heading/)
+        assert.match(checkSite(site({ ...base, 'index.html': twice })).problems.join('\n'), /index\.html: says built from the ground up/)
         const elsewhere = site({ ...base, 'faq/index.html': `<html><head>${head}</head><body>built from the ground up</body></html>` })
         assert.match(checkSite(elsewhere).problems.join('\n'), /faq\/index\.html: says built from the ground up/)
     })
