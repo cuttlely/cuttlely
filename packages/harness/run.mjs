@@ -58,6 +58,7 @@ import { specialistSessionId } from './specialist-run.mjs'
 import {
     hideTurnImageDir,
     encodeFilePath,
+    FILE_HOST,
     mergeTurnArtifacts,
     newTurnImageDir,
     promptImages,
@@ -783,10 +784,15 @@ function rebuildError(error, depth, seen) {
         try {
             item = error[key]
         } catch {
-            item = undefined
+            item = '[error]'
         }
-        if (typeof item === 'string')
-            Object.defineProperty(copy, key, { value: maskWorkspacePaths(item), enumerable: false, writable: true, configurable: true })
+        if (typeof item === 'string' || key in copy)
+            Object.defineProperty(copy, key, {
+                value: typeof item === 'string' ? maskWorkspacePaths(item) : '[error]',
+                enumerable: false,
+                writable: true,
+                configurable: true
+            })
     }
     // A serializer (own or inherited) is replaced by one that masks what the original returns.
     const serializer = serializerOf(error)
@@ -1622,8 +1628,8 @@ const STREAM_HOLD = 16 * 1024
 export function openPathAt(text, root = specialistWorkspaceRoot()) {
     let at = Math.max(text.lastIndexOf(root), text.lastIndexOf(encodeFilePath(root)))
     if (at < 0 || text.indexOf('\n', at) >= 0) return text.length
-    if (text.slice(Math.max(0, at - 16), at).toLowerCase() === 'file://localhost') at -= 16
-    else if (text.slice(Math.max(0, at - 7), at).toLowerCase() === 'file://') at -= 7
+    const link = text.slice(Math.max(0, at - 300), at).match(new RegExp(`file://${FILE_HOST}$`, 'i'))
+    if (link) at -= link[0].length
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
     return at
 }
@@ -1639,6 +1645,13 @@ export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
                 break
             }
         }
+    }
+    // A file:// link with a host (file://127.0.0.1/...) is held from its scheme while the rest could still name the folder.
+    const link = text.toLowerCase().lastIndexOf('file://')
+    if (link >= 0 && link < at) {
+        const after = text.slice(link + 7)
+        const rest = after.slice(after.match(new RegExp(`^${FILE_HOST}`))[0].length)
+        if (rest === '' || root.startsWith(rest) || encodeFilePath(root).startsWith(rest)) at = link
     }
     // An opening quote just before it (or at the very end) stays with the path, so a quoted path is read whole.
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1

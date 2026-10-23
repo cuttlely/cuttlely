@@ -161,15 +161,19 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
 // How a file:// link spells a path: percent-encoded, including "#" and "?".
 export const encodeFilePath = (value) => encodeURI(value).replace(/#/g, '%23').replace(/\?/g, '%3F')
 
+// A file:// link may name a host (localhost, 127.0.0.1, [::1] or any other) before the path.
+export const FILE_HOST = '[A-Za-z0-9.:\\[\\]-]*'
+const FILE_LINK_START = new RegExp(`^file://${FILE_HOST}`, 'i')
+
 function hideRoot(text, base, chat) {
     if (!text.includes(base)) return text
     const sep = escapeRegExp(path.sep)
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
-    const head = `(?<![A-Za-z0-9._~${sep}-])(?:[Ff][Ii][Ll][Ee]://(?:[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt])?)?${escapeRegExp(
+    const head = `(?<![A-Za-z0-9._~${sep}-])(?:[Ff][Ii][Ll][Ee]://${FILE_HOST})?${escapeRegExp(
         base
     )}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~.${sep}-])`
     const shown = (full) => {
-        const rest = full.replace(/^file:\/\/(?:localhost)?/i, '')
+        const rest = full.replace(FILE_LINK_START, '')
         if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'
         const parts = rest.slice(base.length).split(path.sep).filter(Boolean)
         // Under the chat folder itself every path is a file name; under the root the first part is a workspace.
@@ -218,7 +222,7 @@ function hideRoot(text, base, chat) {
     const plainFolder = (folder) => Boolean(folder) && !badFolder.test(folder)
     const onDisk = (full) => {
         try {
-            return fs.existsSync(full.replace(/^file:\/\/(?:localhost)?/i, ''))
+            return fs.existsSync(full.replace(FILE_LINK_START, ''))
         } catch {
             return false
         }

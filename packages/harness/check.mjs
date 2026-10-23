@@ -8186,6 +8186,39 @@ check(
                 rootPrefixAt('See file:///var/cu', '/var/cuttlely data/workspaces') === 4 &&
                 rootPrefixAt('See you ', '/var/cuttlely data/workspaces') === 8
         )
+        const hostedText = `Open file://127.0.0.1${path.join(assets, 'a.pdf')} or FILE://[::1]${path.join(assets, 'b.pdf')} now.`
+        const hostedSplits = []
+        for (let at = 0; at <= hostedText.length; at += 1) {
+            const sent = []
+            const hostedContext = {}
+            for (const piece of [hostedText.slice(0, at), hostedText.slice(at)])
+                bufferStream(hostedContext, 'answer', piece, false, (text) => sent.push(text), root)
+            bufferStream(hostedContext, 'answer', '', true, (text) => sent.push(text), root)
+            hostedSplits.push(sent.join(''))
+        }
+        check(
+            'file links that name a host (127.0.0.1, [::1]) are masked in text and in a stream split anywhere',
+            hideWorkspacePaths(hostedText, root) === 'Open a.pdf or b.pdf now.' &&
+                hostedSplits.every((text) => text === 'Open a.pdf or b.pdf now.'),
+            JSON.stringify(hostedSplits.find((text) => text !== 'Open a.pdf or b.pdf now.'))
+        )
+        const shadowed = (() => {
+            class BadError extends Error {
+                get message() {
+                    throw new Error(`${assets}/bad.pdf`)
+                }
+            }
+            const bad = new BadError()
+            delete bad.stack
+            Object.defineProperty(bad, 'note', { value: `${assets}/n.pdf`, enumerable: true })
+            try {
+                const copy = maskError(bad)
+                return copy.message === '[error]' && !String(copy.note).includes(root)
+            } catch {
+                return false
+            }
+        })()
+        check('an inherited message getter that throws is replaced, not kept', shadowed)
         const maskedValue = maskWorkspacePaths({
             text: `data: ${path.join(assets, 'r.pdf')}`,
             data: 'data:text/plain,aGVsbG8=',

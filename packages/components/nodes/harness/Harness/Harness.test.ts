@@ -370,7 +370,8 @@ describe('Harness node specialist images', () => {
         }
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-pptx-'))
         try {
-            const deck = zipOf(['[Content_Types].xml', 'ppt/presentation.xml'])
+            // A real deck saved by python-pptx (made-up text), so the bytes are a presentation PowerPoint can open.
+            const deck = fs.readFileSync(path.join(__dirname, '__fixtures__', 'q3-deck.pptx'))
             fs.writeFileSync(path.join(dir, 'q3 deck.pptx'), deck)
             fs.writeFileSync(path.join(dir, 'renamed.pptx'), zipOf(['[Content_Types].xml', 'word/document.xml']))
             const images = path.resolve(__dirname, '../../../../harness/images.mjs')
@@ -399,6 +400,19 @@ describe('Harness node specialist images', () => {
                 const fileName = saved.data.replace('FILE-STORAGE::', '')
                 const downloaded = await realStorage.getFileFromStorage(fileName, 'org-1', 'flow-1', 'chat-1')
                 expect(Buffer.compare(downloaded, deck)).toBe(0)
+                // The downloaded file still unzips with the presentation part inside.
+                const names = execFileSync(
+                    process.execPath,
+                    [
+                        '--input-type=module',
+                        '-e',
+                        `import { zipEntryNames } from ${JSON.stringify(
+                            images
+                        )}; import fs from 'node:fs'; process.stdout.write(JSON.stringify(zipEntryNames(fs.readFileSync(0))))`
+                    ],
+                    { input: downloaded, encoding: 'utf8' }
+                )
+                expect(JSON.parse(names)).toContain('ppt/presentation.xml')
                 expect(saved).toMatchObject({ type: 'pptx', name: 'q3_deck.pptx' })
             } finally {
                 if (previous.type === undefined) delete process.env.STORAGE_TYPE
