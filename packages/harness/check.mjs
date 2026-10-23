@@ -2952,6 +2952,8 @@ check(
         ].join('')
     )
     const lettersOnlyBasic = routeRawPreview('authorization header was basic YWxhZGRpbjpvcGVu and Basic QWxhZGRpbjpPcGVu ok')
+    const longBasic = routeRawPreview('Basic ' + 'Q'.repeat(5000) + 'TAILzz9 and Bearer ' + 'b'.repeat(5000) + 'ENDyy8')
+    check('a long Basic or Bearer credential is removed to its end', !/TAILzz9|ENDyy8|QQQQ|bbbb/.test(longBasic), longBasic)
     check(
         'the routing reply preview removes letters-only Basic credentials in any case',
         !/YWxhZGRpbjpvcGVu|QWxhZGRpbjpPcGVu/.test(lettersOnlyBasic),
