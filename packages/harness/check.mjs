@@ -8652,20 +8652,23 @@ await expectCase('large file downloads survive runHarness and the fresh chat han
     )
     const written = new Map()
     let folder = ''
+    const events = []
+    let answer = ''
     const result = await runHarness({
         name: 'download-regression',
         chatId: 'large-downloads',
         input: 'Create a deck and a chart.',
+        onEvent: (event) => events.push(event),
         baseUrl: 'http://127.0.0.1:9',
         fetchImpl: analystHermesFetch((_n, body) => {
             folder = body.input.match(/save it as a PNG or JPEG file in this folder: ([^\n]+)/)?.[1]
             if (!folder) throw new Error('Specialist did not receive a turn file folder')
             fs.copyFileSync(
                 path.join(root, 'packages/components/nodes/harness/Harness/__fixtures__/q3-deck.pptx'),
-                path.join(folder, 'q3-deck.pptx')
+                path.join(folder, 'deck.pptx')
             )
             fs.writeFileSync(path.join(folder, 'chart.png'), png)
-            for (const name of ['q3-deck.pptx', 'chart.png']) {
+            for (const name of ['deck.pptx', 'chart.png']) {
                 // Avoid filesystem timestamp rounding placing a just-written file before the turn start.
                 const stamp = new Date(Date.now() + 1000)
                 fs.utimesSync(path.join(folder, name), stamp, stamp)
@@ -8674,11 +8677,29 @@ await expectCase('large file downloads survive runHarness and the fresh chat han
             return { output: `Saved files in ${folder}`, events: [] }
         }),
         loadNode: async () =>
-            recordingChat([], (messages, tools) => {
+            class extends recordingChat([], (messages, tools) => {
                 const reply = scriptedReply(messages, tools)
-                if (plainChatMessages(messages)[0]?.content?.startsWith('You are Harness Prime')) reply.content += ` Saved in ${folder}`
+                if (plainChatMessages(messages)[0]?.content?.startsWith('You are Harness Prime')) {
+                    const delivered = path.join(folder, 'deck.pptx')
+                    const missing = path.join(path.dirname(folder), 'exports/q3/deck.pptx')
+                    const traversal = `${folder}/../${path.basename(folder)}/deck.pptx`
+                    answer = `Your file is ready as ${delivered}. Missing ${missing}. Traversal ${traversal}. Encoded ${traversal.replace(
+                        '/../',
+                        '/%2e%2e/'
+                    )}. Backslash ${traversal.replaceAll('/', '\\')}.`
+                    reply.content = answer
+                }
                 return reply
-            })
+            }) {
+                async init() {
+                    const chat = await super.init()
+                    chat.stream = async function* (messages, options) {
+                        const reply = await chat.invoke(messages, options)
+                        for (const content of reply.content || '') yield { content }
+                    }
+                    return chat
+                }
+            }
     })
     const identical = (artifacts) =>
         artifacts?.length === 2 &&
@@ -8698,6 +8719,21 @@ await expectCase('large file downloads survive runHarness and the fresh chat han
         'the answer hides the specialist workspace path',
         Boolean(folder) && !result.text.includes(folder) && !result.text.includes('/workspaces/')
     )
+    const expectedAnswer =
+        'Your file is ready as the workspace file deck.pptx. Missing the workspace. Traversal the workspace. Encoded the workspace. Backslash the workspace.'
+    const streamedAnswer = events
+        .filter((event) => event.type === 'partial' && event.phase === 'answer')
+        .map((event) => event.text)
+        .join('')
+    check(
+        'delivered basename survives cleanup in the answer and final event',
+        answer.includes(folder) &&
+            !fs.existsSync(folder) &&
+            result.text === expectedAnswer &&
+            events.find((event) => event.type === 'final')?.text === expectedAnswer,
+        JSON.stringify(events)
+    )
+    check('streamed delivered basename agrees with the final answer after cleanup', streamedAnswer === expectedAnswer, streamedAnswer)
     const row = attachHarnessToChatMessage({ role: 'apiMessage', content: '' }, result)
     check(
         'serialized chat artifacts and harness payload retain download bytes',

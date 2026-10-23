@@ -207,19 +207,28 @@ export async function runHarness(args = {}) {
             console.warn(`[harness] run history was not opened: ${historyError.message}`)
         }
     }
+    const turnFolders = new Set()
     let result
     let failure = null
     const tryName = args.record?.tryId ? tryProfileName(args.record.tryId) : ''
     if (tryName) noteLiveTry(tryName)
     try {
         // The answer, the trace and every record of the turn leave without workspace paths, whichever path ran.
-        result = maskWorkspacePaths(await runHarnessTurn(args))
+        result = maskWorkspacePaths(await runHarnessTurn({ ...args, turnFolders }))
         return result
     } catch (error) {
         const masked = maskError(error)
         failure = masked
         throw masked
     } finally {
+        // Keep files present until streamed text, final events and the returned payload are masked.
+        for (const folder of turnFolders) {
+            try {
+                removeTurnImageDir(folder)
+            } catch {
+                // A folder that cannot be removed is left for the next workspace cleanup.
+            }
+        }
         if (args.record?.tryId) {
             try {
                 await discardTryProfile(args.record.tryId)
@@ -257,7 +266,8 @@ async function runHarnessTurn({
     budgetMs,
     images,
     record,
-    replay
+    replay,
+    turnFolders
 } = {}) {
     const harness = harnessForTurn(name, record)
     if (!chatId) {
@@ -286,7 +296,8 @@ async function runHarnessTurn({
                     signal,
                     budgetMs,
                     images,
-                    replay
+                    replay,
+                    turnFolders
                 }),
             { workspace: harness.workspaceId }
         )
@@ -321,7 +332,8 @@ async function runTurn(
         signal,
         budgetMs,
         images,
-        replay
+        replay,
+        turnFolders
     }
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
@@ -345,7 +357,8 @@ async function runTurn(
             signal,
             budgetMs,
             images,
-            replay
+            replay,
+            turnFolders
         })
     } finally {
         if (callerWorkspace) clearCallerWorkspace(harness.name)
@@ -371,7 +384,8 @@ async function runTurnBody(
         signal,
         budgetMs,
         images,
-        replay
+        replay,
+        turnFolders
     }
 ) {
     assertCurrentRecord(harness)
@@ -419,6 +433,7 @@ async function runTurnBody(
         promptMessages: [],
         turnId: crypto.randomUUID(),
         images: promptImages(images),
+        turnFolders,
         // Publish-check replay: do not read or write the harness session.
         replay: replay === true
     }
@@ -1814,10 +1829,14 @@ async function runHermesSpecialist(context, specialist, task) {
         endAnalystCalls(context.name, specialist.name, context.chatId)
         context.workSignal?.removeEventListener('abort', onAbort)
         await Promise.all(stops)
-        try {
-            removeTurnImageDir(imageDir)
-        } catch {
-            // A folder that cannot be removed is left for the next workspace cleanup.
+        // A turn keeps its folder until its answer is masked; a run outside a turn (warm-up) removes it now.
+        if (imageDir && context.turnFolders) context.turnFolders.add(imageDir)
+        else {
+            try {
+                removeTurnImageDir(imageDir)
+            } catch {
+                // A folder that cannot be removed is left for the next workspace cleanup.
+            }
         }
     }
 }
