@@ -1,5 +1,6 @@
 import { SSEEncoder, SSEFrame } from '../../utils/SSEStreamer'
 import { JsonRpcId, jsonRpcResult } from './rpc'
+import { makeAttachmentLinkFilter } from '../orchestrate/attachmentLinks'
 
 export type A2aEncoderMeta = {
     rpcId: JsonRpcId
@@ -12,9 +13,18 @@ export function a2aSseData(payload: unknown): string {
     return `data: ${JSON.stringify(payload)}\n\n`
 }
 
-/** Token frames become answer chunks; with `artifactMarkdown`, an artifacts frame becomes one chunk of signed links. */
-export function makeA2aEncoder(meta: A2aEncoderMeta, artifactMarkdown?: (artifacts: unknown) => string): SSEEncoder {
+export type A2aEncoder = SSEEncoder & {
+    /** Token text still held back by the `attachment:` filter (empty when nothing is held). */
+    flush(): string
+}
+
+/**
+ * Token frames become answer chunks, with made-up `attachment:` links removed; with `artifactMarkdown`, an artifacts
+ * frame becomes one chunk of signed links.
+ */
+export function makeA2aEncoder(meta: A2aEncoderMeta, artifactMarkdown?: (artifacts: unknown) => string): A2aEncoder {
     let firstToken = true
+    const filter = makeAttachmentLinkFilter()
     const chunk = (text: string): string => {
         const append = !firstToken
         firstToken = false
@@ -29,17 +39,19 @@ export function makeA2aEncoder(meta: A2aEncoderMeta, artifactMarkdown?: (artifac
             })
         )
     }
-    return (frame: SSEFrame) => {
+    const encoder = (frame: SSEFrame) => {
         if (frame.kind === 'comment') return `:${frame.text}\n\n`
         if (artifactMarkdown && frame.kind === 'event' && frame.payload.event === 'artifacts') {
             const markdown = artifactMarkdown(frame.payload.data)
-            return markdown ? chunk(`\n\n${markdown}`) : null
+            return markdown ? chunk(`${filter.flush()}\n\n${markdown}`) : null
         }
         if (frame.kind === 'event' && frame.payload.event === 'token') {
-            return chunk(String(frame.payload.data ?? ''))
+            const text = filter.push(String(frame.payload.data ?? ''))
+            return text ? chunk(text) : null
         }
         return null
     }
+    return Object.assign(encoder, { flush: () => filter.flush() })
 }
 
 export const silentA2aEncoder: SSEEncoder = () => null

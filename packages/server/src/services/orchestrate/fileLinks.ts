@@ -8,6 +8,9 @@ import { Workspace } from '../../database/entities/identity'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { a2aPublicOrigin } from '../a2a/agentCard'
 import { fileDownloadUrl, signFileLink } from '../../utils/fileLinkSignature'
+import { dropAttachmentLinks } from './attachmentLinks'
+
+export { dropAttachmentLinks, makeAttachmentLinkFilter } from './attachmentLinks'
 
 export const EXTERNAL_FILE_LINK_TTL_ENV = 'EXTERNAL_FILE_LINK_TTL_SECONDS'
 export const EXTERNAL_FILE_LINK_TTL_DEFAULT = 60 * 60
@@ -79,19 +82,14 @@ export function artifactLinks(artifacts: unknown, ctx: FileLinkContext, skip?: S
         // Unsigned links need the flow's key, which these callers do not hold: leave the file out instead.
         if (!signFileLink(target, now, ttl)) continue
         seen.add(fileName)
-        const url = fileDownloadUrl(ctx.baseURL, target, now, ttl)
+        const image = isImage(artifact as { type?: unknown }, fileName)
+        const url = new URL(fileDownloadUrl(ctx.baseURL, target, now, ttl))
+        // An image is shown inline, so it must not be served as an attachment. `download` is not part of the signature.
+        if (image) url.searchParams.delete('download')
         const name = label(artifact as { name?: unknown }, fileName)
-        out.push({
-            fileName,
-            markdown: isImage(artifact as { type?: unknown }, fileName) ? `![${name}](${url})` : `[Download ${name}](${url})`
-        })
+        out.push({ fileName, markdown: image ? `![${name}](${url.toString()})` : `[Download ${name}](${url.toString()})` })
     }
     return out
-}
-
-/** Made-up `attachment:` links (the model naming a file it cannot link) are removed from the answer text. */
-export function dropAttachmentLinks(text: string): string {
-    return text.replace(/!?\[[^\]\n]*\]\(\s*attachment:[^)\n]*\)/gi, '').replace(/\n{3,}/g, '\n\n')
 }
 
 /** The answer text with the file links after it. */

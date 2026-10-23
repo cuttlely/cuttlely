@@ -745,6 +745,19 @@ describe('Orchestrate file links', () => {
         expect(contents.join('')).not.toContain('secret.png')
     })
 
+    it('removes attachment: links from streamed tokens and sends the image link without download', async () => {
+        mockBuildChatflow.mockImplementation(async (req: any) => {
+            const chatId = req.body.chatId
+            for (const t of ['See ', '![chart](attach', 'ment:chart.png)', ' ok [']) mockState.streamer.streamTokenEvent(chatId, t)
+            return { text: 'See ![chart](attachment:chart.png) ok [', chatId, artifacts: [ARTIFACTS[0]] }
+        })
+        const streamed = await streamRequest(K, streamBody(), withKey())
+        const text = ibmText(String(streamed.body))
+        expect(text).not.toContain('attachment:')
+        expect(text).toMatch(/^See {2}ok \[\n\n!\[harness_python_1_0_chart\.png\]\(http/)
+        expect(linkUrls(text)[0].searchParams.has('download')).toBe(false)
+    })
+
     it('adds no links when the server cannot sign them', async () => {
         setFileLinkSecretForTests(undefined)
         const prev = process.env.TOKEN_HASH_SECRET

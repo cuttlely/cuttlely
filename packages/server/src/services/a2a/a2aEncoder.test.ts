@@ -34,3 +34,15 @@ describe('makeA2aEncoder artifacts', () => {
         expect(makeA2aEncoder(meta)(artifacts as any)).toBeNull()
     })
 })
+
+describe('makeA2aEncoder attachment filter', () => {
+    it('removes attachment: links from streamed tokens and flushes held text', () => {
+        const meta = { rpcId: 1, taskId: 't', contextId: 'c', artifactId: 'a' }
+        const encoder = makeA2aEncoder(meta)
+        const text = (s: string | null) => (s ? JSON.parse(s.slice(6)).result.artifact.parts[0].text : '')
+        const out = ['Hi ', '![c](attach', 'ment:c.png)', ' bye ['].map((t) =>
+            text(encoder({ kind: 'event', payload: { event: 'token', data: t } } as any))
+        )
+        expect(out.join('') + encoder.flush()).toBe('Hi  bye [')
+    })
+})

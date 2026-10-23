@@ -185,3 +185,29 @@ describe('A2A executor helpers', () => {
         expect(res.write).toHaveBeenCalled()
     })
 })
+
+describe('completedWithLinks', () => {
+    const { completedWithLinks } = jest.requireActual('./executor')
+    const { makeArtifactLinker } = jest.requireActual('../orchestrate/fileLinks')
+    const { setFileLinkSecretForTests } = jest.requireActual('../../utils/fileLinkSignature')
+    const ctx = { baseURL: 'https://navi.example', orgId: 'org-1', chatflowId: 'flow-1', chatId: 'chat-1', ttlSeconds: 3600 }
+    const result = { artifacts: [{ type: 'pdf', data: 'FILE-STORAGE::deck.pdf' }] }
+    beforeEach(() => setFileLinkSecretForTests('a2a-links-secret'))
+    afterEach(() => setFileLinkSecretForTests(undefined))
+
+    it('keeps the links whole when a long answer is cut to the task text limit', () => {
+        const out = completedWithLinks('x'.repeat(5000), result, makeArtifactLinker(ctx), false, '', 1024)
+        expect(Buffer.byteLength(out.text)).toBeLessThanOrEqual(1024)
+        expect(out.text).toMatch(
+            /\[truncated\]\n\n\[Download deck\.pdf\]\(https:\/\/navi\.example\/api\/v1\/get-upload-file\?[^)]+signature=[^)]+\)$/
+        )
+        expect(out.tail).toBeUndefined()
+    })
+
+    it('sends held text and unsent links as the tail of a streamed run, and drops attachment: links', () => {
+        const linker = makeArtifactLinker(ctx)
+        const out = completedWithLinks('Done ![d](attachment:d.pdf)', result, linker, true, 'held')
+        expect(out.text).toMatch(/^Done\n\n\[Download deck\.pdf\]/)
+        expect(out.tail).toMatch(/^held\n\n\[Download deck\.pdf\]/)
+    })
+})

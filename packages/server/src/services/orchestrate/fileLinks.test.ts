@@ -77,6 +77,12 @@ describe('artifactLinks', () => {
             '[Download rows.csv](URL)'
         ])
         expect(links.map((l) => l.markdown).join('')).not.toContain('/srv/')
+        // Images render inline; only other files are served as downloads.
+        expect(urlOf(links[0].markdown).searchParams.has('download')).toBe(false)
+        expect(urlOf(links[2].markdown).searchParams.get('download')).toBe('true')
+        const img = urlOf(links[0].markdown)
+        const target = { orgId: 'org-1', chatflowId: 'flow-1', chatId: 'chat-1', fileName: 'chart.png' }
+        expect(verifyFileLink(target, img.searchParams.get('expires'), img.searchParams.get('signature'), NOW)).toBe('valid')
     })
 
     it('signs for exactly this chat: valid now, expired after the TTL, invalid for another chat, flow, org or file', () => {

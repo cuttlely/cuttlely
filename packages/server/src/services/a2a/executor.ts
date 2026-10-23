@@ -12,7 +12,15 @@ import { SSEEncoder } from '../../utils/SSEStreamer'
 import predictionsServices from '../../services/predictions'
 import { waitingForApproval } from '../../services/usage'
 import { answerText } from '../../services/orchestrate/completion'
-import { ArtifactLinker, fileLinkContext, makeArtifactLinker, resultArtifacts, withArtifactLinks } from '../orchestrate/fileLinks'
+import {
+    ArtifactLinker,
+    dropAttachmentLinks,
+    fileLinkContext,
+    LinkedArtifact,
+    makeArtifactLinker,
+    resultArtifacts,
+    withArtifactLinks
+} from '../orchestrate/fileLinks'
 import { flowHasMemory } from '../../services/orchestrate/mapRequest'
 import { a2aSseData, makeA2aEncoder, silentA2aEncoder } from './a2aEncoder'
 import {
@@ -34,6 +42,7 @@ import {
     a2aPublicTask,
     a2aTaskStore,
     a2aTaskTextMaxBytes,
+    truncateA2aStoredAnswer,
     isoNow,
     utf8Bytes
 } from './taskStore'
@@ -229,12 +238,14 @@ export async function executeMessage(opts: {
     let sentToken = false
     // Signed links for the files this run stores, scoped to this flow and this context's chat.
     const linker = makeArtifactLinker(await fileLinkContext(opts.req, opts.chatflow, boundIds.chatId))
-    const inner = opts.stream
+    const streamEncoder = opts.stream
         ? makeA2aEncoder({ rpcId: opts.rpcId, taskId: row.task.id, contextId, artifactId: row.artifactId }, linker.take)
-        : silentA2aEncoder
+        : undefined
+    const inner: SSEEncoder = streamEncoder ?? silentA2aEncoder
     const encoder: SSEEncoder = (frame) => {
         const encoded = inner(frame)
-        if (encoded && frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
+        // A token may be held back by the attachment filter; it still counts as streamed (the flush sends it).
+        if (streamEncoder && frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
         return encoded
     }
 
@@ -283,7 +294,8 @@ export async function executeMessage(opts: {
         try {
             const apiResponse = await predictionsServices.buildChatflow(opts.req)
             outcome = classifyOutcome({ row, signal, result: apiResponse })
-            if (outcome.kind === 'completed') outcome = completedWithLinks(outcome.text, apiResponse, linker, sentToken)
+            if (outcome.kind === 'completed')
+                outcome = completedWithLinks(outcome.text, apiResponse, linker, sentToken, streamEncoder?.flush() ?? '')
         } catch (error) {
             outcome = classifyOutcome({ row, signal, error })
         }
@@ -330,13 +342,32 @@ export async function executeMessage(opts: {
 type Completed = { kind: 'completed'; text: string; tail?: string }
 
 /**
- * The stored answer carries every file link. A streamed run that already sent tokens gets only the files not yet
- * sent, as the last chunk (`tail`); otherwise the final chunk replaces the stream and carries them all.
+ * The stored answer carries every file link, kept whole when the answer is cut to the task text limit. A streamed run
+ * that already sent tokens gets the held-back token text and the files not yet sent as the last chunk (`tail`);
+ * otherwise the final chunk replaces the stream and carries them all.
  */
-function completedWithLinks(text: string, result: unknown, linker: ArtifactLinker, sentToken: boolean): Completed {
-    const tail = sentToken ? linker.take(resultArtifacts(result)) : ''
-    const full = withArtifactLinks(text, linker.all(resultArtifacts(result)))
-    return { kind: 'completed', text: full, ...(tail ? { tail: `\n\n${tail}` } : {}) }
+export function completedWithLinks(
+    text: string,
+    result: unknown,
+    linker: ArtifactLinker,
+    sentToken: boolean,
+    heldText = '',
+    limit = a2aTaskTextMaxBytes()
+): Completed {
+    const rest = sentToken ? linker.take(resultArtifacts(result)) : ''
+    const tail = heldText + (rest ? `\n\n${rest}` : '')
+    const links: LinkedArtifact[] = []
+    let linkBytes = 0
+    // Links get at most half the limit, so the answer always keeps room; a link that does not fit is left out whole.
+    for (const link of linker.all(resultArtifacts(result))) {
+        const size = utf8Bytes(link.markdown) + 2
+        if (linkBytes + size > Math.floor(limit / 2)) break
+        links.push(link)
+        linkBytes += size
+    }
+    const body = truncateA2aStoredAnswer(dropAttachmentLinks(text).trimEnd(), Math.max(0, limit - linkBytes))
+    const full = withArtifactLinks(body, links)
+    return { kind: 'completed', text: full, ...(tail ? { tail } : {}) }
 }
 
 function applyOutcome(opts: {

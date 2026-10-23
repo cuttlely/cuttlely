@@ -82,7 +82,7 @@ const createCompletion = async (req: OrchestrateRequest, res: Response, next: Ne
         const inner = makeIbmEncoder(meta, linker.take)
         const encoder: SSEEncoder = (frame) => {
             const encoded = inner(frame)
-            if (encoded && frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
+            if (frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
             return encoded
         }
 
@@ -113,9 +113,10 @@ const createCompletion = async (req: OrchestrateRequest, res: Response, next: Ne
                 const content = withArtifactLinks(answerText(apiResponse), linker.links(resultArtifacts(apiResponse)))
                 writeIfOpen(res, ibmDeltaFrame(meta, content))
             } else {
-                // Files not already sent with an artifacts frame go out as one final delta.
+                // Held-back token text, then files not already sent with an artifacts frame, as one final delta.
                 const rest = linker.take(resultArtifacts(apiResponse))
-                if (rest) writeIfOpen(res, ibmDeltaFrame(meta, `\n\n${rest}`))
+                const tail = inner.flush() + (rest ? `\n\n${rest}` : '')
+                if (tail) writeIfOpen(res, ibmDeltaFrame(meta, tail))
             }
         } catch (error) {
             logger.error(`[orchestrate] run failed: ${getErrorMessage(error)}`)

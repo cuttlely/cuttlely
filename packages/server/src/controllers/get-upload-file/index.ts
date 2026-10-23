@@ -8,6 +8,21 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { Workspace } from '../../database/entities/identity'
 
+const INLINE_IMAGE_TYPES: Record<string, string> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp'
+}
+
+/** The image type a file name is served inline as, or undefined for anything that is not a raster image. */
+export function inlineImageType(fileName: string): string | undefined {
+    const dot = fileName.lastIndexOf('.')
+    if (dot < 0) return undefined
+    return INLINE_IMAGE_TYPES[fileName.slice(dot + 1).toLowerCase()]
+}
+
 const streamUploadedFile = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.query.chatflowId || !req.query.chatId || !req.query.fileName) {
@@ -53,8 +68,15 @@ const streamUploadedFile = async (req: Request, res: Response, next: NextFunctio
         const orgId = workspace.organizationId as string
 
         // Set Content-Disposition header - force attachment for download
+        const inlineImage = download ? undefined : inlineImageType(fileName)
         if (download) {
             res.setHeader('Content-Disposition', contentDisposition(fileName, { type: 'attachment' }))
+        } else if (inlineImage) {
+            // A raster image without download=true is shown in place (an image link in an Orchestrate or A2A answer),
+            // with its own type and no sniffing. Other files, SVG included, stay attachments.
+            res.setHeader('Content-Disposition', contentDisposition(fileName, { type: 'inline' }))
+            res.setHeader('Content-Type', inlineImage)
+            res.setHeader('X-Content-Type-Options', 'nosniff')
         } else {
             res.setHeader('Content-Disposition', contentDisposition(fileName))
         }
