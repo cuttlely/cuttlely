@@ -41,7 +41,9 @@ export function toolArtifactNote(artifactJson: string | undefined): string {
     } catch {
         return ''
     }
-    const list = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? [parsed] : []
+    const all: any[] = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? [parsed] : []
+    // Only files kept in storage are attached to the answer; inline artifacts (html, markdown, json and the like) are not.
+    const list = all.filter((item) => typeof item?.data === 'string' && item.data.startsWith('FILE-STORAGE::'))
     const names = list
         .map((item: any) => {
             const raw = typeof item?.name === 'string' && item.name ? item.name : typeof item?.type === 'string' ? `${item.type} file` : ''

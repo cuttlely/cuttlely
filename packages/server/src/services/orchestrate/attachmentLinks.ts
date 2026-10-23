@@ -3,7 +3,7 @@
 
 /** Made-up `attachment:` links (the model naming a file it cannot link) are removed from the answer text. */
 export function dropAttachmentLinks(text: string): string {
-    return text.replace(ATTACHMENT_LINK_ANYWHERE, '').replace(/\n{3,}/g, '\n\n')
+    return text.replace(ATTACHMENT_LINK_ANYWHERE, (link) => (link.length <= HOLD_LIMIT ? '' : link)).replace(/\n{3,}/g, '\n\n')
 }
 
 // `[label](attachment:target)`, also with `<...>` around the target, spaces or a line break before it, and one level of
@@ -12,6 +12,8 @@ export function dropAttachmentLinks(text: string): string {
 const ATTACHMENT_LINK_SOURCE = String.raw`!?\[[^[\]\n]*\]\(\s*<?attachment:(?:[^()[\]\n<>]|\([^()[\]\n<>]*\))*>?\)`
 const ATTACHMENT_LINK_ANYWHERE = new RegExp(ATTACHMENT_LINK_SOURCE, 'gi')
 const ATTACHMENT_LINK = new RegExp(`^${ATTACHMENT_LINK_SOURCE}`, 'i')
+// The longest `attachment:` link removed. The streaming filter holds at most this much, and the non-streaming one uses
+// the same bound, so both give the same text: a longer one is left as written (it opens nothing).
 const HOLD_LIMIT = 2048
 
 /**
@@ -79,7 +81,7 @@ export function makeAttachmentLinkFilter(): { push(text: string): string; flush(
             out += rest.slice(0, start)
             rest = rest.slice(start)
             const link = rest.match(ATTACHMENT_LINK)
-            if (link) {
+            if (link && link[0].length <= HOLD_LIMIT) {
                 rest = rest.slice(link[0].length)
                 continue
             }

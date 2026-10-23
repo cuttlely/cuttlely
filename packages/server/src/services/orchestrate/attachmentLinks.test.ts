@@ -51,4 +51,15 @@ describe('makeAttachmentLinkFilter', () => {
         const kept = 'See [x](https://x.example/a(1)) and [y](attachment:a>b) and (attachment:z)'
         expect(run(kept.split(''))).toBe(dropAttachmentLinks(kept))
     })
+
+    it('treats a link longer than the hold limit the same streamed or not', () => {
+        for (const n of [2000, 2050, 5000]) {
+            const text = `A [${'x'.repeat(n)}](attachment:x.pdf) B`
+            const expected = dropAttachmentLinks(text)
+            expect(run([text.slice(0, 1500), text.slice(1500)])).toBe(expected)
+            expect(run(text.match(/[\s\S]{1,97}/g) as string[])).toBe(expected)
+            expect(run([text])).toBe(expected)
+            expect(expected === 'A  B').toBe(n < 2000 + 20)
+        }
+    })
 })
