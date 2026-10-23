@@ -56,6 +56,11 @@ function jobPayload(args) {
     }
 }
 
+// Router reply deltas are not saved with the job: the router's own text is never stored. Every other event is.
+export function keepJobEvent(event) {
+    return !(event && event.type === 'partial' && event.phase === 'route')
+}
+
 const JOB_METADATA_CHARS = 65536
 
 // A plain JSON object within a size cap, or null. A worker in another process reads it back from the payload.
@@ -353,7 +358,9 @@ export async function executeJob(job) {
             modelBaseUrl: local?.modelBaseUrl,
             flowOptions: runtime.flowOptions,
             signal: controller.signal,
-            onEvent: (event) => appendEvent(job.id, event)
+            onEvent: (event) => {
+                if (keepJobEvent(event)) appendEvent(job.id, event)
+            }
         })
         const stored = resultWithRunId(result, savedId)
         finishJob(job.id, { status: 'succeeded', result: stored })

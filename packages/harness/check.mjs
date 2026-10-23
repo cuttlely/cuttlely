@@ -3078,7 +3078,7 @@ async function routeRecoverTurn(chatId, routeReplies) {
     const route = fallback.run.trace?.route || {}
     const routeDone = fallback.events.find((event) => event.type === 'route' && event.phase === 'done')
     const traceText = JSON.stringify(fallback.run.trace)
-    // Live router deltas stream to the open chat only; every stored or summary event must hold no reply text.
+    // Live router deltas stream to the open chat only (a queued job does not save them); every other event holds no reply text.
     const eventText = JSON.stringify(fallback.events.filter((event) => event.type !== 'partial'))
     check(
         'two prose routing replies go to the default specialist only; trace, events and log hold no reply text',
@@ -9519,7 +9519,15 @@ check(
     revived.text.startsWith('answer:') && staleRow?.status === 'failed' && staleRow?.error_code === 'worker_lost',
     JSON.stringify({ text: revived.text, stale: staleRow })
 )
-const { enqueueHarnessJob, jobMetadata } = await import('./queue.mjs')
+const { enqueueHarnessJob, jobMetadata, keepJobEvent } = await import('./queue.mjs')
+check(
+    'a queued job does not save router reply deltas, and keeps every other event',
+    !keepJobEvent({ type: 'partial', phase: 'route', text: 'prose' }) &&
+        keepJobEvent({ type: 'partial', phase: 'answer', text: 'a' }) &&
+        keepJobEvent({ type: 'route', phase: 'done', parseError: 'no_json' }) &&
+        keepJobEvent({ type: 'final' }),
+    'keepJobEvent'
+)
 {
     const toolMetadata = { agentTask: 'Explain Vault HA in depth.', inputSource: 'user' }
     const metaJob = enqueueHarnessJob({
