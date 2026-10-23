@@ -50,8 +50,30 @@ function jobPayload(args) {
         caller: serializableCaller(flow.harnessCaller),
         traceId: args.traceId || flow.executionId || null,
         // A worker in another process needs the images too. They are already within the count and size limits.
-        images: promptImages(args.images)
+        images: promptImages(args.images),
+        // Run metadata (for a tool run: the agent task and the routed input source) rides with the job too.
+        metadata: serializableMetadata(args.metadata)
     }
+}
+
+const JOB_METADATA_CHARS = 65536
+
+// A plain JSON object within a size cap, or null. A worker in another process reads it back from the payload.
+function serializableMetadata(metadata) {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+    try {
+        const text = JSON.stringify(metadata)
+        return text && text.length <= JOB_METADATA_CHARS ? JSON.parse(text) : null
+    } catch {
+        return null
+    }
+}
+
+// The metadata a job runs with: the caller's own object in this process, else the copy saved on the job.
+export function jobMetadata(job, local) {
+    if (local?.metadata) return local.metadata
+    const saved = job?.payload?.metadata
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : undefined
 }
 
 // A dead worker stops touching the row. The turn lock expires; this row used to stay `running` and pin the chat.
@@ -327,7 +349,7 @@ export async function executeJob(job) {
             componentNodes: runtime.componentNodes,
             loadNode: runtime.loadNode,
             forceSpecialistFailure: local?.forceSpecialistFailure,
-            metadata: local?.metadata,
+            metadata: jobMetadata(job, local),
             modelBaseUrl: local?.modelBaseUrl,
             flowOptions: runtime.flowOptions,
             signal: controller.signal,

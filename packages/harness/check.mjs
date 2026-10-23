@@ -9519,7 +9519,36 @@ check(
     revived.text.startsWith('answer:') && staleRow?.status === 'failed' && staleRow?.error_code === 'worker_lost',
     JSON.stringify({ text: revived.text, stale: staleRow })
 )
-const { enqueueHarnessJob } = await import('./queue.mjs')
+const { enqueueHarnessJob, jobMetadata } = await import('./queue.mjs')
+{
+    const toolMetadata = { agentTask: 'Explain Vault HA in depth.', inputSource: 'user' }
+    const metaJob = enqueueHarnessJob({
+        name: 'queue-worker',
+        chatId: 'metadata-job',
+        input: 'tell me about vault ha',
+        metadata: toolMetadata
+    })
+    const metaPayload = JSON.parse(queueDatabase().prepare('SELECT payload FROM jobs WHERE id = ?').get(metaJob.id).payload)
+    queueDatabase().prepare('DELETE FROM jobs WHERE id = ?').run(metaJob.id)
+    const bigJob = enqueueHarnessJob({
+        name: 'queue-worker',
+        chatId: 'metadata-big',
+        input: 'q',
+        metadata: { agentTask: 'x'.repeat(70000) }
+    })
+    const bigPayload = JSON.parse(queueDatabase().prepare('SELECT payload FROM jobs WHERE id = ?').get(bigJob.id).payload)
+    queueDatabase().prepare('DELETE FROM jobs WHERE id = ?').run(bigJob.id)
+    const local = { metadata: { inputSource: 'agent' } }
+    check(
+        'a queued tool run keeps its agent task and input source for a worker in another process',
+        JSON.stringify(metaPayload.metadata) === JSON.stringify(toolMetadata) &&
+            JSON.stringify(jobMetadata({ payload: metaPayload }, undefined)) === JSON.stringify(toolMetadata) &&
+            jobMetadata({ payload: metaPayload }, local) === local.metadata &&
+            jobMetadata({ payload: { metadata: null } }, undefined) === undefined &&
+            bigPayload.metadata === null,
+        JSON.stringify(metaPayload.metadata)
+    )
+}
 const callerJob = enqueueHarnessJob({
     name: 'queue-worker',
     chatId: 'caller-flow-job',
