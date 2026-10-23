@@ -161,9 +161,7 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
 function normalizeWorkspaceAliases(text, root) {
     if (!/(?:\/|%2f)(?:\.|%2e){1,2}(?:\/|%2f)/i.test(text)) return text
     const absolute = trimSep(path.resolve(root))
-    return text.replace(/(["'`])([^\n]*?)\1|(?:file:\/\/[^/\\\s]*)?\/[^\s'"`<>()\[\]{}|,;]*/gi, (full, quote, quoted, offset) => {
-        if (offset && /[A-Za-z0-9./-]/.test(text[offset - 1])) return full
-        const candidate = quote ? quoted : full
+    const normalize = (candidate) => {
         const local = candidate.replace(FILE_LINK_START, '')
         let decoded = local
         if (/^file:\/\//i.test(candidate)) {
@@ -171,11 +169,21 @@ function normalizeWorkspaceAliases(text, root) {
                 decoded = decodeURIComponent(local)
             } catch {}
         }
-        if (!path.isAbsolute(decoded) || !/(?:^|\/)\.\.?(?:\/|$)/.test(decoded)) return full
+        if (!path.isAbsolute(decoded) || !/(?:^|\/)\.\.?(?:\/|$)/.test(decoded)) return candidate
         const normalized = path.resolve(decoded)
-        if (normalized !== absolute && !normalized.startsWith(`${absolute}${path.sep}`)) return full
-        const replacement = /^file:\/\//i.test(candidate) ? `file://${encodeFilePath(normalized)}` : normalized
-        return quote ? `${quote}${replacement}${quote}` : replacement
+        if (normalized !== absolute && !normalized.startsWith(`${absolute}${path.sep}`)) return candidate
+        return /^file:\/\//i.test(candidate) ? `file://${encodeFilePath(normalized)}` : normalized
+    }
+    const scan = (value) =>
+        value.replace(/(?:file:\/\/[^/\\\s]*)?\/[^\s'"`<>()\[\]{}|,;]*/gi, (candidate, offset) =>
+            offset && /[A-Za-z0-9./-]/.test(value[offset - 1]) ? candidate : normalize(candidate)
+        )
+    return text.replace(/(["'`])([^\n]*?)\1|(?:file:\/\/[^/\\\s]*)?\/[^\s'"`<>()\[\]{}|,;]*/gi, (full, quote, quoted, offset) => {
+        if (offset && /[A-Za-z0-9./-]/.test(text[offset - 1])) return full
+        if (!quote) return normalize(full)
+        // Preserve whole quoted paths with spaces; prose quotes need their own candidate scan.
+        const normalized = normalize(quoted)
+        return `${quote}${normalized !== quoted ? normalized : scan(quoted)}${quote}`
     })
 }
 
@@ -273,6 +281,7 @@ const FILE_LINK_START = new RegExp(`^file://${FILE_HOST}`, 'i')
 
 function hideRoot(text, base, chat) {
     const sep = escapeRegExp(path.sep)
+    const suffixSep = `(?:${sep}|%2[fF])`
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
     const head = `(?<![A-Za-z0-9.${sep}-][_*~]*)(?:[Ff][Ii][Ll][Ee]://${FILE_HOST}${rootPattern(base, true)}|${rootPattern(
         base
@@ -286,7 +295,11 @@ function hideRoot(text, base, chat) {
         rest = path.resolve(rest)
         const start = rootHead.exec(full)?.[0].length || 0
         if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'
-        const parts = full.slice(start).split(path.sep).filter(Boolean)
+        let suffix = full.slice(start)
+        try {
+            suffix = decodeURIComponent(suffix)
+        } catch {}
+        const parts = suffix.split(/\/|%2f/i).filter(Boolean)
         // Under the chat folder itself every path is a file name; under the root the first part is a workspace.
         if (path.resolve(base) === chat) return parts.length ? parts[parts.length - 1] : 'the chat'
         return parts.length <= 1 ? 'the workspace' : parts[parts.length - 1]
@@ -294,10 +307,10 @@ function hideRoot(text, base, chat) {
     // A quoted path may hold spaces and punctuation: everything up to the same closing quote is the path, so a
     // backticked or double-quoted path may hold an apostrophe.
     // A quoted path starts with the root and a separator, or is the root alone; "<root> backup/..." is another folder.
-    const quotes = ['"', "'", '`'].map((quote) => new RegExp(`${quote}(${head}(?:${sep}[^${quote}\\n]*)?)${quote}`, 'g'))
+    const quotes = ['"', "'", '`'].map((quote) => new RegExp(`${quote}(${head}(?:${suffixSep}[^${quote}\\n]*)?)${quote}`, 'g'))
     // A bare root followed by a space and a relative path is a sibling folder whose name starts with the root's name.
     const word = `[^\\s'"\`<>()\\[\\]{}|,;${sep}][^\\s'"\`<>()\\[\\]{}|,;]*${sep}`
-    const bare = new RegExp(`${head}(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*|(?![ \\t]+${word}))`, 'g')
+    const bare = new RegExp(`${head}(?:${suffixSep}[^\\s'"\`<>()\\[\\]{}|,;]*|(?![ \\t]+${word}))`, 'g')
     const bareOnly = (value) => {
         let out = ''
         let cursor = 0

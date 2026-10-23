@@ -7989,6 +7989,7 @@ check(
         hideTurnImageDir(`"${assets}${path.sep}a${' '.repeat(32000)}b"`, coderDir)
         hideTurnImageDir(`"${assets}${path.sep}${'a b/'.repeat(16000)}"`, coderDir)
         hideTurnImageDir(`'${`${assets}${path.sep}x `.repeat(4000)}'`, coderDir)
+        hideTurnImageDir(`"failed opening ${`${assets}/./private/deck.pptx `.repeat(4000)}"`, coderDir)
         const slowTook = Date.now() - slowStarted
         const { maskWorkspacePaths, bufferStream, rootPrefixAt } = await import('./run.mjs')
         // A stream split anywhere, even inside the workspaces folder's name, never sends the raw path.
@@ -8246,6 +8247,55 @@ check(
             }
         }
         check('root aliases are masked in text, error messages and every stream split', aliasWrong.length === 0, JSON.stringify(aliasWrong))
+        const reviewCases = []
+        for (const quote of ['"', "'", '`']) {
+            for (const alias of [
+                '/var/cuttlely/./workspaces/agent/private/deck.pptx',
+                'file:///var/x/../cuttlely/workspaces/agent/private/deck.pptx'
+            ]) {
+                reviewCases.push([`${quote}failed opening ${alias}${quote}`, `${quote}failed opening deck.pptx${quote}`])
+            }
+            reviewCases.push([`${quote}/var/cuttlely/./workspaces/agent/Q3 Reports/deck.pptx${quote}`, `${quote}deck.pptx${quote}`])
+        }
+        for (const suffix of [
+            '%2Fagent%2Fprivate%2Fdeck.pptx',
+            '%2fagent%2fprivate%2fdeck.pptx',
+            '/agent%2Fprivate/deck.pptx',
+            '%2Fagent/private%2fdeck.pptx',
+            '%2fagent/private%2Fdeck%20final.pptx'
+        ]) {
+            const name = suffix.includes('%20') ? 'deck final.pptx' : 'deck.pptx'
+            const link = `file://${aliasRoot}${suffix}`
+            reviewCases.push([`Open ${link} now`, `Open ${name} now`], [`"${link}"`, `"${name}"`])
+        }
+        const reviewWrong = []
+        const reviewDataDir = process.env.CUTTLELY_DATA_DIR
+        try {
+            process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
+            for (const [said, expected] of reviewCases) {
+                if (hideWorkspacePaths(said, aliasRoot) !== expected) reviewWrong.push(['text', said])
+                if (maskError(new Error(said)).message !== expected || maskError(said) !== expected) reviewWrong.push(['error', said])
+                const value = maskWorkspacePaths({ [said]: said, nested: [{ note: said }], base64: said })
+                if (value[expected] !== expected || value.nested[0].note !== expected || value.base64 !== expected)
+                    reviewWrong.push(['value', said])
+                for (let at = 0; at <= said.length; at += 1) {
+                    const sent = []
+                    const context = {}
+                    for (const piece of [said.slice(0, at), said.slice(at)])
+                        bufferStream(context, 'answer', piece, false, (text) => sent.push(text), aliasRoot)
+                    bufferStream(context, 'answer', '', true, (text) => sent.push(text), aliasRoot)
+                    if (sent.join('') !== expected) reviewWrong.push(['stream', said, at, sent.join('')])
+                }
+            }
+        } finally {
+            if (reviewDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = reviewDataDir
+        }
+        check(
+            'quoted prose aliases and encoded suffix separators are masked in text, errors, values and every stream split',
+            reviewWrong.length === 0,
+            JSON.stringify(reviewWrong)
+        )
         check(
             'relative workspace roots mask both spellings and their absolute path',
             ['./data/workspaces', 'data/workspaces', path.resolve('./data/workspaces')].every(
