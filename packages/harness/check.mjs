@@ -3343,13 +3343,13 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
     check(
         'a specialist failure that quotes a workspace path is masked in agents, trace, events, the stored message, the run record and the handoff',
         failedAgent?.status === 'failed' &&
-            String(failedAgent.error).includes('deck.pptx') &&
-            events.some((event) => JSON.stringify(event).includes('deck.pptx')) &&
-            events.some((event) => JSON.stringify(event).includes('cat: the workspace file deck.pptx: No such file')) &&
+            String(failedAgent.error).includes('the workspace') &&
+            events.some((event) => JSON.stringify(event).includes('the workspace')) &&
+            events.some((event) => JSON.stringify(event).includes('cat: the workspace: No such file')) &&
             events
                 .filter((event) => event.type === 'partial' && event.specialist === 'browser')
                 .map((event) => event.text)
-                .join('') === 'Opening the workspace file deck.pptx now ' &&
+                .join('') === 'Opening the workspace now ' &&
             leakHandoff.includes('### browser (failed)') &&
             !channels.events.includes('labels/') &&
             !channels.sources.includes('labels/') &&
@@ -7924,12 +7924,12 @@ check(
                     'notes.md'
                 )}. Folder: ${specialistWorkspace(coder.profileName)}.`,
                 coderDir
-            ) === 'Saved the workspace file deck.pptx and the workspace. Folder: the workspace.' &&
+            ) === 'Saved the workspace and the workspace. Folder: the workspace.' &&
             hideTurnImageDir(
                 `See ${path.join(specialistWorkspace(writer.profileName), 'out', 'a.csv')}`,
                 '',
                 path.dirname(specialistWorkspace('x'))
-            ) === 'See the workspace file a.csv' &&
+            ) === 'See the workspace' &&
             hideTurnImageDir(`${path.dirname(specialistWorkspace('x'))}-other/a.csv`, coderDir) === 'a server path',
         JSON.stringify(imageContext.turnImages?.map((list) => list.map((image) => image.name)))
     )
@@ -7938,7 +7938,36 @@ check(
         const { maskWorkspacePaths, maskError, bufferStream } = await import('./run.mjs')
         const root = '/var/cuttlely/workspaces'
         const deck = root + '/a/private/deck.pptx'
-        const file = 'the workspace file deck.pptx'
+        // Rule 3: these deck paths do not exist, so only "the workspace" is shown.
+        const file = 'the workspace'
+        const rule3Root = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-mask-rule3-'))
+        try {
+            fs.writeFileSync(path.join(rule3Root, 'real.pptx'), 'deliverable')
+            for (const [name, expected] of [
+                ['real.pptx', 'the workspace file real.pptx'],
+                ['missing.pptx', 'the workspace']
+            ]) {
+                const text = path.join(rule3Root, name)
+                const actual = hideWorkspacePaths(text, rule3Root)
+                const state = workspaceMaskState()
+                const scanned = []
+                const streamed = []
+                const context = {}
+                for (const char of text) {
+                    scanned.push(scanWorkspaceText(state, char, rule3Root))
+                    bufferStream(context, 'answer', char, false, (value) => streamed.push(value), rule3Root)
+                }
+                scanned.push(scanWorkspaceText(state, '', rule3Root, true))
+                bufferStream(context, 'answer', '', true, (value) => streamed.push(value), rule3Root)
+                check(
+                    `rule 3: ${name} uses existence at mask time, including character streams`,
+                    actual === expected && scanned.join('') === expected && streamed.join('') === expected,
+                    JSON.stringify({ actual, scanned: scanned.join(''), streamed: streamed.join(''), expected })
+                )
+            }
+        } finally {
+            fs.rmSync(rule3Root, { recursive: true, force: true })
+        }
         const cases = [
             [1, `"${root}/a/Q3 Reports/deck.pptx"`, `"${file}"`],
             [1, `'${deck}'`, `'${file}'`],
@@ -7956,8 +7985,11 @@ check(
             [4, `${deck} and /tmp/input`, `${file} and a server path`],
             [5, `${root}/a/My Reports/deck.pptx done`, 'the workspace a server path done'],
             [5, '/tmp/My Docs report.pdf', 'a server path Docs report.pdf'],
-            [5, '"/tmp/My Docs" docs/report.md', '"a server path" docs/report.md'],
-            [5, '/tmp/My "docs/report.md"', 'a server path "docs/report.md"'],
+            [5, '"/tmp/My Docs" docs/report.md', '"a server path" a server path'],
+            [5, '/tmp/My "docs/report.md"', 'a server path "a server path"'],
+            [5, '/tmp/My "Docs/private.txt" done', 'a server path "a server path" done'],
+            [1, 'note:"/tmp/My private.txt" ok', 'note:"a server path" ok'],
+            [1, "x='/tmp/a b' y", "x='a server path' y"],
             [6, 'README requires checking docs/report.md', 'README requires checking docs/report.md'],
             [6, 'README requires checking docs/../../report.md', 'README requires checking a server path'],
             [7, '/' + 'x'.repeat(1024), 'a server path'],
@@ -8150,7 +8182,7 @@ check(
             fs.writeFileSync(path.join(lowerDir, 'deck.pptx'), 'x')
             check(
                 'getters, serializers, deep fields, upper-case file links and on-disk lower-case folders are masked',
-                maskError(getterError).code === 'the workspace file getter.pdf' &&
+                maskError(getterError).code === 'the workspace' &&
                     maskError(serialError) !== serialError &&
                     (() => {
                         class ToolError extends Error {
@@ -8193,7 +8225,7 @@ check(
                     })() &&
                     !JSON.stringify(maskError(deepError)).includes(root) &&
                     hideWorkspacePaths(`FILE://${path.join(assets, 'a.pdf')} and file://LOCALHOST${path.join(assets, 'b.pdf')}`, root) ===
-                        'the workspace file a.pdf and the workspace file b.pdf' &&
+                        'the workspace and the workspace' &&
                     hideWorkspacePaths(`"${path.join(lowerDir, 'deck.pptx')}"`, root) === '"the workspace file deck.pptx"' &&
                     hideWorkspacePaths(`"${path.join(assets, 'README')} permission denied opening docs/report.md"`, root) ===
                         '"the workspace"',
@@ -8202,10 +8234,10 @@ check(
             fs.rmSync(lowerDir, { recursive: true, force: true })
             check(
                 'error causes, hidden fields, BigInt and cyclic fields are masked without throwing',
-                caused.cause.message === 'open the workspace file private.pdf' &&
-                    hiddenMasked.code === 'the workspace file code.pdf' &&
+                caused.cause.message === 'open the workspace' &&
+                    hiddenMasked.code === 'the workspace' &&
                     hiddenMasked.detail === 1n &&
-                    hiddenMasked.loop.note === 'the workspace file loop.pdf' &&
+                    hiddenMasked.loop.note === 'the workspace' &&
                     hiddenMasked instanceof Error &&
                     maskError(plainError).message === plainError.message,
                 JSON.stringify({ cause: caused.cause?.message, code: hiddenMasked.code })
@@ -8217,29 +8249,29 @@ check(
             ]
             check(
                 'thrown strings, error fields and local or odd file links are masked',
-                fielded.code === 'the workspace file private.pdf' &&
-                    frozenFielded.detail === 'the workspace file p.pdf' &&
+                fielded.code === 'the workspace' &&
+                    frozenFielded.detail === 'the workspace' &&
                     frozenFielded.message === 'tool failed' &&
-                    thrownText === 'open the workspace file private.pdf' &&
-                    otherLinks[0] === 'see the workspace file private.pdf now' &&
-                    otherLinks[1] === 'see the workspace file odd.pdf now',
+                    thrownText === 'open the workspace' &&
+                    otherLinks[0] === 'see the workspace now' &&
+                    otherLinks[1] === 'see the workspace now',
                 JSON.stringify({ code: fielded.code, detail: frozenFielded.detail, thrownText, otherLinks })
             )
             check(
                 'frozen errors, non-byte base64 values and encoded file links are masked',
-                freed.message === 'Cannot read the workspace file private.pdf' &&
+                freed.message === 'Cannot read the workspace' &&
                     freed.code === 'tool_failed' &&
                     !String(freed.stack).includes(root) &&
                     !JSON.stringify(bytesKept).includes(root) &&
-                    encodedLink === 'see the workspace file private.pdf now',
+                    encodedLink === 'see the workspace now',
                 JSON.stringify({ message: freed.message, bytesKept, encodedLink })
             )
             check(
                 'URLs, class instances, colliding keys and a __proto__ key are masked and kept',
                 !typed.includes(root) &&
-                    typed.includes('private.pdf') &&
-                    typed.includes('meta.pdf') &&
-                    typed.includes('"the workspace file r.pdf":1') &&
+                    typed.includes('"link":"the workspace"') &&
+                    typed.includes('"where":"the workspace"') &&
+                    typed.includes('"the workspace":1') &&
                     typed.includes('"r.pdf":2') &&
                     typed.includes('"__proto__":"kept"'),
                 typed
@@ -8247,9 +8279,9 @@ check(
             check(
                 'deep values, cycles and object keys are masked too',
                 !deepText.includes(root) &&
-                    deepText.includes('"the workspace file k.pdf":"failed"') &&
+                    deepText.includes('"the workspace":"failed"') &&
                     !loopText.includes(root) &&
-                    loopText.includes('loop.pdf'),
+                    loopText.includes('"note":"the workspace"'),
                 deepText.slice(-300) + loopText
             )
             class PathArray extends Array {
@@ -8271,11 +8303,11 @@ check(
                 'array serializers are masked and arrays are rebuilt with a plain prototype',
                 Array.isArray(maskedArray) &&
                     Object.getPrototypeOf(maskedArray) === Array.prototype &&
-                    JSON.stringify(maskedArray) === '["the workspace file deck.pptx"]' &&
+                    JSON.stringify(maskedArray) === '["the workspace"]' &&
                     !JSON.stringify(maskedArray).includes(root) &&
                     Object.getPrototypeOf(maskedPlainArray) === Array.prototype &&
-                    JSON.stringify(maskedPlainArray) === '["the workspace file deck.pptx"]' &&
-                    JSON.stringify(maskWorkspacePaths(ownArray)) === '["the workspace file own.pdf"]' &&
+                    JSON.stringify(maskedPlainArray) === '["the workspace"]' &&
+                    JSON.stringify(maskWorkspacePaths(ownArray)) === '["the workspace"]' &&
                     JSON.stringify(maskWorkspacePaths(unreadableArray)) === '["[data]"]'
             )
             const shadowed = (() => {
@@ -8303,10 +8335,10 @@ check(
             })
             check(
                 'only file bytes are left unmasked in a harness value',
-                maskedValue.text === 'data: the workspace file r.pdf' &&
+                maskedValue.text === 'data: the workspace' &&
                     maskedValue.data === 'data:text/plain,aGVsbG8=' &&
                     maskedValue.base64 === 'aGVsbG8=' &&
-                    maskedValue.rows[0].note === 'the workspace file n.csv',
+                    maskedValue.rows[0].note === 'the workspace',
                 JSON.stringify(maskedValue)
             )
         }
@@ -9839,7 +9871,10 @@ try {
             !JSON.stringify(leakRun.sources || []).includes(sentinel) &&
             !String(leakRun.text || '').includes(sentinel) &&
             (leakRun.sources || []).some(
-                (doc) => String(doc.pageContent || '').includes(csvPath) || doc.metadata?.storedFile === csvPath
+                (doc) =>
+                    String(doc.pageContent || '').includes("path='a server path'") &&
+                    doc.metadata?.storedFile === 'a server path' &&
+                    !JSON.stringify(doc).includes(csvPath)
             ) &&
             stagedCsv &&
             fs.readFileSync(path.join(stagedDir, stagedCsv), 'utf8').includes(sentinel) &&

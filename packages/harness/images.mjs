@@ -157,6 +157,14 @@ const jsonSpan = (value) => {
     }
 }
 const backslashPath = (token, raw) => BACKSLASH_START.test(token) && !/\\"|\\u[0-9a-f]{4}/i.test(raw) && !jsonSpan(raw) && !jsonSpan(token)
+// The deliverable basename is kept only for a file that exists under the root at mask time.
+const isFile = (value) => {
+    try {
+        return fs.statSync(value).isFile()
+    } catch {
+        return false
+    }
+}
 const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value.slice(0, -1) : value)
 
 function tokenMask(raw, root, continued) {
@@ -182,7 +190,11 @@ function tokenMask(raw, root, continued) {
     let shown = 'a server path'
     if (inside) {
         const base = path.basename(resolved)
-        const deliverable = inside && /^(?:[\/~]|file:|[a-z]:|%2f)/i.test(token) && /\.(?:pdf|docx|xlsx|pptx|csv|png|jpe?g)$/i.test(base)
+        const deliverable =
+            inside &&
+            /^(?:[\/~]|file:|[a-z]:|%2f)/i.test(token) &&
+            /\.(?:pdf|docx|xlsx|pptx|csv|png|jpe?g)$/i.test(base) &&
+            isFile(resolved)
         shown = deliverable ? `the workspace file ${base}` : 'the workspace'
     }
     return { text: raw.slice(0, start) + shown + raw.slice(end), masked: true }
@@ -195,11 +207,12 @@ export function workspaceMaskState() {
 export function scanWorkspaceText(state, text, root, flush = false) {
     const out = []
     const finish = () => {
-        if (state.overflow) state.continued = !state.quote
+        if (state.overflow) state.continued = true
         else if (state.token) {
-            const result = tokenMask(state.token, root, state.continued && !state.quote)
+            // Rule 5: continuation also covers a quoted next token (fail closed).
+            const result = tokenMask(state.token, root, state.continued)
             out.push(result.text)
-            state.continued = result.masked && !state.quote
+            state.continued = result.masked
         }
         state.token = ''
         state.overflow = false
@@ -216,8 +229,16 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             continue
         }
         const closing = state.quote === char && !state.slash
-        // Rule 1: a quote may open after leading trim characters such as ] or (.
-        if (!state.quote && !state.overflow && QUOTES.includes(char) && LEAD.test(state.token)) state.quote = char
+        // Rule 1: a quote opens after leading trim characters, or after any delimiter inside a
+        // populated token (note:"/tmp/a b"); the text before it is judged as its own token.
+        // A token that starts like JSON stays whole so rule 3a can see the JSON span.
+        if (!state.quote && !state.overflow && QUOTES.includes(char) && !state.slash) {
+            if (LEAD.test(state.token)) state.quote = char
+            else if (!/^[\[{]/.test(state.token) && /[^A-Za-z0-9_.~%\/\\-]$/.test(state.token)) {
+                finish()
+                state.quote = char
+            }
+        }
         if (!state.overflow) {
             state.token += char
             // Rule 6 keeps ordinary data intact, even when a JSON value or word is long.
