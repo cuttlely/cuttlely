@@ -2952,6 +2952,20 @@ check(
         ].join('')
     )
     const lettersOnlyBasic = routeRawPreview('authorization header was basic YWxhZGRpbjpvcGVu and Basic QWxhZGRpbjpPcGVu ok')
+    const jsonPathPreview = routeRawPreview(
+        'Note {"file":"/srv/work/team/secret-dir/report.csv","win":"C:\\\\Users\\\\ann\\\\notes.txt"} see https://example.com/a/b and password: `two words here` ok'
+    )
+    check(
+        'the routing reply preview keeps only file names inside JSON, keeps URLs, and removes backtick secrets whole',
+        !/secret-dir|\/srv|Users|ann|two words|words here/.test(jsonPathPreview) &&
+            jsonPathPreview.includes('report.csv') &&
+            jsonPathPreview.includes('notes.txt') &&
+            jsonPathPreview.includes('https://example.com/a/b'),
+        jsonPathPreview
+    )
+    const pathStart = Date.now()
+    routeRawPreview('/a'.repeat(50000) + ' ' + '\\'.repeat(50000) + 'C:' + '/'.repeat(50000))
+    check('masking long path-like text in the preview stays fast', Date.now() - pathStart < 1000, `${Date.now() - pathStart}ms`)
     const longBasic = routeRawPreview('Basic ' + 'Q'.repeat(5000) + 'TAILzz9 and Bearer ' + 'b'.repeat(5000) + 'ENDyy8')
     check('a long Basic or Bearer credential is removed to its end', !/TAILzz9|ENDyy8|QQQQ|bbbb/.test(longBasic), longBasic)
     check(

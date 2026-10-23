@@ -1642,7 +1642,10 @@ export function routeRawPreview(content) {
         // removed whole, spaces and escapes included; a bare value up to the next space or delimiter.
         .replace(new RegExp(`${ROUTE_SECRET_KEY}"(?:[^"\\\\]|\\\\.)*"?`, 'gi'), '$1$2"[redacted]"')
         .replace(new RegExp(`${ROUTE_SECRET_KEY}'(?:[^'\\\\]|\\\\.)*'?`, 'gi'), "$1$2'[redacted]'")
-        .replace(new RegExp(`${ROUTE_SECRET_KEY}(?!["'])(?:(?:Basic|Bearer|Token)\\s+)?[^\\s"',;}&]+`, 'gi'), '$1$2[redacted]')
+        .replace(new RegExp(`${ROUTE_SECRET_KEY}\\x60[^\\x60]*\\x60?`, 'gi'), '$1$2\x60[redacted]\x60')
+        .replace(new RegExp(`${ROUTE_SECRET_KEY}(?!["'\\x60])(?:(?:Basic|Bearer|Token)\\s+)?[^\\s"',;}&]+`, 'gi'), '$1$2[redacted]')
+        // Absolute paths the text masker leaves inside JSON spans keep only their last segment. URLs are kept.
+        .replace(/(?<![:\w/\\.~-])(?:[A-Za-z]:)?(?:(?:\\\\|[\\/])[^\s"'`\\/<>|,;]+){2,}/g, (match) => match.split(/[\\/]+/).pop())
     return text.length > ROUTE_RAW_PREVIEW_CHARS ? `${text.slice(0, ROUTE_RAW_PREVIEW_CHARS)}…` : text
 }
 
