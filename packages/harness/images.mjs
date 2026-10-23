@@ -144,6 +144,7 @@ export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirna
 // Rules 1–8 share this state machine, including the bounded-token fallback.
 const EDGE = /[\]\)}|<>"`,;:!?]/
 const QUOTES = '"\'`'
+const LEAD = /^[\]\)}|<>,;:!?]*$/
 // A backslash path uses \ as a separator; JSON escapes such as \" or \n are data, not paths.
 const backslashPath = (value) => /^\\\\[^\\"\s]/.test(value) || /\\(?!["\\/bfnrtu]|$)/.test(value.replace(/\\\\/g, ''))
 const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value.slice(0, -1) : value)
@@ -151,7 +152,7 @@ const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value
 function tokenMask(raw, root, continued) {
     let start = 0,
         end = raw.length
-    while (start < end && (EDGE.test(raw[start]) || (start === 0 && raw[start] === "'"))) start++
+    while (start < end && (EDGE.test(raw[start]) || raw[start] === "'")) start++
     while (end > start && (EDGE.test(raw[end - 1]) || raw[end - 1] === "'" || raw[end - 1] === '.')) end--
     const token = raw.slice(start, end)
     if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
@@ -205,7 +206,8 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             continue
         }
         const closing = state.quote === char && !state.slash
-        if (!state.token && !state.overflow && QUOTES.includes(char)) state.quote = char
+        // Rule 1: a quote may open after leading trim characters such as ] or (.
+        if (!state.quote && !state.overflow && QUOTES.includes(char) && LEAD.test(state.token)) state.quote = char
         if (!state.overflow) {
             state.token += char
             // Rule 6 keeps ordinary data intact, even when a JSON value or word is long.

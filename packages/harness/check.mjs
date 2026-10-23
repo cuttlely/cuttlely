@@ -7983,7 +7983,7 @@ check(
             cases.push([3, alias, file])
         }
         // Every former skipped-folder delimiter, both local and file:// spellings.
-        for (const delimiter of [']', ')', '}', '|', '<', '>', '"', '`', '\t', '\n', "' "]) {
+        for (const delimiter of [']', ')', '}', '|', '<', '>', '"', '`', '\t', '\n', "' ", ',', ';', ':', '!', '?', '\r']) {
             for (const prefix of ['', 'file://host']) {
                 const alias = `${prefix}/var/cuttlely/cache${delimiter}old/../workspaces/a/private/deck.pptx`
                 const expected = /\s/.test(delimiter) ? `a server path${delimiter.includes("'") ? "' " : delimiter}a server path` : file
@@ -7993,6 +7993,13 @@ check(
         for (const folder of ['cache failed', 'cache.old copy']) {
             for (const prefix of ['', 'file://host'])
                 cases.push([7, `${prefix}/var/cuttlely/${folder}/../workspaces/a/private/deck.pptx`, 'a server path a server path'])
+        }
+        // Rule 1: a quote opens after leading trim characters, double and single.
+        for (const lead of [']', ')', '|', ',', '<', ']),']) {
+            for (const q of ['"', "'"]) {
+                cases.push([1, `${lead}${q}/tmp/My private.txt${q}`, `${lead}${q}a server path${q}`])
+                cases.push([1, `${lead}${q}${root}/a/Q3 Reports/deck.pptx${q} done`, `${lead}${q}${file}${q} done`])
+            }
         }
         const prose = [
             'An ordinary sentence stays exactly as written.',
