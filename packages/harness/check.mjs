@@ -2969,6 +2969,20 @@ check(
             readRouteJson('```\n[{"specialist":"ops","task":"t"}]\n```')?.[0]?.specialist === 'ops',
         JSON.stringify({ prose, chosen, unknownDefault })
     )
+    const chief = { defaultSpecialist: 'ops' }
+    const plans = {
+        empty: parseSteps('{"steps":[]}', roster, 'q', chief),
+        bareEmpty: parseSteps('[]', roster, 'q', chief),
+        unknown: parseSteps('{"steps":[{"specialist":"nobody","task":"t"}]}', roster, 'q', chief),
+        broken: parseSteps('{"steps": [', roster, 'q', chief)
+    }
+    check(
+        'parseSteps gives exactly one fallback step for an empty, unknown-only or unreadable plan',
+        Object.values(plans).every(
+            (steps) => steps.length === 1 && steps[0].specialist.name === 'ops' && steps[0].task === 'q' && steps[0].fallback
+        ),
+        JSON.stringify(plans)
+    )
 }
 saveHarness(
     {
@@ -3108,6 +3122,45 @@ async function routeRecoverTurn(chatId, routeReplies) {
             warned: fallback.warned,
             types: fallback.events.map((e) => e.type + ':' + (e.status || e.phase)).slice(0, 6)
         })
+    )
+    // 1.4.1 QA: a plan that is empty or names no roster specialist, even after the retry, still runs one step.
+    const oneFallback = (turn) => {
+        const r = turn.run.trace?.route || {}
+        return (
+            r.steps?.length === 1 &&
+            r.steps[0].specialist === 'knowledge' &&
+            r.fallbackSpecialist === 'knowledge' &&
+            turn.run.agents.length === 1
+        )
+    }
+    const emptyAfterRetry = await routeRecoverTurn('route-recover-4', [prose, '{"steps":[]}'])
+    check(
+        'an empty plan after the router retry runs exactly one step on the default specialist and records fallbackSpecialist',
+        oneFallback(emptyAfterRetry) && emptyAfterRetry.routeCount === 2 && emptyAfterRetry.run.trace.route.parseError === 'no_json',
+        JSON.stringify(emptyAfterRetry.run.trace?.route)
+    )
+    const unknownOnly = await routeRecoverTurn('route-recover-5', [
+        JSON.stringify({
+            steps: [
+                { specialist: 'nobody', task: 't' },
+                { specialist: 'ghost', task: 't' }
+            ]
+        })
+    ])
+    check(
+        'a plan naming only unknown specialists runs exactly one step on the default specialist and records fallbackSpecialist',
+        oneFallback(unknownOnly) && unknownOnly.routeCount === 1 && !unknownOnly.run.trace.route.parseError,
+        JSON.stringify(unknownOnly.run.trace?.route)
+    )
+    const emptyFirst = await routeRecoverTurn('route-recover-6', ['{"steps":[]}'])
+    const brokenAfterRetry = await routeRecoverTurn('route-recover-7', [prose, '{"steps": [{"specialist":'])
+    check(
+        'an empty first plan, or a parse error after the retry, runs exactly one step on the default specialist',
+        oneFallback(emptyFirst) &&
+            oneFallback(brokenAfterRetry) &&
+            brokenAfterRetry.run.trace.route.parseError === 'invalid_json' &&
+            brokenAfterRetry.run.trace.route.retried === true,
+        JSON.stringify({ emptyFirst: emptyFirst.run.trace?.route, broken: brokenAfterRetry.run.trace?.route })
     )
 }
 
@@ -10910,7 +10963,9 @@ check(
         'a question that is not a data task makes no analyst choice call',
         ran.length === 0 &&
             twoCalls.slice(callsBefore).every((call) => !String(call.messages[0]?.content || '').includes('You choose the analyst')) &&
-            (quietRun.trace?.route?.steps || []).length === 0,
+            // An empty plan now goes to the one default specialist (1.4.1), never to zero or every specialist.
+            (quietRun.trace?.route?.steps || []).length === 1 &&
+            Boolean(quietRun.trace?.route?.fallbackSpecialist),
         JSON.stringify({ ran, steps: quietRun.trace?.route?.steps })
     )
     ran.length = 0

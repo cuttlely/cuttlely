@@ -1398,7 +1398,7 @@ async function routeSteps(context, input, history) {
         ROUTE_WHOLE_TASK,
         ROUTE_FOLLOW_UP,
         context.images?.length ? ROUTE_IMAGES : '',
-        'Reply with JSON only: {"steps":[{"specialist":"NAME","task":"...","after":""}]}. Leave "after" empty unless the step needs an earlier step\'s result. Use an empty list when no specialist is needed.'
+        'Reply with JSON only: {"steps":[{"specialist":"NAME","task":"...","after":""}]}. Leave "after" empty unless the step needs an earlier step\'s result. Always name at least one specialist.'
     ]
         .filter(Boolean)
         .join('\n')
@@ -1445,7 +1445,7 @@ async function routeSteps(context, input, history) {
                 fallbackSpecialist: fallback?.name || ''
             }
             console.warn(`[harness] router reply was still not JSON; using the default specialist ${routeLogFields(context)}`)
-            routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input }] : [] }
+            routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input, fallback: true }] : [] }
         }
     }
     let parsedSteps = forceAnalystRoute(input, routed.steps, specialists)
@@ -1453,7 +1453,13 @@ async function routeSteps(context, input, history) {
     if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
     const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
     if (pageRoute.reply) return finishUnpaged(context, pageRoute.reply, started)
-    const steps = pageRoute.steps
+    const steps = withFallbackStep(pageRoute.steps, specialists, context.roster.chief, input)
+    if (steps.length && steps[0].fallback && !context.routeParse?.fallbackSpecialist) {
+        // A readable plan with no step on the roster (an empty list or only unknown names) also ends at the default.
+        context.routeParse = { ...(context.routeParse || {}), fallbackSpecialist: steps[0].specialist.name }
+        console.warn(`[harness] router plan had no usable step; using the default specialist ${routeLogFields(context)}`)
+    }
+    for (const step of steps) delete step.fallback
     if (steps.length === 1 && !steps[0].paging) steps[0].task = expandSingleSpecialistTask(input, steps[0].task)
     context.routeSteps = publicSteps(steps)
     const routedCalls = roleCalls(context, 'route')
@@ -1598,12 +1604,18 @@ export function parseRouteSteps(content, specialists, input) {
     return { ok: true, steps }
 }
 
-// A reply with no JSON goes to one default specialist with the whole request, never to every specialist.
+// A plan with no usable step (no JSON, an empty list, or only names not on the roster) goes to one default
+// specialist with the whole request: never zero steps, never every specialist. The added step carries
+// `fallback: true` so the caller can record route.fallbackSpecialist.
+export function withFallbackStep(steps, specialists, chief, input) {
+    if (steps.length) return steps
+    const fallback = defaultRouteSpecialist(specialists, chief)
+    return fallback ? [{ specialist: fallback, task: input, fallback: true }] : []
+}
+
 export function parseSteps(content, specialists, input, chief) {
     const parsed = parseRouteSteps(content, specialists, input)
-    if (parsed.ok) return parsed.steps
-    const fallback = defaultRouteSpecialist(specialists, chief)
-    return fallback ? [{ specialist: fallback, task: input }] : []
+    return withFallbackStep(parsed.ok ? parsed.steps : [], specialists, chief, input)
 }
 
 export const ROUTE_JSON_RETRY =
@@ -1629,7 +1641,7 @@ export function routeDiagnostics(content, { retried = false } = {}) {
 
 // The trace and event fields for a route parse: the same structural facts, nothing else.
 export function publicRouteParse(parse) {
-    if (!parse?.error) return {}
+    if (!parse?.error) return parse?.fallbackSpecialist ? { fallbackSpecialist: String(parse.fallbackSpecialist) } : {}
     return {
         parseError: ROUTE_PARSE_ERRORS.includes(parse.error) ? parse.error : 'invalid_json',
         rawLength: Number(parse.rawLength) || 0,

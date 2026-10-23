@@ -2,6 +2,7 @@
  * HTTP contract for POST /api/v1/orchestrate/:id and /:id/chat/completions.
  * buildChatflow is mocked at the service boundary except where a test names a real helper.
  */
+import { marked } from 'marked'
 import express from 'express'
 import http from 'http'
 import { AddressInfo } from 'net'
@@ -699,7 +700,7 @@ describe('Orchestrate file links', () => {
         expect(res.status).toBe(200)
         const content = completionSchema.parse(res.body).choices[0].message.content
         expect(content).not.toContain('attachment:')
-        expect(content).toMatch(/^Here is the chart\n\n!\[harness_python_1_0_chart\.png\]\(http/)
+        expect(content).toMatch(/^Here is the chart\n\n!\[Image: chart\.png\]\(http/)
         expect(content).toContain('[Download deck.pdf](http')
         expect(content).not.toContain('secret.png')
         expect(content).not.toContain('base64')
@@ -739,7 +740,7 @@ describe('Orchestrate file links', () => {
         const frames = parseIbmFrames(String(streamed.body))
         const contents = frames.map((f: any) => f.choices[0].delta.content as string)
         expect(contents[0]).toBe('Done.')
-        expect(contents[1]).toMatch(/^\n\n!\[harness_python_1_0_chart\.png\]\(http[^)]+\)\n\n\[Download deck\.pdf\]\(http/)
+        expect(contents[1]).toMatch(/^\n\n!\[Image: chart\.png\]\(http[^)]+\)\n\n\[Download deck\.pdf\]\(http/)
         expect(contents).toHaveLength(2)
         expect(contents.join('')).not.toContain('secret.png')
     })
@@ -752,7 +753,7 @@ describe('Orchestrate file links', () => {
         const streamed = await streamRequest(K, streamBody(), withKey())
         const contents = parseIbmFrames(String(streamed.body)).map((f: any) => f.choices[0].delta.content as string)
         expect(contents).toHaveLength(1)
-        expect(contents[0]).toMatch(/^Answer\n\n!\[harness_python_1_0_chart\.png\]\(http/)
+        expect(contents[0]).toMatch(/^Answer\n\n!\[Image: chart\.png\]\(http/)
     })
 
     it('removes attachment: links from streamed tokens and sends the image link without download', async () => {
@@ -764,8 +765,67 @@ describe('Orchestrate file links', () => {
         const streamed = await streamRequest(K, streamBody(), withKey())
         const text = ibmText(String(streamed.body))
         expect(text).not.toContain('attachment:')
-        expect(text).toMatch(/^See {2}ok \[\n\n!\[harness_python_1_0_chart\.png\]\(http/)
+        expect(text).toMatch(/^See {2}ok \[\n\n!\[Image: chart\.png\]\(http/)
         expect(linkUrls(text)[0].searchParams.has('download')).toBe(false)
+    })
+
+    // 1.4.1 QA: the image reached Orchestrate as `!(url)` and the deck reply began with a label that linked nowhere.
+    const QA_ARTIFACTS = [
+        { type: 'png', data: 'FILE-STORAGE::harness_python_1792792110729_0_zz-test-blue-square.png' },
+        { type: 'pptx', data: 'FILE-STORAGE::harness_assets_1792792422192_1_zz-test-deck.pptx', name: 'zz-test-deck.pptx' }
+    ]
+    const QA_TEXT =
+        '[Download the 2-slide PowerPoint: **zz-test-deck.pptx**][attachment:zz-test-deck.pptx]\n\n' +
+        '[Download it here: zz-test-deck.pptx]\n\nA deck titled **ZZ-TEST Deck**. ![zz-test-blue-square.png](attachment:zz-test-blue-square.png)'
+    const QA_TOKENS = [
+        '[Download the 2-slide Power',
+        'Point: **zz-test-deck.pptx**][attach',
+        'ment:zz-test-deck.pptx]\n\n[Download it here: zz-test-deck.pptx]',
+        '\n\nA deck titled **ZZ-TEST Deck**. ![zz-test-blue-square.png](attachment:zz-test-blue-square.png)'
+    ]
+    const markdownTokens = (text: string) => {
+        const found: any[] = []
+        marked.walkTokens(marked.lexer(text), (token) => {
+            found.push(token)
+        })
+        return found
+    }
+    const expectRenderableReply = (text: string) => {
+        const tokens = markdownTokens(text)
+        const images = tokens.filter((t) => t.type === 'image')
+        expect(images).toHaveLength(1)
+        expect(images[0].text).toBe('Image: zz-test-blue-square.png')
+        expect(images[0].href).toMatch(/^http:\/\/[^/]+\/api\/v1\/get-upload-file\?/)
+        expect(marked.parse(text)).toContain('<img src="http')
+        const links = tokens.filter((t) => t.type === 'link')
+        expect(links.map((t) => t.text)).toEqual(['Download zz-test-deck.pptx'])
+        // No label is left without a link, and no `[` + lowercase label that a console's markup would swallow.
+        expect(text).not.toMatch(/\[Download[^\]]*\](?!\()/)
+        expect(text).not.toMatch(/\[[a-z#/@][^\]]*\]/)
+        expect(text).not.toContain('attachment:')
+        expect(text).not.toMatch(/!\(/)
+    }
+
+    it('sends a Markdown image a parser renders, and no dangling download label, in the non-streaming body', async () => {
+        mockBuildChatflow.mockImplementation(async (req: any) => ({ text: QA_TEXT, chatId: req.body.chatId, artifacts: QA_ARTIFACTS }))
+        const res = await post(K, hi, withKey())
+        expect(res.status).toBe(200)
+        const content = completionSchema.parse(res.body).choices[0].message.content
+        expect(content.startsWith('A deck titled')).toBe(true)
+        expectRenderableReply(content)
+    })
+
+    it('sends a Markdown image a parser renders, and no dangling download label, when streaming', async () => {
+        mockBuildChatflow.mockImplementation(async (req: any) => {
+            const chatId = req.body.chatId
+            for (const t of QA_TOKENS) mockState.streamer.streamTokenEvent(chatId, t)
+            mockState.streamer.streamArtifactsEvent(chatId, QA_ARTIFACTS)
+            return { text: QA_TEXT, chatId, artifacts: QA_ARTIFACTS }
+        })
+        const streamed = await streamRequest(K, streamBody(), withKey())
+        expect(streamed.status).toBe(200)
+        const text = ibmText(String(streamed.body))
+        expectRenderableReply(text)
     })
 
     it('adds no links when the server cannot sign them', async () => {

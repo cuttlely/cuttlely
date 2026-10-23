@@ -7,6 +7,7 @@ import {
     EXTERNAL_FILE_LINK_TTL_MIN,
     externalFileLinkTtlSeconds,
     makeArtifactLinker,
+    makeAttachmentLinkFilter,
     storedFileName,
     withArtifactLinks
 } from './fileLinks'
@@ -77,8 +78,8 @@ describe('artifactLinks', () => {
             ctx
         )
         expect(links.map((l) => l.markdown.replace(/\(https:[^)]+\)$/, '(URL)'))).toEqual([
-            '![chart.png](URL)',
-            '![photo 1 .jpg](URL)',
+            '![Image: chart.png](URL)',
+            '![Image: photo 1 .jpg](URL)',
             '[Download deck.pdf](URL)',
             '[Download rows.csv](URL)'
         ])
@@ -139,11 +140,45 @@ describe('answer text', () => {
         expect(withArtifactLinks('Answer', [])).toBe('Answer')
     })
 
+    it('drops a download label with no link and the `[label][attachment:...]` form, and keeps real links', () => {
+        expect(dropAttachmentLinks('[Download the deck: **d.pptx**]\n\nText')).toBe('\n\nText')
+        expect(dropAttachmentLinks('A [Download d.pptx][attachment:d.pptx] B')).toBe('A  B')
+        expect(dropAttachmentLinks('![d.png][ attachment:d.png] B')).toBe(' B')
+        for (const keep of [
+            '[Download d](https://x.example/d)',
+            '- [x] done',
+            '[1] cite',
+            '[Download d][1]',
+            '[Download d]: https://x.example',
+            '![Download d](https://x)'
+        ]) {
+            expect(dropAttachmentLinks(keep)).toBe(keep)
+        }
+        expect(withArtifactLinks('\n\n\nAnswer', [])).toBe('Answer')
+    })
+
+    it('streams the same text as the non-streaming filter for dangling labels, split at every point', () => {
+        const text = 'Hi [Download d.pptx] and [Download e](https://x.example/e) and [d][attachment:d.pptx] ok [Download f]'
+        const want = dropAttachmentLinks(text)
+        expect(want).toBe('Hi  and [Download e](https://x.example/e) and  ok ')
+        for (let cut = 1; cut < text.length; cut++) {
+            const filter = makeAttachmentLinkFilter()
+            expect(filter.push(text.slice(0, cut)) + filter.push(text.slice(cut)) + filter.flush()).toBe(want)
+        }
+    })
+
+    it('labels images with a capital word and the name the file was written under', () => {
+        const [png] = artifactLinks([{ type: 'png', data: 'FILE-STORAGE::harness_python_1792792110729_0_zz-test-blue-square.png' }], ctx)
+        expect(png.markdown).toMatch(/^!\[Image: zz-test-blue-square\.png\]\(https:/)
+        const [plain] = artifactLinks([{ type: 'png', data: 'FILE-STORAGE::harness_notes.png' }], ctx)
+        expect(plain.markdown).toMatch(/^!\[Image: harness_notes\.png\]\(https:/)
+    })
+
     it('links each file once across stream and final body', () => {
         const linker = makeArtifactLinker(ctx)
         const a = { type: 'png', data: 'FILE-STORAGE::a.png' }
         const b = { type: 'pdf', data: 'FILE-STORAGE::b.pdf' }
-        expect(linker.take([a])).toMatch(/^!\[a\.png\]/)
+        expect(linker.take([a])).toMatch(/^!\[Image: a\.png\]/)
         expect(linker.take([a])).toBe('')
         expect(linker.links([a, b]).map((l) => l.fileName)).toEqual(['b.pdf'])
         expect(linker.all([a, b]).map((l) => l.fileName)).toEqual(['a.png', 'b.pdf'])

@@ -760,6 +760,8 @@ export function buildRunTrace({
                       retried: Boolean(routeParse.retried),
                       ...(routeParse.fallbackSpecialist ? { fallbackSpecialist: String(routeParse.fallbackSpecialist) } : {})
                   }
+                : routeParse?.fallbackSpecialist
+                ? { fallbackSpecialist: String(routeParse.fallbackSpecialist) }
                 : {}),
             steps: (steps || []).map((step) => ({
                 specialist: step.specialist || step.name || '',
