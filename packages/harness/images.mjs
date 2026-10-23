@@ -154,17 +154,20 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
     const chat = chatDir ? trimSep(chatDir) : ''
     const out = hideRoot(text, base, chat)
     // A file:// link spells a folder with spaces or other characters percent-encoded; that spelling is masked too.
-    const encoded = encodeURI(base)
-    return encoded === base ? out : hideRoot(out, encoded, chat ? encodeURI(chat) : '')
+    const encoded = encodeFilePath(base)
+    return encoded === base ? out : hideRoot(out, encoded, chat ? encodeFilePath(chat) : '')
 }
+
+// How a file:// link spells a path: percent-encoded, including "#" and "?".
+export const encodeFilePath = (value) => encodeURI(value).replace(/#/g, '%23').replace(/\?/g, '%3F')
 
 function hideRoot(text, base, chat) {
     if (!text.includes(base)) return text
     const sep = escapeRegExp(path.sep)
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
-    const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://)?${escapeRegExp(base)}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~.${sep}-])`
+    const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://(?:localhost)?)?${escapeRegExp(base)}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~.${sep}-])`
     const shown = (full) => {
-        const rest = full.replace(/^file:\/\//, '')
+        const rest = full.replace(/^file:\/\/(?:localhost)?/, '')
         if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'
         const parts = rest.slice(base.length).split(path.sep).filter(Boolean)
         // Under the chat folder itself every path is a file name; under the root the first part is a workspace.

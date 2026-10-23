@@ -8051,9 +8051,27 @@ check(
         const frozen = Object.freeze(Object.assign(new Error(`Cannot read ${path.join(assets, 'private.pdf')}`), { code: 'tool_failed' }))
         const freed = maskError(frozen)
         const bytesKept = maskWorkspacePaths({ base64: { error: path.join(assets, 'private.pdf') }, data: `data:text/plain,${assets}/x` })
-        const { hideWorkspacePaths } = await import('./images.mjs')
+        const { hideWorkspacePaths, encodeFilePath } = await import('./images.mjs')
         const spacedRoot = '/var/cuttlely data/workspaces'
         const encodedLink = hideWorkspacePaths(`see ${new URL(`file://${spacedRoot}/agent/private.pdf`).href} now`, spacedRoot)
+        const fielded = maskError(Object.assign(new Error('tool failed'), { code: path.join(assets, 'private.pdf') }))
+        const frozenFielded = maskError(Object.freeze(Object.assign(new Error('tool failed'), { detail: path.join(assets, 'p.pdf') })))
+        const thrownText = maskError(`open ${path.join(assets, 'private.pdf')}`)
+        const oddRoot = '/var/cuttlely #1?/workspaces'
+        const otherLinks = [
+            hideWorkspacePaths(`see file://localhost${path.join(assets, 'private.pdf')} now`, root),
+            hideWorkspacePaths(`see file://${encodeFilePath(oddRoot)}/agent/odd.pdf now`, oddRoot)
+        ]
+        check(
+            'thrown strings, error fields and local or odd file links are masked',
+            fielded.code === 'private.pdf' &&
+                frozenFielded.detail === 'p.pdf' &&
+                frozenFielded.message === 'tool failed' &&
+                thrownText === 'open private.pdf' &&
+                otherLinks[0] === 'see private.pdf now' &&
+                otherLinks[1] === 'see odd.pdf now',
+            JSON.stringify({ code: fielded.code, detail: frozenFielded.detail, thrownText, otherLinks })
+        )
         check(
             'frozen errors, non-byte base64 values and encoded file links are masked',
             freed.message === 'Cannot read private.pdf' &&

@@ -57,6 +57,7 @@ import {
 import { specialistSessionId } from './specialist-run.mjs'
 import {
     hideTurnImageDir,
+    encodeFilePath,
     mergeTurnArtifacts,
     newTurnImageDir,
     promptImages,
@@ -663,7 +664,7 @@ const fileBytes = (key, item) =>
     typeof item === 'string' &&
     (key === 'base64' || (key === 'data' && item.startsWith('data:'))) &&
     !item.includes(specialistWorkspaceRoot()) &&
-    !item.includes(encodeURI(specialistWorkspaceRoot()))
+    !item.includes(encodeFilePath(specialistWorkspaceRoot()))
 const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
 export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     if (typeof value === 'string') return maskText(value)
@@ -708,19 +709,26 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
 // An error leaves with its message, stack and fields masked. One that cannot be changed (a frozen error) is replaced
 // by a masked copy with the same prototype, name and fields, such as its code.
 export function maskError(error) {
-    if (!error || typeof error !== 'object' || typeof error.message !== 'string') return error
-    const message = maskWorkspacePaths(error.message)
+    // A thrown string or object is masked too; other thrown values carry no text.
+    if (typeof error === 'string') return maskWorkspacePaths(error)
+    if (!error || typeof error !== 'object') return error
+    if (!(error instanceof Error) && typeof error.message !== 'string') return maskWorkspacePaths(error)
+    const message = maskWorkspacePaths(String(error.message ?? ''))
     const stack = typeof error.stack === 'string' ? maskWorkspacePaths(error.stack) : error.stack
+    const fields = Object.entries(error).map(([key, item]) => [key, item, maskWorkspacePaths(item)])
+    const changed = (key, item, next) => JSON.stringify(item) !== JSON.stringify(next) || (typeof item === 'string' && item !== next)
     try {
         if (error.message !== message) error.message = message
         if (error.stack !== stack) error.stack = stack
+        for (const [key, item, next] of fields) if (changed(key, item, next)) error[key] = next
     } catch {
         // Checked below.
     }
-    if (error.message === message && error.stack === stack) return error
+    const clean = error.message === message && error.stack === stack && fields.every(([key, , next]) => !changed(key, error[key], next))
+    if (clean) return error
     const copy = new Error(message)
     Object.setPrototypeOf(copy, Object.getPrototypeOf(error))
-    for (const [key, item] of Object.entries(error)) copy[key] = maskWorkspacePaths(item)
+    for (const [key, , next] of fields) copy[key] = next
     Object.defineProperty(copy, 'name', { value: error.name, writable: true, configurable: true })
     copy.stack = stack
     return copy
@@ -1513,9 +1521,10 @@ const STREAM_HOLD = 16 * 1024
 // Where the last mention of the workspaces folder starts (at its opening quote or file:// link) when no line has
 // ended after it, or the text's length.
 export function openPathAt(text, root = specialistWorkspaceRoot()) {
-    let at = Math.max(text.lastIndexOf(root), text.lastIndexOf(encodeURI(root)))
+    let at = Math.max(text.lastIndexOf(root), text.lastIndexOf(encodeFilePath(root)))
     if (at < 0 || text.indexOf('\n', at) >= 0) return text.length
-    if (text.slice(Math.max(0, at - 7), at) === 'file://') at -= 7
+    if (text.slice(Math.max(0, at - 16), at) === 'file://localhost') at -= 16
+    else if (text.slice(Math.max(0, at - 7), at) === 'file://') at -= 7
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
     return at
 }
@@ -1523,7 +1532,7 @@ export function openPathAt(text, root = specialistWorkspaceRoot()) {
 // Where the text's end starts a prefix of the workspaces folder (or its file:// link), or its length when it does not.
 export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
     let at = text.length
-    for (const full of [root, `file://${root}`, `file://${encodeURI(root)}`]) {
+    for (const full of [root, `file://${root}`, `file://localhost${root}`, `file://${encodeFilePath(root)}`]) {
         for (let index = Math.max(0, text.length - full.length); index < at; index += 1) {
             if (full.startsWith(text.slice(index))) {
                 at = index
