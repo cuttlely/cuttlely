@@ -336,6 +336,200 @@ describe('Harness node specialist images', () => {
         ])
     })
 
+    it('takes large PPTX and PNG downloads from the specialist folder through fresh chat and reloaded storage', async () => {
+        const os = require('os')
+        const fs = require('fs')
+        const path = require('path')
+        const { execFileSync } = require('child_process')
+        // A stored (uncompressed) ZIP with the parts a presentation needs, written by a made-up specialist.
+        const zipOf = (names: string[]) => {
+            const locals: Buffer[] = []
+            const centrals: Buffer[] = []
+            let offset = 0
+            for (const name of names) {
+                const nameBytes = Buffer.from(name, 'utf8')
+                const local = Buffer.alloc(30)
+                local.writeUInt32LE(0x04034b50, 0)
+                local.writeUInt16LE(nameBytes.length, 26)
+                const central = Buffer.alloc(46)
+                central.writeUInt32LE(0x02014b50, 0)
+                central.writeUInt16LE(nameBytes.length, 28)
+                central.writeUInt32LE(offset, 42)
+                locals.push(local, nameBytes)
+                centrals.push(central, nameBytes)
+                offset += 30 + nameBytes.length
+            }
+            const directory = Buffer.concat(centrals)
+            const end = Buffer.alloc(22)
+            end.writeUInt32LE(0x06054b50, 0)
+            end.writeUInt16LE(names.length, 8)
+            end.writeUInt16LE(names.length, 10)
+            end.writeUInt32LE(directory.length, 12)
+            end.writeUInt32LE(offset, 16)
+            return Buffer.concat([...locals, directory, end])
+        }
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-pptx-'))
+        try {
+            // A real deck saved by python-pptx (made-up text), so the bytes are a presentation PowerPoint can open.
+            const deck = fs.readFileSync(path.join(__dirname, '__fixtures__', 'q3-deck.pptx'))
+            const { deflateSync, crc32 } = require('zlib')
+            // A complete, deterministic RGB PNG with uncompressed DEFLATE blocks. The white
+            // pixels force // into its base64, exercising the former path-like byte masking.
+            const downloadRegressionPng = () => {
+                const chunk = (name: string, data: Buffer) => {
+                    const type = Buffer.from(name)
+                    const header = Buffer.alloc(4)
+                    header.writeUInt32BE(data.length)
+                    const checksum = Buffer.alloc(4)
+                    checksum.writeUInt32BE(crc32(Buffer.concat([type, data])))
+                    return Buffer.concat([header, type, data, checksum])
+                }
+                const ihdr = Buffer.alloc(13)
+                ihdr.writeUInt32BE(64, 0)
+                ihdr.writeUInt32BE(64, 4)
+                ihdr[8] = 8
+                ihdr[9] = 2
+                const pixels = Buffer.alloc(64 * (1 + 64 * 3), 255)
+                for (let row = 0; row < 64; row++) pixels[row * 193] = 0
+                return Buffer.concat([
+                    Buffer.from('89504e470d0a1a0a', 'hex'),
+                    chunk('IHDR', ihdr),
+                    chunk('IDAT', deflateSync(pixels, { level: 0 })),
+                    chunk('IEND', Buffer.alloc(0))
+                ])
+            }
+
+            expect(deck.length).toBeGreaterThan(1024)
+            const png = downloadRegressionPng()
+            expect(png.length).toBeGreaterThanOrEqual(4096)
+            expect(png.toString('base64')).toContain('//')
+            fs.writeFileSync(path.join(dir, 'chart.png'), png)
+            fs.writeFileSync(path.join(dir, 'q3 deck.pptx'), deck)
+            fs.writeFileSync(path.join(dir, 'renamed.pptx'), zipOf(['[Content_Types].xml', 'word/document.xml']))
+            const images = path.resolve(__dirname, '../../../../harness/images.mjs')
+            // Run the ESM runtime in Node, then use the component's storage code in Jest.
+            const runtime = path.resolve(__dirname, '../../../../harness')
+            const script = `
+                import fs from 'node:fs';
+                console.info = (...args) => console.error(...args);
+                process.env.CUTTLELY_DATA_DIR = ${JSON.stringify(path.join(dir, 'runtime'))};
+                process.env.CUTTLELY_HERMES_HOME = ${JSON.stringify(path.join(dir, 'runtime', 'hermes'))};
+                delete process.env.HERMES_API_URL;
+                const { saveHarness } = await import(${JSON.stringify(runtime + '/store.mjs')});
+                const { runHarness } = await import(${JSON.stringify(runtime + '/run.mjs')});
+                saveHarness({ name: 'download-test', chief: { model: {
+                    nodeId: 'scriptedChat', nodeName: 'scriptedChat', label: 'Scripted Chat', category: 'Chat Models', inputs: {}
+                } }, specialists: [{ name: 'assets', instructions: 'Create files.', codeExecution: true, fileAccess: true }] }, { overwrite: true });
+                class Chat {
+                    async init() { return { async invoke(messages) {
+                        return { content: String(messages[0]?.content || '').includes('You route work')
+                            ? JSON.stringify({ steps: [{ specialist: 'assets', task: 'Create files.' }] }) : 'Files ready.' };
+                    } }; }
+                }
+                const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+                const result = await runHarness({ name: 'download-test', chatId: 'fresh-download', input: 'Create a deck and chart.',
+                    flowOptions: { harnessCaller: { via: 'session' } }, baseUrl: 'http://127.0.0.1:9', loadNode: async () => Chat,
+                    fetchImpl: async (url, init = {}) => {
+                        const pathname = new URL(url).pathname;
+                        if (init.method === 'POST' && pathname.endsWith('/v1/runs')) {
+                            const folder = JSON.parse(init.body).input.match(/save it as a PNG or JPEG file in this folder: ([^\\n]+)/)?.[1];
+                            if (!folder) throw new Error('Missing turn folder');
+                            for (const name of ['q3 deck.pptx', 'chart.png', 'renamed.pptx']) {
+                                fs.copyFileSync(${JSON.stringify(dir)} + '/' + name, folder + '/' + name);
+                                const stamp = new Date(Date.now() + 1000);
+                                fs.utimesSync(folder + '/' + name, stamp, stamp);
+                            }
+                            return json({ run_id: 'files', status: 'started' }, 202);
+                        }
+                        if (pathname.endsWith('/events')) return new Response(': closed\\n\\n', { headers: { 'content-type': 'text/event-stream' } });
+                        return json({ status: 'completed', output: 'Files ready.' });
+                    }
+                });
+                process.stdout.write(JSON.stringify(result.artifacts));
+            `
+            const files = JSON.parse(
+                execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+                    encoding: 'utf8',
+                    env: { ...process.env, OPENAI_API_KEY: undefined, XAI_API_KEY: undefined }
+                })
+            )
+            files.sort((a: { type: string }, b: { type: string }) => (a.type === 'pptx' ? -1 : b.type === 'pptx' ? 1 : 0))
+            expect(files.map((file: { name: string; type: string }) => [file.name, file.type])).toEqual([
+                ['q3 deck.pptx', 'pptx'],
+                ['chart.png', 'png']
+            ])
+            expect(files[0].mime).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation')
+            const stored = await storeHarnessImages(files, { orgId: 'org-1', chatflowid: 'flow-1', chatId: 'chat-1' })
+            expect(stored).toHaveLength(2)
+            expect(stored[0].type).toBe('pptx')
+            expect(stored[0].name).toBe('q3_deck.pptx')
+            expect(stored[0].data).toMatch(/^FILE-STORAGE::harness_assets_\d+_0_q3_deck\.pptx$/)
+            const [mime, buffer] = addSingleFileToStorage.mock.calls[0]
+            expect(mime).toBe('application/vnd.openxmlformats-officedocument.presentationml.presentation')
+            expect(buffer.equals(deck)).toBe(true)
+            // Fresh chat storage receives the complete bytes for both downloads.
+            expect(Buffer.from(files[0].base64, 'base64').equals(deck)).toBe(true)
+            expect(Buffer.from(files[1].base64, 'base64').equals(png)).toBe(true)
+            expect(addSingleFileToStorage.mock.calls[1][1].equals(png)).toBe(true)
+            // The same bytes go through the real local file storage: the stored name reads back as the deck.
+            const realStorage = jest.requireActual('../../../src/storageUtils')
+            const previous = { type: process.env.STORAGE_TYPE, path: process.env.BLOB_STORAGE_PATH }
+            process.env.STORAGE_TYPE = 'local'
+            process.env.BLOB_STORAGE_PATH = path.join(dir, 'storage')
+            try {
+                addSingleFileToStorage.mockImplementationOnce(realStorage.addSingleFileToStorage)
+                addSingleFileToStorage.mockImplementationOnce(realStorage.addSingleFileToStorage)
+                const [saved, savedPng] = await storeHarnessImages(files, { orgId: 'org-1', chatflowid: 'flow-1', chatId: 'chat-1' })
+                for (const [reference, original] of [
+                    [saved, deck],
+                    [savedPng, png]
+                ]) {
+                    const fresh = await realStorage.getFileFromStorage(
+                        reference.data.replace('FILE-STORAGE::', ''),
+                        'org-1',
+                        'flow-1',
+                        'chat-1'
+                    )
+                    expect(fresh.equals(original)).toBe(true)
+                }
+                // Model chat reload: only the serialized FILE-STORAGE reference is available.
+                const reloadedPng = JSON.parse(JSON.stringify(savedPng))
+                const downloadedPng = await realStorage.getFileFromStorage(
+                    reloadedPng.data.replace('FILE-STORAGE::', ''),
+                    'org-1',
+                    'flow-1',
+                    'chat-1'
+                )
+                expect(downloadedPng.equals(png)).toBe(true)
+                const reloadedDeck = JSON.parse(JSON.stringify(saved))
+                const fileName = reloadedDeck.data.replace('FILE-STORAGE::', '')
+                const downloaded = await realStorage.getFileFromStorage(fileName, 'org-1', 'flow-1', 'chat-1')
+                expect(downloaded.equals(deck)).toBe(true)
+                // The downloaded file still unzips with the presentation part inside.
+                const names = execFileSync(
+                    process.execPath,
+                    [
+                        '--input-type=module',
+                        '-e',
+                        `import { zipEntryNames } from ${JSON.stringify(
+                            images
+                        )}; import fs from 'node:fs'; process.stdout.write(JSON.stringify(zipEntryNames(fs.readFileSync(0))))`
+                    ],
+                    { input: downloaded, encoding: 'utf8' }
+                )
+                expect(JSON.parse(names)).toContain('ppt/presentation.xml')
+                expect(saved).toMatchObject({ type: 'pptx', name: 'q3_deck.pptx' })
+            } finally {
+                if (previous.type === undefined) delete process.env.STORAGE_TYPE
+                else process.env.STORAGE_TYPE = previous.type
+                if (previous.path === undefined) delete process.env.BLOB_STORAGE_PATH
+                else process.env.BLOB_STORAGE_PATH = previous.path
+            }
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
     it('skips a file whose MIME type does not match its type', async () => {
         const mismatch = { type: 'pdf', mime: 'text/html', name: 'page.pdf', base64: 'PGgxPg==' }
         expect(await storeHarnessImages([mismatch], { chatflowid: 'flow-1', chatId: 'chat-1' })).toEqual([])

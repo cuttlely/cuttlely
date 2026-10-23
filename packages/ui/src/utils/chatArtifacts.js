@@ -1,11 +1,12 @@
-// Files a harness specialist made (PDF, DOCX, XLSX, CSV) reach the chat as artifacts next to its PNG and JPEG
+// Files a harness specialist made (PDF, DOCX, XLSX, PPTX, CSV) reach the chat as artifacts next to its PNG and JPEG
 // images. Images show inline; files are offered as downloads.
-export const FILE_ARTIFACT_TYPES = ['pdf', 'docx', 'xlsx', 'csv']
+export const FILE_ARTIFACT_TYPES = ['pdf', 'docx', 'xlsx', 'pptx', 'csv']
 
 const FILE_DATA_URL = {
     pdf: 'data:application/pdf;base64,',
     docx: 'data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,',
     xlsx: 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,',
+    pptx: 'data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,',
     csv: 'data:text/csv;base64,'
 }
 

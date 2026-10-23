@@ -132,16 +132,17 @@ type HarnessImage = { type?: string; mime?: string; name?: string; specialist?: 
 type StoredArtifact = { type: string; data: string; name?: string }
 
 // The artifact types a harness turn may return, with the MIME type each is stored as. The harness runtime checked
-// the bytes against the type (packages/harness/images.mjs). PDF, DOCX, XLSX and CSV keep a name for the download.
+// the bytes against the type (packages/harness/images.mjs). PDF, DOCX, XLSX, PPTX and CSV keep a name for the download.
 const HARNESS_ARTIFACT_MIMES: Record<string, string> = {
     png: 'image/png',
     jpeg: 'image/jpeg',
     pdf: 'application/pdf',
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     csv: 'text/csv'
 }
-const HARNESS_FILE_TYPES = new Set(['pdf', 'docx', 'xlsx', 'csv'])
+const HARNESS_FILE_TYPES = new Set(['pdf', 'docx', 'xlsx', 'pptx', 'csv'])
 
 // Images and files a specialist wrote this turn arrive as bytes. They are saved in the chat's file storage, and the
 // chat gets the usual artifacts: images show inline, files as downloads. A publish check replay stores nothing.

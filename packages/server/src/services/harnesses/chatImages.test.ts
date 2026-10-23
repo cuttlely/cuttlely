@@ -47,6 +47,15 @@ describe('chatImages', () => {
         ])
     })
 
+    it('turns a PPTX artifact into a named data URL', () => {
+        const mime = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        expect(chatImages([{ type: 'pptx', mime, name: 'decks/q3 deck.pptx', base64: 'UEsDBA==' }])).toEqual([
+            { type: 'pptx', data: `data:${mime};base64,UEsDBA==`, name: 'q3_deck.pptx' }
+        ])
+        expect(chatImages([{ type: 'pptx', mime: 'application/zip', name: 'deck.pptx', base64: 'UEsDBA==' }])).toEqual([])
+        expect(artifactFileName(undefined, 'pptx')).toBe('file.pptx')
+    })
+
     it('skips anything that is not a known type with bytes', () => {
         expect(chatImages(undefined)).toEqual([])
         expect(chatImages('chart.png')).toEqual([])

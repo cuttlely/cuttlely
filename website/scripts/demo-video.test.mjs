@@ -498,13 +498,15 @@ test('each main section ends with its one action and its ref tag', () => {
     const tools = section('tools-your-teams-use')
     assert.match(tools.slice(tools.lastIndexOf('</ul>')), /href="\/quickstart\/\?ref=home-teams">Build your first team/)
     const context = section('small-context-big-answers')
-    assert.match(context, /<h2 id="context-title" class="cl-display">Context handling built from the ground up to be lean\.<\/h2>/)
+    assert.match(context, /<h2 id="context-title" class="cl-display">Put your agents on a token diet\.<\/h2>/)
     const contextEnd = context.slice(context.lastIndexOf('</ul>'))
     assert.match(contextEnd, /npx cuttlely start/)
     assert.match(contextEnd, /<CopyButton target="cl-context-npx" label="Copy the command npx cuttlely start" \/>/)
     assert.equal(contextEnd.match(/<a /g)?.length ?? 0, 0)
-    assert.match(context, /PostgreSQL MCP node[\s\S]*from 2,562 to 663 tokens/)
-    assert.match(context, /In our internal benchmarks, on a made-up bakery database/)
+    assert.match(
+        context,
+        /<p class="cl-center">In our internal benchmarks, ticking only the needed tables on the PostgreSQL MCP node cut 2,562 tokens to 663\.<\/p>/
+    )
     const ab = section('ab-test-every-change-before-it-goes-live')
     assert.match(ab, /Roll back the Live flow in one step\./)
     assert.doesNotMatch(ab, /credential|Server Settings|settings/i)
@@ -516,7 +518,7 @@ test('each main section ends with its one action and its ref tag', () => {
     assert.match(abEnd, /Star on GitHub/)
     // The bakery figure sits only beside the ticked tables, never with the teams.
     assert.equal((src.match(/2,562/g) || []).length, 1)
-    assert.equal((src.match(/built from the ground up/gi) || []).length, 1)
+    assert.equal((src.match(/built from the ground up/gi) || []).length, 0)
     assert.doesNotMatch(src, /publish-check-results\.png/, 'the Publish check shot shows no price')
 })
 
@@ -673,7 +675,7 @@ test('one Integrations section follows MCP, keeps the Orchestrate video, and nam
 
 test('the home page hero uses the Oct 21 copy, with the approved title and meta description', () => {
     const lead =
-        'Build AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.'
+        'Orchestrate AI agent teams that are lean by design, so each agent sees only what it needs. See what each run uses and costs, and replay real questions before you publish.'
     const retired = 'The visual agent builder, ready for production.'
     const hero = readFileSync(new URL('../src/components/Hero.astro', import.meta.url), 'utf8')
     const page = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
@@ -685,11 +687,11 @@ test('the home page hero uses the Oct 21 copy, with the approved title and meta 
     assert.equal(heroLead.replace(/\s+/g, ' ').trim(), lead)
     assert.equal(hero.includes(retired), false)
     assert.equal(page.includes(retired), false)
-    assert.ok(page.includes("tagline: 'Open-source agent platform · Apache-2.0'"))
-    assert.ok(page.includes("title: 'Cuttlely | Open-source agent platform for lean AI agent teams'"))
+    assert.ok(page.includes("tagline: 'Context-aware agent orchestration · Open source, Apache-2.0'"))
+    assert.ok(page.includes("title: 'Cuttlely | Context-aware agent orchestration, open source'"))
     assert.ok(
         page.includes(
-            "'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'"
+            "'Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.'"
         )
     )
     assert.match(page, /<span class="cl-pair-label">Without it<\/span>\s*The whole database schema is pasted into the prompt\./)
