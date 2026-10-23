@@ -182,13 +182,16 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
     // ("README failed during read/write"); any further path in it is masked too. The check is one pass.
     const badFolder = /^\s|\s$|[;:<>|?*]|, |\.[A-Za-z0-9]{1,8}\s/
     const fileEnd = /\.[A-Za-z0-9]{1,8}$/
+    // Words that read as an error or a sentence, not a folder name ("README failed reading docs/help.md").
+    const proseFolder =
+        /\s(?:failed|failing|reading|writing|during|while|when|because|cannot|could|not|is|was|were|from|into|to|with|error|errors|missing)(?:\s|$)/i
     const space = /\s/
     const onePath = (rest) => {
         if (!space.test(rest)) return true
         const parts = rest.split(path.sep)
         if (parts[0] !== '') return false
         const last = parts.pop()
-        return fileEnd.test(last) && parts.slice(1).every((folder) => folder && !badFolder.test(folder))
+        return fileEnd.test(last) && parts.slice(1).every((folder) => folder && !badFolder.test(folder) && !proseFolder.test(folder))
     }
     // Where a path that does not fill the quote ends: at the first space after a file name whose folders are all
     // valid ("Q3 Reports/a.pdf and ..."), else at the first space. One pass; each check looks back a few characters.

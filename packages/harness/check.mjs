@@ -7966,7 +7966,8 @@ check(
             [`"${path.join(assets, 'report.pdf')} failed during read/write"`, '"report.pdf failed during read/write"'],
             [`"${path.join(assets, 'report.pdf')} and/or deck.pptx"`, '"report.pdf and/or deck.pptx"'],
             [`"${path.join(assets, 'README')} failed during read/write"`, '"README failed during read/write"'],
-            [`"${path.join(assets, 'out')} is not a folder/file"`, '"out is not a folder/file"']
+            [`"${path.join(assets, 'out')} is not a folder/file"`, '"out is not a folder/file"'],
+            [`"${path.join(assets, 'README')} failed reading docs/help.md"`, '"README failed reading docs/help.md"']
         ]
         // A chat folder outside the root (another root passed in) is still masked, with the same start boundary.
         const elsewhere = path.join(os.tmpdir(), 'cuttlely-chat', 'run1')
@@ -8011,6 +8012,17 @@ check(
                 }
             }
         }
+        {
+            // A long stream past the hold size still keeps an unfinished workspaces folder name back.
+            const sent = []
+            const streamContext = {}
+            const pieces = [`${spaced}/agent/a.pdf ${'word '.repeat(3400)}See /var/cuttlely `, 'data/workspaces/agent/b.pdf', ' done ']
+            for (const piece of pieces) bufferStream(streamContext, 'answer', piece, false, (text) => sent.push(text), spaced)
+            bufferStream(streamContext, 'answer', '', true, (text) => sent.push(text), spaced)
+            if (sent.some((text) => /cuttlely|workspaces/.test(text)) || !sent.join('').includes('See b.pdf done')) {
+                spacedLeaks.push(['long', sent.map((text) => text.slice(-80))])
+            }
+        }
         check('a stream with spaces in the workspace path is masked at every split', spacedLeaks.length === 0, JSON.stringify(spacedLeaks))
         let deep = { note: path.join(assets, 'deep.pdf') }
         for (let level = 0; level < 100; level += 1) deep = { deep }
@@ -8018,6 +8030,29 @@ check(
         looped.self = looped
         const deepText = JSON.stringify(maskWorkspacePaths({ deep, keyed: { [path.join(assets, 'k.pdf')]: 'failed' } }))
         const loopText = JSON.stringify(maskWorkspacePaths(looped))
+        class Meta {
+            constructor(where) {
+                this.where = where
+            }
+        }
+        const typed = JSON.stringify(
+            maskWorkspacePaths({
+                link: new URL(`file://${path.join(assets, 'private.pdf')}`),
+                meta: new Meta(path.join(assets, 'meta.pdf')),
+                pair: { [path.join(assets, 'r.pdf')]: 1, 'r.pdf': 2 },
+                proto: JSON.parse('{"__proto__": "kept"}')
+            })
+        )
+        check(
+            'URLs, class instances, colliding keys and a __proto__ key are masked and kept',
+            !typed.includes(root) &&
+                typed.includes('private.pdf') &&
+                typed.includes('meta.pdf') &&
+                typed.includes('"r.pdf":1') &&
+                typed.includes('"r.pdf (2)":2') &&
+                typed.includes('"__proto__":"kept"'),
+            typed
+        )
         check(
             'deep values, cycles and object keys are masked too',
             !deepText.includes(root) && deepText.includes('"k.pdf":"failed"') && !loopText.includes(root) && loopText.includes('loop.pdf'),

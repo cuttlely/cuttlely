@@ -670,18 +670,36 @@ const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
 export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     if (typeof value === 'string') return maskText(value)
     if (!value || typeof value !== 'object') return value
-    const proto = Object.getPrototypeOf(value)
-    if (!Array.isArray(value) && proto !== Object.prototype && proto !== null) return value
+    // Raw bytes hold no text to mask.
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value
     if (depth >= MASK_DEPTH || open.has(value)) return '[nested data]'
+    // Any other object (a URL, a Date, a class instance) is masked as it would be sent: its toJSON() form, or its own
+    // fields.
+    if (!Array.isArray(value) && typeof value.toJSON === 'function') {
+        let plain
+        try {
+            plain = value.toJSON()
+        } catch {
+            return '[data]'
+        }
+        return plain === value ? '[data]' : maskWorkspacePaths(plain, depth + 1, open)
+    }
     open.add(value)
     try {
         if (Array.isArray(value)) return value.map((item) => maskWorkspacePaths(item, depth + 1, open))
         const out = {}
         for (const [key, item] of Object.entries(value)) {
-            let name = maskText(key)
-            // Two keys that mask to the same name keep both values.
-            for (let n = 2; name !== key && Object.hasOwn(out, name); n += 1) name = `${maskText(key)} (${n})`
-            out[name] = fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1, open)
+            const shown = maskText(key)
+            let name = shown
+            // Two keys that end up with the same name keep both values, in either order.
+            for (let n = 2; Object.hasOwn(out, name); n += 1) name = `${shown} (${n})`
+            // A key such as "__proto__" stays a plain field.
+            Object.defineProperty(out, name, {
+                value: fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1, open),
+                enumerable: true,
+                writable: true,
+                configurable: true
+            })
         }
         return out
     } finally {
@@ -1462,6 +1480,10 @@ export function bufferStream(context, key, delta, flush, send, root = specialist
     if (!flush) cut = Math.min(cut, rootPrefixAt(text, root), openPathAt(text, root))
     if (!flush && text.length - cut > STREAM_HOLD) {
         cut = Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1 || text.length
+        // The cut never falls inside the workspaces folder's name, and an unfinished name at the end still waits.
+        const open = text.lastIndexOf(root)
+        if (open >= 0 && cut > open && cut < open + root.length) cut = open
+        cut = Math.min(cut, rootPrefixAt(text, root))
     }
     context._deltaTail.set(key, text.slice(cut))
     if (cut > 0) send(hideTurnImageDir(text.slice(0, cut), '', root))
