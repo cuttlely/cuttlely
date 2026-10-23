@@ -41,7 +41,7 @@ A setting or route that will be removed is marked **Deprecated** in the changelo
 
 | Version                       | Gets fixes         |
 | ----------------------------- | ------------------ |
-| Latest minor (today: `1.3.x`) | Yes                |
+| Latest minor (today: `1.4.x`) | Yes                |
 | Older minors and majors       | No. Upgrade first. |
 
 Fixes, including security fixes, ship as a patch release of the latest minor. An older minor does not get a backport. Upgrading within a major is meant to be safe: read the changelog's upgrade notes and back up first, as [Upgrading Cuttlely](./upgrading.md) describes. Every full `pnpm verify` checks that data from an older release opens on the current code.
