@@ -20,7 +20,7 @@ describe('file artifacts in the chat', () => {
     })
 
     test('only file types are file artifacts', () => {
-        expect(['pdf', 'docx', 'xlsx', 'csv'].every((type) => isFileArtifact({ type }))).toBe(true)
+        expect(['pdf', 'docx', 'xlsx', 'pptx', 'csv'].every((type) => isFileArtifact({ type }))).toBe(true)
         expect(isFileArtifact({ type: 'png' })).toBe(false)
         expect(isFileArtifact({ type: 'html' })).toBe(false)
         expect(isFileArtifact(null)).toBe(false)
@@ -56,6 +56,18 @@ describe('file artifacts in the chat', () => {
         expect(html).toContain('download="memo.docx"')
         expect(html).toContain('aria-label="Download memo.docx"')
         expect(html).toContain('DOCX · Download')
+    })
+
+    test('a stored PPTX is offered as a download with its name', () => {
+        const url = storedFileArtifactUrl(BASE, 'flow-1', 'chat-1', 'FILE-STORAGE::harness_assets_1700000000000_0_q3_deck.pptx')
+        const item = { type: 'pptx', name: 'q3_deck.pptx', data: url }
+        expect(fileArtifactHref(item, BASE)).toBe(url)
+        const dataUrl = 'data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,UEsDBA=='
+        expect(fileArtifactHref({ type: 'pptx', data: dataUrl }, BASE)).toBe(dataUrl)
+        expect(fileArtifactHref({ type: 'pptx', data: 'data:application/zip;base64,UEsDBA==' }, BASE)).toBeNull()
+        const html = render(item)
+        expect(html).toContain('download="q3_deck.pptx"')
+        expect(html).toContain('PPTX · Download')
     })
 
     test('renders nothing for a link it does not offer', () => {

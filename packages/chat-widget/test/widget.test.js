@@ -247,15 +247,18 @@ describe('chat widget', () => {
                         data: [
                             { type: 'pdf', data: 'FILE-STORAGE::harness_assets_1700000000000_0_q1-report.pdf', name: 'q1-report.pdf' },
                             { type: 'csv', data: 'FILE-STORAGE::harness_assets_1700000000000_1_orders.csv' },
-                            { type: 'xlsx', data: 'https://elsewhere.example/table.xlsx', name: 'table.xlsx' }
+                            { type: 'xlsx', data: 'https://elsewhere.example/table.xlsx', name: 'table.xlsx' },
+                            { type: 'pptx', data: 'FILE-STORAGE::harness_assets_1700000000000_2_q3-deck.pptx', name: 'q3-deck.pptx' }
                         ]
                     },
                     { event: 'metadata', data: { chatId: 'chat-f', chatMessageId: 'm' } }
                 ])
         })
         await type(t, 'Quarterly report')
-        await until(() => t.$$('.dc-file').length === 2 && !t.widget.busy)
-        const [pdf, csv] = t.$$('.dc-file')
+        await until(() => t.$$('.dc-file').length === 3 && !t.widget.busy)
+        const [pdf, csv, pptx] = t.$$('.dc-file')
+        assert.equal(pptx.getAttribute('download'), 'q3-deck.pptx')
+        assert.equal(pptx.querySelector('.dc-file-type').textContent, 'PPTX')
         assert.equal(pdf.getAttribute('download'), 'q1-report.pdf')
         assert.equal(pdf.querySelector('.dc-file-type').textContent, 'PDF')
         assert.equal(csv.getAttribute('download'), 'orders.csv', 'name falls back to the stored file name')

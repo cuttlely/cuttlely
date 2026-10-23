@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import path from 'node:path'
 import { readClientSignal } from './abort.mjs'
 import { turnBudgetMs } from './budget.mjs'
 import {
@@ -56,6 +57,10 @@ import {
 import { specialistSessionId } from './specialist-run.mjs'
 import {
     hideTurnImageDir,
+    namesRoot,
+    rootStarts,
+    workspaceMaskState,
+    scanWorkspaceText,
     mergeTurnArtifacts,
     newTurnImageDir,
     promptImages,
@@ -202,17 +207,28 @@ export async function runHarness(args = {}) {
             console.warn(`[harness] run history was not opened: ${historyError.message}`)
         }
     }
+    const turnFolders = new Set()
     let result
     let failure = null
     const tryName = args.record?.tryId ? tryProfileName(args.record.tryId) : ''
     if (tryName) noteLiveTry(tryName)
     try {
-        result = await runHarnessTurn(args)
+        // The answer, the trace and every record of the turn leave without workspace paths, whichever path ran.
+        result = maskWorkspacePaths(await runHarnessTurn({ ...args, turnFolders }))
         return result
     } catch (error) {
-        failure = error
-        throw error
+        const masked = maskError(error)
+        failure = masked
+        throw masked
     } finally {
+        // Keep files present until streamed text, final events and the returned payload are masked.
+        for (const folder of turnFolders) {
+            try {
+                removeTurnImageDir(folder)
+            } catch {
+                // A folder that cannot be removed is left for the next workspace cleanup.
+            }
+        }
         if (args.record?.tryId) {
             try {
                 await discardTryProfile(args.record.tryId)
@@ -250,7 +266,8 @@ async function runHarnessTurn({
     budgetMs,
     images,
     record,
-    replay
+    replay,
+    turnFolders
 } = {}) {
     const harness = harnessForTurn(name, record)
     if (!chatId) {
@@ -279,7 +296,8 @@ async function runHarnessTurn({
                     signal,
                     budgetMs,
                     images,
-                    replay
+                    replay,
+                    turnFolders
                 }),
             { workspace: harness.workspaceId }
         )
@@ -314,7 +332,8 @@ async function runTurn(
         signal,
         budgetMs,
         images,
-        replay
+        replay,
+        turnFolders
     }
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
@@ -338,7 +357,8 @@ async function runTurn(
             signal,
             budgetMs,
             images,
-            replay
+            replay,
+            turnFolders
         })
     } finally {
         if (callerWorkspace) clearCallerWorkspace(harness.name)
@@ -364,7 +384,8 @@ async function runTurnBody(
         signal,
         budgetMs,
         images,
-        replay
+        replay,
+        turnFolders
     }
 ) {
     assertCurrentRecord(harness)
@@ -412,6 +433,7 @@ async function runTurnBody(
         promptMessages: [],
         turnId: crypto.randomUUID(),
         images: promptImages(images),
+        turnFolders,
         // Publish-check replay: do not read or write the harness session.
         replay: replay === true
     }
@@ -475,11 +497,16 @@ function writesFiles(specialist) {
     return Boolean(specialist?.codeExecution || specialist?.fileAccess || specialist?.shell)
 }
 
+// The folder that holds every specialist's workspace. Paths under it are hidden in answers (see hideTurnImageDir).
+function specialistWorkspaceRoot() {
+    return path.resolve(path.dirname(specialistWorkspace('_')))
+}
+
 export function turnImageDirFor(specialist) {
     return writesFiles(specialist) && specialist.profileName ? newTurnImageDir(specialistWorkspace(specialist.profileName)) : ''
 }
 
-// Images and files (PDF, DOCX, XLSX, CSV) from the run's own folder. mergeTurnArtifacts applies the per-turn limits.
+// Images and files (PDF, DOCX, XLSX, PPTX, CSV) from the run's own folder. mergeTurnArtifacts applies the per-turn limits.
 export function noteTurnImages(context, specialist, since, dir) {
     if (!writesFiles(specialist) || !dir) return
     const images = turnImages(dir, since, { specialist: specialist.name })
@@ -584,13 +611,15 @@ async function runRoster(context, input) {
     if (!text.trim()) {
         throw new HarnessError('empty_output', `Harness "${context.name}" finished without a Harness Prime answer.`)
     }
+    // The stored turn feeds the next prompt and the chat history; it holds file names, never workspace paths.
+    text = maskWorkspacePaths(text)
     if (!context.replay) {
         appendTurn(
             context.name,
             context.chatId,
             question,
             text,
-            sourceNames([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])])
+            sourceNames(maskWorkspacePaths([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])]))
         )
     }
     const timings = { routeMs: routed - started, specialistsMs: finished - routed, handoffMs: Date.now() - finished }
@@ -644,10 +673,213 @@ async function runRoster(context, input) {
     return payload
 }
 
+// Paths inside any specialist's workspace are shown as file names in every string of a value, keys included: events,
+// specialist results and sources, and the turn's result. File bytes are never masked, by field and not by content: a
+// "base64" string, and a "data" string holding a base64 data URL (data:<type>;base64,...). Every other field is text
+// and is masked. Anything nested deeper than MASK_DEPTH, or a repeated reference to an object being masked, is
+// replaced by a placeholder rather than passed on unmasked.
+const MASK_DEPTH = 64
+const fileBytes = (key, item) => typeof item === 'string' && (key === 'base64' || (key === 'data' && /^data:[^,]*;base64,/i.test(item)))
+// A value's toJSON() serializer, own or inherited; a lookup that throws gives THROWS.
+const THROWS = Symbol('throws')
+const serializerOf = (value) => {
+    try {
+        const fn = value.toJSON
+        return typeof fn === 'function' ? fn : undefined
+    } catch {
+        return THROWS
+    }
+}
+const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
+export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
+    if (typeof value === 'string') return maskText(value)
+    if (!value || typeof value !== 'object') return value
+    // Raw bytes hold no text to mask.
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value
+    if (depth >= MASK_DEPTH || open.has(value)) return '[nested data]'
+    // Any other object (a URL, a Date, a class instance) is masked as it would be sent: its toJSON() form, or its own
+    // fields.
+    const serializer = serializerOf(value)
+    if (serializer === THROWS) return '[data]'
+    if (serializer) {
+        let plain
+        try {
+            plain = serializer.call(value)
+        } catch {
+            return '[data]'
+        }
+        return plain === value ? '[data]' : maskWorkspacePaths(plain, depth + 1, open)
+    }
+    open.add(value)
+    try {
+        if (Array.isArray(value)) {
+            let out
+            try {
+                out = Array.from({ length: value.length })
+            } catch {
+                return '[data]'
+            }
+            for (let index = 0; index < out.length; index += 1) {
+                let item
+                try {
+                    item = value[index]
+                } catch {
+                    item = '[data]'
+                }
+                out[index] = maskWorkspacePaths(item, depth + 1, open)
+            }
+            return out
+        }
+        const out = {}
+        // Each enumerable own field is read on its own; one that cannot be read (a getter that throws) becomes a
+        // placeholder.
+        let keys
+        try {
+            keys = Object.keys(value)
+        } catch {
+            return '[data]'
+        }
+        for (const key of keys) {
+            let item
+            try {
+                item = value[key]
+            } catch {
+                item = '[data]'
+            }
+            const shown = maskText(key)
+            let name = shown
+            // Two keys that end up with the same name keep both values, in either order.
+            for (let n = 2; Object.hasOwn(out, name); n += 1) name = `${shown} (${n})`
+            // A key such as "__proto__" stays a plain field.
+            Object.defineProperty(out, name, {
+                value: fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1, open),
+                enumerable: true,
+                writable: true,
+                configurable: true
+            })
+        }
+        return out
+    } finally {
+        open.delete(value)
+    }
+}
+
+// An error leaves with its message, stack and fields masked. One that cannot be changed (a frozen error) is replaced
+// by a masked copy with the same prototype, name and fields, such as its code.
+export function maskError(error, depth = 0, seen = new WeakSet()) {
+    // Masking never throws: anything it cannot read gives a plain placeholder error.
+    try {
+        return rebuildError(error, depth, seen)
+    } catch {
+        return new Error('[error]')
+    }
+}
+function rebuildError(error, depth, seen) {
+    // A thrown string or object is masked too; other thrown values carry no text.
+    if (typeof error === 'string') return maskWorkspacePaths(error)
+    if (!error || typeof error !== 'object') return error
+    if (!(error instanceof Error)) return maskWorkspacePaths(error)
+    // An error that names no workspace folder anywhere is passed on as it is.
+    const inherited = ['message', 'name', 'stack'].some((key) => {
+        try {
+            return mentionsWorkspace(error[key])
+        } catch {
+            return true
+        }
+    })
+    if (!inherited && !mentionsWorkspace(error)) return error
+    if (depth >= 8 || seen.has(error)) return new Error('[nested error]')
+    seen.add(error)
+    // Otherwise it is rebuilt with the same prototype and every own field (enumerable or not, the cause included),
+    // each masked, so a frozen error or a hidden field cannot keep a path.
+    const copy = Object.create(Object.getPrototypeOf(error))
+    for (const key of Reflect.ownKeys(error)) {
+        const field = Object.getOwnPropertyDescriptor(error, key)
+        const name = typeof key === 'string' ? maskWorkspacePaths(key) : key
+        const masked = { enumerable: field.enumerable, configurable: true }
+        // A getter is read once and its value kept, masked.
+        let item
+        try {
+            item = 'value' in field ? field.value : field.get?.call(error)
+        } catch {
+            item = undefined
+        }
+        masked.writable = true
+        masked.value = fileBytes(key, item) ? item : item instanceof Error ? maskError(item, depth + 1, seen) : maskWorkspacePaths(item)
+        Object.defineProperty(copy, name, masked)
+    }
+    // A message, name or stack read from the prototype (a class getter) is kept as a masked own field.
+    for (const key of ['message', 'name', 'stack']) {
+        if (Object.hasOwn(copy, key)) continue
+        let item
+        try {
+            item = error[key]
+        } catch {
+            item = '[error]'
+        }
+        if (typeof item === 'string' || key in copy)
+            Object.defineProperty(copy, key, {
+                value: typeof item === 'string' ? maskWorkspacePaths(item) : '[error]',
+                enumerable: false,
+                writable: true,
+                configurable: true
+            })
+    }
+    // A serializer (own or inherited) is replaced by one that masks what the original returns.
+    const serializer = serializerOf(error)
+    if (serializer) {
+        Object.defineProperty(copy, 'toJSON', {
+            value: () => {
+                try {
+                    const plain = serializer.call(error)
+                    return plain === error ? '[data]' : maskWorkspacePaths(plain)
+                } catch {
+                    return '[data]'
+                }
+            },
+            enumerable: false,
+            writable: true,
+            configurable: true
+        })
+    }
+    seen.delete(error)
+    return copy
+}
+
+// Whether a value may name the workspaces folder: a string holding it (plain or file-link spelling, keys included),
+// or anything the scan cannot see through (a getter that throws, a toJSON() serializer, nesting past MASK_DEPTH),
+// which is treated as naming it. A getter (such as an error's stack) is read and its value checked. Own fields are read whether enumerable or not. Cycle-safe.
+function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, seen = new WeakSet()) {
+    if (typeof value === 'string') return namesRoot(value, root)
+    if (!value || typeof value !== 'object') return false
+    if (seen.has(value) || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return false
+    if (depth > MASK_DEPTH || serializerOf(value) !== undefined) return true
+    seen.add(value)
+    for (const key of Reflect.ownKeys(value)) {
+        if (typeof key === 'string' && mentionsWorkspace(key, root)) return true
+        const field = Object.getOwnPropertyDescriptor(value, key)
+        if (!field) return true
+        let item
+        try {
+            item = 'value' in field ? field.value : field.get?.call(value)
+        } catch {
+            return true
+        }
+        if (!fileBytes(key, item) && mentionsWorkspace(item, root, depth + 1, seen)) return true
+    }
+    return false
+}
+
 function emit(context, type, data = {}) {
     if (context?.clientSignal?.aborted) return
     // `at` is the event's own clock. The server builds trace spans from these events and does not send a tracer into this process.
-    emitHarnessEvent(context?.onEvent, { type, harness: context?.name, chatId: context?.chatId, ...data, at: Date.now() })
+    emitHarnessEvent(context?.onEvent, {
+        type,
+        harness: context?.name,
+        chatId: context?.chatId,
+        ...maskWorkspacePaths(data),
+        at: Date.now()
+    })
 }
 
 function modelCallRows(calls) {
@@ -687,9 +919,10 @@ function toolsFor(context, name) {
 
 function emitTool(context, data) {
     if (!context.toolLog) context.toolLog = []
-    const detail = data.detail ? String(data.detail) : ''
+    // A tool's detail (a preview, an error) can quote a workspace path; it is masked before the log, events and trace.
+    const detail = data.detail ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
     const callId = typeof data.callId === 'string' ? data.callId.trim() : ''
-    const emitted = { ...data }
+    const emitted = { ...data, ...(detail ? { detail } : {}) }
     delete emitted.callId
     if (data.phase === 'start') {
         context.toolLog.push({
@@ -925,6 +1158,12 @@ export function routeAnalystNote(specialists) {
 
 export const HANDOFF_GROUNDING =
     'State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with "rows ", or a summary that starts with "returned ", keep that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. A database change is plain words such as "Dropped table", "Created table", or "Inserted 3 rows".'
+
+// Files a specialist made reach the chat as downloads on their own, once. The answer names them by file name and
+// does not repeat a file list or a server path. A step that failed on the way is not reported when the request was
+// still answered.
+export const HANDOFF_FILES_AND_FAILURES =
+    'Files the specialists made are attached to the chat as downloads already: refer to a file by its name only, and do not list the files again or include folder paths. If the results answer the request, do not mention steps or specialists that failed along the way. Only when a needed result is missing, say in one line which part could not be done.'
 
 export const HANDOFF_KEEP_CLOSING =
     'When a specialist result ends with a source, citation or reference line, such as a line that starts with "Source:", end your answer with that line exactly as written.'
@@ -1164,12 +1403,18 @@ async function routeSteps(context, input, history) {
         .join('\n')
     const fitted = fitChiefMessages({ system, memory: context.memoryBlock || '', history, user: input, budget: chiefContextTokens() })
     noteTruncated(context, fitted.truncated)
-    const reply = await callModel(context, chiefModel(context.roster), {
-        messages: withPromptImages(fitted.messages, context.images),
-        json: true,
-        role: 'route',
-        onDelta: (text) => emit(context, 'partial', { phase: 'route', text })
-    })
+    const routeStream = chiefStream(context, 'route')
+    let reply
+    try {
+        reply = await callModel(context, chiefModel(context.roster), {
+            messages: withPromptImages(fitted.messages, context.images),
+            json: true,
+            role: 'route',
+            onDelta: routeStream.onDelta
+        })
+    } finally {
+        routeStream.flush()
+    }
     let parsedSteps = forceAnalystRoute(input, parseSteps(reply.content, specialists, input), specialists)
     const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
     if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
@@ -1312,7 +1557,8 @@ async function runStep(context, step) {
             ...specialistEventFields(context, specialist, out.sources),
             ...phaseCalls(context, 'specialist', specialist.name)
         })
-        return {
+        // Grounding adds analyst payloads after the specialist's own result was masked; the step result is masked whole.
+        return maskWorkspacePaths({
             name: specialist.name,
             status: 'completed',
             task,
@@ -1325,11 +1571,15 @@ async function runStep(context, step) {
             ...(specialist.handoffChars ? { handoffChars: specialist.handoffChars } : {}),
             ...(out.analystPayloads ? { analystPayloads: out.analystPayloads } : {}),
             ...(out.ungrounded ? { ungrounded: true, error: out.text } : {})
-        }
+        })
     } catch (error) {
         throwIfClient(context)
         const ms = Date.now() - started
-        const message = overBudget(context) ? budgetFailure(context, specialist.name) : error.message
+        // A failure can quote a workspace path (a tool error, a traceback); it is masked here, before it reaches events,
+        // the trace, the stored message, the run record or the chief's prompt.
+        const message = overBudget(context)
+            ? budgetFailure(context, specialist.name)
+            : hideTurnImageDir(String(error?.message ?? ''), '', specialistWorkspaceRoot())
         emit(context, 'specialist', {
             phase: 'failed',
             name: specialist.name,
@@ -1340,7 +1590,8 @@ async function runStep(context, step) {
             ...specialistEventFields(context, specialist, [], true),
             ...phaseCalls(context, 'specialist', specialist.name)
         })
-        return {
+        // The task can hold staged upload paths; the failed step goes to Prime's prompt masked whole.
+        return maskWorkspacePaths({
             name: specialist.name,
             status: 'failed',
             task,
@@ -1351,7 +1602,7 @@ async function runStep(context, step) {
             sources: [],
             ms,
             soul: specialistSoul(specialist)
-        }
+        })
     }
 }
 
@@ -1375,10 +1626,60 @@ function hermesEventCallId(event) {
     return ''
 }
 
+// Keep a scanner per stream so token holds and rule 5 survive delta boundaries.
+export function bufferStream(context, key, delta, flush, send, root = specialistWorkspaceRoot()) {
+    if (!context._deltaTail) context._deltaTail = new Map()
+    let state = context._deltaTail.get(key)
+    if (!state) {
+        state = workspaceMaskState()
+        context._deltaTail.set(key, state)
+    }
+    const shown = scanWorkspaceText(state, delta, root, flush)
+    if (shown) send(shown)
+    if (flush) context._deltaTail.delete(key)
+}
+
+// Where the last mention of the workspaces folder starts (at its opening quote or file:// link) when no line has
+// ended after it, or the text's length.
+export function openPathAt(text, root = specialistWorkspaceRoot()) {
+    let at = Math.max(-1, ...rootStarts(text, root))
+    if (at < 0 || text.indexOf('\n', at) >= 0) return text.length
+    if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
+    return pathContextAt(text, at)
+}
+
+// Where the text's end starts a prefix of the workspaces folder (or its file:// link), or its length when it does not.
+export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
+    let at = Math.min(text.length, ...rootStarts(text, root, true))
+    // An opening quote just before it (or at the very end) stays with the path, so a quoted path is read whole.
+    if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
+    return pathContextAt(text, at)
+}
+
+// Keep Markdown marks and the preceding word with a path so its start boundary stays intact.
+function pathContextAt(text, at) {
+    while (at > 0 && /[A-Za-z0-9._*~/-]/.test(text[at - 1])) at -= 1
+    return at
+}
+
+const QUOTE_CHARS = '"\'`'
+
+function forwardDelta(context, specialist, delta, flush = false) {
+    bufferStream(context, `specialist:${specialist.name}`, delta, flush, (text) => emitSpecialistPartial(context, specialist, text))
+}
+
+function chiefStream(context, phase) {
+    const send = (text) => emit(context, 'partial', { phase, text })
+    return {
+        onDelta: (text) => bufferStream(context, `chief:${phase}`, String(text ?? ''), false, send),
+        flush: () => bufferStream(context, `chief:${phase}`, '', true, send)
+    }
+}
+
 function forwardHermes(context, specialist, event) {
     const kind = event?.event
     if (kind === 'message.delta' && event.delta) {
-        emitSpecialistPartial(context, specialist, String(event.delta))
+        forwardDelta(context, specialist, String(event.delta))
         return
     }
     if (kind !== 'tool.started' && kind !== 'tool.completed') return
@@ -1400,8 +1701,18 @@ function analystQueryCount(context, name) {
 }
 
 async function runSpecialistOnce(context, specialist, task) {
-    if (specialist.profileName && needsAgentLoop(specialist)) return runHermesSpecialist(context, specialist, task)
-    return runInlineSpecialist(context, specialist, task)
+    let out
+    try {
+        out =
+            specialist.profileName && needsAgentLoop(specialist)
+                ? await runHermesSpecialist(context, specialist, task)
+                : await runInlineSpecialist(context, specialist, task)
+    } finally {
+        // Streamed text still held back for a whole path is sent, masked, once the specialist stops.
+        forwardDelta(context, specialist, '', true)
+    }
+    // Every specialist's answer and sources, Hermes or inline, reach Harness Prime and the chat without workspace paths.
+    return maskWorkspacePaths(out)
 }
 
 // Hermes builds its system prompt from the profile's SOUL.md, which already holds the specialist's
@@ -1501,22 +1812,31 @@ async function runHermesSpecialist(context, specialist, task) {
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })
         noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: Date.now() })
+        forwardDelta(context, specialist, '', true)
         if (['failed', 'error', 'cancelled'].includes(status.status)) {
-            throw new HarnessError('specialist_failed', status.error || status.message || `Specialist "${specialist.name}" failed.`)
+            const failure = status.error || status.message
+            throw new HarnessError(
+                'specialist_failed',
+                failure ? hideTurnImageDir(String(failure), imageDir, specialistWorkspaceRoot()) : `Specialist "${specialist.name}" failed.`
+            )
         }
         attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
         noteTurnImages(context, specialist, specialistStarted, imageDir)
-        const text = typeof status.output === 'string' ? hideTurnImageDir(status.output, imageDir) : ''
+        const text = typeof status.output === 'string' ? hideTurnImageDir(status.output, imageDir, specialistWorkspaceRoot()) : ''
         if (!text.trim()) throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned nothing.`)
         return { text }
     } finally {
         endAnalystCalls(context.name, specialist.name, context.chatId)
         context.workSignal?.removeEventListener('abort', onAbort)
         await Promise.all(stops)
-        try {
-            removeTurnImageDir(imageDir)
-        } catch {
-            // A folder that cannot be removed is left for the next workspace cleanup.
+        // A turn keeps its folder until its answer is masked; a run outside a turn (warm-up) removes it now.
+        if (imageDir && context.turnFolders) context.turnFolders.add(imageDir)
+        else {
+            try {
+                removeTurnImageDir(imageDir)
+            } catch {
+                // A folder that cannot be removed is left for the next workspace cleanup.
+            }
         }
     }
 }
@@ -1545,7 +1865,7 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         const slotIndex = slots.findIndex((tool, index) => !used.has(index) && tool.callId === callId)
         if (slotIndex < 0) continue
         used.add(slotIndex)
-        slots[slotIndex].detail = JSON.stringify({ result: JSON.stringify(item.result) })
+        slots[slotIndex].detail = maskWorkspacePaths(JSON.stringify({ result: JSON.stringify(item.result) }))
     }
 }
 
@@ -1573,7 +1893,7 @@ async function runInlineSpecialist(context, specialist, task) {
         const reply = await callModel(context, model, {
             messages: specialistPrompt(context, specialist, task, soul),
             role: 'specialist',
-            onDelta: (text) => emitSpecialistPartial(context, specialist, text),
+            onDelta: (text) => forwardDelta(context, specialist, String(text ?? '')),
             specialist
         })
         return { text: reply.content }
@@ -1605,7 +1925,7 @@ async function runInlineSpecialist(context, specialist, task) {
         messages: specialistPrompt(context, specialist, task, soul),
         tools,
         role: 'specialist',
-        onDelta: (text) => emitSpecialistPartial(context, specialist, text),
+        onDelta: (text) => forwardDelta(context, specialist, String(text ?? '')),
         specialist
     })
     if (!reply.toolCalls.length) return { text: reply.content }
@@ -1885,7 +2205,7 @@ async function chiefHandoff(context, input, history, results) {
         `You are Harness Prime for the "${context.name}" harness.`,
         roster.chief?.instructions ? `Instructions: ${roster.chief.instructions}` : '',
         results.length
-            ? `Your specialists already did the work below. Answer the user from their results. Keep numbers, file paths, URLs, and script output exactly as given. If a specialist failed, name it and the reason in one line. ${HANDOFF_GROUNDING} ${HANDOFF_KEEP_CLOSING} The Tools line is the tool status for this turn. A step with no tool result did not run.`
+            ? `Your specialists already did the work below. Answer the user from their results. Keep numbers, URLs, and script output exactly as given. ${HANDOFF_FILES_AND_FAILURES} ${HANDOFF_GROUNDING} ${HANDOFF_KEEP_CLOSING} The Tools line is the tool status for this turn. A step with no tool result did not run.`
             : 'No specialist was needed. Answer the user directly and briefly.'
     ]
         .filter(Boolean)
@@ -1904,11 +2224,17 @@ async function chiefHandoff(context, input, history, results) {
     const handoffStarted = Date.now()
     emit(context, 'handoff', { phase: 'start', model: configuredModel(context, null) })
     try {
-        const reply = await callModel(context, chiefModel(roster), {
-            messages: withPromptImages(fitted.messages, context.images),
-            role: 'handoff',
-            onDelta: (text) => emit(context, 'partial', { phase: 'answer', text })
-        })
+        const answerStream = chiefStream(context, 'answer')
+        let reply
+        try {
+            reply = await callModel(context, chiefModel(roster), {
+                messages: withPromptImages(fitted.messages, context.images),
+                role: 'handoff',
+                onDelta: answerStream.onDelta
+            })
+        } finally {
+            answerStream.flush()
+        }
         throwIfClient(context)
         const handed = roleCalls(context, 'handoff')
         const last = handed.at(-1)
@@ -2061,7 +2387,7 @@ async function runDirectTool(context, specialist, input) {
         throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
     }
     emitTool(context, { phase: 'done', specialist: specialist.name, name: toolLabel })
-    const text = output.text.trim()
+    const text = maskWorkspacePaths(output.text.trim())
     const finished = Date.now()
     if (!text) {
         emit(context, 'specialist', {
@@ -2093,7 +2419,7 @@ async function runDirectTool(context, specialist, input) {
             context
         )}, ${reportNote(context)}`
     )
-    if (!context.replay) appendTurn(name, chatId, question, text, sourceNames(output.documents))
+    if (!context.replay) appendTurn(name, chatId, question, text, sourceNames(maskWorkspacePaths(output.documents)))
     const filledInput = typeof value === 'string' ? value : JSON.stringify(value ?? '')
     const agent = publicAgent(context, specialist, {
         name: specialist.name,
@@ -2170,7 +2496,12 @@ export async function warmHarnessProfiles({ names, baseUrl = hermesBaseUrl(), fe
                 await runHermesSpecialist(context, specialist, WARM_INPUT)
                 return { profile: specialist.profileName, status: 'warm', ms: Date.now() - started }
             } catch (error) {
-                return { profile: specialist.profileName, status: 'failed', ms: Date.now() - started, error: error.message }
+                return {
+                    profile: specialist.profileName,
+                    status: 'failed',
+                    ms: Date.now() - started,
+                    error: hideTurnImageDir(String(error?.message ?? ''), '', specialistWorkspaceRoot())
+                }
             }
         })
     )

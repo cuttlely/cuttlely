@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Harness specialists can send PPTX presentations to the chat as downloads, next to PDF, DOCX, XLSX and CSV files. A PPTX is checked by its bytes like the other Office files: a ZIP with `[Content_Types].xml` and `ppt/presentation.xml`. [Harnesses](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
+-   Harness answers show only file names: a path anywhere in a specialist's working directory, not just its chat folder, is shown as the file name. This also covers a specialist's failure message, wherever it appears: the agents list and trace, live progress, stored chat messages, the harness run history and Harness Prime's prompt, and also tool details, streamed specialist and Harness Prime text, analyst results, retrieved sources, single-tool answers and the saved chat turn. A folder whose name only starts with the workspaces folder's name is left as it is, and quoted text keeps its words around each path.
+-   Harness Prime no longer adds a note about a step that failed when the answer was still produced, and no longer repeats the specialist's file list or folder paths. Files are attached to the chat once, as downloads.
+
 ## [1.3.2] - 2026-10-22
 
 ### Added
