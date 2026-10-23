@@ -9384,6 +9384,38 @@ const queued = await runQueuedHarness({
         queueEvents.push(event.type)
     }
 })
+const queueRoutePartials = []
+await runQueuedHarness({
+    name: 'route-recover',
+    chatId: 'queue-route-partials',
+    input: 'tell me about vault ha',
+    baseUrl: contract.url,
+    modelBaseUrl,
+    loadNode: async () =>
+        recordingChat([], (messages) => {
+            const plain = plainChatMessages(messages)
+            if (String(plain[0]?.content || '').includes('You route work')) {
+                return { content: JSON.stringify({ steps: [{ specialist: 'knowledge', task: 'Explain Vault HA.' }] }) }
+            }
+            return { content: 'specialist answer' }
+        }),
+    onEvent(event) {
+        if (event.type === 'partial' && event.phase === 'route') queueRoutePartials.push(event)
+    }
+})
+const savedRoutePartials = (await import('./lock.mjs'))
+    .database()
+    .prepare('SELECT event FROM job_events')
+    .all()
+    .filter((row) => {
+        const event = JSON.parse(row.event)
+        return event.type === 'partial' && event.phase === 'route'
+    })
+check(
+    'a queued turn streams router deltas to the waiter in this process without saving them',
+    queueRoutePartials.length > 0 && savedRoutePartials.length === 0,
+    JSON.stringify({ live: queueRoutePartials.length, saved: savedRoutePartials.length })
+)
 check(
     'a queued harness turn keeps the prediction payload and final event',
     queued.text.startsWith('answer:') &&

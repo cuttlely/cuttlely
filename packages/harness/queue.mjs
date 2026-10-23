@@ -57,6 +57,7 @@ function jobPayload(args) {
 }
 
 // Router reply deltas are not saved with the job: the router's own text is never stored. Every other event is.
+// A waiter in the same process still gets them live; a worker in another process drops them.
 export function keepJobEvent(event) {
     return !(event && event.type === 'partial' && event.phase === 'route')
 }
@@ -360,6 +361,8 @@ export async function executeJob(job) {
             signal: controller.signal,
             onEvent: (event) => {
                 if (keepJobEvent(event)) appendEvent(job.id, event)
+                // In this process the waiter's own callback still gets them live, without a saved copy.
+                else local?.onEvent?.(event)
             }
         })
         const stored = resultWithRunId(result, savedId)
