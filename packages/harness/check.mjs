@@ -7989,6 +7989,7 @@ check(
         hideTurnImageDir(`"${assets}${path.sep}a${' '.repeat(32000)}b"`, coderDir)
         hideTurnImageDir(`"${assets}${path.sep}${'a b/'.repeat(16000)}"`, coderDir)
         hideTurnImageDir(`'${`${assets}${path.sep}x `.repeat(4000)}'`, coderDir)
+        const slowTook = Date.now() - slowStarted
         const { maskWorkspacePaths, bufferStream, rootPrefixAt } = await import('./run.mjs')
         // A stream split anywhere, even inside the workspaces folder's name, never sends the raw path.
         const streamed = `See ${path.join(assets, 'out', 'report.pdf')} now. `
@@ -8340,7 +8341,7 @@ check(
                 maskedValue.rows[0].note === 'n.csv',
             JSON.stringify(maskedValue)
         )
-        check('a long quoted path is masked in linear time', Date.now() - slowStarted < 1000, String(Date.now() - slowStarted))
+        check('a long quoted path is masked in linear time', slowTook < 1000, String(slowTook))
         check(
             'answers show only file names for any path in a specialist workspace',
             wrong.length === 0,
