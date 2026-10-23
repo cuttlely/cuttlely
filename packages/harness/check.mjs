@@ -8070,6 +8070,28 @@ check(
         hidden.loop = looping
         const hiddenMasked = maskError(hidden)
         const plainError = new Error('no path here')
+        const getterError = new Error('failed')
+        Object.defineProperty(getterError, 'code', { get: () => path.join(assets, 'getter.pdf') })
+        const serialError = Object.assign(new Error('failed'), { toJSON: () => path.join(assets, 'json.pdf') })
+        let nested = { note: path.join(assets, 'nested.pdf') }
+        for (let level = 0; level < 70; level += 1) nested = { nested }
+        const deepError = Object.assign(new Error('failed'), { nested })
+        const lowerDir = path.join(assets, 'quarterly reports')
+        fs.mkdirSync(lowerDir, { recursive: true })
+        fs.writeFileSync(path.join(lowerDir, 'deck.pptx'), 'x')
+        check(
+            'getters, serializers, deep fields, upper-case file links and on-disk lower-case folders are masked',
+            maskError(getterError).code === 'getter.pdf' &&
+                maskError(serialError) !== serialError &&
+                !JSON.stringify(maskError(deepError)).includes(root) &&
+                hideWorkspacePaths(`FILE://${path.join(assets, 'a.pdf')} and file://LOCALHOST${path.join(assets, 'b.pdf')}`, root) ===
+                    'a.pdf and b.pdf' &&
+                hideWorkspacePaths(`"${path.join(lowerDir, 'deck.pptx')}"`, root) === '"deck.pptx"' &&
+                hideWorkspacePaths(`"${path.join(assets, 'README')} permission denied opening docs/report.md"`, root) ===
+                    '"README permission denied opening docs/report.md"',
+            JSON.stringify(maskError(getterError).code)
+        )
+        fs.rmSync(lowerDir, { recursive: true, force: true })
         check(
             'error causes, hidden fields, BigInt and cyclic fields are masked without throwing',
             caused.cause.message === 'open private.pdf' &&

@@ -724,37 +724,41 @@ export function maskError(error, depth = 0, seen = new WeakSet()) {
         const field = Object.getOwnPropertyDescriptor(error, key)
         const name = typeof key === 'string' ? maskWorkspacePaths(key) : key
         const masked = { enumerable: field.enumerable, configurable: true }
-        if ('value' in field) {
-            masked.writable = true
-            masked.value = field.value instanceof Error ? maskError(field.value, depth + 1, seen) : maskWorkspacePaths(field.value)
-        } else {
-            masked.value = undefined
-            masked.writable = true
+        // A getter is read once and its value kept, masked.
+        let item
+        try {
+            item = 'value' in field ? field.value : field.get?.call(error)
+        } catch {
+            item = undefined
         }
+        masked.writable = true
+        masked.value = item instanceof Error ? maskError(item, depth + 1, seen) : maskWorkspacePaths(item)
         Object.defineProperty(copy, name, masked)
     }
     seen.delete(error)
     return copy
 }
 
-// Whether any string in a value (own fields of errors and objects, enumerable or not, keys included) names the
-// workspaces folder, in plain or file-link spelling. Cycle-safe and bounded.
+// Whether a value may name the workspaces folder: a string holding it (plain or file-link spelling, keys included),
+// or anything the scan cannot see through (a getter that throws, a toJSON() serializer, nesting past MASK_DEPTH),
+// which is treated as naming it. A getter (such as an error's stack) is read and its value checked. Own fields are read whether enumerable or not. Cycle-safe.
 function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, seen = new WeakSet()) {
     if (typeof value === 'string') return value.includes(root) || value.includes(encodeFilePath(root))
-    if (!value || typeof value !== 'object' || depth > MASK_DEPTH) return false
+    if (!value || typeof value !== 'object') return false
     if (seen.has(value) || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return false
+    if (depth > MASK_DEPTH || typeof value.toJSON === 'function') return true
     seen.add(value)
     for (const key of Reflect.ownKeys(value)) {
         if (typeof key === 'string' && mentionsWorkspace(key, root)) return true
         const field = Object.getOwnPropertyDescriptor(value, key)
-        if (field && 'value' in field && mentionsWorkspace(field.value, root, depth + 1, seen)) return true
-    }
-    if (!Array.isArray(value) && typeof value.toJSON === 'function' && !(value instanceof Error)) {
+        if (!field) return true
+        let item
         try {
-            return mentionsWorkspace(value.toJSON(), root, depth + 1, seen)
+            item = 'value' in field ? field.value : field.get?.call(value)
         } catch {
-            return false
+            return true
         }
+        if (mentionsWorkspace(item, root, depth + 1, seen)) return true
     }
     return false
 }
@@ -1548,8 +1552,8 @@ const STREAM_HOLD = 16 * 1024
 export function openPathAt(text, root = specialistWorkspaceRoot()) {
     let at = Math.max(text.lastIndexOf(root), text.lastIndexOf(encodeFilePath(root)))
     if (at < 0 || text.indexOf('\n', at) >= 0) return text.length
-    if (text.slice(Math.max(0, at - 16), at) === 'file://localhost') at -= 16
-    else if (text.slice(Math.max(0, at - 7), at) === 'file://') at -= 7
+    if (text.slice(Math.max(0, at - 16), at).toLowerCase() === 'file://localhost') at -= 16
+    else if (text.slice(Math.max(0, at - 7), at).toLowerCase() === 'file://') at -= 7
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
     return at
 }
@@ -1559,7 +1563,8 @@ export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
     let at = text.length
     for (const full of [root, `file://${root}`, `file://localhost${root}`, `file://${encodeFilePath(root)}`]) {
         for (let index = Math.max(0, text.length - full.length); index < at; index += 1) {
-            if (full.startsWith(text.slice(index))) {
+            // The file:// scheme and host are matched in any case; matching the folder in any case only holds more back.
+            if (full.toLowerCase().startsWith(text.slice(index).toLowerCase())) {
                 at = index
                 break
             }

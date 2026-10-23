@@ -165,9 +165,11 @@ function hideRoot(text, base, chat) {
     if (!text.includes(base)) return text
     const sep = escapeRegExp(path.sep)
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
-    const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://(?:localhost)?)?${escapeRegExp(base)}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~.${sep}-])`
+    const head = `(?<![A-Za-z0-9._~${sep}-])(?:[Ff][Ii][Ll][Ee]://(?:[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt])?)?${escapeRegExp(
+        base
+    )}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~.${sep}-])`
     const shown = (full) => {
-        const rest = full.replace(/^file:\/\/(?:localhost)?/, '')
+        const rest = full.replace(/^file:\/\/(?:localhost)?/i, '')
         if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'
         const parts = rest.slice(base.length).split(path.sep).filter(Boolean)
         // Under the chat folder itself every path is a file name; under the root the first part is a workspace.
@@ -205,12 +207,21 @@ function hideRoot(text, base, chat) {
     const proseFolder =
         /\s(?:failed|failing|reading|writing|during|while|when|because|cannot|could|not|is|was|were|from|into|to|with|error|errors|missing)(?:\s|$)/i
     const space = /\s/
-    const onePath = (rest) => {
+    const onePath = (rest, folderOk = folderName) => {
         if (!space.test(rest)) return true
         const parts = rest.split(path.sep)
         if (parts[0] !== '') return false
         const last = parts.pop()
-        return fileEnd.test(last) && parts.slice(1).every(folderName)
+        return fileEnd.test(last) && parts.slice(1).every(folderOk)
+    }
+    // A quote whose folders read as lower-case words is still one path when that path is on disk.
+    const plainFolder = (folder) => Boolean(folder) && !badFolder.test(folder)
+    const onDisk = (full) => {
+        try {
+            return fs.existsSync(full.replace(/^file:\/\/(?:localhost)?/i, ''))
+        } catch {
+            return false
+        }
     }
     // Where a path that does not fill the quote ends: at the first space after a file name whose folders are all
     // valid ("Q3 Reports/a.pdf and ..."), else at the first space. One pass; each check looks back a few characters.
@@ -232,7 +243,7 @@ function hideRoot(text, base, chat) {
     const quotedPaths = (full) => {
         const start = new RegExp(`^${head}`).exec(full)?.[0].length || 0
         const rest = full.slice(start)
-        if (onePath(rest)) return shown(full)
+        if (onePath(rest) || (onePath(rest, plainFolder) && onDisk(full))) return shown(full)
         const end = start + pathEnd(rest)
         return shown(full.slice(0, end)) + bareOnly(full.slice(end))
     }
