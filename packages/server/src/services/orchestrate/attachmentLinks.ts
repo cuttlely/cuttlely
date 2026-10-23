@@ -13,7 +13,7 @@ export function dropAttachmentLinks(text: string): string {
 // (what is left when a model writes the label but no address). A console client that prints Rich markup drops
 // `[attachment:...]` as a style tag, so either form showed up as a label that opens nothing.
 const ATTACHMENT_LINK_SOURCE =
-    String.raw`(?:!?\[[^[\]\n]*\](?:\(\s*<?attachment:(?:[^()[\]\n<>]|\([^()[\]\n<>]*\))*>?\)|\[\s*attachment:[^[\]\n]*\])` +
+    String.raw`(?:!?\[[^[\]\n]*\](?:\(\s*<?attachment:(?:[^()[\]\n<>]|\([^()[\]\n<>]*\))*>?\)|\[[ \t]*attachment:[^[\]\n]*\])` +
     String.raw`|(?<!!)\[[ \t*_]*download\b[^[\]\n]*\](?![([:]))`
 const ATTACHMENT_LINK_ANYWHERE = new RegExp(ATTACHMENT_LINK_SOURCE, 'gi')
 const ATTACHMENT_LINK = new RegExp(`^${ATTACHMENT_LINK_SOURCE}`, 'i')

@@ -10974,6 +10974,55 @@ check(
         JSON.stringify({ ran, steps: quietRun.trace?.route?.steps })
     )
     ran.length = 0
+    {
+        // An empty plan never fans out to the whole roster: with only analysts and a choice that names none, the
+        // turn runs the chief's default specialist once.
+        saveHarness(
+            {
+                name: 'only-analysts',
+                chief: {
+                    instructions: 'Route data questions.',
+                    defaultSpecialist: 'budget',
+                    model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } })
+                },
+                specialists: ['bakery', 'budget'].map((name) => ({
+                    name,
+                    summary: `${name} data.`,
+                    instructions: `Query the ${name} database.`,
+                    mcpServers: [
+                        {
+                            nodeName: 'postgreSQLMCP',
+                            label: 'PostgreSQL MCP',
+                            category: 'Tools (MCP)',
+                            inputs: { analystRelations: name === 'bakery' ? '["public.monthly_sales"]' : '["public.budget_lines"]' }
+                        }
+                    ]
+                }))
+            },
+            { overwrite: true }
+        )
+        const saved = choice
+        choice = 'not json'
+        routerReply = '{"steps":[]}'
+        const onlyRun = await runHarness({
+            name: 'only-analysts',
+            chatId: 'only-1',
+            input: 'Run SQL on both databases: count the rows in every table.',
+            baseUrl: 'http://127.0.0.1:9',
+            fetchImpl: twoFetch,
+            loadNode: twoNodes
+        })
+        choice = saved
+        check(
+            'an empty plan on an analysts-only roster runs the default specialist once, never every specialist',
+            (onlyRun.trace?.route?.steps || []).length === 1 &&
+                onlyRun.trace.route.steps[0].specialist === 'budget' &&
+                onlyRun.trace.route.fallbackSpecialist === 'budget' &&
+                ran.length === 1,
+            JSON.stringify({ ran, route: onlyRun.trace?.route })
+        )
+        ran.length = 0
+    }
     routerReply = '{"steps":[{"specialist":"bakery","task":"show more"}]}'
     recordAnalystResult({
         harness: 'two-analysts',

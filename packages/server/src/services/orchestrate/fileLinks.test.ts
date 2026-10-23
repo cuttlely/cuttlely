@@ -158,12 +158,18 @@ describe('answer text', () => {
     })
 
     it('streams the same text as the non-streaming filter for dangling labels, split at every point', () => {
-        const text = 'Hi [Download d.pptx] and [Download e](https://x.example/e) and [d][attachment:d.pptx] ok [Download f]'
-        const want = dropAttachmentLinks(text)
-        expect(want).toBe('Hi  and [Download e](https://x.example/e) and  ok ')
-        for (let cut = 1; cut < text.length; cut++) {
-            const filter = makeAttachmentLinkFilter()
-            expect(filter.push(text.slice(0, cut)) + filter.push(text.slice(cut)) + filter.flush()).toBe(want)
+        const texts = [
+            'Hi [Download d.pptx] and [Download e](https://x.example/e) and [d][attachment:d.pptx] ok [Download f]',
+            '[Download deck][\nattachment:deck.pptx] and [x][ \tattachment:x.png] and ![i][attachment:i.png]'
+        ]
+        expect(dropAttachmentLinks(texts[0])).toBe('Hi  and [Download e](https://x.example/e) and  ok ')
+        expect(dropAttachmentLinks(texts[1])).toBe('[Download deck][\nattachment:deck.pptx] and  and ')
+        for (const text of texts) {
+            const want = dropAttachmentLinks(text)
+            for (let cut = 1; cut < text.length; cut++) {
+                const filter = makeAttachmentLinkFilter()
+                expect(filter.push(text.slice(0, cut)) + filter.push(text.slice(cut)) + filter.flush()).toBe(want)
+            }
         }
     })
 
