@@ -150,8 +150,16 @@ const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value
 export function hideWorkspacePaths(text, root, chatDir = '') {
     if (!root || typeof text !== 'string') return text
     const base = trimSep(root)
-    if (base === path.sep || !path.isAbsolute(base) || !text.includes(base)) return text
+    if (base === path.sep || !path.isAbsolute(base)) return text
     const chat = chatDir ? trimSep(chatDir) : ''
+    const out = hideRoot(text, base, chat)
+    // A file:// link spells a folder with spaces or other characters percent-encoded; that spelling is masked too.
+    const encoded = encodeURI(base)
+    return encoded === base ? out : hideRoot(out, encoded, chat ? encodeURI(chat) : '')
+}
+
+function hideRoot(text, base, chat) {
+    if (!text.includes(base)) return text
     const sep = escapeRegExp(path.sep)
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
     const head = `(?<![A-Za-z0-9._~${sep}-])(?:file://)?${escapeRegExp(base)}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~.${sep}-])`
@@ -202,7 +210,7 @@ export function hideWorkspacePaths(text, root, chatDir = '') {
             const char = rest[index]
             if (char === path.sep) {
                 const folder = rest.slice(segment + 1, index)
-                folders = folders && Boolean(folder) && !badFolder.test(folder)
+                folders = folders && Boolean(folder) && !badFolder.test(folder) && !proseFolder.test(folder)
                 segment = index
             } else if (folders && /\s/.test(char) && fileEnd.test(rest.slice(Math.max(segment + 1, index - 9), index))) {
                 return index

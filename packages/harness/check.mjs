@@ -7967,7 +7967,11 @@ check(
             [`"${path.join(assets, 'report.pdf')} and/or deck.pptx"`, '"report.pdf and/or deck.pptx"'],
             [`"${path.join(assets, 'README')} failed during read/write"`, '"README failed during read/write"'],
             [`"${path.join(assets, 'out')} is not a folder/file"`, '"out is not a folder/file"'],
-            [`"${path.join(assets, 'README')} failed reading docs/help.md"`, '"README failed reading docs/help.md"']
+            [`"${path.join(assets, 'README')} failed reading docs/help.md"`, '"README failed reading docs/help.md"'],
+            [
+                `"${path.join(assets, 'README')} failed reading docs/help.md and ${path.join(assets, 'a.pdf')}"`,
+                '"README failed reading docs/help.md and a.pdf"'
+            ]
         ]
         // A chat folder outside the root (another root passed in) is still masked, with the same start boundary.
         const elsewhere = path.join(os.tmpdir(), 'cuttlely-chat', 'run1')
@@ -8043,6 +8047,22 @@ check(
                 proto: JSON.parse('{"__proto__": "kept"}')
             })
         )
+        const { maskError } = await import('./run.mjs')
+        const frozen = Object.freeze(Object.assign(new Error(`Cannot read ${path.join(assets, 'private.pdf')}`), { code: 'tool_failed' }))
+        const freed = maskError(frozen)
+        const bytesKept = maskWorkspacePaths({ base64: { error: path.join(assets, 'private.pdf') }, data: `data:text/plain,${assets}/x` })
+        const { hideWorkspacePaths } = await import('./images.mjs')
+        const spacedRoot = '/var/cuttlely data/workspaces'
+        const encodedLink = hideWorkspacePaths(`see ${new URL(`file://${spacedRoot}/agent/private.pdf`).href} now`, spacedRoot)
+        check(
+            'frozen errors, non-byte base64 values and encoded file links are masked',
+            freed.message === 'Cannot read private.pdf' &&
+                freed.code === 'tool_failed' &&
+                !String(freed.stack).includes(root) &&
+                !JSON.stringify(bytesKept).includes(root) &&
+                encodedLink === 'see private.pdf now',
+            JSON.stringify({ message: freed.message, bytesKept, encodedLink })
+        )
         check(
             'URLs, class instances, colliding keys and a __proto__ key are masked and kept',
             !typed.includes(root) &&
@@ -8066,15 +8086,15 @@ check(
         )
         const maskedValue = maskWorkspacePaths({
             text: `data: ${path.join(assets, 'r.pdf')}`,
-            data: `data:text/plain,${assets}`,
-            base64: assets,
+            data: 'data:text/plain,aGVsbG8=',
+            base64: 'aGVsbG8=',
             rows: [{ note: path.join(assets, 'x', 'n.csv') }]
         })
         check(
             'only file bytes are left unmasked in a harness value',
             maskedValue.text === 'data: r.pdf' &&
-                maskedValue.data === `data:text/plain,${assets}` &&
-                maskedValue.base64 === assets &&
+                maskedValue.data === 'data:text/plain,aGVsbG8=' &&
+                maskedValue.base64 === 'aGVsbG8=' &&
                 maskedValue.rows[0].note === 'n.csv',
             JSON.stringify(maskedValue)
         )

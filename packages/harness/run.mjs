@@ -212,15 +212,9 @@ export async function runHarness(args = {}) {
         result = maskWorkspacePaths(await runHarnessTurn(args))
         return result
     } catch (error) {
-        if (error && typeof error.message === 'string') {
-            try {
-                error.message = maskWorkspacePaths(error.message)
-            } catch {
-                // A frozen error keeps its message.
-            }
-        }
-        failure = error
-        throw error
+        const masked = maskError(error)
+        failure = masked
+        throw masked
     } finally {
         if (args.record?.tryId) {
             try {
@@ -661,11 +655,15 @@ async function runRoster(context, input) {
 }
 
 // Paths inside any specialist's workspace are shown as file names in every string of a value, keys included: events,
-// specialist results and sources, and the turn's result. Only file bytes are left as they are: a "base64" field, and a
-// "data" field holding a data URL. Anything nested deeper than MASK_DEPTH, or a repeated reference to an object being
+// specialist results and sources, and the turn's result. Only file bytes are left as they are: a "base64" string, and a
+// "data" string holding a data URL, when neither names the workspaces folder. Anything nested deeper than MASK_DEPTH, or a repeated reference to an object being
 // masked, is replaced by a placeholder rather than passed on unmasked.
 const MASK_DEPTH = 64
-const fileBytes = (key, item) => key === 'base64' || (key === 'data' && typeof item === 'string' && item.startsWith('data:'))
+const fileBytes = (key, item) =>
+    typeof item === 'string' &&
+    (key === 'base64' || (key === 'data' && item.startsWith('data:'))) &&
+    !item.includes(specialistWorkspaceRoot()) &&
+    !item.includes(encodeURI(specialistWorkspaceRoot()))
 const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
 export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     if (typeof value === 'string') return maskText(value)
@@ -705,6 +703,27 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     } finally {
         open.delete(value)
     }
+}
+
+// An error leaves with its message, stack and fields masked. One that cannot be changed (a frozen error) is replaced
+// by a masked copy with the same prototype, name and fields, such as its code.
+export function maskError(error) {
+    if (!error || typeof error !== 'object' || typeof error.message !== 'string') return error
+    const message = maskWorkspacePaths(error.message)
+    const stack = typeof error.stack === 'string' ? maskWorkspacePaths(error.stack) : error.stack
+    try {
+        if (error.message !== message) error.message = message
+        if (error.stack !== stack) error.stack = stack
+    } catch {
+        // Checked below.
+    }
+    if (error.message === message && error.stack === stack) return error
+    const copy = new Error(message)
+    Object.setPrototypeOf(copy, Object.getPrototypeOf(error))
+    for (const [key, item] of Object.entries(error)) copy[key] = maskWorkspacePaths(item)
+    Object.defineProperty(copy, 'name', { value: error.name, writable: true, configurable: true })
+    copy.stack = stack
+    return copy
 }
 
 function emit(context, type, data = {}) {
@@ -1494,7 +1513,7 @@ const STREAM_HOLD = 16 * 1024
 // Where the last mention of the workspaces folder starts (at its opening quote or file:// link) when no line has
 // ended after it, or the text's length.
 export function openPathAt(text, root = specialistWorkspaceRoot()) {
-    let at = text.lastIndexOf(root)
+    let at = Math.max(text.lastIndexOf(root), text.lastIndexOf(encodeURI(root)))
     if (at < 0 || text.indexOf('\n', at) >= 0) return text.length
     if (text.slice(Math.max(0, at - 7), at) === 'file://') at -= 7
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
@@ -1504,7 +1523,7 @@ export function openPathAt(text, root = specialistWorkspaceRoot()) {
 // Where the text's end starts a prefix of the workspaces folder (or its file:// link), or its length when it does not.
 export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
     let at = text.length
-    for (const full of [root, `file://${root}`]) {
+    for (const full of [root, `file://${root}`, `file://${encodeURI(root)}`]) {
         for (let index = Math.max(0, text.length - full.length); index < at; index += 1) {
             if (full.startsWith(text.slice(index))) {
                 at = index
