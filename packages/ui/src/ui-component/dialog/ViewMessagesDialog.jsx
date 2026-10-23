@@ -71,7 +71,8 @@ import AddRatedAnswersDialog, { singleFeedbackRating } from '@/ui-component/dial
 import { isValidURL, removeDuplicateURL } from '@/utils/genericHelper'
 import useNotifier from '@/utils/useNotifier'
 import FileArtifact from '@/ui-component/artifacts/FileArtifact'
-import { isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
+import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
+import { isFileArtifact, storedFileArtifactUrl, storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
 import { baseURL } from '@/store/constant'
 
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
@@ -517,7 +518,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
             if (chatmsg.fileUploads && Array.isArray(chatmsg.fileUploads)) {
                 chatmsg.fileUploads.forEach((file) => {
                     if (file.type === 'stored-file') {
-                        file.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatmsg.chatflowid}&chatId=${chatmsg.chatId}&fileName=${file.name}`
+                        file.data = uploadedFileUrl(baseURL, chatmsg.chatflowid, chatmsg.chatId, file.name)
                     }
                 })
             }
@@ -539,9 +540,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                 obj.artifacts = chatmsg.artifacts
                 obj.artifacts.forEach((artifact) => {
                     if (artifact.type === 'png' || artifact.type === 'jpeg') {
-                        artifact.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatmsg.chatflowid}&chatId=${
-                            chatmsg.chatId
-                        }&fileName=${artifact.data.replace('FILE-STORAGE::', '')}`
+                        artifact.data = storedImageArtifactUrl(baseURL, chatmsg.chatflowid, chatmsg.chatId, artifact.data)
                     } else if (isFileArtifact(artifact)) {
                         artifact.data = storedFileArtifactUrl(baseURL, chatmsg.chatflowid, chatmsg.chatId, artifact.data)
                     }
@@ -817,9 +816,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
             const artifact = newArtifacts[i]
             if (artifact && (artifact.type === 'png' || artifact.type === 'jpeg')) {
                 const data = artifact.data
-                newArtifacts[i].data = `${baseURL}/api/v1/get-upload-file?chatflowId=${
-                    dialogProps.chatflow.id
-                }&chatId=${selectedChatId}&fileName=${data.replace('FILE-STORAGE::', '')}`
+                newArtifacts[i].data = storedImageArtifactUrl(baseURL, dialogProps.chatflow.id, selectedChatId, data)
             } else if (isFileArtifact(artifact)) {
                 newArtifacts[i].data = storedFileArtifactUrl(baseURL, dialogProps.chatflow.id, selectedChatId, artifact.data)
             }
@@ -837,7 +834,8 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                         m: 0,
                         mt: 2,
                         mb: 2,
-                        flex: '0 0 auto'
+                        flex: '0 0 auto',
+                        position: 'relative'
                     }}
                 >
                     <CardMedia
@@ -851,6 +849,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                             objectFit: 'cover'
                         }}
                     />
+                    <ImageDownloadButton item={item} />
                 </Card>
             )
         } else if (isFileArtifact(item)) {

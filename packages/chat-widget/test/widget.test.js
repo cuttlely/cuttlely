@@ -272,6 +272,117 @@ describe('chat widget', () => {
         assert.equal(t.$$('.dc-artifacts a[href^="https://elsewhere"]').length, 0, 'a file from outside the chat storage is not offered')
     })
 
+    it('offers a download link under stored and data URL images only', async () => {
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'Here is the chart.' },
+                    {
+                        event: 'artifacts',
+                        data: [
+                            { type: 'png', data: 'FILE-STORAGE::harness_assets_1700000000000_0_sales-chart.png' },
+                            { type: 'jpeg', data: 'data:image/jpeg;base64,/9j/4AAQ', name: 'photo' },
+                            { type: 'png', data: 'https://elsewhere.example/a.png' }
+                        ]
+                    },
+                    { event: 'metadata', data: { chatId: 'chat-i', chatMessageId: 'm' } }
+                ])
+        })
+        await type(t, 'Chart the sales')
+        await until(() => t.$$('.dc-figure').length === 3 && !t.widget.busy)
+        const links = t.$$('.dc-image-download')
+        assert.equal(links.length, 2, 'an image from another site gets no download link')
+        const [chart, photo] = links
+        assert.equal(chart.getAttribute('download'), 'sales-chart.png')
+        assert.equal(chart.querySelector('.dc-file-type').textContent, 'PNG')
+        chart.addEventListener('click', (event) => event.preventDefault())
+        chart.click()
+        assert.match(chart.getAttribute('href'), /chatId=chat-i&fileName=harness_assets_1700000000000_0_sales-chart\.png&download=true$/)
+        assert.equal(photo.getAttribute('download'), 'photo.jpg')
+        assert.equal(photo.getAttribute('href'), 'data:image/jpeg;base64,/9j/4AAQ')
+    })
+
+    it('offers no download for a data URL that is not an image of the artifact type', async () => {
+        const big = `data:image/png;base64,${'iVBORw0KGgo'.repeat(800)}AAAA`
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'Charts.' },
+                    {
+                        event: 'artifacts',
+                        data: [
+                            { type: 'png', data: 'data:text/html;base64,PGgxPmhpPC9oMT4=' },
+                            { type: 'png', data: 'data:image/svg+xml;base64,PHN2Zz4=' },
+                            { type: 'jpeg', data: 'data:image/png;base64,iVBORw0KGgo=' },
+                            { type: 'png', data: 'javascript:alert(1)' },
+                            { type: 'png', data: big }
+                        ]
+                    },
+                    { event: 'metadata', data: { chatId: 'chat-u', chatMessageId: 'm' } }
+                ])
+        })
+        await type(t, 'Unsafe charts')
+        await until(() => t.$$('.dc-figure').length === 5 && !t.widget.busy)
+        const links = t.$$('.dc-image-download')
+        assert.equal(links.length, 1, 'only the long PNG data URL is offered')
+        assert.equal(links[0].getAttribute('href'), big)
+        assert.equal(links[0].getAttribute('download'), 'image.png')
+        assert.equal(t.$$('.dc-figure img')[4].getAttribute('src'), big, 'a long image data URL shows as it is')
+        assert.equal(
+            t.$$('.dc-artifacts a[href^="data:text"], .dc-artifacts a[href^="javascript"], .dc-artifacts a[href^="data:image/svg"]').length,
+            0
+        )
+    })
+
+    it('keeps the download link when a stored image cannot be shown', async () => {
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'Chart.' },
+                    { event: 'artifacts', data: [{ type: 'png', data: 'FILE-STORAGE::harness_assets_1_0_gone.png' }] },
+                    { event: 'metadata', data: { chatId: 'chat-g', chatMessageId: 'm' } }
+                ])
+        })
+        await type(t, 'Chart')
+        await until(() => t.$('.dc-figure img') && !t.widget.busy)
+        t.$('.dc-figure img').dispatchEvent(new window.Event('error'))
+        await until(() => t.$('.dc-figure-missing'))
+        assert.equal(t.$('.dc-figure .dc-image-download').getAttribute('download'), 'gone.png')
+    })
+
+    it('downloads a stored image with the session token when the chat has one', async () => {
+        const t = setup({
+            predict: () =>
+                sseResponse([
+                    { event: 'token', data: 'Chart ready.' },
+                    { event: 'artifacts', data: [{ type: 'png', data: 'FILE-STORAGE::harness_assets_1_0_chart.png' }] },
+                    { event: 'metadata', data: { chatId: 'chat-t', chatMessageId: 'm', sessionToken: 'tok-t' } }
+                ]),
+            file: () => new Response(new Blob([new Uint8Array([137, 80, 78, 71])]), { status: 200 })
+        })
+        await type(t, 'Chart it')
+        await until(() => t.$('.dc-image-download') && !t.widget.busy)
+        const saved = []
+        const original = URL.createObjectURL
+        const click = window.HTMLAnchorElement.prototype.click
+        URL.createObjectURL = () => 'blob:chart'
+        window.HTMLAnchorElement.prototype.click = function () {
+            if (this.getAttribute('href') === 'blob:chart') return saved.push(this.getAttribute('download'))
+            return click.call(this)
+        }
+        try {
+            t.$('.dc-image-download').click()
+            await until(() => saved.length === 1)
+        } finally {
+            URL.createObjectURL = original
+            window.HTMLAnchorElement.prototype.click = click
+        }
+        assert.deepEqual(saved, ['chart.png'])
+        const read = t.server.calls.find((c) => c.path === '/api/v1/get-upload-file' && /download=true$/.test(c.search))
+        assert.equal(read.headers['x-cuttlely-session-token'], 'tok-t')
+        assert.match(read.search, /chatId=chat-t&fileName=harness_assets_1_0_chart\.png&download=true$/)
+    })
+
     it('downloads a file with the session token when the chat has one', async () => {
         const t = setup({
             predict: () =>

@@ -1,5 +1,7 @@
 # Status
 
+Handoff 2026-10-23: #269 (chat image downloads; artifact links use the server chat id in the first turn) has main merged in after #267 and #268 and merges last for 1.4.0.
+
 Handoff 2026-10-23: #268 (ChatOpenAI and Azure ChatOpenAI honor the Reasoning toggle; GPT-6 and gpt-5.6 tool calls use the Responses API) has main merged in after #267 and merges next for 1.4.0, then #269.
 
 STATUS 2026-10-22: 1.3.2 (#265: version 1.3.2, CHANGELOG dated 2026-10-22 covering #260, #261, #262, #264, install pins at 1.3.2) is the release PR; the v1.3.2 tag, GitHub release, npm packages and `ghcr.io/cuttlely/cuttlely:1.3.2` follow its merge. Before it, v1.3.1 was tagged on the merge of #253, with npm and `ghcr.io/cuttlely/cuttlely:1.3.1` published; the 1.3.1 CHANGELOG Security line cites GHSA-4p9j-8j59-gwr7 and GHSA-2v98-33pc-jj6f.

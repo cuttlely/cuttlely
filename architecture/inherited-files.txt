@@ -1672,6 +1672,7 @@ packages/ui/src/themes/typography.js
 packages/ui/src/ui-component/array/ArrayRenderer.jsx
 packages/ui/src/ui-component/artifacts/FileArtifact.jsx
 packages/ui/src/ui-component/artifacts/FileArtifact.test.js
+packages/ui/src/ui-component/artifacts/ImageDownloadButton.jsx
 packages/ui/src/ui-component/button/AnimateButton.jsx
 packages/ui/src/ui-component/button/CopyToClipboardButton.jsx
 packages/ui/src/ui-component/button/FlowListMenu.jsx
@@ -1800,6 +1801,7 @@ packages/ui/src/utils/__fixtures__/import/make-webhook.json
 packages/ui/src/utils/__fixtures__/import/text-to-sql.json
 packages/ui/src/utils/authUtils.js
 packages/ui/src/utils/chatArtifacts.js
+packages/ui/src/utils/chatArtifacts.test.js
 packages/ui/src/utils/customMention.js
 packages/ui/src/utils/errorHandler.js
 packages/ui/src/utils/exportImport.js

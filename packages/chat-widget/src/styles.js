@@ -173,6 +173,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 .dc-file:hover, .dc-file:focus-visible { border-color: var(--dc-accent, currentColor); }
 .dc-file-type { font-size: 0.72em; font-weight: 700; letter-spacing: 0.04em; padding: 3px 6px; border-radius: 6px; background: var(--dc-border); }
 .dc-file-name { font-size: 0.9em; overflow-wrap: anywhere; }
+.dc-figure .dc-image-download { border: 0; border-top: 1px solid var(--dc-border); border-radius: 0; padding: 8px 12px; }
 .dc-html-frame { width: 100%; min-height: 220px; border: 1px solid var(--dc-border); border-radius: 14px; background: #fff; }
 .dc-sources { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .dc-sources-label { font-size: 0.78em; font-weight: 600; color: var(--dc-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-right: 2px; }

@@ -1,5 +1,5 @@
 // Files a harness specialist made (PDF, DOCX, XLSX, PPTX, CSV) reach the chat as artifacts next to its PNG and JPEG
-// images. Images show inline; files are offered as downloads.
+// images. Images show inline with a download button; files are offered as downloads.
 export const FILE_ARTIFACT_TYPES = ['pdf', 'docx', 'xlsx', 'pptx', 'csv']
 
 const FILE_DATA_URL = {
@@ -33,16 +33,22 @@ export function fileArtifactHref(item, baseURL) {
     return null
 }
 
+// A stored name with a stray % (not a valid escape) is kept as written instead of throwing.
+const safeDecode = (value) => {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
 // The name to save as: the artifact's own name, or the stored file name without the harness_<specialist>_<time>_<n>_ prefix.
 export function fileArtifactName(item) {
     const named = typeof item?.name === 'string' ? item.name : ''
     let stored = ''
     if (!named && typeof item?.data === 'string') {
         const match = /[?&]fileName=([^&]+)/.exec(item.data)
-        stored = (match ? decodeURIComponent(match[1]) : item.data.replace(/^FILE-STORAGE::/, '')).replace(
-            /^harness_[A-Za-z0-9_-]*?_\d+_\d+_/,
-            ''
-        )
+        stored = (match ? safeDecode(match[1]) : item.data.replace(/^FILE-STORAGE::/, '')).replace(/^harness_[A-Za-z0-9_-]*?_\d+_\d+_/, '')
         if (stored.startsWith('data:')) stored = ''
     }
     const name = (named || stored)
@@ -50,4 +56,54 @@ export function fileArtifactName(item) {
         .pop()
         .replace(/[^A-Za-z0-9._-]/g, '_')
     return name || `file.${item?.type || 'bin'}`
+}
+
+// The chat's get-upload-file link. Each value goes through URLSearchParams so & # + and spaces in a name survive.
+function uploadFileLink(baseURL, chatflowId, chatId, fileName) {
+    const params = new URLSearchParams({ chatflowId: chatflowId || '', chatId: chatId || '', fileName })
+    return `${baseURL}/api/v1/get-upload-file?${params.toString()}`
+}
+
+// A stored PNG or JPEG (FILE-STORAGE::name) becomes the chat's inline image link; only a leading FILE-STORAGE:: is
+// dropped. imageArtifactDownload adds download=true for the save button.
+export function storedImageArtifactUrl(baseURL, chatflowId, chatId, data) {
+    return uploadFileLink(baseURL, chatflowId, chatId, typeof data === 'string' ? data.replace(/^FILE-STORAGE::/, '') : '')
+}
+
+// A file the user uploaded to the chat, linked by its name exactly as uploaded.
+export function uploadedFileUrl(baseURL, chatflowId, chatId, name) {
+    return uploadFileLink(baseURL, chatflowId, chatId, typeof name === 'string' ? name : '')
+}
+
+export const IMAGE_ARTIFACT_TYPES = ['png', 'jpeg']
+
+const IMAGE_DATA_URL = { png: 'data:image/png;base64,', jpeg: 'data:image/jpeg;base64,' }
+
+// The download for a PNG or JPEG artifact: this server's file route with download=true, or a data URL of the image's
+// own type (the harness canvas chat), and the name to save as. Anything else gets no download.
+export function imageArtifactDownload(item, baseURL) {
+    if (!item || !IMAGE_ARTIFACT_TYPES.includes(item.type) || typeof item.data !== 'string') return null
+    let href = null
+    const prefix = IMAGE_DATA_URL[item.type]
+    if (item.data.startsWith(prefix) && /^[A-Za-z0-9+/]+={0,2}$/.test(item.data.slice(prefix.length))) {
+        href = item.data
+    } else if (item.data.startsWith(`${baseURL}/api/v1/get-upload-file?`)) {
+        href = /[?&]download=true(&|$)/.test(item.data) ? item.data : `${item.data}&download=true`
+    }
+    if (!href) return null
+    const name = fileArtifactName(item)
+    const ext = item.type === 'png' ? /\.png$/i : /\.jpe?g$/i
+    return { href, name: ext.test(name) ? name : `${name.replace(/\.[^.]*$/, '') || 'image'}.${item.type === 'png' ? 'png' : 'jpg'}` }
+}
+
+// Keep the storage reference while a new chat waits for its server id. Reapplying this helper after
+// metadata rebuilds links without treating an already-built URL as a stored filename.
+export function resolveChatArtifacts(artifacts, baseURL, chatflowId, chatId) {
+    return artifacts?.map((artifact) => {
+        if (!IMAGE_ARTIFACT_TYPES.includes(artifact.type) && !isFileArtifact(artifact)) return artifact
+        const storedReference = artifact.storedReference || artifact.data
+        if (typeof storedReference !== 'string' || !storedReference.startsWith('FILE-STORAGE::')) return artifact
+        const url = IMAGE_ARTIFACT_TYPES.includes(artifact.type) ? storedImageArtifactUrl : storedFileArtifactUrl
+        return { ...artifact, storedReference, data: url(baseURL, chatflowId, chatId, storedReference) }
+    })
 }

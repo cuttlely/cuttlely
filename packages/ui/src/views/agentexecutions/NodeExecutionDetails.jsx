@@ -38,6 +38,7 @@ import { CodeEditor } from '@/ui-component/editor/CodeEditor'
 import SourceDocDialog from '@/ui-component/dialog/SourceDocDialog'
 
 import predictionApi from '@/api/prediction'
+import { storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
 
 export const NodeExecutionDetails = ({ data, label, status, metadata, isPublic, onProceedSuccess }) => {
     const [dataView, setDataView] = useState('rendered')
@@ -769,12 +770,12 @@ export const NodeExecutionDetails = ({ data, label, status, metadata, isPublic, 
                                                                 component='img'
                                                                 image={
                                                                     artifact.data.startsWith('FILE-STORAGE::')
-                                                                        ? `${baseURL}/api/v1/get-upload-file?chatflowId=${
-                                                                              metadata?.agentflowId
-                                                                          }&chatId=${metadata?.sessionId}&fileName=${artifact.data.replace(
-                                                                              'FILE-STORAGE::',
-                                                                              ''
-                                                                          )}`
+                                                                        ? storedImageArtifactUrl(
+                                                                              baseURL,
+                                                                              metadata?.agentflowId,
+                                                                              metadata?.sessionId,
+                                                                              artifact.data
+                                                                          )
                                                                         : artifact.data
                                                                 }
                                                                 sx={{ height: 'auto', maxHeight: '500px', objectFit: 'contain' }}
@@ -843,7 +844,12 @@ export const NodeExecutionDetails = ({ data, label, status, metadata, isPublic, 
                                                     component='img'
                                                     image={
                                                         content.type === 'stored-file'
-                                                            ? `${baseURL}/api/v1/get-upload-file?chatflowId=${metadata?.agentflowId}&chatId=${metadata?.sessionId}&fileName=${content.name}`
+                                                            ? uploadedFileUrl(
+                                                                  baseURL,
+                                                                  metadata?.agentflowId,
+                                                                  metadata?.sessionId,
+                                                                  content.name
+                                                              )
                                                             : content.name
                                                     }
                                                     onError={(e) => {
@@ -1030,12 +1036,12 @@ export const NodeExecutionDetails = ({ data, label, status, metadata, isPublic, 
                                                             component='img'
                                                             image={
                                                                 artifact.data.startsWith('FILE-STORAGE::')
-                                                                    ? `${baseURL}/api/v1/get-upload-file?chatflowId=${
-                                                                          metadata?.agentflowId
-                                                                      }&chatId=${metadata?.sessionId}&fileName=${artifact.data.replace(
-                                                                          'FILE-STORAGE::',
-                                                                          ''
-                                                                      )}`
+                                                                    ? storedImageArtifactUrl(
+                                                                          baseURL,
+                                                                          metadata?.agentflowId,
+                                                                          metadata?.sessionId,
+                                                                          artifact.data
+                                                                      )
                                                                     : artifact.data
                                                             }
                                                             sx={{ height: 'auto', maxHeight: '500px', objectFit: 'contain' }}

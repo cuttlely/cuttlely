@@ -84,7 +84,8 @@ import { shouldToastOnStreamEnd, useItWorkedNotice } from '@/utils/itWorked'
 
 // Const
 import FileArtifact from '@/ui-component/artifacts/FileArtifact'
-import { isFileArtifact, storedFileArtifactUrl } from '@/utils/chatArtifacts'
+import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
+import { isFileArtifact, resolveChatArtifacts, storedFileArtifactUrl, storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
 import { baseURL, maxScroll } from '@/store/constant'
 import { acceptChatSubmit, harnessCanvasRunPath } from '@/utils/harnessCanvasChat'
 import { harnessMessageText } from '@/utils/harnessStream'
@@ -733,20 +734,10 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
     }
 
     const updateLastMessageArtifacts = (artifacts) => {
-        artifacts.forEach((artifact) => {
-            if (artifact.type === 'png' || artifact.type === 'jpeg') {
-                artifact.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowid}&chatId=${chatId}&fileName=${artifact.data.replace(
-                    'FILE-STORAGE::',
-                    ''
-                )}`
-            } else if (isFileArtifact(artifact)) {
-                artifact.data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
-            }
-        })
         setMessages((prevMessages) => {
             let allMessages = [...cloneDeep(prevMessages)]
             if (allMessages[allMessages.length - 1].type === 'userMessage') return allMessages
-            allMessages[allMessages.length - 1].artifacts = artifacts
+            allMessages[allMessages.length - 1].artifacts = resolveChatArtifacts(artifacts, baseURL, chatflowid, chatId)
             return allMessages
         })
     }
@@ -961,6 +952,14 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
 
         if (data.chatId) {
             setChatId(data.chatId)
+            setMessages((prevMessages) => {
+                const lastMessage = prevMessages[prevMessages.length - 1]
+                if (lastMessage?.type !== 'apiMessage' || !lastMessage.artifacts) return prevMessages
+                return [
+                    ...prevMessages.slice(0, -1),
+                    { ...lastMessage, artifacts: resolveChatArtifacts(lastMessage.artifacts, baseURL, chatflowid, data.chatId) }
+                ]
+            })
         }
 
         if (input === '' && data.question) {
@@ -1136,7 +1135,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                 agentReasoning: data?.agentReasoning,
                                 agentFlowExecutedData: data?.agentFlowExecutedData,
                                 action: data?.action,
-                                artifacts: data?.artifacts,
+                                artifacts: resolveChatArtifacts(data?.artifacts, baseURL, chatflowid, data.chatId || chatId),
                                 type: 'apiMessage',
                                 feedback: null
                             }
@@ -1179,7 +1178,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                             agentReasoning: data?.agentReasoning,
                             agentFlowExecutedData: data?.agentFlowExecutedData,
                             action: data?.action,
-                            artifacts: data?.artifacts,
+                            artifacts: resolveChatArtifacts(data?.artifacts, baseURL, chatflowid, data.chatId || chatId),
                             type: 'apiMessage',
                             feedback: null
                         }
@@ -1542,10 +1541,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     obj.artifacts = message.artifacts
                     obj.artifacts.forEach((artifact) => {
                         if (artifact.type === 'png' || artifact.type === 'jpeg') {
-                            artifact.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowid}&chatId=${chatId}&fileName=${artifact.data.replace(
-                                'FILE-STORAGE::',
-                                ''
-                            )}`
+                            artifact.data = storedImageArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
                         } else if (isFileArtifact(artifact)) {
                             artifact.data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
                         }
@@ -1555,7 +1551,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     obj.fileUploads = message.fileUploads
                     obj.fileUploads.forEach((file) => {
                         if (file.type === 'stored-file') {
-                            file.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowid}&chatId=${chatId}&fileName=${file.name}`
+                            file.data = uploadedFileUrl(baseURL, chatflowid, chatId, file.name)
                         }
                     })
                 }
@@ -2498,10 +2494,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
             const artifact = newArtifacts[i]
             if (artifact && (artifact.type === 'png' || artifact.type === 'jpeg')) {
                 const data = artifact.data
-                newArtifacts[i].data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowid}&chatId=${chatId}&fileName=${data.replace(
-                    'FILE-STORAGE::',
-                    ''
-                )}`
+                newArtifacts[i].data = storedImageArtifactUrl(baseURL, chatflowid, chatId, data)
             } else if (isFileArtifact(artifact)) {
                 newArtifacts[i].data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
             }
@@ -2519,7 +2512,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         m: 0,
                         mt: 2,
                         mb: 2,
-                        flex: '0 0 auto'
+                        flex: '0 0 auto',
+                        position: 'relative'
                     }}
                 >
                     <CardMedia
@@ -2533,6 +2527,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                             objectFit: 'cover'
                         }}
                     />
+                    <ImageDownloadButton item={item} />
                 </Card>
             )
         } else if (isFileArtifact(item)) {
