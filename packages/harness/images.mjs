@@ -180,7 +180,11 @@ function tokenMask(raw, root, continued) {
     let start = 0,
         end = raw.length
     while (start < end && (EDGE.test(raw[start]) || raw[start] === "'")) start++
-    while (end > start && (EDGE.test(raw[end - 1]) || raw[end - 1] === "'" || raw[end - 1] === '.')) end--
+    while (end > start && (EDGE.test(raw[end - 1]) || raw[end - 1] === "'" || raw[end - 1] === '.')) {
+        // A final . or .. after a separator is a path segment, not sentence punctuation.
+        if (/[\/\\]\.{1,2}$/.test(raw.slice(Math.max(start, end - 3), end))) break
+        end--
+    }
     const token = raw.slice(start, end)
     if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
     const slash = /[\/\\]/.test(token)

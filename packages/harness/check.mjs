@@ -7967,8 +7967,10 @@ check(
         const deck = root + '/a/private/deck.pptx'
         // Rule 3: these deck paths do not exist, so only "the workspace" is shown.
         const file = 'the workspace'
-        const rule3Root = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-mask-rule3-'))
-        try {
+        const rule3DataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-mask-rule3-'))
+        const rule3Root = path.join(rule3DataDir, 'workspaces')
+        fs.mkdirSync(rule3Root)
+        {
             fs.writeFileSync(path.join(rule3Root, 'real.pptx'), 'deliverable')
             for (const [name, expected] of [
                 ['real.pptx', 'the workspace file real.pptx'],
@@ -8002,8 +8004,6 @@ check(
                     check(`rule 8: existing deliverable ${name} split ${at}`, result === expected, result)
                 }
             }
-        } finally {
-            fs.rmSync(rule3Root, { recursive: true, force: true })
         }
         const byteError = Object.assign(new Error('failed /tmp/input'), {
             base64: '/' + 'A'.repeat(2000) + '//x',
@@ -8028,6 +8028,10 @@ check(
             [3, '~/private.txt', 'a server path'],
             [3, 'C:\\private\\deck.pptx', 'a server path'],
             [3, 'docs/../../report.md', 'a server path'],
+            [3, 'docs/..', 'a server path'],
+            [3, 'docs\\..', 'a server path'],
+            [3, `${rule3Root}/real.pptx/..`, 'the workspace', rule3Root],
+            [3, `${rule3Root}/real.pptx\\..`, 'the workspace', rule3Root],
             [3, `${root}/a/../../../../etc/passwd`, 'a server path'],
             [4, `/tmp/input and ${deck}`, `a server path and ${file}`],
             [4, `${deck} and /tmp/input`, `${file} and a server path`],
@@ -8141,13 +8145,14 @@ check(
         const previousDataDir = process.env.CUTTLELY_DATA_DIR
         try {
             process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
-            for (const [rule, text, expected] of cases) {
-                const actual = hideWorkspacePaths(text, root)
+            for (const [rule, text, expected, caseRoot = root] of cases) {
+                process.env.CUTTLELY_DATA_DIR = caseRoot === rule3Root ? rule3DataDir : '/var/cuttlely'
+                const actual = hideWorkspacePaths(text, caseRoot)
                 check(`rule ${rule}: ${JSON.stringify(text.slice(0, 110))}`, actual === expected, JSON.stringify({ actual, expected }))
                 const chars = [],
                     context = {}
-                for (const char of text) bufferStream(context, 'answer', char, false, (value) => chars.push(value), root)
-                bufferStream(context, 'answer', '', true, (value) => chars.push(value), root)
+                for (const char of text) bufferStream(context, 'answer', char, false, (value) => chars.push(value), caseRoot)
+                bufferStream(context, 'answer', '', true, (value) => chars.push(value), caseRoot)
                 check(`rule 8: character stream ${JSON.stringify(text.slice(0, 110))}`, chars.join('') === actual)
                 // The same token scanner serves every text, error and structured-value channel.
                 const value = maskWorkspacePaths({ [text]: text, nested: [{ note: text }], base64: { note: text } })
@@ -8163,13 +8168,14 @@ check(
                     for (let at = 0; at <= text.length; at++) {
                         const sent = [],
                             split = {}
-                        bufferStream(split, 'x', text.slice(0, at), false, (part) => sent.push(part), root)
-                        bufferStream(split, 'x', text.slice(at), false, (part) => sent.push(part), root)
-                        bufferStream(split, 'x', '', true, (part) => sent.push(part), root)
+                        bufferStream(split, 'x', text.slice(0, at), false, (part) => sent.push(part), caseRoot)
+                        bufferStream(split, 'x', text.slice(at), false, (part) => sent.push(part), caseRoot)
+                        bufferStream(split, 'x', '', true, (part) => sent.push(part), caseRoot)
                         check(`rule 8: split ${at} ${JSON.stringify(text.slice(0, 110))}`, sent.join('') === actual)
                     }
                 }
             }
+            process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
             const state = workspaceMaskState()
             check('rule 7: no partial token is sent', scanWorkspaceText(state, '/var/cuttlely/cache.old', root) === '')
             check('rule 7: whitespace completes the token', scanWorkspaceText(state, ' ', root) === 'a server path ')
@@ -8217,6 +8223,7 @@ check(
                 )
             }
         } finally {
+            fs.rmSync(rule3DataDir, { recursive: true, force: true })
             if (previousDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
             else process.env.CUTTLELY_DATA_DIR = previousDataDir
         }
