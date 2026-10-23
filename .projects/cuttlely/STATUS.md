@@ -1,5 +1,7 @@
 # Status
 
+Handoff 2026-10-23: 1.4.0 release PR (branch release-1.4.0): versions 1.4.0, CHANGELOG dated 2026-10-23 covering #267, #268, #269, install pins at 1.4.0; tag v1.4.0, GitHub release, npm and ghcr follow its merge.
+
 Handoff 2026-10-23: #269 (chat image downloads; artifact links use the server chat id in the first turn) has main merged in after #267 and #268 and merges last for 1.4.0.
 
 Handoff 2026-10-23: #268 (ChatOpenAI and Azure ChatOpenAI honor the Reasoning toggle; GPT-6 and gpt-5.6 tool calls use the Responses API) has main merged in after #267 and merges next for 1.4.0, then #269.

@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-23
+
 ### Fixed
 
 -   The ChatOpenAI and Azure ChatOpenAI nodes honor the **Reasoning** toggle. With it off, a Reasoning Effort saved earlier is no longer sent: gpt-5.1 to gpt-5.x get `reasoning_effort` `none`, and gpt-5, o-series, GPT-6 and other reasoning models get no reasoning effort (GPT-6 models refuse `none`). This fixes `400 Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions` on a Tool Agent, an Agent node or a harness driven by gpt-5.6. **Reasoning Effort** has a **None** option. gpt-5.6 with any effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools. GPT-6 models now actually send their Reasoning Effort and Summary in the request's `reasoning` field (before, LangChain dropped them for GPT-6 names), and gpt-6.1-sol gets effort `low` in place of `minimal`, which it refuses. Azure ChatOpenAI sends its Responses API calls to the resource's `/openai/v1/responses` endpoint with the deployment name as the model, as Azure requires, instead of the deployment path, which has no Responses endpoint. Calls on the Responses API keep a forced tool choice: `required`, `auto` and `none` now reach `/responses` (before, LangChain left them out, so a harness or agent that requires a tool call could answer without one), and a named function goes out as `{type: function, name}`.
@@ -461,7 +463,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/cuttlely/cuttlely/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/cuttlely/cuttlely/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/cuttlely/cuttlely/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/cuttlely/cuttlely/compare/v1.2.0...v1.3.0

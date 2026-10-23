@@ -1,6 +1,6 @@
 {
     "name": "cuttlely",
-    "version": "1.3.2",
+    "version": "1.4.0",
     "description": "Start Cuttlely in Docker. The open-source agent platform for applications.",
     "type": "module",
     "bin": {
