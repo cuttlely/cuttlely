@@ -94,3 +94,15 @@ export function imageArtifactDownload(item, baseURL) {
     const ext = item.type === 'png' ? /\.png$/i : /\.jpe?g$/i
     return { href, name: ext.test(name) ? name : `${name.replace(/\.[^.]*$/, '') || 'image'}.${item.type === 'png' ? 'png' : 'jpg'}` }
 }
+
+// Keep the storage reference while a new chat waits for its server id. Reapplying this helper after
+// metadata rebuilds links without treating an already-built URL as a stored filename.
+export function resolveChatArtifacts(artifacts, baseURL, chatflowId, chatId) {
+    return artifacts?.map((artifact) => {
+        if (!IMAGE_ARTIFACT_TYPES.includes(artifact.type) && !isFileArtifact(artifact)) return artifact
+        const storedReference = artifact.storedReference || artifact.data
+        if (typeof storedReference !== 'string' || !storedReference.startsWith('FILE-STORAGE::')) return artifact
+        const url = IMAGE_ARTIFACT_TYPES.includes(artifact.type) ? storedImageArtifactUrl : storedFileArtifactUrl
+        return { ...artifact, storedReference, data: url(baseURL, chatflowId, chatId, storedReference) }
+    })
+}

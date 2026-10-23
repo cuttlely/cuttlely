@@ -85,7 +85,7 @@ import { shouldToastOnStreamEnd, useItWorkedNotice } from '@/utils/itWorked'
 // Const
 import FileArtifact from '@/ui-component/artifacts/FileArtifact'
 import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
-import { isFileArtifact, storedFileArtifactUrl, storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
+import { isFileArtifact, resolveChatArtifacts, storedFileArtifactUrl, storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
 import { baseURL, maxScroll } from '@/store/constant'
 import { acceptChatSubmit, harnessCanvasRunPath } from '@/utils/harnessCanvasChat'
 import { harnessMessageText } from '@/utils/harnessStream'
@@ -734,17 +734,10 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
     }
 
     const updateLastMessageArtifacts = (artifacts) => {
-        artifacts.forEach((artifact) => {
-            if (artifact.type === 'png' || artifact.type === 'jpeg') {
-                artifact.data = storedImageArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
-            } else if (isFileArtifact(artifact)) {
-                artifact.data = storedFileArtifactUrl(baseURL, chatflowid, chatId, artifact.data)
-            }
-        })
         setMessages((prevMessages) => {
             let allMessages = [...cloneDeep(prevMessages)]
             if (allMessages[allMessages.length - 1].type === 'userMessage') return allMessages
-            allMessages[allMessages.length - 1].artifacts = artifacts
+            allMessages[allMessages.length - 1].artifacts = resolveChatArtifacts(artifacts, baseURL, chatflowid, chatId)
             return allMessages
         })
     }
@@ -959,6 +952,14 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
 
         if (data.chatId) {
             setChatId(data.chatId)
+            setMessages((prevMessages) => {
+                const lastMessage = prevMessages[prevMessages.length - 1]
+                if (lastMessage?.type !== 'apiMessage' || !lastMessage.artifacts) return prevMessages
+                return [
+                    ...prevMessages.slice(0, -1),
+                    { ...lastMessage, artifacts: resolveChatArtifacts(lastMessage.artifacts, baseURL, chatflowid, data.chatId) }
+                ]
+            })
         }
 
         if (input === '' && data.question) {
@@ -1134,7 +1135,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                 agentReasoning: data?.agentReasoning,
                                 agentFlowExecutedData: data?.agentFlowExecutedData,
                                 action: data?.action,
-                                artifacts: data?.artifacts,
+                                artifacts: resolveChatArtifacts(data?.artifacts, baseURL, chatflowid, data.chatId || chatId),
                                 type: 'apiMessage',
                                 feedback: null
                             }
@@ -1177,7 +1178,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                             agentReasoning: data?.agentReasoning,
                             agentFlowExecutedData: data?.agentFlowExecutedData,
                             action: data?.action,
-                            artifacts: data?.artifacts,
+                            artifacts: resolveChatArtifacts(data?.artifacts, baseURL, chatflowid, data.chatId || chatId),
                             type: 'apiMessage',
                             feedback: null
                         }
