@@ -659,14 +659,12 @@ async function runRoster(context, input) {
 }
 
 // Paths inside any specialist's workspace are shown as file names in every string of a value, keys included: events,
-// specialist results and sources, and the turn's result. Only file bytes are left as they are: a "base64" string, and a
-// "data" string holding a data URL, when neither names the workspaces folder. Anything nested deeper than MASK_DEPTH, or a repeated reference to an object being
-// masked, is replaced by a placeholder rather than passed on unmasked.
+// specialist results and sources, and the turn's result. File bytes are never masked, by field and not by content: a
+// "base64" string, and a "data" string holding a base64 data URL (data:<type>;base64,...). Every other field is text
+// and is masked. Anything nested deeper than MASK_DEPTH, or a repeated reference to an object being masked, is
+// replaced by a placeholder rather than passed on unmasked.
 const MASK_DEPTH = 64
-const fileBytes = (key, item) =>
-    typeof item === 'string' &&
-    (key === 'base64' || (key === 'data' && item.startsWith('data:'))) &&
-    !namesRoot(item, specialistWorkspaceRoot())
+const fileBytes = (key, item) => typeof item === 'string' && (key === 'base64' || (key === 'data' && /^data:[^,]*;base64,/i.test(item)))
 // A value's toJSON() serializer, own or inherited; a lookup that throws gives THROWS.
 const THROWS = Symbol('throws')
 const serializerOf = (value) => {
@@ -852,7 +850,7 @@ function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, s
         } catch {
             return true
         }
-        if (mentionsWorkspace(item, root, depth + 1, seen)) return true
+        if (!fileBytes(key, item) && mentionsWorkspace(item, root, depth + 1, seen)) return true
     }
     return false
 }

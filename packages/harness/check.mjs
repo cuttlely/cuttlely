@@ -1,10 +1,37 @@
 import fs from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
+import { deflateSync, crc32 } from 'node:zlib'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
+
+// A complete, deterministic RGB PNG with uncompressed DEFLATE blocks. The white
+// pixels force // into its base64, exercising the former path-like byte masking.
+function downloadRegressionPng() {
+    const chunk = (name, data) => {
+        const type = Buffer.from(name)
+        const header = Buffer.alloc(4)
+        header.writeUInt32BE(data.length)
+        const checksum = Buffer.alloc(4)
+        checksum.writeUInt32BE(crc32(Buffer.concat([type, data])))
+        return Buffer.concat([header, type, data, checksum])
+    }
+    const ihdr = Buffer.alloc(13)
+    ihdr.writeUInt32BE(64, 0)
+    ihdr.writeUInt32BE(64, 4)
+    ihdr[8] = 8
+    ihdr[9] = 2
+    const pixels = Buffer.alloc(64 * (1 + 64 * 3), 255)
+    for (let row = 0; row < 64; row++) pixels[row * 193] = 0
+    return Buffer.concat([
+        Buffer.from('89504e470d0a1a0a', 'hex'),
+        chunk('IHDR', ihdr),
+        chunk('IDAT', deflateSync(pixels, { level: 0 })),
+        chunk('IEND', Buffer.alloc(0))
+    ])
+}
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-harness-'))
@@ -8182,6 +8209,22 @@ check(
                 Object.assign(new Error(`Cannot read ${path.join(assets, 'private.pdf')}`), { code: 'tool_failed' })
             )
             const freed = maskError(frozen)
+            const byteFields = {
+                base64: '/' + 'A'.repeat(2000) + '//x',
+                data: 'data:image/png;base64,/' + 'A'.repeat(2000)
+            }
+            const maskedFields = maskWorkspacePaths({
+                ...byteFields,
+                note: '/var/cuttlely/workspaces/a/x.pptx',
+                nested: { data: 'data:text/plain,/var/cuttlely/workspaces/a/x' }
+            })
+            check(
+                'base64 fields and base64 data URLs keep path-like bytes while ordinary text is masked',
+                maskedFields.base64 === byteFields.base64 &&
+                    maskedFields.data === byteFields.data &&
+                    !maskedFields.note.includes('/var/cuttlely/workspaces') &&
+                    maskedFields.nested.data === maskWorkspacePaths('data:text/plain,/var/cuttlely/workspaces/a/x')
+            )
             const bytesKept = maskWorkspacePaths({
                 base64: { error: path.join(assets, 'private.pdf') },
                 data: `data:text/plain,${assets}/../x`
@@ -8537,6 +8580,92 @@ check(
     )
     fs.rmSync(fileDir, { recursive: true, force: true })
 }
+
+await expectCase('large file downloads survive runHarness and the fresh chat handoff', async () => {
+    const { zipEntryNames } = await import('./images.mjs')
+    const { enqueueHarnessJob, finishJob, waitForJob } = await import('./queue.mjs')
+    const { database } = await import('./lock.mjs')
+    const deck = fs.readFileSync(path.join(root, 'packages/components/nodes/harness/Harness/__fixtures__/q3-deck.pptx'))
+    const png = downloadRegressionPng()
+    check(
+        'the download fixtures are large and the PNG base64 triggers the former path mask',
+        deck.length > 1024 && png.length >= 4096 && png.toString('base64').includes('//')
+    )
+    saveHarness(
+        {
+            name: 'download-regression',
+            chief: { model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } }) },
+            specialists: [{ name: 'files', instructions: 'Create the requested files.', codeExecution: true, fileAccess: true }]
+        },
+        { overwrite: true }
+    )
+    const written = new Map()
+    let folder = ''
+    const result = await runHarness({
+        name: 'download-regression',
+        chatId: 'large-downloads',
+        input: 'Create a deck and a chart.',
+        baseUrl: 'http://127.0.0.1:9',
+        fetchImpl: analystHermesFetch((_n, body) => {
+            folder = body.input.match(/save it as a PNG or JPEG file in this folder: ([^\n]+)/)?.[1]
+            if (!folder) throw new Error('Specialist did not receive a turn file folder')
+            fs.copyFileSync(
+                path.join(root, 'packages/components/nodes/harness/Harness/__fixtures__/q3-deck.pptx'),
+                path.join(folder, 'q3-deck.pptx')
+            )
+            fs.writeFileSync(path.join(folder, 'chart.png'), png)
+            for (const name of ['q3-deck.pptx', 'chart.png']) {
+                // Avoid filesystem timestamp rounding placing a just-written file before the turn start.
+                const stamp = new Date(Date.now() + 1000)
+                fs.utimesSync(path.join(folder, name), stamp, stamp)
+                written.set(name, fs.readFileSync(path.join(folder, name)))
+            }
+            return { output: `Saved files in ${folder}`, events: [] }
+        }),
+        loadNode: async () =>
+            recordingChat([], (messages, tools) => {
+                const reply = scriptedReply(messages, tools)
+                if (plainChatMessages(messages)[0]?.content?.startsWith('You are Harness Prime')) reply.content += ` Saved in ${folder}`
+                return reply
+            })
+    })
+    const identical = (artifacts) =>
+        artifacts?.length === 2 &&
+        artifacts.every(
+            (item) =>
+                written.has(item.name) &&
+                typeof item.base64 === 'string' &&
+                Buffer.from(item.base64, 'base64').equals(written.get(item.name))
+        )
+    check('large file downloads survive runHarness and the fresh chat handoff', written.size === 2 && identical(result.artifacts))
+    const returnedDeck = result.artifacts.find((item) => item.type === 'pptx')
+    check(
+        'the returned deck still unzips with its presentation part',
+        zipEntryNames(Buffer.from(returnedDeck?.base64 || '', 'base64'))?.includes('ppt/presentation.xml')
+    )
+    check(
+        'the answer hides the specialist workspace path',
+        Boolean(folder) && !result.text.includes(folder) && !result.text.includes('/workspaces/')
+    )
+    const row = attachHarnessToChatMessage({ role: 'apiMessage', content: '' }, result)
+    check(
+        'serialized chat artifacts and harness payload retain download bytes',
+        identical(JSON.parse(row.artifacts)) && identical(JSON.parse(row.harnessPayload).artifacts)
+    )
+    const job = enqueueHarnessJob({ name: 'download-regression', chatId: 'download-handoff', input: 'Files' })
+    try {
+        finishJob(job.id, { status: 'succeeded', result })
+        const handed = await waitForJob(job.id, { timeoutMs: 2000 })
+        check('the fresh queue handoff retains byte-identical large downloads', identical(handed.artifacts))
+        const stored = JSON.parse(database().prepare('SELECT result FROM jobs WHERE id = ?').get(job.id).result)
+        check(
+            'queue history deliberately stores download metadata without bytes',
+            stored.artifacts.length === 2 && stored.artifacts.every((item) => !('base64' in item))
+        )
+    } finally {
+        database().prepare('DELETE FROM jobs WHERE id = ?').run(job.id)
+    }
+})
 
 {
     // The 'assets' preset: Code execution and Files on, the style kit in the workspace, its instructions in the soul.
