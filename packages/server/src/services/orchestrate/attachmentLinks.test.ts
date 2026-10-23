@@ -36,4 +36,19 @@ describe('makeAttachmentLinkFilter', () => {
             expect(Date.now() - started).toBeLessThan(500)
         }
     })
+
+    it('removes angle-bracket targets, parentheses in the target and a line break before it, streamed or not', () => {
+        for (const text of [
+            'A [file](<attachment:report.pdf>) B',
+            'A [file](attachment:report(1).pdf) B',
+            'A [file](\nattachment:report.pdf) B',
+            'A ![c]( attachment:c.png ) B'
+        ]) {
+            expect(dropAttachmentLinks(text)).toBe('A  B')
+            expect(run(text.split(''))).toBe('A  B')
+            expect(run([text])).toBe('A  B')
+        }
+        const kept = 'See [x](https://x.example/a(1)) and [y](attachment:a>b) and (attachment:z)'
+        expect(run(kept.split(''))).toBe(dropAttachmentLinks(kept))
+    })
 })

@@ -543,7 +543,8 @@ export class AgentExecutor extends BaseChain<ChainValues, AgentExecutorOutput> {
                     }
                     if (typeof observation === 'string' && observation.includes(ARTIFACTS_PREFIX)) {
                         const observationArray = observation.split(ARTIFACTS_PREFIX)
-                        observation = observationArray[0] + toolArtifactNote(observationArray[1])
+                        // The note is for the model; a return-direct tool's output goes to the user as is, so it gets none.
+                        observation = observationArray[0] + ((tool as any)?.returnDirect ? '' : toolArtifactNote(observationArray[1]))
                         try {
                             const artifact = JSON.parse(observationArray[1])
                             artifacts.push(artifact)

@@ -299,7 +299,16 @@ export async function executeMessage(opts: {
         } catch (error) {
             outcome = classifyOutcome({ row, signal, error })
         }
-        applyOutcome({ row, outcome, sentToken, stream: opts.stream, res: opts.res, rpcId: opts.rpcId, signal })
+        applyOutcome({
+            row,
+            outcome,
+            sentToken,
+            appended: streamEncoder?.started() ?? false,
+            stream: opts.stream,
+            res: opts.res,
+            rpcId: opts.rpcId,
+            signal
+        })
         if (opts.log.rpc === '-') opts.log.rpc = 'ok'
     } catch (error) {
         runError = error
@@ -308,6 +317,7 @@ export async function executeMessage(opts: {
                 row,
                 outcome: classifyOutcome({ row, signal, error }),
                 sentToken,
+                appended: streamEncoder?.started() ?? false,
                 stream: opts.stream,
                 res: opts.res,
                 rpcId: opts.rpcId,
@@ -377,6 +387,8 @@ function applyOutcome(opts: {
     row: A2aStoredTask
     outcome: RunOutcome
     sentToken: boolean
+    /** An answer chunk was already sent (tokens held back by the filter send none), so the last one appends. */
+    appended?: boolean
     stream: boolean
     res: Response
     rpcId: JsonRpcId
@@ -441,7 +453,7 @@ function applyOutcome(opts: {
                         taskId: row.task.id,
                         contextId: row.contextId,
                         artifact: { artifactId: row.artifactId, name: 'answer', parts: [{ kind: 'text', text: outcome.tail ?? '' }] },
-                        append: true,
+                        append: opts.appended ?? true,
                         lastChunk: true
                     })
                 )

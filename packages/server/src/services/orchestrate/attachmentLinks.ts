@@ -3,35 +3,54 @@
 
 /** Made-up `attachment:` links (the model naming a file it cannot link) are removed from the answer text. */
 export function dropAttachmentLinks(text: string): string {
-    return text.replace(/!?\[[^[\]\n]*\]\(\s*attachment:[^()[\]\n]*\)/gi, '').replace(/\n{3,}/g, '\n\n')
+    return text.replace(ATTACHMENT_LINK_ANYWHERE, '').replace(/\n{3,}/g, '\n\n')
 }
 
-// Neither the label nor the target may hold a bracket, so every scan stops at the next `[`: filtering is linear in the
-// text even for long runs of unmatched brackets.
-const ATTACHMENT_LINK = /^!?\[[^[\]\n]*\]\(\s*attachment:[^()[\]\n]*\)/i
+// `[label](attachment:target)`, also with `<...>` around the target, spaces or a line break before it, and one level of
+// parentheses inside it. Neither the label nor the target may hold a bracket, so every scan stops at the next `[`:
+// filtering is linear in the text even for long runs of unmatched brackets.
+const ATTACHMENT_LINK_SOURCE = String.raw`!?\[[^[\]\n]*\]\(\s*<?attachment:(?:[^()[\]\n<>]|\([^()[\]\n<>]*\))*>?\)`
+const ATTACHMENT_LINK_ANYWHERE = new RegExp(ATTACHMENT_LINK_SOURCE, 'gi')
+const ATTACHMENT_LINK = new RegExp(`^${ATTACHMENT_LINK_SOURCE}`, 'i')
 const HOLD_LIMIT = 2048
 
-/** Could `rest` (which starts at `[` or `![`) still grow into an `attachment:` link? Scans up to the next `[` only. */
+/**
+ * Could `rest` (which starts at `[` or `![`) still grow into an `attachment:` link? Every prefix of a full link
+ * answers true. Scans up to the next `[` only.
+ */
 function mayBecomeAttachmentLink(rest: string): boolean {
+    if (rest.length > HOLD_LIMIT) return false
     let i = rest.startsWith('!') ? 2 : 1
     for (; i < rest.length; i++) {
         const c = rest[i]
         if (c === ']') break
         if (c === '[' || c === '\n') return false
     }
-    if (i >= rest.length) return rest.length <= HOLD_LIMIT // still in the label
+    if (i >= rest.length) return true // still in the label
     i++
     if (i >= rest.length) return true // label closed, `(` not seen yet
     if (rest[i] !== '(') return false
     i++
-    while (i < rest.length && (rest[i] === ' ' || rest[i] === '\t')) i++
-    const start = i
-    for (; i < rest.length; i++) {
+    while (i < rest.length && /\s/.test(rest[i])) i++
+    if (rest[i] === '<') i++
+    const target = rest.slice(i, i + 11).toLowerCase()
+    if (!'attachment:'.startsWith(target)) return false
+    if (target.length < 11) return true
+    let depth = 0
+    for (i += 11; i < rest.length; i++) {
         const c = rest[i]
-        if (c === ')' || c === '(' || c === '[' || c === ']' || c === '\n') return false
+        if (c === '[' || c === ']' || c === '\n' || c === '<') return false
+        if (c === '(') {
+            if (depth) return false
+            depth = 1
+        } else if (c === ')') {
+            if (!depth) return false // a complete target that did not match
+            depth = 0
+        } else if (c === '>') {
+            if (depth || (i + 1 < rest.length && rest[i + 1] !== ')')) return false
+        }
     }
-    const target = rest.slice(start, start + 11).toLowerCase()
-    return rest.length <= HOLD_LIMIT && ('attachment:'.startsWith(target) || target === 'attachment:')
+    return true
 }
 
 /**

@@ -16,6 +16,8 @@ export function a2aSseData(payload: unknown): string {
 export type A2aEncoder = SSEEncoder & {
     /** Token text still held back by the `attachment:` filter (empty when nothing is held). */
     flush(): string
+    /** Whether an answer chunk was sent, so the next one appends to it. */
+    started(): boolean
 }
 
 /**
@@ -52,7 +54,7 @@ export function makeA2aEncoder(meta: A2aEncoderMeta, onArtifacts?: (artifacts: u
         }
         return null
     }
-    return Object.assign(encoder, { flush: () => filter.flush() })
+    return Object.assign(encoder, { flush: () => filter.flush(), started: () => !firstToken })
 }
 
 export const silentA2aEncoder: SSEEncoder = () => null
