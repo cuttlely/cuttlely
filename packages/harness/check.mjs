@@ -2942,6 +2942,25 @@ check(
             parseRouteSteps('{"steps":[]}', roster, 'q').ok,
         JSON.stringify(quoted)
     )
+    const moreSecrets = routeRawPreview(
+        [
+            'refresh_token=rt-made-up-9 client_secret: "cs made up" Authorization: Basic ',
+            'dXNlcjpwYXNz',
+            ' see https://alice:',
+            'pw-made-up',
+            '@example.com/x and X-Api-Key: xk-made-up. Basic setup stays.'
+        ].join('')
+    )
+    const redactStart = Date.now()
+    routeRawPreview('a'.repeat(100000) + 'token' + '='.repeat(1000))
+    routeRawPreview('Basic ' + 'A'.repeat(100000))
+    check(
+        'the routing reply preview removes refresh tokens, client secrets, Basic auth and URL credentials, quickly',
+        !/rt-made-up-9|cs made up|dXNlcjpwYXNz|pw-made-up|xk-made-up/.test(moreSecrets) &&
+            moreSecrets.includes('Basic setup stays') &&
+            Date.now() - redactStart < 1000,
+        moreSecrets
+    )
     check(
         'the routing reply preview removes credentials',
         !/abc\.def|ABCDEFGHIJKL|zz-made-up-1|made up|phrase|two words|u:p@db/.test(secretPreview) && secretPreview.includes('[redacted]'),

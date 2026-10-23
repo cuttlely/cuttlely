@@ -1626,15 +1626,23 @@ export const ROUTE_RAW_PREVIEW_CHARS = 500
 const ROUTE_JSON_SCAN_CHARS = 20000
 const ROUTE_RETRY_ECHO_CHARS = 1000
 const ROUTE_JSON_SCAN_TRIES = 64
+// A field name ending in a credential word, then its separator. The name prefix is bounded so matching stays linear.
+const ROUTE_SECRET_KEY =
+    '\\b([A-Za-z0-9_-]{0,40}?(?:api[_-]?key|key|token|secret|password|passwd|pwd|credential|authorization|auth))(["\']?\\s*[:=]\\s*)'
 
 // What the trace and the log keep of a router reply that held no JSON: workspace paths masked, then capped.
 export function routeRawPreview(content) {
     // The preview reaches logs, events and saved traces: paths become file names and credentials are removed.
     const text = redactSecrets(String(maskWorkspacePaths(String(content ?? ''))))
-        // A quoted value is removed whole, spaces and escapes included; then a bare value up to the next space.
-        .replace(/\b(api[_-]?key|access[_-]?token|token|password|secret)(["']?\s*[:=]\s*)"(?:[^"\\]|\\.)*"?/gi, '$1$2"[redacted]"')
-        .replace(/\b(api[_-]?key|access[_-]?token|token|password|secret)(["']?\s*[:=]\s*)'(?:[^'\\]|\\.)*'?/gi, "$1$2'[redacted]'")
-        .replace(/\b(api[_-]?key|access[_-]?token|token|password|secret)(["']?\s*[:=]\s*)(?!["'])[^\s"',}]+/gi, '$1$2[redacted]')
+        // user:password@ in any URL, and Basic or Bearer authorization values.
+        .replace(/\b([a-z][a-z0-9+.-]{0,20}:\/\/)[^\s/@]+@/gi, '$1[redacted]@')
+        .replace(/\bBearer\s+[A-Za-z0-9+/=._~-]{1,4096}/gi, 'Bearer [redacted]')
+        .replace(/\bBasic\s+(?=[A-Za-z0-9+/]{0,200}[0-9+/=])[A-Za-z0-9+/=]{6,4096}/g, 'Basic [redacted]')
+        // Any key, token, secret or password field (refresh_token, client_secret, x-api-key, ...): a quoted value is
+        // removed whole, spaces and escapes included; a bare value up to the next space or delimiter.
+        .replace(new RegExp(`${ROUTE_SECRET_KEY}"(?:[^"\\\\]|\\\\.)*"?`, 'gi'), '$1$2"[redacted]"')
+        .replace(new RegExp(`${ROUTE_SECRET_KEY}'(?:[^'\\\\]|\\\\.)*'?`, 'gi'), "$1$2'[redacted]'")
+        .replace(new RegExp(`${ROUTE_SECRET_KEY}(?!["'])(?:(?:Basic|Bearer|Token)\\s+)?[^\\s"',;}&]+`, 'gi'), '$1$2[redacted]')
     return text.length > ROUTE_RAW_PREVIEW_CHARS ? `${text.slice(0, ROUTE_RAW_PREVIEW_CHARS)}…` : text
 }
 
