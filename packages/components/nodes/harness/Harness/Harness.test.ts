@@ -41,6 +41,7 @@ const {
     streamStoredImages,
     uploadedImages,
     harnessToolInput,
+    harnessToolMetadata,
     rememberToolPayload
 } = require('./Harness')
 const { addSingleFileToStorage, getFileFromStorage } = require('../../../src/storageUtils')
@@ -679,6 +680,17 @@ describe('Harness node as an agent tool', () => {
         expect(harnessToolInput({ inputs: { inputSource: 'agent' } } as never, 'tell me about vault ha', task)).toBe(task)
         expect(harnessToolInput({ inputs: {} } as never, '   ', task)).toBe(task)
     })
+    it('records the agent task and which input was routed as run metadata', () => {
+        expect(harnessToolMetadata({ inputs: {} } as never, 'tell me about vault ha', task)).toEqual({
+            agentTask: task,
+            inputSource: 'user'
+        })
+        expect(harnessToolMetadata({ inputs: { inputSource: 'agent' } } as never, 'tell me about vault ha', task)).toEqual({
+            agentTask: task,
+            inputSource: 'agent'
+        })
+        expect(harnessToolMetadata({ inputs: {} } as never, '  ', task)).toEqual({ agentTask: task, inputSource: 'agent' })
+    })
     it('keeps the run payload, without file bytes, for the chat to save with the reply', () => {
         const holder: unknown[] = []
         rememberToolPayload(
@@ -699,8 +711,10 @@ describe('Harness node as an agent tool', () => {
         queuedRun.mockReset()
         queuedRun.mockImplementation(async () => mockHarnessRuns.current)
         const inputs: unknown[] = []
+        const metadata: unknown[] = []
         queuedRun.mockImplementation(async (opts?: Record<string, unknown>) => {
             inputs.push(opts?.input)
+            metadata.push(opts?.metadata)
             return { ...mockHarnessRuns.current }
         })
         const node = new HarnessNode()
@@ -718,6 +732,10 @@ describe('Harness node as an agent tool', () => {
         })
         await agentTool.func(task)
         expect(inputs).toEqual(['tell me about vault ha', 'and in raft mode?'])
+        expect(metadata).toEqual([
+            { agentTask: task, inputSource: 'user' },
+            { agentTask: task, inputSource: 'user' }
+        ])
         expect(holder).toHaveLength(1)
     })
 })

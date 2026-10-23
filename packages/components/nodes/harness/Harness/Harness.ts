@@ -112,7 +112,9 @@ class Harness_Harness implements INode {
                     options,
                     true,
                     runManager,
-                    streamed
+                    streamed,
+                    [],
+                    harnessToolMetadata(nodeData, userMessage, task)
                 )
                 rememberToolPayload(options, payload)
                 // The tool returns answer text only. The ending-node path records Harness.run; this closure records the tool.
@@ -305,6 +307,13 @@ function harnessToolInput(nodeData: INodeData, userMessage: string, task: string
     return typeof userMessage === 'string' && userMessage.trim() ? userMessage : agentTask
 }
 
+// What rides with a tool run besides the routed input: the agent's own task and which of the two was routed.
+function harnessToolMetadata(nodeData: INodeData, userMessage: string, task: string): { agentTask: string; inputSource: 'user' | 'agent' } {
+    const agentTask = typeof task === 'string' ? task : String(task ?? '')
+    const usedUser = nodeData.inputs?.inputSource !== 'agent' && typeof userMessage === 'string' && Boolean(userMessage.trim())
+    return { agentTask, inputSource: usedUser ? 'user' : 'agent' }
+}
+
 // The chat saves the harness trace with the agent's reply when the harness ran as a tool (buildChatflow reads it).
 function rememberToolPayload(options: ICommonObject, payload: unknown) {
     const holder = options?.harnessToolPayloads
@@ -365,7 +374,8 @@ async function runNamedHarness(
     streamAnswer: boolean,
     runManager?: { handlers?: unknown[] },
     streamed?: { answer: boolean },
-    images: string[] = []
+    images: string[] = [],
+    metadata?: Record<string, unknown>
 ) {
     const engine = await loadHarnessEngine()
     const chatId = (options.chatId as string) || (options.sessionId as string)
@@ -405,7 +415,8 @@ async function runNamedHarness(
                 const id = row && typeof row === 'object' ? (row as { id?: unknown }).id : undefined
                 if (typeof id === 'string') runId = id
             },
-            ...(images.length ? { images } : {})
+            ...(images.length ? { images } : {}),
+            ...(metadata ? { metadata } : {})
         })
         const jobRunId = takeJobRunId(payload)
         if (!runId && jobRunId) runId = jobRunId
@@ -501,5 +512,6 @@ module.exports = {
     uploadedImages,
     recordHarnessToolUsage,
     harnessToolInput,
+    harnessToolMetadata,
     rememberToolPayload
 }
