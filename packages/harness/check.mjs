@@ -74,8 +74,8 @@ const {
     readRouteJson,
     defaultRouteSpecialist,
     ROUTE_JSON_RETRY,
-    ROUTE_RAW_PREVIEW_CHARS,
-    routeRawPreview,
+    routeDiagnostics,
+    publicRouteParse,
     runSteps,
     withEarlierResult,
     ROUTE_AFTER,
@@ -2921,16 +2921,6 @@ check(
     readRouteJson('{'.repeat(200000))
     readRouteJson('```json\n' + '```'.repeat(50000))
     const quoted = parseRouteSteps('Vault HA uses {"mode":"raft"} storage.', roster, 'q')
-    const secretPreview = routeRawPreview(
-        // Made-up values, assembled so the secret scan does not flag this file.
-        [
-            'Use Bearer abc.def.ghi and ',
-            'sk',
-            '-ABCDEFGHIJKL, api_key=zz-made-up-1, "password": "made up \\"pass\\" phrase", secret=\'two words\' at ',
-            'postgres',
-            '://u:p@db/x'
-        ].join('')
-    )
     check(
         'JSON that is not a route, quoted in prose, does not count as a routing reply',
         !quoted.ok &&
@@ -2942,51 +2932,23 @@ check(
             parseRouteSteps('{"steps":[]}', roster, 'q').ok,
         JSON.stringify(quoted)
     )
-    const moreSecrets = routeRawPreview(
-        [
-            'refresh_token=rt-made-up-9 client_secret: "cs made up" Authorization: Basic ',
-            'dXNlcjpwYXNz',
-            ' see https://alice:',
-            'pw-made-up',
-            '@example.com/x and X-Api-Key: xk-made-up. Basic setup stays.'
-        ].join('')
-    )
-    const lettersOnlyBasic = routeRawPreview('authorization header was basic YWxhZGRpbjpvcGVu and Basic QWxhZGRpbjpPcGVu ok')
-    const jsonPathPreview = routeRawPreview(
-        'Note {"file":"/srv/work/team/secret-dir/report.csv","win":"C:\\\\Users\\\\ann\\\\notes.txt"} see https://example.com/a/b and password: `two words here` ok'
-    )
+    const madeUp = ['made-up-', 'zq81', 'value'].join('')
+    const diag = routeDiagnostics(`prose with ${madeUp} inside`, { retried: true })
+    const shown = publicRouteParse({ ...diag, error: 'JSON at position 3: prose', rawPreview: madeUp, fallbackSpecialist: 'ops' })
     check(
-        'the routing reply preview keeps only file names inside JSON, keeps URLs, and removes backtick secrets whole',
-        !/secret-dir|\/srv|Users|ann|two words|words here/.test(jsonPathPreview) &&
-            jsonPathPreview.includes('report.csv') &&
-            jsonPathPreview.includes('notes.txt') &&
-            jsonPathPreview.includes('https://example.com/a/b'),
-        jsonPathPreview
-    )
-    const pathStart = Date.now()
-    routeRawPreview('/a'.repeat(50000) + ' ' + '\\'.repeat(50000) + 'C:' + '/'.repeat(50000))
-    check('masking long path-like text in the preview stays fast', Date.now() - pathStart < 1000, `${Date.now() - pathStart}ms`)
-    const longBasic = routeRawPreview('Basic ' + 'Q'.repeat(5000) + 'TAILzz9 and Bearer ' + 'b'.repeat(5000) + 'ENDyy8')
-    check('a long Basic or Bearer credential is removed to its end', !/TAILzz9|ENDyy8|QQQQ|bbbb/.test(longBasic), longBasic)
-    check(
-        'the routing reply preview removes letters-only Basic credentials in any case',
-        !/YWxhZGRpbjpvcGVu|QWxhZGRpbjpPcGVu/.test(lettersOnlyBasic),
-        lettersOnlyBasic
-    )
-    const redactStart = Date.now()
-    routeRawPreview('a'.repeat(100000) + 'token' + '='.repeat(1000))
-    routeRawPreview('Basic ' + 'A'.repeat(100000))
-    check(
-        'the routing reply preview removes refresh tokens, client secrets, Basic auth and URL credentials, quickly',
-        !/rt-made-up-9|cs made up|dXNlcjpwYXNz|pw-made-up|xk-made-up/.test(moreSecrets) &&
-            moreSecrets.includes('Basic setup stays') &&
-            Date.now() - redactStart < 1000,
-        moreSecrets
-    )
-    check(
-        'the routing reply preview removes credentials',
-        !/abc\.def|ABCDEFGHIJKL|zz-made-up-1|made up|phrase|two words|u:p@db/.test(secretPreview) && secretPreview.includes('[redacted]'),
-        secretPreview
+        'route diagnostics keep only a fixed error kind, length, hash prefix, retry flag and fallback specialist',
+        diag.error === 'no_json' &&
+            routeDiagnostics('  ').error === 'empty' &&
+            routeDiagnostics('{"steps": [').error === 'invalid_json' &&
+            diag.rawLength === `prose with ${madeUp} inside`.length &&
+            /^[0-9a-f]{12}$/.test(diag.rawSha256) &&
+            diag.retried === true &&
+            shown.parseError === 'invalid_json' &&
+            shown.fallbackSpecialist === 'ops' &&
+            JSON.stringify(Object.keys(shown).sort()) ===
+                JSON.stringify(['fallbackSpecialist', 'parseError', 'rawLength', 'rawSha256', 'retried']) &&
+            !JSON.stringify({ diag, shown }).includes(madeUp),
+        JSON.stringify({ diag, shown })
     )
     check('reading a long unreadable routing reply stays fast', Date.now() - slowStart < 1000, `${Date.now() - slowStart}ms`)
     check(
@@ -3085,14 +3047,18 @@ async function routeRecoverTurn(chatId, routeReplies) {
             retried.run.trace.route.steps[0].specialist === 'vault' &&
             retried.run.agents.length === 1 &&
             String(plainChatMessages(retryCall?.messages || []).at(-1)?.content || '') === ROUTE_JSON_RETRY &&
-            retried.run.trace.route.parseError === 'not_json',
+            retried.run.trace.route.parseError === 'no_json' &&
+            retried.run.trace.route.retried === true &&
+            !retried.run.trace.route.fallbackSpecialist &&
+            !JSON.stringify(retried.run.trace).includes('The best fit is'),
         JSON.stringify({ route: retried.run.trace?.route, count: retried.routeCount })
     )
-    const retryEcho = String(plainChatMessages(retryCall?.messages || []).at(-2)?.content || '')
+    const retryPlain = plainChatMessages(retryCall?.messages || [])
     check(
-        'the router retry echoes only the start of the unreadable reply',
-        retryEcho.length === 1000 && retryEcho.startsWith('The best fit is the knowledge specialist'),
-        String(retryEcho.length)
+        'the router retry sends a fixed JSON-only reminder and never the unreadable reply',
+        !retryPlain.some((message) => String(message.content || '').includes('The best fit is the knowledge specialist')) &&
+            retryPlain.at(-1)?.role === 'user',
+        JSON.stringify(retryPlain.map((message) => message.role))
     )
     const thrown = await routeRecoverTurn('route-recover-3', [
         prose,
@@ -3102,31 +3068,43 @@ async function routeRecoverTurn(chatId, routeReplies) {
         'a router retry that fails still sends the request to the default specialist',
         thrown.run.trace?.route?.steps?.length === 1 &&
             thrown.run.trace.route.steps[0].specialist === 'knowledge' &&
-            thrown.warned.some((line) => line.includes('router retry failed') && line.includes('[redacted]')) &&
-            !thrown.warned.some((line) => /MADEUPMADEUP12|made\.up\.tok/.test(line)),
+            thrown.warned.some((line) => line.includes('router retry failed') && line.includes('errorKind=Error')) &&
+            !thrown.warned.some((line) => /MADEUPMADEUP12|made\.up\.tok|context length|best fit/.test(line)) &&
+            thrown.run.trace.route.fallbackSpecialist === 'knowledge' &&
+            !JSON.stringify(thrown.run.trace).includes('The best fit is'),
         JSON.stringify({ route: thrown.run.trace?.route?.steps, warned: thrown.warned })
     )
     const fallback = await routeRecoverTurn('route-recover-2', [prose, prose])
     const route = fallback.run.trace?.route || {}
     const routeDone = fallback.events.find((event) => event.type === 'route' && event.phase === 'done')
+    const traceText = JSON.stringify(fallback.run.trace)
+    const eventText = JSON.stringify(fallback.events)
     check(
-        'two prose routing replies go to the default specialist only, with the masked reply in the trace and the log',
+        'two prose routing replies go to the default specialist only; trace, events and log hold no reply text',
         fallback.routeCount === 2 &&
             route.steps?.length === 1 &&
             route.steps[0].specialist === 'knowledge' &&
             fallback.run.agents.length === 1 &&
-            route.parseError === 'not_json' &&
-            typeof route.rawPreview === 'string' &&
-            route.rawPreview.length <= ROUTE_RAW_PREVIEW_CHARS + 1 &&
-            route.rawPreview.startsWith('The best fit is the knowledge specialist') &&
-            !route.rawPreview.includes('/srv/cuttlely/workspaces') &&
-            routeDone?.parseError === 'not_json' &&
-            routeDone?.rawPreview === route.rawPreview &&
-            fallback.warned.some((line) => line.includes('route-recover') && !line.includes('/srv/cuttlely/workspaces')),
+            route.parseError === 'no_json' &&
+            route.rawLength === prose.length &&
+            /^[0-9a-f]{12}$/.test(route.rawSha256) &&
+            route.retried === true &&
+            route.fallbackSpecialist === 'knowledge' &&
+            route.rawPreview === undefined &&
+            routeDone?.parseError === 'no_json' &&
+            routeDone?.rawSha256 === route.rawSha256 &&
+            routeDone?.rawPreview === undefined &&
+            !traceText.includes('The best fit is') &&
+            !traceText.includes('xxxxxxxxxx') &&
+            !eventText.includes('The best fit is') &&
+            fallback.warned.length >= 2 &&
+            fallback.warned.every(
+                (line) => !line.includes('The best fit is') && !line.includes('xxxxxxxxxx') && !line.includes('/srv/cuttlely/workspaces')
+            ) &&
+            fallback.warned.some((line) => line.includes('harness=route-recover') && line.includes('chat=route-recover-2')),
         JSON.stringify({
-            agents: fallback.run.agents.length,
-            len: route.rawPreview?.length,
-            done: routeDone && { p: routeDone.parseError, same: routeDone.rawPreview === route.rawPreview, keys: Object.keys(routeDone) },
+            route,
+            warned: fallback.warned,
             types: fallback.events.map((e) => e.type + ':' + (e.status || e.phase)).slice(0, 6)
         })
     )

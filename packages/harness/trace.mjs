@@ -624,7 +624,15 @@ function reduceHarnessStep(trace, event) {
             model: event.model || next.route.model,
             fallback: event.fallback || next.route.fallback || '',
             tokens: event.tokens === undefined ? next.route.tokens : event.tokens,
-            ...(event.parseError ? { parseError: String(event.parseError), rawPreview: String(event.rawPreview || '') } : {}),
+            ...(event.parseError
+                ? {
+                      parseError: String(event.parseError),
+                      rawLength: Number(event.rawLength) || 0,
+                      rawSha256: String(event.rawSha256 || ''),
+                      retried: Boolean(event.retried),
+                      ...(event.fallbackSpecialist ? { fallbackSpecialist: String(event.fallbackSpecialist) } : {})
+                  }
+                : {}),
             steps: Array.isArray(event.steps)
                 ? event.steps.map((step) => ({
                       specialist: step.specialist,
@@ -744,7 +752,15 @@ export function buildRunTrace({
             model: routeModel || '',
             fallback: routeFallback || '',
             tokens: routeTokens,
-            ...(routeParse?.error ? { parseError: String(routeParse.error), rawPreview: String(routeParse.rawPreview || '') } : {}),
+            ...(routeParse?.error
+                ? {
+                      parseError: String(routeParse.error),
+                      rawLength: Number(routeParse.rawLength) || 0,
+                      rawSha256: String(routeParse.rawSha256 || ''),
+                      retried: Boolean(routeParse.retried),
+                      ...(routeParse.fallbackSpecialist ? { fallbackSpecialist: String(routeParse.fallbackSpecialist) } : {})
+                  }
+                : {}),
             steps: (steps || []).map((step) => ({
                 specialist: step.specialist || step.name || '',
                 task: publicTask(step.task),

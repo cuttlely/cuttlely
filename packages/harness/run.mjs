@@ -76,7 +76,7 @@ import { appendTurn, readPromptContext, sessionKey } from './session.mjs'
 import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
-import { buildRunTrace, publicModelLabel, publicSources, publicTask, redactSecrets, snapshotSpecialist, sumCallTokens } from './trace.mjs'
+import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
 
 let runtimeContextFor = null
 
@@ -1418,18 +1418,13 @@ async function routeSteps(context, input, history) {
     }
     let routed = parseRouteSteps(reply.content, specialists, input)
     if (!routed.ok) {
-        // One retry with a JSON-only reminder. The first reply stays in the trace and the log.
-        context.routeParse = { error: 'not_json', rawPreview: routeRawPreview(reply.content), retried: true }
-        console.warn(
-            `[harness] ${context.name} router reply was not JSON (chat ${context.chatId}); retrying once: ${context.routeParse.rawPreview}`
-        )
-        const retryMessages = [
-            ...fitted.messages,
-            // Only the start of the unreadable reply goes back, so the retry stays inside the chief's context budget.
-            { role: 'assistant', content: String(reply.content ?? '').slice(0, ROUTE_RETRY_ECHO_CHARS) },
-            { role: 'user', content: ROUTE_JSON_RETRY }
-        ]
+        // One retry with a fixed JSON-only reminder. Only structural facts about the reply (kind, length, hash
+        // prefix) are kept; the reply text itself is never stored, logged or sent back.
+        context.routeParse = routeDiagnostics(reply.content, { retried: true })
+        console.warn(`[harness] router reply was not JSON; retrying once ${routeLogFields(context)}`)
+        const retryMessages = [...fitted.messages, { role: 'user', content: ROUTE_JSON_RETRY }]
         let retry = { content: '' }
+        let retryFailed = false
         try {
             retry = await callModel(context, chiefModel(context.roster), {
                 messages: withPromptImages(retryMessages, context.images),
@@ -1439,26 +1434,17 @@ async function routeSteps(context, input, history) {
         } catch (error) {
             // A failed retry still ends at the default specialist; only a stopped run stops here.
             if (context.workSignal?.aborted || context.clientSignal?.aborted || context.budgetSignal?.aborted) throw error
-            console.warn(
-                `[harness] ${context.name} router retry failed (chat ${context.chatId}): ${routeRawPreview(
-                    String(error?.message || error)
-                )}`
-            )
+            retryFailed = true
+            console.warn(`[harness] router retry failed ${routeLogFields(context)} errorKind=${routeErrorKind(error)}`)
         }
         routed = parseRouteSteps(retry.content, specialists, input)
         if (!routed.ok) {
             const fallback = defaultRouteSpecialist(specialists, context.roster.chief)
             context.routeParse = {
-                error: 'not_json',
-                rawPreview: routeRawPreview(retry.content || reply.content),
-                retried: true,
-                fallback: fallback?.name || ''
+                ...(retryFailed ? context.routeParse : routeDiagnostics(retry.content, { retried: true })),
+                fallbackSpecialist: fallback?.name || ''
             }
-            console.warn(
-                `[harness] ${context.name} router reply was still not JSON (chat ${context.chatId}); sending the request to ${
-                    fallback?.name || 'no specialist'
-                }: ${context.routeParse.rawPreview}`
-            )
+            console.warn(`[harness] router reply was still not JSON; using the default specialist ${routeLogFields(context)}`)
             routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input }] : [] }
         }
     }
@@ -1479,7 +1465,7 @@ async function routeSteps(context, input, history) {
         ...(last?.model ? { model: last.model } : {}),
         ...(last?.fallback ? { fallback: last.fallback } : {}),
         ...(sumCallTokens(routedCalls) ? { tokens: sumCallTokens(routedCalls) } : {}),
-        ...(context.routeParse ? { parseError: context.routeParse.error, rawPreview: context.routeParse.rawPreview } : {}),
+        ...(context.routeParse ? publicRouteParse(context.routeParse) : {}),
         ...phaseCalls(context, 'route')
     })
     return steps
@@ -1622,31 +1608,50 @@ export function parseSteps(content, specialists, input, chief) {
 
 export const ROUTE_JSON_RETRY =
     'Your last reply was not JSON. Do not answer the request. Reply with only the routing JSON: {"steps":[{"specialist":"NAME","task":"...","after":""}]}.'
-export const ROUTE_RAW_PREVIEW_CHARS = 500
 const ROUTE_JSON_SCAN_CHARS = 20000
-const ROUTE_RETRY_ECHO_CHARS = 1000
 const ROUTE_JSON_SCAN_TRIES = 64
-// A field name ending in a credential word, then its separator. The name prefix is bounded so matching stays linear.
-const ROUTE_SECRET_KEY =
-    '\\b([A-Za-z0-9_-]{0,40}?(?:api[_-]?key|key|token|secret|password|passwd|pwd|credential|authorization|auth))(["\']?\\s*[:=]\\s*)'
+export const ROUTE_PARSE_ERRORS = ['empty', 'no_json', 'invalid_json']
+const ROUTE_HASH_CHARS = 12
 
-// What the trace and the log keep of a router reply that held no JSON: workspace paths masked, then capped.
-export function routeRawPreview(content) {
-    // The preview reaches logs, events and saved traces: paths become file names and credentials are removed.
-    const text = redactSecrets(String(maskWorkspacePaths(String(content ?? ''))))
-        // user:password@ in any URL, and Basic or Bearer authorization values.
-        .replace(/\b([a-z][a-z0-9+.-]{0,20}:\/\/)[^\s/@]+@/gi, '$1[redacted]@')
-        .replace(/\bBearer\s+[A-Za-z0-9+/=._~-]+/gi, 'Bearer [redacted]')
-        .replace(/\bBasic\s+[A-Za-z0-9+/=]{6,}/gi, 'Basic [redacted]')
-        // Any key, token, secret or password field (refresh_token, client_secret, x-api-key, ...): a quoted value is
-        // removed whole, spaces and escapes included; a bare value up to the next space or delimiter.
-        .replace(new RegExp(`${ROUTE_SECRET_KEY}"(?:[^"\\\\]|\\\\.)*"?`, 'gi'), '$1$2"[redacted]"')
-        .replace(new RegExp(`${ROUTE_SECRET_KEY}'(?:[^'\\\\]|\\\\.)*'?`, 'gi'), "$1$2'[redacted]'")
-        .replace(new RegExp(`${ROUTE_SECRET_KEY}\\x60[^\\x60]*\\x60?`, 'gi'), '$1$2\x60[redacted]\x60')
-        .replace(new RegExp(`${ROUTE_SECRET_KEY}(?!["'\\x60])(?:(?:Basic|Bearer|Token)\\s+)?[^\\s"',;}&]+`, 'gi'), '$1$2[redacted]')
-        // Absolute paths the text masker leaves inside JSON spans keep only their last segment. URLs are kept.
-        .replace(/(?<![:\w/\\.~-])(?:[A-Za-z]:)?(?:(?:\\\\|[\\/])[^\s"'`\\/<>|,;]+){2,}/g, (match) => match.split(/[\\/]+/).pop())
-    return text.length > ROUTE_RAW_PREVIEW_CHARS ? `${text.slice(0, ROUTE_RAW_PREVIEW_CHARS)}…` : text
+// Structural facts about a router reply that held no route: a fixed error kind, its length and a short hash
+// prefix (to tell repeated replies apart). The reply text is never kept.
+export function routeDiagnostics(content, { retried = false } = {}) {
+    const text = String(content ?? '')
+    const trimmed = text.trim()
+    const error = !trimmed ? 'empty' : /[{[]/.test(trimmed) ? 'invalid_json' : 'no_json'
+    return {
+        error,
+        rawLength: text.length,
+        rawSha256: crypto.createHash('sha256').update(text).digest('hex').slice(0, ROUTE_HASH_CHARS),
+        retried: Boolean(retried)
+    }
+}
+
+// The trace and event fields for a route parse: the same structural facts, nothing else.
+export function publicRouteParse(parse) {
+    if (!parse?.error) return {}
+    return {
+        parseError: ROUTE_PARSE_ERRORS.includes(parse.error) ? parse.error : 'invalid_json',
+        rawLength: Number(parse.rawLength) || 0,
+        rawSha256: String(parse.rawSha256 || '')
+            .replace(/[^0-9a-f]/g, '')
+            .slice(0, ROUTE_HASH_CHARS),
+        retried: Boolean(parse.retried),
+        ...(parse.fallbackSpecialist ? { fallbackSpecialist: String(parse.fallbackSpecialist) } : {})
+    }
+}
+
+function routeLogFields(context) {
+    const fields = publicRouteParse(context.routeParse)
+    return [`harness=${context.name}`, `chat=${context.chatId}`, ...Object.entries(fields).map(([key, value]) => `${key}=${value}`)].join(
+        ' '
+    )
+}
+
+// Only the error class name, never its message, which can carry provider or model text.
+function routeErrorKind(error) {
+    const name = String(error?.name || '')
+    return /^[A-Za-z]{1,40}$/.test(name) ? name : 'Error'
 }
 
 // Steps without "after" start together. A step with "after" starts when that step finishes, with its result.
