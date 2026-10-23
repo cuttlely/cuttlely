@@ -301,6 +301,11 @@
             "to": "packages/server/src/services/chatflows/index.ts"
         },
         {
+            "from": "packages/server/src/controllers/get-upload-file/index.test.ts",
+            "to": "packages/server/src/controllers/get-upload-file/index.ts",
+            "reason": "The get-upload-file test checks that raster images are served inline for Orchestrate and A2A image links"
+        },
+        {
             "from": "packages/server/src/controllers/harnesses/index.ts",
             "to": "packages/server/src/errors/utils.ts"
         },
