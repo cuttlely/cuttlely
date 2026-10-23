@@ -8202,6 +8202,54 @@ check(
                 hostedSplits.every((text) => text === 'Open a.pdf or b.pdf now.'),
             JSON.stringify(hostedSplits.find((text) => text !== 'Open a.pdf or b.pdf now.'))
         )
+        const aliasRoot = '/var/cuttlely/workspaces'
+        const aliases = [
+            '//var/cuttlely/workspaces/agent/deck.pptx',
+            '/var//cuttlely/workspaces/agent/deck.pptx',
+            'file:///var/cuttlely/%77orkspaces/agent/deck.pptx'
+        ]
+        const aliasWrong = []
+        for (const alias of aliases) {
+            const said = `Saved ${alias} today`
+            const expected = 'Saved deck.pptx today'
+            if (hideWorkspacePaths(said, aliasRoot) !== expected) aliasWrong.push(['text', alias])
+            const previousDataDir = process.env.CUTTLELY_DATA_DIR
+            try {
+                process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
+                if (maskError(new Error(said)).message !== expected) aliasWrong.push(['message', alias])
+            } finally {
+                if (previousDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+                else process.env.CUTTLELY_DATA_DIR = previousDataDir
+            }
+            for (let at = 0; at <= said.length; at += 1) {
+                const sent = []
+                const context = {}
+                for (const piece of [said.slice(0, at), said.slice(at)])
+                    bufferStream(context, 'answer', piece, false, (text) => sent.push(text), aliasRoot)
+                bufferStream(context, 'answer', '', true, (text) => sent.push(text), aliasRoot)
+                if (sent.join('') !== expected) aliasWrong.push([alias, at, sent.join('')])
+            }
+        }
+        check('root aliases are masked in text, error messages and every stream split', aliasWrong.length === 0, JSON.stringify(aliasWrong))
+        check(
+            'relative workspace roots mask both spellings and their absolute path',
+            ['./data/workspaces', 'data/workspaces', path.resolve('./data/workspaces')].every(
+                (base) => hideWorkspacePaths(`Saved ${base}/agent/deck.pptx today`, './data/workspaces') === 'Saved deck.pptx today'
+            )
+        )
+        const spacedTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-spaced-'))
+        try {
+            const folder = path.join(spacedTemp, 'agent', 'quarterly reports')
+            fs.mkdirSync(folder, { recursive: true })
+            const file = path.join(folder, 'deck.pptx')
+            fs.writeFileSync(file, 'sample')
+            check(
+                'an existing unquoted path with spaces keeps the following prose',
+                hideWorkspacePaths(`Saved ${file} today`, spacedTemp) === 'Saved deck.pptx today'
+            )
+        } finally {
+            fs.rmSync(spacedTemp, { recursive: true, force: true })
+        }
         const markdownWrong = []
         for (const marks of ['_', '__', '*', '**', '~~']) {
             const said = `Open ${marks}${assets}/deck.pptx${marks} now.`

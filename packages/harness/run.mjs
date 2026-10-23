@@ -57,8 +57,8 @@ import {
 import { specialistSessionId } from './specialist-run.mjs'
 import {
     hideTurnImageDir,
-    encodeFilePath,
-    FILE_HOST,
+    namesRoot,
+    rootStarts,
     mergeTurnArtifacts,
     newTurnImageDir,
     promptImages,
@@ -482,7 +482,7 @@ function writesFiles(specialist) {
 
 // The folder that holds every specialist's workspace. Paths under it are hidden in answers (see hideTurnImageDir).
 function specialistWorkspaceRoot() {
-    return path.dirname(specialistWorkspace('_'))
+    return path.resolve(path.dirname(specialistWorkspace('_')))
 }
 
 export function turnImageDirFor(specialist) {
@@ -664,8 +664,7 @@ const MASK_DEPTH = 64
 const fileBytes = (key, item) =>
     typeof item === 'string' &&
     (key === 'base64' || (key === 'data' && item.startsWith('data:'))) &&
-    !item.includes(specialistWorkspaceRoot()) &&
-    !item.includes(encodeFilePath(specialistWorkspaceRoot()))
+    !namesRoot(item, specialistWorkspaceRoot())
 // A value's toJSON() serializer, own or inherited; a lookup that throws gives THROWS.
 const THROWS = Symbol('throws')
 const serializerOf = (value) => {
@@ -836,7 +835,7 @@ function rebuildError(error, depth, seen) {
 // or anything the scan cannot see through (a getter that throws, a toJSON() serializer, nesting past MASK_DEPTH),
 // which is treated as naming it. A getter (such as an error's stack) is read and its value checked. Own fields are read whether enumerable or not. Cycle-safe.
 function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, seen = new WeakSet()) {
-    if (typeof value === 'string') return value.includes(root) || value.includes(encodeFilePath(root))
+    if (typeof value === 'string') return namesRoot(value, root)
     if (!value || typeof value !== 'object') return false
     if (seen.has(value) || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return false
     if (depth > MASK_DEPTH || serializerOf(value) !== undefined) return true
@@ -1643,33 +1642,15 @@ const STREAM_HOLD = 16 * 1024
 // Where the last mention of the workspaces folder starts (at its opening quote or file:// link) when no line has
 // ended after it, or the text's length.
 export function openPathAt(text, root = specialistWorkspaceRoot()) {
-    let at = Math.max(text.lastIndexOf(root), text.lastIndexOf(encodeFilePath(root)))
+    let at = Math.max(-1, ...rootStarts(text, root))
     if (at < 0 || text.indexOf('\n', at) >= 0) return text.length
-    const link = text.slice(Math.max(0, at - 300), at).match(new RegExp(`file://${FILE_HOST}$`, 'i'))
-    if (link) at -= link[0].length
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
     return pathContextAt(text, at)
 }
 
 // Where the text's end starts a prefix of the workspaces folder (or its file:// link), or its length when it does not.
 export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
-    let at = text.length
-    for (const full of [root, `file://${root}`, `file://localhost${root}`, `file://${encodeFilePath(root)}`]) {
-        for (let index = Math.max(0, text.length - full.length); index < at; index += 1) {
-            // The file:// scheme and host are matched in any case; matching the folder in any case only holds more back.
-            if (full.toLowerCase().startsWith(text.slice(index).toLowerCase())) {
-                at = index
-                break
-            }
-        }
-    }
-    // A file:// link with a host (file://127.0.0.1/...) is held from its scheme while the rest could still name the folder.
-    const link = text.toLowerCase().lastIndexOf('file://')
-    if (link >= 0 && link < at) {
-        const after = text.slice(link + 7)
-        const rest = after.slice(after.match(new RegExp(`^${FILE_HOST}`))[0].length)
-        if (rest === '' || root.startsWith(rest) || encodeFilePath(root).startsWith(rest)) at = link
-    }
+    let at = Math.min(text.length, ...rootStarts(text, root, true))
     // An opening quote just before it (or at the very end) stays with the path, so a quoted path is read whole.
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
     return pathContextAt(text, at)
