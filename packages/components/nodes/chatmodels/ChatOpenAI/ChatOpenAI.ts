@@ -1,7 +1,7 @@
 import { ChatOpenAI as LangchainChatOpenAI, ChatOpenAIFields } from '@langchain/openai'
 import { BaseCache } from '@langchain/core/caches'
 import { ICommonObject, IMultiModalOption, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
-import { getBaseClasses, getCredentialData, getCredentialParam, isReasoningModelOpenAI } from '../../../src/utils'
+import { getBaseClasses, getCredentialData, getCredentialParam, isReasoningModelOpenAI, openAIReasoningFields } from '../../../src/utils'
 import { ChatOpenAI } from './FlowiseChatOpenAI'
 import { getModels, MODEL_TYPE } from '../../../src/modelLoader'
 import { OpenAI as OpenAIClient } from 'openai'
@@ -75,7 +75,8 @@ class ChatOpenAI_ChatModels implements INode {
             },
             {
                 label: 'Reasoning',
-                description: 'Whether the model supports reasoning. Only applicable for reasoning models (gpt-5 and o-series models only)',
+                description:
+                    'Whether the model reasons. Only applicable for reasoning models (gpt-5 and o-series models only). Off sends reasoning effort none on gpt-5.1 to gpt-5.x, and no reasoning effort on other models, which then use their default (GPT-6 has no none)',
                 name: 'reasoning',
                 type: 'boolean',
                 default: false,
@@ -84,10 +85,16 @@ class ChatOpenAI_ChatModels implements INode {
             },
             {
                 label: 'Reasoning Effort',
-                description: 'Constrains effort on reasoning. Only applicable for reasoning models (gpt-5 and o-series models only)',
+                description:
+                    'Constrains effort on reasoning. Only applicable for reasoning models (gpt-5 and o-series models only). gpt-5.6 with an effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools',
                 name: 'reasoningEffort',
                 type: 'options',
                 options: [
+                    {
+                        label: 'None',
+                        name: 'none',
+                        description: 'No reasoning. gpt-5.1 to gpt-5.x only; other models send no effort'
+                    },
                     {
                         label: 'Low',
                         name: 'low'
@@ -232,7 +239,7 @@ class ChatOpenAI_ChatModels implements INode {
         const strictToolCalling = nodeData.inputs?.strictToolCalling as boolean
         const basePath = nodeData.inputs?.basepath as string
         const baseOptions = nodeData.inputs?.baseOptions
-        const reasoningEffort = nodeData.inputs?.reasoningEffort as OpenAIClient.ReasoningEffort | null
+        const reasoningEffort = nodeData.inputs?.reasoningEffort as OpenAIClient.ReasoningEffort | 'none' | null
         const reasoningSummary = nodeData.inputs?.reasoningSummary as 'auto' | 'concise' | 'detailed' | null
         const allowImageUploads = nodeData.inputs?.allowImageUploads as boolean
 
@@ -267,14 +274,14 @@ class ChatOpenAI_ChatModels implements INode {
         if (isReasoningModelOpenAI(modelName)) {
             delete obj.temperature
             delete obj.stop
-            const reasoning: OpenAIClient.Reasoning = {}
-            if (reasoningEffort) {
-                reasoning.effort = reasoningEffort
-            }
-            if (reasoningSummary) {
-                reasoning.summary = reasoningSummary
-            }
-            obj.reasoning = reasoning
+            const fields = openAIReasoningFields(modelName, {
+                enabled: nodeData.inputs?.reasoning as boolean | string | undefined,
+                effort: reasoningEffort,
+                summary: reasoningSummary
+            })
+            if (fields.reasoning) obj.reasoning = fields.reasoning
+            if (fields.useResponsesApi) obj.useResponsesApi = true
+            if (fields.modelKwargs) obj.modelKwargs = { ...obj.modelKwargs, ...fields.modelKwargs }
         }
 
         let parsedBaseOptions: any | undefined = undefined
