@@ -201,7 +201,21 @@ function tokenMask(raw, root, continued) {
 }
 
 export function workspaceMaskState() {
-    return { token: '', quote: '', overflow: false, continued: false, capCandidate: false, slash: false, tail: '', prefix: '' }
+    return {
+        token: '',
+        quote: '',
+        overflow: false,
+        continued: false,
+        capCandidate: false,
+        slash: false,
+        tail: '',
+        prefix: '',
+        json: false,
+        jstr: false,
+        jesc: false,
+        word: '',
+        bs: 0
+    }
 }
 
 export function scanWorkspaceText(state, text, root, flush = false) {
@@ -221,6 +235,26 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         state.tail = ''
         state.prefix = ''
         state.quote = ''
+        state.json = false
+        state.jstr = false
+        state.jesc = false
+        state.word = ''
+        state.bs = 0
+    }
+    // A {/[ token stays whole only while it could still be valid JSON (rule 3a exemption).
+    const trackJson = (char) => {
+        if (state.jstr) {
+            if (state.jesc) state.jesc = false
+            else if (char === '\\') state.jesc = true
+            else if (char === '"') state.jstr = false
+        } else if (char === '"') {
+            state.jstr = true
+            state.word = ''
+        } else if (/[a-z]/i.test(char)) {
+            state.word += char
+            if (!['true', 'false', 'null'].some((word) => word.startsWith(state.word))) state.json = false
+        } else if (/[0-9+\-.{}\[\],:]/.test(char)) state.word = ''
+        else state.json = false
     }
     for (const char of text) {
         if (!state.quote && /\s/u.test(char)) {
@@ -234,22 +268,27 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         // A token that starts like JSON stays whole so rule 3a can see the JSON span.
         if (!state.quote && !state.overflow && QUOTES.includes(char) && !state.slash) {
             if (LEAD.test(state.token)) state.quote = char
-            else if (!/^[\[{]/.test(state.token) && /[^A-Za-z0-9_.~%\/\\-]$/.test(state.token)) {
+            else if (!state.json && /[^A-Za-z0-9_.~%\/\\-]$/.test(state.token)) {
                 finish()
                 state.quote = char
             }
         }
         if (!state.overflow) {
+            if (!state.token && (char === '{' || char === '[')) state.json = true
+            else if (state.json) trackJson(char)
             state.token += char
             // Rule 6 keeps ordinary data intact, even when a JSON value or word is long.
             // Track candidate syntax incrementally so long plain text stays linear.
             const tail = (state.tail = (state.tail + char).slice(-6))
             if (state.prefix.length < 256 && (state.prefix || !(EDGE.test(char) || char === "'"))) state.prefix += char
             state.slash = char === '\\' ? !state.slash : false
+            // Rule 3a past the prefix limit: count separators of a token that starts with a backslash.
+            if (char === '\\' && state.prefix[0] === '\\') state.bs++
             if (
                 /\.\.|\/\/|%2f|%2e%2e/i.test(tail) ||
                 /^[\/~]/.test(state.prefix) ||
                 BACKSLASH_START.test(state.prefix) ||
+                (state.bs >= 2 && /[A-Za-z0-9._$~-]/.test(char)) ||
                 (state.continued && /[\/\\]/.test(char))
             )
                 state.capCandidate = true

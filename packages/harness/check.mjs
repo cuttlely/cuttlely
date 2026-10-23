@@ -7990,6 +7990,10 @@ check(
             [5, '/tmp/My "Docs/private.txt" done', 'a server path "a server path" done'],
             [1, 'note:"/tmp/My private.txt" ok', 'note:"a server path" ok'],
             [1, "x='/tmp/a b' y", "x='a server path' y"],
+            // Rule 1 + 3a: a {/[ token that cannot be JSON is split and its quotes open as usual.
+            [1, '{note:"/tmp/private file.txt"}', '{note:"a server path"}'],
+            [1, '{note:"/var/cuttlely/workspaces/a/private file.txt"}', '{note:"the workspace"}'],
+            [6, '{"a":true,"b":null,"c":[1,2]}', '{"a":true,"b":null,"c":[1,2]}'],
             [6, 'README requires checking docs/report.md', 'README requires checking docs/report.md'],
             [6, 'README requires checking docs/../../report.md', 'README requires checking a server path'],
             [7, '/' + 'x'.repeat(1024), 'a server path'],
@@ -8115,6 +8119,19 @@ check(
                 scanWorkspaceText(capped, '/' + 'x'.repeat(1024), root) === 'a server path' &&
                     scanWorkspaceText(capped, 'remaining ', root) === ' '
             )
+            {
+                // Rule 7 + 3a: a backslash path whose first segment is past the prefix limit still hits the cap.
+                const longState = workspaceMaskState()
+                const longPath = '\\' + 'a'.repeat(300) + '\\' + 'b'.repeat(1000)
+                const sentLong = [...longPath].map((char) => scanWorkspaceText(longState, char, root)).join('')
+                check(
+                    'rule 7: a long backslash path is capped while streaming',
+                    sentLong === 'a server path' &&
+                        scanWorkspaceText(longState, ' ', root, true) === ' ' &&
+                        hideWorkspacePaths(longPath, root) === 'a server path',
+                    JSON.stringify(sentLong)
+                )
+            }
         } finally {
             if (previousDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
             else process.env.CUTTLELY_DATA_DIR = previousDataDir
