@@ -1,8 +1,12 @@
 # Status
 
+Handoff 2026-10-23: #269 (chat image downloads; artifact links use the server chat id in the first turn) has main merged in after #267 and #268 and merges last for 1.4.0.
+
+Handoff 2026-10-23: #268 (ChatOpenAI and Azure ChatOpenAI honor the Reasoning toggle; GPT-6 and gpt-5.6 tool calls use the Responses API) has main merged in after #267 and merges next for 1.4.0, then #269.
+
 STATUS 2026-10-22: 1.3.2 (#265: version 1.3.2, CHANGELOG dated 2026-10-22 covering #260, #261, #262, #264, install pins at 1.3.2) is the release PR; the v1.3.2 tag, GitHub release, npm packages and `ghcr.io/cuttlely/cuttlely:1.3.2` follow its merge. Before it, v1.3.1 was tagged on the merge of #253, with npm and `ghcr.io/cuttlely/cuttlely:1.3.1` published; the 1.3.1 CHANGELOG Security line cites GHSA-4p9j-8j59-gwr7 and GHSA-2v98-33pc-jj6f.
 
-Aimed at 1.3.3 (branch `fix/chat-image-download`): chat images get a download option. `imageArtifactDownload` in `packages/ui/src/utils/chatArtifacts.js` and `ImageDownloadButton` on image cards in the chat and the messages dialog; the embed adds a download link under stored and data URL images, saved with the session token when there is one. Checks: `FileArtifact.test.js` image download tests and the widget's `offers a download link under stored and data URL images only`.
+Aimed at 1.4.0 (branch `fix/harness-file-downloads`): harness specialists can send PPTX files (OOXML part `ppt/presentation.xml`), answers show only file names for any path in a specialist workspace, and Harness Prime names files without folders and skips failure notes when the request was answered.
 
 In 1.3.2 (#260): a specialist with several nodes of one type (for example two retrieverTool nodes) lists one gateway tool per node, named from that node's own name input (made a valid tool name; nodes that share a name each get "\_\_" and their node id as suffix, and no node takes a name an MCP server advertises), and the gateway routes a call to the node it listed under that name. Check: `several retrieverTool nodes on one specialist get their own tool names and each call reaches its own node`.
 

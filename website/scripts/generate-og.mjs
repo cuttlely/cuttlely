@@ -15,7 +15,7 @@ const HEIGHT = 630
 const OUT = path.join(SITE, 'public', 'social', 'og-light.png')
 const HEADLINE = 'Your applications'
 const HEADLINE_ACCENT = 'deserve agents'
-const SUBLINE = 'Open-source agent platform for lean AI agent teams. Apache-2.0.'
+const SUBLINE = 'Context-aware agent orchestration. Open source, Apache-2.0.'
 
 function fontFace(fontFile, family) {
     const abs = path.resolve(fontFile).split(path.sep).join('/')
@@ -48,8 +48,8 @@ export async function renderOg({ out = OUT } = {}) {
     await sharp(logoPath).resize({ width: 280, withoutEnlargement: true }).png().toFile(logoPng)
     await sharp(mascotPath).resize({ width: 520, withoutEnlargement: true }).png().toFile(mascotPng)
 
-    const subFirst = 'Open-source agent platform'
-    const subSecond = 'for lean AI agent teams. Apache-2.0.'
+    const subFirst = 'Context-aware agent orchestration.'
+    const subSecond = 'Open source, Apache-2.0.'
     if (`${subFirst} ${subSecond}` !== SUBLINE) throw new Error('og subline wrap must match the approved line')
     const textSvgWrapped = Buffer.from(
         `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">

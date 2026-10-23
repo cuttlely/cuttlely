@@ -1,10 +1,37 @@
 import fs from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
+import { deflateSync, crc32 } from 'node:zlib'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
+
+// A complete, deterministic RGB PNG with uncompressed DEFLATE blocks. The white
+// pixels force // into its base64, exercising the former path-like byte masking.
+function downloadRegressionPng() {
+    const chunk = (name, data) => {
+        const type = Buffer.from(name)
+        const header = Buffer.alloc(4)
+        header.writeUInt32BE(data.length)
+        const checksum = Buffer.alloc(4)
+        checksum.writeUInt32BE(crc32(Buffer.concat([type, data])))
+        return Buffer.concat([header, type, data, checksum])
+    }
+    const ihdr = Buffer.alloc(13)
+    ihdr.writeUInt32BE(64, 0)
+    ihdr.writeUInt32BE(64, 4)
+    ihdr[8] = 8
+    ihdr[9] = 2
+    const pixels = Buffer.alloc(64 * (1 + 64 * 3), 255)
+    for (let row = 0; row < 64; row++) pixels[row * 193] = 0
+    return Buffer.concat([
+        Buffer.from('89504e470d0a1a0a', 'hex'),
+        chunk('IHDR', ihdr),
+        chunk('IDAT', deflateSync(pixels, { level: 0 })),
+        chunk('IEND', Buffer.alloc(0))
+    ])
+}
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-harness-'))
@@ -28,6 +55,8 @@ const {
     specialistSummary
 } = await import('./profile.mjs')
 const { appendMessage, readMessages, readPromptContext, sessionKey } = await import('./session.mjs')
+// A workspace path the scripted Harness Prime quotes in its answer, when set.
+let chiefQuotedPath = ''
 const { chiefContextTokens, estimateTokens, specialistContextTokens, DEFAULT_CHIEF_CONTEXT_TOKENS, DEFAULT_SPECIALIST_CONTEXT_TOKENS } =
     await import('./context.mjs')
 const {
@@ -55,6 +84,7 @@ const {
     hermesSpecialistRequest,
     noteHermesUsage,
     HANDOFF_KEEP_CLOSING,
+    HANDOFF_FILES_AND_FAILURES,
     keepClosingLines,
     closingLines,
     noteTurnImages,
@@ -2655,6 +2685,10 @@ try {
 }
 check('a bare model name is not a chief model', shorthandRecord?.code === 'missing_model', shorthandRecord?.message)
 
+// A specialist profile whose next run fails with this error, for the failure-path checks.
+let contractFailRun = null
+// A workspace path the team's inline tools (lookup_order, the notes retriever) put in their results, when set.
+let teamToolPath = ''
 const contract = await startContractServer()
 const modelBaseUrl = `${contract.url}/v1`
 
@@ -2696,7 +2730,7 @@ const teamNodes = async (nodeName) => {
                     description: 'Look up an order by id',
                     schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
                     async invoke(args) {
-                        return `order ${args.id} shipped`
+                        return teamToolPath ? `order ${args.id} shipped, label at ${teamToolPath}` : `order ${args.id} shipped`
                     }
                 }
             }
@@ -2706,6 +2740,9 @@ const teamNodes = async (nodeName) => {
         async init() {
             return {
                 async similaritySearch(query) {
+                    if (teamToolPath) {
+                        return [{ pageContent: `retrieved note for ${query} from ${teamToolPath}`, metadata: { source: teamToolPath } }]
+                    }
                     return [{ pageContent: `retrieved note for ${query}`, metadata: { source: 'notes.md' } }]
                 }
             }
@@ -2733,6 +2770,15 @@ check(
     handoff.messages[0].content
 )
 check('Harness Prime is told to keep a specialist closing line', handoff.messages[0].content.includes(HANDOFF_KEEP_CLOSING))
+check(
+    'Harness Prime names files by name only and skips failure notes when the request was answered',
+    handoff.messages[0].content.includes(HANDOFF_FILES_AND_FAILURES) &&
+        !handoff.messages[0].content.includes('file paths') &&
+        !handoff.messages[0].content.includes('If a specialist failed, name it') &&
+        HANDOFF_FILES_AND_FAILURES.includes('do not mention steps or specialists that failed') &&
+        HANDOFF_FILES_AND_FAILURES.includes('do not list the files again'),
+    handoff.messages[0].content
+)
 {
     // A playbook can require a closing line; Harness Prime's rewrite must not drop it.
     const demoResult = {
@@ -3263,6 +3309,84 @@ check(
 )
 check('partial failure keeps the specialists that finished', partial.agents.filter((agent) => agent.status === 'completed').length === 4)
 check('the chief is told which specialist failed', partialHandoff.includes('### browser (failed)'), partialHandoff)
+
+{
+    // A failure that quotes the workspace path is masked on every channel: the answer's agents, the trace, the events,
+    // the stored chat message, the run record and the chief's prompt.
+    const { specialistWorkspace } = await import('./profile.mjs')
+    const root = path.dirname(specialistWorkspace('_'))
+    const rawPath = path.join(root, 'team--browser', 'chat-images', 'demo-run', 'deck.pptx')
+    // The tool preview and the streamed text quote the path too; the streamed path is split across two deltas.
+    const [deltaHead, deltaRest] = [rawPath.slice(0, 12), rawPath.slice(12)]
+    teamToolPath = path.join(root, 'team--files', 'labels', 'order 7.pdf')
+    chiefQuotedPath = teamToolPath
+    contractFailRun = {
+        profile: 'browser',
+        error: `Traceback: open ${rawPath} failed in ${root}/team--browser`,
+        frames: [
+            { event: 'tool.started', tool: 'terminal' },
+            { event: 'tool.completed', tool: 'terminal', error: true, preview: `cat: ${rawPath}: No such file` },
+            { event: 'message.delta', delta: `Opening ${deltaHead}` },
+            { event: 'message.delta', delta: `${deltaRest} now ` }
+        ]
+    }
+    const events = []
+    let recorded = null
+    let leaked
+    try {
+        leaked = await runTeam('leak-fail-1', {
+            onEvent: (event) => events.push(event),
+            onRecorded: (row) => {
+                recorded = row
+            }
+        })
+    } finally {
+        contractFailRun = null
+        teamToolPath = ''
+        chiefQuotedPath = ''
+    }
+    const leakHandoff = String(
+        teamCalls
+            .filter((entry) => String(entry.messages[0]?.content || '').startsWith('You are Harness Prime for the "team" harness.'))
+            .at(-1)
+            .messages.at(-1).content
+    )
+    const failedAgent = leaked.agents.find((agent) => agent.name === 'browser')
+    const storedLeak = JSON.stringify(attachHarnessToChatMessage({ role: 'apiMessage', content: '' }, leaked))
+    const channels = {
+        agents: JSON.stringify(leaked.agents),
+        trace: JSON.stringify(leaked.trace || {}),
+        events: JSON.stringify(events),
+        stored: storedLeak,
+        recorded: JSON.stringify(recorded || {}),
+        handoff: leakHandoff,
+        sources: JSON.stringify(leaked.sources || []),
+        answer: String(leaked.text || ''),
+        turn: JSON.stringify(readMessages('team', 'leak-fail-1', 50))
+    }
+    const showing = Object.entries(channels)
+        .filter(([, text]) => text.includes(root))
+        .map(([name]) => name)
+    check(
+        'a specialist failure that quotes a workspace path is masked in agents, trace, events, the stored message, the run record and the handoff',
+        failedAgent?.status === 'failed' &&
+            String(failedAgent.error).includes('the workspace') &&
+            events.some((event) => JSON.stringify(event).includes('the workspace')) &&
+            events.some((event) => JSON.stringify(event).includes('cat: the workspace: No such file')) &&
+            events
+                .filter((event) => event.type === 'partial' && event.specialist === 'browser')
+                .map((event) => event.text)
+                .join('') === 'Opening the workspace now ' &&
+            leakHandoff.includes('### browser (failed)') &&
+            !channels.events.includes('labels/') &&
+            !channels.sources.includes('labels/') &&
+            channels.answer.includes('see the workspace') &&
+            channels.turn.includes('see the workspace') &&
+            Boolean(recorded) &&
+            showing.length === 0,
+        JSON.stringify({ showing, error: failedAgent?.error })
+    )
+}
 
 const persisted = attachHarnessToChatMessage({ role: 'apiMessage', content: '' }, partial)
 const stored = JSON.parse(persisted.harnessPayload)
@@ -6583,7 +6707,14 @@ const sseRun = await runHarness({
     input: 'Do everything',
     baseUrl: contract.url,
     modelBaseUrl,
-    loadNode: async (nodeName) => (nodeName === 'scriptedChat' ? chunkedChat(sseCalls, scriptedReply) : teamNodes(nodeName)),
+    loadNode: async (nodeName) =>
+        nodeName === 'scriptedChat'
+            ? chunkedChat(sseCalls, (messages, tools) => {
+                  const reply = scriptedReply(messages, tools)
+                  if (reply.content?.startsWith('answer:')) reply.content += ' streamed answer'
+                  return reply
+              })
+            : teamNodes(nodeName),
     onEvent(event) {
         if (
             event.type === 'partial' &&
@@ -7813,9 +7944,529 @@ check(
             turnImageDirFor(writer) === '' &&
             turnImageNote(coderDir).includes(coderDir) &&
             hideTurnImageDir(`Saved as ${path.join(coderDir, 'chart.png')} in ${coderDir}.`, coderDir) ===
-                'Saved as chart.png in the chat.',
+                'Saved as the workspace file chart.png in the workspace.' &&
+            hideTurnImageDir(
+                `Saved ${path.join(specialistWorkspace(coder.profileName), 'exports', 'q3', 'deck.pptx')} and ${path.join(
+                    specialistWorkspace(writer.profileName),
+                    'notes.md'
+                )}. Folder: ${specialistWorkspace(coder.profileName)}.`,
+                coderDir
+            ) === 'Saved the workspace and the workspace. Folder: the workspace.' &&
+            hideTurnImageDir(
+                `See ${path.join(specialistWorkspace(writer.profileName), 'out', 'a.csv')}`,
+                '',
+                path.dirname(specialistWorkspace('x'))
+            ) === 'See the workspace' &&
+            hideTurnImageDir(`${path.dirname(specialistWorkspace('x'))}-other/a.csv`, coderDir) === 'a server path',
         JSON.stringify(imageContext.turnImages?.map((list) => list.map((image) => image.name)))
     )
+    {
+        const { hideWorkspacePaths, workspaceMaskState, scanWorkspaceText } = await import('./images.mjs')
+        const { maskWorkspacePaths, maskError, bufferStream } = await import('./run.mjs')
+        const root = '/var/cuttlely/workspaces'
+        const deck = root + '/a/private/deck.pptx'
+        // Rule 3: these deck paths do not exist, so only "the workspace" is shown.
+        const file = 'the workspace'
+        const rule3DataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-mask-rule3-'))
+        const rule3Root = path.join(rule3DataDir, 'workspaces')
+        fs.mkdirSync(rule3Root)
+        {
+            fs.writeFileSync(path.join(rule3Root, 'real.pptx'), 'deliverable')
+            for (const [name, expected] of [
+                ['real.pptx', 'the workspace file real.pptx'],
+                ['missing.pptx', 'the workspace'],
+                ...['..', '%2e%2e', '%2E.', '.%2e'].flatMap((segment) => [
+                    [`${segment}/${path.basename(rule3Root)}/real.pptx`, 'the workspace'],
+                    [`${segment}\\${path.basename(rule3Root)}\\real.pptx`, 'the workspace']
+                ])
+            ]) {
+                const text = `${rule3Root}/${name}`
+                const actual = hideWorkspacePaths(text, rule3Root)
+                const state = workspaceMaskState()
+                const scanned = []
+                const streamed = []
+                const context = {}
+                for (const char of text) {
+                    scanned.push(scanWorkspaceText(state, char, rule3Root))
+                    bufferStream(context, 'answer', char, false, (value) => streamed.push(value), rule3Root)
+                }
+                scanned.push(scanWorkspaceText(state, '', rule3Root, true))
+                bufferStream(context, 'answer', '', true, (value) => streamed.push(value), rule3Root)
+                check(
+                    `rule 3: ${name} uses existence at mask time, including character streams`,
+                    actual === expected && scanned.join('') === expected && streamed.join('') === expected,
+                    JSON.stringify({ actual, scanned: scanned.join(''), streamed: streamed.join(''), expected })
+                )
+                for (let at = 0; at <= text.length; at++) {
+                    const split = workspaceMaskState()
+                    const result =
+                        scanWorkspaceText(split, text.slice(0, at), rule3Root) + scanWorkspaceText(split, text.slice(at), rule3Root, true)
+                    check(`rule 8: existing deliverable ${name} split ${at}`, result === expected, result)
+                }
+            }
+        }
+        const byteError = Object.assign(new Error('failed /tmp/input'), {
+            base64: '/' + 'A'.repeat(2000) + '//x',
+            data: 'data:image/png;base64,/' + 'A'.repeat(2000)
+        })
+        const maskedByteError = maskError(byteError)
+        check(
+            'error byte fields survive message masking',
+            maskedByteError.message === 'failed a server path' &&
+                maskedByteError.base64 === byteError.base64 &&
+                maskedByteError.data === byteError.data
+        )
+        const cases = [
+            [1, `"${root}/a/Q3 Reports/deck.pptx"`, `"${file}"`],
+            [1, `'${deck}'`, `'${file}'`],
+            [1, `\`${deck}\``, `\`${file}\``],
+            [2, `${deck}]),;:!?`, `${file}]),;:!?`],
+            [2, `${deck}.`, `${file}.`],
+            [2, `${root}/a/folder]inside/deck.pptx`, file],
+            [3, root, 'the workspace'],
+            [3, '/tmp/private.txt', 'a server path'],
+            [3, '~/private.txt', 'a server path'],
+            [3, 'C:\\private\\deck.pptx', 'a server path'],
+            [3, 'docs/../../report.md', 'a server path'],
+            [3, 'docs/..', 'a server path'],
+            [3, 'docs\\..', 'a server path'],
+            [3, `${rule3Root}/real.pptx/..`, 'the workspace', rule3Root],
+            [3, `${rule3Root}/real.pptx\\..`, 'the workspace', rule3Root],
+            [3, `${root}/a/../../../../etc/passwd`, 'a server path'],
+            [4, `/tmp/input and ${deck}`, `a server path and ${file}`],
+            [4, `${deck} and /tmp/input`, `${file} and a server path`],
+            [5, `${root}/a/My Reports/deck.pptx done`, 'the workspace a server path done'],
+            [5, '/tmp/My Docs report.pdf', 'a server path Docs report.pdf'],
+            [5, '"/tmp/My Docs" docs/report.md', '"a server path" a server path'],
+            [5, '/tmp/My "docs/report.md"', 'a server path "a server path"'],
+            [5, '/tmp/My "Docs/private.txt" done', 'a server path "a server path" done'],
+            [1, 'note:"/tmp/My private.txt" ok', 'note:"a server path" ok'],
+            [1, "x='/tmp/a b' y", "x='a server path' y"],
+            // Rule 1 + 3a: a {/[ token that cannot be JSON is split and its quotes open as usual.
+            [1, '{note:"/tmp/private file.txt"}', '{note:"a server path"}'],
+            [1, '{"path":"/var/cuttlely/workspaces/a/private file.txt"', '{"path":"the workspace"'],
+            [1, '{true:"/tmp/private file.txt"}', '{true:"a server path"}'],
+            [1, '{true:"/tmp/private file.txt",note:"\\u0041"}', '{true:"a server path",note:"\\u0041"}'],
+            [1, '{"task":"safe", "path":"/tmp/private file.txt"', '{"task":"safe", "path":"a server path"'],
+            [1, '{"task":"safe", "path":"docs/report.md" /tmp/private', '{"task":"safe", "path":"docs/report.md" a server path'],
+            // Rules 2, 3, 7: a path candidate reads on through a quoted span and is masked whole.
+            [3, '/tmp/cache:"private folder" done', 'a server path" done'],
+            [3, '/var/cuttlely/workspaces/a/x:"private folder" done', 'the workspace" done'],
+            [1, '{note:"/var/cuttlely/workspaces/a/private file.txt"}', '{note:"the workspace"}'],
+            [6, '{"a":true,"b":null,"c":[1,2]}', '{"a":true,"b":null,"c":[1,2]}'],
+            [6, '{"path": "/tmp/private file.txt"}', '{"path": "/tmp/private file.txt"}'],
+            [6, '[ {"path":"/tmp/private file.txt"} ]', '[ {"path":"/tmp/private file.txt"} ]'],
+            [6, 'README requires checking docs/report.md', 'README requires checking docs/report.md'],
+            [6, 'README requires checking docs/../../report.md', 'README requires checking a server path'],
+            [7, '/' + 'x'.repeat(1024), 'a server path'],
+            // A final key can leave before a later path hits the cap; the held suffix still gets one fallback.
+            [7, '{"path":"/tmp/' + 'x'.repeat(1024), '{"path"a server path'],
+            [7, '"/' + 'x '.repeat(600) + '" done', 'a server path done'],
+            [8, `${root}/a/private/deck.pptx\tfinished\n`, `${file}\tfinished\n`],
+            [9, 'out/deck.pptx docs/report.md', 'out/deck.pptx docs/report.md']
+        ]
+        const aliases = [
+            deck,
+            '/var/cuttlely/./workspaces/a/private/deck.pptx',
+            '/var/x/../cuttlely/workspaces/a/private/deck.pptx',
+            '//var//cuttlely/workspaces/a/private/deck.pptx',
+            `${root}/a/out/../private/deck.pptx`,
+            'file://host/var/cuttlely/workspaces/a/private/deck.pptx',
+            'FILE://[::1]/var/cuttlely/workspaces/a/private/deck.pptx',
+            'file://cuttlely_server/var/cuttlely/%77orkspaces/a/private/deck.pptx',
+            '%2Fvar%2Fcuttlely%2Fworkspaces%2Fa%2Fprivate%2Fdeck.pptx',
+            'file:///var/cuttlely/%2e/workspaces/a/private/deck.pptx'
+        ]
+        for (const alias of aliases) {
+            cases.push([4, `/tmp/input and ${alias}`, `a server path and ${file}`])
+            cases.push([4, `"/tmp/input and ${alias}"`, `"a server path"`])
+            cases.push([3, alias, file])
+        }
+        // Every former skipped-folder delimiter, both local and file:// spellings.
+        for (const delimiter of [']', ')', '}', '|', '<', '>', '"', '`', '\t', '\n', "' ", ',', ';', ':', '!', '?', '\r']) {
+            for (const prefix of ['', 'file://host']) {
+                const alias = `${prefix}/var/cuttlely/cache${delimiter}old/../workspaces/a/private/deck.pptx`
+                const expected = /\s/.test(delimiter) ? `a server path${delimiter.includes("'") ? "' " : delimiter}a server path` : file
+                cases.push([3, alias, expected])
+            }
+        }
+        for (const folder of ['cache failed', 'cache.old copy']) {
+            for (const prefix of ['', 'file://host'])
+                cases.push([7, `${prefix}/var/cuttlely/${folder}/../workspaces/a/private/deck.pptx`, 'a server path a server path'])
+        }
+        // Rule 1: a quote opens after leading trim characters, double and single.
+        for (const lead of [']', ')', '|', ',', '<', ']),']) {
+            for (const q of ['"', "'"]) {
+                cases.push([1, `${lead}${q}/tmp/My private.txt${q}`, `${lead}${q}a server path${q}`])
+                cases.push([1, `${lead}${q}${root}/a/Q3 Reports/deck.pptx${q} done`, `${lead}${q}${file}${q} done`])
+            }
+        }
+        const prose = [
+            'An ordinary sentence stays exactly as written.',
+            'README requires checking docs/report.md',
+            'Version 1.4.0 is ready; please review it.',
+            'https://example.org/a/../b?version=1.4.0',
+            'Open http://example.org/files/report.pdf now.',
+            '"A quoted sentence with spaces."',
+            "Bob's report is ready.",
+            'x'.repeat(4000),
+            JSON.stringify({ rows: Array.from({ length: 150 }, (_, id) => ({ id, region: 'west' })) }),
+            'https://example.org/' + 'x'.repeat(2000),
+            '42 1.4.0 1234567890',
+            '"' + 'ordinary '.repeat(300) + 'sentence"',
+            'data:text/plain,/var/cuttlely/workspaces/a/report.md',
+            JSON.stringify(JSON.stringify({ rows: [{ id: 1, side: 'left' }] })),
+            '{"note":"line one\\nline two \\"quoted\\" \\\\ done"}'
+        ]
+        // JSON escapes are data; a backslash used as a separator is a path.
+        cases.push([3, '\\\\server\\share\\deck.pptx', 'a server path'])
+        cases.push([3, '\\var\\cuttlely\\workspaces\\a\\deck.pptx', 'the workspace'])
+        cases.push([3, '..\\..\\etc\\passwd', 'a server path'])
+        // Rule 3a: backslash paths, with JSON-escaped data left alone.
+        for (const [text, expected] of [
+            ['\\tmp\\notes', 'a server path'],
+            ['\\root\\file', 'a server path'],
+            ['\\Users\\x\\a.pptx', 'a server path'],
+            ['\\\\host\\share\\a.pptx', 'a server path'],
+            ['C:\\Users\\x\\a.pptx', 'a server path'],
+            ['C:/Users/x/a.pptx', 'a server path'],
+            ['see \\tmp\\notes, then retry', 'see a server path, then retry'],
+            ['a lone \\n or \\t stays', 'a lone \\n or \\t stays'],
+            ['{\\"rows\\":[{\\"id\\":1}]}', '{\\"rows\\":[{\\"id\\":1}]}'],
+            ['\\u0041\\tmp\\x', '\\u0041\\tmp\\x'],
+            ['["\\\\tmp\\\\x"]', '["\\\\tmp\\\\x"]'],
+            ['{"rows":[1]} then \\tmp\\x', '{"rows":[1]} then a server path'],
+            ['"C:\\\\Users\\\\x\\\\deck.pptx"', '"a server path"'],
+            // Accepted residual for 1.4.1: a Windows path inside an escaped JSON object stays as JSON.
+            ['{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}', '{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}']
+        ])
+            cases.push([3, text, expected])
+        for (const text of prose) cases.push([6, text, text])
+        const previousDataDir = process.env.CUTTLELY_DATA_DIR
+        try {
+            process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
+            for (const [rule, text, expected, caseRoot = root] of cases) {
+                process.env.CUTTLELY_DATA_DIR = caseRoot === rule3Root ? rule3DataDir : '/var/cuttlely'
+                const actual = hideWorkspacePaths(text, caseRoot)
+                check(`rule ${rule}: ${JSON.stringify(text.slice(0, 110))}`, actual === expected, JSON.stringify({ actual, expected }))
+                const chars = [],
+                    context = {}
+                for (const char of text) bufferStream(context, 'answer', char, false, (value) => chars.push(value), caseRoot)
+                bufferStream(context, 'answer', '', true, (value) => chars.push(value), caseRoot)
+                check(`rule 8: character stream ${JSON.stringify(text.slice(0, 110))}`, chars.join('') === actual)
+                // The same token scanner serves every text, error and structured-value channel.
+                const value = maskWorkspacePaths({ [text]: text, nested: [{ note: text }], base64: { note: text } })
+                check(
+                    `rule ${rule}: channels ${JSON.stringify(text.slice(0, 110))}`,
+                    maskError(new Error(text)).message === expected &&
+                        maskError(text) === expected &&
+                        value[expected] === expected &&
+                        value.nested[0].note === expected &&
+                        value.base64.note === expected
+                )
+                if (text.length <= 1024) {
+                    for (let at = 0; at <= text.length; at++) {
+                        const sent = [],
+                            split = {}
+                        bufferStream(split, 'x', text.slice(0, at), false, (part) => sent.push(part), caseRoot)
+                        bufferStream(split, 'x', text.slice(at), false, (part) => sent.push(part), caseRoot)
+                        bufferStream(split, 'x', '', true, (part) => sent.push(part), caseRoot)
+                        check(`rule 8: split ${at} ${JSON.stringify(text.slice(0, 110))}`, sent.join('') === actual)
+                    }
+                }
+            }
+            process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
+            const state = workspaceMaskState()
+            check('rule 7: no partial token is sent', scanWorkspaceText(state, '/var/cuttlely/cache.old', root) === '')
+            check('rule 7: whitespace completes the token', scanWorkspaceText(state, ' ', root) === 'a server path ')
+            const capped = workspaceMaskState()
+            check(
+                'rule 7: cap emits exactly one fallback',
+                scanWorkspaceText(capped, '/' + 'x'.repeat(1024), root) === 'a server path' &&
+                    scanWorkspaceText(capped, 'remaining ', root) === ' '
+            )
+            {
+                const jsonState = workspaceMaskState()
+                check(
+                    'rule 7: provisional JSON releases only a final prefix shared with ordinary quote rules',
+                    scanWorkspaceText(jsonState, '{"steps":[{"task":"check', root) === '{"steps":[{"task"' &&
+                        scanWorkspaceText(jsonState, ' routes"}]}', root, true) === ':"check routes"}]}'
+                )
+                const continuedJson = workspaceMaskState()
+                check(
+                    'rule 5: provisional JSON clears continuation only after a complete token without a slash',
+                    scanWorkspaceText(continuedJson, '/tmp/private {"task":"docs/report', root) === 'a server path {"task"' &&
+                        scanWorkspaceText(continuedJson, '.md"', root, true) === ':"docs/report.md"'
+                )
+            }
+            {
+                // Rule 7: nothing of a path candidate is sent before its quoted span closes.
+                const quotedState = workspaceMaskState()
+                const early = [...'/tmp/cache:"private folder'].map((char) => scanWorkspaceText(quotedState, char, root)).join('')
+                check(
+                    'rule 7: a path candidate with a quoted span is held until the span closes',
+                    early === '' && scanWorkspaceText(quotedState, '" done', root, true) === 'a server path" done',
+                    JSON.stringify(early)
+                )
+            }
+            {
+                // Rule 7 + 3a: a backslash path whose first segment is past the prefix limit still hits the cap.
+                const longState = workspaceMaskState()
+                const longPath = '\\' + 'a'.repeat(300) + '\\' + 'b'.repeat(1000)
+                const sentLong = [...longPath].map((char) => scanWorkspaceText(longState, char, root)).join('')
+                check(
+                    'rule 7: a long backslash path is capped while streaming',
+                    sentLong === 'a server path' &&
+                        scanWorkspaceText(longState, ' ', root, true) === ' ' &&
+                        hideWorkspacePaths(longPath, root) === 'a server path',
+                    JSON.stringify(sentLong)
+                )
+            }
+        } finally {
+            fs.rmSync(rule3DataDir, { recursive: true, force: true })
+            if (previousDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previousDataDir
+        }
+        const slowStarted = performance.now()
+        hideWorkspacePaths(`"${root}/a${' '.repeat(32000)}b"`, root)
+        hideWorkspacePaths(`"${root}/${'a b/'.repeat(16000)}"`, root)
+        hideWorkspacePaths(`'${`${root}/x `.repeat(4000)}'`, root)
+        hideWorkspacePaths(`"failed opening ${`${root}/./private/deck.pptx `.repeat(4000)}"`, root)
+        const slowTook = performance.now() - slowStarted
+        check('a long quoted path is masked in linear time', slowTook < 1000, String(slowTook))
+        {
+            const root = path.dirname(specialistWorkspace('x'))
+            const assets = specialistWorkspace(coder.profileName)
+            let deep = { note: path.join(assets, 'deep.pdf') }
+            for (let level = 0; level < 100; level += 1) deep = { deep }
+            const looped = { note: path.join(assets, 'loop.pdf') }
+            looped.self = looped
+            const deepText = JSON.stringify(maskWorkspacePaths({ deep, keyed: { [path.join(assets, 'k.pdf')]: 'failed' } }))
+            const loopText = JSON.stringify(maskWorkspacePaths(looped))
+            class Meta {
+                constructor(where) {
+                    this.where = where
+                }
+            }
+            const typed = JSON.stringify(
+                maskWorkspacePaths({
+                    link: new URL(`file://${path.join(assets, 'private.pdf')}`),
+                    meta: new Meta(path.join(assets, 'meta.pdf')),
+                    pair: { [path.join(assets, 'r.pdf')]: 1, 'r.pdf': 2 },
+                    proto: JSON.parse('{"__proto__": "kept"}')
+                })
+            )
+            const frozen = Object.freeze(
+                Object.assign(new Error(`Cannot read ${path.join(assets, 'private.pdf')}`), { code: 'tool_failed' })
+            )
+            const freed = maskError(frozen)
+            const byteFields = {
+                base64: '/' + 'A'.repeat(2000) + '//x',
+                data: 'data:image/png;base64,/' + 'A'.repeat(2000)
+            }
+            const maskedFields = maskWorkspacePaths({
+                ...byteFields,
+                note: '/var/cuttlely/workspaces/a/x.pptx',
+                nested: { data: 'data:text/plain,/var/cuttlely/workspaces/a/x' }
+            })
+            check(
+                'base64 fields and base64 data URLs keep path-like bytes while ordinary text is masked',
+                maskedFields.base64 === byteFields.base64 &&
+                    maskedFields.data === byteFields.data &&
+                    !maskedFields.note.includes('/var/cuttlely/workspaces') &&
+                    maskedFields.nested.data === maskWorkspacePaths('data:text/plain,/var/cuttlely/workspaces/a/x')
+            )
+            const bytesKept = maskWorkspacePaths({
+                base64: { error: path.join(assets, 'private.pdf') },
+                data: `data:text/plain,${assets}/../x`
+            })
+            const { encodeFilePath } = await import('./images.mjs')
+            const spacedRoot = '/var/cuttlely data/workspaces'
+            const encodedLink = hideWorkspacePaths(`see ${new URL(`file://${spacedRoot}/agent/private.pdf`).href} now`, spacedRoot)
+            const fielded = maskError(Object.assign(new Error('tool failed'), { code: path.join(assets, 'private.pdf') }))
+            const frozenFielded = maskError(Object.freeze(Object.assign(new Error('tool failed'), { detail: path.join(assets, 'p.pdf') })))
+            const thrownText = maskError(`open ${path.join(assets, 'private.pdf')}`)
+            const caused = maskError(new Error('failed', { cause: new Error(`open ${path.join(assets, 'private.pdf')}`) }))
+            const hidden = new Error('failed')
+            Object.defineProperty(hidden, 'code', { value: path.join(assets, 'code.pdf'), enumerable: false })
+            hidden.detail = 1n
+            const looping = { note: path.join(assets, 'loop.pdf') }
+            looping.self = looping
+            hidden.loop = looping
+            const hiddenMasked = maskError(hidden)
+            const plainError = new Error('no path here')
+            const getterError = new Error('failed')
+            Object.defineProperty(getterError, 'code', { get: () => path.join(assets, 'getter.pdf') })
+            const serialError = Object.assign(new Error('failed'), { toJSON: () => path.join(assets, 'json.pdf') })
+            let nested = { note: path.join(assets, 'nested.pdf') }
+            for (let level = 0; level < 70; level += 1) nested = { nested }
+            const deepError = Object.assign(new Error('failed'), { nested })
+            const lowerDir = path.join(assets, 'quarterly reports')
+            fs.mkdirSync(lowerDir, { recursive: true })
+            fs.writeFileSync(path.join(lowerDir, 'deck.pptx'), 'x')
+            check(
+                'getters, serializers, deep fields, upper-case file links and on-disk lower-case folders are masked',
+                maskError(getterError).code === 'the workspace' &&
+                    maskError(serialError) !== serialError &&
+                    (() => {
+                        class ToolError extends Error {
+                            get message() {
+                                return `Cannot open ${assets}/inherited.pdf`
+                            }
+                        }
+                        const nested = Object.assign(new Error(`open ${assets}/n.pdf`), {
+                            meta: Object.defineProperty({}, 'detail', {
+                                enumerable: true,
+                                get: () => {
+                                    throw new Error(`${assets}/deep.pdf`)
+                                }
+                            })
+                        })
+                        try {
+                            const inherited = maskError(new ToolError())
+                            const masked = maskError(nested)
+                            return !inherited.message.includes(assets) && masked.meta.detail === '[data]'
+                        } catch {
+                            return false
+                        }
+                    })() &&
+                    !JSON.stringify(maskError(serialError)).includes(assets) &&
+                    !JSON.stringify(
+                        maskError(Object.assign(new Error(`open ${assets}/a.pdf`), { toJSON: () => ({ message: `${assets}/b.pdf` }) }))
+                    ).includes(assets) &&
+                    (() => {
+                        const trap = new Error('failed')
+                        Object.defineProperty(trap, 'toJSON', {
+                            get: () => {
+                                throw new Error(`${assets}/trap.pdf`)
+                            }
+                        })
+                        try {
+                            return maskError(trap) !== trap && maskWorkspacePaths({ trap }).trap === '[data]'
+                        } catch {
+                            return false
+                        }
+                    })() &&
+                    !JSON.stringify(maskError(deepError)).includes(root) &&
+                    hideWorkspacePaths(`FILE://${path.join(assets, 'a.pdf')} and file://LOCALHOST${path.join(assets, 'b.pdf')}`, root) ===
+                        'the workspace and the workspace' &&
+                    hideWorkspacePaths(`"${path.join(lowerDir, 'deck.pptx')}"`, root) === '"the workspace file deck.pptx"' &&
+                    hideWorkspacePaths(`"${path.join(assets, 'README')} permission denied opening docs/report.md"`, root) ===
+                        '"the workspace"',
+                JSON.stringify(maskError(getterError).code)
+            )
+            fs.rmSync(lowerDir, { recursive: true, force: true })
+            check(
+                'error causes, hidden fields, BigInt and cyclic fields are masked without throwing',
+                caused.cause.message === 'open the workspace' &&
+                    hiddenMasked.code === 'the workspace' &&
+                    hiddenMasked.detail === 1n &&
+                    hiddenMasked.loop.note === 'the workspace' &&
+                    hiddenMasked instanceof Error &&
+                    maskError(plainError).message === plainError.message,
+                JSON.stringify({ cause: caused.cause?.message, code: hiddenMasked.code })
+            )
+            const oddRoot = '/var/cuttlely #1?/workspaces'
+            const otherLinks = [
+                hideWorkspacePaths(`see file://localhost${path.join(assets, 'private.pdf')} now`, root),
+                hideWorkspacePaths(`see file://${encodeFilePath(oddRoot)}/agent/odd.pdf now`, oddRoot)
+            ]
+            check(
+                'thrown strings, error fields and local or odd file links are masked',
+                fielded.code === 'the workspace' &&
+                    frozenFielded.detail === 'the workspace' &&
+                    frozenFielded.message === 'tool failed' &&
+                    thrownText === 'open the workspace' &&
+                    otherLinks[0] === 'see the workspace now' &&
+                    otherLinks[1] === 'see the workspace now',
+                JSON.stringify({ code: fielded.code, detail: frozenFielded.detail, thrownText, otherLinks })
+            )
+            check(
+                'frozen errors, non-byte base64 values and encoded file links are masked',
+                freed.message === 'Cannot read the workspace' &&
+                    freed.code === 'tool_failed' &&
+                    !String(freed.stack).includes(root) &&
+                    !JSON.stringify(bytesKept).includes(root) &&
+                    encodedLink === 'see the workspace now',
+                JSON.stringify({ message: freed.message, bytesKept, encodedLink })
+            )
+            check(
+                'URLs, class instances, colliding keys and a __proto__ key are masked and kept',
+                !typed.includes(root) &&
+                    typed.includes('"link":"the workspace"') &&
+                    typed.includes('"where":"the workspace"') &&
+                    typed.includes('"the workspace":1') &&
+                    typed.includes('"r.pdf":2') &&
+                    typed.includes('"__proto__":"kept"'),
+                typed
+            )
+            check(
+                'deep values, cycles and object keys are masked too',
+                !deepText.includes(root) &&
+                    deepText.includes('"the workspace":"failed"') &&
+                    !loopText.includes(root) &&
+                    loopText.includes('"note":"the workspace"'),
+                deepText.slice(-300) + loopText
+            )
+            class PathArray extends Array {
+                toJSON() {
+                    return [`${assets}/deck.pptx`]
+                }
+            }
+            const maskedArray = maskWorkspacePaths(new PathArray())
+            const maskedPlainArray = maskWorkspacePaths(new (class extends Array {})(`${assets}/deck.pptx`))
+            const ownArray = []
+            ownArray.toJSON = () => [`${assets}/own.pdf`]
+            const unreadableArray = ['kept']
+            Object.defineProperty(unreadableArray, '0', {
+                get() {
+                    throw new Error('unreadable')
+                }
+            })
+            check(
+                'array serializers are masked and arrays are rebuilt with a plain prototype',
+                Array.isArray(maskedArray) &&
+                    Object.getPrototypeOf(maskedArray) === Array.prototype &&
+                    JSON.stringify(maskedArray) === '["the workspace"]' &&
+                    !JSON.stringify(maskedArray).includes(root) &&
+                    Object.getPrototypeOf(maskedPlainArray) === Array.prototype &&
+                    JSON.stringify(maskedPlainArray) === '["the workspace"]' &&
+                    JSON.stringify(maskWorkspacePaths(ownArray)) === '["the workspace"]' &&
+                    JSON.stringify(maskWorkspacePaths(unreadableArray)) === '["[data]"]'
+            )
+            const shadowed = (() => {
+                class BadError extends Error {
+                    get message() {
+                        throw new Error(`${assets}/bad.pdf`)
+                    }
+                }
+                const bad = new BadError()
+                delete bad.stack
+                Object.defineProperty(bad, 'note', { value: `${assets}/n.pdf`, enumerable: true })
+                try {
+                    const copy = maskError(bad)
+                    return copy.message === '[error]' && !String(copy.note).includes(root)
+                } catch {
+                    return false
+                }
+            })()
+            check('an inherited message getter that throws is replaced, not kept', shadowed)
+            const maskedValue = maskWorkspacePaths({
+                text: `data: ${path.join(assets, 'r.pdf')}`,
+                data: 'data:text/plain,aGVsbG8=',
+                base64: 'aGVsbG8=',
+                rows: [{ note: path.join(assets, 'x', 'n.csv') }]
+            })
+            check(
+                'only file bytes are left unmasked in a harness value',
+                maskedValue.text === 'data: the workspace' &&
+                    maskedValue.data === 'data:text/plain,aGVsbG8=' &&
+                    maskedValue.base64 === 'aGVsbG8=' &&
+                    maskedValue.rows[0].note === 'the workspace',
+                JSON.stringify(maskedValue)
+            )
+        }
+    }
     removeTurnImageDir(coderDir)
     removeTurnImageDir(specialistWorkspace(coder.profileName))
     check(
@@ -7875,13 +8526,15 @@ check(
     fs.writeFileSync(path.join(fileDir, 'binary.csv'), Buffer.from([0x61, 0x00, 0x62]))
     fs.writeFileSync(path.join(fileDir, 'page.html'), '<h1>demo</h1>')
     fs.writeFileSync(path.join(fileDir, 'slides.pptx'), zipWith('ppt/presentation.xml'))
-    const files = turnFiles(fileDir, since, { specialist: 'assets' })
+    const files = turnFiles(fileDir, since, { specialist: 'assets', limits: { ...TURN_FILE_LIMITS, count: 8 } })
     check(
-        'PDF, DOCX, XLSX and CSV files are returned with their type, and renamed or other files are not',
+        'PDF, DOCX, XLSX, PPTX and CSV files are returned with their type, and renamed or other files are not',
         files
             .map((file) => `${file.name}:${file.type}`)
             .sort()
-            .join(',') === 'memo.docx:docx,orders.csv:csv,report.pdf:pdf,table.xlsx:xlsx' &&
+            .join(',') === 'memo.docx:docx,orders.csv:csv,report.pdf:pdf,slides.pptx:pptx,table.xlsx:xlsx' &&
+            files.find((file) => file.type === 'pptx').mime ===
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation' &&
             files.every((file) => file.specialist === 'assets' && file.bytes > 0) &&
             files.find((file) => file.type === 'csv').mime === 'text/csv' &&
             Buffer.from(files.find((file) => file.type === 'pdf').base64, 'base64')
@@ -7896,6 +8549,12 @@ check(
             matchesTurnType('png', Buffer.from('89504e470d0a1a0a00', 'hex')) &&
             !matchesTurnType('jpeg', Buffer.from('89504e470d0a1a0a00', 'hex')) &&
             !matchesTurnType('xlsx', zipWith('word/document.xml')) &&
+            matchesTurnType('pptx', zipWith('ppt/presentation.xml')) &&
+            !matchesTurnType('pptx', zipWith('word/document.xml')) &&
+            !matchesTurnType('pptx', zipOf(['ppt/presentation.xml'])) &&
+            !matchesTurnType('pptx', zipOf(['notes/ppt/presentation.xml.txt', '[Content_Types].xml'])) &&
+            !matchesTurnType('pptx', zipWith('ppt/presentation.xml').subarray(0, 60)) &&
+            !matchesTurnType('pptx', Buffer.from('%PDF-1.7')) &&
             !matchesTurnType('docx', Buffer.concat([Buffer.from('504b0304', 'hex'), Buffer.alloc(26), Buffer.from('word/document.xml')])) &&
             !matchesTurnType('docx', zipOf(['notes/word/document.xml.txt', '[Content_Types].xml'])) &&
             !matchesTurnType('docx', zipOf(['word/document.xml'])) &&
@@ -7955,7 +8614,7 @@ check(
     const note = turnImageNote('/demo/chat-images/run')
     check(
         'the task note names the file types and limits',
-        note.includes('PDF, DOCX, XLSX or CSV') && note.includes('10 MB each') && note.includes('20 MB per turn'),
+        note.includes('PDF, DOCX, XLSX, PPTX or CSV') && note.includes('10 MB each') && note.includes('20 MB per turn'),
         note
     )
     const fileContext = {}
@@ -7972,6 +8631,127 @@ check(
     )
     fs.rmSync(fileDir, { recursive: true, force: true })
 }
+
+await expectCase('large file downloads survive runHarness and the fresh chat handoff', async () => {
+    const { zipEntryNames } = await import('./images.mjs')
+    const { enqueueHarnessJob, finishJob, waitForJob } = await import('./queue.mjs')
+    const { database } = await import('./lock.mjs')
+    const deck = fs.readFileSync(path.join(root, 'packages/components/nodes/harness/Harness/__fixtures__/q3-deck.pptx'))
+    const png = downloadRegressionPng()
+    check(
+        'the download fixtures are large and the PNG base64 triggers the former path mask',
+        deck.length > 1024 && png.length >= 4096 && png.toString('base64').includes('//')
+    )
+    saveHarness(
+        {
+            name: 'download-regression',
+            chief: { model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } }) },
+            specialists: [{ name: 'files', instructions: 'Create the requested files.', codeExecution: true, fileAccess: true }]
+        },
+        { overwrite: true }
+    )
+    const written = new Map()
+    let folder = ''
+    const events = []
+    let answer = ''
+    const result = await runHarness({
+        name: 'download-regression',
+        chatId: 'large-downloads',
+        input: 'Create a deck and a chart.',
+        onEvent: (event) => events.push(event),
+        baseUrl: 'http://127.0.0.1:9',
+        fetchImpl: analystHermesFetch((_n, body) => {
+            folder = body.input.match(/save it as a PNG or JPEG file in this folder: ([^\n]+)/)?.[1]
+            if (!folder) throw new Error('Specialist did not receive a turn file folder')
+            fs.copyFileSync(
+                path.join(root, 'packages/components/nodes/harness/Harness/__fixtures__/q3-deck.pptx'),
+                path.join(folder, 'deck.pptx')
+            )
+            fs.writeFileSync(path.join(folder, 'chart.png'), png)
+            for (const name of ['deck.pptx', 'chart.png']) {
+                // Avoid filesystem timestamp rounding placing a just-written file before the turn start.
+                const stamp = new Date(Date.now() + 1000)
+                fs.utimesSync(path.join(folder, name), stamp, stamp)
+                written.set(name, fs.readFileSync(path.join(folder, name)))
+            }
+            return { output: `Saved files in ${folder}`, events: [] }
+        }),
+        loadNode: async () =>
+            class extends recordingChat([], (messages, tools) => {
+                const reply = scriptedReply(messages, tools)
+                if (plainChatMessages(messages)[0]?.content?.startsWith('You are Harness Prime')) {
+                    const delivered = path.join(folder, 'deck.pptx')
+                    const missing = path.join(path.dirname(folder), 'exports/q3/deck.pptx')
+                    const traversal = `${folder}/../${path.basename(folder)}/deck.pptx`
+                    answer = `Your file is ready as ${delivered}. Missing ${missing}. Traversal ${traversal}. Encoded ${folder}/%2e%2e/${path.basename(
+                        folder
+                    )}/deck.pptx. Backslash ${traversal.replaceAll('/', '\\')}.`
+                    reply.content = answer
+                }
+                return reply
+            }) {
+                async init() {
+                    const chat = await super.init()
+                    chat.stream = async function* (messages, options) {
+                        const reply = await chat.invoke(messages, options)
+                        for (const content of reply.content || '') yield { content }
+                    }
+                    return chat
+                }
+            }
+    })
+    const identical = (artifacts) =>
+        artifacts?.length === 2 &&
+        artifacts.every(
+            (item) =>
+                written.has(item.name) &&
+                typeof item.base64 === 'string' &&
+                Buffer.from(item.base64, 'base64').equals(written.get(item.name))
+        )
+    check('large file downloads survive runHarness and the fresh chat handoff', written.size === 2 && identical(result.artifacts))
+    const returnedDeck = result.artifacts.find((item) => item.type === 'pptx')
+    check(
+        'the returned deck still unzips with its presentation part',
+        zipEntryNames(Buffer.from(returnedDeck?.base64 || '', 'base64'))?.includes('ppt/presentation.xml')
+    )
+    check(
+        'the answer hides the specialist workspace path',
+        Boolean(folder) && !result.text.includes(folder) && !result.text.includes('/workspaces/')
+    )
+    const expectedAnswer =
+        'Your file is ready as the workspace file deck.pptx. Missing the workspace. Traversal the workspace. Encoded the workspace. Backslash the workspace.'
+    const streamedAnswer = events
+        .filter((event) => event.type === 'partial' && event.phase === 'answer')
+        .map((event) => event.text)
+        .join('')
+    check(
+        'delivered basename survives cleanup in the answer and final event',
+        answer.includes(folder) &&
+            !fs.existsSync(folder) &&
+            result.text === expectedAnswer &&
+            events.find((event) => event.type === 'final')?.text === expectedAnswer,
+        JSON.stringify(events)
+    )
+    check('streamed delivered basename agrees with the final answer after cleanup', streamedAnswer === expectedAnswer, streamedAnswer)
+    const row = attachHarnessToChatMessage({ role: 'apiMessage', content: '' }, result)
+    check(
+        'serialized chat artifacts and harness payload retain download bytes',
+        identical(JSON.parse(row.artifacts)) && identical(JSON.parse(row.harnessPayload).artifacts)
+    )
+    const job = enqueueHarnessJob({ name: 'download-regression', chatId: 'download-handoff', input: 'Files' })
+    try {
+        finishJob(job.id, { status: 'succeeded', result })
+        const handed = await waitForJob(job.id, { timeoutMs: 2000 })
+        check('the fresh queue handoff retains byte-identical large downloads', identical(handed.artifacts))
+        const stored = JSON.parse(database().prepare('SELECT result FROM jobs WHERE id = ?').get(job.id).result)
+        check(
+            'queue history deliberately stores download metadata without bytes',
+            stored.artifacts.length === 2 && stored.artifacts.every((item) => !('base64' in item))
+        )
+    } finally {
+        database().prepare('DELETE FROM jobs WHERE id = ?').run(job.id)
+    }
+})
 
 {
     // The 'assets' preset: Code execution and Files on, the style kit in the workspace, its instructions in the soul.
@@ -9336,7 +10116,10 @@ try {
             !JSON.stringify(leakRun.sources || []).includes(sentinel) &&
             !String(leakRun.text || '').includes(sentinel) &&
             (leakRun.sources || []).some(
-                (doc) => String(doc.pageContent || '').includes(csvPath) || doc.metadata?.storedFile === csvPath
+                (doc) =>
+                    String(doc.pageContent || '').includes("path='a server path'") &&
+                    doc.metadata?.storedFile === 'a server path' &&
+                    !JSON.stringify(doc).includes(csvPath)
             ) &&
             stagedCsv &&
             fs.readFileSync(path.join(stagedDir, stagedCsv), 'utf8').includes(sentinel) &&
@@ -14507,7 +15290,9 @@ function scriptedReply(messages, tools) {
     }
     if (system.startsWith('You are Harness Prime')) {
         const names = [...user.matchAll(/^### ([^ ]+) \(/gm)].map((found) => found[1])
-        return { content: `answer:${plain.length - 2}|${names.join(',')}` }
+        // With chiefQuotedPath set, the chief's own answer quotes a workspace path too.
+        const quoted = chiefQuotedPath ? ` see ${chiefQuotedPath}` : ''
+        return { content: `answer:${plain.length - 2}|${names.join(',')}${quoted}` }
     }
     return { content: `specialist:${user}` }
 }
@@ -14617,7 +15402,13 @@ function startContractServer() {
             seen.push({ kind: 'run', profile, body: json, authorization, scope: req.headers['x-hermes-session-key'], at: Date.now() })
             const run = {
                 ready: Date.now() + 150,
-                status: { status: 'completed', output: `${profile} did: ${json.input}`, session_id: json.session_id },
+                status:
+                    contractFailRun?.profile && profile.includes(contractFailRun.profile)
+                        ? { status: 'failed', error: contractFailRun.error }
+                        : { status: 'completed', output: `${profile} did: ${json.input}`, session_id: json.session_id },
+                ...(contractFailRun?.profile && profile.includes(contractFailRun.profile) && contractFailRun.frames
+                    ? { frames: contractFailRun.frames }
+                    : {}),
                 close() {}
             }
             runs.set(runId, run)
@@ -14646,6 +15437,9 @@ function startContractServer() {
                         // The client already left.
                     }
                 }
+            }
+            if (run?.frames) {
+                for (const frame of run.frames) res.write(`data: ${JSON.stringify(frame)}\n\n`)
             }
             if (options.deltas) {
                 for (const frame of [

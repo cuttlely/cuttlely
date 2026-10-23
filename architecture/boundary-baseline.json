@@ -2026,6 +2026,10 @@
             "reason": "Unit test for the inherited conversation chain prompt fallback"
         },
         {
+            "path": "packages/components/nodes/chatmodels/ChatOpenAI/ChatOpenAI.test.ts",
+            "reason": "unit tests for the ChatOpenAI and Azure ChatOpenAI reasoning request params sit next to the node"
+        },
+        {
             "path": "packages/components/src/missingModelCredential.test.ts",
             "reason": "The missing-credential tests stay next to getCredentialData and the chat model nodes they exercise."
         },

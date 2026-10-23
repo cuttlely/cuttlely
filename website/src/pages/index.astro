@@ -132,12 +132,12 @@ const installs = [
 
 <StarlightPage
     frontmatter={{
-        title: 'Cuttlely | Open-source agent platform for lean AI agent teams',
+        title: 'Cuttlely | Context-aware agent orchestration, open source',
         description:
-            'Open-source agent platform, Apache-2.0. Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.',
+            'Open-source, context-aware agent orchestration (Apache-2.0). Build AI agent teams that are lean by design, see what each run uses and costs, and replay real questions before you publish.',
         template: 'splash',
-        hero: { tagline: 'Open-source agent platform · Apache-2.0', actions: [] },
-        head: [{ tag: 'title', content: 'Cuttlely | Open-source agent platform for lean AI agent teams' }],
+        hero: { tagline: 'Context-aware agent orchestration · Open source, Apache-2.0', actions: [] },
+        head: [{ tag: 'title', content: 'Cuttlely | Context-aware agent orchestration, open source' }],
         pagefind: false,
         tableOfContents: false
     }}
@@ -382,10 +382,10 @@ const installs = [
         <section id="small-context-big-answers" class="cl-section" aria-labelledby="context-title">
             <div class="cl-center">
                 <p class="cl-kicker">Cost and context</p>
-                <h2 id="context-title" class="cl-display">Context handling built from the ground up to be lean.</h2>
+                <h2 id="context-title" class="cl-display">Put your agents on a token diet.</h2>
                 <p class="cl-lead">
-                    Long chats, big tables and long rule books don't have to mean long prompts. Cuttlely gives each agent only what its job needs, keeps your data
-                    where it lives, and shows you what every run used. <a href="/docs/how-to/context-and-tokens/">How Cuttlely keeps context small</a>.
+                    You choose what each agent sees, so it gets only the context it needs, and its output isn't capped. Every run shows tokens for each step
+                    where the provider reports them, and cost where the model is priced.
                 </p>
                 <span id="ask-your-database-in-plain-english" class="cl-anchor" aria-hidden="true"></span>
             </div>
@@ -422,8 +422,7 @@ const installs = [
                     <p class="cl-pair cl-pair-cuttlely">
                         <span class="cl-pair-label">Cuttlely</span>
                         Tick tables and views in <strong>Tables and views</strong> on the PostgreSQL MCP node. The analyst's prompt gets one line for each, with
-                        its column names, and queries that read anything else are refused. In our internal benchmarks, on a made-up bakery database, ticking 6 of
-                        20 tables and views took the analyst's prompt from 2,562 to 663 tokens. Rerun it with
+                        its column names, and queries that read anything else are refused. Rerun the benchmark below with{' '}
                         <a href={`${REPO_URL}/blob/main/scripts/analyst-schema-tokens.mjs`}>scripts/analyst-schema-tokens.mjs</a>.
                     </p>
                 </li>
@@ -465,7 +464,7 @@ const installs = [
                     </p>
                 </li>
             </ul>
-            <p class="cl-center">Lean context: fewer tokens in our internal benchmarks.</p>
+            <p class="cl-center">In our internal benchmarks, ticking only the needed tables on the PostgreSQL MCP node cut 2,562 tokens to 663.</p>
             <div class="cl-section-start" role="group" aria-label="Start Cuttlely with one command">
                 <div class="cl-terminal cl-terminal-inline">
                     <pre id="cl-context-npx"><code><span class="cl-prompt" aria-hidden="true">$ </span>npx cuttlely start</code></pre>

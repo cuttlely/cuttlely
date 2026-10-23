@@ -76,8 +76,8 @@ function normalizeArtifacts(data) {
         .slice(0, 8)
 }
 
-// Files a harness specialist made (PDF, DOCX, XLSX, CSV) are offered as downloads from the chat's file storage.
-export const FILE_ARTIFACT_TYPES = ['pdf', 'docx', 'xlsx', 'csv']
+// Files a harness specialist made (PDF, DOCX, XLSX, PPTX, CSV) are offered as downloads from the chat's file storage.
+export const FILE_ARTIFACT_TYPES = ['pdf', 'docx', 'xlsx', 'pptx', 'csv']
 
 // The name to save as: the artifact's own name, or the stored file name without the harness_<specialist>_<time>_<n>_ prefix.
 export function fileArtifactName(item) {
