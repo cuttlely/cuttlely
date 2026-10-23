@@ -10927,38 +10927,28 @@ check(
     const routeText = systems.find((text) => text.includes('You route work')) || ''
     const chooseText = systems.find((text) => text.includes('You choose the analyst')) || ''
     check(
-        'with two analysts an empty router answer asks the router to choose and runs only the chosen analyst',
-        ran.map((entry) => entry.who).join(',') === 'two-analysts--budget' &&
-            ran[0].input.includes(budgetAsk) &&
-            oneRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'budget' &&
+        'with two analysts an empty router answer runs only the default specialist and makes no analyst choice call',
+        ran.length === 0 &&
+            oneRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'notes' &&
+            oneRun.trace?.route?.fallbackSpecialist === 'notes' &&
             routeText.includes(ROUTE_ANALYSTS) &&
             routeText.includes(
                 '- budget: Household budget lines and monthly spending. Tools: PostgreSQL MCP. Tables: public.budget_lines.'
             ) &&
             routeText.includes('The bakery analyst database is') &&
             routeText.includes('The budget analyst database is') &&
-            chooseText.includes(ROUTE_CHOOSE_ANALYST) &&
-            chooseText.includes('- bakery:') &&
-            chooseText.includes('- budget:') &&
-            !chooseText.includes('- notes:') &&
-            String(
-                twoCalls.find((call) => String(call.messages[0]?.content || '').includes('You choose'))?.messages.at(-1)?.content || ''
-            ).includes(budgetAsk),
+            !chooseText &&
+            typeof ROUTE_CHOOSE_ANALYST === 'string',
         JSON.stringify({ ran, steps: oneRun.trace?.route?.steps, chooseText })
     )
     ran.length = 0
     choice = 'not json'
     const bothRun = await ask('two-2', 'Run SQL on both databases: count the rows in every table.')
     check(
-        'an analyst choice that names no analyst sends the data task to every analyst, never just the first',
-        ran
-            .map((entry) => entry.who)
-            .sort()
-            .join(',') === 'two-analysts--bakery,two-analysts--budget' &&
-            bothRun.trace?.route?.steps
-                ?.map((step) => step.specialist)
-                .sort()
-                .join(',') === 'bakery,budget',
+        'an empty router answer to a data task for both databases still runs one default step, never every analyst',
+        ran.length === 0 &&
+            bothRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'notes' &&
+            bothRun.trace?.route?.fallbackSpecialist === 'notes',
         JSON.stringify({ ran, steps: bothRun.trace?.route?.steps })
     )
     ran.length = 0
@@ -11022,6 +11012,67 @@ check(
             JSON.stringify({ ran, route: onlyRun.trace?.route })
         )
         ran.length = 0
+    }
+    {
+        // Mixed rosters: an empty plan on a data task goes to the chief's default specialist, never to an analyst the
+        // input only hints at, and never to every analyst.
+        const analyst = (name) => ({
+            name,
+            summary: `${name} data.`,
+            instructions: `Query the ${name} database.`,
+            mcpServers: [
+                {
+                    nodeName: 'postgreSQLMCP',
+                    label: 'PostgreSQL MCP',
+                    category: 'Tools (MCP)',
+                    inputs: { analystRelations: `["public.${name}"]` }
+                }
+            ]
+        })
+        const mixed = (name, analysts) =>
+            saveHarness(
+                {
+                    name,
+                    chief: {
+                        instructions: 'Route work.',
+                        defaultSpecialist: 'knowledge',
+                        model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } })
+                    },
+                    specialists: [{ name: 'knowledge', instructions: 'Answer questions.', modules: [] }, ...analysts.map(analyst)]
+                },
+                { overwrite: true }
+            )
+        mixed('mixed-one', ['sales'])
+        mixed('mixed-two', ['sales', 'budget'])
+        const saved = choice
+        choice = '{"analysts":["nobody"]}'
+        routerReply = '{"steps":[]}'
+        const runMixed = (name) =>
+            runHarness({
+                name,
+                chatId: `${name}-1`,
+                input: 'Run SQL: count the rows in every table.',
+                baseUrl: 'http://127.0.0.1:9',
+                fetchImpl: twoFetch,
+                loadNode: twoNodes
+            })
+        const oneMixed = await runMixed('mixed-one')
+        const oneRan = ran.splice(0)
+        routerReply = '{"steps":[{"specialist":"nobody","task":"x"}]}'
+        const twoMixed = await runMixed('mixed-two')
+        const twoRan = ran.splice(0)
+        choice = saved
+        const only = (run) => (run.trace?.route?.steps || []).map((step) => step.specialist).join(',')
+        check(
+            'an empty or unknown-only plan on a mixed analyst roster runs only the default specialist',
+            only(oneMixed) === 'knowledge' &&
+                oneMixed.trace.route.fallbackSpecialist === 'knowledge' &&
+                oneRan.length === 0 &&
+                only(twoMixed) === 'knowledge' &&
+                twoMixed.trace.route.fallbackSpecialist === 'knowledge' &&
+                twoRan.length === 0,
+            JSON.stringify({ one: oneMixed.trace?.route, two: twoMixed.trace?.route, oneRan, twoRan })
+        )
     }
     routerReply = '{"steps":[{"specialist":"bakery","task":"show more"}]}'
     recordAnalystResult({
@@ -11098,13 +11149,11 @@ check(
     routerReply = '{"steps":[]}'
     const failedRun = await ask('two-4', 'Run SQL on both databases: count the rows in every table.')
     check(
-        'an analyst choice call that errors sends the task to every analyst, and a stopped turn still stops',
+        'an analyst choice call that errors sends the task to every analyst, a stopped turn still stops, and an empty plan stays one step',
         failedChoice.map((step) => step.specialist.name).join(',') === 'bakery,budget' &&
             Boolean(stoppedError) &&
-            ran
-                .map((entry) => entry.who)
-                .sort()
-                .join(',') === 'two-analysts--bakery,two-analysts--budget' &&
+            ran.length === 0 &&
+            failedRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'notes' &&
             failedRun.trace?.status === 'completed' &&
             !String(failedRun.text || '').includes('provider refused'),
         JSON.stringify({
@@ -11307,7 +11356,9 @@ const pageNodes = async (nodeName) => {
         const system = String(plain[0]?.content || '')
         const user = String(plain.at(-1)?.content || '')
         if (system.includes('You route work')) {
-            if (user.trim() === 'show more' || user.trim() === 'How many rows are in tickets?') return { content: '{"steps":[]}' }
+            if (user.trim() === 'show more') return { content: '{"steps":[]}' }
+            if (user.trim() === 'How many rows are in tickets?')
+                return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: user.trim() }] }) }
             return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: 'select all rows' }] }) }
         }
         if (system.includes('You are Harness Prime')) {

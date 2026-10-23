@@ -1229,6 +1229,12 @@ export const ANALYST_TOOL_RETRY =
 const ANALYST_DATA_TASK =
     /\b(select|insert|update|delete|drop|create|alter|vacuum|attach|detach|pragma|truncate|table|tables|database|schema|sql|query|rows?)\b/i
 
+// The input itself names the analyst (`Analyst: ...` or "the analyst database"); not a guess from data words.
+export function explicitAnalystRequest(text) {
+    const value = String(text || '')
+    return /^\s*analyst\s*:/i.test(value) || /\banalyst database\b/i.test(value)
+}
+
 export function isAnalystDataTask(text, options) {
     const value = String(text || '')
     if (analystPageRequest(value)) return Boolean(options?.hasCursor)
@@ -1448,19 +1454,20 @@ async function routeSteps(context, input, history) {
             routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input, fallback: true }] : [] }
         }
     }
-    // An empty plan (or one naming no roster specialist) is not an answer to route on. The input-driven analyst routes
-    // below still apply (an `Analyst:` SQL request, a data task on an analyst roster, `show more` paging); whatever
-    // is left empty goes to the one default specialist, and a fan-out to the whole roster is never the result.
+    // An empty plan (or one naming no roster specialist) is not an answer to route on. Analyst guesses from data words
+    // (a lone analyst for a data task, the analyst choice call) apply only to a real plan; an empty one goes to the
+    // one default specialist. Only an input that names the analyst itself (`Analyst: ...`, "the analyst database") or
+    // `show more` paging, which names the analyst that owns the cursor, still steers it, and always to one step.
     const emptyPlan = !routed.steps.length
-    let parsedSteps = forceAnalystRoute(input, routed.steps, specialists)
-    const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
+    let parsedSteps = emptyPlan && !explicitAnalystRequest(input) ? [] : forceAnalystRoute(input, routed.steps, specialists)
+    const choices = analystPageRequest(input) || emptyPlan ? [] : analystsToChoose(input, parsedSteps, specialists)
     if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
     const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
     if (pageRoute.reply) return finishUnpaged(context, pageRoute.reply, started)
-    const wholeRoster = emptyPlan && specialists.length > 1 && pageRoute.steps.length >= specialists.length
-    const steps = withFallbackStep(wholeRoster ? [] : pageRoute.steps, specialists, context.roster.chief, input)
+    const widened = emptyPlan && pageRoute.steps.length !== 1
+    const steps = withFallbackStep(widened ? [] : pageRoute.steps, specialists, context.roster.chief, input)
     if (steps.length && (emptyPlan || steps[0].fallback) && !context.routeParse?.fallbackSpecialist) {
-        // Record where a plan with no usable step went: the default specialist, or the analyst an analyst route chose.
+        // Record where a plan with no usable step went: the default specialist, or the analyst that owns a paged cursor.
         context.routeParse = { ...(context.routeParse || {}), fallbackSpecialist: steps.map((step) => step.specialist.name).join(',') }
         console.warn(`[harness] router plan had no usable step; using the fallback route ${routeLogFields(context)}`)
     }
