@@ -3,21 +3,35 @@
 
 /** Made-up `attachment:` links (the model naming a file it cannot link) are removed from the answer text. */
 export function dropAttachmentLinks(text: string): string {
-    return text.replace(/!?\[[^\]\n]*\]\(\s*attachment:[^)\n]*\)/gi, '').replace(/\n{3,}/g, '\n\n')
+    return text.replace(/!?\[[^[\]\n]*\]\(\s*attachment:[^()[\]\n]*\)/gi, '').replace(/\n{3,}/g, '\n\n')
 }
 
-const ATTACHMENT_LINK = /^!?\[[^\]\n]*\]\(\s*attachment:[^)\n]*\)/i
+// Neither the label nor the target may hold a bracket, so every scan stops at the next `[`: filtering is linear in the
+// text even for long runs of unmatched brackets.
+const ATTACHMENT_LINK = /^!?\[[^[\]\n]*\]\(\s*attachment:[^()[\]\n]*\)/i
 const HOLD_LIMIT = 2048
 
-/** Could `rest` (which starts at `[` or `![`) still grow into an `attachment:` link? */
+/** Could `rest` (which starts at `[` or `![`) still grow into an `attachment:` link? Scans up to the next `[` only. */
 function mayBecomeAttachmentLink(rest: string): boolean {
-    if (rest.length > HOLD_LIMIT) return false
-    const m = rest.match(/^!?\[([^\]\n]*)(\](\(\s*([^)\n]*))?)?$/)
-    if (!m) return false
-    if (m[2] === undefined) return true // still in the label
-    if (m[3] === undefined) return m[2] === ']' // label closed, `(` not seen yet
-    const target = (m[4] ?? '').toLowerCase()
-    return 'attachment:'.startsWith(target) || target.startsWith('attachment:')
+    let i = rest.startsWith('!') ? 2 : 1
+    for (; i < rest.length; i++) {
+        const c = rest[i]
+        if (c === ']') break
+        if (c === '[' || c === '\n') return false
+    }
+    if (i >= rest.length) return rest.length <= HOLD_LIMIT // still in the label
+    i++
+    if (i >= rest.length) return true // label closed, `(` not seen yet
+    if (rest[i] !== '(') return false
+    i++
+    while (i < rest.length && (rest[i] === ' ' || rest[i] === '\t')) i++
+    const start = i
+    for (; i < rest.length; i++) {
+        const c = rest[i]
+        if (c === ')' || c === '(' || c === '[' || c === ']' || c === '\n') return false
+    }
+    const target = rest.slice(start, start + 11).toLowerCase()
+    return rest.length <= HOLD_LIMIT && ('attachment:'.startsWith(target) || target === 'attachment:')
 }
 
 /**

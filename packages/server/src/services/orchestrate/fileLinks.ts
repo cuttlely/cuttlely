@@ -18,7 +18,10 @@ export const EXTERNAL_FILE_LINK_TTL_MIN = 60
 export const EXTERNAL_FILE_LINK_TTL_MAX = 24 * 60 * 60
 
 const STORAGE_PREFIX = 'FILE-STORAGE::'
-const SAFE_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/
+// A plain base name: no path separators, no control characters, no `%` (encoded separators), not starting with a dot or
+// a space or `[` (a stored list of names); spaces and non-ASCII letters are fine (the URL encodes them).
+// eslint-disable-next-line no-control-regex
+const SAFE_FILE_NAME = /^[^\s.[/\\%\u0000-\u001f\u007f][^/\\%\u0000-\u001f\u007f]{0,254}$/
 const IMAGE_TYPES = new Set(['png', 'jpeg', 'jpg', 'gif', 'webp'])
 
 /** The link lifetime in seconds: the env value when it is a whole number, clamped to [60, 86400]; else 3600. */
@@ -104,6 +107,8 @@ export function withArtifactLinks(text: string, links: LinkedArtifact[]): string
 export type ArtifactLinker = {
     /** Markdown for artifacts not yet linked (empty string when none). */
     take(artifacts: unknown): string
+    /** Notes files from a streamed artifacts frame; they are linked by the next `take`, `links` or `all`. */
+    collect(artifacts: unknown): void
     links(artifacts: unknown): LinkedArtifact[]
     /** Every file linked so far plus any new ones in `artifacts`, for a body that replaces what was streamed. */
     all(artifacts: unknown): LinkedArtifact[]
@@ -112,9 +117,12 @@ export type ArtifactLinker = {
 export function makeArtifactLinker(ctx: FileLinkContext | undefined): ArtifactLinker {
     const linked = new Set<string>()
     const sent: LinkedArtifact[] = []
+    let pending: unknown[] = []
     const links = (artifacts: unknown): LinkedArtifact[] => {
+        const all = [...pending, ...(Array.isArray(artifacts) ? artifacts : [])]
+        pending = []
         if (!ctx) return []
-        const found = artifactLinks(artifacts, ctx, linked)
+        const found = artifactLinks(all, ctx, linked)
         for (const l of found) {
             linked.add(l.fileName)
             sent.push(l)
@@ -123,6 +131,9 @@ export function makeArtifactLinker(ctx: FileLinkContext | undefined): ArtifactLi
     }
     return {
         links,
+        collect: (artifacts) => {
+            if (Array.isArray(artifacts)) pending.push(...artifacts)
+        },
         all: (artifacts) => {
             links(artifacts)
             return [...sent]

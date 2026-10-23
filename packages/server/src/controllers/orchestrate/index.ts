@@ -79,7 +79,7 @@ const createCompletion = async (req: OrchestrateRequest, res: Response, next: Ne
 
         const sseStreamer = getRunningExpressApp().sseStreamer
         let sentToken = false
-        const inner = makeIbmEncoder(meta, linker.take)
+        const inner = makeIbmEncoder(meta, linker.collect)
         const encoder: SSEEncoder = (frame) => {
             const encoded = inner(frame)
             if (frame.kind === 'event' && frame.payload.event === 'token') sentToken = true
@@ -113,7 +113,7 @@ const createCompletion = async (req: OrchestrateRequest, res: Response, next: Ne
                 const content = withArtifactLinks(answerText(apiResponse), linker.links(resultArtifacts(apiResponse)))
                 writeIfOpen(res, ibmDeltaFrame(meta, content))
             } else {
-                // Held-back token text, then files not already sent with an artifacts frame, as one final delta.
+                // Held-back token text, then the links for every file the run stored, as one final delta.
                 const rest = linker.take(resultArtifacts(apiResponse))
                 const tail = inner.flush() + (rest ? `\n\n${rest}` : '')
                 if (tail) writeIfOpen(res, ibmDeltaFrame(meta, tail))

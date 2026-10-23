@@ -8,19 +8,19 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { Workspace } from '../../database/entities/identity'
 
-const INLINE_IMAGE_TYPES: Record<string, string> = {
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    webp: 'image/webp'
-}
+const INLINE_IMAGE_TYPES = new Map<string, string>([
+    ['png', 'image/png'],
+    ['jpg', 'image/jpeg'],
+    ['jpeg', 'image/jpeg'],
+    ['gif', 'image/gif'],
+    ['webp', 'image/webp']
+])
 
 /** The image type a file name is served inline as, or undefined for anything that is not a raster image. */
 export function inlineImageType(fileName: string): string | undefined {
     const dot = fileName.lastIndexOf('.')
     if (dot < 0) return undefined
-    return INLINE_IMAGE_TYPES[fileName.slice(dot + 1).toLowerCase()]
+    return INLINE_IMAGE_TYPES.get(fileName.slice(dot + 1).toLowerCase())
 }
 
 const streamUploadedFile = async (req: Request, res: Response, next: NextFunction) => {

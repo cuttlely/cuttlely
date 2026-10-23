@@ -36,7 +36,8 @@ describe('get-upload-file disposition', () => {
         expect(inlineImageType('a.JPG')).toBe('image/jpeg')
         expect(inlineImageType('a.webp')).toBe('image/webp')
         expect(inlineImageType('a.gif')).toBe('image/gif')
-        for (const name of ['a.svg', 'a.html', 'a.pdf', 'png', 'a.png.html', 'noext']) expect(inlineImageType(name)).toBeUndefined()
+        for (const name of ['a.svg', 'a.html', 'a.pdf', 'png', 'a.png.html', 'noext', 'a.constructor', 'a.__proto__', 'a.toString'])
+            expect(inlineImageType(name)).toBeUndefined()
     })
 
     it('shows an image in place without download=true, and keeps everything else an attachment', async () => {

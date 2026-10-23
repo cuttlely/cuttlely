@@ -25,12 +25,13 @@ describe('makeA2aEncoder artifacts', () => {
     const token = { kind: 'event' as const, payload: { event: 'token', data: 'Hi' } }
     const parse = (s: string | null) => JSON.parse(String(s).slice(6)).result
 
-    it('sends links as an answer chunk and keeps append order with tokens', () => {
-        const encoder = makeA2aEncoder(meta, () => '[Download r.pdf](https://x.example/r)')
+    it('notes artifacts without sending a chunk, between tokens too', () => {
+        const seen: unknown[] = []
+        const encoder = makeA2aEncoder(meta, (a) => seen.push(a))
         expect(parse(encoder(token as any)).append).toBe(false)
-        const chunk = parse(encoder(artifacts as any))
-        expect(chunk.append).toBe(true)
-        expect(chunk.artifact.parts[0].text).toBe('\n\n[Download r.pdf](https://x.example/r)')
+        expect(encoder(artifacts as any)).toBeNull()
+        expect(seen).toEqual([[]])
+        expect(parse(encoder(token as any)).append).toBe(true)
         expect(makeA2aEncoder(meta)(artifacts as any)).toBeNull()
     })
 })

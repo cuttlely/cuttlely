@@ -26,11 +26,10 @@ export type IbmEncoder = SSEEncoder & {
 }
 
 /**
- * Token frames become deltas, with made-up `attachment:` links removed. With `artifactMarkdown`, an artifacts frame
- * (files the run stored) becomes one delta with their signed links; without it, or when nothing is linkable, the
- * frame is dropped as before.
+ * Token frames become deltas, with made-up `attachment:` links removed. An artifacts frame (files the run stored) is
+ * passed to `onArtifacts` and sends nothing; the caller links those files in the final delta.
  */
-export function makeIbmEncoder(meta: IbmEncoderMeta, artifactMarkdown?: (artifacts: unknown) => string): IbmEncoder {
+export function makeIbmEncoder(meta: IbmEncoderMeta, onArtifacts?: (artifacts: unknown) => void): IbmEncoder {
     const filter = makeAttachmentLinkFilter()
     const encoder = (frame: SSEFrame) => {
         if (frame.kind === 'comment') return `:${frame.text}\n\n`
@@ -38,11 +37,9 @@ export function makeIbmEncoder(meta: IbmEncoderMeta, artifactMarkdown?: (artifac
             const text = filter.push(String(frame.payload.data ?? ''))
             return text ? ibmDeltaFrame(meta, text) : null
         }
-        if (artifactMarkdown && frame.kind === 'event' && frame.payload.event === 'artifacts') {
-            const markdown = artifactMarkdown(frame.payload.data)
-            if (!markdown) return null
-            return ibmDeltaFrame(meta, `${filter.flush()}\n\n${markdown}`)
-        }
+        // Files are only noted here: their links go after the whole answer, in the final delta, so they never land
+        // inside a sentence or a half-streamed link.
+        if (onArtifacts && frame.kind === 'event' && frame.payload.event === 'artifacts') onArtifacts(frame.payload.data)
         return null
     }
     return Object.assign(encoder, { flush: () => filter.flush() })

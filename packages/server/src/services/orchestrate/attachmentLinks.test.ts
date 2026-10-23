@@ -27,4 +27,13 @@ describe('makeAttachmentLinkFilter', () => {
         const out = filter.push('[' + 'a'.repeat(5000))
         expect(out.length).toBeGreaterThan(2000)
     })
+
+    it('stays linear on long runs of unmatched brackets', () => {
+        for (const text of ['['.repeat(40000), '![a](b'.repeat(8000), '[a](attachment:'.repeat(3000)]) {
+            const started = Date.now()
+            expect(run([text])).toBe(dropAttachmentLinks(text))
+            expect(run(text.match(/[\s\S]{1,500}/g) as string[])).toBe(dropAttachmentLinks(text))
+            expect(Date.now() - started).toBeLessThan(500)
+        }
+    })
 })

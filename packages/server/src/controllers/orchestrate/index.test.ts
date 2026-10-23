@@ -727,7 +727,7 @@ describe('Orchestrate file links', () => {
         }
     })
 
-    it('streams an artifacts frame as one delta and sends the remaining files as one final delta', async () => {
+    it('streams the answer, then every file link (artifacts frame and result) in one final delta', async () => {
         mockBuildChatflow.mockImplementation(async (req: any) => {
             const chatId = req.body.chatId
             mockState.streamer.streamTokenEvent(chatId, 'Done.')
@@ -739,10 +739,20 @@ describe('Orchestrate file links', () => {
         const frames = parseIbmFrames(String(streamed.body))
         const contents = frames.map((f: any) => f.choices[0].delta.content as string)
         expect(contents[0]).toBe('Done.')
-        expect(contents[1]).toMatch(/^\n\n!\[harness_python_1_0_chart\.png\]\(http/)
-        expect(contents[2]).toMatch(/^\n\n\[Download deck\.pdf\]\(http/)
-        expect(contents).toHaveLength(3)
+        expect(contents[1]).toMatch(/^\n\n!\[harness_python_1_0_chart\.png\]\(http[^)]+\)\n\n\[Download deck\.pdf\]\(http/)
+        expect(contents).toHaveLength(2)
         expect(contents.join('')).not.toContain('secret.png')
+    })
+
+    it('puts the answer before the links when a run streams artifacts but no tokens', async () => {
+        mockBuildChatflow.mockImplementation(async (req: any) => {
+            mockState.streamer.streamArtifactsEvent(req.body.chatId, [ARTIFACTS[0]])
+            return { text: 'Answer', chatId: req.body.chatId, artifacts: [ARTIFACTS[0]] }
+        })
+        const streamed = await streamRequest(K, streamBody(), withKey())
+        const contents = parseIbmFrames(String(streamed.body)).map((f: any) => f.choices[0].delta.content as string)
+        expect(contents).toHaveLength(1)
+        expect(contents[0]).toMatch(/^Answer\n\n!\[harness_python_1_0_chart\.png\]\(http/)
     })
 
     it('removes attachment: links from streamed tokens and sends the image link without download', async () => {

@@ -239,7 +239,7 @@ export async function executeMessage(opts: {
     // Signed links for the files this run stores, scoped to this flow and this context's chat.
     const linker = makeArtifactLinker(await fileLinkContext(opts.req, opts.chatflow, boundIds.chatId))
     const streamEncoder = opts.stream
-        ? makeA2aEncoder({ rpcId: opts.rpcId, taskId: row.task.id, contextId, artifactId: row.artifactId }, linker.take)
+        ? makeA2aEncoder({ rpcId: opts.rpcId, taskId: row.task.id, contextId, artifactId: row.artifactId }, linker.collect)
         : undefined
     const inner: SSEEncoder = streamEncoder ?? silentA2aEncoder
     const encoder: SSEEncoder = (frame) => {
@@ -356,16 +356,19 @@ export function completedWithLinks(
 ): Completed {
     const rest = sentToken ? linker.take(resultArtifacts(result)) : ''
     const tail = heldText + (rest ? `\n\n${rest}` : '')
+    const clean = dropAttachmentLinks(text).trimEnd()
+    // Links use the room the answer leaves, and at least half the limit when the answer is long (the answer is then cut
+    // to make room). A link that does not fit is left out whole; the others still go in.
+    const linkBudget = Math.max(limit - utf8Bytes(clean), Math.floor(limit / 2))
     const links: LinkedArtifact[] = []
     let linkBytes = 0
-    // Links get at most half the limit, so the answer always keeps room; a link that does not fit is left out whole.
     for (const link of linker.all(resultArtifacts(result))) {
         const size = utf8Bytes(link.markdown) + 2
-        if (linkBytes + size > Math.floor(limit / 2)) break
+        if (linkBytes + size > linkBudget) continue
         links.push(link)
         linkBytes += size
     }
-    const body = truncateA2aStoredAnswer(dropAttachmentLinks(text).trimEnd(), Math.max(0, limit - linkBytes))
+    const body = truncateA2aStoredAnswer(clean, Math.max(0, limit - linkBytes))
     const full = withArtifactLinks(body, links)
     return { kind: 'completed', text: full, ...(tail ? { tail } : {}) }
 }

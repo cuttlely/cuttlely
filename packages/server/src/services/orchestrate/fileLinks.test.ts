@@ -40,6 +40,8 @@ describe('externalFileLinkTtlSeconds', () => {
 describe('storedFileName', () => {
     it('accepts only plain FILE-STORAGE names', () => {
         expect(storedFileName({ data: 'FILE-STORAGE::chart_1.png' })).toBe('chart_1.png')
+        expect(storedFileName({ data: 'FILE-STORAGE::quarterly report.pdf' })).toBe('quarterly report.pdf')
+        expect(storedFileName({ data: 'FILE-STORAGE::résumé 2026.docx' })).toBe('résumé 2026.docx')
         for (const data of [
             'FILE-STORAGE::../x.png',
             'FILE-STORAGE::a/b.png',
@@ -49,6 +51,10 @@ describe('storedFileName', () => {
             'FILE-STORAGE::["a.png"]',
             'FILE-STORAGE::a%2f..png',
             'FILE-STORAGE::',
+            'FILE-STORAGE:: lead.png',
+            'FILE-STORAGE::a\u0000.png',
+            'FILE-STORAGE::a\nb.png',
+            'FILE-STORAGE::' + 'a'.repeat(256),
             '/var/data/a.png',
             'data:image/png;base64,AAAA'
         ]) {
@@ -142,5 +148,16 @@ describe('answer text', () => {
         expect(linker.links([a, b]).map((l) => l.fileName)).toEqual(['b.pdf'])
         expect(linker.all([a, b]).map((l) => l.fileName)).toEqual(['a.png', 'b.pdf'])
         expect(makeArtifactLinker(undefined).take([a])).toBe('')
+    })
+
+    it('links collected stream artifacts with the final ones, once each', () => {
+        const linker = makeArtifactLinker(ctx)
+        const a = { type: 'png', data: 'FILE-STORAGE::a.png' }
+        const b = { type: 'pdf', data: 'FILE-STORAGE::b.pdf' }
+        linker.collect([a])
+        linker.collect('not a list')
+        expect(linker.links([a, b]).map((l) => l.fileName)).toEqual(['a.png', 'b.pdf'])
+        linker.collect([a])
+        expect(linker.take([])).toBe('')
     })
 })

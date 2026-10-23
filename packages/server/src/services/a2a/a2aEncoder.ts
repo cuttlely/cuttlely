@@ -19,10 +19,10 @@ export type A2aEncoder = SSEEncoder & {
 }
 
 /**
- * Token frames become answer chunks, with made-up `attachment:` links removed; with `artifactMarkdown`, an artifacts
- * frame becomes one chunk of signed links.
+ * Token frames become answer chunks, with made-up `attachment:` links removed; an artifacts frame is passed to
+ * `onArtifacts` and sends nothing (the links go in the last chunk).
  */
-export function makeA2aEncoder(meta: A2aEncoderMeta, artifactMarkdown?: (artifacts: unknown) => string): A2aEncoder {
+export function makeA2aEncoder(meta: A2aEncoderMeta, onArtifacts?: (artifacts: unknown) => void): A2aEncoder {
     let firstToken = true
     const filter = makeAttachmentLinkFilter()
     const chunk = (text: string): string => {
@@ -41,9 +41,10 @@ export function makeA2aEncoder(meta: A2aEncoderMeta, artifactMarkdown?: (artifac
     }
     const encoder = (frame: SSEFrame) => {
         if (frame.kind === 'comment') return `:${frame.text}\n\n`
-        if (artifactMarkdown && frame.kind === 'event' && frame.payload.event === 'artifacts') {
-            const markdown = artifactMarkdown(frame.payload.data)
-            return markdown ? chunk(`${filter.flush()}\n\n${markdown}`) : null
+        // Files are only noted here; their links go after the whole answer, in the last chunk.
+        if (onArtifacts && frame.kind === 'event' && frame.payload.event === 'artifacts') {
+            onArtifacts(frame.payload.data)
+            return null
         }
         if (frame.kind === 'event' && frame.payload.event === 'token') {
             const text = filter.push(String(frame.payload.data ?? ''))
