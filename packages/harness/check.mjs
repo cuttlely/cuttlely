@@ -3345,16 +3345,16 @@ check('the chief is told which specialist failed', partialHandoff.includes('### 
         failedAgent?.status === 'failed' &&
             String(failedAgent.error).includes('deck.pptx') &&
             events.some((event) => JSON.stringify(event).includes('deck.pptx')) &&
-            events.some((event) => JSON.stringify(event).includes('cat: deck.pptx: No such file')) &&
+            events.some((event) => JSON.stringify(event).includes('cat: the workspace file deck.pptx: No such file')) &&
             events
                 .filter((event) => event.type === 'partial' && event.specialist === 'browser')
                 .map((event) => event.text)
-                .join('') === 'Opening deck.pptx now ' &&
+                .join('') === 'Opening the workspace file deck.pptx now ' &&
             leakHandoff.includes('### browser (failed)') &&
-            channels.events.includes('order 7.pdf') &&
-            channels.sources.includes('order 7.pdf') &&
-            channels.answer.includes('see order 7.pdf') &&
-            channels.turn.includes('see order 7.pdf') &&
+            !channels.events.includes('labels/') &&
+            !channels.sources.includes('labels/') &&
+            channels.answer.includes('see the workspace') &&
+            channels.turn.includes('see the workspace') &&
             Boolean(recorded) &&
             showing.length === 0,
         JSON.stringify({ showing, error: failedAgent?.error })
@@ -6680,7 +6680,14 @@ const sseRun = await runHarness({
     input: 'Do everything',
     baseUrl: contract.url,
     modelBaseUrl,
-    loadNode: async (nodeName) => (nodeName === 'scriptedChat' ? chunkedChat(sseCalls, scriptedReply) : teamNodes(nodeName)),
+    loadNode: async (nodeName) =>
+        nodeName === 'scriptedChat'
+            ? chunkedChat(sseCalls, (messages, tools) => {
+                  const reply = scriptedReply(messages, tools)
+                  if (reply.content?.startsWith('answer:')) reply.content += ' streamed answer'
+                  return reply
+              })
+            : teamNodes(nodeName),
     onEvent(event) {
         if (
             event.type === 'partial' &&
@@ -7910,552 +7917,373 @@ check(
             turnImageDirFor(writer) === '' &&
             turnImageNote(coderDir).includes(coderDir) &&
             hideTurnImageDir(`Saved as ${path.join(coderDir, 'chart.png')} in ${coderDir}.`, coderDir) ===
-                'Saved as chart.png in the chat.' &&
+                'Saved as the workspace file chart.png in the workspace.' &&
             hideTurnImageDir(
                 `Saved ${path.join(specialistWorkspace(coder.profileName), 'exports', 'q3', 'deck.pptx')} and ${path.join(
                     specialistWorkspace(writer.profileName),
                     'notes.md'
                 )}. Folder: ${specialistWorkspace(coder.profileName)}.`,
                 coderDir
-            ) === 'Saved deck.pptx and notes.md. Folder: the workspace.' &&
+            ) === 'Saved the workspace file deck.pptx and the workspace. Folder: the workspace.' &&
             hideTurnImageDir(
                 `See ${path.join(specialistWorkspace(writer.profileName), 'out', 'a.csv')}`,
                 '',
                 path.dirname(specialistWorkspace('x'))
-            ) === 'See a.csv' &&
-            hideTurnImageDir(`${path.dirname(specialistWorkspace('x'))}-other/a.csv`, coderDir) ===
-                `${path.dirname(specialistWorkspace('x'))}-other/a.csv`,
+            ) === 'See the workspace file a.csv' &&
+            hideTurnImageDir(`${path.dirname(specialistWorkspace('x'))}-other/a.csv`, coderDir) === 'a server path',
         JSON.stringify(imageContext.turnImages?.map((list) => list.map((image) => image.name)))
     )
     {
-        // Paths anywhere in a specialist workspace show as file names, including nested chat-folder paths, quoted
-        // paths with spaces and file:// links. A path that only contains the workspaces folder is left as it is.
-        const root = path.dirname(specialistWorkspace('x'))
-        const assets = specialistWorkspace(coder.profileName)
+        const { hideWorkspacePaths, workspaceMaskState, scanWorkspaceText } = await import('./images.mjs')
+        const { maskWorkspacePaths, maskError, bufferStream } = await import('./run.mjs')
+        const root = '/var/cuttlely/workspaces'
+        const deck = root + '/a/private/deck.pptx'
+        const file = 'the workspace file deck.pptx'
         const cases = [
-            [`Wrote ${path.join(coderDir, 'exports', 'deck.pptx')}.`, 'Wrote deck.pptx.'],
-            [`Open \`${path.join(assets, 'exports', 'Q3 Reports', 'deck (v2), final.pptx')}\` now`, 'Open `deck (v2), final.pptx` now'],
-            [`"${path.join(assets, 'out', 'a b.csv')}"`, '"a b.csv"'],
-            // A sibling folder whose name starts with the root's name is not the root.
-            [`"${root} backup/team/report.pdf"`, `"${root} backup/team/report.pdf"`],
-            [`${root} backup/team/report.pdf`, `${root} backup/team/report.pdf`],
-            [`in ${root} and more`, 'in the workspace and more'],
-            // Quoted text with two paths keeps its words, and each path shows as its name.
-            [`"${path.join(assets, 'a.pdf')} and ${path.join(assets, 'b.pdf')}"`, '"a.pdf and b.pdf"'],
-            [`mv '${path.join(assets, 'a.pdf')}' '${path.join(assets, 'b.pdf')}'`, "mv 'a.pdf' 'b.pdf'"],
-            [`"${path.join(assets, 'a.pdf')} failed; see https://example.org/help"`, '"a.pdf failed; see https://example.org/help"'],
-            [`"${path.join(assets, 'Q3 Reports', 'a.pdf')} and ${path.join(assets, 'b.pdf')}"`, '"a.pdf and b.pdf"'],
-            [`file://${path.join(assets, 'out', 'r.pdf')}`, 'r.pdf'],
-            [`(${assets})`, '(the workspace)'],
-            [`${coderDir}${path.sep}`, 'the chat'],
-            [`/backup${path.join(assets, 'exports', 'deck.pptx')}`, `/backup${path.join(assets, 'exports', 'deck.pptx')}`],
-            [`${root}-other${path.sep}a.csv`, `${root}-other${path.sep}a.csv`],
-            [`${root}.${path.sep}exports${path.sep}deck.pptx`, `${root}.${path.sep}exports${path.sep}deck.pptx`],
-            [`${root}..${path.sep}deck.pptx`, `${root}..${path.sep}deck.pptx`],
-            [`Saved in ${assets}.`, 'Saved in the workspace.'],
-            [`\`${path.join(assets, 'exports', "Bob's Reports", 'deck.pptx')}\``, '`deck.pptx`'],
-            [`"${path.join(assets, "Bob's", 'a.csv')}" and '${path.join(assets, 'X Y', 'b.csv')}'`, `"a.csv" and 'b.csv'`],
-            [`/backup${path.join(coderDir, 'exports', 'deck.pptx')}`, `/backup${path.join(coderDir, 'exports', 'deck.pptx')}`],
-            // A quoted path ends at its file name; the prose and any outside path after it keep their words.
-            [
-                `"${path.join(assets, 'report.pdf')} could not be copied over /tmp/output.pdf"`,
-                '"report.pdf could not be copied over /tmp/output.pdf"'
-            ],
-            [`"${path.join(assets, 'Q3 and Q4', 'deck.pptx')}"`, '"deck.pptx"'],
-            [`"${path.join(assets, 'Q3; old', 'a.pdf')} moved"`, '"a.pdf moved"'],
-            [`"${path.join(assets, 'report.pdf')} failed during read/write"`, '"report.pdf failed during read/write"'],
-            [`"${path.join(assets, 'report.pdf')} and/or deck.pptx"`, '"report.pdf and/or deck.pptx"'],
-            [`"${path.join(assets, 'README')} failed during read/write"`, '"README failed during read/write"'],
-            [`"${path.join(assets, 'out')} is not a folder/file"`, '"out is not a folder/file"'],
-            [`"${path.join(assets, 'README')} failed reading docs/help.md"`, '"README failed reading docs/help.md"'],
-            [
-                `"${path.join(assets, 'README')} permission denied opening docs/report.md"`,
-                '"README permission denied opening docs/report.md"'
-            ],
-            [
-                `"${path.join(assets, 'README')} failed reading docs/help.md and ${path.join(assets, 'a.pdf')}"`,
-                '"README failed reading docs/help.md and a.pdf"'
-            ]
+            [1, `"${root}/a/Q3 Reports/deck.pptx"`, `"${file}"`],
+            [1, `'${deck}'`, `'${file}'`],
+            [1, `\`${deck}\``, `\`${file}\``],
+            [2, `${deck}]),;:!?`, `${file}]),;:!?`],
+            [2, `${deck}.`, `${file}.`],
+            [2, `${root}/a/folder]inside/deck.pptx`, file],
+            [3, root, 'the workspace'],
+            [3, '/tmp/private.txt', 'a server path'],
+            [3, '~/private.txt', 'a server path'],
+            [3, 'C:\\private\\deck.pptx', 'a server path'],
+            [3, 'docs/../../report.md', 'a server path'],
+            [3, `${root}/a/../../../../etc/passwd`, 'a server path'],
+            [4, `/tmp/input and ${deck}`, `a server path and ${file}`],
+            [4, `${deck} and /tmp/input`, `${file} and a server path`],
+            [5, `${root}/a/My Reports/deck.pptx done`, 'the workspace a server path done'],
+            [5, '/tmp/My Docs report.pdf', 'a server path Docs report.pdf'],
+            [5, '"/tmp/My Docs" docs/report.md', '"a server path" docs/report.md'],
+            [5, '/tmp/My "docs/report.md"', 'a server path "docs/report.md"'],
+            [6, 'README requires checking docs/report.md', 'README requires checking docs/report.md'],
+            [6, 'README requires checking docs/../../report.md', 'README requires checking a server path'],
+            [7, '/' + 'x'.repeat(1024), 'a server path'],
+            [7, '"/' + 'x '.repeat(600) + '" done', 'a server path done'],
+            [8, `${root}/a/private/deck.pptx\tfinished\n`, `${file}\tfinished\n`],
+            [9, 'out/deck.pptx docs/report.md', 'out/deck.pptx docs/report.md']
         ]
-        // A chat folder outside the root (another root passed in) is still masked, with the same start boundary.
-        const elsewhere = path.join(os.tmpdir(), 'cuttlely-chat', 'run1')
-        const outside = [
-            [`${path.join(elsewhere, 'exports', 'deck.pptx')} in ${elsewhere}.`, 'deck.pptx in the chat.'],
-            [`/backup${path.join(elsewhere, 'deck.pptx')}`, `/backup${path.join(elsewhere, 'deck.pptx')}`]
-        ].filter(([input, expected]) => hideTurnImageDir(input, elsewhere, root) !== expected)
-        const wrong = [...outside, ...cases.filter(([input, expected]) => hideTurnImageDir(input, coderDir) !== expected)]
-        // Quoted text is read in one pass: a long quote of spaces or folders after the root stays fast.
-        const slowStarted = Date.now()
-        hideTurnImageDir(`"${assets}${path.sep}a${' '.repeat(32000)}b"`, coderDir)
-        hideTurnImageDir(`"${assets}${path.sep}${'a b/'.repeat(16000)}"`, coderDir)
-        hideTurnImageDir(`'${`${assets}${path.sep}x `.repeat(4000)}'`, coderDir)
-        hideTurnImageDir(`"failed opening ${`${assets}/./private/deck.pptx `.repeat(4000)}"`, coderDir)
-        const slowTook = Date.now() - slowStarted
-        const { maskWorkspacePaths, bufferStream, rootPrefixAt } = await import('./run.mjs')
-        // A stream split anywhere, even inside the workspaces folder's name, never sends the raw path.
-        const streamed = `See ${path.join(assets, 'out', 'report.pdf')} now. `
-        const splitLeaks = []
-        for (let at = 1; at < streamed.length; at += 1) {
-            const sent = []
-            const streamContext = {}
-            for (const piece of [streamed.slice(0, at), streamed.slice(at)]) {
-                bufferStream(streamContext, 'answer', piece, false, (text) => sent.push(text))
-            }
-            bufferStream(streamContext, 'answer', '', true, (text) => sent.push(text))
-            if (sent.join('') !== 'See report.pdf now. ' || sent.some((text) => text.includes(root))) splitLeaks.push(at)
-        }
-        check('a streamed path split at any point is masked whole', splitLeaks.length === 0, JSON.stringify(splitLeaks))
-        // A workspaces folder with spaces, and a quoted folder with spaces, split at every point.
-        const spaced = '/var/cuttlely data/workspaces'
-        const spacedLeaks = []
-        for (const said of [`See ${spaced}/agent/report.pdf now. `, `Open "${spaced}/agent/My Reports/report.pdf" now. `]) {
-            for (let at = 1; at < said.length; at += 1) {
-                const sent = []
-                const streamContext = {}
-                for (const piece of [said.slice(0, at), said.slice(at)]) {
-                    bufferStream(streamContext, 'answer', piece, false, (text) => sent.push(text), spaced)
-                }
-                bufferStream(streamContext, 'answer', '', true, (text) => sent.push(text), spaced)
-                const joined = sent.join('')
-                if (sent.some((text) => /cuttlely|workspaces|Reports/.test(text)) || !joined.includes('report.pdf')) {
-                    spacedLeaks.push([at, joined])
-                }
-            }
-        }
-        {
-            // A long stream past the hold size still keeps an unfinished workspaces folder name back.
-            const sent = []
-            const streamContext = {}
-            const pieces = [`${spaced}/agent/a.pdf ${'word '.repeat(3400)}See /var/cuttlely `, 'data/workspaces/agent/b.pdf', ' done ']
-            for (const piece of pieces) bufferStream(streamContext, 'answer', piece, false, (text) => sent.push(text), spaced)
-            bufferStream(streamContext, 'answer', '', true, (text) => sent.push(text), spaced)
-            if (sent.some((text) => /cuttlely|workspaces/.test(text)) || !sent.join('').includes('See b.pdf done')) {
-                spacedLeaks.push(['long', sent.map((text) => text.slice(-80))])
-            }
-        }
-        check('a stream with spaces in the workspace path is masked at every split', spacedLeaks.length === 0, JSON.stringify(spacedLeaks))
-        let deep = { note: path.join(assets, 'deep.pdf') }
-        for (let level = 0; level < 100; level += 1) deep = { deep }
-        const looped = { note: path.join(assets, 'loop.pdf') }
-        looped.self = looped
-        const deepText = JSON.stringify(maskWorkspacePaths({ deep, keyed: { [path.join(assets, 'k.pdf')]: 'failed' } }))
-        const loopText = JSON.stringify(maskWorkspacePaths(looped))
-        class Meta {
-            constructor(where) {
-                this.where = where
-            }
-        }
-        const typed = JSON.stringify(
-            maskWorkspacePaths({
-                link: new URL(`file://${path.join(assets, 'private.pdf')}`),
-                meta: new Meta(path.join(assets, 'meta.pdf')),
-                pair: { [path.join(assets, 'r.pdf')]: 1, 'r.pdf': 2 },
-                proto: JSON.parse('{"__proto__": "kept"}')
-            })
-        )
-        const { maskError } = await import('./run.mjs')
-        const frozen = Object.freeze(Object.assign(new Error(`Cannot read ${path.join(assets, 'private.pdf')}`), { code: 'tool_failed' }))
-        const freed = maskError(frozen)
-        const bytesKept = maskWorkspacePaths({ base64: { error: path.join(assets, 'private.pdf') }, data: `data:text/plain,${assets}/x` })
-        const { hideWorkspacePaths, encodeFilePath, namesRoot, rootStarts } = await import('./images.mjs')
-        const spacedRoot = '/var/cuttlely data/workspaces'
-        const encodedLink = hideWorkspacePaths(`see ${new URL(`file://${spacedRoot}/agent/private.pdf`).href} now`, spacedRoot)
-        const fielded = maskError(Object.assign(new Error('tool failed'), { code: path.join(assets, 'private.pdf') }))
-        const frozenFielded = maskError(Object.freeze(Object.assign(new Error('tool failed'), { detail: path.join(assets, 'p.pdf') })))
-        const thrownText = maskError(`open ${path.join(assets, 'private.pdf')}`)
-        const caused = maskError(new Error('failed', { cause: new Error(`open ${path.join(assets, 'private.pdf')}`) }))
-        const hidden = new Error('failed')
-        Object.defineProperty(hidden, 'code', { value: path.join(assets, 'code.pdf'), enumerable: false })
-        hidden.detail = 1n
-        const looping = { note: path.join(assets, 'loop.pdf') }
-        looping.self = looping
-        hidden.loop = looping
-        const hiddenMasked = maskError(hidden)
-        const plainError = new Error('no path here')
-        const getterError = new Error('failed')
-        Object.defineProperty(getterError, 'code', { get: () => path.join(assets, 'getter.pdf') })
-        const serialError = Object.assign(new Error('failed'), { toJSON: () => path.join(assets, 'json.pdf') })
-        let nested = { note: path.join(assets, 'nested.pdf') }
-        for (let level = 0; level < 70; level += 1) nested = { nested }
-        const deepError = Object.assign(new Error('failed'), { nested })
-        const lowerDir = path.join(assets, 'quarterly reports')
-        fs.mkdirSync(lowerDir, { recursive: true })
-        fs.writeFileSync(path.join(lowerDir, 'deck.pptx'), 'x')
-        check(
-            'getters, serializers, deep fields, upper-case file links and on-disk lower-case folders are masked',
-            maskError(getterError).code === 'getter.pdf' &&
-                maskError(serialError) !== serialError &&
-                (() => {
-                    class ToolError extends Error {
-                        get message() {
-                            return `Cannot open ${assets}/inherited.pdf`
-                        }
-                    }
-                    const nested = Object.assign(new Error(`open ${assets}/n.pdf`), {
-                        meta: Object.defineProperty({}, 'detail', {
-                            enumerable: true,
-                            get: () => {
-                                throw new Error(`${assets}/deep.pdf`)
-                            }
-                        })
-                    })
-                    try {
-                        const inherited = maskError(new ToolError())
-                        const masked = maskError(nested)
-                        return !inherited.message.includes(assets) && masked.meta.detail === '[data]'
-                    } catch {
-                        return false
-                    }
-                })() &&
-                !JSON.stringify(maskError(serialError)).includes(assets) &&
-                !JSON.stringify(
-                    maskError(Object.assign(new Error(`open ${assets}/a.pdf`), { toJSON: () => ({ message: `${assets}/b.pdf` }) }))
-                ).includes(assets) &&
-                (() => {
-                    const trap = new Error('failed')
-                    Object.defineProperty(trap, 'toJSON', {
-                        get: () => {
-                            throw new Error(`${assets}/trap.pdf`)
-                        }
-                    })
-                    try {
-                        return maskError(trap) !== trap && maskWorkspacePaths({ trap }).trap === '[data]'
-                    } catch {
-                        return false
-                    }
-                })() &&
-                !JSON.stringify(maskError(deepError)).includes(root) &&
-                hideWorkspacePaths(`FILE://${path.join(assets, 'a.pdf')} and file://LOCALHOST${path.join(assets, 'b.pdf')}`, root) ===
-                    'a.pdf and b.pdf' &&
-                hideWorkspacePaths(`"${path.join(lowerDir, 'deck.pptx')}"`, root) === '"deck.pptx"' &&
-                hideWorkspacePaths(`"${path.join(assets, 'README')} permission denied opening docs/report.md"`, root) ===
-                    '"README permission denied opening docs/report.md"',
-            JSON.stringify(maskError(getterError).code)
-        )
-        fs.rmSync(lowerDir, { recursive: true, force: true })
-        check(
-            'error causes, hidden fields, BigInt and cyclic fields are masked without throwing',
-            caused.cause.message === 'open private.pdf' &&
-                hiddenMasked.code === 'code.pdf' &&
-                hiddenMasked.detail === 1n &&
-                hiddenMasked.loop.note === 'loop.pdf' &&
-                hiddenMasked instanceof Error &&
-                maskError(plainError) === plainError,
-            JSON.stringify({ cause: caused.cause?.message, code: hiddenMasked.code })
-        )
-        const oddRoot = '/var/cuttlely #1?/workspaces'
-        const otherLinks = [
-            hideWorkspacePaths(`see file://localhost${path.join(assets, 'private.pdf')} now`, root),
-            hideWorkspacePaths(`see file://${encodeFilePath(oddRoot)}/agent/odd.pdf now`, oddRoot)
-        ]
-        check(
-            'thrown strings, error fields and local or odd file links are masked',
-            fielded.code === 'private.pdf' &&
-                frozenFielded.detail === 'p.pdf' &&
-                frozenFielded.message === 'tool failed' &&
-                thrownText === 'open private.pdf' &&
-                otherLinks[0] === 'see private.pdf now' &&
-                otherLinks[1] === 'see odd.pdf now',
-            JSON.stringify({ code: fielded.code, detail: frozenFielded.detail, thrownText, otherLinks })
-        )
-        check(
-            'frozen errors, non-byte base64 values and encoded file links are masked',
-            freed.message === 'Cannot read private.pdf' &&
-                freed.code === 'tool_failed' &&
-                !String(freed.stack).includes(root) &&
-                !JSON.stringify(bytesKept).includes(root) &&
-                encodedLink === 'see private.pdf now',
-            JSON.stringify({ message: freed.message, bytesKept, encodedLink })
-        )
-        check(
-            'URLs, class instances, colliding keys and a __proto__ key are masked and kept',
-            !typed.includes(root) &&
-                typed.includes('private.pdf') &&
-                typed.includes('meta.pdf') &&
-                typed.includes('"r.pdf":1') &&
-                typed.includes('"r.pdf (2)":2') &&
-                typed.includes('"__proto__":"kept"'),
-            typed
-        )
-        check(
-            'deep values, cycles and object keys are masked too',
-            !deepText.includes(root) && deepText.includes('"k.pdf":"failed"') && !loopText.includes(root) && loopText.includes('loop.pdf'),
-            deepText.slice(-300) + loopText
-        )
-        check(
-            'a stream ending partway into a workspaces folder with spaces waits for the rest',
-            rootPrefixAt('See /var/cuttlely ', '/var/cuttlely data/workspaces') === 4 &&
-                rootPrefixAt('See file:///var/cu', '/var/cuttlely data/workspaces') === 4 &&
-                rootPrefixAt('See you ', '/var/cuttlely data/workspaces') === 8
-        )
-        const hostedText = `Open file://127.0.0.1${path.join(assets, 'a.pdf')} or FILE://[::1]${path.join(assets, 'b.pdf')} now.`
-        const hostedSplits = []
-        for (let at = 0; at <= hostedText.length; at += 1) {
-            const sent = []
-            const hostedContext = {}
-            for (const piece of [hostedText.slice(0, at), hostedText.slice(at)])
-                bufferStream(hostedContext, 'answer', piece, false, (text) => sent.push(text), root)
-            bufferStream(hostedContext, 'answer', '', true, (text) => sent.push(text), root)
-            hostedSplits.push(sent.join(''))
-        }
-        check(
-            'file links that name a host (127.0.0.1, [::1]) are masked in text and in a stream split anywhere',
-            hideWorkspacePaths(hostedText, root) === 'Open a.pdf or b.pdf now.' &&
-                hostedSplits.every((text) => text === 'Open a.pdf or b.pdf now.'),
-            JSON.stringify(hostedSplits.find((text) => text !== 'Open a.pdf or b.pdf now.'))
-        )
-        const aliasRoot = '/var/cuttlely/workspaces'
         const aliases = [
-            '//var/cuttlely/workspaces/agent/deck.pptx',
-            '/var/cuttlely/./workspaces/agent/deck.pptx',
-            '/var/x/../cuttlely/workspaces/agent/deck.pptx',
-            '//var//x/../cuttlely/./workspaces/agent/deck.pptx',
-            '/var/cuttlely/workspaces/agent/out/../deck.pptx',
-            'file:///var/x/../cuttlely/./workspaces/agent/deck.pptx',
-            'file:///var/cuttlely/%2e/workspaces/agent/deck.pptx',
-            ...['cuttlely_server', 'server!name', 'server$name', 'sérver', '[::1]'].map(
-                (host) => `file://${host}/var/cuttlely/workspaces/agent/deck.pptx`
-            ),
-            '/var//cuttlely/workspaces/agent/deck.pptx',
-            'file:///var/cuttlely/%77orkspaces/agent/deck.pptx'
+            deck,
+            '/var/cuttlely/./workspaces/a/private/deck.pptx',
+            '/var/x/../cuttlely/workspaces/a/private/deck.pptx',
+            '//var//cuttlely/workspaces/a/private/deck.pptx',
+            `${root}/a/out/../private/deck.pptx`,
+            'file://host/var/cuttlely/workspaces/a/private/deck.pptx',
+            'FILE://[::1]/var/cuttlely/workspaces/a/private/deck.pptx',
+            'file://cuttlely_server/var/cuttlely/%77orkspaces/a/private/deck.pptx',
+            '%2Fvar%2Fcuttlely%2Fworkspaces%2Fa%2Fprivate%2Fdeck.pptx',
+            'file:///var/cuttlely/%2e/workspaces/a/private/deck.pptx'
         ]
-        const aliasWrong = []
         for (const alias of aliases) {
-            const said = `Saved ${alias} today`
-            const expected = 'Saved deck.pptx today'
-            if (hideWorkspacePaths(said, aliasRoot) !== expected) aliasWrong.push(['text', alias])
-            if (!namesRoot(said, aliasRoot)) aliasWrong.push(['namesRoot', alias])
-            if (!rootStarts(said, aliasRoot).includes(6)) aliasWrong.push(['rootStarts', alias])
-            for (let at = 1; at <= alias.length; at += 1) {
-                if (!rootStarts(`Saved ${alias.slice(0, at)}`, aliasRoot, true).includes(6)) aliasWrong.push(['hold', alias, at])
-            }
-            const previousDataDir = process.env.CUTTLELY_DATA_DIR
-            try {
-                process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
-                if (maskError(new Error(said)).message !== expected) aliasWrong.push(['message', alias])
-            } finally {
-                if (previousDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
-                else process.env.CUTTLELY_DATA_DIR = previousDataDir
-            }
-            for (let at = 0; at <= said.length; at += 1) {
-                const sent = []
-                const context = {}
-                for (const piece of [said.slice(0, at), said.slice(at)])
-                    bufferStream(context, 'answer', piece, false, (text) => sent.push(text), aliasRoot)
-                bufferStream(context, 'answer', '', true, (text) => sent.push(text), aliasRoot)
-                if (sent.join('') !== expected) aliasWrong.push([alias, at, sent.join('')])
+            cases.push([4, `/tmp/input and ${alias}`, `a server path and ${file}`])
+            cases.push([4, `"/tmp/input and ${alias}"`, `"a server path"`])
+            cases.push([3, alias, file])
+        }
+        // Every former skipped-folder delimiter, both local and file:// spellings.
+        for (const delimiter of [']', ')', '}', '|', '<', '>', '"', '`', '\t', '\n', "' "]) {
+            for (const prefix of ['', 'file://host']) {
+                const alias = `${prefix}/var/cuttlely/cache${delimiter}old/../workspaces/a/private/deck.pptx`
+                const expected = /\s/.test(delimiter) ? `a server path${delimiter.includes("'") ? "' " : delimiter}a server path` : file
+                cases.push([3, alias, expected])
             }
         }
-        check('root aliases are masked in text, error messages and every stream split', aliasWrong.length === 0, JSON.stringify(aliasWrong))
-        const reviewCases = []
-        for (const quote of ['"', "'", '`']) {
-            for (const alias of [
-                '/var/cuttlely/./workspaces/agent/private/deck.pptx',
-                'file:///var/x/../cuttlely/workspaces/agent/private/deck.pptx'
-            ]) {
-                reviewCases.push([`${quote}failed opening ${alias}${quote}`, `${quote}failed opening deck.pptx${quote}`])
-            }
-            reviewCases.push([`${quote}/var/cuttlely/./workspaces/agent/Q3 Reports/deck.pptx${quote}`, `${quote}deck.pptx${quote}`])
+        for (const folder of ['cache failed', 'cache.old copy']) {
+            for (const prefix of ['', 'file://host'])
+                cases.push([7, `${prefix}/var/cuttlely/${folder}/../workspaces/a/private/deck.pptx`, 'a server path a server path'])
         }
-        for (const suffix of [
-            '%2Fagent%2Fprivate%2Fdeck.pptx',
-            '%2fagent%2fprivate%2fdeck.pptx',
-            '/agent%2Fprivate/deck.pptx',
-            '%2Fagent/private%2fdeck.pptx',
-            '%2fagent/private%2Fdeck%20final.pptx'
-        ]) {
-            const name = suffix.includes('%20') ? 'deck final.pptx' : 'deck.pptx'
-            const link = `file://${aliasRoot}${suffix}`
-            reviewCases.push([`Open ${link} now`, `Open ${name} now`], [`"${link}"`, `"${name}"`])
-        }
-        // Cross product: the same lexical rules cover aliases, nonexistent names and prose on every channel.
-        const pathMatrix = []
-        const matrixRoots = [
-            '/var/cuttlely/workspaces',
-            '//var//cuttlely/workspaces',
-            '/var/cuttlely/./workspaces',
-            '/var/x/../cuttlely/workspaces',
-            '/var/cuttlely/(cache)/../workspaces',
-            '/var/cuttlely/[cache]/../workspaces',
-            "/var/cuttlely/Bob's cache/../workspaces",
-            '/var/cuttlely/cache, old; copy/../workspaces',
-            '%2Fvar%2Fcuttlely%2F%77orkspaces',
-            '/var/cuttlely/%28cache%29/%2e%2e/workspaces'
+        const prose = [
+            'An ordinary sentence stays exactly as written.',
+            'README requires checking docs/report.md',
+            'Version 1.4.0 is ready; please review it.',
+            'https://example.org/a/../b?version=1.4.0',
+            'Open http://example.org/files/report.pdf now.',
+            '"A quoted sentence with spaces."',
+            "Bob's report is ready.",
+            'x'.repeat(4000),
+            JSON.stringify({ rows: Array.from({ length: 150 }, (_, id) => ({ id, region: 'west' })) }),
+            'https://example.org/' + 'x'.repeat(2000),
+            '42 1.4.0 1234567890',
+            '"' + 'ordinary '.repeat(300) + 'sentence"',
+            'data:text/plain,/var/cuttlely/workspaces/a/report.md',
+            JSON.stringify(JSON.stringify({ rows: [{ id: 1, side: 'left' }] })),
+            '{"note":"line one\\nline two \\"quoted\\" \\\\ done"}'
         ]
-        const matrixFolders = [
-            'private',
-            'foo(bar)',
-            'foo[bar]',
-            'foo{bar}',
-            'foo,bar',
-            'foo;bar',
-            'release.v2 notes',
-            "cache's (old)",
-            "Bob's reports",
-            'quarterly reports',
-            'never created/subfolder',
-            'cancelled (old)/../private',
-            'encoded%2Fprivate',
-            'quarterly%20reports'
-        ]
-        for (const base of matrixRoots)
-            for (const folder of matrixFolders) {
-                const full = base + '/agent/' + folder + '/deck.pptx'
-                for (const alias of [full, 'FiLe://arbitrary-host' + full.replace(/^%2F/i, '/')]) {
-                    for (const [prefix, suffix] of [
-                        ['', ''],
-                        ['"', '"'],
-                        ['"failed opening ', ' today"'],
-                        ['Open **', '** now.'],
-                        ["'", "'"],
-                        ['Open \x60', '\x60 now.'],
-                        ['<', '>']
-                    ])
-                        pathMatrix.push([prefix + alias + suffix, prefix + 'deck.pptx' + suffix])
-                }
-            }
-        for (const dots of ['../', '../../'])
-            pathMatrix.push([
-                '"' + aliasRoot + '/agent/README failed opening docs/' + dots + 'report.md"',
-                '"README failed opening docs/' + dots + 'report.md"'
-            ])
-        reviewCases.push(...pathMatrix)
-        const reviewWrong = []
-        const reviewDataDir = process.env.CUTTLELY_DATA_DIR
+        // JSON escapes are data; a backslash used as a separator is a path.
+        cases.push([3, '\\\\server\\share\\deck.pptx', 'a server path'])
+        cases.push([3, '\\var\\cuttlely\\workspaces\\a\\deck.pptx', 'the workspace'])
+        cases.push([3, '..\\..\\etc\\passwd', 'a server path'])
+        for (const text of prose) cases.push([6, text, text])
+        const previousDataDir = process.env.CUTTLELY_DATA_DIR
         try {
             process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
-            for (const [said, expected] of reviewCases) {
-                const maskedText = hideWorkspacePaths(said, aliasRoot)
-                if (maskedText !== expected || /\/var\/cuttlely|workspaces|private|subfolder|quarterly|foo[({[;,]/.test(maskedText))
-                    reviewWrong.push(['text', said, maskedText])
-                if (maskError(new Error(said)).message !== expected || maskError(said) !== expected) reviewWrong.push(['error', said])
-                const value = maskWorkspacePaths({ [said]: said, nested: [{ note: said }], base64: said })
-                if (value[expected] !== expected || value.nested[0].note !== expected || value.base64 !== expected)
-                    reviewWrong.push(['value', said])
-                const sentChars = [],
-                    charContext = {}
-                for (const char of said) bufferStream(charContext, 'answer', char, false, (text) => sentChars.push(text), aliasRoot)
-                bufferStream(charContext, 'answer', '', true, (text) => sentChars.push(text), aliasRoot)
-                if (sentChars.join('') !== expected) reviewWrong.push(['characters', said, sentChars.join('')])
-                for (let at = 0; at <= said.length; at += 1) {
-                    const sent = []
-                    const context = {}
-                    for (const piece of [said.slice(0, at), said.slice(at)])
-                        bufferStream(context, 'answer', piece, false, (text) => sent.push(text), aliasRoot)
-                    bufferStream(context, 'answer', '', true, (text) => sent.push(text), aliasRoot)
-                    if (sent.join('') !== expected) reviewWrong.push(['stream', said, at, sent.join('')])
+            for (const [rule, text, expected] of cases) {
+                const actual = hideWorkspacePaths(text, root)
+                check(`rule ${rule}: ${JSON.stringify(text.slice(0, 110))}`, actual === expected, JSON.stringify({ actual, expected }))
+                const chars = [],
+                    context = {}
+                for (const char of text) bufferStream(context, 'answer', char, false, (value) => chars.push(value), root)
+                bufferStream(context, 'answer', '', true, (value) => chars.push(value), root)
+                check(`rule 8: character stream ${JSON.stringify(text.slice(0, 110))}`, chars.join('') === actual)
+                // The same token scanner serves every text, error and structured-value channel.
+                const value = maskWorkspacePaths({ [text]: text, nested: [{ note: text }], base64: { note: text } })
+                check(
+                    `rule ${rule}: channels ${JSON.stringify(text.slice(0, 110))}`,
+                    maskError(new Error(text)).message === expected &&
+                        maskError(text) === expected &&
+                        value[expected] === expected &&
+                        value.nested[0].note === expected &&
+                        value.base64.note === expected
+                )
+                if (text.length <= 1024) {
+                    for (let at = 0; at <= text.length; at++) {
+                        const sent = [],
+                            split = {}
+                        bufferStream(split, 'x', text.slice(0, at), false, (part) => sent.push(part), root)
+                        bufferStream(split, 'x', text.slice(at), false, (part) => sent.push(part), root)
+                        bufferStream(split, 'x', '', true, (part) => sent.push(part), root)
+                        check(`rule 8: split ${at} ${JSON.stringify(text.slice(0, 110))}`, sent.join('') === actual)
+                    }
                 }
             }
-        } finally {
-            if (reviewDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
-            else process.env.CUTTLELY_DATA_DIR = reviewDataDir
-        }
-        check(
-            'quoted prose aliases and encoded suffix separators are masked in text, errors, values and every stream split',
-            reviewWrong.length === 0,
-            JSON.stringify(reviewWrong)
-        )
-        check(
-            'relative workspace roots mask both spellings and their absolute path',
-            ['./data/workspaces', 'data/workspaces', path.resolve('./data/workspaces')].every(
-                (base) => hideWorkspacePaths(`Saved ${base}/agent/deck.pptx today`, './data/workspaces') === 'Saved deck.pptx today'
-            )
-        )
-        const spacedTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-spaced-'))
-        try {
-            const folder = path.join(spacedTemp, 'agent', 'quarterly reports')
-            fs.mkdirSync(folder, { recursive: true })
-            const file = path.join(folder, 'deck.pptx')
-            fs.writeFileSync(file, 'sample')
+            const state = workspaceMaskState()
+            check('rule 7: no partial token is sent', scanWorkspaceText(state, '/var/cuttlely/cache.old', root) === '')
+            check('rule 7: whitespace completes the token', scanWorkspaceText(state, ' ', root) === 'a server path ')
+            const capped = workspaceMaskState()
             check(
-                'an existing unquoted path with spaces keeps the following prose',
-                hideWorkspacePaths(`Saved ${file} today`, spacedTemp) === 'Saved deck.pptx today'
+                'rule 7: cap emits exactly one fallback',
+                scanWorkspaceText(capped, '/' + 'x'.repeat(1024), root) === 'a server path' &&
+                    scanWorkspaceText(capped, 'remaining ', root) === ' '
             )
         } finally {
-            fs.rmSync(spacedTemp, { recursive: true, force: true })
+            if (previousDataDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previousDataDir
         }
-        const markdownWrong = []
-        for (const marks of ['_', '__', '*', '**', '~~']) {
-            const said = `Open ${marks}${assets}/deck.pptx${marks} now.`
-            const expected = `Open ${marks}deck.pptx${marks} now.`
-            if (hideWorkspacePaths(said, root) !== expected) markdownWrong.push(['text', marks])
-            for (let at = 0; at <= said.length; at += 1) {
-                const sent = []
-                const streamContext = {}
-                for (const piece of [said.slice(0, at), said.slice(at)])
-                    bufferStream(streamContext, 'answer', piece, false, (text) => sent.push(text), root)
-                bufferStream(streamContext, 'answer', '', true, (text) => sent.push(text), root)
-                if (sent.join('') !== expected) markdownWrong.push([marks, at, sent.join('')])
-            }
-        }
-        check(
-            'Markdown paths keep their marks in text and at every stream split',
-            markdownWrong.length === 0,
-            JSON.stringify(markdownWrong)
-        )
-        class PathArray extends Array {
-            toJSON() {
-                return [`${assets}/deck.pptx`]
-            }
-        }
-        const maskedArray = maskWorkspacePaths(new PathArray())
-        const maskedPlainArray = maskWorkspacePaths(new (class extends Array {})(`${assets}/deck.pptx`))
-        const ownArray = []
-        ownArray.toJSON = () => [`${assets}/own.pdf`]
-        const unreadableArray = ['kept']
-        Object.defineProperty(unreadableArray, '0', {
-            get() {
-                throw new Error('unreadable')
-            }
-        })
-        check(
-            'array serializers are masked and arrays are rebuilt with a plain prototype',
-            Array.isArray(maskedArray) &&
-                Object.getPrototypeOf(maskedArray) === Array.prototype &&
-                JSON.stringify(maskedArray) === '["deck.pptx"]' &&
-                !JSON.stringify(maskedArray).includes(root) &&
-                Object.getPrototypeOf(maskedPlainArray) === Array.prototype &&
-                JSON.stringify(maskedPlainArray) === '["deck.pptx"]' &&
-                JSON.stringify(maskWorkspacePaths(ownArray)) === '["own.pdf"]' &&
-                JSON.stringify(maskWorkspacePaths(unreadableArray)) === '["[data]"]'
-        )
-        const shadowed = (() => {
-            class BadError extends Error {
-                get message() {
-                    throw new Error(`${assets}/bad.pdf`)
+        const slowStarted = performance.now()
+        hideWorkspacePaths(`"${root}/a${' '.repeat(32000)}b"`, root)
+        hideWorkspacePaths(`"${root}/${'a b/'.repeat(16000)}"`, root)
+        hideWorkspacePaths(`'${`${root}/x `.repeat(4000)}'`, root)
+        hideWorkspacePaths(`"failed opening ${`${root}/./private/deck.pptx `.repeat(4000)}"`, root)
+        const slowTook = performance.now() - slowStarted
+        check('a long quoted path is masked in linear time', slowTook < 1000, String(slowTook))
+        {
+            const root = path.dirname(specialistWorkspace('x'))
+            const assets = specialistWorkspace(coder.profileName)
+            let deep = { note: path.join(assets, 'deep.pdf') }
+            for (let level = 0; level < 100; level += 1) deep = { deep }
+            const looped = { note: path.join(assets, 'loop.pdf') }
+            looped.self = looped
+            const deepText = JSON.stringify(maskWorkspacePaths({ deep, keyed: { [path.join(assets, 'k.pdf')]: 'failed' } }))
+            const loopText = JSON.stringify(maskWorkspacePaths(looped))
+            class Meta {
+                constructor(where) {
+                    this.where = where
                 }
             }
-            const bad = new BadError()
-            delete bad.stack
-            Object.defineProperty(bad, 'note', { value: `${assets}/n.pdf`, enumerable: true })
-            try {
-                const copy = maskError(bad)
-                return copy.message === '[error]' && !String(copy.note).includes(root)
-            } catch {
-                return false
+            const typed = JSON.stringify(
+                maskWorkspacePaths({
+                    link: new URL(`file://${path.join(assets, 'private.pdf')}`),
+                    meta: new Meta(path.join(assets, 'meta.pdf')),
+                    pair: { [path.join(assets, 'r.pdf')]: 1, 'r.pdf': 2 },
+                    proto: JSON.parse('{"__proto__": "kept"}')
+                })
+            )
+            const frozen = Object.freeze(
+                Object.assign(new Error(`Cannot read ${path.join(assets, 'private.pdf')}`), { code: 'tool_failed' })
+            )
+            const freed = maskError(frozen)
+            const bytesKept = maskWorkspacePaths({
+                base64: { error: path.join(assets, 'private.pdf') },
+                data: `data:text/plain,${assets}/../x`
+            })
+            const { encodeFilePath } = await import('./images.mjs')
+            const spacedRoot = '/var/cuttlely data/workspaces'
+            const encodedLink = hideWorkspacePaths(`see ${new URL(`file://${spacedRoot}/agent/private.pdf`).href} now`, spacedRoot)
+            const fielded = maskError(Object.assign(new Error('tool failed'), { code: path.join(assets, 'private.pdf') }))
+            const frozenFielded = maskError(Object.freeze(Object.assign(new Error('tool failed'), { detail: path.join(assets, 'p.pdf') })))
+            const thrownText = maskError(`open ${path.join(assets, 'private.pdf')}`)
+            const caused = maskError(new Error('failed', { cause: new Error(`open ${path.join(assets, 'private.pdf')}`) }))
+            const hidden = new Error('failed')
+            Object.defineProperty(hidden, 'code', { value: path.join(assets, 'code.pdf'), enumerable: false })
+            hidden.detail = 1n
+            const looping = { note: path.join(assets, 'loop.pdf') }
+            looping.self = looping
+            hidden.loop = looping
+            const hiddenMasked = maskError(hidden)
+            const plainError = new Error('no path here')
+            const getterError = new Error('failed')
+            Object.defineProperty(getterError, 'code', { get: () => path.join(assets, 'getter.pdf') })
+            const serialError = Object.assign(new Error('failed'), { toJSON: () => path.join(assets, 'json.pdf') })
+            let nested = { note: path.join(assets, 'nested.pdf') }
+            for (let level = 0; level < 70; level += 1) nested = { nested }
+            const deepError = Object.assign(new Error('failed'), { nested })
+            const lowerDir = path.join(assets, 'quarterly reports')
+            fs.mkdirSync(lowerDir, { recursive: true })
+            fs.writeFileSync(path.join(lowerDir, 'deck.pptx'), 'x')
+            check(
+                'getters, serializers, deep fields, upper-case file links and on-disk lower-case folders are masked',
+                maskError(getterError).code === 'the workspace file getter.pdf' &&
+                    maskError(serialError) !== serialError &&
+                    (() => {
+                        class ToolError extends Error {
+                            get message() {
+                                return `Cannot open ${assets}/inherited.pdf`
+                            }
+                        }
+                        const nested = Object.assign(new Error(`open ${assets}/n.pdf`), {
+                            meta: Object.defineProperty({}, 'detail', {
+                                enumerable: true,
+                                get: () => {
+                                    throw new Error(`${assets}/deep.pdf`)
+                                }
+                            })
+                        })
+                        try {
+                            const inherited = maskError(new ToolError())
+                            const masked = maskError(nested)
+                            return !inherited.message.includes(assets) && masked.meta.detail === '[data]'
+                        } catch {
+                            return false
+                        }
+                    })() &&
+                    !JSON.stringify(maskError(serialError)).includes(assets) &&
+                    !JSON.stringify(
+                        maskError(Object.assign(new Error(`open ${assets}/a.pdf`), { toJSON: () => ({ message: `${assets}/b.pdf` }) }))
+                    ).includes(assets) &&
+                    (() => {
+                        const trap = new Error('failed')
+                        Object.defineProperty(trap, 'toJSON', {
+                            get: () => {
+                                throw new Error(`${assets}/trap.pdf`)
+                            }
+                        })
+                        try {
+                            return maskError(trap) !== trap && maskWorkspacePaths({ trap }).trap === '[data]'
+                        } catch {
+                            return false
+                        }
+                    })() &&
+                    !JSON.stringify(maskError(deepError)).includes(root) &&
+                    hideWorkspacePaths(`FILE://${path.join(assets, 'a.pdf')} and file://LOCALHOST${path.join(assets, 'b.pdf')}`, root) ===
+                        'the workspace file a.pdf and the workspace file b.pdf' &&
+                    hideWorkspacePaths(`"${path.join(lowerDir, 'deck.pptx')}"`, root) === '"the workspace file deck.pptx"' &&
+                    hideWorkspacePaths(`"${path.join(assets, 'README')} permission denied opening docs/report.md"`, root) ===
+                        '"the workspace"',
+                JSON.stringify(maskError(getterError).code)
+            )
+            fs.rmSync(lowerDir, { recursive: true, force: true })
+            check(
+                'error causes, hidden fields, BigInt and cyclic fields are masked without throwing',
+                caused.cause.message === 'open the workspace file private.pdf' &&
+                    hiddenMasked.code === 'the workspace file code.pdf' &&
+                    hiddenMasked.detail === 1n &&
+                    hiddenMasked.loop.note === 'the workspace file loop.pdf' &&
+                    hiddenMasked instanceof Error &&
+                    maskError(plainError).message === plainError.message,
+                JSON.stringify({ cause: caused.cause?.message, code: hiddenMasked.code })
+            )
+            const oddRoot = '/var/cuttlely #1?/workspaces'
+            const otherLinks = [
+                hideWorkspacePaths(`see file://localhost${path.join(assets, 'private.pdf')} now`, root),
+                hideWorkspacePaths(`see file://${encodeFilePath(oddRoot)}/agent/odd.pdf now`, oddRoot)
+            ]
+            check(
+                'thrown strings, error fields and local or odd file links are masked',
+                fielded.code === 'the workspace file private.pdf' &&
+                    frozenFielded.detail === 'the workspace file p.pdf' &&
+                    frozenFielded.message === 'tool failed' &&
+                    thrownText === 'open the workspace file private.pdf' &&
+                    otherLinks[0] === 'see the workspace file private.pdf now' &&
+                    otherLinks[1] === 'see the workspace file odd.pdf now',
+                JSON.stringify({ code: fielded.code, detail: frozenFielded.detail, thrownText, otherLinks })
+            )
+            check(
+                'frozen errors, non-byte base64 values and encoded file links are masked',
+                freed.message === 'Cannot read the workspace file private.pdf' &&
+                    freed.code === 'tool_failed' &&
+                    !String(freed.stack).includes(root) &&
+                    !JSON.stringify(bytesKept).includes(root) &&
+                    encodedLink === 'see the workspace file private.pdf now',
+                JSON.stringify({ message: freed.message, bytesKept, encodedLink })
+            )
+            check(
+                'URLs, class instances, colliding keys and a __proto__ key are masked and kept',
+                !typed.includes(root) &&
+                    typed.includes('private.pdf') &&
+                    typed.includes('meta.pdf') &&
+                    typed.includes('"the workspace file r.pdf":1') &&
+                    typed.includes('"r.pdf":2') &&
+                    typed.includes('"__proto__":"kept"'),
+                typed
+            )
+            check(
+                'deep values, cycles and object keys are masked too',
+                !deepText.includes(root) &&
+                    deepText.includes('"the workspace file k.pdf":"failed"') &&
+                    !loopText.includes(root) &&
+                    loopText.includes('loop.pdf'),
+                deepText.slice(-300) + loopText
+            )
+            class PathArray extends Array {
+                toJSON() {
+                    return [`${assets}/deck.pptx`]
+                }
             }
-        })()
-        check('an inherited message getter that throws is replaced, not kept', shadowed)
-        const maskedValue = maskWorkspacePaths({
-            text: `data: ${path.join(assets, 'r.pdf')}`,
-            data: 'data:text/plain,aGVsbG8=',
-            base64: 'aGVsbG8=',
-            rows: [{ note: path.join(assets, 'x', 'n.csv') }]
-        })
-        check(
-            'only file bytes are left unmasked in a harness value',
-            maskedValue.text === 'data: r.pdf' &&
-                maskedValue.data === 'data:text/plain,aGVsbG8=' &&
-                maskedValue.base64 === 'aGVsbG8=' &&
-                maskedValue.rows[0].note === 'n.csv',
-            JSON.stringify(maskedValue)
-        )
-        check('a long quoted path is masked in linear time', slowTook < 1000, String(slowTook))
-        check(
-            'answers show only file names for any path in a specialist workspace',
-            wrong.length === 0,
-            JSON.stringify(wrong.map(([input]) => [input, hideTurnImageDir(input, coderDir)]))
-        )
+            const maskedArray = maskWorkspacePaths(new PathArray())
+            const maskedPlainArray = maskWorkspacePaths(new (class extends Array {})(`${assets}/deck.pptx`))
+            const ownArray = []
+            ownArray.toJSON = () => [`${assets}/own.pdf`]
+            const unreadableArray = ['kept']
+            Object.defineProperty(unreadableArray, '0', {
+                get() {
+                    throw new Error('unreadable')
+                }
+            })
+            check(
+                'array serializers are masked and arrays are rebuilt with a plain prototype',
+                Array.isArray(maskedArray) &&
+                    Object.getPrototypeOf(maskedArray) === Array.prototype &&
+                    JSON.stringify(maskedArray) === '["the workspace file deck.pptx"]' &&
+                    !JSON.stringify(maskedArray).includes(root) &&
+                    Object.getPrototypeOf(maskedPlainArray) === Array.prototype &&
+                    JSON.stringify(maskedPlainArray) === '["the workspace file deck.pptx"]' &&
+                    JSON.stringify(maskWorkspacePaths(ownArray)) === '["the workspace file own.pdf"]' &&
+                    JSON.stringify(maskWorkspacePaths(unreadableArray)) === '["[data]"]'
+            )
+            const shadowed = (() => {
+                class BadError extends Error {
+                    get message() {
+                        throw new Error(`${assets}/bad.pdf`)
+                    }
+                }
+                const bad = new BadError()
+                delete bad.stack
+                Object.defineProperty(bad, 'note', { value: `${assets}/n.pdf`, enumerable: true })
+                try {
+                    const copy = maskError(bad)
+                    return copy.message === '[error]' && !String(copy.note).includes(root)
+                } catch {
+                    return false
+                }
+            })()
+            check('an inherited message getter that throws is replaced, not kept', shadowed)
+            const maskedValue = maskWorkspacePaths({
+                text: `data: ${path.join(assets, 'r.pdf')}`,
+                data: 'data:text/plain,aGVsbG8=',
+                base64: 'aGVsbG8=',
+                rows: [{ note: path.join(assets, 'x', 'n.csv') }]
+            })
+            check(
+                'only file bytes are left unmasked in a harness value',
+                maskedValue.text === 'data: the workspace file r.pdf' &&
+                    maskedValue.data === 'data:text/plain,aGVsbG8=' &&
+                    maskedValue.base64 === 'aGVsbG8=' &&
+                    maskedValue.rows[0].note === 'the workspace file n.csv',
+                JSON.stringify(maskedValue)
+            )
+        }
     }
     removeTurnImageDir(coderDir)
     removeTurnImageDir(specialistWorkspace(coder.profileName))

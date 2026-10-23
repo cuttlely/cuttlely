@@ -133,138 +133,131 @@ export function turnImageNote(dir) {
         : ''
 }
 
-// The folder is a server path; the answer names the file only. Any other path inside a specialist workspace, such as
-// <root>/<profile>/exports/report.pdf, is shown as its file name too, the chat folder itself as "the chat" and a bare
-// workspace folder as "the workspace". root is the folder that holds every specialist workspace; it defaults to the
-// one the chat folder sits in.
+// All text uses the token scanner. Deliverables name their basename; other paths use a workspace or server placeholder.
 export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirname(path.dirname(dir))) : '') {
     if (typeof text !== 'string') return text
     const out = hideWorkspacePaths(text, root, dir)
-    // A chat folder outside the workspaces root still names its files only.
+    // An explicitly supplied chat folder is also covered when it sits outside the root.
     return dir ? hideWorkspacePaths(out, dir, dir) : out
 }
 
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// Rules 1–8 share this state machine, including the bounded-token fallback.
+const EDGE = /[\]\)}|<>"`,;:!?]/
+const QUOTES = '"\'`'
+// A backslash path uses \ as a separator; JSON escapes such as \" or \n are data, not paths.
+const backslashPath = (value) => /^\\\\[^\\"\s]/.test(value) || /\\(?!["\\/bfnrtu]|$)/.test(value.replace(/\\\\/g, ''))
 const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value.slice(0, -1) : value)
 
-export function hideWorkspacePaths(text, root, chatDir = '') {
-    if (!root || typeof text !== 'string') return text
-    const absolute = trimSep(path.resolve(root))
-    const chat = chatDir ? trimSep(path.resolve(chatDir)) : ''
-    let out = '',
-        cursor = 0
-    for (const candidate of workspaceCandidates(text, root)) {
-        const resolved = resolveCandidate(candidate.full)
-        if (resolved !== absolute && !resolved.startsWith(absolute + path.sep)) continue
-        const parts = path.relative(absolute, resolved).split(path.sep).filter(Boolean)
-        const shown =
-            resolved === chat
-                ? 'the chat'
-                : parts.length <= (absolute === chat ? 0 : 1)
-                ? absolute === chat
-                    ? 'the chat'
-                    : 'the workspace'
-                : path.basename(resolved)
-        out += text.slice(cursor, candidate.at) + shown
-        cursor = candidate.end
-    }
-    return out + text.slice(cursor)
-}
-
-function resolveCandidate(full) {
-    let local = full.replace(FILE_LINK_START, '')
+function tokenMask(raw, root, continued) {
+    let start = 0,
+        end = raw.length
+    while (start < end && (EDGE.test(raw[start]) || (start === 0 && raw[start] === "'"))) start++
+    while (end > start && (EDGE.test(raw[end - 1]) || raw[end - 1] === "'" || raw[end - 1] === '.')) end--
+    const token = raw.slice(start, end)
+    if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
+    const slash = /[\/\\]/.test(token)
+    const candidate = /^(?:[\/~]|[a-z]:\\|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token)
+    if (!candidate && !(continued && slash)) return { text: raw, masked: false }
+    let local = token.replace(/^file:\/\/[^/\\\s]*/i, '')
     try {
         local = decodeURIComponent(local)
     } catch {
-        // A malformed escape must not prevent valid encoded separators from being hidden.
         local = local.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     }
-    return trimSep(path.resolve(local))
-}
-
-// One lexical scan for masking and stream holds. Spaces and punctuation belong to filenames;
-// whitespace after an extension or before sentence/error words terminates a candidate.
-// Never normalize a whole prose quote: dot segments apply only inside the candidate.
-function* workspaceCandidates(text, root) {
-    const relative = rootSpellings(root).filter((base) => !path.isAbsolute(base))
-    const starts = new RegExp('file://[^/\\s]*|/|%2f' + relative.map((base) => '|' + escapeRegExp(base)).join(''), 'gi')
-    let match
-    while ((match = starts.exec(text))) {
-        const at = match.index
-        let before = at - 1
-        while (before >= 0 && /[_*~]/.test(text[before])) before--
-        if (before >= 0 && /[A-Za-z0-9./%-]/.test(text[before])) continue
-        let end = at + match[0].length
-        let segment = end
-        const closing = { '(': ')', '[': ']', '{': '}' }
-        const stack = []
-        for (; end < text.length; end++) {
-            const char = text[end]
-            if (/[\n\r\t<>|"`]/.test(char)) break
-            if (char === "'" && (!text[end + 1] || /[\s"`<>]/.test(text[end + 1]))) break
-            if (closing[char]) stack.push(closing[char])
-            else if (/[)\]\}]/.test(char)) {
-                if (stack.at(-1) !== char) break
-                stack.pop()
-            }
-            if (char === ' ') {
-                const previous = text.slice(Math.max(segment, end - 32), end)
-                const next = text.slice(end + 1).match(/^[^ \n\r\t"`'<>]+/)?.[0] || ''
-                if (
-                    next === 'and/or' ||
-                    (text.slice(at, end) === root && /^(?:and|or)$/.test(next)) ||
-                    (/\.[A-Za-z0-9]{1,8}[_*~]*[.,;:!?]*$/.test(previous) && !next.includes('/')) ||
-                    /^(?:now|today|failed|failing|reading|writing|during|while|when|because|cannot|could|not|is|was|were|from|into|to|with|error|errors|missing|permission|denied|opening|moved|in|see)(?:$|[.,;:!?])/i.test(
-                        next
-                    )
-                )
-                    break
-            }
-            if (char === '/') segment = end + 1
-        }
-        const rawEnd = end
-        while (end > at && /[ _*~.,:!?;]/.test(text[end - 1])) {
-            // A final dot component is normalization syntax, not sentence punctuation.
-            if (text[end - 1] === '.' && /\/(?:\.|\.\.)$/.test(text.slice(Math.max(at, end - 3), end))) break
-            end--
-        }
-        if (end > at) yield { at, end, full: text.slice(at, end), open: rawEnd === text.length }
-        starts.lastIndex = Math.max(rawEnd, at + 1)
-    }
-}
-
-function rootSpellings(root) {
+    local = local.replace(/\\/g, '/')
     const absolute = trimSep(path.resolve(root))
-    const roots = [absolute]
-    const relative = !path.isAbsolute(root)
-        ? root
-        : process.env.CUTTLELY_DATA_DIR && !path.isAbsolute(process.env.CUTTLELY_DATA_DIR)
-        ? path.relative('.', absolute)
-        : ''
-    if (relative) {
-        const plain = trimSep(relative.replace(/^\.\//, ''))
-        roots.push(trimSep(relative), plain, `./${plain}`)
+    const resolved = trimSep(path.resolve(local))
+    const inside = resolved === absolute || resolved.startsWith(absolute + path.sep)
+    let shown = 'a server path'
+    if (inside) {
+        const base = path.basename(resolved)
+        const deliverable = inside && /^(?:[\/~]|file:|[a-z]:|%2f)/i.test(token) && /\.(?:pdf|docx|xlsx|pptx|csv|png|jpe?g)$/i.test(base)
+        shown = deliverable ? `the workspace file ${base}` : 'the workspace'
     }
-    return [...new Set(roots)]
+    return { text: raw.slice(0, start) + shown + raw.slice(end), masked: true }
+}
+
+export function workspaceMaskState() {
+    return { token: '', quote: '', overflow: false, continued: false, capCandidate: false, slash: false, tail: '', prefix: '' }
+}
+
+export function scanWorkspaceText(state, text, root, flush = false) {
+    const out = []
+    const finish = () => {
+        if (state.overflow) state.continued = !state.quote
+        else if (state.token) {
+            const result = tokenMask(state.token, root, state.continued && !state.quote)
+            out.push(result.text)
+            state.continued = result.masked && !state.quote
+        }
+        state.token = ''
+        state.overflow = false
+        state.capCandidate = false
+        state.slash = false
+        state.tail = ''
+        state.prefix = ''
+        state.quote = ''
+    }
+    for (const char of text) {
+        if (!state.quote && /\s/u.test(char)) {
+            finish()
+            out.push(char)
+            continue
+        }
+        const closing = state.quote === char && !state.slash
+        if (!state.token && !state.overflow && QUOTES.includes(char)) state.quote = char
+        if (!state.overflow) {
+            state.token += char
+            // Rule 6 keeps ordinary data intact, even when a JSON value or word is long.
+            // Track candidate syntax incrementally so long plain text stays linear.
+            const tail = (state.tail = (state.tail + char).slice(-6))
+            if (state.prefix.length < 32 && (state.prefix || !(EDGE.test(char) || char === "'"))) state.prefix += char
+            let escaped = false
+            if (char === '\\') state.slash = !state.slash
+            else {
+                escaped = state.slash && !'"/bfnrtu'.includes(char)
+                state.slash = false
+            }
+            if (
+                /\.\.|\/\/|%2f|%2e%2e/i.test(tail) ||
+                escaped ||
+                /^(?:[\/~]|[a-z]:\\)/i.test(state.prefix) ||
+                (state.continued && /[\/\\]/.test(char))
+            )
+                state.capCandidate = true
+            if (state.token.length > 1024 && state.capCandidate && !/^https?:\/\//i.test(state.prefix)) {
+                out.push('a server path')
+                state.token = ''
+                state.overflow = true
+            }
+        }
+        if (closing) finish()
+    }
+    if (flush) finish()
+    return out.join('')
+}
+
+export function hideWorkspacePaths(text, root, chatDir = '') {
+    if (!root || typeof text !== 'string') return text
+    return scanWorkspaceText(workspaceMaskState(), text, root, true)
 }
 
 export function namesRoot(text, root) {
     return hideWorkspacePaths(text, root) !== text
 }
 
-// Unfinished absolute candidates may still enter the root through a later dot segment.
+// Compatibility helpers use the same token boundaries; streaming itself keeps scanner state.
 export function rootStarts(text, root, partial = false) {
-    const absolute = trimSep(path.resolve(root))
+    const state = workspaceMaskState()
     const found = []
-    for (const candidate of workspaceCandidates(text, root)) {
-        const resolved = resolveCandidate(candidate.full)
-        if ((partial && candidate.open) || resolved === absolute || resolved.startsWith(absolute + path.sep)) found.push(candidate.at)
+    let start = 0
+    for (let at = 0; at < text.length; at++) {
+        const before = state.token.length
+        scanWorkspaceText(state, text[at], root)
+        if (!before && state.token) start = at
+        if (before && !state.token && namesRoot(text.slice(start, at + 1), root)) found.push(start)
     }
-    if (partial) {
-        const tail = /(?:^|[^A-Za-z0-9./-])(f|fi|fil|file|file:|file:\/)$/i.exec(text)
-        if (tail) found.push(text.length - tail[1].length)
-        if (/%(?:2)?$/i.test(text)) found.push(text.lastIndexOf('%'))
-    }
+    if (state.token && (partial || namesRoot(state.token, root))) found.push(start)
     return found
 }
 
@@ -273,7 +266,6 @@ export const encodeFilePath = (value) => encodeURI(value).replace(/#/g, '%23').r
 
 // A file:// link may name a host (localhost, 127.0.0.1, [::1] or any other) before the path.
 export const FILE_HOST = String.raw`[^/\\\s]*`
-const FILE_LINK_START = new RegExp(`^file://${FILE_HOST}`, 'i')
 
 export function removeTurnImageDir(dir) {
     if (!dir || path.basename(path.dirname(dir)) !== TURN_IMAGE_FOLDER) return

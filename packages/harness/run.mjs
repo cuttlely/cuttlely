@@ -59,6 +59,8 @@ import {
     hideTurnImageDir,
     namesRoot,
     rootStarts,
+    workspaceMaskState,
+    scanWorkspaceText,
     mergeTurnArtifacts,
     newTurnImageDir,
     promptImages,
@@ -1611,33 +1613,18 @@ function hermesEventCallId(event) {
     return ''
 }
 
-// Streamed text is sent up to its last whitespace, masked, so a workspace path split across two deltas is masked
-// whole; a last word that may start a path waits for the next delta or the end of the stream. Each stream (a specialist, the chief's route or
-// answer) keeps its own tail.
+// Keep a scanner per stream so token holds and rule 5 survive delta boundaries.
 export function bufferStream(context, key, delta, flush, send, root = specialistWorkspaceRoot()) {
     if (!context._deltaTail) context._deltaTail = new Map()
-    const text = (context._deltaTail.get(key) || '') + delta
-    let cut = flush ? text.length : Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1
-    // A last word with no separator that does not end like the start of "file://" cannot hold a path yet, so it is sent too.
-    const last = text.slice(cut)
-    const mayStartLink = [...'file://'].some((_, index) => last.endsWith('file://'.slice(0, index + 1)))
-    if (!flush && !last.includes(path.sep) && !last.includes('/') && !mayStartLink) cut = text.length
-    // The workspaces folder's own name may hold spaces: text that ends partway into it waits too, and so does a path
-    // from the last place the folder appears (with its opening quote) until a line ends after it, since a quoted
-    // path may hold spaces. A held path that grows past STREAM_HOLD is sent at its last whitespace.
-    if (!flush) cut = Math.min(cut, rootPrefixAt(text, root), openPathAt(text, root))
-    if (!flush && text.length - cut > STREAM_HOLD) {
-        cut = Math.max(text.lastIndexOf(' '), text.lastIndexOf('\n'), text.lastIndexOf('\t')) + 1 || text.length
-        // The cut never falls inside the workspaces folder's name, and an unfinished name at the end still waits.
-        const open = text.lastIndexOf(root)
-        if (open >= 0 && cut > open && cut < open + root.length) cut = open
-        cut = Math.min(cut, rootPrefixAt(text, root))
+    let state = context._deltaTail.get(key)
+    if (!state) {
+        state = workspaceMaskState()
+        context._deltaTail.set(key, state)
     }
-    context._deltaTail.set(key, text.slice(cut))
-    if (cut > 0) send(hideTurnImageDir(text.slice(0, cut), '', root))
+    const shown = scanWorkspaceText(state, delta, root, flush)
+    if (shown) send(shown)
+    if (flush) context._deltaTail.delete(key)
 }
-
-const STREAM_HOLD = 16 * 1024
 
 // Where the last mention of the workspaces folder starts (at its opening quote or file:// link) when no line has
 // ended after it, or the text's length.
