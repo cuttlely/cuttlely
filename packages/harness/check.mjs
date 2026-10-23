@@ -10828,7 +10828,9 @@ const routeNodes = async (nodeName) => {
     return recordingChat(forcedRouteCalls, (messages) => {
         const plain = plainChatMessages(messages)
         const system = String(plain[0]?.content || '')
-        if (system.includes('You route work')) return { content: '{"steps":[]}' }
+        // An empty plan goes to the default specialist (1.4.1), so the router names the analyst here.
+        if (system.includes('You route work'))
+            return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: String(plain.at(-1)?.content || '') }] }) }
         return { content: String(plain.at(-1)?.content || '') }
     })
 }
@@ -11072,6 +11074,37 @@ check(
                 twoMixed.trace.route.fallbackSpecialist === 'knowledge' &&
                 twoRan.length === 0,
             JSON.stringify({ one: oneMixed.trace?.route, two: twoMixed.trace?.route, oneRan, twoRan })
+        )
+        const explicitRuns = []
+        for (const [chatId, reply] of [
+            ['explicit-empty', '{"steps":[]}'],
+            ['explicit-broken', 'not json']
+        ]) {
+            routerReply = reply
+            for (const input of ['Query the analyst database for sales.', 'Analyst: SELECT count(*) FROM sales', 'show more']) {
+                const run = await runHarness({
+                    name: 'mixed-one',
+                    chatId: `${chatId}-${explicitRuns.length}`,
+                    input,
+                    baseUrl: 'http://127.0.0.1:9',
+                    fetchImpl: twoFetch,
+                    loadNode: twoNodes
+                })
+                explicitRuns.push({ input, steps: only(run), fallback: run.trace?.route?.fallbackSpecialist, text: run.text })
+            }
+        }
+        const explicitRan = ran.splice(0)
+        check(
+            'an empty or unreadable plan runs the default specialist even when the input names the analyst',
+            explicitRuns.length === 6 &&
+                explicitRuns.every((entry) =>
+                    entry.input === 'show more'
+                        ? // With no cursor, `show more` is answered before any routing call, as before.
+                          entry.text === ANALYST_PAGE_NONE && entry.steps === ''
+                        : entry.steps === 'knowledge' && entry.fallback === 'knowledge'
+                ) &&
+                explicitRan.length === 0,
+            JSON.stringify({ explicitRuns, explicitRan })
         )
     }
     routerReply = '{"steps":[{"specialist":"bakery","task":"show more"}]}'
@@ -11356,7 +11389,8 @@ const pageNodes = async (nodeName) => {
         const system = String(plain[0]?.content || '')
         const user = String(plain.at(-1)?.content || '')
         if (system.includes('You route work')) {
-            if (user.trim() === 'show more') return { content: '{"steps":[]}' }
+            // Paging steers a real plan only; an empty plan runs the default specialist (1.4.1).
+            if (user.trim() === 'show more') return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: 'show more' }] }) }
             if (user.trim() === 'How many rows are in tickets?')
                 return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: user.trim() }] }) }
             return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: 'select all rows' }] }) }

@@ -1145,9 +1145,9 @@ export const ROUTE_IMAGES =
     'The user attached images. You can see them; specialists cannot. When a task depends on an image, write what the image shows into the task.'
 
 export const ROUTE_ANALYST =
-    'Any SQL, database, or analyst-addressed request must go to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. An empty steps list is only for a request that is not a database task. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst. Do not answer it yourself.'
+    'Any SQL, database, or analyst-addressed request must go to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. Never return an empty steps list. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst. Do not answer it yourself.'
 export const ROUTE_ANALYSTS =
-    'Several specialists are analysts, each with its own database. Any SQL, database, or analyst-addressed request must go to the analyst whose summary and tables fit it. When several fit, send a step to each of them. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. An empty steps list is only for a request that is not a database task. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst that returned it. Do not answer it yourself.'
+    'Several specialists are analysts, each with its own database. Any SQL, database, or analyst-addressed request must go to the analyst whose summary and tables fit it. When several fit, send a step to each of them. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. Never return an empty steps list. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst that returned it. Do not answer it yourself.'
 export const ROUTE_CHOOSE_ANALYST =
     'This request is a database task and no analyst was chosen for it. Choose the analyst whose summary and tables fit the request. Choose more than one only when the request needs data from more than one. Reply with JSON only: {"analysts":["NAME"]}.'
 
@@ -1228,12 +1228,6 @@ export const ANALYST_TOOL_RETRY =
 
 const ANALYST_DATA_TASK =
     /\b(select|insert|update|delete|drop|create|alter|vacuum|attach|detach|pragma|truncate|table|tables|database|schema|sql|query|rows?)\b/i
-
-// The input itself names the analyst (`Analyst: ...` or "the analyst database"); not a guess from data words.
-export function explicitAnalystRequest(text) {
-    const value = String(text || '')
-    return /^\s*analyst\s*:/i.test(value) || /\banalyst database\b/i.test(value)
-}
 
 export function isAnalystDataTask(text, options) {
     const value = String(text || '')
@@ -1454,20 +1448,23 @@ async function routeSteps(context, input, history) {
             routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input, fallback: true }] : [] }
         }
     }
-    // An empty plan (or one naming no roster specialist) is not an answer to route on. Analyst guesses from data words
-    // (a lone analyst for a data task, the analyst choice call) apply only to a real plan; an empty one goes to the
-    // one default specialist. Only an input that names the analyst itself (`Analyst: ...`, "the analyst database") or
-    // `show more` paging, which names the analyst that owns the cursor, still steers it, and always to one step.
+    // An empty plan (or one naming no roster specialist) is not an answer to route on, so no input-driven analyst route
+    // (a lone analyst, the analyst choice call, `show more` paging) widens or steers it: it runs exactly one step on
+    // the chief's default specialist. The analyst routes apply only to a plan that named a roster specialist.
     const emptyPlan = !routed.steps.length
-    let parsedSteps = emptyPlan && !explicitAnalystRequest(input) ? [] : forceAnalystRoute(input, routed.steps, specialists)
-    const choices = analystPageRequest(input) || emptyPlan ? [] : analystsToChoose(input, parsedSteps, specialists)
-    if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
-    const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
-    if (pageRoute.reply) return finishUnpaged(context, pageRoute.reply, started)
-    const widened = emptyPlan && pageRoute.steps.length !== 1
-    const steps = withFallbackStep(widened ? [] : pageRoute.steps, specialists, context.roster.chief, input)
+    let steps
+    if (emptyPlan) {
+        steps = withFallbackStep([], specialists, context.roster.chief, input)
+    } else {
+        let parsedSteps = forceAnalystRoute(input, routed.steps, specialists)
+        const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
+        if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
+        const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
+        if (pageRoute.reply) return finishUnpaged(context, pageRoute.reply, started)
+        steps = withFallbackStep(pageRoute.steps, specialists, context.roster.chief, input)
+    }
     if (steps.length && (emptyPlan || steps[0].fallback) && !context.routeParse?.fallbackSpecialist) {
-        // Record where a plan with no usable step went: the default specialist, or the analyst that owns a paged cursor.
+        // Record where a plan with no usable step went: the one default specialist.
         context.routeParse = { ...(context.routeParse || {}), fallbackSpecialist: steps.map((step) => step.specialist.name).join(',') }
         console.warn(`[harness] router plan had no usable step; using the fallback route ${routeLogFields(context)}`)
     }
