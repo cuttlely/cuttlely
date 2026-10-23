@@ -4,8 +4,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-23
+
 ### Fixed
 
+-   A harness called as an agent tool now sends follow-up turns to one specialist instead of the whole roster. When Harness Prime's routing reply is not JSON, Cuttlely reads a fenced or embedded JSON plan, asks once more for JSON only, and otherwise runs one default specialist: the new optional Harness Prime field **Default Specialist**, or the first specialist on the roster. The trace records only the reply's length, a short hash and the parse result, never the reply text. A Harness node used as an agent tool now routes the message the person sent, as a direct run does; the new **Tool Input** field (Additional Parameters) switches it back to the agent's task. A reload keeps the run header and token totals of a harness run as a tool. [Harnesses](./docs/how-to/harnesses.md).
+-   An empty routing plan, or one that names only unknown specialists, runs exactly one step on the default specialist instead of no specialist.
+-   Image links in Orchestrate and A2A answers keep their alt text: they read `![Image: <name>](url)` with the file's original name, so the watsonx Orchestrate CLI shows the image instead of `!(url)`. Reference-style `[label][attachment:...]` links and a bare `[Download ...]` label with no link no longer appear in answers.
 -   Images and file downloads now show in watsonx Orchestrate. `/api/v1/orchestrate` and A2A sent only the answer text, so a harness diagram or deck never reached Orchestrate. The answer now ends with a signed link for each image (`![name](url)`) and file (`[Download name](url)`) the run stored, streaming (one extra delta) and non-streaming. Each link opens only that file in that chat; `EXTERNAL_FILE_LINK_TTL_SECONDS` sets the lifetime (default 1 hour, at most 24 hours). A Tool Agent's model is now told a tool's files are attached automatically, so it no longer writes `attachment:` links that open nothing; such links are also removed from Orchestrate and A2A answers, streamed or not. `GET /api/v1/get-upload-file` serves a PNG, JPEG, GIF or WebP inline (with its image type and `nosniff`) when `download=true` is not set, so image links show in place; every other file stays an attachment. [Orchestrate](./docs/how-to/orchestrate.md#images-and-files-in-orchestrate-answers).
 
 ## [1.4.0] - 2026-10-23
@@ -467,7 +472,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/cuttlely/cuttlely/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/cuttlely/cuttlely/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/cuttlely/cuttlely/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/cuttlely/cuttlely/compare/v1.3.0...v1.3.1
