@@ -149,11 +149,34 @@ const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value
 
 export function hideWorkspacePaths(text, root, chatDir = '') {
     if (!root || typeof text !== 'string') return text
-    let out = text
+    let out = normalizeWorkspaceAliases(text, root)
     for (const base of rootSpellings(root)) {
         if (base !== path.sep) out = hideRoot(out, base, chatDir ? trimSep(path.resolve(chatDir)) : '')
     }
     return out
+}
+
+// Normalize only candidates that resolve within the root; unrelated paths keep their spelling.
+// Keep quotes together so aliases of paths containing spaces use the usual masking rules too.
+function normalizeWorkspaceAliases(text, root) {
+    if (!/(?:\/|%2f)(?:\.|%2e){1,2}(?:\/|%2f)/i.test(text)) return text
+    const absolute = trimSep(path.resolve(root))
+    return text.replace(/(["'`])([^\n]*?)\1|(?:file:\/\/[^/\\\s]*)?\/[^\s'"`<>()\[\]{}|,;]*/gi, (full, quote, quoted, offset) => {
+        if (offset && /[A-Za-z0-9./-]/.test(text[offset - 1])) return full
+        const candidate = quote ? quoted : full
+        const local = candidate.replace(FILE_LINK_START, '')
+        let decoded = local
+        if (/^file:\/\//i.test(candidate)) {
+            try {
+                decoded = decodeURIComponent(local)
+            } catch {}
+        }
+        if (!path.isAbsolute(decoded) || !/(?:^|\/)\.\.?(?:\/|$)/.test(decoded)) return full
+        const normalized = path.resolve(decoded)
+        if (normalized !== absolute && !normalized.startsWith(`${absolute}${path.sep}`)) return full
+        const replacement = /^file:\/\//i.test(candidate) ? `file://${encodeFilePath(normalized)}` : normalized
+        return quote ? `${quote}${replacement}${quote}` : replacement
+    })
 }
 
 function rootSpellings(root) {
@@ -196,6 +219,14 @@ export function namesRoot(text, root) {
 // Find complete roots and unfinished roots at the end of a stream.
 export function rootStarts(text, root, partial = false) {
     const found = []
+    // Any unfinished absolute path can still enter the root through a later "..".
+    // Hold it until a delimiter arrives, including an unfinished file authority.
+    const candidates = /file:\/\/[^\s'"`<>{}|,;]*|\/[^\s'"`<>()\[\]{}|,;]*/gi
+    for (const match of text.matchAll(candidates)) {
+        const at = match.index
+        if (at && /[A-Za-z0-9./-]/.test(text[at - 1])) continue
+        if ((partial && at + match[0].length === text.length) || namesRoot(match[0], root)) found.push(at)
+    }
     for (const base of rootSpellings(root)) {
         for (let at = 0; at < text.length; at += 1) {
             if (at && /[A-Za-z0-9./-]/.test(text[at - 1])) continue
@@ -203,8 +234,7 @@ export function rootStarts(text, root, partial = false) {
             let encoded = false
             if (text.slice(at, at + 7).toLowerCase() === 'file://') {
                 encoded = true
-                start += 7
-                while (start < text.length && /[A-Za-z0-9.:\[\]-]/.test(text[start])) start += 1
+                start += FILE_LINK_START.exec(text.slice(at))[0].length
             } else if (partial && 'file://'.startsWith(text.slice(at).toLowerCase())) {
                 found.push(at)
                 continue
@@ -238,7 +268,7 @@ export function rootStarts(text, root, partial = false) {
 export const encodeFilePath = (value) => encodeURI(value).replace(/#/g, '%23').replace(/\?/g, '%3F')
 
 // A file:// link may name a host (localhost, 127.0.0.1, [::1] or any other) before the path.
-export const FILE_HOST = '[A-Za-z0-9.:\\[\\]-]*'
+export const FILE_HOST = String.raw`[^/\\\s]*`
 const FILE_LINK_START = new RegExp(`^file://${FILE_HOST}`, 'i')
 
 function hideRoot(text, base, chat) {

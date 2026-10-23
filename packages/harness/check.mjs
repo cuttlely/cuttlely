@@ -8055,7 +8055,7 @@ check(
         const frozen = Object.freeze(Object.assign(new Error(`Cannot read ${path.join(assets, 'private.pdf')}`), { code: 'tool_failed' }))
         const freed = maskError(frozen)
         const bytesKept = maskWorkspacePaths({ base64: { error: path.join(assets, 'private.pdf') }, data: `data:text/plain,${assets}/x` })
-        const { hideWorkspacePaths, encodeFilePath } = await import('./images.mjs')
+        const { hideWorkspacePaths, encodeFilePath, namesRoot, rootStarts } = await import('./images.mjs')
         const spacedRoot = '/var/cuttlely data/workspaces'
         const encodedLink = hideWorkspacePaths(`see ${new URL(`file://${spacedRoot}/agent/private.pdf`).href} now`, spacedRoot)
         const fielded = maskError(Object.assign(new Error('tool failed'), { code: path.join(assets, 'private.pdf') }))
@@ -8205,6 +8205,15 @@ check(
         const aliasRoot = '/var/cuttlely/workspaces'
         const aliases = [
             '//var/cuttlely/workspaces/agent/deck.pptx',
+            '/var/cuttlely/./workspaces/agent/deck.pptx',
+            '/var/x/../cuttlely/workspaces/agent/deck.pptx',
+            '//var//x/../cuttlely/./workspaces/agent/deck.pptx',
+            '/var/cuttlely/workspaces/agent/out/../deck.pptx',
+            'file:///var/x/../cuttlely/./workspaces/agent/deck.pptx',
+            'file:///var/cuttlely/%2e/workspaces/agent/deck.pptx',
+            ...['cuttlely_server', 'server!name', 'server$name', 'sérver', '[::1]'].map(
+                (host) => `file://${host}/var/cuttlely/workspaces/agent/deck.pptx`
+            ),
             '/var//cuttlely/workspaces/agent/deck.pptx',
             'file:///var/cuttlely/%77orkspaces/agent/deck.pptx'
         ]
@@ -8213,6 +8222,11 @@ check(
             const said = `Saved ${alias} today`
             const expected = 'Saved deck.pptx today'
             if (hideWorkspacePaths(said, aliasRoot) !== expected) aliasWrong.push(['text', alias])
+            if (!namesRoot(said, aliasRoot)) aliasWrong.push(['namesRoot', alias])
+            if (!rootStarts(said, aliasRoot).includes(6)) aliasWrong.push(['rootStarts', alias])
+            for (let at = 1; at <= alias.length; at += 1) {
+                if (!rootStarts(`Saved ${alias.slice(0, at)}`, aliasRoot, true).includes(6)) aliasWrong.push(['hold', alias, at])
+            }
             const previousDataDir = process.env.CUTTLELY_DATA_DIR
             try {
                 process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
