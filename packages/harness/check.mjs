@@ -8022,6 +8022,25 @@ check(
         cases.push([3, '\\\\server\\share\\deck.pptx', 'a server path'])
         cases.push([3, '\\var\\cuttlely\\workspaces\\a\\deck.pptx', 'the workspace'])
         cases.push([3, '..\\..\\etc\\passwd', 'a server path'])
+        // Rule 3a: backslash paths, with JSON-escaped data left alone.
+        for (const [text, expected] of [
+            ['\\tmp\\notes', 'a server path'],
+            ['\\root\\file', 'a server path'],
+            ['\\Users\\x\\a.pptx', 'a server path'],
+            ['\\\\host\\share\\a.pptx', 'a server path'],
+            ['C:\\Users\\x\\a.pptx', 'a server path'],
+            ['C:/Users/x/a.pptx', 'a server path'],
+            ['see \\tmp\\notes, then retry', 'see a server path, then retry'],
+            ['a lone \\n or \\t stays', 'a lone \\n or \\t stays'],
+            ['{\\"rows\\":[{\\"id\\":1}]}', '{\\"rows\\":[{\\"id\\":1}]}'],
+            ['\\u0041\\tmp\\x', '\\u0041\\tmp\\x'],
+            ['["\\\\tmp\\\\x"]', '["\\\\tmp\\\\x"]'],
+            ['{"rows":[1]} then \\tmp\\x', '{"rows":[1]} then a server path'],
+            ['"C:\\\\Users\\\\x\\\\deck.pptx"', '"a server path"'],
+            // Accepted residual for 1.4.1: a Windows path inside an escaped JSON object stays as JSON.
+            ['{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}', '{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}']
+        ])
+            cases.push([3, text, expected])
         for (const text of prose) cases.push([6, text, text])
         const previousDataDir = process.env.CUTTLELY_DATA_DIR
         try {

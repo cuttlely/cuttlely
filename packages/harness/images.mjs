@@ -145,8 +145,18 @@ export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirna
 const EDGE = /[\]\)}|<>"`,;:!?]/
 const QUOTES = '"\'`'
 const LEAD = /^[\]\)}|<>,;:!?]*$/
-// A backslash path uses \ as a separator; JSON escapes such as \" or \n are data, not paths.
-const backslashPath = (value) => /^\\\\[^\\"\s]/.test(value) || /\\(?!["\\/bfnrtu]|$)/.test(value.replace(/\\\\/g, ''))
+// Rule 3a: \name\name..., UNC \\host\share, or a drive letter. JSON-escaped data is left alone.
+const BACKSLASH_START = /^(?:\\[A-Za-z0-9._$~-]+\\[A-Za-z0-9._$~-]+|\\\\[^\\\s]+\\|[a-z]:[\\/])/i
+const jsonSpan = (value) => {
+    if (!/^[\[{]/.test(value)) return false
+    try {
+        JSON.parse(value)
+        return true
+    } catch {
+        return false
+    }
+}
+const backslashPath = (token, raw) => BACKSLASH_START.test(token) && !/\\"|\\u[0-9a-f]{4}/i.test(raw) && !jsonSpan(raw) && !jsonSpan(token)
 const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value.slice(0, -1) : value)
 
 function tokenMask(raw, root, continued) {
@@ -157,7 +167,7 @@ function tokenMask(raw, root, continued) {
     const token = raw.slice(start, end)
     if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
     const slash = /[\/\\]/.test(token)
-    const candidate = /^(?:[\/~]|[a-z]:\\|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token)
+    const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
     if (!candidate && !(continued && slash)) return { text: raw, masked: false }
     let local = token.replace(/^file:\/\/[^/\\\s]*/i, '')
     try {
@@ -213,17 +223,12 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             // Rule 6 keeps ordinary data intact, even when a JSON value or word is long.
             // Track candidate syntax incrementally so long plain text stays linear.
             const tail = (state.tail = (state.tail + char).slice(-6))
-            if (state.prefix.length < 32 && (state.prefix || !(EDGE.test(char) || char === "'"))) state.prefix += char
-            let escaped = false
-            if (char === '\\') state.slash = !state.slash
-            else {
-                escaped = state.slash && !'"/bfnrtu'.includes(char)
-                state.slash = false
-            }
+            if (state.prefix.length < 256 && (state.prefix || !(EDGE.test(char) || char === "'"))) state.prefix += char
+            state.slash = char === '\\' ? !state.slash : false
             if (
                 /\.\.|\/\/|%2f|%2e%2e/i.test(tail) ||
-                escaped ||
-                /^(?:[\/~]|[a-z]:\\)/i.test(state.prefix) ||
+                /^[\/~]/.test(state.prefix) ||
+                BACKSLASH_START.test(state.prefix) ||
                 (state.continued && /[\/\\]/.test(char))
             )
                 state.capCandidate = true
