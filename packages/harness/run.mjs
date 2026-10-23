@@ -1448,15 +1448,18 @@ async function routeSteps(context, input, history) {
             routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input, fallback: true }] : [] }
         }
     }
+    // An empty plan (or one naming no roster specialist) is not an answer to route on. A data task still goes to the
+    // roster's analysts (the analyst routes below); anything else goes to the one default specialist.
+    const emptyPlan = !routed.steps.length
     let parsedSteps = forceAnalystRoute(input, routed.steps, specialists)
     const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
     if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
     const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
     if (pageRoute.reply) return finishUnpaged(context, pageRoute.reply, started)
     const steps = withFallbackStep(pageRoute.steps, specialists, context.roster.chief, input)
-    if (steps.length && steps[0].fallback && !context.routeParse?.fallbackSpecialist) {
-        // A readable plan with no step on the roster (an empty list or only unknown names) also ends at the default.
-        context.routeParse = { ...(context.routeParse || {}), fallbackSpecialist: steps[0].specialist.name }
+    if (steps.length && (emptyPlan || steps[0].fallback) && !context.routeParse?.fallbackSpecialist) {
+        // A readable plan with no step on the roster (an empty list or only unknown names) records where it went.
+        context.routeParse = { ...(context.routeParse || {}), fallbackSpecialist: steps.map((step) => step.specialist.name).join(',') }
         console.warn(`[harness] router plan had no usable step; using the default specialist ${routeLogFields(context)}`)
     }
     for (const step of steps) delete step.fallback

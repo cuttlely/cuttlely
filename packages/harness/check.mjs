@@ -3149,7 +3149,12 @@ async function routeRecoverTurn(chatId, routeReplies) {
     ])
     check(
         'a plan naming only unknown specialists runs exactly one step on the default specialist and records fallbackSpecialist',
-        oneFallback(unknownOnly) && unknownOnly.routeCount === 1 && !unknownOnly.run.trace.route.parseError,
+        oneFallback(unknownOnly) &&
+            unknownOnly.routeCount === 1 &&
+            !unknownOnly.run.trace.route.parseError &&
+            unknownOnly.events.find((event) => event.type === 'route' && event.phase === 'done')?.fallbackSpecialist === 'knowledge' &&
+            unknownOnly.events.reduce((trace, event) => reduceHarnessEvent(trace, event), emptyTrace()).route?.fallbackSpecialist ===
+                'knowledge',
         JSON.stringify(unknownOnly.run.trace?.route)
     )
     const emptyFirst = await routeRecoverTurn('route-recover-6', ['{"steps":[]}'])

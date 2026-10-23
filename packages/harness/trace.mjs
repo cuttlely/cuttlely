@@ -632,6 +632,8 @@ function reduceHarnessStep(trace, event) {
                       retried: Boolean(event.retried),
                       ...(event.fallbackSpecialist ? { fallbackSpecialist: String(event.fallbackSpecialist) } : {})
                   }
+                : event.fallbackSpecialist
+                ? { fallbackSpecialist: String(event.fallbackSpecialist) }
                 : {}),
             steps: Array.isArray(event.steps)
                 ? event.steps.map((step) => ({
