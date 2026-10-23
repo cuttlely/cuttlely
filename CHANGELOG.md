@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Images and file downloads now show in watsonx Orchestrate. `/api/v1/orchestrate` and A2A sent only the answer text, so a harness diagram or deck never reached Orchestrate. The answer now ends with a signed link for each image (`![name](url)`) and file (`[Download name](url)`) the run stored, streaming (one extra delta) and non-streaming. Each link opens only that file in that chat; `EXTERNAL_FILE_LINK_TTL_SECONDS` sets the lifetime (default 1 hour, at most 24 hours). A Tool Agent's model is now told a tool's files are attached automatically, so it no longer writes `attachment:` links that open nothing; such links are also removed from Orchestrate and A2A answers. [Orchestrate](./docs/how-to/orchestrate.md#images-and-files-in-orchestrate-answers).
+
 ## [1.4.0] - 2026-10-23
 
 ### Fixed

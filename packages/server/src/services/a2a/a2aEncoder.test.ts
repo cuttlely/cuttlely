@@ -18,3 +18,19 @@ describe('makeA2aEncoder', () => {
         expect(a2aSseData({ a: 1 })).toBe('data: {"a":1}\n\n')
     })
 })
+
+describe('makeA2aEncoder artifacts', () => {
+    const meta = { rpcId: 1, taskId: 't', contextId: 'c', artifactId: 'a' }
+    const artifacts = { kind: 'event' as const, payload: { event: 'artifacts', data: [] } }
+    const token = { kind: 'event' as const, payload: { event: 'token', data: 'Hi' } }
+    const parse = (s: string | null) => JSON.parse(String(s).slice(6)).result
+
+    it('sends links as an answer chunk and keeps append order with tokens', () => {
+        const encoder = makeA2aEncoder(meta, () => '[Download r.pdf](https://x.example/r)')
+        expect(parse(encoder(token as any)).append).toBe(false)
+        const chunk = parse(encoder(artifacts as any))
+        expect(chunk.append).toBe(true)
+        expect(chunk.artifact.parts[0].text).toBe('\n\n[Download r.pdf](https://x.example/r)')
+        expect(makeA2aEncoder(meta)(artifacts as any)).toBeNull()
+    })
+})

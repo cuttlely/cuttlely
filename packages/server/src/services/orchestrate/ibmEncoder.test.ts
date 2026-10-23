@@ -93,3 +93,20 @@ describe(`ibmEncoder (spec.yaml ${COMMIT})`, () => {
         expect(deltaSchema.parse(delta).choices[0].delta.content).toBe('Hello')
     })
 })
+
+describe('makeIbmEncoder artifacts', () => {
+    const meta = { responseId: 'chatcmpl-1', threadId: 't-1', model: 'm', created: 1 }
+    const frame = { kind: 'event' as const, payload: { event: 'artifacts', data: [{ type: 'png', data: 'FILE-STORAGE::a.png' }] } }
+
+    it('emits one artifact delta with the links it is given', () => {
+        const encoder = makeIbmEncoder(meta, () => '![a.png](https://x.example/a)')
+        const out = encoder(frame as any)
+        expect(out).toBe(ibmDeltaFrame(meta, '\n\n![a.png](https://x.example/a)'))
+        expect(deltaSchema.parse(JSON.parse(String(out).split('data: ')[1])).choices[0].delta.content).toContain('![a.png]')
+    })
+
+    it('drops the frame with no link builder or nothing to link', () => {
+        expect(makeIbmEncoder(meta)(frame as any)).toBeNull()
+        expect(makeIbmEncoder(meta, () => '')(frame as any)).toBeNull()
+    })
+})

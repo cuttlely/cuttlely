@@ -19,11 +19,19 @@ export function ibmDeltaFrame(meta: IbmEncoderMeta, content: string): string {
     return `event: thread.message.delta\ndata: ${JSON.stringify(payload)}\n\n`
 }
 
-export function makeIbmEncoder(meta: IbmEncoderMeta): SSEEncoder {
+/**
+ * Token frames become deltas. With `artifactMarkdown`, an artifacts frame (files the run stored) becomes one delta with
+ * their signed links; without it, or when nothing is linkable, the frame is dropped as before.
+ */
+export function makeIbmEncoder(meta: IbmEncoderMeta, artifactMarkdown?: (artifacts: unknown) => string): SSEEncoder {
     return (frame: SSEFrame) => {
         if (frame.kind === 'comment') return `:${frame.text}\n\n`
         if (frame.kind === 'event' && frame.payload.event === 'token') {
             return ibmDeltaFrame(meta, String(frame.payload.data ?? ''))
+        }
+        if (artifactMarkdown && frame.kind === 'event' && frame.payload.event === 'artifacts') {
+            const markdown = artifactMarkdown(frame.payload.data)
+            return markdown ? ibmDeltaFrame(meta, `\n\n${markdown}`) : null
         }
         return null
     }

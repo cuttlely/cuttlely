@@ -12,6 +12,7 @@ import { SSEEncoder } from '../../utils/SSEStreamer'
 import predictionsServices from '../../services/predictions'
 import { waitingForApproval } from '../../services/usage'
 import { answerText } from '../../services/orchestrate/completion'
+import { ArtifactLinker, fileLinkContext, makeArtifactLinker, resultArtifacts, withArtifactLinks } from '../externalAgent/fileLinks'
 import { flowHasMemory } from '../../services/orchestrate/mapRequest'
 import { a2aSseData, makeA2aEncoder, silentA2aEncoder } from './a2aEncoder'
 import {
@@ -169,7 +170,11 @@ const bindRun = (
     return owned
 }
 
-type RunOutcome = { kind: 'canceled' } | { kind: 'disconnected' } | { kind: 'failed'; text: string } | { kind: 'completed'; text: string }
+type RunOutcome =
+    | { kind: 'canceled' }
+    | { kind: 'disconnected' }
+    | { kind: 'failed'; text: string }
+    | { kind: 'completed'; text: string; tail?: string }
 
 export function classifyOutcome(opts: { row: A2aStoredTask; signal?: AbortSignal; error?: unknown; result?: unknown }): RunOutcome {
     if (storedCanceled(opts.row)) return { kind: 'canceled' }
@@ -186,7 +191,7 @@ export function classifyOutcome(opts: { row: A2aStoredTask; signal?: AbortSignal
 export async function executeMessage(opts: {
     req: Request
     res: Response
-    chatflow: { id: string; apikeyid?: string | null; flowData?: string | null }
+    chatflow: { id: string; apikeyid?: string | null; flowData?: string | null; workspaceId?: string | null }
     rpcId: JsonRpcId
     params: Record<string, unknown>
     stream: boolean
@@ -222,8 +227,10 @@ export async function executeMessage(opts: {
     const sseStreamer = getRunningExpressApp().sseStreamer
     const sink = opts.stream ? opts.res : noopSink
     let sentToken = false
+    // Signed links for the files this run stores, scoped to this flow and this context's chat.
+    const linker = makeArtifactLinker(await fileLinkContext(opts.req, opts.chatflow, boundIds.chatId))
     const inner = opts.stream
-        ? makeA2aEncoder({ rpcId: opts.rpcId, taskId: row.task.id, contextId, artifactId: row.artifactId })
+        ? makeA2aEncoder({ rpcId: opts.rpcId, taskId: row.task.id, contextId, artifactId: row.artifactId }, linker.take)
         : silentA2aEncoder
     const encoder: SSEEncoder = (frame) => {
         const encoded = inner(frame)
@@ -276,6 +283,7 @@ export async function executeMessage(opts: {
         try {
             const apiResponse = await predictionsServices.buildChatflow(opts.req)
             outcome = classifyOutcome({ row, signal, result: apiResponse })
+            if (outcome.kind === 'completed') outcome = completedWithLinks(outcome.text, apiResponse, linker, sentToken)
         } catch (error) {
             outcome = classifyOutcome({ row, signal, error })
         }
@@ -317,6 +325,18 @@ export async function executeMessage(opts: {
         }
         sseStreamer.removeClient(boundIds.chatId)
     }
+}
+
+type Completed = { kind: 'completed'; text: string; tail?: string }
+
+/**
+ * The stored answer carries every file link. A streamed run that already sent tokens gets only the files not yet
+ * sent, as the last chunk (`tail`); otherwise the final chunk replaces the stream and carries them all.
+ */
+function completedWithLinks(text: string, result: unknown, linker: ArtifactLinker, sentToken: boolean): Completed {
+    const tail = sentToken ? linker.take(resultArtifacts(result)) : ''
+    const full = withArtifactLinks(text, linker.all(resultArtifacts(result)))
+    return { kind: 'completed', text: full, ...(tail ? { tail: `\n\n${tail}` } : {}) }
 }
 
 function applyOutcome(opts: {
@@ -386,7 +406,7 @@ function applyOutcome(opts: {
                         kind: 'artifact-update',
                         taskId: row.task.id,
                         contextId: row.contextId,
-                        artifact: { artifactId: row.artifactId, name: 'answer', parts: [{ kind: 'text', text: '' }] },
+                        artifact: { artifactId: row.artifactId, name: 'answer', parts: [{ kind: 'text', text: outcome.tail ?? '' }] },
                         append: true,
                         lastChunk: true
                     })

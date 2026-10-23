@@ -1,5 +1,7 @@
 # Status
 
+Aimed at 1.4.1 (branch `fix/orchestrate-artifact-links`): `/api/v1/orchestrate` and A2A answers end with signed links (`![name](url)`, `[Download name](url)`) for the run's stored files, scoped to that chat, lifetime `EXTERNAL_FILE_LINK_TTL_SECONDS` (default 3600, clamped 60..86400); a Tool Agent is told tool files attach automatically, so it stops writing `attachment:` links. Not yet tested live with Orchestrate.
+
 Handoff 2026-10-23: 1.4.0 release PR (branch release-1.4.0): versions 1.4.0, CHANGELOG dated 2026-10-23 covering #267, #268, #269, install pins at 1.4.0; tag v1.4.0, GitHub release, npm and ghcr follow its merge.
 
 Handoff 2026-10-23: #269 (chat image downloads; artifact links use the server chat id in the first turn) has main merged in after #267 and #268 and merges last for 1.4.0.
