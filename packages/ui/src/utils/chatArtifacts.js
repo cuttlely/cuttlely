@@ -57,12 +57,21 @@ export function fileArtifactName(item) {
     return name || `file.${item?.type || 'bin'}`
 }
 
-// A stored PNG or JPEG, or an uploaded file, becomes the chat's get-upload-file link. The name goes through
-// URLSearchParams so & # + and spaces in it survive; imageArtifactDownload adds download=true for the save button.
-export function storedImageArtifactUrl(baseURL, chatflowId, chatId, data) {
-    const fileName = typeof data === 'string' ? data.replace('FILE-STORAGE::', '') : ''
+// The chat's get-upload-file link. Each value goes through URLSearchParams so & # + and spaces in a name survive.
+function uploadFileLink(baseURL, chatflowId, chatId, fileName) {
     const params = new URLSearchParams({ chatflowId: chatflowId || '', chatId: chatId || '', fileName })
     return `${baseURL}/api/v1/get-upload-file?${params.toString()}`
+}
+
+// A stored PNG or JPEG (FILE-STORAGE::name) becomes the chat's inline image link; only a leading FILE-STORAGE:: is
+// dropped. imageArtifactDownload adds download=true for the save button.
+export function storedImageArtifactUrl(baseURL, chatflowId, chatId, data) {
+    return uploadFileLink(baseURL, chatflowId, chatId, typeof data === 'string' ? data.replace(/^FILE-STORAGE::/, '') : '')
+}
+
+// A file the user uploaded to the chat, linked by its name exactly as uploaded.
+export function uploadedFileUrl(baseURL, chatflowId, chatId, name) {
+    return uploadFileLink(baseURL, chatflowId, chatId, typeof name === 'string' ? name : '')
 }
 
 export const IMAGE_ARTIFACT_TYPES = ['png', 'jpeg']

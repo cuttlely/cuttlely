@@ -38,7 +38,7 @@ import { CodeEditor } from '@/ui-component/editor/CodeEditor'
 import SourceDocDialog from '@/ui-component/dialog/SourceDocDialog'
 
 import predictionApi from '@/api/prediction'
-import { storedImageArtifactUrl } from '@/utils/chatArtifacts'
+import { storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
 
 export const NodeExecutionDetails = ({ data, label, status, metadata, isPublic, onProceedSuccess }) => {
     const [dataView, setDataView] = useState('rendered')
@@ -844,7 +844,7 @@ export const NodeExecutionDetails = ({ data, label, status, metadata, isPublic, 
                                                     component='img'
                                                     image={
                                                         content.type === 'stored-file'
-                                                            ? storedImageArtifactUrl(
+                                                            ? uploadedFileUrl(
                                                                   baseURL,
                                                                   metadata?.agentflowId,
                                                                   metadata?.sessionId,

@@ -85,7 +85,7 @@ import { shouldToastOnStreamEnd, useItWorkedNotice } from '@/utils/itWorked'
 // Const
 import FileArtifact from '@/ui-component/artifacts/FileArtifact'
 import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
-import { isFileArtifact, storedFileArtifactUrl, storedImageArtifactUrl } from '@/utils/chatArtifacts'
+import { isFileArtifact, storedFileArtifactUrl, storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
 import { baseURL, maxScroll } from '@/store/constant'
 import { acceptChatSubmit, harnessCanvasRunPath } from '@/utils/harnessCanvasChat'
 import { harnessMessageText } from '@/utils/harnessStream'
@@ -1550,7 +1550,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     obj.fileUploads = message.fileUploads
                     obj.fileUploads.forEach((file) => {
                         if (file.type === 'stored-file') {
-                            file.data = storedImageArtifactUrl(baseURL, chatflowid, chatId, file.name)
+                            file.data = uploadedFileUrl(baseURL, chatflowid, chatId, file.name)
                         }
                     })
                 }

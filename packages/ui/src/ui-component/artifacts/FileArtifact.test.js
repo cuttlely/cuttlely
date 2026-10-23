@@ -12,7 +12,8 @@ import {
     imageArtifactDownload,
     isFileArtifact,
     storedFileArtifactUrl,
-    storedImageArtifactUrl
+    storedImageArtifactUrl,
+    uploadedFileUrl
 } from '@/utils/chatArtifacts'
 
 const BASE = 'https://cuttlely.example'
@@ -137,7 +138,7 @@ describe('file artifacts in the chat', () => {
 
     test('an uploaded file keeps spaces, & and # in its name through the link', () => {
         for (const name of ['Q3 R&D.pdf', 'notes #2.docx', 'a&b#c+d.pdf']) {
-            const url = storedImageArtifactUrl(BASE, 'f', 'c', name)
+            const url = uploadedFileUrl(BASE, 'f', 'c', name)
             expect(url.startsWith(`${BASE}/api/v1/get-upload-file?`)).toBe(true)
             expect(url).not.toMatch(/[ #]/)
             const params = new URL(url).searchParams
@@ -145,15 +146,24 @@ describe('file artifacts in the chat', () => {
             expect(params.get('chatflowId')).toBe('f')
             expect(params.get('chatId')).toBe('c')
         }
-        expect(storedImageArtifactUrl(BASE, 'f', 'c', 'Q3 R&D.pdf')).toBe(
+        expect(uploadedFileUrl(BASE, 'f', 'c', 'Q3 R&D.pdf')).toBe(
             `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=Q3+R%26D.pdf`
         )
-        expect(storedImageArtifactUrl(BASE, 'f', 'c', 'a&b#c+d.pdf')).toBe(
+        expect(uploadedFileUrl(BASE, 'f', 'c', 'a&b#c+d.pdf')).toBe(
             `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=a%26b%23c%2Bd.pdf`
         )
-        expect(storedImageArtifactUrl(BASE, 'f', 'c', 'notes #2.docx')).toBe(
+        expect(uploadedFileUrl(BASE, 'f', 'c', 'notes #2.docx')).toBe(
             `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=notes+%232.docx`
         )
+    })
+
+    test('an uploaded file name is linked as uploaded, and only a leading FILE-STORAGE:: is dropped from a stored image', () => {
+        const name = (url) => new URL(url).searchParams.get('fileName')
+        expect(name(uploadedFileUrl(BASE, 'f', 'c', 'FILE-STORAGE::report.pdf'))).toBe('FILE-STORAGE::report.pdf')
+        expect(name(uploadedFileUrl(BASE, 'f', 'c', 'myFILE-STORAGE::report.pdf'))).toBe('myFILE-STORAGE::report.pdf')
+        expect(name(storedImageArtifactUrl(BASE, 'f', 'c', 'FILE-STORAGE::chart.png'))).toBe('chart.png')
+        expect(name(storedImageArtifactUrl(BASE, 'f', 'c', 'FILE-STORAGE::myFILE-STORAGE::x.png'))).toBe('myFILE-STORAGE::x.png')
+        expect(name(uploadedFileUrl(BASE, null, undefined, undefined))).toBe('')
     })
 
     test('no chat view builds a get-upload-file fileName link by hand', () => {
@@ -166,7 +176,7 @@ describe('file artifacts in the chat', () => {
         ]) {
             const source = fs.readFileSync(path.join(__dirname, file), 'utf8')
             expect(source).not.toMatch(/fileName=\$\{/)
-            expect(source).toMatch(/storedImageArtifactUrl\(\s*baseURL,/)
+            expect(source).toMatch(/uploadedFileUrl\(\s*baseURL,/)
         }
     })
 

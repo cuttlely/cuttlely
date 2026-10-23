@@ -72,7 +72,7 @@ import { isValidURL, removeDuplicateURL } from '@/utils/genericHelper'
 import useNotifier from '@/utils/useNotifier'
 import FileArtifact from '@/ui-component/artifacts/FileArtifact'
 import ImageDownloadButton from '@/ui-component/artifacts/ImageDownloadButton'
-import { isFileArtifact, storedFileArtifactUrl, storedImageArtifactUrl } from '@/utils/chatArtifacts'
+import { isFileArtifact, storedFileArtifactUrl, storedImageArtifactUrl, uploadedFileUrl } from '@/utils/chatArtifacts'
 import { baseURL } from '@/store/constant'
 
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
@@ -518,7 +518,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
             if (chatmsg.fileUploads && Array.isArray(chatmsg.fileUploads)) {
                 chatmsg.fileUploads.forEach((file) => {
                     if (file.type === 'stored-file') {
-                        file.data = storedImageArtifactUrl(baseURL, chatmsg.chatflowid, chatmsg.chatId, file.name)
+                        file.data = uploadedFileUrl(baseURL, chatmsg.chatflowid, chatmsg.chatId, file.name)
                     }
                 })
             }
