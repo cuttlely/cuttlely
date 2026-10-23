@@ -2978,7 +2978,11 @@ async function routeRecoverTurn(chatId, routeReplies) {
                 return recordingChat(calls, (messages) => {
                     const plain = plainChatMessages(messages)
                     const system = String(plain[0]?.content || '')
-                    if (system.includes('You route work')) return { content: routeReplies[Math.min(routeCount++, routeReplies.length - 1)] }
+                    if (system.includes('You route work')) {
+                        const next = routeReplies[Math.min(routeCount++, routeReplies.length - 1)]
+                        if (next instanceof Error) throw next
+                        return { content: next }
+                    }
                     return { content: `specialist:${String(plain.at(-1)?.content || '').slice(0, 40)}` }
                 })
             }
@@ -3014,6 +3018,20 @@ async function routeRecoverTurn(chatId, routeReplies) {
             String(plainChatMessages(retryCall?.messages || []).at(-1)?.content || '') === ROUTE_JSON_RETRY &&
             retried.run.trace.route.parseError === 'not_json',
         JSON.stringify({ route: retried.run.trace?.route, count: retried.routeCount })
+    )
+    const retryEcho = String(plainChatMessages(retryCall?.messages || []).at(-2)?.content || '')
+    check(
+        'the router retry echoes only the start of the unreadable reply',
+        retryEcho.length === 1000 && retryEcho.startsWith('The best fit is the knowledge specialist'),
+        String(retryEcho.length)
+    )
+    const thrown = await routeRecoverTurn('route-recover-3', [prose, new Error('context length exceeded')])
+    check(
+        'a router retry that fails still sends the request to the default specialist',
+        thrown.run.trace?.route?.steps?.length === 1 &&
+            thrown.run.trace.route.steps[0].specialist === 'knowledge' &&
+            thrown.warned.some((line) => line.includes('router retry failed')),
+        JSON.stringify({ route: thrown.run.trace?.route?.steps, warned: thrown.warned })
     )
     const fallback = await routeRecoverTurn('route-recover-2', [prose, prose])
     const route = fallback.run.trace?.route || {}

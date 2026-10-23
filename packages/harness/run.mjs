@@ -1425,20 +1425,32 @@ async function routeSteps(context, input, history) {
         )
         const retryMessages = [
             ...fitted.messages,
-            { role: 'assistant', content: String(reply.content ?? '') },
+            // Only the start of the unreadable reply goes back, so the retry stays inside the chief's context budget.
+            { role: 'assistant', content: String(reply.content ?? '').slice(0, ROUTE_RETRY_ECHO_CHARS) },
             { role: 'user', content: ROUTE_JSON_RETRY }
         ]
-        const retry = await callModel(context, chiefModel(context.roster), {
-            messages: withPromptImages(retryMessages, context.images),
-            json: true,
-            role: 'route'
-        })
+        let retry = { content: '' }
+        try {
+            retry = await callModel(context, chiefModel(context.roster), {
+                messages: withPromptImages(retryMessages, context.images),
+                json: true,
+                role: 'route'
+            })
+        } catch (error) {
+            // A failed retry still ends at the default specialist; only a stopped run stops here.
+            if (context.workSignal?.aborted || context.clientSignal?.aborted || context.budgetSignal?.aborted) throw error
+            console.warn(
+                `[harness] ${context.name} router retry failed (chat ${context.chatId}): ${maskWorkspacePaths(
+                    String(error?.message || error)
+                )}`
+            )
+        }
         routed = parseRouteSteps(retry.content, specialists, input)
         if (!routed.ok) {
             const fallback = defaultRouteSpecialist(specialists, context.roster.chief)
             context.routeParse = {
                 error: 'not_json',
-                rawPreview: routeRawPreview(retry.content),
+                rawPreview: routeRawPreview(retry.content || reply.content),
                 retried: true,
                 fallback: fallback?.name || ''
             }
@@ -1594,6 +1606,7 @@ export const ROUTE_JSON_RETRY =
     'Your last reply was not JSON. Do not answer the request. Reply with only the routing JSON: {"steps":[{"specialist":"NAME","task":"...","after":""}]}.'
 export const ROUTE_RAW_PREVIEW_CHARS = 500
 const ROUTE_JSON_SCAN_CHARS = 20000
+const ROUTE_RETRY_ECHO_CHARS = 1000
 const ROUTE_JSON_SCAN_TRIES = 64
 
 // What the trace and the log keep of a router reply that held no JSON: workspace paths masked, then capped.
