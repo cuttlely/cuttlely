@@ -1550,7 +1550,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                     obj.fileUploads = message.fileUploads
                     obj.fileUploads.forEach((file) => {
                         if (file.type === 'stored-file') {
-                            file.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowid}&chatId=${chatId}&fileName=${file.name}`
+                            file.data = storedImageArtifactUrl(baseURL, chatflowid, chatId, file.name)
                         }
                     })
                 }

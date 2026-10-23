@@ -518,7 +518,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
             if (chatmsg.fileUploads && Array.isArray(chatmsg.fileUploads)) {
                 chatmsg.fileUploads.forEach((file) => {
                     if (file.type === 'stored-file') {
-                        file.data = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatmsg.chatflowid}&chatId=${chatmsg.chatId}&fileName=${file.name}`
+                        file.data = storedImageArtifactUrl(baseURL, chatmsg.chatflowid, chatmsg.chatId, file.name)
                     }
                 })
             }

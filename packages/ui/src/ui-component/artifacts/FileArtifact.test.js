@@ -135,6 +135,41 @@ describe('file artifacts in the chat', () => {
         expect(download.name).toBe('a_b_c_d.png')
     })
 
+    test('an uploaded file keeps spaces, & and # in its name through the link', () => {
+        for (const name of ['Q3 R&D.pdf', 'notes #2.docx', 'a&b#c+d.pdf']) {
+            const url = storedImageArtifactUrl(BASE, 'f', 'c', name)
+            expect(url.startsWith(`${BASE}/api/v1/get-upload-file?`)).toBe(true)
+            expect(url).not.toMatch(/[ #]/)
+            const params = new URL(url).searchParams
+            expect(params.get('fileName')).toBe(name)
+            expect(params.get('chatflowId')).toBe('f')
+            expect(params.get('chatId')).toBe('c')
+        }
+        expect(storedImageArtifactUrl(BASE, 'f', 'c', 'Q3 R&D.pdf')).toBe(
+            `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=Q3+R%26D.pdf`
+        )
+        expect(storedImageArtifactUrl(BASE, 'f', 'c', 'a&b#c+d.pdf')).toBe(
+            `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=a%26b%23c%2Bd.pdf`
+        )
+        expect(storedImageArtifactUrl(BASE, 'f', 'c', 'notes #2.docx')).toBe(
+            `${BASE}/api/v1/get-upload-file?chatflowId=f&chatId=c&fileName=notes+%232.docx`
+        )
+    })
+
+    test('no chat view builds a get-upload-file fileName link by hand', () => {
+        const fs = require('fs')
+        const path = require('path')
+        for (const file of [
+            '../../views/chatmessage/ChatMessage.jsx',
+            '../dialog/ViewMessagesDialog.jsx',
+            '../../views/agentexecutions/NodeExecutionDetails.jsx'
+        ]) {
+            const source = fs.readFileSync(path.join(__dirname, file), 'utf8')
+            expect(source).not.toMatch(/fileName=\$\{/)
+            expect(source).toMatch(/storedImageArtifactUrl\(\s*baseURL,/)
+        }
+    })
+
     test('the chat and the messages dialog build image links with storedImageArtifactUrl', () => {
         const fs = require('fs')
         const path = require('path')
