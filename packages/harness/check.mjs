@@ -7995,6 +7995,17 @@ check(
         } finally {
             fs.rmSync(rule3Root, { recursive: true, force: true })
         }
+        const byteError = Object.assign(new Error('failed /tmp/input'), {
+            base64: '/' + 'A'.repeat(2000) + '//x',
+            data: 'data:image/png;base64,/' + 'A'.repeat(2000)
+        })
+        const maskedByteError = maskError(byteError)
+        check(
+            'error byte fields survive message masking',
+            maskedByteError.message === 'failed a server path' &&
+                maskedByteError.base64 === byteError.base64 &&
+                maskedByteError.data === byteError.data
+        )
         const cases = [
             [1, `"${root}/a/Q3 Reports/deck.pptx"`, `"${file}"`],
             [1, `'${deck}'`, `'${file}'`],
@@ -8019,14 +8030,22 @@ check(
             [1, "x='/tmp/a b' y", "x='a server path' y"],
             // Rule 1 + 3a: a {/[ token that cannot be JSON is split and its quotes open as usual.
             [1, '{note:"/tmp/private file.txt"}', '{note:"a server path"}'],
+            [1, '{"path":"/var/cuttlely/workspaces/a/private file.txt"', '{"path":"the workspace"'],
+            [1, '{true:"/tmp/private file.txt"}', '{true:"a server path"}'],
+            [1, '{"task":"safe", "path":"/tmp/private file.txt"', '{"task":"safe", "path":"a server path"'],
+            [1, '{"task":"safe", "path":"docs/report.md" /tmp/private', '{"task":"safe", "path":"docs/report.md" a server path'],
             // Rules 2, 3, 7: a path candidate reads on through a quoted span and is masked whole.
             [3, '/tmp/cache:"private folder" done', 'a server path" done'],
             [3, '/var/cuttlely/workspaces/a/x:"private folder" done', 'the workspace" done'],
             [1, '{note:"/var/cuttlely/workspaces/a/private file.txt"}', '{note:"the workspace"}'],
             [6, '{"a":true,"b":null,"c":[1,2]}', '{"a":true,"b":null,"c":[1,2]}'],
+            [6, '{"path": "/tmp/private file.txt"}', '{"path": "/tmp/private file.txt"}'],
+            [6, '[ {"path":"/tmp/private file.txt"} ]', '[ {"path":"/tmp/private file.txt"} ]'],
             [6, 'README requires checking docs/report.md', 'README requires checking docs/report.md'],
             [6, 'README requires checking docs/../../report.md', 'README requires checking a server path'],
             [7, '/' + 'x'.repeat(1024), 'a server path'],
+            // A final key can leave before a later path hits the cap; the held suffix still gets one fallback.
+            [7, '{"path":"/tmp/' + 'x'.repeat(1024), '{"path"a server path'],
             [7, '"/' + 'x '.repeat(600) + '" done', 'a server path done'],
             [8, `${root}/a/private/deck.pptx\tfinished\n`, `${file}\tfinished\n`],
             [9, 'out/deck.pptx docs/report.md', 'out/deck.pptx docs/report.md']
@@ -8149,6 +8168,20 @@ check(
                 scanWorkspaceText(capped, '/' + 'x'.repeat(1024), root) === 'a server path' &&
                     scanWorkspaceText(capped, 'remaining ', root) === ' '
             )
+            {
+                const jsonState = workspaceMaskState()
+                check(
+                    'rule 7: provisional JSON releases only a final prefix shared with ordinary quote rules',
+                    scanWorkspaceText(jsonState, '{"steps":[{"task":"check', root) === '{"steps":[{"task"' &&
+                        scanWorkspaceText(jsonState, ' routes"}]}', root, true) === ':"check routes"}]}'
+                )
+                const continuedJson = workspaceMaskState()
+                check(
+                    'rule 5: provisional JSON clears continuation only after a complete token without a slash',
+                    scanWorkspaceText(continuedJson, '/tmp/private {"task":"docs/report', root) === 'a server path {"task"' &&
+                        scanWorkspaceText(continuedJson, '.md"', root, true) === ':"docs/report.md"'
+                )
+            }
             {
                 // Rule 7: nothing of a path candidate is sent before its quoted span closes.
                 const quotedState = workspaceMaskState()

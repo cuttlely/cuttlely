@@ -210,9 +210,14 @@ export function workspaceMaskState() {
         slash: false,
         tail: '',
         prefix: '',
+        allowJson: true,
         json: false,
+        jdepth: 0,
         jstr: false,
         jesc: false,
+        normal: null,
+        normalText: '',
+        emitted: 0,
         word: '',
         bs: 0
     }
@@ -224,8 +229,25 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         if (state.overflow) state.continued = true
         else if (state.token) {
             // Rule 5: continuation also covers a quoted next token (fail closed).
-            const result = tokenMask(state.token, root, state.continued)
-            out.push(result.text)
+            const held = state.token
+            const validJson = state.allowJson && jsonSpan(held)
+            const retry = state.allowJson && /^[\[{]/.test(held) && !validJson && !/\\"|\\u[0-9a-f]{4}/i.test(held)
+            // JSON-like syntax only defers quote handling. Invalid spans must go through
+            // the ordinary scanner before any of their text can leave the buffer.
+            let result
+            if (retry) {
+                const normal = workspaceMaskState()
+                normal.allowJson = false
+                normal.continued = state.continued
+                result = { text: scanWorkspaceText(normal, held, root, true), masked: normal.continued }
+            } else result = validJson ? { text: held, masked: false } : tokenMask(held, root, state.continued)
+            // A released prefix was final under the ordinary rules as well as the
+            // JSON exemption. Only the still-held suffix can need replacement.
+            out.push(
+                result.text.startsWith(held.slice(0, state.emitted))
+                    ? result.text.slice(state.emitted)
+                    : tokenMask(held.slice(state.emitted), root, state.continued).text
+            )
             state.continued = result.masked
         }
         state.token = ''
@@ -236,8 +258,12 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         state.prefix = ''
         state.quote = ''
         state.json = false
+        state.jdepth = 0
         state.jstr = false
         state.jesc = false
+        state.normal = null
+        state.normalText = ''
+        state.emitted = 0
         state.word = ''
         state.bs = 0
     }
@@ -250,14 +276,17 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         } else if (char === '"') {
             state.jstr = true
             state.word = ''
-        } else if (/[a-z]/i.test(char)) {
+        } else if (char === '{' || char === '[') state.jdepth++
+        else if (char === '}' || char === ']') state.jdepth--
+        else if (/\s/u.test(char)) return
+        else if (/[a-z]/i.test(char)) {
             state.word += char
             if (!['true', 'false', 'null'].some((word) => word.startsWith(state.word))) state.json = false
         } else if (/[0-9+\-.{}\[\],:]/.test(char)) state.word = ''
         else state.json = false
     }
     for (const char of text) {
-        if (!state.quote && /\s/u.test(char)) {
+        if (!state.quote && !(state.json && state.jdepth > 0) && /\s/u.test(char)) {
             finish()
             out.push(char)
             continue
@@ -276,9 +305,18 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             }
         }
         if (!state.overflow) {
-            if (!state.token && (char === '{' || char === '[')) state.json = true
-            else if (state.json) trackJson(char)
+            if (state.allowJson && !state.token && (char === '{' || char === '[')) {
+                state.json = true
+                state.jdepth = 1
+                state.normal = workspaceMaskState()
+                state.normal.allowJson = false
+                state.normal.continued = state.continued
+            } else if (state.json) trackJson(char)
+            if (state.json && state.jstr && state.token.endsWith('"') && /[\/~]/.test(char)) state.capCandidate = true
             state.token += char
+            if (state.normal) {
+                state.normalText += scanWorkspaceText(state.normal, char, root)
+            }
             // Rule 6 keeps ordinary data intact, even when a JSON value or word is long.
             // Track candidate syntax incrementally so long plain text stays linear.
             const tail = (state.tail = (state.tail + char).slice(-6))
@@ -297,7 +335,24 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             if (state.token.length > 1024 && state.capCandidate && !/^https?:\/\//i.test(state.prefix)) {
                 out.push('a server path')
                 state.token = ''
+                if (state.json && state.jstr) state.quote = '"'
+                state.json = false
+                state.jstr = false
                 state.overflow = true
+            }
+            // No open ordinary token/quote can be extended by later input. Its
+            // unchanged output is therefore final even if JSON validation fails.
+            if (
+                state.json &&
+                state.normal &&
+                !state.normal.token &&
+                !state.normal.quote &&
+                !state.normal.overflow &&
+                !state.normal.continued &&
+                state.normalText === state.token
+            ) {
+                out.push(state.token.slice(state.emitted))
+                state.emitted = state.token.length
             }
         }
         if (closing) finish()

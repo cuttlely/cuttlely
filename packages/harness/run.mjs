@@ -790,7 +790,7 @@ function rebuildError(error, depth, seen) {
             item = undefined
         }
         masked.writable = true
-        masked.value = item instanceof Error ? maskError(item, depth + 1, seen) : maskWorkspacePaths(item)
+        masked.value = fileBytes(key, item) ? item : item instanceof Error ? maskError(item, depth + 1, seen) : maskWorkspacePaths(item)
         Object.defineProperty(copy, name, masked)
     }
     // A message, name or stack read from the prototype (a class getter) is kept as a masked own field.

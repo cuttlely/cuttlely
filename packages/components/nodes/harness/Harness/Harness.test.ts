@@ -399,6 +399,7 @@ describe('Harness node specialist images', () => {
                 ])
             }
 
+            expect(deck.length).toBeGreaterThan(1024)
             const png = downloadRegressionPng()
             expect(png.length).toBeGreaterThanOrEqual(4096)
             expect(png.toString('base64')).toContain('//')
@@ -406,12 +407,53 @@ describe('Harness node specialist images', () => {
             fs.writeFileSync(path.join(dir, 'q3 deck.pptx'), deck)
             fs.writeFileSync(path.join(dir, 'renamed.pptx'), zipOf(['[Content_Types].xml', 'word/document.xml']))
             const images = path.resolve(__dirname, '../../../../harness/images.mjs')
-            const script = `import { turnFiles, turnImages } from ${JSON.stringify(
-                images
-            )}; process.stdout.write(JSON.stringify([...turnFiles(${JSON.stringify(
-                dir
-            )}, 0, { specialist: 'assets' }), ...turnImages(${JSON.stringify(dir)}, 0, { specialist: 'assets' })]))`
-            const files = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }))
+            // Run the ESM runtime in Node, then use the component's storage code in Jest.
+            const runtime = path.resolve(__dirname, '../../../../harness')
+            const script = `
+                import fs from 'node:fs';
+                console.info = (...args) => console.error(...args);
+                process.env.CUTTLELY_DATA_DIR = ${JSON.stringify(path.join(dir, 'runtime'))};
+                process.env.CUTTLELY_HERMES_HOME = ${JSON.stringify(path.join(dir, 'runtime', 'hermes'))};
+                delete process.env.HERMES_API_URL;
+                const { saveHarness } = await import(${JSON.stringify(runtime + '/store.mjs')});
+                const { runHarness } = await import(${JSON.stringify(runtime + '/run.mjs')});
+                saveHarness({ name: 'download-test', chief: { model: {
+                    nodeId: 'scriptedChat', nodeName: 'scriptedChat', label: 'Scripted Chat', category: 'Chat Models', inputs: {}
+                } }, specialists: [{ name: 'assets', instructions: 'Create files.', codeExecution: true, fileAccess: true }] }, { overwrite: true });
+                class Chat {
+                    async init() { return { async invoke(messages) {
+                        return { content: String(messages[0]?.content || '').includes('You route work')
+                            ? JSON.stringify({ steps: [{ specialist: 'assets', task: 'Create files.' }] }) : 'Files ready.' };
+                    } }; }
+                }
+                const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+                const result = await runHarness({ name: 'download-test', chatId: 'fresh-download', input: 'Create a deck and chart.',
+                    flowOptions: { harnessCaller: { via: 'session' } }, baseUrl: 'http://127.0.0.1:9', loadNode: async () => Chat,
+                    fetchImpl: async (url, init = {}) => {
+                        const pathname = new URL(url).pathname;
+                        if (init.method === 'POST' && pathname.endsWith('/v1/runs')) {
+                            const folder = JSON.parse(init.body).input.match(/save it as a PNG or JPEG file in this folder: ([^\\n]+)/)?.[1];
+                            if (!folder) throw new Error('Missing turn folder');
+                            for (const name of ['q3 deck.pptx', 'chart.png', 'renamed.pptx']) {
+                                fs.copyFileSync(${JSON.stringify(dir)} + '/' + name, folder + '/' + name);
+                                const stamp = new Date(Date.now() + 1000);
+                                fs.utimesSync(folder + '/' + name, stamp, stamp);
+                            }
+                            return json({ run_id: 'files', status: 'started' }, 202);
+                        }
+                        if (pathname.endsWith('/events')) return new Response(': closed\\n\\n', { headers: { 'content-type': 'text/event-stream' } });
+                        return json({ status: 'completed', output: 'Files ready.' });
+                    }
+                });
+                process.stdout.write(JSON.stringify(result.artifacts));
+            `
+            const files = JSON.parse(
+                execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+                    encoding: 'utf8',
+                    env: { ...process.env, OPENAI_API_KEY: undefined, XAI_API_KEY: undefined }
+                })
+            )
+            files.sort((a: { type: string }, b: { type: string }) => (a.type === 'pptx' ? -1 : b.type === 'pptx' ? 1 : 0))
             expect(files.map((file: { name: string; type: string }) => [file.name, file.type])).toEqual([
                 ['q3 deck.pptx', 'pptx'],
                 ['chart.png', 'png']
@@ -438,6 +480,18 @@ describe('Harness node specialist images', () => {
                 addSingleFileToStorage.mockImplementationOnce(realStorage.addSingleFileToStorage)
                 addSingleFileToStorage.mockImplementationOnce(realStorage.addSingleFileToStorage)
                 const [saved, savedPng] = await storeHarnessImages(files, { orgId: 'org-1', chatflowid: 'flow-1', chatId: 'chat-1' })
+                for (const [reference, original] of [
+                    [saved, deck],
+                    [savedPng, png]
+                ]) {
+                    const fresh = await realStorage.getFileFromStorage(
+                        reference.data.replace('FILE-STORAGE::', ''),
+                        'org-1',
+                        'flow-1',
+                        'chat-1'
+                    )
+                    expect(fresh.equals(original)).toBe(true)
+                }
                 // Model chat reload: only the serialized FILE-STORAGE reference is available.
                 const reloadedPng = JSON.parse(JSON.stringify(savedPng))
                 const downloadedPng = await realStorage.getFileFromStorage(
