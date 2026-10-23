@@ -1637,7 +1637,7 @@ export function routeRawPreview(content) {
         // user:password@ in any URL, and Basic or Bearer authorization values.
         .replace(/\b([a-z][a-z0-9+.-]{0,20}:\/\/)[^\s/@]+@/gi, '$1[redacted]@')
         .replace(/\bBearer\s+[A-Za-z0-9+/=._~-]{1,4096}/gi, 'Bearer [redacted]')
-        .replace(/\bBasic\s+(?=[A-Za-z0-9+/]{0,200}[0-9+/=])[A-Za-z0-9+/=]{6,4096}/g, 'Basic [redacted]')
+        .replace(/\bBasic\s+[A-Za-z0-9+/=]{6,4096}/gi, 'Basic [redacted]')
         // Any key, token, secret or password field (refresh_token, client_secret, x-api-key, ...): a quoted value is
         // removed whole, spaces and escapes included; a bare value up to the next space or delimiter.
         .replace(new RegExp(`${ROUTE_SECRET_KEY}"(?:[^"\\\\]|\\\\.)*"?`, 'gi'), '$1$2"[redacted]"')

@@ -780,6 +780,8 @@ export const executeFlow = async ({
                     if (usedTools?.length) apiMessage.usedTools = JSON.stringify(usedTools)
                     if (agentReasoning?.length) apiMessage.agentReasoning = JSON.stringify(agentReasoning)
                     if (finalAction && Object.keys(finalAction).length) apiMessage.action = JSON.stringify(finalAction)
+                    const agentflowHarness = harnessToolPayloadFor(harnessToolPayloads, finalResult)
+                    if (agentflowHarness) apiMessage.harnessPayload = JSON.stringify(agentflowHarness)
 
                     if (agentflow.followUpPrompts) {
                         const followUpPromptsConfig = JSON.parse(agentflow.followUpPrompts)

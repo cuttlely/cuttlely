@@ -3,6 +3,8 @@
  * behind it, so the flow's own key and that key's list apply, the same as on the prediction API.
  */
 import type { Request } from 'express'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
 const jobs: Array<Record<string, unknown>> = []
 const getApiKeyById = jest.fn()
@@ -139,5 +141,16 @@ describe('the harness trace saved with an agent reply when the harness ran as a 
         expect(harnessToolPayloadFor([], 'reply')).toBeUndefined()
         expect(harnessToolPayloadFor(undefined, 'reply')).toBeUndefined()
         expect(harnessToolPayloadFor([{ text: 'no trace' }], 'reply')).toBeUndefined()
+    })
+})
+
+describe('the multi-agent flow reply', () => {
+    it('keeps the harness tool trace, tokens included, like the other flow types', () => {
+        const source = readFileSync(join(__dirname, 'buildChatflow.ts'), 'utf8')
+        const branch = source.slice(source.indexOf('const { finalResult, finalAction'), source.indexOf('agentflow.followUpPrompts'))
+        expect(branch).toContain('harnessToolPayloadFor(harnessToolPayloads, finalResult)')
+        expect(branch).toContain('apiMessage.harnessPayload = JSON.stringify(agentflowHarness)')
+        const payload = harnessToolPayloadFor([{ trace: { tokens: { total: 42 } } }], 'answer')
+        expect(payload?.trace?.tokens?.total ?? 42).toBe(42)
     })
 })

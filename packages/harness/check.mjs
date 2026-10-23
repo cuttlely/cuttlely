@@ -2951,6 +2951,12 @@ check(
             '@example.com/x and X-Api-Key: xk-made-up. Basic setup stays.'
         ].join('')
     )
+    const lettersOnlyBasic = routeRawPreview('authorization header was basic YWxhZGRpbjpvcGVu and Basic QWxhZGRpbjpPcGVu ok')
+    check(
+        'the routing reply preview removes letters-only Basic credentials in any case',
+        !/YWxhZGRpbjpvcGVu|QWxhZGRpbjpPcGVu/.test(lettersOnlyBasic),
+        lettersOnlyBasic
+    )
     const redactStart = Date.now()
     routeRawPreview('a'.repeat(100000) + 'token' + '='.repeat(1000))
     routeRawPreview('Basic ' + 'A'.repeat(100000))
