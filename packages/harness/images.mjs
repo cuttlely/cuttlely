@@ -156,6 +156,15 @@ const jsonSpan = (value) => {
         return false
     }
 }
+// An escape anywhere in a malformed span is not enough: its entire decoded
+// string body must itself be a valid JSON object or array.
+const escapedJsonSpan = (value) => {
+    try {
+        return jsonSpan(JSON.parse('"' + value + '"'))
+    } catch {
+        return false
+    }
+}
 const backslashPath = (token, raw) => BACKSLASH_START.test(token) && !/\\"|\\u[0-9a-f]{4}/i.test(raw) && !jsonSpan(raw) && !jsonSpan(token)
 // The deliverable basename is kept only for a file that exists under the root at mask time.
 const isFile = (value) => {
@@ -184,6 +193,7 @@ function tokenMask(raw, root, continued) {
         local = local.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     }
     local = local.replace(/\\/g, '/')
+    const traversal = local.split('/').includes('..')
     const absolute = trimSep(path.resolve(root))
     const resolved = trimSep(path.resolve(local))
     const inside = resolved === absolute || resolved.startsWith(absolute + path.sep)
@@ -191,7 +201,7 @@ function tokenMask(raw, root, continued) {
     if (inside) {
         const base = path.basename(resolved)
         const deliverable =
-            inside &&
+            !traversal &&
             /^(?:[\/~]|file:|[a-z]:|%2f)/i.test(token) &&
             /\.(?:pdf|docx|xlsx|pptx|csv|png|jpe?g)$/i.test(base) &&
             isFile(resolved)
@@ -230,8 +240,8 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         else if (state.token) {
             // Rule 5: continuation also covers a quoted next token (fail closed).
             const held = state.token
-            const validJson = state.allowJson && jsonSpan(held)
-            const retry = state.allowJson && /^[\[{]/.test(held) && !validJson && !/\\"|\\u[0-9a-f]{4}/i.test(held)
+            const validJson = state.allowJson && (jsonSpan(held) || escapedJsonSpan(held))
+            const retry = state.allowJson && /^[\[{]/.test(held) && !validJson
             // JSON-like syntax only defers quote handling. Invalid spans must go through
             // the ordinary scanner before any of their text can leave the buffer.
             let result

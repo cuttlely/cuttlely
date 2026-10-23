@@ -7972,9 +7972,13 @@ check(
             fs.writeFileSync(path.join(rule3Root, 'real.pptx'), 'deliverable')
             for (const [name, expected] of [
                 ['real.pptx', 'the workspace file real.pptx'],
-                ['missing.pptx', 'the workspace']
+                ['missing.pptx', 'the workspace'],
+                ...['..', '%2e%2e', '%2E.', '.%2e'].flatMap((segment) => [
+                    [`${segment}/${path.basename(rule3Root)}/real.pptx`, 'the workspace'],
+                    [`${segment}\\${path.basename(rule3Root)}\\real.pptx`, 'the workspace']
+                ])
             ]) {
-                const text = path.join(rule3Root, name)
+                const text = `${rule3Root}/${name}`
                 const actual = hideWorkspacePaths(text, rule3Root)
                 const state = workspaceMaskState()
                 const scanned = []
@@ -7991,6 +7995,12 @@ check(
                     actual === expected && scanned.join('') === expected && streamed.join('') === expected,
                     JSON.stringify({ actual, scanned: scanned.join(''), streamed: streamed.join(''), expected })
                 )
+                for (let at = 0; at <= text.length; at++) {
+                    const split = workspaceMaskState()
+                    const result =
+                        scanWorkspaceText(split, text.slice(0, at), rule3Root) + scanWorkspaceText(split, text.slice(at), rule3Root, true)
+                    check(`rule 8: existing deliverable ${name} split ${at}`, result === expected, result)
+                }
             }
         } finally {
             fs.rmSync(rule3Root, { recursive: true, force: true })
@@ -8032,6 +8042,7 @@ check(
             [1, '{note:"/tmp/private file.txt"}', '{note:"a server path"}'],
             [1, '{"path":"/var/cuttlely/workspaces/a/private file.txt"', '{"path":"the workspace"'],
             [1, '{true:"/tmp/private file.txt"}', '{true:"a server path"}'],
+            [1, '{true:"/tmp/private file.txt",note:"\\u0041"}', '{true:"a server path",note:"\\u0041"}'],
             [1, '{"task":"safe", "path":"/tmp/private file.txt"', '{"task":"safe", "path":"a server path"'],
             [1, '{"task":"safe", "path":"docs/report.md" /tmp/private', '{"task":"safe", "path":"docs/report.md" a server path'],
             // Rules 2, 3, 7: a path candidate reads on through a quoted span and is masked whole.
