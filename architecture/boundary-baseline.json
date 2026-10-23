@@ -3198,6 +3198,10 @@
             "reason": "Chat file artifact card and helpers, used by the inherited chat message views"
         },
         {
+            "path": "packages/ui/src/utils/chatArtifacts.test.js",
+            "reason": "tests for chatArtifacts.js, which is inherited"
+        },
+        {
             "path": "packages/ui/src/utils/migrationScan.test.js",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         },
