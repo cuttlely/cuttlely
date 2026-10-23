@@ -81,7 +81,7 @@ Set `A2A_PUBLIC_BASE_URL` to the public origin (scheme and host, no path, no tra
 
 ## Images and files in Orchestrate answers
 
-Orchestrate shows only the answer text, so images and files the flow stored for the chat (for example a harness diagram or a PDF) are added to the end of the answer as Markdown, on both `/api/v1/orchestrate` and A2A, streaming and non-streaming: `![name](url)` for PNG, JPEG, GIF and WebP images and `[Download name](url)` for other files. When streaming, the links arrive as one extra delta (A2A: one extra answer chunk).
+Orchestrate shows only the answer text, so images and files the flow stored for the chat (for example a harness diagram or a PDF) are added to the end of the answer as Markdown, on both `/api/v1/orchestrate` and A2A, streaming and non-streaming: an inline Markdown image (an exclamation mark, then `[name](url)`) for PNG, JPEG, GIF and WebP images and `[Download name](url)` for other files. When streaming, the links arrive as one extra delta (A2A: one extra answer chunk).
 
 Each link is an absolute `GET /api/v1/get-upload-file` address on the public origin (`A2A_PUBLIC_BASE_URL`, else the request host). It is signed for that one file, in that chat of that flow, so it opens without the API key; it cannot open another chat's files. Only plain stored file names are linked: no folders, no server paths. If the server has no signing secret, files are left out rather than sent as links that would need the key.
 
