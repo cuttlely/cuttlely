@@ -632,6 +632,8 @@ function reduceHarnessStep(trace, event) {
                       retried: Boolean(event.retried),
                       ...(event.fallbackSpecialist ? { fallbackSpecialist: String(event.fallbackSpecialist) } : {})
                   }
+                : event.fallbackSpecialist
+                ? { fallbackSpecialist: String(event.fallbackSpecialist) }
                 : {}),
             steps: Array.isArray(event.steps)
                 ? event.steps.map((step) => ({
@@ -760,6 +762,8 @@ export function buildRunTrace({
                       retried: Boolean(routeParse.retried),
                       ...(routeParse.fallbackSpecialist ? { fallbackSpecialist: String(routeParse.fallbackSpecialist) } : {})
                   }
+                : routeParse?.fallbackSpecialist
+                ? { fallbackSpecialist: String(routeParse.fallbackSpecialist) }
                 : {}),
             steps: (steps || []).map((step) => ({
                 specialist: step.specialist || step.name || '',

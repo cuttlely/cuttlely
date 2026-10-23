@@ -59,9 +59,20 @@ function isImage(artifact: { type?: unknown }, fileName: string): boolean {
     return !type && IMAGE_TYPES.has(ext)
 }
 
+// Harness and tool files are stored as `harness_<specialist>_<ms>_<index>_<name>` (or `harness_python_...`); the
+// link shows the name the file was written under.
+function writtenName(fileName: string): string {
+    const parts = fileName.split('_')
+    if (parts[0] !== 'harness') return fileName
+    for (let i = 2; i + 2 < parts.length; i++) {
+        if (/^\d+$/.test(parts[i]) && /^\d+$/.test(parts[i + 1])) return parts.slice(i + 2).join('_') || fileName
+    }
+    return fileName
+}
+
 /** Link text: the artifact's own name when it has one, else the stored name; Markdown brackets and controls removed. */
 function label(artifact: { name?: unknown }, fileName: string): string {
-    const raw = typeof artifact.name === 'string' && artifact.name.trim() ? artifact.name : fileName
+    const raw = typeof artifact.name === 'string' && artifact.name.trim() ? artifact.name : writtenName(fileName)
     const base = raw.split(/[\\/]/).pop() ?? ''
     const clean = base
         .replace(/[\u0000-\u001f\u007f[\]()<>`*\\!]/g, ' ')
@@ -71,7 +82,12 @@ function label(artifact: { name?: unknown }, fileName: string): string {
     return clean || 'file'
 }
 
-/** One Markdown line per linkable artifact: `![name](url)` for images, `[Download name](url)` for other files. */
+/**
+ * One Markdown line per linkable artifact: `![Image: name](url)` for images, `[Download name](url)` for other files.
+ * Both labels start with a capital word on purpose. Console clients of these routes (the watsonx Orchestrate CLI prints
+ * answers through Rich) read `[` + a lowercase letter, `#`, `/` or `@` up to `]` as a style tag and drop it, which
+ * turned `![chart.png](url)` into `!(url)`, an image with no alt text that no Markdown renderer shows.
+ */
 export function artifactLinks(artifacts: unknown, ctx: FileLinkContext, skip?: Set<string>): LinkedArtifact[] {
     if (!Array.isArray(artifacts) || !ctx.baseURL || !ctx.orgId || !ctx.chatflowId || !ctx.chatId) return []
     const ttl = Math.min(EXTERNAL_FILE_LINK_TTL_MAX, Math.max(EXTERNAL_FILE_LINK_TTL_MIN, ctx.ttlSeconds ?? externalFileLinkTtlSeconds()))
@@ -90,14 +106,16 @@ export function artifactLinks(artifacts: unknown, ctx: FileLinkContext, skip?: S
         // An image is shown inline, so it must not be served as an attachment. `download` is not part of the signature.
         if (image) url.searchParams.delete('download')
         const name = label(artifact as { name?: unknown }, fileName)
-        out.push({ fileName, markdown: image ? `![${name}](${url.toString()})` : `[Download ${name}](${url.toString()})` })
+        out.push({ fileName, markdown: image ? `![Image: ${name}](${url.toString()})` : `[Download ${name}](${url.toString()})` })
     }
     return out
 }
 
 /** The answer text with the file links after it. */
 export function withArtifactLinks(text: string, links: LinkedArtifact[]): string {
-    const clean = dropAttachmentLinks(text).trimEnd()
+    const clean = dropAttachmentLinks(text)
+        .replace(/^(?:[ \t]*\n)+/, '')
+        .trimEnd()
     if (!links.length) return clean
     const block = links.map((l) => l.markdown).join('\n\n')
     return clean ? `${clean}\n\n${block}` : block

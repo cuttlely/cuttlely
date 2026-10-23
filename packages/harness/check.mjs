@@ -2969,6 +2969,20 @@ check(
             readRouteJson('```\n[{"specialist":"ops","task":"t"}]\n```')?.[0]?.specialist === 'ops',
         JSON.stringify({ prose, chosen, unknownDefault })
     )
+    const chief = { defaultSpecialist: 'ops' }
+    const plans = {
+        empty: parseSteps('{"steps":[]}', roster, 'q', chief),
+        bareEmpty: parseSteps('[]', roster, 'q', chief),
+        unknown: parseSteps('{"steps":[{"specialist":"nobody","task":"t"}]}', roster, 'q', chief),
+        broken: parseSteps('{"steps": [', roster, 'q', chief)
+    }
+    check(
+        'parseSteps gives exactly one fallback step for an empty, unknown-only or unreadable plan',
+        Object.values(plans).every(
+            (steps) => steps.length === 1 && steps[0].specialist.name === 'ops' && steps[0].task === 'q' && steps[0].fallback
+        ),
+        JSON.stringify(plans)
+    )
 }
 saveHarness(
     {
@@ -3108,6 +3122,50 @@ async function routeRecoverTurn(chatId, routeReplies) {
             warned: fallback.warned,
             types: fallback.events.map((e) => e.type + ':' + (e.status || e.phase)).slice(0, 6)
         })
+    )
+    // 1.4.1 QA: a plan that is empty or names no roster specialist, even after the retry, still runs one step.
+    const oneFallback = (turn) => {
+        const r = turn.run.trace?.route || {}
+        return (
+            r.steps?.length === 1 &&
+            r.steps[0].specialist === 'knowledge' &&
+            r.fallbackSpecialist === 'knowledge' &&
+            turn.run.agents.length === 1
+        )
+    }
+    const emptyAfterRetry = await routeRecoverTurn('route-recover-4', [prose, '{"steps":[]}'])
+    check(
+        'an empty plan after the router retry runs exactly one step on the default specialist and records fallbackSpecialist',
+        oneFallback(emptyAfterRetry) && emptyAfterRetry.routeCount === 2 && emptyAfterRetry.run.trace.route.parseError === 'no_json',
+        JSON.stringify(emptyAfterRetry.run.trace?.route)
+    )
+    const unknownOnly = await routeRecoverTurn('route-recover-5', [
+        JSON.stringify({
+            steps: [
+                { specialist: 'nobody', task: 't' },
+                { specialist: 'ghost', task: 't' }
+            ]
+        })
+    ])
+    check(
+        'a plan naming only unknown specialists runs exactly one step on the default specialist and records fallbackSpecialist',
+        oneFallback(unknownOnly) &&
+            unknownOnly.routeCount === 1 &&
+            !unknownOnly.run.trace.route.parseError &&
+            unknownOnly.events.find((event) => event.type === 'route' && event.phase === 'done')?.fallbackSpecialist === 'knowledge' &&
+            unknownOnly.events.reduce((trace, event) => reduceHarnessEvent(trace, event), emptyTrace()).route?.fallbackSpecialist ===
+                'knowledge',
+        JSON.stringify(unknownOnly.run.trace?.route)
+    )
+    const emptyFirst = await routeRecoverTurn('route-recover-6', ['{"steps":[]}'])
+    const brokenAfterRetry = await routeRecoverTurn('route-recover-7', [prose, '{"steps": [{"specialist":'])
+    check(
+        'an empty first plan, or a parse error after the retry, runs exactly one step on the default specialist',
+        oneFallback(emptyFirst) &&
+            oneFallback(brokenAfterRetry) &&
+            brokenAfterRetry.run.trace.route.parseError === 'invalid_json' &&
+            brokenAfterRetry.run.trace.route.retried === true,
+        JSON.stringify({ emptyFirst: emptyFirst.run.trace?.route, broken: brokenAfterRetry.run.trace?.route })
     )
 }
 
@@ -10770,7 +10828,9 @@ const routeNodes = async (nodeName) => {
     return recordingChat(forcedRouteCalls, (messages) => {
         const plain = plainChatMessages(messages)
         const system = String(plain[0]?.content || '')
-        if (system.includes('You route work')) return { content: '{"steps":[]}' }
+        // An empty plan goes to the default specialist (1.4.1), so the router names the analyst here.
+        if (system.includes('You route work'))
+            return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: String(plain.at(-1)?.content || '') }] }) }
         return { content: String(plain.at(-1)?.content || '') }
     })
 }
@@ -10869,38 +10929,28 @@ check(
     const routeText = systems.find((text) => text.includes('You route work')) || ''
     const chooseText = systems.find((text) => text.includes('You choose the analyst')) || ''
     check(
-        'with two analysts an empty router answer asks the router to choose and runs only the chosen analyst',
-        ran.map((entry) => entry.who).join(',') === 'two-analysts--budget' &&
-            ran[0].input.includes(budgetAsk) &&
-            oneRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'budget' &&
+        'with two analysts an empty router answer runs only the default specialist and makes no analyst choice call',
+        ran.length === 0 &&
+            oneRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'notes' &&
+            oneRun.trace?.route?.fallbackSpecialist === 'notes' &&
             routeText.includes(ROUTE_ANALYSTS) &&
             routeText.includes(
                 '- budget: Household budget lines and monthly spending. Tools: PostgreSQL MCP. Tables: public.budget_lines.'
             ) &&
             routeText.includes('The bakery analyst database is') &&
             routeText.includes('The budget analyst database is') &&
-            chooseText.includes(ROUTE_CHOOSE_ANALYST) &&
-            chooseText.includes('- bakery:') &&
-            chooseText.includes('- budget:') &&
-            !chooseText.includes('- notes:') &&
-            String(
-                twoCalls.find((call) => String(call.messages[0]?.content || '').includes('You choose'))?.messages.at(-1)?.content || ''
-            ).includes(budgetAsk),
+            !chooseText &&
+            typeof ROUTE_CHOOSE_ANALYST === 'string',
         JSON.stringify({ ran, steps: oneRun.trace?.route?.steps, chooseText })
     )
     ran.length = 0
     choice = 'not json'
     const bothRun = await ask('two-2', 'Run SQL on both databases: count the rows in every table.')
     check(
-        'an analyst choice that names no analyst sends the data task to every analyst, never just the first',
-        ran
-            .map((entry) => entry.who)
-            .sort()
-            .join(',') === 'two-analysts--bakery,two-analysts--budget' &&
-            bothRun.trace?.route?.steps
-                ?.map((step) => step.specialist)
-                .sort()
-                .join(',') === 'bakery,budget',
+        'an empty router answer to a data task for both databases still runs one default step, never every analyst',
+        ran.length === 0 &&
+            bothRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'notes' &&
+            bothRun.trace?.route?.fallbackSpecialist === 'notes',
         JSON.stringify({ ran, steps: bothRun.trace?.route?.steps })
     )
     ran.length = 0
@@ -10910,10 +10960,153 @@ check(
         'a question that is not a data task makes no analyst choice call',
         ran.length === 0 &&
             twoCalls.slice(callsBefore).every((call) => !String(call.messages[0]?.content || '').includes('You choose the analyst')) &&
-            (quietRun.trace?.route?.steps || []).length === 0,
+            // An empty plan now goes to the one default specialist (1.4.1), never to zero or every specialist.
+            (quietRun.trace?.route?.steps || []).length === 1 &&
+            Boolean(quietRun.trace?.route?.fallbackSpecialist),
         JSON.stringify({ ran, steps: quietRun.trace?.route?.steps })
     )
     ran.length = 0
+    {
+        // An empty plan never fans out to the whole roster: with only analysts and a choice that names none, the
+        // turn runs the chief's default specialist once.
+        saveHarness(
+            {
+                name: 'only-analysts',
+                chief: {
+                    instructions: 'Route data questions.',
+                    defaultSpecialist: 'budget',
+                    model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } })
+                },
+                specialists: ['bakery', 'budget'].map((name) => ({
+                    name,
+                    summary: `${name} data.`,
+                    instructions: `Query the ${name} database.`,
+                    mcpServers: [
+                        {
+                            nodeName: 'postgreSQLMCP',
+                            label: 'PostgreSQL MCP',
+                            category: 'Tools (MCP)',
+                            inputs: { analystRelations: name === 'bakery' ? '["public.monthly_sales"]' : '["public.budget_lines"]' }
+                        }
+                    ]
+                }))
+            },
+            { overwrite: true }
+        )
+        const saved = choice
+        choice = 'not json'
+        routerReply = '{"steps":[]}'
+        const onlyRun = await runHarness({
+            name: 'only-analysts',
+            chatId: 'only-1',
+            input: 'Run SQL on both databases: count the rows in every table.',
+            baseUrl: 'http://127.0.0.1:9',
+            fetchImpl: twoFetch,
+            loadNode: twoNodes
+        })
+        choice = saved
+        check(
+            'an empty plan on an analysts-only roster runs the default specialist once, never every specialist',
+            (onlyRun.trace?.route?.steps || []).length === 1 &&
+                onlyRun.trace.route.steps[0].specialist === 'budget' &&
+                onlyRun.trace.route.fallbackSpecialist === 'budget' &&
+                ran.length === 1,
+            JSON.stringify({ ran, route: onlyRun.trace?.route })
+        )
+        ran.length = 0
+    }
+    {
+        // Mixed rosters: an empty plan on a data task goes to the chief's default specialist, never to an analyst the
+        // input only hints at, and never to every analyst.
+        const analyst = (name) => ({
+            name,
+            summary: `${name} data.`,
+            instructions: `Query the ${name} database.`,
+            mcpServers: [
+                {
+                    nodeName: 'postgreSQLMCP',
+                    label: 'PostgreSQL MCP',
+                    category: 'Tools (MCP)',
+                    inputs: { analystRelations: `["public.${name}"]` }
+                }
+            ]
+        })
+        const mixed = (name, analysts) =>
+            saveHarness(
+                {
+                    name,
+                    chief: {
+                        instructions: 'Route work.',
+                        defaultSpecialist: 'knowledge',
+                        model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } })
+                    },
+                    specialists: [{ name: 'knowledge', instructions: 'Answer questions.', modules: [] }, ...analysts.map(analyst)]
+                },
+                { overwrite: true }
+            )
+        mixed('mixed-one', ['sales'])
+        mixed('mixed-two', ['sales', 'budget'])
+        const saved = choice
+        choice = '{"analysts":["nobody"]}'
+        routerReply = '{"steps":[]}'
+        const runMixed = (name) =>
+            runHarness({
+                name,
+                chatId: `${name}-1`,
+                input: 'Run SQL: count the rows in every table.',
+                baseUrl: 'http://127.0.0.1:9',
+                fetchImpl: twoFetch,
+                loadNode: twoNodes
+            })
+        const oneMixed = await runMixed('mixed-one')
+        const oneRan = ran.splice(0)
+        routerReply = '{"steps":[{"specialist":"nobody","task":"x"}]}'
+        const twoMixed = await runMixed('mixed-two')
+        const twoRan = ran.splice(0)
+        choice = saved
+        const only = (run) => (run.trace?.route?.steps || []).map((step) => step.specialist).join(',')
+        check(
+            'an empty or unknown-only plan on a mixed analyst roster runs only the default specialist',
+            only(oneMixed) === 'knowledge' &&
+                oneMixed.trace.route.fallbackSpecialist === 'knowledge' &&
+                oneRan.length === 0 &&
+                only(twoMixed) === 'knowledge' &&
+                twoMixed.trace.route.fallbackSpecialist === 'knowledge' &&
+                twoRan.length === 0,
+            JSON.stringify({ one: oneMixed.trace?.route, two: twoMixed.trace?.route, oneRan, twoRan })
+        )
+        const explicitRuns = []
+        for (const [chatId, reply] of [
+            ['explicit-empty', '{"steps":[]}'],
+            ['explicit-broken', 'not json']
+        ]) {
+            routerReply = reply
+            for (const input of ['Query the analyst database for sales.', 'Analyst: SELECT count(*) FROM sales', 'show more']) {
+                const run = await runHarness({
+                    name: 'mixed-one',
+                    chatId: `${chatId}-${explicitRuns.length}`,
+                    input,
+                    baseUrl: 'http://127.0.0.1:9',
+                    fetchImpl: twoFetch,
+                    loadNode: twoNodes
+                })
+                explicitRuns.push({ input, steps: only(run), fallback: run.trace?.route?.fallbackSpecialist, text: run.text })
+            }
+        }
+        const explicitRan = ran.splice(0)
+        check(
+            'an empty or unreadable plan runs the default specialist even when the input names the analyst',
+            explicitRuns.length === 6 &&
+                explicitRuns.every((entry) =>
+                    entry.input === 'show more'
+                        ? // With no cursor, `show more` is answered before any routing call, as before.
+                          entry.text === ANALYST_PAGE_NONE && entry.steps === ''
+                        : entry.steps === 'knowledge' && entry.fallback === 'knowledge'
+                ) &&
+                explicitRan.length === 0,
+            JSON.stringify({ explicitRuns, explicitRan })
+        )
+    }
     routerReply = '{"steps":[{"specialist":"bakery","task":"show more"}]}'
     recordAnalystResult({
         harness: 'two-analysts',
@@ -10989,13 +11182,11 @@ check(
     routerReply = '{"steps":[]}'
     const failedRun = await ask('two-4', 'Run SQL on both databases: count the rows in every table.')
     check(
-        'an analyst choice call that errors sends the task to every analyst, and a stopped turn still stops',
+        'an analyst choice call that errors sends the task to every analyst, a stopped turn still stops, and an empty plan stays one step',
         failedChoice.map((step) => step.specialist.name).join(',') === 'bakery,budget' &&
             Boolean(stoppedError) &&
-            ran
-                .map((entry) => entry.who)
-                .sort()
-                .join(',') === 'two-analysts--bakery,two-analysts--budget' &&
+            ran.length === 0 &&
+            failedRun.trace?.route?.steps?.map((step) => step.specialist).join(',') === 'notes' &&
             failedRun.trace?.status === 'completed' &&
             !String(failedRun.text || '').includes('provider refused'),
         JSON.stringify({
@@ -11198,7 +11389,10 @@ const pageNodes = async (nodeName) => {
         const system = String(plain[0]?.content || '')
         const user = String(plain.at(-1)?.content || '')
         if (system.includes('You route work')) {
-            if (user.trim() === 'show more' || user.trim() === 'How many rows are in tickets?') return { content: '{"steps":[]}' }
+            // Paging steers a real plan only; an empty plan runs the default specialist (1.4.1).
+            if (user.trim() === 'show more') return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: 'show more' }] }) }
+            if (user.trim() === 'How many rows are in tickets?')
+                return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: user.trim() }] }) }
             return { content: JSON.stringify({ steps: [{ specialist: 'analyst', task: 'select all rows' }] }) }
         }
         if (system.includes('You are Harness Prime')) {

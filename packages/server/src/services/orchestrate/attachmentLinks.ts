@@ -9,7 +9,12 @@ export function dropAttachmentLinks(text: string): string {
 // `[label](attachment:target)`, also with `<...>` around the target, spaces or a line break before it, and one level of
 // parentheses inside it. Neither the label nor the target may hold a bracket, so every scan stops at the next `[`:
 // filtering is linear in the text even for long runs of unmatched brackets.
-const ATTACHMENT_LINK_SOURCE = String.raw`!?\[[^[\]\n]*\]\(\s*<?attachment:(?:[^()[\]\n<>]|\([^()[\]\n<>]*\))*>?\)`
+// Also removed: the reference form `[label][attachment:target]`, and a `[Download ...]` label with no link after it
+// (what is left when a model writes the label but no address). A console client that prints Rich markup drops
+// `[attachment:...]` as a style tag, so either form showed up as a label that opens nothing.
+const ATTACHMENT_LINK_SOURCE =
+    String.raw`(?:!?\[[^[\]\n]*\](?:\(\s*<?attachment:(?:[^()[\]\n<>]|\([^()[\]\n<>]*\))*>?\)|\[[ \t]*attachment:[^[\]\n]*\])` +
+    String.raw`|(?<!!)\[[ \t*_]*download\b[^[\]\n]*\](?![([:]))`
 const ATTACHMENT_LINK_ANYWHERE = new RegExp(ATTACHMENT_LINK_SOURCE, 'gi')
 const ATTACHMENT_LINK = new RegExp(`^${ATTACHMENT_LINK_SOURCE}`, 'i')
 // The longest `attachment:` link removed. The streaming filter holds at most this much, and the non-streaming one uses
@@ -31,6 +36,19 @@ function mayBecomeAttachmentLink(rest: string): boolean {
     if (i >= rest.length) return true // still in the label
     i++
     if (i >= rest.length) return true // label closed, `(` not seen yet
+    if (rest[i] === '[') {
+        // `[label][attachment:target]`
+        let j = i + 1
+        while (j < rest.length && (rest[j] === ' ' || rest[j] === '\t')) j++
+        const ref = rest.slice(j, j + 11).toLowerCase()
+        if (!'attachment:'.startsWith(ref)) return false
+        if (ref.length < 11) return true
+        for (j += 11; j < rest.length; j++) {
+            if (rest[j] === '[' || rest[j] === '\n') return false
+            if (rest[j] === ']') return false // complete; it would have matched
+        }
+        return true
+    }
     if (rest[i] !== '(') return false
     i++
     while (i < rest.length && /\s/.test(rest[i])) i++
@@ -81,6 +99,8 @@ export function makeAttachmentLinkFilter(): { push(text: string): string; flush(
             out += rest.slice(0, start)
             rest = rest.slice(start)
             const link = rest.match(ATTACHMENT_LINK)
+            // A bare `[Download ...]` at the end of the text so far may still get its `(url)`: wait for the next token.
+            if (link && !final && link[0].length === rest.length && link[0].endsWith(']')) break
             if (link && link[0].length <= HOLD_LIMIT) {
                 rest = rest.slice(link[0].length)
                 continue

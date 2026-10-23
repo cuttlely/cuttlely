@@ -228,11 +228,47 @@ describe('completedWithLinks', () => {
         expect(utf8(out.text)).toBeLessThanOrEqual(limit)
     })
 
+    // 1.4.1 QA: the A2A route shares the link builder and the attachment: filter with Orchestrate.
+    it('gives a Markdown image a parser renders and no dangling download label, streamed and not', () => {
+        const { marked } = jest.requireActual('marked')
+        const { makeAttachmentLinkFilter } = jest.requireActual('../orchestrate/fileLinks')
+        const qa = {
+            artifacts: [
+                { type: 'png', data: 'FILE-STORAGE::harness_python_1792792110729_0_zz-test-blue-square.png' },
+                { type: 'pptx', data: 'FILE-STORAGE::harness_assets_1792792422192_1_zz-test-deck.pptx', name: 'zz-test-deck.pptx' }
+            ]
+        }
+        const tokens = [
+            '[Download the deck: **zz-test-deck.pptx**][attach',
+            'ment:zz-test-deck.pptx]\n\n[Download it: zz-test-deck.pptx]',
+            '\n\nDeck ready.'
+        ]
+        const check = (text: string) => {
+            const found: any[] = []
+            marked.walkTokens(marked.lexer(text), (t: any) => {
+                found.push(t)
+            })
+            const images = found.filter((t) => t.type === 'image')
+            expect(images).toHaveLength(1)
+            expect(images[0].text).toBe('Image: zz-test-blue-square.png')
+            expect(images[0].href).toMatch(/^https:\/\/navi\.example\/api\/v1\/get-upload-file\?/)
+            expect(found.filter((t) => t.type === 'link').map((t) => t.text)).toEqual(['Download zz-test-deck.pptx'])
+            expect(text).not.toMatch(/\[Download[^\]]*\](?!\()/)
+            expect(text).not.toContain('attachment:')
+        }
+        check(completedWithLinks(tokens.join(''), qa, makeArtifactLinker(ctx), false, '').text)
+        const filter = makeAttachmentLinkFilter()
+        const sent = tokens.map((t) => filter.push(t)).join('')
+        const streamed = completedWithLinks(tokens.join(''), qa, makeArtifactLinker(ctx), true, filter.flush())
+        check(sent + streamed.tail)
+        check(streamed.text)
+    })
+
     it('links files from streamed artifacts frames in the tail and the stored answer', () => {
         const linker = makeArtifactLinker(ctx)
         linker.collect([{ type: 'png', data: 'FILE-STORAGE::chart.png' }])
         const out = completedWithLinks('Done', result, linker, true, '')
-        expect(out.tail).toMatch(/^\n\n!\[chart\.png\]\([^)]+\)\n\n\[Download deck\.pdf\]/)
-        expect(out.text).toMatch(/^Done\n\n!\[chart\.png\][^\n]+\n\n\[Download deck\.pdf\]/)
+        expect(out.tail).toMatch(/^\n\n!\[Image: chart\.png\]\([^)]+\)\n\n\[Download deck\.pdf\]/)
+        expect(out.text).toMatch(/^Done\n\n!\[Image: chart\.png\][^\n]+\n\n\[Download deck\.pdf\]/)
     })
 })

@@ -1145,9 +1145,9 @@ export const ROUTE_IMAGES =
     'The user attached images. You can see them; specialists cannot. When a task depends on an image, write what the image shows into the task.'
 
 export const ROUTE_ANALYST =
-    'Any SQL, database, or analyst-addressed request must go to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. An empty steps list is only for a request that is not a database task. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst. Do not answer it yourself.'
+    'Any SQL, database, or analyst-addressed request must go to the analyst. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. Never return an empty steps list. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst. Do not answer it yourself.'
 export const ROUTE_ANALYSTS =
-    'Several specialists are analysts, each with its own database. Any SQL, database, or analyst-addressed request must go to the analyst whose summary and tables fit it. When several fit, send a step to each of them. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. An empty steps list is only for a request that is not a database task. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst that returned it. Do not answer it yourself.'
+    'Several specialists are analysts, each with its own database. Any SQL, database, or analyst-addressed request must go to the analyst whose summary and tables fit it. When several fit, send a step to each of them. That includes a message that starts with "Analyst:", a SQL verb, or the words "analyst database". Never answer those directly. Never return an empty steps list. When the user says "show more", "next page", or "page N" after a capped analyst result, send that to the analyst that returned it. Do not answer it yourself.'
 export const ROUTE_CHOOSE_ANALYST =
     'This request is a database task and no analyst was chosen for it. Choose the analyst whose summary and tables fit the request. Choose more than one only when the request needs data from more than one. Reply with JSON only: {"analysts":["NAME"]}.'
 
@@ -1398,7 +1398,7 @@ async function routeSteps(context, input, history) {
         ROUTE_WHOLE_TASK,
         ROUTE_FOLLOW_UP,
         context.images?.length ? ROUTE_IMAGES : '',
-        'Reply with JSON only: {"steps":[{"specialist":"NAME","task":"...","after":""}]}. Leave "after" empty unless the step needs an earlier step\'s result. Use an empty list when no specialist is needed.'
+        'Reply with JSON only: {"steps":[{"specialist":"NAME","task":"...","after":""}]}. Leave "after" empty unless the step needs an earlier step\'s result. Always name at least one specialist.'
     ]
         .filter(Boolean)
         .join('\n')
@@ -1445,15 +1445,30 @@ async function routeSteps(context, input, history) {
                 fallbackSpecialist: fallback?.name || ''
             }
             console.warn(`[harness] router reply was still not JSON; using the default specialist ${routeLogFields(context)}`)
-            routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input }] : [] }
+            routed = { ok: true, steps: fallback ? [{ specialist: fallback, task: input, fallback: true }] : [] }
         }
     }
-    let parsedSteps = forceAnalystRoute(input, routed.steps, specialists)
-    const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
-    if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
-    const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
-    if (pageRoute.reply) return finishUnpaged(context, pageRoute.reply, started)
-    const steps = pageRoute.steps
+    // An empty plan (or one naming no roster specialist) is not an answer to route on, so no input-driven analyst route
+    // (a lone analyst, the analyst choice call, `show more` paging) widens or steers it: it runs exactly one step on
+    // the chief's default specialist. The analyst routes apply only to a plan that named a roster specialist.
+    const emptyPlan = !routed.steps.length
+    let steps
+    if (emptyPlan) {
+        steps = withFallbackStep([], specialists, context.roster.chief, input)
+    } else {
+        let parsedSteps = forceAnalystRoute(input, routed.steps, specialists)
+        const choices = analystPageRequest(input) ? [] : analystsToChoose(input, parsedSteps, specialists)
+        if (choices.length) parsedSteps = await chooseAnalysts(context, input, history, choices)
+        const pageRoute = applyAnalystPageRoute(input, parsedSteps, specialists, cursor)
+        if (pageRoute.reply) return finishUnpaged(context, pageRoute.reply, started)
+        steps = withFallbackStep(pageRoute.steps, specialists, context.roster.chief, input)
+    }
+    if (steps.length && (emptyPlan || steps[0].fallback) && !context.routeParse?.fallbackSpecialist) {
+        // Record where a plan with no usable step went: the one default specialist.
+        context.routeParse = { ...(context.routeParse || {}), fallbackSpecialist: steps.map((step) => step.specialist.name).join(',') }
+        console.warn(`[harness] router plan had no usable step; using the fallback route ${routeLogFields(context)}`)
+    }
+    for (const step of steps) delete step.fallback
     if (steps.length === 1 && !steps[0].paging) steps[0].task = expandSingleSpecialistTask(input, steps[0].task)
     context.routeSteps = publicSteps(steps)
     const routedCalls = roleCalls(context, 'route')
@@ -1598,12 +1613,18 @@ export function parseRouteSteps(content, specialists, input) {
     return { ok: true, steps }
 }
 
-// A reply with no JSON goes to one default specialist with the whole request, never to every specialist.
+// A plan with no usable step (no JSON, an empty list, or only names not on the roster) goes to one default
+// specialist with the whole request: never zero steps, never every specialist. The added step carries
+// `fallback: true` so the caller can record route.fallbackSpecialist.
+export function withFallbackStep(steps, specialists, chief, input) {
+    if (steps.length) return steps
+    const fallback = defaultRouteSpecialist(specialists, chief)
+    return fallback ? [{ specialist: fallback, task: input, fallback: true }] : []
+}
+
 export function parseSteps(content, specialists, input, chief) {
     const parsed = parseRouteSteps(content, specialists, input)
-    if (parsed.ok) return parsed.steps
-    const fallback = defaultRouteSpecialist(specialists, chief)
-    return fallback ? [{ specialist: fallback, task: input }] : []
+    return withFallbackStep(parsed.ok ? parsed.steps : [], specialists, chief, input)
 }
 
 export const ROUTE_JSON_RETRY =
@@ -1629,7 +1650,7 @@ export function routeDiagnostics(content, { retried = false } = {}) {
 
 // The trace and event fields for a route parse: the same structural facts, nothing else.
 export function publicRouteParse(parse) {
-    if (!parse?.error) return {}
+    if (!parse?.error) return parse?.fallbackSpecialist ? { fallbackSpecialist: String(parse.fallbackSpecialist) } : {}
     return {
         parseError: ROUTE_PARSE_ERRORS.includes(parse.error) ? parse.error : 'invalid_json',
         rawLength: Number(parse.rawLength) || 0,

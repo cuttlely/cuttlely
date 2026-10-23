@@ -1231,6 +1231,9 @@ importers:
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@24.13.2)(babel-plugin-macros@3.1.0)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2))
+      marked:
+        specifier: ^17.0.4
+        version: 17.0.4
       nodemon:
         specifier: ^2.0.22
         version: 2.0.22
