@@ -169,9 +169,9 @@ function hideRoot(text, base, chat) {
     if (!text.includes(base)) return text
     const sep = escapeRegExp(path.sep)
     // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
-    const head = `(?<![A-Za-z0-9._~${sep}-])(?:[Ff][Ii][Ll][Ee]://${FILE_HOST})?${escapeRegExp(
+    const head = `(?<![A-Za-z0-9.${sep}-][_*~]*)(?:[Ff][Ii][Ll][Ee]://${FILE_HOST})?${escapeRegExp(
         base
-    )}(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9_~.${sep}-])`
+    )}(?![A-Za-z0-9-]|[_~]+[A-Za-z0-9]|\\.[A-Za-z0-9_~.${sep}-])`
     const shown = (full) => {
         const rest = full.replace(FILE_LINK_START, '')
         if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'
@@ -189,8 +189,8 @@ function hideRoot(text, base, chat) {
     const bare = new RegExp(`${head}(?:${sep}[^\\s'"\`<>()\\[\\]{}|,;]*|(?![ \\t]+${word}))`, 'g')
     const bareOnly = (value) =>
         value.replace(bare, (match) => {
-            // Sentence punctuation after a path is not part of it.
-            const tail = /[.:!?]+$/.exec(match)?.[0] || ''
+            // Sentence punctuation and Markdown marks after a path stay outside its name.
+            const tail = /[_*~.:!?]+$/.exec(match)?.[0] || ''
             return shown(match.slice(0, match.length - tail.length)) + tail
         })
     // In quoted text a path may hold spaces only when the whole quote reads as one path: every folder name is
@@ -198,7 +198,7 @@ function hideRoot(text, base, chat) {
     // last part ends in a file extension. Otherwise the path ends at the first space, and the rest keeps its words
     // ("README failed during read/write"); any further path in it is masked too. The check is one pass.
     const badFolder = /^\s|\s$|[;:<>|?*]|, |\.[A-Za-z0-9]{1,8}\s/
-    const fileEnd = /\.[A-Za-z0-9]{1,8}$/
+    const fileEnd = /\.[A-Za-z0-9]{1,8}[_*~]*$/
     // A folder name with spaces is taken as one only when every word starts like a name (a capital, a digit or a
     // bracket) or is a joining word; lower-case words read as prose ("README permission denied opening docs").
     const nameWord = /^(?:[A-Z0-9([{&+#@'-]|and$|of$|the$|for$|v\d)/

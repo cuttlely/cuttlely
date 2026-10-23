@@ -8202,6 +8202,51 @@ check(
                 hostedSplits.every((text) => text === 'Open a.pdf or b.pdf now.'),
             JSON.stringify(hostedSplits.find((text) => text !== 'Open a.pdf or b.pdf now.'))
         )
+        const markdownWrong = []
+        for (const marks of ['_', '__', '*', '**', '~~']) {
+            const said = `Open ${marks}${assets}/deck.pptx${marks} now.`
+            const expected = `Open ${marks}deck.pptx${marks} now.`
+            if (hideWorkspacePaths(said, root) !== expected) markdownWrong.push(['text', marks])
+            for (let at = 0; at <= said.length; at += 1) {
+                const sent = []
+                const streamContext = {}
+                for (const piece of [said.slice(0, at), said.slice(at)])
+                    bufferStream(streamContext, 'answer', piece, false, (text) => sent.push(text), root)
+                bufferStream(streamContext, 'answer', '', true, (text) => sent.push(text), root)
+                if (sent.join('') !== expected) markdownWrong.push([marks, at, sent.join('')])
+            }
+        }
+        check(
+            'Markdown paths keep their marks in text and at every stream split',
+            markdownWrong.length === 0,
+            JSON.stringify(markdownWrong)
+        )
+        class PathArray extends Array {
+            toJSON() {
+                return [`${assets}/deck.pptx`]
+            }
+        }
+        const maskedArray = maskWorkspacePaths(new PathArray())
+        const maskedPlainArray = maskWorkspacePaths(new (class extends Array {})(`${assets}/deck.pptx`))
+        const ownArray = []
+        ownArray.toJSON = () => [`${assets}/own.pdf`]
+        const unreadableArray = ['kept']
+        Object.defineProperty(unreadableArray, '0', {
+            get() {
+                throw new Error('unreadable')
+            }
+        })
+        check(
+            'array serializers are masked and arrays are rebuilt with a plain prototype',
+            Array.isArray(maskedArray) &&
+                Object.getPrototypeOf(maskedArray) === Array.prototype &&
+                JSON.stringify(maskedArray) === '["deck.pptx"]' &&
+                !JSON.stringify(maskedArray).includes(root) &&
+                Object.getPrototypeOf(maskedPlainArray) === Array.prototype &&
+                JSON.stringify(maskedPlainArray) === '["deck.pptx"]' &&
+                JSON.stringify(maskWorkspacePaths(ownArray)) === '["own.pdf"]' &&
+                JSON.stringify(maskWorkspacePaths(unreadableArray)) === '["[data]"]'
+        )
         const shadowed = (() => {
             class BadError extends Error {
                 get message() {

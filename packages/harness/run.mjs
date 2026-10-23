@@ -685,7 +685,7 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     if (depth >= MASK_DEPTH || open.has(value)) return '[nested data]'
     // Any other object (a URL, a Date, a class instance) is masked as it would be sent: its toJSON() form, or its own
     // fields.
-    const serializer = Array.isArray(value) ? undefined : serializerOf(value)
+    const serializer = serializerOf(value)
     if (serializer === THROWS) return '[data]'
     if (serializer) {
         let plain
@@ -698,7 +698,24 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     }
     open.add(value)
     try {
-        if (Array.isArray(value)) return value.map((item) => maskWorkspacePaths(item, depth + 1, open))
+        if (Array.isArray(value)) {
+            let out
+            try {
+                out = Array.from({ length: value.length })
+            } catch {
+                return '[data]'
+            }
+            for (let index = 0; index < out.length; index += 1) {
+                let item
+                try {
+                    item = value[index]
+                } catch {
+                    item = '[data]'
+                }
+                out[index] = maskWorkspacePaths(item, depth + 1, open)
+            }
+            return out
+        }
         const out = {}
         // Each enumerable own field is read on its own; one that cannot be read (a getter that throws) becomes a
         // placeholder.
@@ -1631,7 +1648,7 @@ export function openPathAt(text, root = specialistWorkspaceRoot()) {
     const link = text.slice(Math.max(0, at - 300), at).match(new RegExp(`file://${FILE_HOST}$`, 'i'))
     if (link) at -= link[0].length
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
-    return at
+    return pathContextAt(text, at)
 }
 
 // Where the text's end starts a prefix of the workspaces folder (or its file:// link), or its length when it does not.
@@ -1655,6 +1672,12 @@ export function rootPrefixAt(text, root = specialistWorkspaceRoot()) {
     }
     // An opening quote just before it (or at the very end) stays with the path, so a quoted path is read whole.
     if (at > 0 && QUOTE_CHARS.includes(text[at - 1])) at -= 1
+    return pathContextAt(text, at)
+}
+
+// Keep Markdown marks and the preceding word with a path so its start boundary stays intact.
+function pathContextAt(text, at) {
+    while (at > 0 && /[A-Za-z0-9._*~/-]/.test(text[at - 1])) at -= 1
     return at
 }
 
