@@ -7962,7 +7962,7 @@ check(
                 '"report.pdf could not be copied over /tmp/output.pdf"'
             ],
             [`"${path.join(assets, 'Q3 and Q4', 'deck.pptx')}"`, '"deck.pptx"'],
-            [`"${path.join(assets, 'Q3; old', 'a.pdf')} moved"`, `"Q3; old${path.sep}a.pdf moved"`],
+            [`"${path.join(assets, 'Q3; old', 'a.pdf')} moved"`, '"a.pdf moved"'],
             [`"${path.join(assets, 'report.pdf')} failed during read/write"`, '"report.pdf failed during read/write"'],
             [`"${path.join(assets, 'report.pdf')} and/or deck.pptx"`, '"report.pdf and/or deck.pptx"'],
             [`"${path.join(assets, 'README')} failed during read/write"`, '"README failed during read/write"'],
@@ -8268,16 +8268,75 @@ check(
             const link = `file://${aliasRoot}${suffix}`
             reviewCases.push([`Open ${link} now`, `Open ${name} now`], [`"${link}"`, `"${name}"`])
         }
+        // Cross product: the same lexical rules cover aliases, nonexistent names and prose on every channel.
+        const pathMatrix = []
+        const matrixRoots = [
+            '/var/cuttlely/workspaces',
+            '//var//cuttlely/workspaces',
+            '/var/cuttlely/./workspaces',
+            '/var/x/../cuttlely/workspaces',
+            '/var/cuttlely/(cache)/../workspaces',
+            '/var/cuttlely/[cache]/../workspaces',
+            "/var/cuttlely/Bob's cache/../workspaces",
+            '/var/cuttlely/cache, old; copy/../workspaces',
+            '%2Fvar%2Fcuttlely%2F%77orkspaces',
+            '/var/cuttlely/%28cache%29/%2e%2e/workspaces'
+        ]
+        const matrixFolders = [
+            'private',
+            'foo(bar)',
+            'foo[bar]',
+            'foo{bar}',
+            'foo,bar',
+            'foo;bar',
+            'release.v2 notes',
+            "cache's (old)",
+            "Bob's reports",
+            'quarterly reports',
+            'never created/subfolder',
+            'cancelled (old)/../private',
+            'encoded%2Fprivate',
+            'quarterly%20reports'
+        ]
+        for (const base of matrixRoots)
+            for (const folder of matrixFolders) {
+                const full = base + '/agent/' + folder + '/deck.pptx'
+                for (const alias of [full, 'FiLe://arbitrary-host' + full.replace(/^%2F/i, '/')]) {
+                    for (const [prefix, suffix] of [
+                        ['', ''],
+                        ['"', '"'],
+                        ['"failed opening ', ' today"'],
+                        ['Open **', '** now.'],
+                        ["'", "'"],
+                        ['Open \x60', '\x60 now.'],
+                        ['<', '>']
+                    ])
+                        pathMatrix.push([prefix + alias + suffix, prefix + 'deck.pptx' + suffix])
+                }
+            }
+        for (const dots of ['../', '../../'])
+            pathMatrix.push([
+                '"' + aliasRoot + '/agent/README failed opening docs/' + dots + 'report.md"',
+                '"README failed opening docs/' + dots + 'report.md"'
+            ])
+        reviewCases.push(...pathMatrix)
         const reviewWrong = []
         const reviewDataDir = process.env.CUTTLELY_DATA_DIR
         try {
             process.env.CUTTLELY_DATA_DIR = '/var/cuttlely'
             for (const [said, expected] of reviewCases) {
-                if (hideWorkspacePaths(said, aliasRoot) !== expected) reviewWrong.push(['text', said])
+                const maskedText = hideWorkspacePaths(said, aliasRoot)
+                if (maskedText !== expected || /\/var\/cuttlely|workspaces|private|subfolder|quarterly|foo[({[;,]/.test(maskedText))
+                    reviewWrong.push(['text', said, maskedText])
                 if (maskError(new Error(said)).message !== expected || maskError(said) !== expected) reviewWrong.push(['error', said])
                 const value = maskWorkspacePaths({ [said]: said, nested: [{ note: said }], base64: said })
                 if (value[expected] !== expected || value.nested[0].note !== expected || value.base64 !== expected)
                     reviewWrong.push(['value', said])
+                const sentChars = [],
+                    charContext = {}
+                for (const char of said) bufferStream(charContext, 'answer', char, false, (text) => sentChars.push(text), aliasRoot)
+                bufferStream(charContext, 'answer', '', true, (text) => sentChars.push(text), aliasRoot)
+                if (sentChars.join('') !== expected) reviewWrong.push(['characters', said, sentChars.join('')])
                 for (let at = 0; at <= said.length; at += 1) {
                     const sent = []
                     const context = {}

@@ -149,42 +149,88 @@ const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value
 
 export function hideWorkspacePaths(text, root, chatDir = '') {
     if (!root || typeof text !== 'string') return text
-    let out = normalizeWorkspaceAliases(text, root)
-    for (const base of rootSpellings(root)) {
-        if (base !== path.sep) out = hideRoot(out, base, chatDir ? trimSep(path.resolve(chatDir)) : '')
+    const absolute = trimSep(path.resolve(root))
+    const chat = chatDir ? trimSep(path.resolve(chatDir)) : ''
+    let out = '',
+        cursor = 0
+    for (const candidate of workspaceCandidates(text, root)) {
+        const resolved = resolveCandidate(candidate.full)
+        if (resolved !== absolute && !resolved.startsWith(absolute + path.sep)) continue
+        const parts = path.relative(absolute, resolved).split(path.sep).filter(Boolean)
+        const shown =
+            resolved === chat
+                ? 'the chat'
+                : parts.length <= (absolute === chat ? 0 : 1)
+                ? absolute === chat
+                    ? 'the chat'
+                    : 'the workspace'
+                : path.basename(resolved)
+        out += text.slice(cursor, candidate.at) + shown
+        cursor = candidate.end
     }
-    return out
+    return out + text.slice(cursor)
 }
 
-// Normalize only candidates that resolve within the root; unrelated paths keep their spelling.
-// Keep quotes together so aliases of paths containing spaces use the usual masking rules too.
-function normalizeWorkspaceAliases(text, root) {
-    if (!/(?:\/|%2f)(?:\.|%2e){1,2}(?:\/|%2f)/i.test(text)) return text
-    const absolute = trimSep(path.resolve(root))
-    const normalize = (candidate) => {
-        const local = candidate.replace(FILE_LINK_START, '')
-        let decoded = local
-        if (/^file:\/\//i.test(candidate)) {
-            try {
-                decoded = decodeURIComponent(local)
-            } catch {}
-        }
-        if (!path.isAbsolute(decoded) || !/(?:^|\/)\.\.?(?:\/|$)/.test(decoded)) return candidate
-        const normalized = path.resolve(decoded)
-        if (normalized !== absolute && !normalized.startsWith(`${absolute}${path.sep}`)) return candidate
-        return /^file:\/\//i.test(candidate) ? `file://${encodeFilePath(normalized)}` : normalized
+function resolveCandidate(full) {
+    let local = full.replace(FILE_LINK_START, '')
+    try {
+        local = decodeURIComponent(local)
+    } catch {
+        // A malformed escape must not prevent valid encoded separators from being hidden.
+        local = local.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     }
-    const scan = (value) =>
-        value.replace(/(?:file:\/\/[^/\\\s]*)?\/[^\s'"`<>()\[\]{}|,;]*/gi, (candidate, offset) =>
-            offset && /[A-Za-z0-9./-]/.test(value[offset - 1]) ? candidate : normalize(candidate)
-        )
-    return text.replace(/(["'`])([^\n]*?)\1|(?:file:\/\/[^/\\\s]*)?\/[^\s'"`<>()\[\]{}|,;]*/gi, (full, quote, quoted, offset) => {
-        if (offset && /[A-Za-z0-9./-]/.test(text[offset - 1])) return full
-        if (!quote) return normalize(full)
-        // Preserve whole quoted paths with spaces; prose quotes need their own candidate scan.
-        const normalized = normalize(quoted)
-        return `${quote}${normalized !== quoted ? normalized : scan(quoted)}${quote}`
-    })
+    return trimSep(path.resolve(local))
+}
+
+// One lexical scan for masking and stream holds. Spaces and punctuation belong to filenames;
+// whitespace after an extension or before sentence/error words terminates a candidate.
+// Never normalize a whole prose quote: dot segments apply only inside the candidate.
+function* workspaceCandidates(text, root) {
+    const relative = rootSpellings(root).filter((base) => !path.isAbsolute(base))
+    const starts = new RegExp('file://[^/\\s]*|/|%2f' + relative.map((base) => '|' + escapeRegExp(base)).join(''), 'gi')
+    let match
+    while ((match = starts.exec(text))) {
+        const at = match.index
+        let before = at - 1
+        while (before >= 0 && /[_*~]/.test(text[before])) before--
+        if (before >= 0 && /[A-Za-z0-9./%-]/.test(text[before])) continue
+        let end = at + match[0].length
+        let segment = end
+        const closing = { '(': ')', '[': ']', '{': '}' }
+        const stack = []
+        for (; end < text.length; end++) {
+            const char = text[end]
+            if (/[\n\r\t<>|"`]/.test(char)) break
+            if (char === "'" && (!text[end + 1] || /[\s"`<>]/.test(text[end + 1]))) break
+            if (closing[char]) stack.push(closing[char])
+            else if (/[)\]\}]/.test(char)) {
+                if (stack.at(-1) !== char) break
+                stack.pop()
+            }
+            if (char === ' ') {
+                const previous = text.slice(Math.max(segment, end - 32), end)
+                const next = text.slice(end + 1).match(/^[^ \n\r\t"`'<>]+/)?.[0] || ''
+                if (
+                    next === 'and/or' ||
+                    (text.slice(at, end) === root && /^(?:and|or)$/.test(next)) ||
+                    (/\.[A-Za-z0-9]{1,8}[_*~]*[.,;:!?]*$/.test(previous) && !next.includes('/')) ||
+                    /^(?:now|today|failed|failing|reading|writing|during|while|when|because|cannot|could|not|is|was|were|from|into|to|with|error|errors|missing|permission|denied|opening|moved|in|see)(?:$|[.,;:!?])/i.test(
+                        next
+                    )
+                )
+                    break
+            }
+            if (char === '/') segment = end + 1
+        }
+        const rawEnd = end
+        while (end > at && /[ _*~.,:!?;]/.test(text[end - 1])) {
+            // A final dot component is normalization syntax, not sentence punctuation.
+            if (text[end - 1] === '.' && /\/(?:\.|\.\.)$/.test(text.slice(Math.max(at, end - 3), end))) break
+            end--
+        }
+        if (end > at) yield { at, end, full: text.slice(at, end), open: rawEnd === text.length }
+        starts.lastIndex = Math.max(rawEnd, at + 1)
+    }
 }
 
 function rootSpellings(root) {
@@ -202,72 +248,22 @@ function rootSpellings(root) {
     return [...new Set(roots)]
 }
 
-const rootPattern = (base, encoded = false) =>
-    [...base]
-        .map((char) => {
-            const hex = [...Buffer.from(char)]
-                .map(
-                    (byte) =>
-                        '%' +
-                        byte
-                            .toString(16)
-                            .padStart(2, '0')
-                            .replace(/[a-f]/g, (c) => `[${c}${c.toUpperCase()}]`)
-                )
-                .join('')
-            const token = encoded ? `(?:${escapeRegExp(char)}|${hex})` : escapeRegExp(char)
-            return char === path.sep ? `${token}+` : token
-        })
-        .join('')
-
 export function namesRoot(text, root) {
     return hideWorkspacePaths(text, root) !== text
 }
 
-// Find complete roots and unfinished roots at the end of a stream.
+// Unfinished absolute candidates may still enter the root through a later dot segment.
 export function rootStarts(text, root, partial = false) {
+    const absolute = trimSep(path.resolve(root))
     const found = []
-    // Any unfinished absolute path can still enter the root through a later "..".
-    // Hold it until a delimiter arrives, including an unfinished file authority.
-    const candidates = /file:\/\/[^\s'"`<>{}|,;]*|\/[^\s'"`<>()\[\]{}|,;]*/gi
-    for (const match of text.matchAll(candidates)) {
-        const at = match.index
-        if (at && /[A-Za-z0-9./-]/.test(text[at - 1])) continue
-        if ((partial && at + match[0].length === text.length) || namesRoot(match[0], root)) found.push(at)
+    for (const candidate of workspaceCandidates(text, root)) {
+        const resolved = resolveCandidate(candidate.full)
+        if ((partial && candidate.open) || resolved === absolute || resolved.startsWith(absolute + path.sep)) found.push(candidate.at)
     }
-    for (const base of rootSpellings(root)) {
-        for (let at = 0; at < text.length; at += 1) {
-            if (at && /[A-Za-z0-9./-]/.test(text[at - 1])) continue
-            let start = at
-            let encoded = false
-            if (text.slice(at, at + 7).toLowerCase() === 'file://') {
-                encoded = true
-                start += FILE_LINK_START.exec(text.slice(at))[0].length
-            } else if (partial && 'file://'.startsWith(text.slice(at).toLowerCase())) {
-                found.push(at)
-                continue
-            }
-            let pos = start
-            let index = 0
-            while (index < base.length && pos < text.length) {
-                const char = base[index]
-                let size = text[pos] === char ? 1 : 0
-                if (!size && encoded && text[pos] === '%') {
-                    const code = '%' + Buffer.from(char).toString('hex').match(/../g).join('%')
-                    const rest = text.slice(pos, pos + code.length).toLowerCase()
-                    if (partial && pos + rest.length === text.length && code.startsWith(rest)) {
-                        pos = text.length
-                        break
-                    }
-                    if (rest === code) size = code.length
-                }
-                if (!size) break
-                pos += size
-                if (char !== path.sep || (text[pos] !== path.sep && !(encoded && text.slice(pos, pos + 3).toLowerCase() === '%2f')))
-                    index += 1
-            }
-            if (index === base.length ? !/[A-Za-z0-9-]/.test(text[pos] || '') : partial && pos === text.length) found.push(at)
-        }
+    if (partial) {
+        const tail = /(?:^|[^A-Za-z0-9./-])(f|fi|fil|file|file:|file:\/)$/i.exec(text)
+        if (tail) found.push(text.length - tail[1].length)
+        if (/%(?:2)?$/i.test(text)) found.push(text.lastIndexOf('%'))
     }
     return found
 }
@@ -278,127 +274,6 @@ export const encodeFilePath = (value) => encodeURI(value).replace(/#/g, '%23').r
 // A file:// link may name a host (localhost, 127.0.0.1, [::1] or any other) before the path.
 export const FILE_HOST = String.raw`[^/\\\s]*`
 const FILE_LINK_START = new RegExp(`^file://${FILE_HOST}`, 'i')
-
-function hideRoot(text, base, chat) {
-    const sep = escapeRegExp(path.sep)
-    const suffixSep = `(?:${sep}|%2[fF])`
-    // The root must start a path (not follow a letter, a dot or a separator) and end at a separator or a boundary.
-    const head = `(?<![A-Za-z0-9.${sep}-][_*~]*)(?:[Ff][Ii][Ll][Ee]://${FILE_HOST}${rootPattern(base, true)}|${rootPattern(
-        base
-    )})(?![A-Za-z0-9-]|[_~]+[A-Za-z0-9]|\\.[A-Za-z0-9_~.${sep}-])`
-    const rootHead = new RegExp(`^${head}`)
-    const shown = (full) => {
-        let rest = full.replace(FILE_LINK_START, '')
-        try {
-            rest = decodeURIComponent(rest)
-        } catch {}
-        rest = path.resolve(rest)
-        const start = rootHead.exec(full)?.[0].length || 0
-        if (chat && (rest === chat || rest === `${chat}${path.sep}`)) return 'the chat'
-        let suffix = full.slice(start)
-        try {
-            suffix = decodeURIComponent(suffix)
-        } catch {}
-        const parts = suffix.split(/\/|%2f/i).filter(Boolean)
-        // Under the chat folder itself every path is a file name; under the root the first part is a workspace.
-        if (path.resolve(base) === chat) return parts.length ? parts[parts.length - 1] : 'the chat'
-        return parts.length <= 1 ? 'the workspace' : parts[parts.length - 1]
-    }
-    // A quoted path may hold spaces and punctuation: everything up to the same closing quote is the path, so a
-    // backticked or double-quoted path may hold an apostrophe.
-    // A quoted path starts with the root and a separator, or is the root alone; "<root> backup/..." is another folder.
-    const quotes = ['"', "'", '`'].map((quote) => new RegExp(`${quote}(${head}(?:${suffixSep}[^${quote}\\n]*)?)${quote}`, 'g'))
-    // A bare root followed by a space and a relative path is a sibling folder whose name starts with the root's name.
-    const word = `[^\\s'"\`<>()\\[\\]{}|,;${sep}][^\\s'"\`<>()\\[\\]{}|,;]*${sep}`
-    const bare = new RegExp(`${head}(?:${suffixSep}[^\\s'"\`<>()\\[\\]{}|,;]*|(?![ \\t]+${word}))`, 'g')
-    const bareOnly = (value) => {
-        let out = ''
-        let cursor = 0
-        bare.lastIndex = 0
-        let found
-        while ((found = bare.exec(value))) {
-            const [match] = found
-            const offset = found.index
-            let end = offset + match.length
-            let longest = end
-            for (let words = 0; words < 8 && value[end] === ' '; words += 1) {
-                end += 1
-                while (end < value.length && !/[\s'"`<>()\[\]{}|,;]/.test(value[end])) end += 1
-                if (onDisk(value.slice(offset, end))) longest = end
-            }
-            const full = value.slice(offset, longest)
-            const tail = /[_*~.:!?]+$/.exec(full)?.[0] || ''
-            out += value.slice(cursor, offset) + shown(full.slice(0, full.length - tail.length)) + tail
-            cursor = longest
-            bare.lastIndex = longest
-        }
-        return out + value.slice(cursor)
-    }
-    // In quoted text a path may hold spaces only when the whole quote reads as one path: every folder name is
-    // non-empty, has no leading or trailing space, none of ;:<>|?* or ", " and no file name followed by words, and the
-    // last part ends in a file extension. Otherwise the path ends at the first space, and the rest keeps its words
-    // ("README failed during read/write"); any further path in it is masked too. The check is one pass.
-    const badFolder = /^\s|\s$|[;:<>|?*]|, |\.[A-Za-z0-9]{1,8}\s/
-    const fileEnd = /\.[A-Za-z0-9]{1,8}[_*~]*$/
-    // A folder name with spaces is taken as one only when every word starts like a name (a capital, a digit or a
-    // bracket) or is a joining word; lower-case words read as prose ("README permission denied opening docs").
-    const nameWord = /^(?:[A-Z0-9([{&+#@'-]|and$|of$|the$|for$|v\d)/
-    const folderName = (folder) =>
-        Boolean(folder) &&
-        !badFolder.test(folder) &&
-        !proseFolder.test(folder) &&
-        (!/\s/.test(folder) || folder.split(/\s+/).every((word) => nameWord.test(word)))
-    // Words that read as an error or a sentence, not a folder name ("README failed reading docs/help.md").
-    const proseFolder =
-        /\s(?:failed|failing|reading|writing|during|while|when|because|cannot|could|not|is|was|were|from|into|to|with|error|errors|missing)(?:\s|$)/i
-    const space = /\s/
-    const onePath = (rest, folderOk = folderName) => {
-        if (!space.test(rest)) return true
-        const parts = rest.split(path.sep)
-        if (parts[0] !== '') return false
-        const last = parts.pop()
-        return fileEnd.test(last) && parts.slice(1).every(folderOk)
-    }
-    // A quote whose folders read as lower-case words is still one path when that path is on disk.
-    const plainFolder = (folder) => Boolean(folder) && !badFolder.test(folder)
-    const onDisk = (full) => {
-        try {
-            return fs.existsSync(full.replace(FILE_LINK_START, ''))
-        } catch {
-            return false
-        }
-    }
-    // Where a path that does not fill the quote ends: at the first space after a file name whose folders are all
-    // valid ("Q3 Reports/a.pdf and ..."), else at the first space. One pass; each check looks back a few characters.
-    const pathEnd = (rest) => {
-        let segment = 0
-        let folders = rest.startsWith(path.sep)
-        for (let index = 1; index < rest.length; index += 1) {
-            const char = rest[index]
-            if (char === path.sep) {
-                const folder = rest.slice(segment + 1, index)
-                folders = folders && folderName(folder)
-                segment = index
-            } else if (folders && /\s/.test(char) && fileEnd.test(rest.slice(Math.max(segment + 1, index - 9), index))) {
-                return index
-            }
-        }
-        return rest.search(space)
-    }
-    const quotedPaths = (full) => {
-        const start = new RegExp(`^${head}`).exec(full)?.[0].length || 0
-        const rest = full.slice(start)
-        if (onePath(rest) || (onePath(rest, plainFolder) && onDisk(full))) return shown(full)
-        const end = start + pathEnd(rest)
-        return shown(full.slice(0, end)) + bareOnly(full.slice(end))
-    }
-    let out = text
-    for (const quoted of quotes) {
-        // Quoted text naming two or more paths ("a.pdf and b.pdf", a move error) keeps its words; each path is masked.
-        out = out.replace(quoted, (match, full) => `${match[0]}${quotedPaths(full)}${match[0]}`)
-    }
-    return bareOnly(out)
-}
 
 export function removeTurnImageDir(dir) {
     if (!dir || path.basename(path.dirname(dir)) !== TURN_IMAGE_FOLDER) return
