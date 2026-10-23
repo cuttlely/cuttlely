@@ -8683,10 +8683,9 @@ await expectCase('large file downloads survive runHarness and the fresh chat han
                     const delivered = path.join(folder, 'deck.pptx')
                     const missing = path.join(path.dirname(folder), 'exports/q3/deck.pptx')
                     const traversal = `${folder}/../${path.basename(folder)}/deck.pptx`
-                    answer = `Your file is ready as ${delivered}. Missing ${missing}. Traversal ${traversal}. Encoded ${traversal.replace(
-                        '/../',
-                        '/%2e%2e/'
-                    )}. Backslash ${traversal.replaceAll('/', '\\')}.`
+                    answer = `Your file is ready as ${delivered}. Missing ${missing}. Traversal ${traversal}. Encoded ${folder}/%2e%2e/${path.basename(
+                        folder
+                    )}/deck.pptx. Backslash ${traversal.replaceAll('/', '\\')}.`
                     reply.content = answer
                 }
                 return reply
