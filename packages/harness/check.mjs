@@ -2926,7 +2926,7 @@ check(
         [
             'Use Bearer abc.def.ghi and ',
             'sk',
-            '-ABCDEFGHIJKL, api_key=zz-made-up-1, "password": "hunter2" at ',
+            '-ABCDEFGHIJKL, api_key=zz-made-up-1, "password": "made up \\"pass\\" phrase", secret=\'two words\' at ',
             'postgres',
             '://u:p@db/x'
         ].join('')
@@ -2938,7 +2938,7 @@ check(
     )
     check(
         'the routing reply preview removes credentials',
-        !/abc\.def|ABCDEFGHIJKL|zz-made-up-1|hunter2|u:p@db/.test(secretPreview) && secretPreview.includes('[redacted]'),
+        !/abc\.def|ABCDEFGHIJKL|zz-made-up-1|made up|phrase|two words|u:p@db/.test(secretPreview) && secretPreview.includes('[redacted]'),
         secretPreview
     )
     check('reading a long unreadable routing reply stays fast', Date.now() - slowStart < 1000, `${Date.now() - slowStart}ms`)
