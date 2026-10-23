@@ -665,6 +665,16 @@ const fileBytes = (key, item) =>
     (key === 'base64' || (key === 'data' && item.startsWith('data:'))) &&
     !item.includes(specialistWorkspaceRoot()) &&
     !item.includes(encodeFilePath(specialistWorkspaceRoot()))
+// A value's toJSON() serializer, own or inherited; a lookup that throws gives THROWS.
+const THROWS = Symbol('throws')
+const serializerOf = (value) => {
+    try {
+        const fn = value.toJSON
+        return typeof fn === 'function' ? fn : undefined
+    } catch {
+        return THROWS
+    }
+}
 const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
 export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     if (typeof value === 'string') return maskText(value)
@@ -674,10 +684,12 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
     if (depth >= MASK_DEPTH || open.has(value)) return '[nested data]'
     // Any other object (a URL, a Date, a class instance) is masked as it would be sent: its toJSON() form, or its own
     // fields.
-    if (!Array.isArray(value) && typeof value.toJSON === 'function') {
+    const serializer = Array.isArray(value) ? undefined : serializerOf(value)
+    if (serializer === THROWS) return '[data]'
+    if (serializer) {
         let plain
         try {
-            plain = value.toJSON()
+            plain = serializer.call(value)
         } catch {
             return '[data]'
         }
@@ -735,6 +747,23 @@ export function maskError(error, depth = 0, seen = new WeakSet()) {
         masked.value = item instanceof Error ? maskError(item, depth + 1, seen) : maskWorkspacePaths(item)
         Object.defineProperty(copy, name, masked)
     }
+    // A serializer (own or inherited) is replaced by one that masks what the original returns.
+    const serializer = serializerOf(error)
+    if (serializer) {
+        Object.defineProperty(copy, 'toJSON', {
+            value: () => {
+                try {
+                    const plain = serializer.call(error)
+                    return plain === error ? '[data]' : maskWorkspacePaths(plain)
+                } catch {
+                    return '[data]'
+                }
+            },
+            enumerable: false,
+            writable: true,
+            configurable: true
+        })
+    }
     seen.delete(error)
     return copy
 }
@@ -746,7 +775,7 @@ function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, s
     if (typeof value === 'string') return value.includes(root) || value.includes(encodeFilePath(root))
     if (!value || typeof value !== 'object') return false
     if (seen.has(value) || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return false
-    if (depth > MASK_DEPTH || typeof value.toJSON === 'function') return true
+    if (depth > MASK_DEPTH || serializerOf(value) !== undefined) return true
     seen.add(value)
     for (const key of Reflect.ownKeys(value)) {
         if (typeof key === 'string' && mentionsWorkspace(key, root)) return true

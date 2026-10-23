@@ -8083,6 +8083,23 @@ check(
             'getters, serializers, deep fields, upper-case file links and on-disk lower-case folders are masked',
             maskError(getterError).code === 'getter.pdf' &&
                 maskError(serialError) !== serialError &&
+                !JSON.stringify(maskError(serialError)).includes(assets) &&
+                !JSON.stringify(
+                    maskError(Object.assign(new Error(`open ${assets}/a.pdf`), { toJSON: () => ({ message: `${assets}/b.pdf` }) }))
+                ).includes(assets) &&
+                (() => {
+                    const trap = new Error('failed')
+                    Object.defineProperty(trap, 'toJSON', {
+                        get: () => {
+                            throw new Error(`${assets}/trap.pdf`)
+                        }
+                    })
+                    try {
+                        return maskError(trap) !== trap && maskWorkspacePaths({ trap }).trap === '[data]'
+                    } catch {
+                        return false
+                    }
+                })() &&
                 !JSON.stringify(maskError(deepError)).includes(root) &&
                 hideWorkspacePaths(`FILE://${path.join(assets, 'a.pdf')} and file://LOCALHOST${path.join(assets, 'b.pdf')}`, root) ===
                     'a.pdf and b.pdf' &&
