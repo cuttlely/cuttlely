@@ -1440,7 +1440,7 @@ async function routeSteps(context, input, history) {
             // A failed retry still ends at the default specialist; only a stopped run stops here.
             if (context.workSignal?.aborted || context.clientSignal?.aborted || context.budgetSignal?.aborted) throw error
             console.warn(
-                `[harness] ${context.name} router retry failed (chat ${context.chatId}): ${maskWorkspacePaths(
+                `[harness] ${context.name} router retry failed (chat ${context.chatId}): ${routeRawPreview(
                     String(error?.message || error)
                 )}`
             )
@@ -1498,7 +1498,16 @@ const EARLIER_RESULT_CHARS = 6000
 // A routing reply is a list of steps or an object with a steps list. Other JSON inside prose (for example a config
 // snippet the model quoted) is not a route.
 function isRouteShape(value) {
-    return Array.isArray(value) || (Boolean(value) && typeof value === 'object' && Array.isArray(value.steps))
+    if (Array.isArray(value)) {
+        // A bare list counts only when it lists steps; "[]" or a list of hosts in prose is not a route.
+        return (
+            value.length > 0 &&
+            value.every(
+                (item) => item && typeof item === 'object' && (typeof item.specialist === 'string' || typeof item.name === 'string')
+            )
+        )
+    }
+    return Boolean(value) && typeof value === 'object' && Array.isArray(value.steps)
 }
 
 export function readRouteJson(content) {
@@ -1534,7 +1543,9 @@ export function readRouteJson(content) {
         const slice = balancedSlice(scan, start)
         if (!slice) continue
         const parsed = tryParse(slice)
-        if (parsed !== undefined && typeof parsed === 'object' && parsed !== null) return parsed
+        if (parsed !== undefined) return parsed
+        // A balanced value that is not a route is skipped whole, so a list nested inside it is not read as one.
+        start += slice.length - 1
     }
     return undefined
 }

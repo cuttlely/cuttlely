@@ -2933,7 +2933,13 @@ check(
     )
     check(
         'JSON that is not a route, quoted in prose, does not count as a routing reply',
-        !quoted.ok && readRouteJson('{"mode":"raft"}') === undefined && parseRouteSteps('{"steps":[]}', roster, 'q').ok,
+        !quoted.ok &&
+            readRouteJson('{"mode":"raft"}') === undefined &&
+            !parseRouteSteps('Example configuration: {"allowedHosts":[]}. I would ask knowledge.', roster, 'q').ok &&
+            !parseRouteSteps('Hosts: ["a","b"] and []', roster, 'q').ok &&
+            parseRouteSteps('Config {"a":[1]} then {"steps":[{"specialist":"ops","task":"t"}]}', roster, 'q').steps[0]?.specialist.name ===
+                'ops' &&
+            parseRouteSteps('{"steps":[]}', roster, 'q').ok,
         JSON.stringify(quoted)
     )
     check(
@@ -3047,12 +3053,16 @@ async function routeRecoverTurn(chatId, routeReplies) {
         retryEcho.length === 1000 && retryEcho.startsWith('The best fit is the knowledge specialist'),
         String(retryEcho.length)
     )
-    const thrown = await routeRecoverTurn('route-recover-3', [prose, new Error('context length exceeded')])
+    const thrown = await routeRecoverTurn('route-recover-3', [
+        prose,
+        new Error(['context length exceeded for key ', 'sk', '-MADEUPMADEUP12 with Bearer made.up.tok'].join(''))
+    ])
     check(
         'a router retry that fails still sends the request to the default specialist',
         thrown.run.trace?.route?.steps?.length === 1 &&
             thrown.run.trace.route.steps[0].specialist === 'knowledge' &&
-            thrown.warned.some((line) => line.includes('router retry failed')),
+            thrown.warned.some((line) => line.includes('router retry failed') && line.includes('[redacted]')) &&
+            !thrown.warned.some((line) => /MADEUPMADEUP12|made\.up\.tok/.test(line)),
         JSON.stringify({ route: thrown.run.trace?.route?.steps, warned: thrown.warned })
     )
     const fallback = await routeRecoverTurn('route-recover-2', [prose, prose])
