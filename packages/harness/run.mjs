@@ -708,30 +708,55 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
 
 // An error leaves with its message, stack and fields masked. One that cannot be changed (a frozen error) is replaced
 // by a masked copy with the same prototype, name and fields, such as its code.
-export function maskError(error) {
+export function maskError(error, depth = 0, seen = new WeakSet()) {
     // A thrown string or object is masked too; other thrown values carry no text.
     if (typeof error === 'string') return maskWorkspacePaths(error)
     if (!error || typeof error !== 'object') return error
-    if (!(error instanceof Error) && typeof error.message !== 'string') return maskWorkspacePaths(error)
-    const message = maskWorkspacePaths(String(error.message ?? ''))
-    const stack = typeof error.stack === 'string' ? maskWorkspacePaths(error.stack) : error.stack
-    const fields = Object.entries(error).map(([key, item]) => [key, item, maskWorkspacePaths(item)])
-    const changed = (key, item, next) => JSON.stringify(item) !== JSON.stringify(next) || (typeof item === 'string' && item !== next)
-    try {
-        if (error.message !== message) error.message = message
-        if (error.stack !== stack) error.stack = stack
-        for (const [key, item, next] of fields) if (changed(key, item, next)) error[key] = next
-    } catch {
-        // Checked below.
+    if (!(error instanceof Error)) return maskWorkspacePaths(error)
+    // An error that names no workspace folder anywhere is passed on as it is.
+    if (!mentionsWorkspace(error)) return error
+    if (depth >= 8 || seen.has(error)) return new Error('[nested error]')
+    seen.add(error)
+    // Otherwise it is rebuilt with the same prototype and every own field (enumerable or not, the cause included),
+    // each masked, so a frozen error or a hidden field cannot keep a path.
+    const copy = Object.create(Object.getPrototypeOf(error))
+    for (const key of Reflect.ownKeys(error)) {
+        const field = Object.getOwnPropertyDescriptor(error, key)
+        const name = typeof key === 'string' ? maskWorkspacePaths(key) : key
+        const masked = { enumerable: field.enumerable, configurable: true }
+        if ('value' in field) {
+            masked.writable = true
+            masked.value = field.value instanceof Error ? maskError(field.value, depth + 1, seen) : maskWorkspacePaths(field.value)
+        } else {
+            masked.value = undefined
+            masked.writable = true
+        }
+        Object.defineProperty(copy, name, masked)
     }
-    const clean = error.message === message && error.stack === stack && fields.every(([key, , next]) => !changed(key, error[key], next))
-    if (clean) return error
-    const copy = new Error(message)
-    Object.setPrototypeOf(copy, Object.getPrototypeOf(error))
-    for (const [key, , next] of fields) copy[key] = next
-    Object.defineProperty(copy, 'name', { value: error.name, writable: true, configurable: true })
-    copy.stack = stack
+    seen.delete(error)
     return copy
+}
+
+// Whether any string in a value (own fields of errors and objects, enumerable or not, keys included) names the
+// workspaces folder, in plain or file-link spelling. Cycle-safe and bounded.
+function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, seen = new WeakSet()) {
+    if (typeof value === 'string') return value.includes(root) || value.includes(encodeFilePath(root))
+    if (!value || typeof value !== 'object' || depth > MASK_DEPTH) return false
+    if (seen.has(value) || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return false
+    seen.add(value)
+    for (const key of Reflect.ownKeys(value)) {
+        if (typeof key === 'string' && mentionsWorkspace(key, root)) return true
+        const field = Object.getOwnPropertyDescriptor(value, key)
+        if (field && 'value' in field && mentionsWorkspace(field.value, root, depth + 1, seen)) return true
+    }
+    if (!Array.isArray(value) && typeof value.toJSON === 'function' && !(value instanceof Error)) {
+        try {
+            return mentionsWorkspace(value.toJSON(), root, depth + 1, seen)
+        } catch {
+            return false
+        }
+    }
+    return false
 }
 
 function emit(context, type, data = {}) {

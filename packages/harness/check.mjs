@@ -7954,7 +7954,7 @@ check(
             [`${root}..${path.sep}deck.pptx`, `${root}..${path.sep}deck.pptx`],
             [`Saved in ${assets}.`, 'Saved in the workspace.'],
             [`\`${path.join(assets, 'exports', "Bob's Reports", 'deck.pptx')}\``, '`deck.pptx`'],
-            [`"${path.join(assets, "Bob's", 'a.csv')}" and '${path.join(assets, 'x y', 'b.csv')}'`, `"a.csv" and 'b.csv'`],
+            [`"${path.join(assets, "Bob's", 'a.csv')}" and '${path.join(assets, 'X Y', 'b.csv')}'`, `"a.csv" and 'b.csv'`],
             [`/backup${path.join(coderDir, 'exports', 'deck.pptx')}`, `/backup${path.join(coderDir, 'exports', 'deck.pptx')}`],
             // A quoted path ends at its file name; the prose and any outside path after it keep their words.
             [
@@ -7968,6 +7968,10 @@ check(
             [`"${path.join(assets, 'README')} failed during read/write"`, '"README failed during read/write"'],
             [`"${path.join(assets, 'out')} is not a folder/file"`, '"out is not a folder/file"'],
             [`"${path.join(assets, 'README')} failed reading docs/help.md"`, '"README failed reading docs/help.md"'],
+            [
+                `"${path.join(assets, 'README')} permission denied opening docs/report.md"`,
+                '"README permission denied opening docs/report.md"'
+            ],
             [
                 `"${path.join(assets, 'README')} failed reading docs/help.md and ${path.join(assets, 'a.pdf')}"`,
                 '"README failed reading docs/help.md and a.pdf"'
@@ -8057,6 +8061,25 @@ check(
         const fielded = maskError(Object.assign(new Error('tool failed'), { code: path.join(assets, 'private.pdf') }))
         const frozenFielded = maskError(Object.freeze(Object.assign(new Error('tool failed'), { detail: path.join(assets, 'p.pdf') })))
         const thrownText = maskError(`open ${path.join(assets, 'private.pdf')}`)
+        const caused = maskError(new Error('failed', { cause: new Error(`open ${path.join(assets, 'private.pdf')}`) }))
+        const hidden = new Error('failed')
+        Object.defineProperty(hidden, 'code', { value: path.join(assets, 'code.pdf'), enumerable: false })
+        hidden.detail = 1n
+        const looping = { note: path.join(assets, 'loop.pdf') }
+        looping.self = looping
+        hidden.loop = looping
+        const hiddenMasked = maskError(hidden)
+        const plainError = new Error('no path here')
+        check(
+            'error causes, hidden fields, BigInt and cyclic fields are masked without throwing',
+            caused.cause.message === 'open private.pdf' &&
+                hiddenMasked.code === 'code.pdf' &&
+                hiddenMasked.detail === 1n &&
+                hiddenMasked.loop.note === 'loop.pdf' &&
+                hiddenMasked instanceof Error &&
+                maskError(plainError) === plainError,
+            JSON.stringify({ cause: caused.cause?.message, code: hiddenMasked.code })
+        )
         const oddRoot = '/var/cuttlely #1?/workspaces'
         const otherLinks = [
             hideWorkspacePaths(`see file://localhost${path.join(assets, 'private.pdf')} now`, root),
