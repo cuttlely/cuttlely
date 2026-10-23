@@ -1,7 +1,13 @@
 import { ChatOpenAI as LangchainChatOpenAI, ChatOpenAIFields, ChatOpenAIResponses } from '@langchain/openai'
 import { IMultiModalOption, IVisionChatModal } from '../../../src'
 
-const STRING_TOOL_CHOICES: Record<string, string> = { required: 'required', any: 'required', auto: 'auto', none: 'none' }
+// A Map, so a tool named like an object property (toString, constructor) is never mistaken for a string choice.
+const STRING_TOOL_CHOICES = new Map<string, string>([
+    ['required', 'required'],
+    ['any', 'required'],
+    ['auto', 'auto'],
+    ['none', 'none']
+])
 
 /**
  * Responses API client that keeps a string tool choice. The bundled LangChain Responses adapter only carries
@@ -13,8 +19,8 @@ export class ToolChoiceResponses extends ChatOpenAIResponses {
     invocationParams(options?: this['ParsedCallOptions']): any {
         const params: any = super.invocationParams(options)
         const choice = (options as any)?.tool_choice
-        if (typeof choice === 'string' && STRING_TOOL_CHOICES[choice] && params.tools?.length) {
-            params.tool_choice = STRING_TOOL_CHOICES[choice]
+        if (typeof choice === 'string' && STRING_TOOL_CHOICES.has(choice) && params.tools?.length) {
+            params.tool_choice = STRING_TOOL_CHOICES.get(choice)
         }
         return params
     }

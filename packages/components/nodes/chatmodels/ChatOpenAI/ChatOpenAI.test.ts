@@ -73,7 +73,12 @@ beforeEach(() => {
 })
 afterEach(() => fetchSpy.mockRestore())
 
-async function sendWithTool(nodeClass: any, inputs: Record<string, any>, toolOptions?: Record<string, any>): Promise<Sent[]> {
+async function sendWithTool(
+    nodeClass: any,
+    inputs: Record<string, any>,
+    toolOptions?: Record<string, any>,
+    tools: any[] = [lookupTool]
+): Promise<Sent[]> {
     const node = new nodeClass()
     const model = await node.init({ id: 'n1', inputs: { streaming: false, ...inputs }, credential: 'c1' }, '', {})
     const sent: Sent[] = []
@@ -94,7 +99,7 @@ async function sendWithTool(nodeClass: any, inputs: Record<string, any>, toolOpt
     }
     fetchSpy.mockImplementation(fakeFetch as any)
     await model
-        .bindTools([lookupTool], toolOptions)
+        .bindTools(tools, toolOptions)
         .withConfig({ tags: ['t'] })
         .invoke('hello')
     return sent
@@ -429,4 +434,27 @@ describe('tool_choice on the Responses API', () => {
         expect(sent[0].body.tool_choice).toBe('required')
         expect(sent[0].body.reasoning_effort).toBe('none')
     })
+    for (const name of ['toString', 'constructor']) {
+        const tool = { ...lookupTool, function: { ...lookupTool.function, name } }
+        it(`OpenAI /responses keeps a forced choice of a tool named ${name}`, async () => {
+            const sent = await sendWithTool(
+                ChatOpenAINode,
+                { modelName: 'gpt-6-astra', reasoning: true, reasoningEffort: 'high' },
+                { tool_choice: name },
+                [tool]
+            )
+            expect(sent[0].api).toBe('responses')
+            expect(sent[0].body.tool_choice).toEqual({ type: 'function', name })
+        })
+        it(`Azure /responses keeps a forced choice of a tool named ${name}`, async () => {
+            const sent = await sendWithTool(
+                AzureChatOpenAINode,
+                { modelName: 'gpt-5.6-luna', reasoning: true, reasoningEffort: 'medium' },
+                { tool_choice: name },
+                [tool]
+            )
+            expect(sent[0].url).toBe('https://inst.openai.azure.com/openai/v1/responses')
+            expect(sent[0].body.tool_choice).toEqual({ type: 'function', name })
+        })
+    }
 })
