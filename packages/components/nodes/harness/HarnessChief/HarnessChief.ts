@@ -51,6 +51,16 @@ class HarnessChief_Harness implements INode {
                 rows: 4,
                 optional: true,
                 placeholder: 'How Harness Prime should brief the specialists'
+            },
+            {
+                label: 'Default Specialist',
+                name: 'defaultSpecialist',
+                type: 'string',
+                optional: true,
+                additionalParams: true,
+                placeholder: 'knowledge',
+                description:
+                    'Optional. When the routing reply cannot be read, even after one retry, the request goes to this specialist only. Empty means the first specialist on the roster.'
             }
         ]
     }

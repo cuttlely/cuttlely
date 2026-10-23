@@ -43,6 +43,28 @@ class Harness_Harness implements INode {
                     'Sends the harness reply to the chat as is. Turn off only when the agent must rework that reply; each pass is another model call.'
             },
             {
+                label: 'Tool Input',
+                name: 'inputSource',
+                type: 'options',
+                options: [
+                    {
+                        label: 'User message',
+                        name: 'user',
+                        description: 'Harness Prime routes the message the person sent, as when the harness is asked directly.'
+                    },
+                    {
+                        label: 'Agent task',
+                        name: 'agent',
+                        description: 'Harness Prime routes the task the agent wrote when it called the tool.'
+                    }
+                ],
+                default: 'user',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'What Harness Prime routes when an agent calls this harness as a tool. With User message, the agent task is used only when the message is empty.'
+            },
+            {
                 label: 'Allow Image Uploads',
                 name: 'allowImageUploads',
                 type: 'boolean',
@@ -69,15 +91,32 @@ class Harness_Harness implements INode {
         }
     }
 
-    async init(nodeData: INodeData, _input: string, options: ICommonObject): Promise<any> {
+    async init(nodeData: INodeData, input: string, options: ICommonObject): Promise<any> {
         const harnessName = selectedHarness(nodeData)
+        // A chat flow passes the question as the input. An agent flow Agent passes '' and sets harnessUserMessage.
+        const userMessage =
+            typeof input === 'string' && input.trim()
+                ? input
+                : typeof options?.harnessUserMessage === 'string'
+                ? options.harnessUserMessage
+                : ''
         const streamed = { answer: false }
         const tool = new DynamicTool({
             name: 'harness',
             description: harnessToolDescription(harnessName),
             returnDirect: nodeData.inputs?.returnDirect !== false && nodeData.inputs?.returnDirect !== 'false',
             func: async (task: string, runManager?: { handlers?: unknown[] }) => {
-                const payload = await runNamedHarness(harnessName, task, options, true, runManager, streamed)
+                const payload = await runNamedHarness(
+                    harnessName,
+                    harnessToolInput(nodeData, userMessage, task),
+                    options,
+                    true,
+                    runManager,
+                    streamed,
+                    [],
+                    harnessToolMetadata(nodeData, userMessage, task)
+                )
+                rememberToolPayload(options, payload)
                 // The tool returns answer text only. The ending-node path records Harness.run; this closure records the tool.
                 recordHarnessToolUsage(options, payload)
                 return harnessToolOutput(payload, options)
@@ -259,6 +298,30 @@ function selectedHarness(nodeData: INodeData): string {
     return harnessName
 }
 
+// An agent rewrites the request into a long task, and Harness Prime then routes the rewrite instead of the person's
+// message. By default the tool hands Harness Prime the message the person sent, as a direct harness run does.
+function harnessToolInput(nodeData: INodeData, userMessage: string, task: string): string {
+    const source = nodeData.inputs?.inputSource
+    const agentTask = typeof task === 'string' ? task : String(task ?? '')
+    if (source === 'agent') return agentTask
+    return typeof userMessage === 'string' && userMessage.trim() ? userMessage : agentTask
+}
+
+// What rides with a tool run besides the routed input: the agent's own task and which of the two was routed.
+function harnessToolMetadata(nodeData: INodeData, userMessage: string, task: string): { agentTask: string; inputSource: 'user' | 'agent' } {
+    const agentTask = typeof task === 'string' ? task : String(task ?? '')
+    const usedUser = nodeData.inputs?.inputSource !== 'agent' && typeof userMessage === 'string' && Boolean(userMessage.trim())
+    return { agentTask, inputSource: usedUser ? 'user' : 'agent' }
+}
+
+// The chat saves the harness trace with the agent's reply when the harness ran as a tool (buildChatflow reads it).
+function rememberToolPayload(options: ICommonObject, payload: unknown) {
+    const holder = options?.harnessToolPayloads
+    if (!Array.isArray(holder) || !payload || typeof payload !== 'object') return
+    const { artifacts: _artifacts, ...rest } = payload as Record<string, unknown>
+    holder.push(rest)
+}
+
 function harnessToolDescription(harnessName: string): string {
     return (
         `Harness workflow "${harnessName}". ` +
@@ -311,7 +374,8 @@ async function runNamedHarness(
     streamAnswer: boolean,
     runManager?: { handlers?: unknown[] },
     streamed?: { answer: boolean },
-    images: string[] = []
+    images: string[] = [],
+    metadata?: Record<string, unknown>
 ) {
     const engine = await loadHarnessEngine()
     const chatId = (options.chatId as string) || (options.sessionId as string)
@@ -351,7 +415,8 @@ async function runNamedHarness(
                 const id = row && typeof row === 'object' ? (row as { id?: unknown }).id : undefined
                 if (typeof id === 'string') runId = id
             },
-            ...(images.length ? { images } : {})
+            ...(images.length ? { images } : {}),
+            ...(metadata ? { metadata } : {})
         })
         const jobRunId = takeJobRunId(payload)
         if (!runId && jobRunId) runId = jobRunId
@@ -445,5 +510,8 @@ module.exports = {
     harnessToolOutput,
     streamStoredImages,
     uploadedImages,
-    recordHarnessToolUsage
+    recordHarnessToolUsage,
+    harnessToolInput,
+    harnessToolMetadata,
+    rememberToolPayload
 }

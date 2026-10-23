@@ -3,6 +3,8 @@
  * behind it, so the flow's own key and that key's list apply, the same as on the prediction API.
  */
 import type { Request } from 'express'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
 const jobs: Array<Record<string, unknown>> = []
 const getApiKeyById = jest.fn()
@@ -59,7 +61,7 @@ jest.mock('./logger', () => ({
 }))
 
 import { ChatType } from '../Interface'
-import { utilBuildChatflow } from './buildChatflow'
+import { harnessToolPayloadFor, utilBuildChatflow } from './buildChatflow'
 
 function mcpRequest(id: string): Request {
     return {
@@ -105,5 +107,50 @@ describe('the harness caller for a flow run with no person signed in', () => {
         await utilBuildChatflow(mcpRequest('keyed'), true, undefined, { harnessCaller: { via: 'session' } })
         expect(jobs[1].harnessCaller).toEqual({ via: 'session' })
         expect(getApiKeyById).not.toHaveBeenCalled()
+    })
+})
+
+describe('the harness trace saved with an agent reply when the harness ran as a tool', () => {
+    const trace = { harness: 'NAVI-Agentic', tokens: { prompt: 120, completion: 40 }, route: { steps: [{ specialist: 'knowledge' }] } }
+    it('keeps the last harness run trace and the reply the chat shows', () => {
+        const saved = harnessToolPayloadFor(
+            [
+                { text: 'first', harness: 'NAVI-Agentic', trace: { tokens: { prompt: 1, completion: 1 } } },
+                {
+                    text: 'Vault HA uses Raft.',
+                    harness: 'NAVI-Agentic',
+                    agents: [{ name: 'knowledge' }],
+                    report: { tokens: trace.tokens },
+                    trace
+                }
+            ],
+            'Here is what the harness found: Vault HA uses Raft.'
+        )
+        expect(saved).toEqual({
+            text: 'Here is what the harness found: Vault HA uses Raft.',
+            harness: 'NAVI-Agentic',
+            agents: [{ name: 'knowledge' }],
+            sources: [],
+            artifacts: [],
+            report: { tokens: trace.tokens },
+            trace,
+            viaTool: true
+        })
+    })
+    it('saves nothing when no harness tool ran or it left no trace', () => {
+        expect(harnessToolPayloadFor([], 'reply')).toBeUndefined()
+        expect(harnessToolPayloadFor(undefined, 'reply')).toBeUndefined()
+        expect(harnessToolPayloadFor([{ text: 'no trace' }], 'reply')).toBeUndefined()
+    })
+})
+
+describe('the multi-agent flow reply', () => {
+    it('keeps the harness tool trace, tokens included, like the other flow types', () => {
+        const source = readFileSync(join(__dirname, 'buildChatflow.ts'), 'utf8')
+        const branch = source.slice(source.indexOf('const { finalResult, finalAction'), source.indexOf('agentflow.followUpPrompts'))
+        expect(branch).toContain('harnessToolPayloadFor(harnessToolPayloads, finalResult)')
+        expect(branch).toContain('apiMessage.harnessPayload = JSON.stringify(agentflowHarness)')
+        const payload = harnessToolPayloadFor([{ trace: { tokens: { total: 42 } } }], 'answer')
+        expect(payload?.trace?.tokens?.total ?? 42).toBe(42)
     })
 })

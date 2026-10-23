@@ -39,7 +39,10 @@ const {
     storeHarnessImages,
     harnessToolOutput,
     streamStoredImages,
-    uploadedImages
+    uploadedImages,
+    harnessToolInput,
+    harnessToolMetadata,
+    rememberToolPayload
 } = require('./Harness')
 const { addSingleFileToStorage, getFileFromStorage } = require('../../../src/storageUtils')
 
@@ -664,5 +667,75 @@ describe('Harness token recording', () => {
         expect(result.text).toBe('Loaf is ready.')
         expect(result.harness).toBe('bakery')
         expect(result.harnessPayload).toEqual(payload)
+    })
+})
+
+describe('Harness node as an agent tool', () => {
+    const task = 'You MUST explain HashiCorp Vault high availability in depth, with headings and a summary.'
+    it('routes the message the person sent by default, as a direct harness run does', () => {
+        expect(harnessToolInput({ inputs: {} } as never, 'tell me about vault ha', task)).toBe('tell me about vault ha')
+        expect(harnessToolInput({ inputs: { inputSource: 'user' } } as never, 'and in raft mode?', task)).toBe('and in raft mode?')
+    })
+    it('uses the agent task when the card asks for it or the message is empty', () => {
+        expect(harnessToolInput({ inputs: { inputSource: 'agent' } } as never, 'tell me about vault ha', task)).toBe(task)
+        expect(harnessToolInput({ inputs: {} } as never, '   ', task)).toBe(task)
+    })
+    it('records the agent task and which input was routed as run metadata', () => {
+        expect(harnessToolMetadata({ inputs: {} } as never, 'tell me about vault ha', task)).toEqual({
+            agentTask: task,
+            inputSource: 'user'
+        })
+        expect(harnessToolMetadata({ inputs: { inputSource: 'agent' } } as never, 'tell me about vault ha', task)).toEqual({
+            agentTask: task,
+            inputSource: 'agent'
+        })
+        expect(harnessToolMetadata({ inputs: {} } as never, '  ', task)).toEqual({ agentTask: task, inputSource: 'agent' })
+    })
+    it('keeps the run payload, without file bytes, for the chat to save with the reply', () => {
+        const holder: unknown[] = []
+        rememberToolPayload(
+            { harnessToolPayloads: holder },
+            {
+                text: 'Vault HA uses Raft.',
+                harness: 'NAVI-Agentic',
+                trace: { tokens: { prompt: 10, completion: 4 } },
+                artifacts: [{ name: 'chart.png', base64: 'ZGVtbw==' }]
+            }
+        )
+        rememberToolPayload({}, { text: 'ignored' })
+        expect(holder).toEqual([{ text: 'Vault HA uses Raft.', harness: 'NAVI-Agentic', trace: { tokens: { prompt: 10, completion: 4 } } }])
+    })
+    it('routes the user message through the tool in a chat flow and in an agent flow', async () => {
+        const WORKSPACE = '11111111-1111-4111-8111-111111111111'
+        mockHarnessRuns.current = { text: 'Raft.', harness: 'bakery', trace: { tokens: { prompt: 3, completion: 1 } } }
+        queuedRun.mockReset()
+        queuedRun.mockImplementation(async () => mockHarnessRuns.current)
+        const inputs: unknown[] = []
+        const metadata: unknown[] = []
+        queuedRun.mockImplementation(async (opts?: Record<string, unknown>) => {
+            inputs.push(opts?.input)
+            metadata.push(opts?.metadata)
+            return { ...mockHarnessRuns.current }
+        })
+        const node = new HarnessNode()
+        const holder: unknown[] = []
+        const chatTool = await node.init({ inputs: { harnessName: 'bakery' } } as never, 'tell me about vault ha', {
+            chatId: 'c1',
+            workspaceId: WORKSPACE,
+            harnessToolPayloads: holder
+        })
+        await chatTool.func(task)
+        const agentTool = await node.init({ inputs: { harnessName: 'bakery' } } as never, '', {
+            chatId: 'c1',
+            workspaceId: WORKSPACE,
+            harnessUserMessage: 'and in raft mode?'
+        })
+        await agentTool.func(task)
+        expect(inputs).toEqual(['tell me about vault ha', 'and in raft mode?'])
+        expect(metadata).toEqual([
+            { agentTask: task, inputSource: 'user' },
+            { agentTask: task, inputSource: 'user' }
+        ])
+        expect(holder).toHaveLength(1)
     })
 })

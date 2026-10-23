@@ -50,8 +50,36 @@ function jobPayload(args) {
         caller: serializableCaller(flow.harnessCaller),
         traceId: args.traceId || flow.executionId || null,
         // A worker in another process needs the images too. They are already within the count and size limits.
-        images: promptImages(args.images)
+        images: promptImages(args.images),
+        // Run metadata (for a tool run: the agent task and the routed input source) rides with the job too.
+        metadata: serializableMetadata(args.metadata)
     }
+}
+
+// Router reply deltas are not saved with the job: the router's own text is never stored. Every other event is.
+// A waiter in the same process still gets them live; a worker in another process drops them.
+export function keepJobEvent(event) {
+    return !(event && event.type === 'partial' && event.phase === 'route')
+}
+
+const JOB_METADATA_CHARS = 65536
+
+// A plain JSON object within a size cap, or null. A worker in another process reads it back from the payload.
+function serializableMetadata(metadata) {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+    try {
+        const text = JSON.stringify(metadata)
+        return text && text.length <= JOB_METADATA_CHARS ? JSON.parse(text) : null
+    } catch {
+        return null
+    }
+}
+
+// The metadata a job runs with: the caller's own object in this process, else the copy saved on the job.
+export function jobMetadata(job, local) {
+    if (local?.metadata) return local.metadata
+    const saved = job?.payload?.metadata
+    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : undefined
 }
 
 // A dead worker stops touching the row. The turn lock expires; this row used to stay `running` and pin the chat.
@@ -327,11 +355,15 @@ export async function executeJob(job) {
             componentNodes: runtime.componentNodes,
             loadNode: runtime.loadNode,
             forceSpecialistFailure: local?.forceSpecialistFailure,
-            metadata: local?.metadata,
+            metadata: jobMetadata(job, local),
             modelBaseUrl: local?.modelBaseUrl,
             flowOptions: runtime.flowOptions,
             signal: controller.signal,
-            onEvent: (event) => appendEvent(job.id, event)
+            onEvent: (event) => {
+                if (keepJobEvent(event)) appendEvent(job.id, event)
+                // In this process the waiter's own callback still gets them live, without a saved copy.
+                else local?.onEvent?.(event)
+            }
         })
         const stored = resultWithRunId(result, savedId)
         finishJob(job.id, { status: 'succeeded', result: stored })
@@ -395,6 +427,12 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
                 throw new HarnessError('not_found', `Harness job ${id} was not found.`)
             }
             if (job.status === 'succeeded') {
+                // The worker can write its last events and finish the job between the read above and this one, so
+                // read the events once more: the final event carries the run header's token totals.
+                for (const row of readEvents(id, seq)) {
+                    seq = row.seq
+                    onEvent?.(row.event)
+                }
                 forgetJobImageBytes(id, job.result)
                 return job.result
             }

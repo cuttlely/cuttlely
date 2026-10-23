@@ -44,6 +44,7 @@ import {
     StartInputType
 } from '../Interface'
 import { harnessNodeOptions } from './apiKeyAccess'
+import { harnessToolPayloadFor } from './harnessToolPayload'
 import {
     RUNTIME_MESSAGES_LENGTH_VAR_PREFIX,
     CHAT_HISTORY_VAR_PREFIX,
@@ -188,6 +189,8 @@ interface IExecuteNodeParams {
     productId: string
     replay?: boolean
     harnessCaller?: IHarnessCaller
+    // Filled by a Harness node an Agent calls as a tool, so the chat saves that harness trace with the reply.
+    harnessToolPayloads?: Record<string, any>[]
 }
 
 interface IExecuteAgentFlowParams extends Omit<IExecuteFlowParams, 'incomingInput'> {
@@ -1117,7 +1120,8 @@ const executeNode = async ({
     subscriptionId,
     productId,
     replay,
-    harnessCaller
+    harnessCaller,
+    harnessToolPayloads
 }: IExecuteNodeParams): Promise<{
     result: any
     shouldStop?: boolean
@@ -1338,7 +1342,10 @@ const executeNode = async ({
             replay,
             // A harness tool on this canvas records against the agentflow. The tool closes over these params.
             recordTokenUsage: recordCompletedRun,
-            ...harnessNodeOptions(harnessCaller)
+            ...harnessNodeOptions(harnessCaller),
+            ...(harnessToolPayloads ? { harnessToolPayloads } : {}),
+            // An Agent initializes its tools with no input; a Harness tool routes this message instead of the agent task.
+            harnessUserMessage: typeof finalInput === 'string' ? finalInput : ''
         }
 
         // Execute node. tracedNode is a no-op check when run traces are off.
@@ -1850,6 +1857,7 @@ const runAgentFlow = async ({
 
     const prependedChatHistory = incomingInput.history ?? []
     const apiMessageId = uuidv4()
+    const harnessToolPayloads: Record<string, any>[] = []
 
     /*** Get chatflows and prepare data  ***/
     const flowData = chatflow.flowData
@@ -2354,7 +2362,8 @@ const runAgentFlow = async ({
                 subscriptionId,
                 productId,
                 replay,
-                harnessCaller
+                harnessCaller,
+                harnessToolPayloads
             })
 
             if (executionResult.agentFlowExecutedData) {
@@ -2675,6 +2684,9 @@ const runAgentFlow = async ({
         sessionId,
         executionId: newExecution.id
     }
+    const toolHarness = !lastNodeOutput?.harness ? harnessToolPayloadFor(harnessToolPayloads, content) : undefined
+    // An Agent called the harness as a tool: keep its trace so a reload shows the run header and token totals.
+    if (toolHarness) apiMessage.harnessPayload = JSON.stringify(toolHarness)
     if (lastNodeOutput?.harness) {
         const harnessPayload = {
             text: lastNodeOutput.text || content,

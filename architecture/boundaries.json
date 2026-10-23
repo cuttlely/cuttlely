@@ -27,6 +27,7 @@
             "packages/ui/src/api/harnesses.js",
             "packages/ui/src/utils/harness*",
             "packages/server/src/utils/harnessStream.test.ts",
+            "packages/server/src/utils/harnessToolPayload.ts",
             "packages/server/src/utils/apiKeyAccess.ts",
             "packages/server/src/utils/flowHarnessCaller.ts",
             "packages/server/src/utils/buildChatflow.harnessCaller.test.ts",
@@ -414,6 +415,7 @@
                 "packages/ui/src/api/harnesses.js",
                 "packages/ui/src/utils/harness*",
                 "packages/server/src/utils/harnessStream.test.ts",
+                "packages/server/src/utils/harnessToolPayload.ts",
                 "packages/server/src/utils/apiKeyAccess.ts",
                 "packages/server/src/utils/flowHarnessCaller.ts",
                 "packages/server/src/utils/buildChatflow.harnessCaller.test.ts",
@@ -444,7 +446,8 @@
                 "packages/ui/src/views/chatmessage/HarnessChatNotice.jsx",
                 "packages/ui/src/views/chatmessage/HarnessRunTrace.jsx",
                 "packages/ui/src/views/harnesses/HarnessHome.jsx",
-                "packages/ui/src/views/harnesses/index.jsx"
+                "packages/ui/src/views/harnesses/index.jsx",
+                "packages/server/src/utils/harnessToolPayload.ts"
             ]
         },
         {

@@ -75,6 +75,7 @@ import { coerceMultipartPredictionBody } from './multipartPredictionBody'
 import { assertPredictionUploadsAllowed } from './uploadPermissions'
 import { setServerUploadOverride } from './replaceInputsWithConfig'
 import { validateFlowAPIKey } from './validateKey'
+import { harnessToolPayloadFor } from './harnessToolPayload'
 import { harnessNodeOptions } from './apiKeyAccess'
 import { flowHarnessCaller } from './flowHarnessCaller'
 import { bindRequestSession } from './sessionOwnership'
@@ -684,6 +685,7 @@ export const executeFlow = async ({
             logger.debug(`[server]: [${orgId}]: Start building flow ${chatflowid}`)
 
             /*** BFS to traverse from Starting Nodes to Ending Node ***/
+            const harnessToolPayloads: Record<string, any>[] = []
             const reactFlowNodes = await buildFlow({
                 startingNodeIds,
                 reactFlowNodes: nodes,
@@ -715,7 +717,8 @@ export const executeFlow = async ({
                 updateStorageUsage,
                 checkStorage,
                 cuttlelyReplay: replay === true,
-                harnessCaller
+                harnessCaller,
+                harnessToolPayloads
             })
 
             const setVariableNodesOutput = getSetVariableNodesOutput(reactFlowNodes)
@@ -777,6 +780,8 @@ export const executeFlow = async ({
                     if (usedTools?.length) apiMessage.usedTools = JSON.stringify(usedTools)
                     if (agentReasoning?.length) apiMessage.agentReasoning = JSON.stringify(agentReasoning)
                     if (finalAction && Object.keys(finalAction).length) apiMessage.action = JSON.stringify(finalAction)
+                    const agentflowHarness = harnessToolPayloadFor(harnessToolPayloads, finalResult)
+                    if (agentflowHarness) apiMessage.harnessPayload = JSON.stringify(agentflowHarness)
 
                     if (agentflow.followUpPrompts) {
                         const followUpPromptsConfig = JSON.parse(agentflow.followUpPrompts)
@@ -1013,6 +1018,11 @@ export const executeFlow = async ({
                     chatId,
                     memoryType,
                     sessionId
+                }
+                const toolHarness = !result?.harness ? harnessToolPayloadFor(harnessToolPayloads, resultText) : undefined
+                if (toolHarness) {
+                    // The harness ran as an agent tool: keep its trace so a reload shows the run header and token totals.
+                    apiMessage.harnessPayload = JSON.stringify(toolHarness)
                 }
                 if (result?.harness) {
                     const harnessPayload = {
@@ -1420,3 +1430,5 @@ const incrementFailedMetricCounter = (metricsProvider: IMetricsProvider, isInter
 }
 
 export { shouldAutoPlayTTS, generateTTSForResponseStream }
+
+export { harnessToolPayloadFor }
