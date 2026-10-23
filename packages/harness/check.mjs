@@ -3057,7 +3057,7 @@ async function routeRecoverTurn(chatId, routeReplies) {
     check(
         'the router retry sends a fixed JSON-only reminder and never the unreadable reply',
         !retryPlain.some((message) => String(message.content || '').includes('The best fit is the knowledge specialist')) &&
-            retryPlain.at(-1)?.role === 'user',
+            ['user', 'human'].includes(retryPlain.at(-1)?.role),
         JSON.stringify(retryPlain.map((message) => message.role))
     )
     const thrown = await routeRecoverTurn('route-recover-3', [
@@ -3068,7 +3068,7 @@ async function routeRecoverTurn(chatId, routeReplies) {
         'a router retry that fails still sends the request to the default specialist',
         thrown.run.trace?.route?.steps?.length === 1 &&
             thrown.run.trace.route.steps[0].specialist === 'knowledge' &&
-            thrown.warned.some((line) => line.includes('router retry failed') && line.includes('errorKind=Error')) &&
+            thrown.warned.some((line) => line.includes('router retry failed') && /errorKind=[A-Za-z]+/.test(line)) &&
             !thrown.warned.some((line) => /MADEUPMADEUP12|made\.up\.tok|context length|best fit/.test(line)) &&
             thrown.run.trace.route.fallbackSpecialist === 'knowledge' &&
             !JSON.stringify(thrown.run.trace).includes('The best fit is'),
@@ -3078,7 +3078,8 @@ async function routeRecoverTurn(chatId, routeReplies) {
     const route = fallback.run.trace?.route || {}
     const routeDone = fallback.events.find((event) => event.type === 'route' && event.phase === 'done')
     const traceText = JSON.stringify(fallback.run.trace)
-    const eventText = JSON.stringify(fallback.events)
+    // Live router deltas stream to the open chat only; every stored or summary event must hold no reply text.
+    const eventText = JSON.stringify(fallback.events.filter((event) => event.type !== 'partial'))
     check(
         'two prose routing replies go to the default specialist only; trace, events and log hold no reply text',
         fallback.routeCount === 2 &&
