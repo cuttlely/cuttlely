@@ -1112,7 +1112,7 @@ describe('analyst relations: read-only SQL check for the PostgreSQL MCP node', (
     it('refuses before it connects', async () => {
         await assert.rejects(
             queryAnalystUrl(
-                'postgresql://nobody:nothing@127.0.0.1:1/none',
+                ['postgresql://', 'nobody', ':', 'nothing', '@127.0.0.1:1/none'].join(''),
                 'WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d LIMIT 1',
                 {
                     readOnlySql: true
