@@ -1878,7 +1878,7 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(allowed.rows[0].v, 'a')
     })
 
-    it('changes the catalog digest when a function changes owner, language rights or SQL-standard body', async (t) => {
+    it('changes the catalog digest when a function changes owner, SQL-standard body, SECURITY DEFINER, settings or volatility', async (t) => {
         if (skipped(t)) return
         const runner = { get: async (sql) => (await owner.query(sql)).rows[0] }
         await owner.query(`CREATE FUNCTION analytics.std_body(v int) RETURNS int LANGUAGE sql IMMUTABLE RETURN v + 1`)
@@ -1889,7 +1889,14 @@ describe('analyst relations: user functions inside views', () => {
             const second = await routineCatalogStamp(runner)
             assert.notEqual(second, first)
             await owner.query(`ALTER FUNCTION analytics.std_body(int) OWNER TO CURRENT_USER`)
-            assert.notEqual(await routineCatalogStamp(runner), second)
+            let last = await routineCatalogStamp(runner)
+            assert.notEqual(last, second)
+            for (const change of ['SECURITY DEFINER', 'SET search_path = public', 'VOLATILE']) {
+                await owner.query(`ALTER FUNCTION analytics.std_body(int) ${change}`)
+                const next = await routineCatalogStamp(runner)
+                assert.notEqual(next, last, change)
+                last = next
+            }
         } finally {
             await owner.query('DROP FUNCTION analytics.std_body(int)')
         }
