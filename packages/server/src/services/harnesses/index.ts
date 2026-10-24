@@ -316,8 +316,13 @@ let runtimeConfigured: Promise<void> | undefined
 export async function recompileBeforeHermes(gateway: {
     holdGatewayHealth: () => () => void
     startGateway: () => Promise<unknown>
+    finishGatewayBoot?: () => void
 }): Promise<void> {
-    const release = gateway.holdGatewayHealth()
+    const hold = gateway.holdGatewayHealth()
+    const release = () => {
+        hold()
+        gateway.finishGatewayBoot?.()
+    }
     try {
         await gateway.startGateway()
     } catch (error) {
@@ -325,9 +330,10 @@ export async function recompileBeforeHermes(gateway: {
         throw error
     }
     try {
+        // A profile that fails to compile has its config.yaml set aside (profile.mjs), so health can be released.
         await recompileOutdatedHarnessProfiles()
     } catch (error) {
-        logger.warn(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
+        logger.error(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
     } finally {
         release()
     }

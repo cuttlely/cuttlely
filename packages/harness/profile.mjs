@@ -1336,6 +1336,27 @@ export function profileOutdated(record) {
 // Runs at server start, before the gateway answers and so before Hermes loads any profile. Recompiles each saved
 // harness whose published profile directory is on disk from an older compiler. Profiles never compiled stay uncompiled, and
 // a second run finds nothing to do. The caller holds the profile lock.
+// After a failed compile, each of the harness's profile directories without the current compiler version has its
+// config.yaml moved to config.yaml.outdated, so Hermes never loads a config from an older compiler or one written
+// partway. The missing version still marks the profile outdated, so the next boot (or the next chat, which compiles
+// when config.yaml is missing) writes it again.
+function setAsideUnfinishedConfigs(name, rosterBefore) {
+    const parent = profileDir(name)
+    const dirs = new Set([parent])
+    for (const roster of [rosterBefore, onDiskRoster(parent)]) {
+        for (const specialist of roster?.specialists || []) if (specialist?.profileName) dirs.add(profileDir(specialist.profileName))
+    }
+    for (const dir of dirs) {
+        try {
+            const config = path.join(dir, 'config.yaml')
+            if (!fs.existsSync(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) continue
+            fs.renameSync(config, config + '.outdated')
+        } catch {
+            // Best effort: the profile is still marked outdated.
+        }
+    }
+}
+
 export function recompileOutdatedProfiles(records, { log = console } = {}) {
     const results = []
     for (const record of records) {
@@ -1356,6 +1377,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
             forgetCompiledProfile(record.name)
             results.push({ name: record.name, status: 'recompiled' })
         } catch (error) {
+            setAsideUnfinishedConfigs(record.name, roster)
             results.push({ name: record.name, status: 'failed', error: error.message })
         }
     }

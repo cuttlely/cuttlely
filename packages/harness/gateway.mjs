@@ -54,6 +54,14 @@ function notedCallerWorkspace(name) {
 }
 
 let healthHolds = 0
+// Set by start-cuttlely.sh for the server it launches: /health answers 503 from the first request until the boot
+// recompile ends (finishGatewayBoot), even when a save binds the listener before the boot pass takes its hold.
+let bootFinished = false
+const bootPending = () => !bootFinished && process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT === '1'
+
+export function finishGatewayBoot() {
+    bootFinished = true
+}
 
 // Compiling a profile binds the listener (gatewayUrl), so /health is held until the boot recompile ends.
 // The returned function releases this hold once.
@@ -512,7 +520,7 @@ async function onRequest(req, res) {
     // The start script waits for this before it launches Hermes. No token: the process just has to be up.
     // While the server compiles profiles from an older compiler, /health answers 503, so Hermes waits for them.
     if (req.method === 'GET' && pathName === '/health') {
-        if (healthHolds > 0) sendJson(res, 503, { ok: false, starting: true })
+        if (healthHolds > 0 || bootPending()) sendJson(res, 503, { ok: false, starting: true })
         else sendJson(res, 200, { ok: true })
         return
     }

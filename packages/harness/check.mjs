@@ -7078,8 +7078,13 @@ await expectCase('a compile that fails partway leaves the profile outdated for t
         threw = true
     }
     const versionFiles = ['mahalfchief', ...specialists].map((name) => fs.existsSync(profileFile(name, 'harness-compiler')))
+    fs.writeFileSync(profileFile('mahalfchief', 'config.yaml'), 'from-an-older-compiler\n')
     const failed = recompileOutdatedProfiles([record], { log: {} })
+    // Hermes must not load the parent config the failed compile left behind: it is set aside until the next compile.
+    const parentAside =
+        !fs.existsSync(profileFile('mahalfchief', 'config.yaml')) && fs.existsSync(profileFile('mahalfchief', 'config.yaml.outdated'))
     fs.rmSync(blocked, { recursive: true, force: true })
+    fs.rmSync(blocked + '.outdated', { recursive: true, force: true })
     const repaired = recompileOutdatedProfiles([record], { log: {} })
     const after = recompileOutdatedProfiles([record], { log: {} })
     // A first compile that stopped before the parent config.yaml: the directory is there, the config and version are not.
@@ -7095,11 +7100,12 @@ await expectCase('a compile that fails partway leaves the profile outdated for t
             versionFiles[2] === false &&
             failed.length === 1 &&
             failed[0].status === 'failed' &&
+            parentAside &&
             JSON.stringify(repaired) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
             after.length === 0 &&
             JSON.stringify(noConfig) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
             configBack,
-        JSON.stringify({ threw, specialists, versionFiles, failed, repaired, after, noConfig, configBack })
+        JSON.stringify({ threw, specialists, versionFiles, failed, parentAside, repaired, after, noConfig, configBack })
     )
 })
 
@@ -14012,6 +14018,19 @@ releaseHealth()
 const oneHeldStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
 secondHold()
 const releasedStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+// Under start-cuttlely.sh, health waits from the first request until the boot pass says it is done.
+const savedHoldUntilBoot = process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT
+process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT = '1'
+const bootPendingStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+gatewayMod.finishGatewayBoot()
+const bootDoneStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+if (savedHoldUntilBoot === undefined) delete process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT
+else process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT = savedHoldUntilBoot
+check(
+    'the gateway health waits for the boot recompile when the start script asks it to',
+    bootPendingStatus === 503 && bootDoneStatus === 200,
+    JSON.stringify({ bootPendingStatus, bootDoneStatus })
+)
 check(
     'the gateway health waits while the boot recompile holds it',
     heldStatus === 503 && oneHeldStatus === 503 && releasedStatus === 200,

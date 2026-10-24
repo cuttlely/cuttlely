@@ -39,7 +39,8 @@ describe('harness runtime start', () => {
                             order.push('release health')
                         }
                     },
-                    startGateway: async () => order.push('gateway')
+                    startGateway: async () => order.push('gateway'),
+                    finishGatewayBoot: () => order.push('boot done')
                 }
             }
             if (file === 'cleanup.mjs') return { sweepOrphanHarnessProfiles: async () => order.push('sweep') }
@@ -100,6 +101,7 @@ describe('harness runtime start', () => {
             'recompile navi v1 holds 1',
             'recompile ops v1 holds 1',
             'release health',
+            'boot done',
             'sweep'
         ])
     })
@@ -171,13 +173,14 @@ describe('harness runtime start', () => {
         await expect(
             recompileBeforeHermes({
                 holdGatewayHealth: () => () => (released = true),
+                finishGatewayBoot: () => order.push('boot done'),
                 startGateway: async () => {
                     throw new Error('port in use')
                 }
             })
         ).rejects.toThrow('port in use')
         expect(released).toBe(true)
-        expect(order).toEqual([])
+        expect(order).toEqual(['boot done'])
     })
 
     test('one failed recompile is reported and the rest still run', async () => {

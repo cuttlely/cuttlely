@@ -193,7 +193,10 @@ hermes_answers_health() {
             res.resume()
             process.exit(res.statusCode >= 200 && res.statusCode < 500 ? 0 : 1)
         })
-        req.on("timeout", () => { req.destroy(); process.exit(1) })
+        // Connected but no answer in time: the server is up and busy compiling (synchronous file work), as with a 503.
+        let connected = false
+        req.on("socket", (socket) => socket.on("connect", () => (connected = true)))
+        req.on("timeout", () => { req.destroy(); process.exit(connected ? 2 : 1) })
         req.on("error", () => process.exit(1))
     '
 }
@@ -215,7 +218,10 @@ gateway_answers() {
             if (res.statusCode === 503) process.exit(2)
             process.exit(res.statusCode >= 200 && res.statusCode < 500 ? 0 : 1)
         })
-        req.on("timeout", () => { req.destroy(); process.exit(1) })
+        // Connected but no answer in time: the server is up and busy compiling (synchronous file work), as with a 503.
+        let connected = false
+        req.on("socket", (socket) => socket.on("connect", () => (connected = true)))
+        req.on("timeout", () => { req.destroy(); process.exit(connected ? 2 : 1) })
         req.on("error", () => process.exit(1))
     '
 }
@@ -398,7 +404,8 @@ supervise_hermes() {
 }
 echo "Cuttlely boot, step 1 of 2: starting the server on port ${PORT:-43117}. A browser opened now shows a 'Cuttlely is starting' page."
 cd "$ROOT/packages/server/bin"
-"${NODE_CMD[@]}" ./run start &
+# /health answers 503 until the server has compiled outdated agent profiles, so Hermes waits for them.
+CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT="${CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT:-1}" "${NODE_CMD[@]}" ./run start &
 CUTTLELY_PID=$!
 cd "$ROOT"
 if ! wait_for_gateway; then
