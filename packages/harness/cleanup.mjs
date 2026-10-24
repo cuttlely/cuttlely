@@ -46,6 +46,14 @@ function trashRoot() {
     return path.join(hermesHome(), TRASH)
 }
 
+// A removal root only counts when it is a plain directory directly inside the real runtime home (or data root).
+function checkedRoot(root) {
+    const real = realDir(root)
+    if (!real) return ''
+    const parent = realDir(path.dirname(root))
+    return parent && real === path.join(parent, path.basename(root)) ? real : ''
+}
+
 function realDir(dir) {
     try {
         const stat = fs.lstatSync(dir)
@@ -67,7 +75,7 @@ function lstatOrNull(file) {
 // The one place that decides whether a path may be removed. Returns the checked absolute path or ''.
 export function containedEntry(root, entry) {
     if (typeof entry !== 'string' || !ENTRY_RE.test(entry)) return ''
-    const rootReal = realDir(root)
+    const rootReal = checkedRoot(root)
     if (!rootReal) return ''
     const target = path.join(rootReal, entry)
     if (path.dirname(target) !== rootReal || target === rootReal) return ''
@@ -113,10 +121,15 @@ function removeProfileEntry(entry) {
         cleanupHooks.log(`[harness] kept profiles/${entry}: ${TRASH} is not a plain directory inside the runtime home`)
         return false
     }
+    const owner = profileOwner(entry)
     const parked = `${entry}-${crypto.randomBytes(6).toString('hex')}`
     if (path.dirname(path.join(trash, parked)) !== trash) return false
+    // The owner is written next to the parked entry first, so a crash midway through the recursive removal (which
+    // may already have taken the markers inside) still leaves a leftover the next run can attribute.
+    if (owner) fs.writeFileSync(path.join(trash, `${parked}${OWNER_SUFFIX}`), `${owner.id}\n`, { flag: 'wx' })
     fs.renameSync(target, path.join(trash, parked))
     if (removeEntry(trash, parked)) cleanupHooks.log(`[harness] removed ${TRASH}/${parked} (was profiles/${entry})`)
+    removeOwnerNote(trash, parked)
     return true
 }
 
@@ -137,6 +150,26 @@ function checkedTrashRoot(create = false) {
 }
 
 const PARKED_RE = /^(.+)-[a-f0-9]{12}$/
+const OWNER_SUFFIX = '.owner'
+
+function ownerNote(root, entry) {
+    const file = path.join(root, `${entry}${OWNER_SUFFIX}`)
+    if (path.dirname(file) !== root) return ''
+    return readText(file).trim()
+}
+
+function removeOwnerNote(root, entry) {
+    const file = path.join(root, `${entry}${OWNER_SUFFIX}`)
+    const stat = lstatOrNull(file)
+    if (path.dirname(file) === root && stat && !stat.isDirectory()) fs.unlinkSync(file)
+}
+
+// Who a trash entry belongs to: the note written before it was parked, else the markers still inside it.
+function trashOwner(root, entry) {
+    const match = PARKED_RE.exec(entry)
+    if (!match || !containedEntry(root, entry)) return ''
+    return ownerNote(root, entry) || ownerOf(root, entry, match[1])?.id || ''
+}
 
 // Trash entries left by a crash, with the harness each belongs to (read from the markers inside).
 function trashEntries() {
@@ -144,19 +177,23 @@ function trashEntries() {
     if (!root) return []
     const out = []
     for (const entry of fs.readdirSync(root).sort()) {
-        const match = PARKED_RE.exec(entry)
-        if (!match) continue
-        const owner = ownerOf(root, entry, match[1])
-        if (owner) out.push({ entry, id: owner.id })
+        const id = trashOwner(root, entry)
+        if (id) out.push({ entry, id })
     }
     return out
 }
 
-function removeTrashEntry(id, entry) {
+function removeTrashEntry(id, entry, { minAgeMs = 0, now = Date.now } = {}) {
     const root = checkedTrashRoot()
     if (!root) return
+    // Checked again right before the removal: the entry may have changed while the runtime was closing.
+    if (trashOwner(root, entry) !== id || (minAgeMs && now() - newestChange(entry, root) < minAgeMs)) {
+        cleanupHooks.log(`[harness] kept ${TRASH}/${entry}: it changed during cleanup`)
+        return
+    }
     try {
         if (removeEntry(root, entry)) cleanupHooks.log(`[harness] removed ${TRASH}/${entry} of harness "${id}"`)
+        removeOwnerNote(root, entry)
     } catch (error) {
         cleanupHooks.log(`[harness] could not remove ${TRASH}/${entry}: ${error?.code || error?.name || 'error'}`)
     }
@@ -297,6 +334,25 @@ function revoke(id, entries) {
     fn(id, entries)
 }
 
+// The gateway token of a profile lives in its .env. It goes right after the in-memory revocation, so a later
+// failure to remove the directory cannot bring the token back when the gateway reloads tokens at the next start.
+function dropTokenFiles(id, entries) {
+    for (const entry of entries) {
+        const owner = profileOwner(entry)
+        const dir = owner && owner.id === id ? containedEntry(profilesRoot(), entry) : ''
+        if (!dir) continue
+        const file = path.join(dir, '.env')
+        const stat = lstatOrNull(file)
+        if (!stat || stat.isDirectory()) continue
+        try {
+            fs.unlinkSync(file)
+            cleanupHooks.log(`[harness] removed profiles/${entry}/.env of harness "${id}"`)
+        } catch (error) {
+            cleanupHooks.log(`[harness] could not remove profiles/${entry}/.env: ${error?.code || error?.name || 'error'}`)
+        }
+    }
+}
+
 async function closeRuntime(entries) {
     const fn = cleanupHooks.close || unserveRuntimeProfile
     for (const entry of entries) {
@@ -323,6 +379,7 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
         )
         return { removed: [], kept: entries, error }
     }
+    dropTokenFiles(id, entries)
     await closeRuntime(entries)
     // Closing awaits; the harness may have been saved again or a profile replaced meanwhile, so check again.
     if (stillSaved(id, savedNames())) {
@@ -350,7 +407,7 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
             cleanupHooks.log(`[harness] could not remove profiles/${entry} of harness "${id}": ${error?.code || error?.name || 'error'}`)
         }
     }
-    for (const item of trash) removeTrashEntry(id, item)
+    for (const item of trash) removeTrashEntry(id, item, { minAgeMs, now })
     forgetCompiledProfile(id)
     return { removed, kept, error: null }
 }

@@ -344,6 +344,13 @@ async function isOrphan(record: { chatflowId?: string | null }): Promise<boolean
 // Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
 // must not inherit the old key grants or the old owner's schedule. The file holds the roster, specialists and playbooks.
 async function removeHarnessRecord(name: string, workspaceId: string) {
+    // Gateway tokens first: when revocation fails, nothing of the harness is removed.
+    if (!(await revokeRuntimeTokens(name))) {
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Harness "${name}" was not deleted, because its gateway tokens could not be revoked. Try again.`
+        )
+    }
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
         await removeHarnessFromKeyLists(workspaceId, name)
@@ -526,16 +533,18 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
     }
     const commit = async () => {
         releaseAll()
+        const finished: string[] = []
         for (const name of staged) {
-            // Tokens first: when revocation fails the staged record stays and the startup settle retries.
+            // Tokens first: when revocation fails the staged record, schedule and runs stay; the startup settle retries.
             if (!(await revokeRuntimeTokens(name))) continue
+            finished.push(name)
             fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
             await removeRuntimeProfiles(name)
             await harnessDeleteHooks
                 .removeSchedule(name)
                 .catch((error: unknown) => logger.warn(`[harness] schedule cleanup for deleted ${name} failed: ${getErrorMessage(error)}`))
         }
-        await purgeHarnessRuns(staged)
+        await purgeHarnessRuns(finished)
     }
     return { names: [...staged], restore, commit }
 }
@@ -547,7 +556,7 @@ async function revokeRuntimeTokens(name: string): Promise<boolean> {
         cleanup.revokeHarness(name)
         return true
     } catch (error) {
-        logger.warn(`[harness] kept the staged record of deleted ${name}: revoking its gateway tokens failed: ${getErrorMessage(error)}`)
+        logger.warn(`[harness] kept ${name}: revoking its gateway tokens failed: ${getErrorMessage(error)}`)
         return false
     }
 }

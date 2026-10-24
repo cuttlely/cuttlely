@@ -16115,6 +16115,57 @@ await (async () => {
     )
     await cleanup.removeHarnessProfiles('nested')
 
+    // A leftover whose markers were already removed is still attributed through its owner note.
+    reset()
+    fs.mkdirSync(path.join(trash, 'noted--a-aabbccddeeff', 'sessions'), { recursive: true })
+    fs.writeFileSync(path.join(trash, 'noted--a-aabbccddeeff.owner'), 'noted\n')
+    await cleanup.removeHarnessProfiles('noted')
+    check(
+        'a trash leftover with no markers left is removed through its owner note',
+        !fs.existsSync(path.join(trash, 'noted--a-aabbccddeeff')) && !fs.existsSync(path.join(trash, 'noted--a-aabbccddeeff.owner')),
+        JSON.stringify({ lines, trash: fs.readdirSync(trash) })
+    )
+
+    // The token file goes right after revocation, even when the directory itself cannot be removed.
+    reset()
+    saveJson('tokfile')
+    home('tokfile')
+    fs.writeFileSync(path.join(profilesDir, 'tokfile', '.env'), 'X=1\n')
+    dropJson('tokfile')
+    let sawEnv = true
+    cleanup.cleanupHooks.close = async () => {
+        sawEnv = fs.existsSync(path.join(profilesDir, 'tokfile', '.env'))
+        // A save of the same name during shutdown keeps every directory.
+        saveJson('tokfile')
+    }
+    const raced = await cleanup.removeHarnessProfiles('tokfile')
+    cleanup.cleanupHooks.close = async () => {}
+    check(
+        'the token file is gone before the runtime closes, and a save during shutdown keeps the profile',
+        !sawEnv && exists('tokfile') && raced.removed.length === 0,
+        JSON.stringify({ raced, lines })
+    )
+    dropJson('tokfile')
+    await cleanup.removeHarnessProfiles('tokfile')
+
+    // A trash leftover touched while the runtime closes is kept by the sweep.
+    reset()
+    fs.mkdirSync(path.join(trash, 'touched--a-0123456789ab'), { recursive: true })
+    fs.writeFileSync(path.join(trash, 'touched--a-0123456789ab', 'harness-parent'), 'touched\n')
+    home('touched')
+    age(path.join(trash, 'touched--a-0123456789ab'))
+    cleanup.cleanupHooks.close = async () => {
+        fs.writeFileSync(path.join(trash, 'touched--a-0123456789ab', 'new.txt'), 'x')
+    }
+    await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    cleanup.cleanupHooks.close = async () => {}
+    check(
+        'the sweep checks a trash leftover again after closing the runtime',
+        fs.existsSync(path.join(trash, 'touched--a-0123456789ab')) && !exists('touched'),
+        JSON.stringify(lines)
+    )
+    fs.rmSync(path.join(trash, 'touched--a-0123456789ab'), { recursive: true, force: true })
+
     for (const name of ['navi-harness', 'newname', 'capsx']) {
         dropJson(name)
         await cleanup.removeHarnessProfiles(name)

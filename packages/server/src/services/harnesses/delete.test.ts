@@ -148,8 +148,13 @@ describe('card delete', () => {
 
     it('keeps the harness when its gateway tokens cannot be revoked', async () => {
         failCleanup = true
+        ;(removeHarnessFromKeyLists as jest.Mock).mockClear()
+        schedules.add('NAVI-B')
         await expect(harnessesService.deleteHarness('NAVI-B', TEAM)).rejects.toMatchObject({ statusCode: 500 })
         expect(has('NAVI-B')).toBe(true)
+        expect(removeHarnessFromKeyLists).not.toHaveBeenCalled()
+        expect(schedules.has('NAVI-B')).toBe(true)
+        expect(runRows.filter((row) => row.harness === 'NAVI-B').length).toBeGreaterThan(0)
     })
 
     it('removes a harness with no canvas directly', async () => {
@@ -200,6 +205,7 @@ describe('canvas delete cascade', () => {
         expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(true)
         expect(cleaned).toEqual([])
         expect(schedules.has('navi')).toBe(true)
+        expect(runRows.some((row) => row.harness === 'navi')).toBe(true)
     })
 
     it('restore puts the record back when the transaction fails, with its schedule and runs untouched', async () => {
