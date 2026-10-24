@@ -2,7 +2,16 @@ import { REDACTED_CREDENTIAL_VALUE } from '@/store/constant'
 
 const URL_PASSWORD_MASK = '\u2022\u2022\u2022\u2022\u2022\u2022'
 
-export const isMaskedUrlValue = (value) => typeof value === 'string' && value.includes(URL_PASSWORD_MASK)
+/** True for a URL whose password is the mask, typed as shown or percent-encoded. */
+export const isMaskedUrlValue = (value) => {
+    if (typeof value !== 'string') return false
+    if (value.includes(URL_PASSWORD_MASK)) return true
+    try {
+        return decodeURIComponent(new URL(value).password).includes(URL_PASSWORD_MASK)
+    } catch {
+        return false
+    }
+}
 
 /**
  * Splits edited credential values into what to send and what cannot be saved. A value that is still the blank
@@ -23,4 +32,11 @@ export const credentialSaveValues = (edited, shown) => {
         plainDataObj[key] = value
     }
     return { plainDataObj, maskedEdits }
+}
+
+/** Message for a failed save: the server's message, else the error's own (a check in the dialog). */
+export const saveErrorMessage = (error) => {
+    const data = error?.response?.data
+    if (data !== undefined) return typeof data === 'object' ? data?.message : data
+    return error?.message ?? String(error)
 }

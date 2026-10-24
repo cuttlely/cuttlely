@@ -1621,6 +1621,16 @@ export const transformToCredentialEntity = async (body: ICredentialReqBody): Pro
  */
 const URL_PASSWORD_MASK = '\u2022\u2022\u2022\u2022\u2022\u2022'
 
+/** A URL whose password is the mask, as shown or percent-encoded. */
+const hasMaskedUrlPassword = (value: string): boolean => {
+    if (value.includes(URL_PASSWORD_MASK)) return true
+    try {
+        return decodeURIComponent(new URL(value).password).includes(URL_PASSWORD_MASK)
+    } catch {
+        return false
+    }
+}
+
 const maskUrlPassword = (value: string): string | null => {
     try {
         const url = new URL(value)
@@ -1647,7 +1657,7 @@ export const mergeCredentialUpdate = (
         const value = incoming[name]
         const current = stored[name]
         if (value === REDACTED_CREDENTIAL_VALUE) continue
-        if (typeof value === 'string' && value !== current && value.includes(URL_PASSWORD_MASK)) continue
+        if (typeof value === 'string' && value !== current && hasMaskedUrlPassword(value)) continue
         merged[name] = value
     }
     return merged

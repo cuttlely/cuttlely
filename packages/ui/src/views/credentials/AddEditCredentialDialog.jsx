@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import PropTypes from 'prop-types'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useDispatch } from 'react-redux'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
 import parser from 'html-react-parser'
@@ -29,7 +29,7 @@ import { initializeDefaultNodeData } from '@/utils/genericHelper'
 
 // const
 import { baseURL } from '@/store/constant'
-import { credentialSaveValues } from '@/utils/credentialSaveValues'
+import { credentialSaveValues, saveErrorMessage } from '@/utils/credentialSaveValues'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 import keySVG from '@/assets/images/key.svg'
 
@@ -51,6 +51,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
     const [credential, setCredential] = useState({})
     const [name, setName] = useState('')
     const [credentialData, setCredentialData] = useState({})
+    const shownCredentialData = useRef({})
     const [componentCredential, setComponentCredential] = useState({})
     const [shared, setShared] = useState(false)
 
@@ -64,6 +65,8 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
                     setName(getSpecificCredentialApi.data.name)
                 }
                 if (getSpecificCredentialApi.data.plainDataObj) {
+                    // The inputs edit this object in place, so keep a copy of what was shown to compare against.
+                    shownCredentialData.current = { ...getSpecificCredentialApi.data.plainDataObj }
                     setCredentialData(getSpecificCredentialApi.data.plainDataObj)
                 }
                 getSpecificComponentCredentialApi.request(getSpecificCredentialApi.data.credentialName)
@@ -119,7 +122,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
     }, [show, dispatch])
 
     const savableCredentialData = () => {
-        const { plainDataObj, maskedEdits } = credentialSaveValues(credentialData, getSpecificCredentialApi.data?.plainDataObj)
+        const { plainDataObj, maskedEdits } = credentialSaveValues(credentialData, shownCredentialData.current)
         if (maskedEdits.length) {
             throw new Error(`Enter the full URL, password included, to change ${maskedEdits.join(', ')}`)
         }
@@ -152,9 +155,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
         } catch (error) {
             if (setError) setError(error)
             enqueueSnackbar({
-                message: `Failed to add new Credential: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to add new Credential: ${saveErrorMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -199,9 +200,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
         } catch (error) {
             if (setError) setError(error)
             enqueueSnackbar({
-                message: `Failed to save Credential: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to save Credential: ${saveErrorMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',

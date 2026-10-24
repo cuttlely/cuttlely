@@ -71,7 +71,8 @@ export const keepConfiguredLangSmithTarget = (
 /**
  * fetch wrapper for the LangSmith client that reports failed uploads with the flow id and the credential shape
  * (id, field names, key prefix, length and fingerprint, endpoint origin and path, project), for an error status
- * and for a request that fails outright. The key, the bodies and error messages are not logged.
+ * and for a request that fails outright, which is rethrown as a plain error with only its name. The key, the
+ * bodies and error messages are not logged or passed on.
  */
 export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: LangSmithCredentialShape }): typeof fetch => {
     return (async (input: any, init?: any) => {
@@ -92,7 +93,11 @@ export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: Lan
                     ids.shape ?? {}
                 )}`
             )
-            throw error
+            // The SDK logs the message of what it gets, so pass on a plain error that keeps only the name
+            // (AbortError and TimeoutError stay recognizable for retries and aborts).
+            const plain = new Error(`LangSmith request failed (${name})`)
+            plain.name = name
+            throw plain
         }
         if (!response.ok) {
             console.warn(

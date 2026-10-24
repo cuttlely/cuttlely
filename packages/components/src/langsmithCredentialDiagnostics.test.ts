@@ -71,14 +71,14 @@ describe('langSmithFailureLoggingFetch', () => {
         expect(line).not.toContain('secretvalue')
     })
 
-    it('logs a request that fails outright and rethrows it', async () => {
+    it('logs a request that fails outright and rethrows it without the original message', async () => {
         const err = new TypeError('fetch failed https://u:secret-value@api.example.test/?token=secret-value')
         global.fetch = jest.fn().mockRejectedValue(err) as any
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
         const shape = describeLangSmithCredential('cred-1', {}, 'lsv2_pt_secretvalue', '', 'proj')
         await expect(
             langSmithFailureLoggingFetch({ flowId: 'flow-1', shape })('https://api.smith.langchain.com/runs/multipart')
-        ).rejects.toBe(err)
+        ).rejects.toMatchObject({ name: 'TypeError', message: 'LangSmith request failed (TypeError)' })
         expect(warn).toHaveBeenCalledTimes(1)
         const line = warn.mock.calls[0][0] as string
         expect(line).toContain('error=TypeError')
