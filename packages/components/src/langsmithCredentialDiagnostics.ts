@@ -106,7 +106,7 @@ export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: Lan
                 )}`
             )
             // The SDK puts the response body in the error it logs, and a server or proxy can echo request details
-            // there. Hand it the same status and headers with a short body instead.
+            // or in the status text. Hand it the same status and headers with a short body and no status text instead.
             try {
                 await response.body?.cancel()
             } catch {
@@ -114,7 +114,6 @@ export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: Lan
             }
             return new Response(`LangSmith request failed with status ${response.status}`, {
                 status: response.status,
-                statusText: response.statusText,
                 headers: response.headers
             })
         }

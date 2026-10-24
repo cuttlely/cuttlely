@@ -71,11 +71,11 @@ describe('langSmithFailureLoggingFetch', () => {
         expect(line).not.toContain('secretvalue')
     })
 
-    it('hands the SDK the status and headers of a failed response but not its body', async () => {
+    it('hands the SDK the status and headers of a failed response but not its body or status text', async () => {
         global.fetch = jest.fn().mockResolvedValue(
             new Response('echo x-api-key: secret-value', {
                 status: 429,
-                statusText: 'Too Many Requests',
+                statusText: 'echo secret-value',
                 headers: { 'retry-after': '3' }
             })
         ) as any
@@ -83,7 +83,7 @@ describe('langSmithFailureLoggingFetch', () => {
         const res = await langSmithFailureLoggingFetch({ flowId: 'flow-1' })('https://api.smith.langchain.com/runs/multipart')
         expect(res.ok).toBe(false)
         expect(res.status).toBe(429)
-        expect(res.statusText).toBe('Too Many Requests')
+        expect(res.statusText).toBe('')
         expect(res.headers.get('retry-after')).toBe('3')
         const body = await res.text()
         expect(body).toBe('LangSmith request failed with status 429')
