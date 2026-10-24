@@ -188,8 +188,9 @@ function tokenMask(raw, root, continued) {
     const token = raw.slice(start, end)
     if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
     // A lone separator such as the '/' in 'A / B' or 'used / entitled' names no location.
-    // It is shown as is but keeps a path's continuation (rule 5), so the next path piece is still hidden.
-    if (/^[\/\\~]$/.test(token)) return { text: raw, masked: continued }
+    // It is shown as is but starts or keeps a rule 5 continuation, so a following token with a separator
+    // (the rest of '/ Reports/private.txt' or '/tmp/My / Reports/x') is still hidden.
+    if (/^[\/\\~]$/.test(token)) return { text: raw, masked: true }
     const slash = /[\/\\]/.test(token)
     const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
     if (!candidate && !(continued && slash)) return { text: raw, masked: false }
