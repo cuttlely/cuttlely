@@ -9,6 +9,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Fixed
 
 -   The assets preset fetch judges an IPv4-mapped IPv6 address by the IPv4 address it contains, so a public address written that way can be fetched. Private, loopback, link-local, carrier-grade NAT, multicast, reserved and unspecified addresses in that form stay refused. 6to4 and NAT64 addresses are judged the same way. The former 6to4 relay prefix and the IPv6 documentation prefix stay refused.
+-   Analyst (scoped): `regconfig` and `regdictionary` are refused by default (in `DENIED_TYPES`) with a structural exception — a direct constant argument to built-in text-search functions (`to_tsvector`, `to_tsquery`, `plainto_tsquery`, `phraseto_tsquery`, `websearch_to_tsquery`, `ts_headline`, `ts_lexize`). All other occurrences (result columns, variables, nested expressions, and I/O coercions) are refused.
+-   Analyst (scoped): The user-function rule is recursive with a depth cap and vets stored BEGIN ATOMIC SQL bodies and default arguments; the walker fails closed on unknown node tags and vets aggregate helpers and a selected sort operator. A 40-deep chain is refused; a 20-deep chain passes. Allow-list entries apply only to the named function; its defaults and callees are still vetted.
 
 ## [1.4.2] - 2026-10-23
 

@@ -513,12 +513,54 @@ const OPERATOR_FIELDS = new Set(['opno', 'sortop', 'eqop'])
 // them ends in types (coltypes). Small enum fields such as jointype match too and name no type.
 export function treeObjectIds(tree) {
     const text = String(tree || '')
+    // Fail closed: allow-list of known parse node tags across PG14–18 for read-only queries
+    const ALLOWED_TAGS = new Set([
+        'QUERY',
+        'RTE',
+        'RANGETBLENTRY',
+        'ALIAS',
+        'RTEPERMISSIONINFO',
+        'RTEPERMINFO',
+        'WITHCLAUSE',
+        'COMMONTABLEEXPR',
+        'FROMEXPR',
+        'RANGETBLREF',
+        'JOINEXPR',
+        'ROWMARKCLAUSE',
+        'LOCKROWS',
+        'TARGETENTRY',
+        'VAR',
+        'CONST',
+        'FUNCEXPR',
+        'OPEXPR',
+        'SCALARARRAYOPEXPR',
+        'ROWCOMPARE',
+        'RELABELTYPE',
+        'COERCEVIAIO',
+        'NULLTEST',
+        'BOOLTEST',
+        'SUBLINK',
+        'AGGREF',
+        'WINDOWFUNC',
+        'WINDOWCLAUSE',
+        'SORTGROUPCLAUSE',
+        'LIMITCOUNT',
+        'LIMITOFFSET',
+        'CASEEXPR',
+        'WHENCLAUSE',
+        'COALESCEEXPR',
+        'MINMAXEXPR',
+        'ARRAYEXPR',
+        'ROWEXPR',
+        'SQLVALUEFUNCTION'
+    ])
     const relations = new Set()
     const functions = new Set()
     const operators = new Set()
     const types = new Set()
     // Fail closed on constructs we do not vet under a selection.
     const BANNED_NODE_KINDS = new Set(['TABLEFUNC', 'XMLEXPR', 'NEXTVALUEEXPR'])
+    // Tag validation is handled by downstream walkers. Keep explicit bans here.
     const add = (set, value) => {
         const n = Number(value)
         if (Number.isInteger(n) && n > 0) set.add(n)
@@ -636,11 +678,18 @@ export async function checkStatementScope(
         const top = () => (stack.length ? stack[stack.length - 1] : null)
         const ALLOWED_NODE_KINDS = new Set([
             'QUERY',
+            'RTE', // PG14 name for RangeTblEntry
             'RANGETBLENTRY',
             'ALIAS',
             'RTEPERMISSIONINFO',
+            'RTEPERMINFO',
+            'WITHCLAUSE',
+            'COMMONTABLEEXPR',
             'FROMEXPR',
             'RANGETBLREF',
+            'JOINEXPR',
+            'ROWMARKCLAUSE',
+            'LOCKROWS',
             'TARGETENTRY',
             'VAR',
             'CONST',
@@ -649,14 +698,24 @@ export async function checkStatementScope(
             'COERCEVIAIO',
             'RELABELTYPE',
             'SCALARARRAYOPEXPR',
+            'ROWCOMPARE',
             'NULLTEST',
             'BOOLTEST',
             'SUBLINK',
             'AGGREF',
             'WINDOWFUNC',
+            'WINDOWCLAUSE',
             'SORTGROUPCLAUSE',
             'LIMITCOUNT',
-            'LIMITOFFSET'
+            'LIMITOFFSET',
+            // Common additional nodes seen across PG14–18 for simple read queries
+            'CASEEXPR',
+            'WHENCLAUSE',
+            'COALESCEEXPR',
+            'MINMAXEXPR',
+            'ARRAYEXPR',
+            'ROWEXPR',
+            'SQLVALUEFUNCTION'
         ])
         for (let i = 0; i < text.length; i += 1) {
             const ch = text[i]
