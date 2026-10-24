@@ -26,6 +26,14 @@ class StyleKitTest(unittest.TestCase):
             self.assertRegex(color, r"^#[0-9A-F]{6}$")
         self.assertEqual(kit.FONTS["sans"][:3], ["Inter", "Noto Sans", "DejaVu Sans"])
 
+    def test_use_dir_and_the_older_asset_kit_name(self):
+        folder = kit.use_dir(self.out / "a" / "b")
+        self.assertTrue(folder.is_dir())
+        import asset_kit
+
+        self.assertIs(asset_kit.use_dir, kit.use_dir)
+        self.assertIs(asset_kit.fetch_asset, kit.fetch_asset)
+
     def test_png_chart(self):
         fig, _ = kit.bar_chart(["Jan", "Feb", "Mar"], [12, 19, 15], title="Orders")
         path = kit.save_png(fig, self.out / "orders.png")

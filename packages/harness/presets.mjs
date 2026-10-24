@@ -8,6 +8,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 export const ASSETS_KIT_FILE = 'cuttlely_assets.py'
 export const ASSETS_KIT_SOURCE = path.join(HERE, 'presets', 'assets', ASSETS_KIT_FILE)
+// The download helper the kit uses, and the older asset_kit name so `from asset_kit import use_dir` keeps working.
+export const ASSETS_FETCH_SOURCE = path.join(HERE, 'presets', 'assets', 'cuttlely_fetch.py')
+export const ASSETS_KIT_ALIAS_SOURCE = path.join(HERE, 'presets', 'assets', 'asset_kit.py')
 
 const ASSETS_INSTRUCTIONS = [
     'You make polished files: PNG charts, PDF reports, DOCX documents, XLSX workbooks and CSV tables.',
@@ -16,6 +19,11 @@ const ASSETS_INSTRUCTIONS = [
     '  kit.apply_chart_theme(); fig, ax = kit.bar_chart(labels, values, title=...); kit.save_png(fig, path)',
     '  kit.pdf_report(path, title, [kit.Heading(...), kit.Text(...), kit.Table(rows), kit.Image(png_path)])',
     '  kit.docx_report(path, title, blocks); kit.xlsx_table(path, rows, sheet=...); kit.csv_table(path, rows)',
+    '  out = kit.use_dir(folder); kit.fetch_asset(url, out / "logo.svg")',
+    'Download logos and images only with kit.fetch_asset(url, path) (or kit.fetch(url) for other files). Do not use urllib or requests directly.',
+    'For logos, prefer Wikimedia Commons, https://commons.wikimedia.org/wiki/Special:FilePath/<File name>.svg, or the official press kit or brand page.',
+    'An asset is in a file only when fetch_asset printed "saved <name>: <n> bytes". Never say a logo or image was embedded otherwise.',
+    'When a download fails, say plainly which asset, the URL and the error, and leave it out or use a text label instead.',
     'kit.PALETTE, kit.SERIES, kit.FONTS, kit.CHART_THEME and kit.TABLE_THEME hold the style values for anything the helpers do not cover.',
     'Save every file for the chat in the folder the task names, with a short lowercase name such as q1-report.pdf.',
     'Use only the data in the task or from earlier specialists. Do not invent figures.',
@@ -29,7 +37,7 @@ export const SPECIALIST_PRESETS = {
         instructions: ASSETS_INSTRUCTIONS,
         codeExecution: true,
         fileAccess: true,
-        kit: [ASSETS_KIT_SOURCE]
+        kit: [ASSETS_KIT_SOURCE, ASSETS_FETCH_SOURCE, ASSETS_KIT_ALIAS_SOURCE]
     }
 }
 
