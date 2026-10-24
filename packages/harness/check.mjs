@@ -48,6 +48,7 @@ const {
     PROFILE_COMPILER_VERSION,
     recompileOutdatedProfiles,
     setAsideOutdatedConfigs,
+    profileOutdated,
     hermesToolsetsFor,
     mcpValidatorPath,
     modelConfigured,
@@ -7194,28 +7195,44 @@ await expectCase('the boot sweep sets aside every older harness config and leave
             has('maownprofile', 'config.yaml'),
         JSON.stringify({ loadable, second })
     )
-    // A folder the sweep cannot read is not taken for an empty one: health stays held.
+    // A folder the sweep cannot read is not taken for an empty one: health stays held. The access error is injected,
+    // so the case holds for a user that folder permissions do not stop.
     make('masweeplocked', { 'config.yaml': 'old\n', 'harness-parent': 'masweepold\n' })
-    fs.chmodSync(path.join(root, 'masweeplocked'), 0o000)
-    let lockedLoadable = []
-    let lockedReadable = false
-    try {
-        fs.readdirSync(path.join(root, 'masweeplocked'))
-        lockedReadable = true
-    } catch {
-        lockedReadable = false
+    const lockedDir = path.join(root, 'masweeplocked')
+    const statSync = fs.statSync
+    const existsSync = fs.existsSync
+    const denied = (file) => String(file).startsWith(lockedDir + path.sep)
+    fs.statSync = (file, ...rest) => {
+        if (denied(file)) throw Object.assign(new Error(`EACCES: permission denied, stat '${file}'`), { code: 'EACCES' })
+        return statSync(file, ...rest)
     }
+    // existsSync answers false for a path it cannot check.
+    fs.existsSync = (file) => (denied(file) ? false : existsSync(file))
+    let lockedLoadable = []
     try {
         lockedLoadable = setAsideOutdatedConfigs()
     } finally {
-        fs.chmodSync(path.join(root, 'masweeplocked'), 0o755)
-        fs.rmSync(path.join(root, 'masweeplocked'), { recursive: true, force: true })
+        fs.statSync = statSync
+        fs.existsSync = existsSync
     }
+    const lockedKept = fs.existsSync(path.join(lockedDir, 'config.yaml'))
+    fs.rmSync(lockedDir, { recursive: true, force: true })
+    // A link to a harness folder elsewhere is reported, not changed.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'masweeplink-'))
+    fs.writeFileSync(path.join(outside, 'config.yaml'), 'old\n')
+    fs.writeFileSync(path.join(outside, 'harness-parent'), 'masweepold\n')
+    fs.symlinkSync(outside, path.join(root, 'masweeplink'))
+    const linkLoadable = setAsideOutdatedConfigs()
+    const linkKept = fs.existsSync(path.join(outside, 'config.yaml'))
+    fs.rmSync(path.join(root, 'masweeplink'), { force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
     check(
-        'the boot sweep reports a harness folder it cannot read',
-        // Root ignores folder permissions; there is nothing to check then.
-        lockedReadable || lockedLoadable.some((dir) => dir.endsWith('masweeplocked')),
-        JSON.stringify({ lockedReadable, lockedLoadable })
+        'the boot sweep reports a harness folder it cannot read, and a linked one, without changing them',
+        lockedLoadable.some((dir) => dir.endsWith('masweeplocked')) &&
+            lockedKept &&
+            linkLoadable.some((dir) => dir.endsWith('masweeplink')) &&
+            linkKept,
+        JSON.stringify({ lockedLoadable, lockedKept, linkLoadable, linkKept })
     )
     for (const name of ['masweepold', 'masweepold--alpha', 'masweepnew', 'maownprofile'])
         fs.rmSync(path.join(root, name), { recursive: true, force: true })
@@ -7240,14 +7257,31 @@ await expectCase('specialist folders whose parent folder is gone are compiled ag
     const child = profilesFor('malostparent').find((profile) => profile.name.includes('--'))?.name
     fs.rmSync(profileFile(child, 'harness-compiler'), { force: true })
     fs.rmSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'malostparent'), { recursive: true, force: true })
+    // Another profile's marker that cannot be read does not stop the search for this harness's folders.
+    const unrelated = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'aaa-unrelated')
+    fs.mkdirSync(unrelated, { recursive: true })
+    fs.writeFileSync(path.join(unrelated, 'harness-parent'), 'someone-else\n')
+    const readFileSync = fs.readFileSync
+    fs.readFileSync = (file, ...rest) => {
+        if (String(file) === path.join(unrelated, 'harness-parent')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+        return readFileSync(file, ...rest)
+    }
+    let outdated
+    try {
+        outdated = profileOutdated(record)
+    } finally {
+        fs.readFileSync = readFileSync
+        fs.rmSync(unrelated, { recursive: true, force: true })
+    }
     const results = recompileOutdatedProfiles([record], { log: {} })
     check(
         'specialist folders whose parent folder is gone are compiled again at boot',
         Boolean(child) &&
+            outdated === true &&
             results[0]?.status === 'recompiled' &&
             fs.existsSync(profileFile('malostparent', 'config.yaml')) &&
             fs.readFileSync(profileFile(child, 'harness-compiler'), 'utf8').trim() === PROFILE_COMPILER_VERSION,
-        JSON.stringify({ child, results })
+        JSON.stringify({ child, outdated, results })
     )
 })
 

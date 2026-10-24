@@ -931,6 +931,7 @@ function setAsideUnfinishedConfigs(profileName) {
     for (const entry of entries) {
         const dir = path.join(root, entry)
         try {
+            if (fs.lstatSync(dir).isSymbolicLink()) continue
             if (readMarker(path.join(dir, 'harness-parent')) === String(profileName)) setAsideConfig(dir)
         } catch {
             // The boot sweep checks every directory again.
@@ -949,12 +950,27 @@ export function setAsideOutdatedConfigs() {
     for (const entry of fs.readdirSync(root)) {
         const dir = path.join(root, entry)
         let owned
+        let linked = false
         try {
+            linked = fs.lstatSync(dir).isSymbolicLink()
             owned = harnessOwnedDir(dir)
         } catch {
             owned = true
         }
-        if (owned && !setAsideConfig(dir)) loadable.push(dir)
+        if (!owned) continue
+        // This app never links a profile folder: one that links elsewhere is not changed, and Hermes waits while it
+        // holds a config from an older compiler.
+        if (linked) {
+            let current = false
+            try {
+                current = !present(path.join(dir, 'config.yaml')) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION
+            } catch {
+                current = false
+            }
+            if (!current) loadable.push(dir)
+            continue
+        }
+        if (!setAsideConfig(dir)) loadable.push(dir)
     }
     return loadable
 }
@@ -1416,13 +1432,17 @@ export function profileOutdated(record) {
         // No parent folder: never compiled, unless specialist folders of this harness survived it.
         const root = path.join(hermesHome(), 'profiles')
         if (!fs.existsSync(root)) return false
-        return fs
-            .readdirSync(root)
-            .some(
-                (entry) =>
+        return fs.readdirSync(root).some((entry) => {
+            try {
+                return (
                     readMarker(path.join(root, entry, 'harness-parent')) === String(record.name) &&
                     compilerVersionOf(path.join(root, entry)) !== PROFILE_COMPILER_VERSION
-            )
+                )
+            } catch {
+                // Another profile's unreadable marker; the boot sweep reports it if it is a harness folder.
+                return false
+            }
+        })
     }
     if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION) return true
     const roster = onDiskRoster(dir)

@@ -323,12 +323,8 @@ export async function recompileBeforeHermes(gateway: {
         hold()
         gateway.finishGatewayBoot?.()
     }
-    try {
-        await gateway.startGateway()
-    } catch (error) {
-        release()
-        throw error
-    }
+    // A gateway that does not start keeps the hold: profiles were not checked, so Hermes must not start on them.
+    await gateway.startGateway()
     try {
         await recompileOutdatedHarnessProfiles()
     } catch (error) {

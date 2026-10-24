@@ -177,7 +177,7 @@ describe('harness runtime start', () => {
         ])
     })
 
-    test('a gateway that does not start releases the hold and fails the start', async () => {
+    test('a gateway that does not start keeps health held and fails the start', async () => {
         let released = false
         await expect(
             recompileBeforeHermes({
@@ -188,8 +188,8 @@ describe('harness runtime start', () => {
                 }
             })
         ).rejects.toThrow('port in use')
-        expect(released).toBe(true)
-        expect(order).toEqual(['boot done'])
+        expect(released).toBe(false)
+        expect(order).toEqual([])
     })
 
     test.each(['stuck', 'throw'])(
