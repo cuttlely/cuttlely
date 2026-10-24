@@ -1,4 +1,4 @@
-// Architect acceptance checks for the boot profile compile: ping, the cap, one bad profile, and the health-check route.
+// Architect acceptance checks for the boot profile compile: ping, the cap, one bad profile, and the 1.4.3 notes.
 import fs from 'fs'
 import path from 'path'
 import express from 'express'
@@ -194,5 +194,16 @@ describe('boot acceptance', () => {
         } finally {
             spy.mockRestore()
         }
+    })
+
+    test('A6 there is a changelog line under 1.4.3 for the boot compile', () => {
+        const changelog = fs.readFileSync(path.join(ROOT, 'CHANGELOG.md'), 'utf8')
+        const start = changelog.indexOf('## [1.4.3]')
+        const end = changelog.indexOf('## [1.4.2]')
+        expect(start).toBeGreaterThanOrEqual(0)
+        expect(end).toBeGreaterThan(start)
+        const section = changelog.slice(start, end)
+        expect(section).toMatch(/compiles harness profiles from an older compiler/)
+        expect(section).toMatch(/boot recompile/)
     })
 })

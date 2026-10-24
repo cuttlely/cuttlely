@@ -7389,7 +7389,7 @@ await expectCase('warm-up never writes through a linked profile folder', async (
     )
 })
 
-await expectCase('a second boot does zero recompiles and an outdated config recovers', async () => {
+await expectCase('A5 the stamp skips the compile on a second boot, and config.yaml.outdated recovers', async () => {
     const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
     const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
     const record = saveHarness(
@@ -7409,113 +7409,128 @@ await expectCase('a second boot does zero recompiles and an outdated config reco
     fs.rmSync(profileFile('maunchanged', 'harness-compiler'), { force: true })
     const visible = getHarness('maunchanged')
     const recovered = recompileOutdatedProfiles([visible], { log: {} })
-    check(
-        'a second boot with unchanged profiles does zero recompiles',
-        first.length === 0 && second.length === 0,
-        JSON.stringify({ first, second })
-    )
+    const secondBootSkipped = first.length === 0 && second.length === 0
+    const outdatedRecovered =
+        visible?.name === 'maunchanged' &&
+        recovered.length === 1 &&
+        recovered[0].status === 'recompiled' &&
+        fs.existsSync(config) &&
+        fs.readFileSync(config, 'utf8').includes('agent:')
+    check('a second boot with unchanged profiles does zero recompiles', secondBootSkipped, JSON.stringify({ first, second }))
     check(
         'a config.yaml.outdated harness stays visible and recovers',
-        visible?.name === 'maunchanged' &&
-            recovered.length === 1 &&
-            recovered[0].status === 'recompiled' &&
-            fs.existsSync(config) &&
-            fs.readFileSync(config, 'utf8').includes('agent:'),
+        outdatedRecovered,
         JSON.stringify({ visible: visible?.name, recovered, config: fs.existsSync(config) })
     )
-    check('a second boot does zero recompiles and an outdated config recovers', true)
+    check(
+        'A5 the stamp skips the compile on a second boot, and config.yaml.outdated recovers',
+        secondBootSkipped && outdatedRecovered,
+        JSON.stringify({ first, second, visible: visible?.name, recovered, config: fs.existsSync(config) })
+    )
 })
 
-await expectCase('a linked profile target is unchanged for boot, warm-up, and compileProfileCached', async () => {
-    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
-    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
-    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
-    const snap = (dir) => {
-        const rows = []
-        const walk = (current, prefix) => {
-            for (const name of fs.readdirSync(current).sort()) {
-                const file = path.join(current, name)
-                const stat = fs.lstatSync(file)
-                if (stat.isSymbolicLink()) {
-                    rows.push(`${prefix}${name} link ${stat.mtimeMs}`)
-                    continue
+await expectCase(
+    'A4 a symlinked profile folder is refused by boot, by warm-up and by compileProfileCached, and the target file list and mtimes are unchanged',
+    async () => {
+        const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+        const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+        const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+        const snap = (dir) => {
+            const rows = []
+            const walk = (current, prefix) => {
+                for (const name of fs.readdirSync(current).sort()) {
+                    const file = path.join(current, name)
+                    const stat = fs.lstatSync(file)
+                    if (stat.isSymbolicLink()) {
+                        rows.push(`${prefix}${name} link ${stat.mtimeMs}`)
+                        continue
+                    }
+                    if (stat.isDirectory()) {
+                        rows.push(`${prefix}${name}/ ${stat.mtimeMs}`)
+                        walk(file, `${prefix}${name}/`)
+                        continue
+                    }
+                    rows.push(`${prefix}${name} ${stat.mtimeMs} ${stat.size}\n${fs.readFileSync(file)}`)
                 }
-                if (stat.isDirectory()) {
-                    rows.push(`${prefix}${name}/ ${stat.mtimeMs}`)
-                    walk(file, `${prefix}${name}/`)
-                    continue
-                }
-                rows.push(`${prefix}${name} ${stat.mtimeMs} ${stat.size}\n${fs.readFileSync(file)}`)
             }
+            walk(dir, '')
+            return rows.join('\n')
         }
-        walk(dir, '')
-        return rows.join('\n')
-    }
-    const cases = [
-        ['boot recompile', (record) => recompileOutdatedProfiles([record], { log: {} })],
-        [
-            'warm-up',
-            async (record) => {
-                try {
-                    await warmHarnessProfiles({ names: [record.name], healthWaitMs: 0 })
-                } catch (error) {
-                    return error
+        const cases = [
+            ['boot recompile', (record) => recompileOutdatedProfiles([record], { log: {} })],
+            [
+                'warm-up',
+                async (record) => {
+                    try {
+                        await warmHarnessProfiles({ names: [record.name], healthWaitMs: 0 })
+                    } catch (error) {
+                        return error
+                    }
+                    return null
                 }
-                return null
-            }
-        ],
-        [
-            'compileProfileCached',
-            (record) => {
-                compileProfileCached(getHarness(record.name))
-            }
+            ],
+            [
+                'compileProfileCached',
+                (record) => {
+                    compileProfileCached(getHarness(record.name))
+                }
+            ]
         ]
-    ]
-    for (const [label, run] of cases) {
-        const name = `masentinel${label}`.replace(/\W/g, '')
-        const record = saveHarness(
-            {
-                name,
-                chatflowId: `canvas-${name}`,
-                chief: { instructions: 'Route.', model: xai('grok-4.7') },
-                specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
-            },
-            { overwrite: true }
-        )
-        compileProfile(record)
-        forgetCompiledProfile(name)
-        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
-        fs.cpSync(path.join(root, name), outside, { recursive: true })
-        fs.writeFileSync(path.join(outside, 'sentinel'), 'sentinel-bytes')
-        const sent = fs.statSync(path.join(outside, 'sentinel'))
-        fs.rmSync(path.join(root, name), { recursive: true, force: true })
-        fs.symlinkSync(outside, path.join(root, name))
-        const before = snap(outside)
-        let refused = false
-        try {
-            const result = await run(record)
-            refused = Array.isArray(result) ? result.some((row) => row.status === 'failed' && /link/.test(row.error || '')) : false
-        } catch (error) {
-            refused = error?.code === 'profile_link'
+        const a4 = []
+        for (const [label, run] of cases) {
+            const name = `masentinel${label}`.replace(/\W/g, '')
+            const record = saveHarness(
+                {
+                    name,
+                    chatflowId: `canvas-${name}`,
+                    chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                    specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
+                },
+                { overwrite: true }
+            )
+            compileProfile(record)
+            forgetCompiledProfile(name)
+            const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+            fs.cpSync(path.join(root, name), outside, { recursive: true })
+            fs.writeFileSync(path.join(outside, 'sentinel'), 'sentinel-bytes')
+            const sent = fs.statSync(path.join(outside, 'sentinel'))
+            fs.rmSync(path.join(root, name), { recursive: true, force: true })
+            fs.symlinkSync(outside, path.join(root, name))
+            const before = snap(outside)
+            let refused = false
+            try {
+                const result = await run(record)
+                refused = Array.isArray(result) ? result.some((row) => row.status === 'failed' && /link/.test(row.error || '')) : false
+            } catch (error) {
+                refused = error?.code === 'profile_link'
+            }
+            // Warm-up catches the compiler refusal. The link is gone and the target was not written.
+            if (label === 'warm-up' && !fs.existsSync(path.join(root, name))) refused = true
+            const after = snap(outside)
+            const sentinel = fs.statSync(path.join(outside, 'sentinel'))
+            const sameTree = before === after
+            const mtimeSame = sentinel.mtimeMs === sent.mtimeMs
+            const bytesSame = fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'sentinel-bytes'
+            const linkGone = !fs.existsSync(path.join(root, name))
+            const ok = refused && sameTree && mtimeSame && bytesSame && linkGone
+            a4.push({ label, ok, refused, sameTree, mtimeSame, linkGone })
+            check(
+                `a linked profile target is unchanged for ${label}`,
+                ok,
+                JSON.stringify({ label, refused, same: sameTree, mtime: mtimeSame })
+            )
+            fs.rmSync(path.join(root, name), { recursive: true, force: true })
+            fs.rmSync(outside, { recursive: true, force: true })
         }
-        // Warm-up catches the compiler refusal. The link is gone and the target was not written.
-        if (label === 'warm-up' && !fs.existsSync(path.join(root, name))) refused = true
-        const after = snap(outside)
-        const sentinel = fs.statSync(path.join(outside, 'sentinel'))
         check(
-            `a linked profile target is unchanged for ${label}`,
-            refused &&
-                before === after &&
-                sentinel.mtimeMs === sent.mtimeMs &&
-                fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'sentinel-bytes' &&
-                !fs.existsSync(path.join(root, name)),
-            JSON.stringify({ label, refused, same: before === after, mtime: sentinel.mtimeMs === sent.mtimeMs })
+            'A4 a symlinked profile folder is refused by boot, by warm-up and by compileProfileCached, and the target file list and mtimes are unchanged',
+            a4.length === 3 &&
+                a4.every((row) => row.ok) &&
+                a4.map((row) => row.label).join(',') === 'boot recompile,warm-up,compileProfileCached',
+            JSON.stringify(a4)
         )
-        fs.rmSync(path.join(root, name), { recursive: true, force: true })
-        fs.rmSync(outside, { recursive: true, force: true })
     }
-    check('a linked profile target is unchanged for boot, warm-up, and compileProfileCached', true)
-})
+)
 
 await expectCase('a compile refuses a symlink on each path it would write', async () => {
     const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
