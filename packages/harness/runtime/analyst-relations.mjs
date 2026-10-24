@@ -8,8 +8,9 @@
 //      the statement uses, including CTEs, subqueries, system catalogs and built-in functions, which pg_depend
 //      does not record. A relation that is not ticked, a function or operator outside pg_catalog, or a built-in
 //      that runs SQL from text or reads data outside a relation is refused.
-//   3. The view is dropped and the transaction turns read only before the statement runs.
-// A ticked view is the gate: its own definition is not expanded, so it may read relations that are not ticked.
+//   3. The view is dropped and that transaction rolls back. The statement then runs in a new BEGIN READ ONLY transaction.
+// A ticked view is the gate: it may read relations that are not ticked. For the PostgreSQL MCP node, the functions,
+// operators and types inside every view it reads are checked too.
 
 export const RELATION_KINDS = { r: 'table', p: 'table', f: 'foreign table', v: 'view', m: 'materialized view' }
 
@@ -20,7 +21,7 @@ export const SCOPE_UNCHECKABLE =
 export function scopeRiskyDomains(names) {
     return `Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: ${refusedList(
         names
-    )}. Queries are refused while a table selection is set. Change those CHECK constraints to built-in functions that are not volatile, or clear the selection on the PostgreSQL MCP node.`
+    )}. Queries are refused while a table selection is set, and every PostgreSQL MCP node query is refused. Change those CHECK constraints to built-in functions that are not volatile.`
 }
 export const SCOPE_NONE_LEFT = 'None of the selected tables or views exist any more. Update the selection on the PostgreSQL MCP node.'
 
@@ -556,8 +557,8 @@ function scopeUncheckable(error) {
     return code === '25006' || (code === '42501' && /temporary/i.test(String(error?.message || '')))
 }
 
-// Runs inside a read-write transaction that the caller rolls back. The caller turns it read only afterwards.
-export async function checkStatementScope(client, runner, statement, relations, isRowQuery, cacheKey = '') {
+// Runs inside a read-write transaction that the caller rolls back. The statement runs later, in its own read-only one.
+export async function checkStatementScope(client, runner, statement, relations, isRowQuery, cacheKey = '', { followViews = false } = {}) {
     if (!relations.length) throw new ScopeRefusal(SCOPE_NONE_LEFT)
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
     // A literal of a composite, array or range type runs its element's input while Postgres parses, and a domain
@@ -578,6 +579,7 @@ export async function checkStatementScope(client, runner, statement, relations, 
             )}, which this node's table selection does not include. Selected: ${refusedList(relations.map((relation) => relation.name))}.`
         )
     }
+    if (followViews) await followRelations(runner, ids)
     await refuseRoutines(runner, ids.functions, ids.operators)
     await refuseTypes(runner, ids.types)
 }
@@ -633,11 +635,76 @@ export async function checkStatementRoutines(client, runner, statement, isRowQue
         if (error instanceof ScopeRefusal && error.message === SCOPE_UNCHECKABLE) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
         throw error
     }
+    await followRelations(runner, ids)
     await refuseRoutines(runner, ids.functions, ids.operators, {
         denied: (name) => deniedFunction(name) || readOnlySqlDeniedFunction(name),
         unscoped: true
     })
     await refuseTypes(runner, ids.types)
+}
+
+const RELATION_BODIES_SQL = `SELECT c.oid::int8 AS oid, c.relkind AS kind,
+       quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name,
+       (SELECT r.ev_action::text FROM pg_rewrite r WHERE r.ev_class = c.oid AND r.rulename = '_RETURN') AS tree,
+       ARRAY(SELECT coalesce(p.polqual::text, '') || ' ' || coalesce(p.polwithcheck::text, '')
+             FROM pg_policy p WHERE p.polrelid = c.oid) AS policies
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[])`
+
+export const VIEW_UNRESOLVED =
+    'Cuttlely refused this query: it reads a view whose definition could not be read from the catalog, so its functions could not be checked.'
+
+// Adds the functions, operators and types used by every view and materialized view the statement reads, the views
+// those read in turn, and the row-security policies of every relation on the way. Relations they read are followed
+// but not added to ids.relations, so a ticked view over unticked tables still passes the selection check.
+async function followRelations(runner, ids) {
+    const seen = new Set()
+    let queue = [...ids.relations]
+    while (queue.length) {
+        const batch = [...new Set(queue)].filter((oid) => !seen.has(oid))
+        queue = []
+        if (!batch.length) break
+        for (const oid of batch) seen.add(oid)
+        const rows = await runner.all(RELATION_BODIES_SQL, [batch])
+        if (rows.length !== batch.length) throw new ScopeRefusal(VIEW_UNRESOLVED)
+        for (const row of rows) {
+            const trees = [...(row.policies || [])]
+            if (row.kind === 'v' || row.kind === 'm') {
+                if (!row.tree) throw new ScopeRefusal(VIEW_UNRESOLVED)
+                trees.push(row.tree)
+            }
+            for (const tree of trees) {
+                const found = treeObjectIds(tree)
+                for (const id of found.functions) ids.functions.add(id)
+                for (const id of found.operators) ids.operators.add(id)
+                for (const id of found.types) ids.types.add(id)
+                queue.push(...found.relations)
+            }
+        }
+    }
+}
+
+// Types whose input or receive function is outside pg_catalog. Postgres runs that function while it parses a typed
+// literal, before any check can see the statement, so the PostgreSQL MCP node refuses every query on such a database.
+const RISKY_TYPES_SQL = `SELECT DISTINCT format_type(t.oid, NULL) AS name
+FROM pg_type t JOIN pg_proc p ON p.oid IN (t.typinput, t.typreceive) JOIN pg_namespace pn ON pn.oid = p.pronamespace
+WHERE pn.nspname <> 'pg_catalog' ORDER BY 1`
+const riskyTypeCache = new Map()
+
+export function scopeRiskyTypes(names) {
+    return `Cuttlely refused this query: this database has types whose input runs code that is not built in, and it could run while a query is checked: ${refusedList(
+        names
+    )}. The PostgreSQL MCP node refuses every query on this database until those types are removed or the credential points at another database.`
+}
+
+export async function refuseRiskyTypes(runner, cacheKey = '') {
+    const now = Date.now()
+    const cached = cacheKey ? riskyTypeCache.get(cacheKey) : null
+    let names = cached && cached.expires > now ? cached.names : null
+    if (!names) {
+        names = (await runner.all(RISKY_TYPES_SQL)).map((row) => row.name)
+        if (cacheKey) riskyTypeCache.set(cacheKey, { names, expires: now + RISKY_DOMAIN_TTL_MS })
+    }
+    if (names.length) throw new ScopeRefusal(scopeRiskyTypes(names))
 }
 
 const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${row.schema}.${row.name}`)
@@ -717,6 +784,7 @@ const riskyDomainCache = new Map()
 
 export function resetRiskyDomainCacheForTests() {
     riskyDomainCache.clear()
+    riskyTypeCache.clear()
 }
 
 // Domains whose CHECK calls a volatile function, a function outside pg_catalog or a denied built-in, through an
@@ -935,6 +1003,10 @@ export function sqlTokens(sql) {
                 tokens.push({ type: 'string' })
                 i = close + tag[0].length
                 continue
+            }
+            // Postgres also takes non-ASCII letters in a tag. Only plain ASCII tags are read here, so refuse the rest.
+            if (/^\$[A-Za-z0-9_]*[\u0080-\uffff]/.test(text.slice(i))) {
+                throw new ScopeRefusal('Cuttlely refused this query: a dollar-quote tag must be a plain ASCII name, such as $q$.')
             }
         }
         const word = text.slice(i).match(/^[A-Za-z_\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*/)

@@ -33,6 +33,7 @@ import {
     checkReadOnlySql,
     checkStatementRoutines,
     checkStatementScope,
+    refuseRiskyTypes,
     missingRelationHint,
     missingRelationName,
     columnErrorHint,
@@ -1847,18 +1848,22 @@ async function queryUrlPostgres(
         if (scoped) {
             await begin(false)
             try {
+                if (readOnlySql) await refuseRiskyTypes(runner, urlStoreKey(postgresUrl))
                 selected = await resolveRelations(runner, relations)
-                await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl))
+                await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl), {
+                    followViews: readOnlySql
+                })
                 checkedBackend = await backend()
             } catch (error) {
                 throw await hinted(error)
             } finally {
                 await client.query('ROLLBACK').catch(() => {})
             }
-        } else if (readOnlySql && !replay?.plan) {
-            // No selection: the node still resolves every called function through the catalog first.
+        } else if (readOnlySql) {
+            // No selection: the node still resolves every called function through the catalog first, on every page.
             await begin(false)
             try {
+                await refuseRiskyTypes(runner, urlStoreKey(postgresUrl))
                 await checkStatementRoutines(client, runner, text, isRowQuery, urlStoreKey(postgresUrl))
             } catch (error) {
                 throw await hinted(error)
@@ -1926,7 +1931,9 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     const cursor = clean(input.cursor)
     if (cursor) {
         const replay = replayCursor(cursor, input, pagingBase)
-        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations)
+        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations, {
+            readOnlySql: Boolean(options.readOnlySql)
+        })
     }
     sweepCursors(pagingBase.now)
     const sql = analystSqlText(input)
