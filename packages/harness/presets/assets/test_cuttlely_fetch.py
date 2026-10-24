@@ -68,6 +68,10 @@ class Handler(BaseHTTPRequestHandler):
             "/slow": self._slow,
             "/short": self._short,
             "/short-5": self._short_5,
+            "/short-twice": lambda: self._raw_lengths(["100", "100"], b"abcde"),
+            "/length-list": lambda: self._raw_lengths(["5, 5"], b"abcde"),
+            "/length-conflict": lambda: self._raw_lengths(["5", "6"], b"abcde"),
+            "/length-zeros": lambda: self._raw_lengths(["0000000000000000000005"], b"abcde"),
             "/drip-40": self._drip_40,
             "/trickle-headers": self._trickle_headers,
             "/trickle-body": self._trickle_body,
@@ -125,6 +129,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "100")
         self.end_headers()
         self.wfile.write(b"abcde")
+        self.wfile.flush()
+        self.close_connection = True
+
+    def _raw_lengths(self, lengths, body):
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        for length in lengths:
+            self.send_header("Content-Length", length)
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
         self.wfile.flush()
         self.close_connection = True
 
@@ -382,6 +397,15 @@ class FetchTest(unittest.TestCase):
         with self.assertRaisesRegex(net.FetchError, "closed after 5 bytes, short of the declared size"):
             net.fetch(self.url("/short-5"))
         self.assertEqual(net.fetch(self.url("/logo.svg"))["bytes"], SVG)
+        with self.assertRaisesRegex(net.FetchError, "closed after 5 bytes, short of the declared size"):
+            net.fetch(self.url("/short-twice"))
+
+    def test_repeated_and_zero_padded_content_lengths(self):
+        self.assertEqual(net.fetch(self.url("/length-list"))["bytes"], b"abcde")
+        self.assertEqual(net.fetch(self.url("/length-zeros"), max_bytes=10)["bytes"], b"abcde")
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch(self.url("/length-conflict"))
+        self.assertIn("conflicting declared sizes", str(caught.exception))
 
     def test_test_server_keeps_reflected_values_to_one_header(self):
         self.assertEqual(header_value("a\r\nX-Injected: 1"), "aX-Injected: 1")

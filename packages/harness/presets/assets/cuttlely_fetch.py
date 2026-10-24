@@ -247,6 +247,28 @@ def _bounded(value, default, limit, name):
     return min(number, limit)
 
 
+def _declared_length(response, max_bytes):
+    """The declared Content-Length as an int, None when absent or not digits, -1 when repeated with different values.
+
+    The value is server text: it is compared, never printed. Repeated headers (or a comma list) that agree count once.
+    Leading zeros do not count toward its size; a number with more than 18 digits is over any cap.
+    """
+    values = []
+    for header in response.msg.get_all("Content-Length") or []:
+        values.extend(part.strip() for part in header.split(","))
+    numbers = set()
+    for value in values:
+        if not (value.isascii() and value.isdigit()):
+            return None
+        value = value.lstrip("0") or "0"
+        numbers.add(max_bytes + 1 if len(value) > 18 else int(value))
+    if not numbers:
+        return None
+    if len(numbers) > 1:
+        return -1
+    return numbers.pop()
+
+
 def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
     """Download one URL. Returns {"status", "contentType", "bytes", "finalUrl", "shownUrl"}; raises FetchError.
 
@@ -315,12 +337,9 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
             content_type = (response.getheader("Content-Type") or "").split(";")[0].strip().lower()
             if content_type and not _MIME.fullmatch(content_type):
                 content_type = "unrecognized"
-            declared = (response.getheader("Content-Length") or "").strip()
-            # The declared length is server text: it is compared, never printed. Very long digit strings are over any cap.
-            if declared.isascii() and declared.isdigit():
-                declared = max_bytes + 1 if len(declared) > 18 else int(declared)
-            else:
-                declared = None
+            declared = _declared_length(response, max_bytes)
+            if declared == -1:
+                raise FetchError(f"fetch failed: HTTP {status}, conflicting declared sizes, at {where}", current, status, shown=where)
             if declared is not None and declared > max_bytes:
                 raise FetchError(
                     f"fetch failed: HTTP {status}, declared size is over the {max_bytes} byte cap, at {where}", current, status, shown=where
