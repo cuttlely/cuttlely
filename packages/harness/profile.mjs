@@ -879,7 +879,48 @@ export function profileDestinationConflicts(record, profileName = record?.name) 
     return conflicts
 }
 
+// After a failed compile (at boot, in warm-up or on a chat), each of the harness's profile directories without the
+// current compiler version has its config.yaml moved to config.yaml.outdated, so Hermes never loads a config from an
+// older compiler or one written partway. Specialists are found by their harness-parent marker, written before their
+// config, so one added by this compile is covered too. The missing version keeps the profile outdated, so the next
+// compile writes it again. Returns the directories whose config could not be moved and is still loadable.
+function setAsideUnfinishedConfigs(profileName) {
+    const root = path.join(hermesHome(), 'profiles')
+    const dirs = [profileDir(profileName)]
+    if (fs.existsSync(root)) {
+        for (const entry of fs.readdirSync(root)) {
+            const dir = path.join(root, entry)
+            if (readMarker(path.join(dir, 'harness-parent')) === String(profileName)) dirs.push(dir)
+        }
+    }
+    const loadable = []
+    for (const dir of dirs) {
+        const config = path.join(dir, 'config.yaml')
+        try {
+            if (!fs.existsSync(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) continue
+            fs.rmSync(config + '.outdated', { recursive: true, force: true })
+            fs.renameSync(config, config + '.outdated')
+        } catch {
+            if (fs.existsSync(config)) loadable.push(dir)
+        }
+    }
+    return loadable
+}
+
 export function compileProfile(record, options = {}) {
+    try {
+        return compileProfileFiles(record, options)
+    } catch (error) {
+        // A name taken by another harness is refused before anything is written; those directories are not ours.
+        if (!options.tryProfile && error?.code !== 'name_taken') {
+            const loadable = setAsideUnfinishedConfigs(options.profileName || record.name)
+            if (loadable.length && error && typeof error === 'object') error.configsLoadable = loadable
+        }
+        throw error
+    }
+}
+
+function compileProfileFiles(record, options = {}) {
     const profileName = options.profileName || record.name
     const tryProfile = Boolean(options.tryProfile)
     if (!tryProfile) {
@@ -1336,27 +1377,6 @@ export function profileOutdated(record) {
 // Runs at server start, before the gateway answers and so before Hermes loads any profile. Recompiles each saved
 // harness whose published profile directory is on disk from an older compiler. Profiles never compiled stay uncompiled, and
 // a second run finds nothing to do. The caller holds the profile lock.
-// After a failed compile, each of the harness's profile directories without the current compiler version has its
-// config.yaml moved to config.yaml.outdated, so Hermes never loads a config from an older compiler or one written
-// partway. The missing version still marks the profile outdated, so the next boot (or the next chat, which compiles
-// when config.yaml is missing) writes it again.
-function setAsideUnfinishedConfigs(name, rosterBefore) {
-    const parent = profileDir(name)
-    const dirs = new Set([parent])
-    for (const roster of [rosterBefore, onDiskRoster(parent)]) {
-        for (const specialist of roster?.specialists || []) if (specialist?.profileName) dirs.add(profileDir(specialist.profileName))
-    }
-    for (const dir of dirs) {
-        try {
-            const config = path.join(dir, 'config.yaml')
-            if (!fs.existsSync(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) continue
-            fs.renameSync(config, config + '.outdated')
-        } catch {
-            // Best effort: the profile is still marked outdated.
-        }
-    }
-}
-
 export function recompileOutdatedProfiles(records, { log = console } = {}) {
     const results = []
     for (const record of records) {
@@ -1377,8 +1397,9 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
             forgetCompiledProfile(record.name)
             results.push({ name: record.name, status: 'recompiled' })
         } catch (error) {
-            setAsideUnfinishedConfigs(record.name, roster)
-            results.push({ name: record.name, status: 'failed', error: error.message })
+            // compileProfile has set the unfinished configs aside; loadable lists any it could not move.
+            const loadable = error?.configsLoadable || []
+            results.push({ name: record.name, status: 'failed', error: error.message, ...(loadable.length ? { loadable } : {}) })
         }
     }
     const failed = results.filter((result) => result.status === 'failed')

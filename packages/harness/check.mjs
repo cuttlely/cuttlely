@@ -7078,6 +7078,13 @@ await expectCase('a compile that fails partway leaves the profile outdated for t
         threw = true
     }
     const versionFiles = ['mahalfchief', ...specialists].map((name) => fs.existsSync(profileFile(name, 'harness-compiler')))
+    // Any failed compile (warm-up and chats call compileProfile too) sets the unfinished configs aside.
+    const asideAfterCompile =
+        !fs.existsSync(profileFile('mahalfchief', 'config.yaml')) &&
+        fs.existsSync(profileFile('mahalfchief', 'config.yaml.outdated')) &&
+        fs.existsSync(profileFile(specialists[1], 'config.yaml.outdated'))
+    fs.rmSync(profileFile(specialists[1], 'config.yaml.outdated'), { recursive: true, force: true })
+    fs.mkdirSync(blocked)
     fs.writeFileSync(profileFile('mahalfchief', 'config.yaml'), 'from-an-older-compiler\n')
     const failed = recompileOutdatedProfiles([record], { log: {} })
     // Hermes must not load the parent config the failed compile left behind: it is set aside until the next compile.
@@ -7101,11 +7108,56 @@ await expectCase('a compile that fails partway leaves the profile outdated for t
             failed.length === 1 &&
             failed[0].status === 'failed' &&
             parentAside &&
+            asideAfterCompile &&
             JSON.stringify(repaired) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
             after.length === 0 &&
             JSON.stringify(noConfig) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
             configBack,
-        JSON.stringify({ threw, specialists, versionFiles, failed, parentAside, repaired, after, noConfig, configBack })
+        JSON.stringify({ threw, specialists, versionFiles, failed, parentAside, asideAfterCompile, repaired, after, noConfig, configBack })
+    )
+})
+
+await expectCase('a specialist a failed compile adds has its config set aside too', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const base = {
+        name: 'magrowchief',
+        chatflowId: 'canvas-grow-chief',
+        chief: { instructions: 'Route.', model: xai('grok-4.7') },
+        specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
+    }
+    compileProfile(saveHarness(base, { overwrite: true }))
+    const grown = saveHarness(
+        {
+            ...base,
+            specialists: [
+                ...base.specialists,
+                { name: 'gamma', instructions: 'Gamma work.', model: xai('grok-4.7-mini'), modules: calculator }
+            ]
+        },
+        { overwrite: true }
+    )
+    // The new specialist's version file cannot be written: its config.yaml is, and then the compile stops.
+    const blocked = profileFile('magrowchief--gamma', 'harness-compiler')
+    fs.mkdirSync(blocked, { recursive: true })
+    fs.writeFileSync(profileFile('magrowchief--gamma', 'harness-parent'), 'magrowchief\n')
+    let threw = false
+    try {
+        compileProfile(grown)
+    } catch {
+        threw = true
+    }
+    const added = fs
+        .readdirSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles'))
+        .filter((entry) => entry.startsWith('magrowchief--') && entry.includes('gamma'))
+    const addedLoadable = added.filter((entry) => fs.existsSync(profileFile(entry, 'config.yaml')))
+    const parentLoadable = fs.existsSync(profileFile('magrowchief', 'config.yaml'))
+    fs.rmSync(blocked, { recursive: true, force: true })
+    const repaired = recompileOutdatedProfiles([grown], { log: {} })
+    check(
+        'a specialist a failed compile adds has its config set aside too',
+        threw && added.length === 1 && addedLoadable.length === 0 && !parentLoadable && repaired[0]?.status === 'recompiled',
+        JSON.stringify({ threw, added, addedLoadable, parentLoadable, repaired })
     )
 })
 

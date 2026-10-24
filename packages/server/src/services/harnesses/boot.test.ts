@@ -13,6 +13,7 @@ describe('harness runtime start', () => {
     const order: string[] = []
     let saved: Map<string, { name: string; version: number }>
     let failFor = ''
+    let stuck = ''
     let holds = 0
     let unreadable = ''
     let busyMs = 0
@@ -26,6 +27,7 @@ describe('harness runtime start', () => {
         unreadable = ''
         busyMs = 0
         failFor = ''
+        stuck = ''
         holds = 0
         setHarnessModuleLoader(async (file: string) => {
             if (file === 'run.mjs') return { configureHarnessRuntime: () => order.push('configure') }
@@ -63,6 +65,8 @@ describe('harness runtime start', () => {
                             while (Date.now() < until) {
                                 // busy
                             }
+                            if (record.name === stuck)
+                                return { name: record.name, status: 'failed', error: 'boom', loadable: ['/p/' + record.name] }
                             return record.name === failFor
                                 ? { name: record.name, status: 'failed', error: 'boom' }
                                 : { name: record.name, status: 'recompiled' }
@@ -181,6 +185,30 @@ describe('harness runtime start', () => {
         ).rejects.toThrow('port in use')
         expect(released).toBe(true)
         expect(order).toEqual(['boot done'])
+    })
+
+    test('a failed compile whose config could not be set aside keeps health held, so Hermes does not start', async () => {
+        stuck = 'ops'
+        let released = false
+        let booted = false
+        await recompileBeforeHermes({
+            holdGatewayHealth: () => () => (released = true),
+            finishGatewayBoot: () => (booted = true),
+            startGateway: async () => undefined
+        })
+        expect(released).toBe(false)
+        expect(booted).toBe(false)
+    })
+
+    test('a failed compile whose config was set aside still releases health', async () => {
+        failFor = 'ops'
+        let released = false
+        await recompileBeforeHermes({
+            holdGatewayHealth: () => () => (released = true),
+            finishGatewayBoot: () => undefined,
+            startGateway: async () => undefined
+        })
+        expect(released).toBe(true)
     })
 
     test('one failed recompile is reported and the rest still run', async () => {

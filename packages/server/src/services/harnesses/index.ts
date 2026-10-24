@@ -329,20 +329,34 @@ export async function recompileBeforeHermes(gateway: {
         release()
         throw error
     }
+    let results: Array<{ name: string; status: string; loadable?: string[] }> = []
     try {
-        // A profile that fails to compile has its config.yaml set aside (profile.mjs), so health can be released.
-        await recompileOutdatedHarnessProfiles()
+        results = await recompileOutdatedHarnessProfiles()
     } catch (error) {
         logger.error(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
-    } finally {
-        release()
     }
+    // A profile that fails to compile has its config.yaml set aside (profile.mjs). When one could not be moved, Hermes
+    // would load a stale or half-written config, so health stays at 503 and Hermes does not start.
+    const loadable = results.filter((result) => result.loadable?.length)
+    if (loadable.length) {
+        logger.error(
+            `[harness] Hermes is not started: ${loadable
+                .map((result) => result.name)
+                .join(', ')} failed to compile and its config.yaml could not be set aside (${loadable
+                .flatMap((result) => result.loadable || [])
+                .join(', ')}). Fix the profile directory and restart.`
+        )
+        return
+    }
+    release()
 }
 
 // Each record is read again and compiled under its name lock and the profile lock (the order saves use), so a save,
 // sync or delete that ran while this waited is what gets compiled, or the deleted record is skipped. One failure
 // is logged and the rest still run.
-export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
+export async function recompileOutdatedHarnessProfiles(): Promise<
+    Array<{ name: string; status: string; error?: string; loadable?: string[] }>
+> {
     const [profile, store] = await Promise.all([loadHarness('profile.mjs'), loadHarness('store.mjs')])
     let names: string[]
     try {
@@ -351,7 +365,7 @@ export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: 
         logger.warn(`[harness] profiles were not checked for an older compiler: ${getErrorMessage(error)}`)
         return []
     }
-    const results: Array<{ name: string; status: string; error?: string }> = []
+    const results: Array<{ name: string; status: string; error?: string; loadable?: string[] }> = []
     for (const name of names) {
         // Compiling is synchronous file work: a turn of the event loop between records lets /health answer its 503.
         // A timer, not setImmediate: the loop then passes the poll phase, where a waiting HTTP request is read.
