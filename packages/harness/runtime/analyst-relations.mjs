@@ -579,10 +579,19 @@ export async function checkStatementScope(client, runner, statement, relations, 
             )}, which this node's table selection does not include. Selected: ${refusedList(relations.map((relation) => relation.name))}.`
         )
     }
-    if (followViews) await followRelations(runner, ids)
-    await refuseRoutines(runner, ids.functions, ids.operators)
+    if (!followViews) {
+        await refuseRoutines(runner, ids.functions, ids.operators)
+        await refuseTypes(runner, ids.types)
+        return undefined
+    }
+    // The PostgreSQL MCP node also checks inside ticked views, with its own denylist added.
+    const bodies = await followRelations(runner, ids)
+    await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied })
     await refuseTypes(runner, ids.types)
+    return { relations: [...ids.relations], bodies }
 }
+
+const nodeDenied = (name) => deniedFunction(name) || readOnlySqlDeniedFunction(name)
 
 // Parses the statement into a temporary view, inside the caller's transaction (which rolls back), and returns the
 // relations, functions, operators and types its query tree names. Nothing in the statement runs.
@@ -635,12 +644,10 @@ export async function checkStatementRoutines(client, runner, statement, isRowQue
         if (error instanceof ScopeRefusal && error.message === SCOPE_UNCHECKABLE) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
         throw error
     }
-    await followRelations(runner, ids)
-    await refuseRoutines(runner, ids.functions, ids.operators, {
-        denied: (name) => deniedFunction(name) || readOnlySqlDeniedFunction(name),
-        unscoped: true
-    })
+    const bodies = await followRelations(runner, ids)
+    await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, unscoped: true })
     await refuseTypes(runner, ids.types)
+    return { relations: [...ids.relations], bodies }
 }
 
 const RELATION_BODIES_SQL = `SELECT c.oid::int8 AS oid, c.relkind AS kind,
@@ -657,6 +664,7 @@ export const VIEW_UNRESOLVED =
 // those read in turn, and the row-security policies of every relation on the way. Relations they read are followed
 // but not added to ids.relations, so a ticked view over unticked tables still passes the selection check.
 async function followRelations(runner, ids) {
+    const bodies = new Map()
     const seen = new Set()
     let queue = [...ids.relations]
     while (queue.length) {
@@ -667,6 +675,7 @@ async function followRelations(runner, ids) {
         const rows = await runner.all(RELATION_BODIES_SQL, [batch])
         if (rows.length !== batch.length) throw new ScopeRefusal(VIEW_UNRESOLVED)
         for (const row of rows) {
+            bodies.set(Number(row.oid), relationBody(row))
             const trees = [...(row.policies || [])]
             if (row.kind === 'v' || row.kind === 'm') {
                 if (!row.tree) throw new ScopeRefusal(VIEW_UNRESOLVED)
@@ -681,6 +690,17 @@ async function followRelations(runner, ids) {
             }
         }
     }
+    return bodies
+}
+
+const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])].join('\n')
+
+// True when every relation the check followed still has the definition and row-security policies it had then.
+export async function sameRelationBodies(runner, bodies) {
+    const oids = [...bodies.keys()]
+    if (!oids.length) return true
+    const rows = await runner.all(RELATION_BODIES_SQL, [oids])
+    return rows.length === oids.length && rows.every((row) => bodies.get(Number(row.oid)) === relationBody(row))
 }
 
 // Types whose input or receive function is outside pg_catalog. Postgres runs that function while it parses a typed

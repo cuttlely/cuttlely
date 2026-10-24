@@ -32,7 +32,8 @@ import {
     analystUrlToolSpec,
     describeAnalystUrlRelation,
     listAnalystUrlRelations,
-    queryAnalystUrl
+    queryAnalystUrl,
+    setCheckGapHookForTests
 } from '../packages/harness/runtime/analyst-store.mjs'
 
 const { Client } = pg
@@ -1256,10 +1257,15 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             CREATE VIEW public.outer_view AS SELECT n FROM public.pause_view;
             CREATE MATERIALIZED VIEW public.pause_matview AS SELECT public.pause(0) AS n;
             CREATE VIEW public.swap_view AS SELECT g AS n FROM generate_series(1, 30) g;
+            CREATE VIEW public.sleepy_view AS SELECT 1 AS n FROM pg_sleep(0);
+            CREATE VIEW public.inner_names AS SELECT name FROM items;
+            CREATE VIEW public.outer_names AS SELECT name FROM public.inner_names;
             CREATE TABLE public.guarded (id int);
             ALTER TABLE public.guarded ENABLE ROW LEVEL SECURITY;
             CREATE POLICY guarded_read ON public.guarded FOR SELECT USING (public.pause(0) = 1);`)
-        await owner.query(`GRANT SELECT ON pause_view, outer_view, pause_matview, swap_view, guarded TO "${writer}"`)
+        await owner.query(
+            `GRANT SELECT ON pause_view, outer_view, pause_matview, swap_view, guarded, sleepy_view, inner_names, outer_names TO "${writer}"`
+        )
         await owner.query(`GRANT SELECT ON item_names TO "${writer}"`)
         // This login could write, so only the read-only checks stand between a query and the table.
         await owner.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON items TO "${writer}"`)
@@ -1383,6 +1389,34 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         )
         const plain = await queryAnalystUrl(url, 'SELECT count(*)::int AS c FROM swap_view LIMIT 1', { readOnlySql: true })
         assert.equal(plain.rows[0].c, 30)
+    })
+
+    it('refuses a ticked view that calls pg_sleep, which the text check cannot see', async (t) => {
+        if (skipped(t)) return
+        await refusal(
+            queryAnalystUrl(url, 'SELECT n FROM sleepy_view LIMIT 1', { readOnlySql: true, relations: ['public.sleepy_view'] }),
+            /pg_sleep is not allowed/
+        )
+        await refusal(queryAnalystUrl(url, 'SELECT n FROM sleepy_view LIMIT 1', { readOnlySql: true }), /pg_sleep is not allowed/)
+    })
+
+    it('refuses a query whose view definition changed between the check and the query', async (t) => {
+        if (skipped(t)) return
+        const replaceInner = (body) => owner.query(`CREATE OR REPLACE VIEW public.inner_names AS ${body}`)
+        for (const relations of [[], ['public.outer_names']]) {
+            setCheckGapHookForTests(() => replaceInner('SELECT name || public.pause(0)::text AS name FROM items'))
+            try {
+                await refusal(
+                    queryAnalystUrl(url, 'SELECT name FROM outer_names ORDER BY 1 LIMIT 1', { readOnlySql: true, relations }),
+                    /a table or view it reads changed while it was being checked/
+                )
+            } finally {
+                setCheckGapHookForTests(null)
+                await replaceInner('SELECT name FROM items')
+            }
+        }
+        const ok = await queryAnalystUrl(url, 'SELECT name FROM outer_names ORDER BY 1 LIMIT 1', { readOnlySql: true })
+        assert.deepEqual(ok.rows, [{ name: 'Baguette' }])
     })
 
     it('checks routines again on every page of an unscoped cursor', async (t) => {

@@ -34,6 +34,7 @@ import {
     checkStatementRoutines,
     checkStatementScope,
     refuseRiskyTypes,
+    sameRelationBodies,
     missingRelationHint,
     missingRelationName,
     columnErrorHint,
@@ -1843,6 +1844,7 @@ async function queryUrlPostgres(
     }
     const backend = async () => String((await client.query('SELECT pg_backend_pid() AS pid')).rows?.[0]?.pid ?? '')
     let checkedBackend = ''
+    let checked = null
     try {
         await client.connect()
         if (scoped) {
@@ -1850,7 +1852,7 @@ async function queryUrlPostgres(
             try {
                 if (readOnlySql) await refuseRiskyTypes(runner, urlStoreKey(postgresUrl))
                 selected = await resolveRelations(runner, relations)
-                await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl), {
+                checked = await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl), {
                     followViews: readOnlySql
                 })
                 checkedBackend = await backend()
@@ -1864,20 +1866,24 @@ async function queryUrlPostgres(
             await begin(false)
             try {
                 await refuseRiskyTypes(runner, urlStoreKey(postgresUrl))
-                await checkStatementRoutines(client, runner, text, isRowQuery, urlStoreKey(postgresUrl))
+                checked = await checkStatementRoutines(client, runner, text, isRowQuery, urlStoreKey(postgresUrl))
+                checkedBackend = await backend()
             } catch (error) {
                 throw await hinted(error)
             } finally {
                 await client.query('ROLLBACK').catch(() => {})
             }
         }
+        if (checkGapHookForTests) await checkGapHookForTests()
         await begin(true)
         try {
             const mode = await client.query('SHOW transaction_read_only')
             if (mode.rows?.[0]?.transaction_read_only !== 'on') {
                 throw new AnalystToolError('Cuttlely could not start a read-only transaction, so the query did not run.', 'expected')
             }
-            if (scoped) await keepCheckedScope(client, runner, relations, selected, checkedBackend, await backend())
+            const queryBackend = await backend()
+            if (scoped) await keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend)
+            if (checked) await keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend)
             if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
             return await runPostgresStatement(client, statement, replay?.paging, runner)
         } catch (error) {
@@ -1915,6 +1921,34 @@ async function keepCheckedScope(client, runner, relations, selected, checkedBack
         now.length === selected.length &&
         now.every((relation) => selected.some((checked) => checked.name === relation.name && checked.oid === relation.oid))
     if (!same) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
+}
+
+let checkGapHookForTests = null
+
+// Tests run this between the check transaction and the query transaction to change the catalog there.
+export function setCheckGapHookForTests(hook) {
+    checkGapHookForTests = typeof hook === 'function' ? hook : null
+}
+
+const DEFINITIONS_CHANGED = 'Cuttlely refused this query: a table or view it reads changed while it was being checked. Run it again.'
+
+// For the PostgreSQL MCP node. The query transaction locks the relations the statement reads (locking a view locks
+// everything its definition reads, as Postgres does), then confirms every view, materialized view and row-security
+// policy the check followed is unchanged, so a definition replaced between the two transactions is not run.
+async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend) {
+    if (!checkedBackend || checkedBackend !== queryBackend) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
+    if (!scoped && checked.relations.length) {
+        const rows = await runner.all(
+            "SELECT c.relkind AS kind, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY c.oid",
+            [checked.relations]
+        )
+        for (const row of rows) {
+            if (row.kind === 'r' || row.kind === 'p' || row.kind === 'v')
+                await client.query(`LOCK TABLE ONLY ${row.name} IN ACCESS SHARE MODE`)
+            else if (row.kind === 'm' || row.kind === 'f') await client.query(`SELECT 1 FROM ONLY ${row.name} LIMIT 0`)
+        }
+    }
+    if (!(await sameRelationBodies(runner, checked.bodies))) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
 }
 
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
