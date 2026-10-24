@@ -42,6 +42,10 @@ When a chat model card has a model list, such as OpenAI, Anthropic or xAI Grok, 
 
 ![A chat flow in the dark theme, with the xAI Grok card selected. In the side panel under Settings, Connect Credential says no credential is saved for this node yet, and the Model list is open on grok-4.7 with the line Most capable Grok model, for chat, code and agent work, then grok-4.6, grok-4.5, grok-4.3 with Lower cost, 1M token context, grok-4.20-0309-reasoning, grok-4.20-0309-non-reasoning with Fast answers without reasoning, and grok-build-0.1 with Tuned for coding.](../images/canvas/grok-model-dropdown.png)
 
+### Reasoning on OpenAI cards
+
+The **ChatOpenAI** and **Azure ChatOpenAI** cards honor the **Reasoning** toggle. With it off, a **Reasoning Effort** saved earlier is not sent: gpt-5.1 to gpt-5.x get `reasoning_effort` `none`, except Codex and `-pro` models. Those, gpt-5, o-series, GPT-6 and other reasoning models get no reasoning effort, so they reason at the provider's default: off does not turn reasoning off on a model that does not accept `none`. **Reasoning Effort** also has a **None** option. GPT-6 models send their Reasoning Effort and Summary in the request's `reasoning` field, and gpt-6.1-sol gets effort `low` in place of `minimal`, which it refuses. Calls on the Responses API keep a forced tool choice (`required`, `auto`, `none` or a named function). gpt-5.6 with any effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools. On Azure, Responses API calls go to the resource's `/openai/v1/responses` endpoint with the deployment name as the model.
+
 ## Switch between compact and classic cards
 
 Two places turn **Classic cards** on or off. They change the same setting.

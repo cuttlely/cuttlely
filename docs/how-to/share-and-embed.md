@@ -29,6 +29,7 @@ On a phone the chat fills the screen.
 
 -   **Answers as they are written**, with a stop button while the model is writing.
 -   **Formatting**: lists, tables, code blocks with a copy button, links and images.
+-   **Image downloads**: a download link under each PNG or JPEG image the chat stored, with its file name. The embed reads it with the chat's session token when it has one. Images from other sites get no download.
 -   **Sources** under the answer when the chatflow returns source documents.
 -   **Starter prompts** on the welcome screen and **follow-up prompts** under an answer, when the chatflow has them.
 -   **Thumbs up and down** under each answer when **Chat Feedback** is on for the chatflow, and a copy button on every answer.

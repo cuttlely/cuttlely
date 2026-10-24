@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.3.1이 나왔습니다.** 게시된 챗플로우나 에이전트플로우는 무엇이든 MCP 서버로 만들 수 있고, 게시된 챗플로우가 IBM watsonx Orchestrate 에이전트에 응답합니다. [변경 기록](./CHANGELOG.md#131---2026-10-21)
+**1.4.1이 나왔습니다.** 하네스 스페셜리스트가 PPTX를 채팅 다운로드로 보낼 수 있고, 채팅 이미지를 다운로드할 수 있으며, 실행에서 저장한 이미지와 파일이 서명된 링크로 연결된 에이전트 플랫폼에 전달됩니다. [변경 기록](./CHANGELOG.md#141---2026-10-23)
 
 ## 목차
 
