@@ -1975,6 +1975,7 @@ describe('analyst relations: text search configuration types', () => {
             CREATE VIEW s.self_name AS SELECT id, 's.tickets'::regclass AS t FROM s.tickets;
             CREATE VIEW s.other_name AS SELECT id, 's.other'::regclass AS t FROM s.tickets;
             CREATE VIEW s.relid_name AS SELECT relid::regclass AS t FROM pg_stat_user_tables;
+            CREATE VIEW s.viewdef AS SELECT pg_get_viewdef('s.ts_english'::regclass, true) AS def;
             CREATE SCHEMA util;
             CREATE TABLE util.renewals (region_label text, risk_radar text, account_id int, opportunity_id int,
                 renewal_acv numeric, renewal_ts date, days_to_renewal int, notes text, _data_as_of timestamptz);
@@ -2029,7 +2030,13 @@ describe('analyst relations: text search configuration types', () => {
         const stored = await queryAnalystUrl(url, 'SELECT cfg::text AS cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english'))
         assert.equal(stored.rows[0].cfg, 'english')
         // regconfig and regdictionary name text search objects, which every role can already list; that is the
-        // accepted exception. A numeric id still cannot be turned into a relation, type or role name.
+        // accepted exception. A numeric id can name a text search configuration, but not a relation, type or role.
+        const byId = await queryAnalystUrl(
+            url,
+            "SELECT (SELECT oid FROM pg_ts_config WHERE cfgname='english')::regconfig::text AS cfg LIMIT 1",
+            scoped('s.mv_english')
+        )
+        assert.equal(byId.rows[0].cfg, 'english')
         await refusal(queryAnalystUrl(url, 'SELECT id::oid::regclass FROM s.tickets LIMIT 1', scoped('s.tickets')), selection)
     })
 
@@ -2053,6 +2060,15 @@ describe('analyst relations: text search configuration types', () => {
         if (skipped(t)) return
         assert.equal((await queryAnalystUrl(url, 'SELECT t::text AS t FROM s.self_name LIMIT 1', unscoped)).rows[0].t, 's.tickets')
         assert.equal((await queryAnalystUrl(url, 'SELECT 1::regtype::text AS t LIMIT 1', unscoped)).rows.length, 1)
+        // An unscoped refusal (denied built-in) never mentions 'selection'.
+        try {
+            await queryAnalystUrl(url, "SELECT pg_get_viewdef('s.ts_english'::regclass, true) LIMIT 1", unscoped)
+            assert.fail('expected refusal')
+        } catch (error) {
+            assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+            assert.match(error.message, /is not allowed\./)
+            assert.doesNotMatch(error.message, /selection/i)
+        }
     })
 
     it('still refuses object-identifier types with a selection', async (t) => {
@@ -2072,6 +2088,30 @@ describe('analyst relations: text search configuration types', () => {
         ]) {
             for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }])
                 await refusal(queryAnalystUrl(url, sql, options), selection)
+        }
+    })
+
+    it('refuses pg_get_viewdef directly and through a view, with and without a selection', async (t) => {
+        if (skipped(t)) return
+        // Scoped: denied with the selection-specific message.
+        await refusal(queryAnalystUrl(url, "SELECT pg_get_viewdef('s.ts_english'::regclass, true) LIMIT 1", scoped('s.tickets')), selection)
+        await refusal(queryAnalystUrl(url, 'SELECT def FROM s.viewdef LIMIT 1', scoped('s.viewdef')), selection)
+        // Unscoped: denied without mentioning the selection.
+        try {
+            await queryAnalystUrl(url, "SELECT pg_get_viewdef('s.ts_english'::regclass, true) LIMIT 1", unscoped)
+            assert.fail('expected refusal')
+        } catch (error) {
+            assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+            assert.match(error.message, /is not allowed\./)
+            assert.doesNotMatch(error.message, /selection/i)
+        }
+        try {
+            await queryAnalystUrl(url, 'SELECT def FROM s.viewdef LIMIT 1', unscoped)
+            assert.fail('expected refusal')
+        } catch (error) {
+            assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+            assert.match(error.message, /is not allowed\./)
+            assert.doesNotMatch(error.message, /selection/i)
         }
     })
 

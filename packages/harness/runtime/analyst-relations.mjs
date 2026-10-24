@@ -566,7 +566,9 @@ export async function checkStatementScope(client, runner, statement, relations, 
     // element runs its CHECK then, before the query tree exists and while this transaction can still write. So the
     // decision about domains comes first, from the catalog alone, and does not depend on the statement.
     // Taken before Postgres parses the statement, so an overload created after the parse still differs at run time.
-    const stamp = await routineCatalogStamp(runner)
+    // Compute the catalog stamp only when the caller needs view/policy bodies (followViews=true).
+    let stamp = ''
+    if (followViews) stamp = await routineCatalogStamp(runner)
     const ids = await parsedStatementIds(client, runner, statement, cacheKey)
     const allowed = new Set(relations.map((relation) => relation.oid))
     const outside = [...ids.relations].filter((oid) => !allowed.has(oid))
