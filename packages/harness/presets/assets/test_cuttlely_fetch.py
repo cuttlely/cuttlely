@@ -68,6 +68,15 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(self.path.encode() + b"\r\n\r\n")
             self.close_connection = True
             return None
+        if self.path.startswith("/reflect-"):  # a server that echoes the query value into a redirect or a header
+            kind, value = self.path[len("/reflect-") :].split("?", 1)[0], self.path.split("=", 1)[1]
+            if kind == "path":
+                return self._send(302, headers={"Location": f"http://10.0.0.1/{value}"})
+            if kind == "bad-host":
+                return self._send(302, headers={"Location": f"http://[{value}]/x.png"})
+            if kind == "landing":
+                return self._send(302, headers={"Location": f"/files/{value}.svg"})
+            return self._send(200, b"x", {"Content-Type": "image/png", "Content-Length": value}, length=False)
         if self.path.startswith("/odd-type?"):
             return self._send(200, b"x", {"Content-Type": "text/" + self.path.split("=", 1)[1]})
         routes.get(self.path, lambda: self._send(404, b"missing"))()
@@ -224,6 +233,21 @@ class FetchTest(unittest.TestCase):
             net.fetch_asset(self.url("/odd-type?t=opaque-q/zz"), self.out / "x.png")
         self.assertNotIn("opaque-q", str(caught.exception))
         self.assertIn("content type unrecognized", str(caught.exception))
+        for path in ("/reflect-path?k=opaquesecret123", "/reflect-bad-host?k=opaquesecret123", "/reflect-length?k=987654321"):
+            with self.assertRaises(net.FetchError) as caught:
+                net.fetch(self.url(path), max_bytes=1000)
+            self.assertNotIn("opaquesecret123", str(caught.exception), path)
+            self.assertNotIn("987654321", str(caught.exception), path)
+            self.assertNotIn("opaquesecret123", caught.exception.url, path)
+            self.assertIsNone(caught.exception.__cause__, path)
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch(self.url("/reflect-length?k=" + "9" * 5000))
+        self.assertIn("declared size is over", str(caught.exception))
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            net.fetch_asset(self.url("/reflect-landing?k=opaquesecret123"), self.out / "landing.svg")
+        self.assertNotIn("opaquesecret123", printed.getvalue())
+        self.assertIn("after 1 redirect", printed.getvalue())
         with self.assertRaises(net.FetchError) as caught:
             net.fetch_asset(self.url("/odd-type?token=opaquesecret123"), self.out / "x.png")
         self.assertNotIn("opaquesecret123", str(caught.exception))
@@ -268,9 +292,9 @@ class FetchTest(unittest.TestCase):
         self.assertEqual([seen["path"] for seen in SEEN], ["/to-logo", "/logo.svg", "/to-named", "/logo.svg"])
 
     def test_every_redirect_hop_is_checked_again(self):
-        with self.assertRaisesRegex(net.FetchError, r"private or reserved address \(169\.254\.169\.254\)"):
+        with self.assertRaisesRegex(net.FetchError, r"the redirect host resolves to a private or reserved address, for http://127\.0\.0\.1:\d+/to-metadata after 1 redirect$"):
             net.fetch(self.url("/to-metadata"))
-        with self.assertRaisesRegex(net.FetchError, r"private or reserved address \(::1\)"):
+        with self.assertRaisesRegex(net.FetchError, r"redirect host resolves to a private or reserved address, for .*/to-v6-loopback after 1 redirect$"):
             net.fetch(self.url("/to-v6-loopback"))
         with self.assertRaisesRegex(net.FetchError, "only http and https"):
             net.fetch(self.url("/to-file"))
@@ -280,7 +304,7 @@ class FetchTest(unittest.TestCase):
 
     # Caps
     def test_size_cap_with_and_without_content_length(self):
-        with self.assertRaisesRegex(net.FetchError, "5000 bytes is over the 1000 byte cap"):
+        with self.assertRaisesRegex(net.FetchError, "declared size is over the 1000 byte cap"):
             net.fetch(self.url("/big-declared"), max_bytes=1000)
         with self.assertRaisesRegex(net.FetchError, "body is over the 1000 byte cap"):
             net.fetch(self.url("/big-undeclared"), max_bytes=1000)
@@ -301,7 +325,7 @@ class FetchTest(unittest.TestCase):
 
     def test_a_body_shorter_than_its_content_length_is_a_failure(self):
         printed = io.StringIO()
-        with contextlib.redirect_stdout(printed), self.assertRaisesRegex(net.FetchError, "closed after 3 of 100 bytes"):
+        with contextlib.redirect_stdout(printed), self.assertRaisesRegex(net.FetchError, "closed after 3 bytes, short of the declared size"):
             net.fetch_asset(self.url("/short"), self.out / "short.png")
         self.assertEqual(printed.getvalue(), "")
         self.assertFalse((self.out / "short.png").exists())
@@ -349,7 +373,7 @@ class FetchTest(unittest.TestCase):
             path = net.fetch_asset(self.url("/to-logo"), self.out / "brand" / "logo.svg")
         self.assertEqual(path.read_bytes(), SVG)
         self.assertEqual(
-            printed.getvalue().strip(), f"saved logo.svg: {len(SVG)} bytes, image/svg+xml, from {self.url('/logo.svg')}"
+            printed.getvalue().strip(), f"saved logo.svg: {len(SVG)} bytes, image/svg+xml, from {self.url('/to-logo')} after 1 redirect"
         )
 
     def test_fetch_asset_failures_name_the_status_and_url_and_write_nothing(self):

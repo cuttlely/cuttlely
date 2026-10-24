@@ -2,10 +2,10 @@
 
     import cuttlely_fetch as net
     net.fetch_asset("https://commons.wikimedia.org/wiki/Special:FilePath/Example.svg", out / "logo.svg")
-    # prints: saved logo.svg: 1234 bytes, image/svg+xml, from https://upload.wikimedia.org/...
+    # prints: saved logo.svg: 1234 bytes, image/svg+xml, from https://commons.wikimedia.org/wiki/Special:FilePath/Example.svg after 1 redirect
 
     result = net.fetch(url, max_bytes=2_000_000, timeout_ms=15_000, accept="image/*")
-    result["status"], result["contentType"], result["bytes"], result["finalUrl"]
+    result["status"], result["contentType"], result["bytes"], result["finalUrl"], result["shownUrl"]
 
 Only http and https. Every hop is checked: the host name is resolved, every address it resolves to must be a
 public address (no private, loopback, link-local, metadata, multicast or reserved ranges, IPv4 or IPv6), and the
@@ -72,11 +72,12 @@ _MIME = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0
 class FetchError(Exception):
     """A fetch that did not return a usable body. The message names the URL and, when there was one, the status."""
 
-    def __init__(self, message, url="", status=None):
+    def __init__(self, message, url="", status=None, shown=None):
         url = str(url or "")
-        shown = shown_url(url)
-        if url and url != shown:
-            message = message.replace(url, shown)
+        if shown is None:
+            shown = shown_url(url)
+            if url and url != shown:
+                message = message.replace(url, shown)
         super().__init__(message)
         self.url = shown
         self.status = status
@@ -120,7 +121,7 @@ def _resolve(host, port):
     return [info[4][0] for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)]
 
 
-def _resolve_by(host, port, deadline, url):
+def _resolve_by(host, port, deadline, url, where=None, host_shown=None):
     """Resolve on a worker thread so a slow resolver cannot outlast the fetch deadline."""
     outcome = {}
 
@@ -134,44 +135,61 @@ def _resolve_by(host, port, deadline, url):
     worker.start()
     worker.join(max(0.0, deadline - time.monotonic()))
     if worker.is_alive():
-        raise FetchError(f"fetch failed: timed out resolving {host}, for {url}", url)
+        raise FetchError(f"fetch failed: timed out resolving {host_shown or host}, for {where or url}", url, shown=where)
     if "error" in outcome:
-        raise FetchError(f"fetch failed: could not resolve {host} ({outcome['error']}) for {url}", url)
+        error = outcome["error"]
+        detail = os.strerror(error.errno) if isinstance(error.errno, int) and error.errno > 0 else type(error).__name__
+        raise FetchError(f"fetch failed: could not resolve {host_shown or host} ({detail}) for {where or url}", url, shown=where)
     return outcome["addresses"]
 
 
-def _checked_address(host, port, url, deadline=None):
+def _checked_address(host, port, url, deadline=None, where=None, redirected=False):
+    """The first address of host, checked public. where names the fetch in errors; after a redirect the host and
+    address come from the server, so they are left out of the message."""
+    host_shown = "the redirect host" if redirected else host
     try:
         literal = ipaddress.ip_address(host.strip("[]"))
         addresses = [str(literal)]
     except ValueError:
-        addresses = _resolve_by(host, port, time.monotonic() + DEFAULT_TIMEOUT_MS / 1000 if deadline is None else deadline, url)
+        addresses = _resolve_by(
+            host, port, time.monotonic() + DEFAULT_TIMEOUT_MS / 1000 if deadline is None else deadline, url, where, host_shown
+        )
     if not addresses:
-        raise FetchError(f"fetch failed: {host} has no address, for {url}", url)
+        raise FetchError(f"fetch failed: {host_shown} has no address, for {where or url}", url, shown=where)
     for address in addresses:
         if blocked_address(address.split("%")[0]):
-            raise FetchError(f"fetch refused: {host} resolves to a private or reserved address ({address}), for {url}", url)
+            shown_address = "" if redirected else f" ({address})"
+            raise FetchError(
+                f"fetch refused: {host_shown} resolves to a private or reserved address{shown_address}, for {where or url}",
+                url,
+                shown=where,
+            )
     return addresses[0].split("%")[0]
 
 
-def _split(url):
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https"):
-        raise FetchError(f"fetch refused: only http and https URLs, not {parts.scheme or 'none'}: {url}", url)
-    if parts.username or parts.password:
-        raise FetchError(f"fetch refused: URLs with a user name or password are not fetched: {parts.hostname}", url)
-    if not parts.hostname:
-        raise FetchError(f"fetch refused: no host in {url}", url)
+def _split(url, where=None, redirected=False):
+    """Scheme, host, port and request target of url. After a redirect the URL is server text, so errors name only where."""
     try:
+        parts = urlsplit(url)
+        hostname = parts.hostname
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError:
-        raise FetchError(f"fetch refused: bad port in {url}", url) from None
+        shown = where or shown_url(url)
+        raise FetchError(f"fetch refused: malformed URL or port, {shown}", url, shown=shown) from None
+    if parts.scheme not in ("http", "https"):
+        scheme = "another scheme" if redirected else f"not {parts.scheme or 'none'}"
+        raise FetchError(f"fetch refused: only http and https URLs, {scheme}: {where or url}", url, shown=where)
+    if parts.username or parts.password:
+        named = "the redirect host" if redirected else hostname
+        raise FetchError(f"fetch refused: URLs with a user name or password are not fetched: {named}", url, shown=where)
+    if not hostname:
+        raise FetchError(f"fetch refused: no host in {where or url}", url, shown=where)
     # Spaces and non-ASCII characters (Commons file names such as "Example logo.svg" or "Café.svg") are
     # percent-encoded; existing escapes and reserved characters are kept as they are.
     target = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
     if parts.query:
         target += "?" + quote(parts.query, safe="/%:@!$&'()*+,;=-._~?")
-    return parts.scheme, parts.hostname, port, target
+    return parts.scheme, hostname, port, target
 
 
 class _PinnedHTTPConnection(http.client.HTTPConnection):
@@ -217,7 +235,9 @@ def _bounded(value, default, limit, name):
 
 
 def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
-    """Download one URL. Returns {"status", "contentType", "bytes", "finalUrl"}; raises FetchError.
+    """Download one URL. Returns {"status", "contentType", "bytes", "finalUrl", "shownUrl"}; raises FetchError.
+
+    shownUrl is safe to print: the original URL without credentials or query, plus the redirect count. Errors use it too.
 
     max_bytes (default 10 MB, at most 50 MB) caps the body; timeout_ms (default 20 s, at most 60 s) is one deadline
     for the whole fetch, redirects included. accept is sent as the Accept header (default */*).
@@ -227,12 +247,16 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
     timeout_ms = _bounded(timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, "timeout_ms")
     deadline = time.monotonic() + timeout_ms / 1000
     current = str(url)
-    for _hop in range(MAX_REDIRECTS + 1):
-        scheme, host, port, target = _split(current)
-        address = _checked_address(host, port, current, deadline)
+    first = shown_url(current)
+    for hop in range(MAX_REDIRECTS + 1):
+        # Every part of a redirect target is server text (a server can echo the query into a path or host), so
+        # after a redirect errors and the saved line name the original URL and the redirect count only.
+        where = first if hop == 0 else f"{first} after {hop} redirect{'s' if hop > 1 else ''}"
+        scheme, host, port, target = _split(current, where, hop > 0)
+        address = _checked_address(host, port, current, deadline, where, hop > 0)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current)
+            raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {where}", current, shown=where)
         connection_type = _PinnedHTTPSConnection if scheme == "https" else _PinnedHTTPConnection
         connection = connection_type(host, port, address, remaining, deadline)
         # Socket timeouts only bound each idle wait, so a peer trickling bytes could outlast them. At the deadline
@@ -256,7 +280,7 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
         try:
             connection.connect()
             if expired.is_set() or time.monotonic() >= deadline:
-                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current)
+                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {where}", current, shown=where)
             connection.request(
                 "GET",
                 target,
@@ -267,22 +291,32 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
             if status in REDIRECT_CODES:
                 location = response.getheader("Location")
                 if not location:
-                    raise FetchError(f"fetch failed: HTTP {status} without a Location, at {current}", current, status)
-                current = urljoin(current, location)
+                    raise FetchError(f"fetch failed: HTTP {status} without a Location, at {where}", current, status, shown=where)
+                try:
+                    current = urljoin(current, location)
+                except ValueError:
+                    raise FetchError(
+                        f"fetch failed: HTTP {status} with a malformed Location, at {where}", current, status, shown=where
+                    ) from None
                 continue
             content_type = (response.getheader("Content-Type") or "").split(";")[0].strip().lower()
             if content_type and not _MIME.fullmatch(content_type):
                 content_type = "unrecognized"
-            declared = response.getheader("Content-Length")
-            if declared and declared.isdigit() and int(declared) > max_bytes:
+            declared = (response.getheader("Content-Length") or "").strip()
+            # The declared length is server text: it is compared, never printed. Very long digit strings are over any cap.
+            if declared.isascii() and declared.isdigit():
+                declared = max_bytes + 1 if len(declared) > 18 else int(declared)
+            else:
+                declared = None
+            if declared is not None and declared > max_bytes:
                 raise FetchError(
-                    f"fetch failed: HTTP {status}, {declared} bytes is over the {max_bytes} byte cap, at {current}", current, status
+                    f"fetch failed: HTTP {status}, declared size is over the {max_bytes} byte cap, at {where}", current, status, shown=where
                 )
             body = bytearray()
             while True:
                 left = deadline - time.monotonic()
                 if left <= 0:
-                    raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current, status)
+                    raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {where}", current, status, shown=where)
                 sock = getattr(connection, "raw_socket", None)
                 if sock is not None and sock.fileno() != -1:
                     sock.settimeout(left)
@@ -291,21 +325,24 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
                     break
                 body.extend(chunk)
                 if len(body) > max_bytes:
-                    raise FetchError(f"fetch failed: HTTP {status}, body is over the {max_bytes} byte cap, at {current}", current, status)
+                    raise FetchError(f"fetch failed: HTTP {status}, body is over the {max_bytes} byte cap, at {where}", current, status, shown=where)
             if expired.is_set():
-                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current, status)
-            if declared and declared.isdigit() and len(body) != int(declared):
+                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {where}", current, status, shown=where)
+            if declared is not None and len(body) != declared:
                 raise FetchError(
-                    f"fetch failed: HTTP {status}, connection closed after {len(body)} of {declared} bytes, at {current}", current, status
+                    f"fetch failed: HTTP {status}, connection closed after {len(body)} bytes, short of the declared size, at {where}",
+                    current,
+                    status,
+                    shown=where,
                 )
-            return {"status": status, "contentType": content_type, "bytes": bytes(body), "finalUrl": current}
+            return {"status": status, "contentType": content_type, "bytes": bytes(body), "finalUrl": current, "shownUrl": where}
         except FetchError:
             raise
         except (socket.timeout, TimeoutError):
-            raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current) from None
+            raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {where}", current, shown=where) from None
         except (OSError, http.client.HTTPException) as error:
             if expired.is_set():
-                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current) from None
+                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {where}", current, shown=where) from None
             # Only the error's type and, for OS errors, its errno text: a remote peer controls the rest (a malformed
             # status line can echo the request target and its query).
             if isinstance(error, ssl.SSLCertVerificationError):
@@ -314,11 +351,11 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
                 detail = os.strerror(error.errno)
             else:
                 detail = ""
-            raise FetchError(f"fetch failed: {type(error).__name__}{': ' + detail if detail else ''}, at {current}", current) from None
+            raise FetchError(f"fetch failed: {type(error).__name__}{': ' + detail if detail else ''}, at {where}", current, shown=where) from None
         finally:
             watchdog.cancel()
             connection.close()
-    raise FetchError(f"fetch failed: more than {MAX_REDIRECTS} redirects, last at {current}", current)
+    raise FetchError(f"fetch failed: more than {MAX_REDIRECTS} redirects, last at {first}", current, shown=first)
 
 
 def _looks_like_html(data):
@@ -356,20 +393,22 @@ def fetch_asset(url, path, max_bytes=None, timeout_ms=None, types=ASSET_TYPES):
     """
     result = fetch(url, max_bytes=max_bytes, timeout_ms=timeout_ms, accept=ASSET_ACCEPT)
     final = result["finalUrl"]
+    where = result["shownUrl"]
     if result["status"] != 200:
-        raise FetchError(f"fetch_asset failed: HTTP {result['status']} from {final}", final, result["status"])
+        raise FetchError(f"fetch_asset failed: HTTP {result['status']} from {where}", final, result["status"], shown=where)
     data = result["bytes"]
     kind = result["contentType"]
     if not data:
-        raise FetchError(f"fetch_asset failed: HTTP {result['status']}, empty body from {final}", final, result["status"])
+        raise FetchError(f"fetch_asset failed: HTTP {result['status']}, empty body from {where}", final, result["status"], shown=where)
     if not kind.startswith(tuple(types)) or _looks_like_html(data):
         raise FetchError(
-            f"fetch_asset failed: HTTP {result['status']}, content type {shown_type(kind)} is not an image, PDF or font, from {final}",
+            f"fetch_asset failed: HTTP {result['status']}, content type {shown_type(kind)} is not an image, PDF or font, from {where}",
             final,
             result["status"],
+            shown=where,
         )
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
-    print(f"saved {target.name}: {len(data)} bytes, {shown_type(kind)}, from {shown_url(final)}")
+    print(f"saved {target.name}: {len(data)} bytes, {shown_type(kind)}, from {where}")
     return target
