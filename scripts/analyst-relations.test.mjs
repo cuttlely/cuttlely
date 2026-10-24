@@ -1969,7 +1969,7 @@ describe('analyst relations: text search configuration types', () => {
             INSERT INTO s.tickets VALUES (1, 'oven runs hot'), (2, 'mixer is loud');
             CREATE TABLE s.other (id int);
             CREATE VIEW s.ts_english AS SELECT id, to_tsvector('english', notes) AS doc, to_tsquery('english', 'oven') AS q FROM s.tickets;
-            CREATE MATERIALIZED VIEW s.mv_english AS SELECT id, to_tsvector('english', notes) AS doc FROM s.tickets
+            CREATE MATERIALIZED VIEW s.mv_english AS SELECT id, 'english'::regconfig AS cfg, to_tsvector('english', notes) AS doc FROM s.tickets
                 WHERE to_tsvector('english', notes) @@ to_tsquery('english', 'oven');
             CREATE VIEW s.ts_simple AS SELECT id, to_tsvector('simple', notes) AS doc FROM s.tickets;
             CREATE VIEW s.self_name AS SELECT id, 's.tickets'::regclass AS t FROM s.tickets;
@@ -2024,6 +2024,15 @@ describe('analyst relations: text search configuration types', () => {
         }
     })
 
+    it('reads a stored regconfig column, and lets a numeric id name only text search configurations', async (t) => {
+        if (skipped(t)) return
+        const stored = await queryAnalystUrl(url, 'SELECT cfg::text AS cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english'))
+        assert.equal(stored.rows[0].cfg, 'english')
+        // regconfig and regdictionary name text search objects, which every role can already list; that is the
+        // accepted exception. A numeric id still cannot be turned into a relation, type or role name.
+        await refusal(queryAnalystUrl(url, 'SELECT id::oid::regclass FROM s.tickets LIMIT 1', scoped('s.tickets')), selection)
+    })
+
     it('runs ts_headline and a regdictionary literal with a selection', async (t) => {
         if (skipped(t)) return
         const headline = await queryAnalystUrl(
@@ -2032,7 +2041,11 @@ describe('analyst relations: text search configuration types', () => {
             scoped('s.tickets')
         )
         assert.match(headline.rows[0].h, /<b>oven<\/b>/)
-        const lexize = await queryAnalystUrl(url, "SELECT ts_lexize('english_stem'::regdictionary, 'ovens') AS l FROM s.tickets LIMIT 1", scoped('s.tickets'))
+        const lexize = await queryAnalystUrl(
+            url,
+            "SELECT ts_lexize('english_stem'::regdictionary, 'ovens') AS l FROM s.tickets LIMIT 1",
+            scoped('s.tickets')
+        )
         assert.deepEqual(lexize.rows[0].l, ['oven'])
     })
 
@@ -2044,7 +2057,10 @@ describe('analyst relations: text search configuration types', () => {
 
     it('still refuses object-identifier types with a selection', async (t) => {
         if (skipped(t)) return
-        await refusal(queryAnalystUrl(url, 'SELECT t FROM s.other_name LIMIT 1', scoped('s.other_name')), /s\.other|type regclass|selection/)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT t FROM s.other_name LIMIT 1', scoped('s.other_name')),
+            /s\.other|type regclass|selection/
+        )
         await refusal(queryAnalystUrl(url, 'SELECT t FROM s.relid_name LIMIT 1', scoped('s.relid_name')), /type regclass|selection/)
         for (const sql of [
             'SELECT id::oid::regtype FROM s.tickets LIMIT 1',
@@ -2054,7 +2070,8 @@ describe('analyst relations: text search configuration types', () => {
             'SELECT id::oid::regnamespace FROM s.tickets LIMIT 1',
             'SELECT id::oid::regrole FROM s.tickets LIMIT 1'
         ]) {
-            for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }]) await refusal(queryAnalystUrl(url, sql, options), selection)
+            for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }])
+                await refusal(queryAnalystUrl(url, sql, options), selection)
         }
     })
 
@@ -2072,7 +2089,9 @@ describe('analyst relations: text search configuration types', () => {
                 ['util.mv_region_renewal_outlook']
             ],
             [
-                `WITH w AS (${branch('mv_region_renewal_120d_amer')} UNION ALL ${branch('mv_region_renewal_120d_emea')} UNION ALL ${branch('mv_region_renewal_120d_apj')}) SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM w GROUP BY region_label, risk_radar ORDER BY renewal_acv_due DESC NULLS LAST LIMIT 100`,
+                `WITH w AS (${branch('mv_region_renewal_120d_amer')} UNION ALL ${branch('mv_region_renewal_120d_emea')} UNION ALL ${branch(
+                    'mv_region_renewal_120d_apj'
+                )}) SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM w GROUP BY region_label, risk_radar ORDER BY renewal_acv_due DESC NULLS LAST LIMIT 100`,
                 ['util.mv_region_renewal_120d_amer', 'util.mv_region_renewal_120d_emea', 'util.mv_region_renewal_120d_apj']
             ],
             [

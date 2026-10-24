@@ -1069,7 +1069,9 @@ async function refuseTypes(runner, typeSet, { scoped }) {
     const ids = [...typeSet]
     if (!ids.length) return
     const types = await runner.all(TYPE_CLOSURE_SQL, [ids])
-    const oidTypes = !scoped ? [] : types.filter((type) => type.schema === 'pg_catalog' && DENIED_TYPES.has(type.typname)).map((type) => type.name)
+    const oidTypes = !scoped
+        ? []
+        : types.filter((type) => type.schema === 'pg_catalog' && DENIED_TYPES.has(type.typname)).map((type) => type.name)
     if (oidTypes.length) {
         throw new ScopeRefusal(
             `Cuttlely refused this query: type ${refusedList([
