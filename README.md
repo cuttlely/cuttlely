@@ -31,7 +31,7 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.4.2 is out.** LangSmith traces from flow runs go to the LangSmith project and credential you set on the flow, and model calls inside a harness tool run show as child runs of that run. [Changelog](./CHANGELOG.md#142---2026-10-23)
+**1.4.2 is out.** LangSmith traces from flow runs go to the LangSmith project and credential you set on the flow, and model calls a harness makes in process during a harness tool run show as child runs of that run. [Changelog](./CHANGELOG.md#142---2026-10-23)
 
 ## Contents
 

@@ -31,7 +31,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.4.2 を公開しました。** フロー実行の LangSmith トレースがフローに設定した LangSmith のプロジェクトと認証情報に届くようになり、ハーネスのツール実行中のモデル呼び出しがその実行の子ランとして表示されます。[変更履歴](./CHANGELOG.md#142---2026-10-23)
+**1.4.2 を公開しました。** フロー実行の LangSmith トレースがフローに設定した LangSmith のプロジェクトと認証情報に届くようになり、ハーネスのツール実行中にプロセス内で行われるモデル呼び出しがその実行の子ランとして表示されます。[変更履歴](./CHANGELOG.md#142---2026-10-23)
 
 ## 目次
 
