@@ -572,6 +572,7 @@ describe('analyst relations: bakery database', () => {
             `SELECT pg_total_relation_size(${oid})`,
             `SELECT pg_table_size(${oid})`,
             `SELECT pg_indexes_size(${oid})`,
+            `SELECT pg_tablespace_location(0)`,
             `SELECT has_table_privilege('payroll_notes', 'SELECT')`,
             `SELECT pg_terminate_backend(pg_backend_pid())`,
             `SELECT pg_cancel_backend(pg_backend_pid())`
@@ -1975,6 +1976,8 @@ describe('analyst relations: text search configuration types', () => {
             CREATE VIEW s.self_name AS SELECT id, 's.tickets'::regclass AS t FROM s.tickets;
             CREATE VIEW s.other_name AS SELECT id, 's.other'::regclass AS t FROM s.tickets;
             CREATE VIEW s.relid_name AS SELECT relid::regclass AS t FROM pg_stat_user_tables;
+            CREATE TYPE s.class_range AS RANGE (SUBTYPE = regclass);
+            CREATE VIEW s.class_range_view AS SELECT NULL::s.class_range AS r;
             CREATE VIEW s.viewdef AS SELECT pg_get_viewdef('s.ts_english'::regclass, true) AS def;
             CREATE SCHEMA util;
             CREATE TABLE util.renewals (region_label text, risk_radar text, account_id int, opportunity_id int,
@@ -1988,6 +1991,12 @@ describe('analyst relations: text search configuration types', () => {
             CREATE MATERIALIZED VIEW util.mv_region_renewal_window AS SELECT r.*, w.window_days, to_tsvector('english', r.notes) AS notes_doc
                 FROM util.renewals r CROSS JOIN (VALUES (90), (120)) AS w(window_days);`)
         await owner.query(`GRANT USAGE ON SCHEMA s, util TO "${reader}"; GRANT SELECT ON ALL TABLES IN SCHEMA s, util TO "${reader}"`)
+        // Create a view that selects a NULL of the multirange type corresponding to s.class_range.
+        const m = await owner.query(
+            "SELECT format_type(r.rngmultitypid, NULL) AS mt FROM pg_range r WHERE r.rngtypid = 's.class_range'::regtype"
+        )
+        const mr = String(m.rows[0]?.mt || '')
+        if (mr) await owner.query(`CREATE VIEW s.class_multirange_view AS SELECT NULL::${mr} AS mr`)
         url = urlFor(reader, password, dbName)
     })
 
@@ -2089,6 +2098,27 @@ describe('analyst relations: text search configuration types', () => {
             for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }])
                 await refusal(queryAnalystUrl(url, sql, options), selection)
         }
+    })
+
+    it('refuses a regclass range and multirange, directly and through a view, with a selection', async (t) => {
+        if (skipped(t)) return
+        const sel = scoped('s.tickets')
+        // Direct multirange cast should be refused under a selection (when the multirange exists).
+        const m = await admin.query(
+            "SELECT format_type(r.rngmultitypid, NULL) AS mt FROM pg_range r WHERE r.rngtypid = 's.class_range'::regtype"
+        )
+        const mr = String(m.rows[0]?.mt || '')
+        if (mr) {
+            await refusal(queryAnalystUrl(url, `SELECT NULL::${mr} LIMIT 1`, sel), selection)
+            await refusal(
+                queryAnalystUrl(url, 'SELECT mr FROM s.class_multirange_view LIMIT 1', scoped('s.class_multirange_view')),
+                selection
+            )
+        } else {
+            t.skip('multirange type name not found')
+        }
+        // The underlying regclass range is still refused under a selection.
+        await refusal(queryAnalystUrl(url, 'SELECT r FROM s.class_range_view LIMIT 1', scoped('s.class_range_view')), selection)
     })
 
     it('refuses pg_get_viewdef directly and through a view, with and without a selection', async (t) => {

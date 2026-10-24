@@ -74,6 +74,7 @@ const DENIED_FUNCTIONS = new Set([
     'pg_tablespace_size',
     'pg_relation_filenode',
     'pg_relation_filepath',
+    'pg_tablespace_location',
     'pg_filenode_relation',
     'pg_partition_tree',
     'pg_partition_ancestors',
@@ -979,6 +980,7 @@ const TYPE_CLOSURE_SQL = `WITH RECURSIVE t(oid) AS (
         UNION ALL SELECT ty.typelem
         UNION ALL SELECT a.atttypid FROM pg_attribute a WHERE a.attrelid = ty.typrelid AND a.attnum > 0 AND NOT a.attisdropped
         UNION ALL SELECT r.rngsubtype FROM pg_range r WHERE r.rngtypid = ty.oid
+        UNION ALL SELECT r.rngsubtype FROM pg_range r WHERE r.rngmultitypid = ty.oid
     ) n WHERE n.x <> 0
 )
 SELECT ty.oid::int8 AS oid, format_type(ty.oid, NULL) AS name, ty.typname AS typname, ty.typtype AS typtype,
