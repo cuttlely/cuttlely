@@ -194,6 +194,10 @@ function removeTrashEntry(id, entry, { minAgeMs = 0, now = Date.now } = {}) {
     const root = checkedTrashRoot()
     if (!root) return
     if (!lstatOrNull(path.join(root, entry))) {
+        if (minAgeMs && now() - newestChange(entry, root) < minAgeMs) {
+            cleanupHooks.log(`[harness] kept ${TRASH}/${entry}${OWNER_SUFFIX}: it changed in the last 10 minutes`)
+            return
+        }
         if (ownerNote(root, entry) === id) {
             removeOwnerNote(root, entry)
             cleanupHooks.log(`[harness] removed ${TRASH}/${entry}${OWNER_SUFFIX} of harness "${id}"`)
@@ -339,6 +343,10 @@ function newestChange(entry, root = profilesRoot()) {
     if (root === profilesRoot()) {
         const work = containedEntry(workspacesRoot(), entry)
         if (work) newest = Math.max(newest, newestTreeChange(work))
+    } else {
+        // A trash entry: its owner note counts too (and is all there is when only the note is left).
+        const note = lstatOrNull(path.join(root, `${entry}${OWNER_SUFFIX}`))
+        if (note && !note.isSymbolicLink()) newest = Math.max(newest, note.mtimeMs)
     }
     return newest
 }
@@ -407,7 +415,9 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
         })
     }
     try {
-        if (!revoked) revoke(id, entries, { harnessWide: !minAgeMs })
+        // Scoped revocation names the parked profiles too, by the profile name they had before parking.
+        const parkedNames = trash.map((entry) => PARKED_RE.exec(entry)?.[1]).filter(Boolean)
+        if (!revoked) revoke(id, [...entries, ...parkedNames], { harnessWide: !minAgeMs })
     } catch (error) {
         cleanupHooks.log(
             `[harness] removed nothing for harness "${id}" (${reason}): revoking its gateway tokens failed: ${error?.message || 'error'}`

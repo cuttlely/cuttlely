@@ -16246,6 +16246,27 @@ await (async () => {
     )
     fs.rmSync(path.join(trash, 'other--a-ffeeddccbbaa.owner'))
 
+    // The sweep: a fresh standalone note stays; an old one goes; a trash-only group revokes the parked profile's name.
+    reset()
+    revokeOptions.length = 0
+    fs.writeFileSync(path.join(trash, 'freshnote--a-aaaaaaaaaaaa.owner'), 'freshnote\n')
+    fs.writeFileSync(path.join(trash, 'oldnote--a-bbbbbbbbbbbb.owner'), 'oldnote\n')
+    fs.utimesSync(path.join(trash, 'oldnote--a-bbbbbbbbbbbb.owner'), old, old)
+    fs.mkdirSync(path.join(trash, 'parkedonly--a-cccccccccccc'))
+    fs.writeFileSync(path.join(trash, 'parkedonly--a-cccccccccccc.owner'), 'parkedonly\n')
+    age(path.join(trash, 'parkedonly--a-cccccccccccc'))
+    fs.utimesSync(path.join(trash, 'parkedonly--a-cccccccccccc.owner'), old, old)
+    await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    check(
+        'the sweep keeps fresh owner notes, removes old ones, and revokes parked profiles by name',
+        fs.existsSync(path.join(trash, 'freshnote--a-aaaaaaaaaaaa.owner')) &&
+            !fs.existsSync(path.join(trash, 'oldnote--a-bbbbbbbbbbbb.owner')) &&
+            !fs.existsSync(path.join(trash, 'parkedonly--a-cccccccccccc')) &&
+            revoked.some((item) => item[0] === 'parkedonly' && item.includes('parkedonly--a')),
+        JSON.stringify({ revoked, lines, trash: fs.readdirSync(trash) })
+    )
+    fs.rmSync(path.join(trash, 'freshnote--a-aaaaaaaaaaaa.owner'))
+
     // While a harness is being deleted, a run that compiles cannot register a published token for it.
     {
         const gw = await import('./gateway.mjs')
