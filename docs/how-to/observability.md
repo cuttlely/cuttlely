@@ -51,6 +51,8 @@ With `CUTTLELY_OTEL_TRACES` unset or set to anything other than `true`, the serv
 
 Turning traces on does not claim the process-wide tracer. A span another library starts with the global tracer, including a prompt a flow analytics callback records, is not sent to this collector.
 
+LangSmith tracing set in a flow's Analytics settings (Chatflow Configuration > Analytics) is separate from these spans. Since 1.4.2, those traces use the LangSmith credential and project set there. Model calls a harness makes in process during a harness tool run appear as child runs of that tool run. Agent-loop specialist calls through the harness gateway and jobs run by another worker are not attached. A failed LangSmith upload is logged with its status, path and flow id.
+
 ## What stays off the span
 
 `CUTTLELY_OTEL_TRACES_CONTENT` defaults to off. **Sensitive.** It adds `content.input` and `content.output`, cut at 4,000 characters unless you change the limit (see [Full question and answer text](#full-question-and-answer-text)): the question and the answer, the model prompt and reply, tool arguments and results, analyst SQL when the tool detail still has it, and the analyst run-card preview. A specialist span's `content.input` is the run-card task, at most 200 characters. Leave this off unless you trust the collector with that text. A string is kept. A message object is kept when it has `text`, `content`, or `question`. Any other object is left out, so a credential object is not copied onto the span.
