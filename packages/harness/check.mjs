@@ -5998,6 +5998,33 @@ await expectCase('custom MCP runs through the node', async () => {
                         call.workspaceId === 'w1' &&
                         call.cachePool
                 )
+            // A delete that revokes the token while tool discovery runs: the tool never starts.
+            const gatewayModule = await import('./gateway.mjs')
+            const callsBefore = FakeMcp.calls.length
+            let heldMeta = null
+            gatewayModule.gatewayRequestHooks.beforeRun = async (meta) => {
+                heldMeta = meta
+                gatewayModule.forgetProfileToken(token)
+            }
+            let revokedStatus = 0
+            try {
+                const again = await localRequest({
+                    port: gateway.port,
+                    method: 'POST',
+                    path: '/harness/tools/call',
+                    token,
+                    body: { name: 'mcp_tool', arguments: { input: 'ping' } }
+                })
+                revokedStatus = again.status
+            } finally {
+                gatewayModule.gatewayRequestHooks.beforeRun = null
+                if (heldMeta) gatewayModule.registerProfileToken({ token, ...heldMeta })
+            }
+            check(
+                'a token revoked while tool discovery runs starts no tool',
+                revokedStatus === 401 && FakeMcp.calls.length === callsBefore,
+                JSON.stringify({ revokedStatus, calls: FakeMcp.calls.length - callsBefore })
+            )
         }
     } finally {
         await gateway?.close()
@@ -16074,6 +16101,25 @@ await (async () => {
             !cleanup.nameReuseBlockers('gone').length,
         JSON.stringify({ linkedOutcome, wsOnly, linkedRoot })
     )
+    // A profile cleanup cannot attribute (a roster cut off mid-write) and a workspace in another letter case block reuse.
+    fs.mkdirSync(path.join(profilesDir, 'torn'), { recursive: true })
+    fs.writeFileSync(path.join(profilesDir, 'torn', 'harness-roster.json'), '{"name": "to')
+    fs.writeFileSync(path.join(profilesDir, 'torn', 'memory.md'), 'private')
+    fs.mkdirSync(path.join(workDir, 'torn'), { recursive: true })
+    fs.mkdirSync(path.join(workDir, 'mixedteam--reader'), { recursive: true })
+    const torn = await cleanup.removeHarnessProfiles('torn')
+    const mixedCase = await cleanup.removeHarnessProfiles('MixedTeam')
+    check(
+        'an unattributed profile or a workspace in another letter case blocks reuse of the name',
+        torn.kept.includes('profiles/torn') &&
+            torn.kept.includes('workspaces/torn') &&
+            fs.existsSync(path.join(profilesDir, 'torn', 'memory.md')) &&
+            mixedCase.kept.includes('workspaces/mixedteam--reader'),
+        JSON.stringify({ torn, mixedCase })
+    )
+    fs.rmSync(path.join(profilesDir, 'torn'), { recursive: true, force: true })
+    fs.rmSync(path.join(workDir, 'torn'), { recursive: true, force: true })
+    fs.rmSync(path.join(workDir, 'mixedteam--reader'), { recursive: true, force: true })
     fs.rmSync(path.join(workDir, 'wsonly--a'), { recursive: true, force: true })
     fs.rmSync(path.join(profilesDir, 'linked'))
     fs.rmSync(outside, { recursive: true, force: true })

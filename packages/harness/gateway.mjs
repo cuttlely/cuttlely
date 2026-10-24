@@ -395,6 +395,14 @@ function readEnvFile(file) {
 // its body or its owner (and maybe a new harness saved under the name) must not reach that new harness.
 class RevokedDuringRequest extends Error {}
 
+// Checks wait here (a slow tool discovery or model lookup) to revoke a token at that point.
+export const gatewayRequestHooks = { beforeRun: null }
+
+async function readyToRun(meta) {
+    if (gatewayRequestHooks.beforeRun) await gatewayRequestHooks.beforeRun(meta)
+    assertStillValid(meta)
+}
+
 function assertStillValid(meta) {
     for (const value of tokens.values()) if (value === meta) return
     throw new RevokedDuringRequest('Unauthorized')
@@ -647,6 +655,7 @@ async function completeChat(req, res, meta) {
                 if (deadline) parts.push(deadline)
                 const signal = parts.length > 1 ? AbortSignal.any(parts) : parts[0]
                 const resolved = await resolveModel(binding, ctx)
+                await readyToRun(meta)
                 try {
                     return await invokeChat(resolved, {
                         messages: body.messages,
@@ -669,6 +678,7 @@ async function completeChat(req, res, meta) {
         bound.release()
     }
     if (bound.signal.aborted || res.writableEnded) return
+    assertStillValid(meta)
     const toolCalls = openAiToolCalls(result.toolCalls)
     const created = unixNow()
     const id = `chatcmpl-${crypto.randomBytes(8).toString('hex')}`
@@ -867,6 +877,8 @@ async function callTool(req, res, meta) {
         sendJson(res, 200, { result: JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' }) })
         return
     }
+    // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
+    await readyToRun(meta)
     const result = await withAnalystScope(
         scope,
         () =>
