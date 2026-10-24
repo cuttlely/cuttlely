@@ -31,7 +31,7 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.4.1 is out.** Harness specialists send PPTX decks as chat downloads, chat images can be downloaded, and images and files from a run now reach watsonx Orchestrate as signed links. [Changelog](./CHANGELOG.md#141---2026-10-23)
+**1.4.1 is out.** Harness specialists send PPTX decks as chat downloads, chat images can be downloaded, and images and files from a run now reach connected agent platforms as signed links. [Changelog](./CHANGELOG.md#141---2026-10-23)
 
 ## Contents
 
