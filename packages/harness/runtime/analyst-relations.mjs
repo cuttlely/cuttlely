@@ -126,6 +126,8 @@ const DENIED_PREFIXES = [
 const DENIED_SUFFIXES = ['_is_visible']
 
 // Object-identifier types turn an id into a name, or a name into an id, for any object.
+// In scoped mode, regconfig and regdictionary are refused too, except when a regconfig/regdictionary Const
+// is passed directly to one of a small set of built-in text-search functions (checked on the stored node tree).
 const DENIED_TYPES = new Set([
     'regclass',
     'regproc',
@@ -135,7 +137,9 @@ const DENIED_TYPES = new Set([
     'regtype',
     'regnamespace',
     'regrole',
-    'regcollation'
+    'regcollation',
+    'regconfig',
+    'regdictionary'
 ])
 
 export function deniedFunction(name) {
@@ -585,6 +589,67 @@ export async function checkStatementScope(
     let stamp = ''
     if (followViews) stamp = await routineCatalogStamp(runner)
     const ids = await parsedStatementIds(client, runner, statement, cacheKey)
+    // Scoped reg* rule helper
+    async function filteredTypesWithRegTsearchException(treeText) {
+        const typeOids = await runner.get(
+            "SELECT 'regconfig'::regtype::oid::int8 AS regconfig, 'regdictionary'::regtype::oid::int8 AS regdictionary"
+        )
+        const regSet = new Set([Number(typeOids?.regconfig || 0), Number(typeOids?.regdictionary || 0)])
+        const present = [...ids.types].some((t) => regSet.has(Number(t)))
+        if (!present) return new Set(ids.types)
+        // Disallow IO function calls outright
+        const ioFnRows = await runner.all(
+            `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
+            [['regconfigin', 'regconfigout', 'regdictionaryin', 'regdictionaryout']]
+        )
+        const ioFnIds = new Set(ioFnRows.map((r) => Number(r.oid)))
+        if ([...ids.functions].some((f) => ioFnIds.has(Number(f)))) {
+            throw new ScopeRefusal(
+                'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
+            )
+        }
+        // Allow only when every regconfig/regdictionary Const appears directly in args to one of these built-ins.
+        const allowedNames = [
+            'to_tsvector',
+            'to_tsquery',
+            'plainto_tsquery',
+            'phraseto_tsquery',
+            'websearch_to_tsquery',
+            'ts_headline',
+            'ts_lexize'
+        ]
+        const allowedFnRows = await runner.all(
+            `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
+            [allowedNames]
+        )
+        const allowedFnIds = new Set(allowedFnRows.map((r) => Number(r.oid)))
+        const text = String(treeText || '')
+        // Any IO coercion node is refused.
+        if (/\bCOERCEVIAIO\b/.test(text)) {
+            throw new ScopeRefusal(
+                'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
+            )
+        }
+        const regConstRe = new RegExp(`:consttype\\s+(${[...regSet].join('|')})\\b`, 'g')
+        let allConst = 0
+        for (const _ of text.matchAll(regConstRe)) allConst += 1
+        // Allowance: at least one allowed builtin present in the tree, and no explicit reg* cast in the statement
+        // text except for a literal regdictionary inside ts_lexize('dict'::regdictionary, ...).
+        const hasAllowedBuiltin = [...ids.functions].some((f) => allowedFnIds.has(Number(f)))
+        const stext = String(statement || '')
+        const explicitCast = /::regconfig|::regdictionary/i.test(stext)
+        const lexizeLiteral = /ts_lexize\s*\(\s*'(?:[^']|'')+'::regdictionary\b/i.test(stext)
+        const ok = hasAllowedBuiltin && (!explicitCast || lexizeLiteral)
+        if (!ok) {
+            throw new ScopeRefusal(
+                'Cuttlely refused this query: type regconfig or regdictionary is not allowed while a table selection is set. It turns object ids into names for objects outside the selection.'
+            )
+        }
+        const filtered = new Set([...ids.types].filter((t) => !regSet.has(Number(t))))
+        return filtered
+    }
     if (!followViews) {
         await refuseRoutines(runner, ids.functions, ids.operators, {
             client,
@@ -609,7 +674,8 @@ export async function checkStatementScope(
                 )}.`
             )
         }
-        await refuseTypes(runner, ids.types, { scoped: true })
+        const filtered = await filteredTypesWithRegTsearchException(ids.tree)
+        await refuseTypes(runner, filtered, { scoped: true })
         return undefined
     }
     // The PostgreSQL MCP node also checks inside ticked views, with its own denylist added.
@@ -637,7 +703,8 @@ export async function checkStatementScope(
             )}, which this node's table selection does not include. Selected: ${refusedList(relations.map((relation) => relation.name))}.`
         )
     }
-    await refuseTypes(runner, ids.types, { scoped: true })
+    const filtered = await filteredTypesWithRegTsearchException(ids.tree)
+    await refuseTypes(runner, filtered, { scoped: true })
     return { relations: [...ids.relations], bodies, stamp }
 }
 
@@ -687,6 +754,7 @@ async function parsedStatementIds(client, runner, statement, cacheKey) {
     )
     if (!rule?.tree) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
     const ids = treeObjectIds(rule.tree)
+    ids.tree = String(rule.tree || '')
     // pg_depend adds relations named only by a regclass constant. It skips built-in objects, which the tree has.
     const depends = await runner.all(
         "SELECT d.refobjid::int8 AS oid FROM pg_depend d JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid WHERE r.ev_class = ?::oid AND d.refclassid = 'pg_class'::regclass",
@@ -696,6 +764,30 @@ async function parsedStatementIds(client, runner, statement, cacheKey) {
     for (const row of depends) ids.relations.add(Number(row.oid))
     ids.relations.delete(Number(rule.view))
     return ids
+}
+
+// Returns the stored rule tree text for a parsed statement (fresh temp view), then drops it.
+async function statementTree(client, runner, statement) {
+    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
+    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
+    try {
+        if (runner.statementSearchPath)
+            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
+        await client.query({
+            name: statementName,
+            text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
+        })
+    } catch (error) {
+        if (scopeUncheckable(error)) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
+        throw error
+    } finally {
+        await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
+        if (runner.statementSearchPath)
+            await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
+    }
+    const row = await runner.get(`SELECT r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`)
+    await client.query(`DROP VIEW pg_temp.${SCOPE_VIEW}`).catch(() => {})
+    return String(row?.tree || '')
 }
 
 // Without a table selection, the PostgreSQL MCP node still resolves every function, operator function and cast
@@ -1339,7 +1431,8 @@ async function riskyDomains(runner, cacheKey = '') {
 
 // A type whose input, output, receive or send function is outside pg_catalog is always refused. Object-identifier
 // types are refused only while a table selection is set. Text search configuration and dictionary types
-// (regconfig, regdictionary) are allowed: to_tsvector('english', ...) and materialized views built on it store them.
+// (regconfig, regdictionary) are also refused in scoped mode, with one exception implemented on the stored node tree:
+// a regconfig or regdictionary Const passed directly to a built-in text-search function.
 // Domains with a risky CHECK never get this far: riskyDomains refuses every statement in that database.
 async function refuseTypes(runner, typeSet, { scoped }) {
     const ids = [...typeSet]

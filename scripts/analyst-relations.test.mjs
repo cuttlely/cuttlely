@@ -2324,18 +2324,31 @@ describe('analyst relations: text search configuration types', () => {
         }
     })
 
-    it('reads a stored regconfig column, and lets a numeric id name only text search configurations', async (t) => {
+    it('refuses stored regconfig uses and still lets a literal Const into built-ins', async (t) => {
         if (skipped(t)) return
-        const stored = await queryAnalystUrl(url, 'SELECT cfg::text AS cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english'))
-        assert.equal(stored.rows[0].cfg, 'english')
-        // regconfig and regdictionary name text search objects, which every role can already list; that is the
-        // accepted exception. A numeric id can name a text search configuration, but not a relation, type or role.
-        const byId = await queryAnalystUrl(
-            url,
-            "SELECT (('english'::regconfig)::oid)::regconfig::text AS cfg LIMIT 1",
-            scoped('s.mv_english')
+        await refusal(
+            queryAnalystUrl(url, 'SELECT cfg::text AS cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /not allowed while a table selection is set/
         )
-        assert.equal(byId.rows[0].cfg, 'english')
+        // A Const regconfig cast on its own is refused under a selection.
+        await refusal(
+            queryAnalystUrl(url, "SELECT 'english'::regconfig::text AS cfg LIMIT 1", scoped('s.tickets')),
+            /not allowed while a table selection is set/
+        )
+        // Passing a non-Const regconfig (a cast variable) to to_tsvector is refused.
+        await refusal(
+            queryAnalystUrl(
+                url,
+                'SELECT to_tsvector(m.cfg::regconfig, t.notes) FROM s.mv_english m JOIN s.tickets t ON t.id = m.id LIMIT 1',
+                scoped('s.mv_english', 's.tickets')
+            ),
+            selection
+        )
+        // A direct call to regconfigout is refused.
+        await refusal(
+            queryAnalystUrl(url, "SELECT pg_catalog.regconfigout('english'::regconfig) LIMIT 1", scoped('s.tickets')),
+            /not allowed while a table selection is set/
+        )
         await refusal(queryAnalystUrl(url, 'SELECT id::oid::regclass FROM s.tickets LIMIT 1', scoped('s.tickets')), selection)
     })
 
