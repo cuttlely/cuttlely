@@ -758,11 +758,26 @@ FROM pg_opfamily f JOIN pg_namespace fn ON fn.oid = f.opfnamespace
 LEFT JOIN pg_amproc ap ON ap.amprocfamily = f.oid LEFT JOIN pg_amop ao ON ao.amopfamily = f.oid
 LEFT JOIN pg_operator o ON o.oid = ao.amopopr
 JOIN pg_proc p ON p.oid IN (ap.amproc, o.oprcode) JOIN pg_namespace pn ON pn.oid = p.pronamespace
-WHERE pn.nspname <> 'pg_catalog' ORDER BY 1`
+WHERE pn.nspname <> 'pg_catalog'
+UNION
+SELECT 'text search parser ' || quote_ident(n.nspname) || '.' || quote_ident(t.prsname)
+FROM pg_ts_parser t JOIN pg_namespace n ON n.oid = t.prsnamespace
+JOIN pg_proc p ON p.oid IN (t.prsstart, t.prstoken, t.prsend, t.prsheadline, t.prslextype)
+JOIN pg_namespace pn ON pn.oid = p.pronamespace WHERE pn.nspname <> 'pg_catalog'
+UNION
+SELECT 'text search template ' || quote_ident(n.nspname) || '.' || quote_ident(t.tmplname)
+FROM pg_ts_template t JOIN pg_namespace n ON n.oid = t.tmplnamespace
+JOIN pg_proc p ON p.oid IN (t.tmplinit, t.tmpllexize)
+JOIN pg_namespace pn ON pn.oid = p.pronamespace WHERE pn.nspname <> 'pg_catalog'
+UNION
+SELECT 'foreign table ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || ' (an inheritance child or partition)'
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'f' AND EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhrelid = c.oid)
+ORDER BY 1`
 const riskyTypeCache = new Map()
 
 export function scopeRiskyTypes(names) {
-    return `Cuttlely refused this query: this database has types whose input runs code that is not built in, and it could run while a query is checked: ${refusedList(
+    return `Cuttlely refused this query: this database has types whose input runs code that is not built in, or objects that call code that is not built in or cannot be checked, and it could run while a query is checked: ${refusedList(
         names
     )}. The PostgreSQL MCP node refuses every query on this database until those types are removed or the credential points at another database.`
 }

@@ -1488,8 +1488,28 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             GRANT SELECT ON public.outside TO PUBLIC`)
         try {
             await refusal(queryAnalystUrl(url, 'SELECT a FROM outside LIMIT 1', { readOnlySql: true }), /reads a foreign table/)
+            // A foreign partition is expanded by the planner, after the check, so the database-wide scan refuses it.
+            await owner.query(`CREATE TABLE public.parted (a text) PARTITION BY LIST (a); GRANT SELECT ON public.parted TO PUBLIC;
+                CREATE FOREIGN TABLE public.fpart PARTITION OF public.parted FOR VALUES IN ('x') SERVER files OPTIONS (filename '/dev/null')`)
+            resetRiskyDomainCacheForTests()
+            await refusal(queryAnalystUrl(url, 'SELECT a FROM parted LIMIT 1', { readOnlySql: true }), /foreign table public\.fpart/)
         } finally {
+            await owner.query('DROP TABLE IF EXISTS public.parted')
+            resetRiskyDomainCacheForTests()
             await owner.query('DROP EXTENSION file_fdw CASCADE')
+        }
+        // Text search callbacks are chosen through the catalog, not the statement, so a template outside pg_catalog
+        // refuses the database.
+        await owner.query('CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA public')
+        resetRiskyDomainCacheForTests()
+        try {
+            await refusal(
+                queryAnalystUrl(url, "SELECT to_tsvector('simple', 'a') AS v LIMIT 1", { readOnlySql: true }),
+                /text search template public\.unaccent/
+            )
+        } finally {
+            await owner.query('DROP EXTENSION unaccent')
+            resetRiskyDomainCacheForTests()
         }
     })
 

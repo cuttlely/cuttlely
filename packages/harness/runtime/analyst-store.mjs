@@ -1975,6 +1975,9 @@ async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBa
     } catch {
         throw new AnalystToolError(POLICY_UNLOCKED, 'expected')
     }
+    // The database-wide scan runs again, uncached, so a type, operator class, text search callback or foreign
+    // partition added since the check is refused before the statement is planned.
+    await refuseRiskyTypes(runner)
     if (!(await sameRelationBodies(runner, checked.bodies))) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
     if ((await routineCatalogStamp(runner)) !== checked.stamp) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
 }
