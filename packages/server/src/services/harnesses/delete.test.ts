@@ -39,6 +39,7 @@ let keptProfiles: string[] = []
 let expectedProfiles: string[][] = []
 
 let takenProfiles: string[] = []
+let claimedNames: string[] = []
 const fileOf = (name: string) => path.join(storeDir, `${name}.json`)
 const has = (name: string) => fs.existsSync(fileOf(name))
 const write = (row: Row) => fs.writeFileSync(fileOf(row.name), JSON.stringify(row))
@@ -53,7 +54,10 @@ const fakeModules = (file: string) => {
                     .map((entry) => JSON.parse(fs.readFileSync(path.join(storeDir, entry), 'utf8'))),
             getHarness: (name: string) => (has(name) ? JSON.parse(fs.readFileSync(fileOf(name), 'utf8')) : null),
             deleteHarness: (name: string) => fs.rmSync(fileOf(name), { force: true }),
-            claimWorkspace: (name: string) => JSON.parse(fs.readFileSync(fileOf(name), 'utf8')),
+            claimWorkspace: (name: string) => {
+                claimedNames.push(name)
+                return JSON.parse(fs.readFileSync(fileOf(name), 'utf8'))
+            },
             saveHarness: (row: Row) => {
                 write(row)
                 return row
@@ -122,6 +126,7 @@ beforeEach(() => {
     keptProfiles = []
     expectedProfiles = []
     takenProfiles = []
+    claimedNames = []
     write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
     write({ name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
@@ -438,6 +443,32 @@ describe('a reused name never sees an earlier harness data', () => {
                 statusCode: 409
             })
             expect(fs.readFileSync(fileOf('NAVI-B'), 'utf8')).toBe(before)
+        } finally {
+            if (warm === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = warm
+        }
+    })
+
+    it('a refused API save claims nothing and clears no stale profiles', async () => {
+        const warm = process.env.CUTTLELY_WARM_HERMES
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        try {
+            // A new name with stale profiles left: they are not cleared for a save that is refused.
+            takenProfiles = ['fresh--b--c', 'legacy--b--c']
+            await expect(harnessesService.saveHarness({ name: 'fresh', specialists: [{ name: 'b--c' }] }, TEAM)).rejects.toMatchObject({
+                statusCode: 409
+            })
+            expect(cleaned).toEqual([])
+            expect(expectedProfiles).toEqual([])
+            expect(has('fresh')).toBe(false)
+            // An existing record saved before teams were stored is not claimed for a refused save.
+            write({ name: 'legacy', specialists: [{ name: 'scout' }] })
+            const before = fs.readFileSync(fileOf('legacy'), 'utf8')
+            await expect(harnessesService.saveHarness({ name: 'legacy', specialists: [{ name: 'b--c' }] }, TEAM)).rejects.toMatchObject({
+                statusCode: 409
+            })
+            expect(claimedNames).toEqual([])
+            expect(fs.readFileSync(fileOf('legacy'), 'utf8')).toBe(before)
         } finally {
             if (warm === undefined) delete process.env.CUTTLELY_WARM_HERMES
             else process.env.CUTTLELY_WARM_HERMES = warm

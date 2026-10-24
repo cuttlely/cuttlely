@@ -163,6 +163,23 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
 
 type HarnessModule = Awaited<ReturnType<typeof loadHarness>>
 
+function assertNoProfileConflicts(profile: HarnessModule, record: Record<string, unknown>, name: string) {
+    let taken: string[] = []
+    try {
+        taken = profile.profileDestinationConflicts({ ...record, name })
+    } catch {
+        // A roster that cannot be resolved is refused by the save itself, with its own message.
+    }
+    if (taken.length) {
+        throw new AppError(
+            StatusCodes.CONFLICT,
+            `Harness "${name}" was not saved: ${taken
+                .map((entry) => `profiles/${entry}`)
+                .join(', ')} belongs to another harness. Choose another harness or specialist name.`
+        )
+    }
+}
+
 async function saveUnderName(
     store: HarnessModule,
     profile: HarnessModule,
@@ -179,6 +196,9 @@ async function saveUnderName(
             throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
         }
     }
+    // First, before anything is claimed or cleared: a refused save leaves the record and every profile as they were.
+    // An update is checked like a new name.
+    assertNoProfileConflicts(profile, record, name)
     if (existing) {
         const owner = await ownerOf(existing)
         // No resolved team is not this caller. The file, including its run history, stays as it is.
@@ -187,22 +207,9 @@ async function saveUnderName(
     } else if (name) {
         await clearStaleNameData(name, record as { specialists?: Array<{ name?: unknown }> })
     }
-    // Checked with no await between it, the save and the compile: two names whose specialists join to the same profile
-    // (a + b--c, a--b + c) cannot both pass, and an update is checked like a new name.
-    let taken: string[] = []
-    try {
-        taken = profile.profileDestinationConflicts({ ...record, name })
-    } catch {
-        // A roster that cannot be resolved is refused by the save itself, with its own message.
-    }
-    if (taken.length) {
-        throw new AppError(
-            StatusCodes.CONFLICT,
-            `Harness "${name}" was not saved: ${taken
-                .map((entry) => `profiles/${entry}`)
-                .join(', ')} belongs to another harness. Rename the harness or the specialist.`
-        )
-    }
+    // Again with no await between it, the save and the compile: two names whose specialists join to the same profile
+    // (a + b--c, a--b + c) cannot both pass.
+    assertNoProfileConflicts(profile, record, name)
     const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
     profile.compileProfileCached(saved)
     warmHarnesses([saved.name])
