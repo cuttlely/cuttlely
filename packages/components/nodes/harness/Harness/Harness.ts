@@ -32,7 +32,8 @@ class Harness_Harness implements INode {
                 name: 'harnessName',
                 type: 'asyncOptions',
                 loadMethod: 'listHarnesses',
-                description: 'Saved harness name. The tool the agent calls is named harness.'
+                description:
+                    'Saved harness name. As a tool, the name the agent calls comes from this card title. One card titled Harness keeps the tool name harness. Several cards use the title, or this name when the title is still Harness.'
             },
             {
                 label: 'Return Direct',
@@ -102,9 +103,10 @@ class Harness_Harness implements INode {
                 ? options.harnessUserMessage
                 : ''
         const streamed = { answer: false }
+        const toolName = harnessToolNameFor(nodeData, options)
         const tool = new DynamicTool({
-            name: 'harness',
-            description: harnessToolDescription(harnessName),
+            name: toolName,
+            description: harnessToolDescription(harnessName, toolName),
             returnDirect: nodeData.inputs?.returnDirect !== false && nodeData.inputs?.returnDirect !== 'false',
             func: async (task: string, runManager?: ToolRunManager) => {
                 const payload = await runNamedHarness(
@@ -116,7 +118,7 @@ class Harness_Harness implements INode {
                     streamed,
                     [],
                     harnessToolMetadata(nodeData, userMessage, task),
-                    harnessTraceCallbacks(runManager)
+                    harnessTraceCallbacks(runManager, toolName)
                 )
                 rememberToolPayload(options, payload)
                 // The tool returns answer text only. The ending-node path records Harness.run; this closure records the tool.
@@ -288,6 +290,242 @@ async function harnessToolOutput(payload: { text?: string; artifacts?: unknown }
     return artifacts.length ? text + ARTIFACTS_PREFIX + JSON.stringify(artifacts) : text
 }
 
+// Tool names the model may call: lowercase letters, digits and underscores, at most 64 characters.
+const HARNESS_TOOL_NAME_MAX = 64
+
+type HarnessToolCard = {
+    id: string
+    label?: unknown
+    name?: unknown
+}
+
+type FlowNodeLike = {
+    id?: string
+    data?: {
+        id?: string
+        name?: string
+        label?: unknown
+        inputs?: { tools?: unknown; harnessName?: unknown }
+    }
+}
+
+type FlowEdgeLike = { source?: string; target?: string; targetHandle?: string }
+
+function textOf(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : ''
+}
+
+// One pass, no anchored expression, so a very long title stays linear.
+function sanitizeHarnessToolToken(value: string): string {
+    const lower = value.toLowerCase().slice(0, 1024)
+    let out = ''
+    let prevUnderscore = false
+    for (let i = 0; i < lower.length; i += 1) {
+        const code = lower.charCodeAt(i)
+        const digit = code >= 48 && code <= 57
+        const letter = code >= 97 && code <= 122
+        if (digit || letter) {
+            out += lower[i]
+            prevUnderscore = false
+            continue
+        }
+        if (!prevUnderscore && out.length) {
+            out += '_'
+            prevUnderscore = true
+        }
+    }
+    if (out.endsWith('_')) out = out.slice(0, -1)
+    return out.slice(0, HARNESS_TOOL_NAME_MAX)
+}
+
+function isDefaultTitle(label: string): boolean {
+    return label.toLowerCase() === 'harness'
+}
+
+// A title the person set wins. Otherwise a lone card stays harness, and several cards use the saved harness name.
+function baseToolName(card: HarnessToolCard, alone: boolean): string {
+    const label = textOf(card.label)
+    if (label && !isDefaultTitle(label)) {
+        const token = sanitizeHarnessToolToken(label)
+        if (token) return token
+    }
+    if (alone) return 'harness'
+    const named = sanitizeHarnessToolToken(textOf(card.name))
+    if (named && named !== 'harness') return named
+    return 'harness'
+}
+
+function withNumericSuffix(base: string, n: number): string {
+    const suffix = `_${n}`
+    const room = Math.max(HARNESS_TOOL_NAME_MAX - suffix.length, 1)
+    let stem = (base || 'harness').slice(0, room)
+    while (stem.endsWith('_')) stem = stem.slice(0, -1)
+    if (!stem) stem = 'h'
+    return `${stem.slice(0, HARNESS_TOOL_NAME_MAX - suffix.length)}${suffix}`
+}
+
+/**
+ * One tool name per card. Cards are ordered by id, so the same cards always get the same names.
+ * A base only one card wants is kept. When a base repeats, the earliest id keeps it and each later id
+ * takes `_2`, `_3`, and so on. A suffix that another card already has moves to the next number.
+ */
+function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
+    const items = (Array.isArray(cards) ? cards : []).map((card, index) => ({
+        card: card || { id: '' },
+        index,
+        id: textOf(card?.id) || `harness_${index}`
+    }))
+    items.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : a.index - b.index))
+    const alone = items.length === 1
+    const bases = items.map((item) => ({ ...item, base: baseToolName(item.card, alone) }))
+    const counts = new Map<string, number>()
+    for (const item of bases) counts.set(item.base, (counts.get(item.base) || 0) + 1)
+    const used = new Set<string>()
+    const names = new Map<string, string>()
+    for (const item of bases) {
+        if (counts.get(item.base) !== 1 || used.has(item.base)) continue
+        names.set(item.id, item.base)
+        used.add(item.base)
+    }
+    for (const item of bases) {
+        if (names.has(item.id)) continue
+        let n = 2
+        let candidate = used.has(item.base) ? withNumericSuffix(item.base, n++) : item.base
+        while (used.has(candidate)) candidate = withNumericSuffix(item.base, n++)
+        names.set(item.id, candidate)
+        used.add(candidate)
+    }
+    return names
+}
+
+const TOOL_REF = /^\{\{([^}]+)\.data\.instance\}\}$/
+
+function flowNodeId(node: FlowNodeLike): string {
+    if (typeof node?.id === 'string' && node.id) return node.id
+    return typeof node?.data?.id === 'string' ? node.data.id : ''
+}
+
+function isHarnessFlowNode(node: FlowNodeLike | undefined): boolean {
+    return node?.data?.name === 'harness'
+}
+
+function toolRefIds(node: FlowNodeLike): string[] {
+    const tools = node?.data?.inputs?.tools
+    if (!Array.isArray(tools)) return []
+    const ids: string[] = []
+    for (const item of tools) {
+        if (typeof item !== 'string') continue
+        const match = TOOL_REF.exec(item.trim())
+        if (match) ids.push(match[1])
+    }
+    return ids
+}
+
+function edgeFeedsTools(edge: FlowEdgeLike): boolean {
+    const handle = typeof edge?.targetHandle === 'string' ? edge.targetHandle : ''
+    return handle.split('-')[2] === 'tools'
+}
+
+function cardFromFlowNode(id: string, node: FlowNodeLike | undefined): HarnessToolCard {
+    const harnessName = node?.data?.inputs?.harnessName
+    return {
+        id,
+        label: node?.data?.label,
+        name: typeof harnessName === 'string' ? harnessName : undefined
+    }
+}
+
+/**
+ * Harness cards that share an agent with this card, including this card.
+ * Cards that meet on one agent's tools input are one group, so each of them computes the same names.
+ * A card that is not attached to an agent is a group of one.
+ */
+function harnessToolPeersFromFlow(nodeId: string, nodes: FlowNodeLike[], edges?: FlowEdgeLike[]): HarnessToolCard[] {
+    const list = Array.isArray(nodes) ? nodes : []
+    const byId = new Map<string, FlowNodeLike>()
+    for (const node of list) {
+        const id = flowNodeId(node)
+        if (id) byId.set(id, node)
+    }
+    const self = byId.get(nodeId)
+    if (!isHarnessFlowNode(self)) return []
+
+    const adj = new Map<string, Set<string>>()
+    const ensure = (id: string) => {
+        if (!adj.has(id)) adj.set(id, new Set())
+    }
+    const linkAll = (ids: string[]) => {
+        const harnessIds = [...new Set(ids.filter((id) => isHarnessFlowNode(byId.get(id))))]
+        for (const id of harnessIds) ensure(id)
+        for (let i = 1; i < harnessIds.length; i += 1) {
+            adj.get(harnessIds[0])!.add(harnessIds[i])
+            adj.get(harnessIds[i])!.add(harnessIds[0])
+        }
+    }
+
+    for (const node of list) linkAll(toolRefIds(node))
+
+    if (Array.isArray(edges)) {
+        const grouped = new Map<string, string[]>()
+        for (const edge of edges) {
+            if (!edge || !edgeFeedsTools(edge) || typeof edge.source !== 'string' || typeof edge.target !== 'string') continue
+            if (!isHarnessFlowNode(byId.get(edge.source))) continue
+            const bucket = grouped.get(edge.target) || []
+            bucket.push(edge.source)
+            grouped.set(edge.target, bucket)
+        }
+        for (const ids of grouped.values()) linkAll(ids)
+    }
+
+    const seen = new Set<string>()
+    const component: string[] = []
+    const stack = [nodeId]
+    while (stack.length) {
+        const id = stack.pop() as string
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        if (!isHarnessFlowNode(byId.get(id))) continue
+        component.push(id)
+        for (const next of adj.get(id) || []) stack.push(next)
+    }
+
+    return component.map((id) => cardFromFlowNode(id, byId.get(id)))
+}
+
+function cardFromNodeData(nodeData: INodeData): HarnessToolCard {
+    const harnessName = nodeData?.inputs?.harnessName
+    return {
+        id: typeof nodeData?.id === 'string' && nodeData.id ? nodeData.id : 'harness_0',
+        label: nodeData?.label,
+        name: typeof harnessName === 'string' ? harnessName : undefined
+    }
+}
+
+function peersForNode(nodeData: INodeData, options: ICommonObject): HarnessToolCard[] {
+    const self = cardFromNodeData(nodeData)
+    const raw = options?.harnessToolPeers
+    if (!Array.isArray(raw) || !raw.length) return [self]
+    const cards: HarnessToolCard[] = []
+    for (const item of raw) {
+        if (!item || typeof item !== 'object') continue
+        const id = textOf((item as { id?: unknown }).id)
+        if (!id) continue
+        cards.push({
+            id,
+            label: (item as { label?: unknown }).label,
+            name: (item as { name?: unknown }).name
+        })
+    }
+    if (!cards.length) return [self]
+    if (!cards.some((card) => card.id === self.id)) cards.push(self)
+    return cards
+}
+
+function harnessToolNameFor(nodeData: INodeData, options: ICommonObject): string {
+    const self = cardFromNodeData(nodeData)
+    return assignHarnessToolNames(peersForNode(nodeData, options)).get(self.id) || 'harness'
+}
+
 function selectedHarness(nodeData: INodeData): string {
     const harnessName: unknown = nodeData.inputs?.harnessName
     if (harnessName === undefined || harnessName === null || harnessName === '') {
@@ -324,10 +562,15 @@ function rememberToolPayload(options: ICommonObject, payload: unknown) {
     holder.push(rest)
 }
 
-function harnessToolDescription(harnessName: string): string {
+function harnessToolDescription(harnessName: string, toolName: string): string {
+    // A single card with no title of its own keeps this sentence, so an existing system message still matches.
+    const call =
+        toolName === 'harness'
+            ? 'Call this tool, named harness, only when the system message routes the task to tool:harness. '
+            : `Call this tool, named ${toolName}, only when the system message routes the task to tool:${toolName}. `
     return (
         `Harness workflow "${harnessName}". ` +
-        'Call this tool, named harness, only when the system message routes the task to tool:harness. ' +
+        call +
         'Document and vector-store questions go to the researcher. Database questions go to the analyst. ' +
         'Do not call it for ordinary questions the other tools already cover. ' +
         'Input is the task to hand to Harness Prime.'
@@ -379,8 +622,8 @@ type ToolRunManager = {
  * as child runs of the tool run. Other handlers (the token counter, streamers) are left out: the tool records
  * its usage once and streams through its own events.
  */
-function harnessTraceCallbacks(runManager?: ToolRunManager): CallbackManager | undefined {
-    const child = typeof runManager?.getChild === 'function' ? runManager.getChild('harness') : undefined
+function harnessTraceCallbacks(runManager?: ToolRunManager, toolName = 'harness'): CallbackManager | undefined {
+    const child = typeof runManager?.getChild === 'function' ? runManager.getChild(toolName) : undefined
     if (!child) return undefined
     const tracers = (child.handlers ?? []).filter((handler) => (handler as { name?: string } | null)?.name === 'langchain_tracer')
     if (!tracers.length) return undefined
@@ -529,6 +772,8 @@ function harnessFailure(message: string, code?: string) {
 
 module.exports = {
     nodeClass: Harness_Harness,
+    assignHarnessToolNames,
+    harnessToolPeersFromFlow,
     harnessOnEvent,
     storeHarnessImages,
     harnessToolOutput,

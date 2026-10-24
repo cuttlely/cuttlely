@@ -17,7 +17,7 @@ import { AnalyticHandler } from '../../../src/handler'
 import { DEFAULT_SUMMARIZER_TEMPLATE } from '../prompt'
 import { ILLMMessage, IResponseMetadata } from '../Interface.Agentflow'
 import { Tool } from '@langchain/core/tools'
-import { ARTIFACTS_PREFIX, SOURCE_DOCUMENTS_PREFIX, TOOL_ARGS_PREFIX } from '../../../src/agents'
+import { ARTIFACTS_PREFIX, SOURCE_DOCUMENTS_PREFIX, TOOL_ARGS_PREFIX, assertUniqueToolNames } from '../../../src/agents'
 import { flatten } from 'lodash'
 import { toolSchemaToJsonSchema, type ToolJsonSchema } from '../../../src/utils'
 import { getErrorMessage } from '../../../src/error'
@@ -95,6 +95,24 @@ const sanitizeToolName = (name: string): string => {
 
     // Enforce 64 character limit common for tool names
     return sanitized.slice(0, 64)
+}
+
+// Each Harness tool on this agent, with a stable id from its place in the list. The Harness node
+// reads the card title and the saved harness name from these, not from the agent card.
+function harnessCardsOnAgent(tools: ITool[] | undefined): Array<{ id: string; label?: string; name?: string }> {
+    const list = Array.isArray(tools) ? tools : []
+    const cards: Array<{ id: string; label?: string; name?: string }> = []
+    for (let index = 0; index < list.length; index += 1) {
+        const tool = list[index]
+        if (tool?.agentSelectedTool !== 'harness') continue
+        const config = tool.agentSelectedToolConfig || {}
+        cards.push({
+            id: `harness_tool_${index}`,
+            label: typeof config.label === 'string' ? config.label : undefined,
+            name: typeof config.harnessName === 'string' ? config.harnessName : undefined
+        })
+    }
+    return cards
 }
 
 type StepUsage = { input_tokens?: number; output_tokens?: number; total_tokens?: number }
@@ -777,20 +795,29 @@ class Agent_Agentflow implements INode {
             const tools = nodeData.inputs?.agentTools as ITool[]
 
             const toolsInstance: Tool[] = []
+            const harnessCards = harnessCardsOnAgent(tools)
+            let index = 0
             for (const tool of tools) {
                 const toolConfig = tool.agentSelectedToolConfig
                 const nodeInstanceFilePath = options.componentNodes[tool.agentSelectedTool].filePath as string
                 const nodeModule = await import(nodeInstanceFilePath)
                 const newToolNodeInstance = new nodeModule.nodeClass()
+                const harnessCard =
+                    tool.agentSelectedTool === 'harness' ? harnessCards.find((card) => card.id === `harness_tool_${index}`) : undefined
                 const newNodeData = {
                     ...nodeData,
+                    ...(harnessCard ? { id: harnessCard.id, label: harnessCard.label ?? '' } : {}),
                     credential: toolConfig['FLOWISE_CREDENTIAL_ID'],
                     inputs: {
                         ...nodeData.inputs,
                         ...toolConfig
                     }
                 }
-                const toolInstance = await newToolNodeInstance.init(newNodeData, '', options)
+                const toolInstance = await newToolNodeInstance.init(
+                    newNodeData,
+                    '',
+                    harnessCard ? { ...options, harnessToolPeers: harnessCards } : options
+                )
 
                 // toolInstance might returns a list of tools like MCP tools
                 if (Array.isArray(toolInstance)) {
@@ -808,6 +835,7 @@ class Agent_Agentflow implements INode {
                     }
                     toolsInstance.push(toolInstance as Tool)
                 }
+                index += 1
             }
 
             const availableTools: ISimpliefiedTool[] = toolsInstance.map((tool, index) => {
@@ -1067,6 +1095,7 @@ class Agent_Agentflow implements INode {
             }
 
             if (llmNodeInstance && toolsInstance.length > 0) {
+                assertUniqueToolNames(toolsInstance)
                 if (llmNodeInstance.bindTools === undefined) {
                     throw new Error(`Agent needs to have a function calling capable models.`)
                 }

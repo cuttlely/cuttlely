@@ -26,6 +26,29 @@ import { formatLogToString } from '@langchain/classic/agents/format_scratchpad/l
 import { IUsedTool } from './Interface'
 import { getErrorMessage } from './error'
 
+/**
+ * The agent keeps one entry per tool name, so a repeated name would drop every tool but one.
+ * Fail here, while the agent is built, and name the tools that clash.
+ */
+export function assertUniqueToolNames(tools: unknown): void {
+    const list = flatten(Array.isArray(tools) ? tools : [])
+    const counts = new Map<string, number>()
+    for (const tool of list) {
+        const raw = tool && typeof tool === 'object' ? (tool as { name?: unknown }).name : undefined
+        if (typeof raw !== 'string') continue
+        const name = raw.trim().toLowerCase()
+        if (!name) continue
+        counts.set(name, (counts.get(name) || 0) + 1)
+    }
+    const duplicates = [...counts.entries()]
+        .filter(([, count]) => count > 1)
+        .map(([name]) => name)
+        .sort()
+    if (!duplicates.length) return
+    const quoted = duplicates.map((name) => `"${name}"`).join(' and ')
+    throw new Error(`This agent has more than one tool named ${quoted}. Each tool on an agent needs its own name.`)
+}
+
 export const SOURCE_DOCUMENTS_PREFIX = '\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n'
 export const ARTIFACTS_PREFIX = '\n\n----FLOWISE_ARTIFACTS----\n\n'
 
@@ -332,6 +355,7 @@ export class AgentExecutor extends BaseChain<ChainValues, AgentExecutorOutput> {
     }
 
     constructor(input: AgentExecutorInput & { sessionId?: string; chatId?: string; input?: string; isXML?: boolean }) {
+        assertUniqueToolNames(input?.tools)
         let agent: BaseSingleActionAgent | BaseMultiActionAgent
         if (Runnable.isRunnable(input.agent)) {
             agent = new RunnableAgent({ runnable: input.agent })

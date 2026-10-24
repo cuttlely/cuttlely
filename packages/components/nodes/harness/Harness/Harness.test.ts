@@ -35,6 +35,8 @@ jest.mock('../../../src/storageUtils', () => ({
 
 const {
     nodeClass: HarnessNode,
+    assignHarnessToolNames,
+    harnessToolPeersFromFlow,
     harnessOnEvent,
     storeHarnessImages,
     harnessToolOutput,
@@ -764,5 +766,144 @@ describe('Harness node as an agent tool', () => {
         expect(harnessTraceCallbacks(untraced)).toBeUndefined()
         await tool.func('task')
         expect(seen[1]).toBeUndefined()
+    })
+})
+
+const agentWith = (ids: string[]) => ({
+    id: 'toolAgent_0',
+    data: {
+        name: 'toolAgent',
+        label: 'Tool Agent',
+        inputs: { tools: ids.map((id) => `{{${id}.data.instance}}`) }
+    }
+})
+
+const harnessCard = (id: string, label: string, name: string) => ({
+    id,
+    data: { id, name: 'harness', label, inputs: { harnessName: name } }
+})
+
+describe('Harness tool names on one agent', () => {
+    const node = () => new HarnessNode()
+
+    async function namesFor(cards: Array<{ id: string; label?: string; name?: string }>) {
+        const peers = harnessToolPeersFromFlow(cards[0].id, [
+            ...cards.map((card) => harnessCard(card.id, card.label || 'Harness', card.name || 'payroll')),
+            agentWith(cards.map((card) => card.id))
+        ])
+        const built = []
+        for (const card of cards) {
+            const tool = await node().init(
+                { id: card.id, label: card.label, inputs: { harnessName: card.name || 'payroll' } } as never,
+                '',
+                { harnessToolPeers: peers }
+            )
+            built.push(tool.name)
+            expect(tool.name).toMatch(/^[a-z0-9_]{1,64}$/)
+        }
+        return built
+    }
+
+    it('keeps the name harness for a single card with no label', async () => {
+        const tool = await node().init({ id: 'harness_0', label: 'Harness', inputs: { harnessName: 'payroll' } } as never, '', {})
+        expect(tool.name).toBe('harness')
+        expect(tool.description).toContain('named harness')
+        expect(tool.description).toContain('tool:harness')
+        expect(tool.description).toContain('Harness workflow "payroll".')
+    })
+
+    it('names two harnesses from their labels', async () => {
+        await expect(
+            namesFor([
+                { id: 'harness_0', label: 'Payroll', name: 'payroll' },
+                { id: 'harness_1', label: 'Bakery team', name: 'bakery' }
+            ])
+        ).resolves.toEqual(['payroll', 'bakery_team'])
+    })
+
+    it('names three harnesses', async () => {
+        await expect(
+            namesFor([
+                { id: 'harness_2', label: 'Policy', name: 'policy' },
+                { id: 'harness_0', label: 'Payroll', name: 'payroll' },
+                { id: 'harness_1', label: 'Field-Team!', name: 'field-team' }
+            ])
+        ).resolves.toEqual(['policy', 'payroll', 'field_team'])
+    })
+
+    it('adds a deterministic suffix when labels repeat', async () => {
+        const cards = [
+            { id: 'harness_1', label: 'Payroll team', name: 'one' },
+            { id: 'harness_0', label: 'Payroll team', name: 'two' }
+        ]
+        await expect(namesFor(cards)).resolves.toEqual(['payroll_team_2', 'payroll_team'])
+        const reversed = assignHarnessToolNames([
+            { id: 'harness_0', label: 'Payroll team', name: 'two' },
+            { id: 'harness_1', label: 'Payroll team', name: 'one' }
+        ])
+        expect(reversed.get('harness_0')).toBe('payroll_team')
+        expect(reversed.get('harness_1')).toBe('payroll_team_2')
+    })
+
+    it('uses the saved harness name when several cards still have the default title', () => {
+        const peers = harnessToolPeersFromFlow('harness_0', [
+            harnessCard('harness_0', 'Harness', 'payroll'),
+            harnessCard('harness_1', 'Harness', 'bakery'),
+            agentWith(['harness_0', 'harness_1'])
+        ])
+        const names = assignHarnessToolNames(peers)
+        expect(names.get('harness_0')).toBe('payroll')
+        expect(names.get('harness_1')).toBe('bakery')
+    })
+
+    it('keeps a name within 64 characters of letters, digits and underscores', () => {
+        const long = `${'A'.repeat(80)}!`
+        const names = assignHarnessToolNames([
+            { id: 'harness_0', label: long },
+            { id: 'harness_1', label: long }
+        ])
+        const first = names.get('harness_0') as string
+        const second = names.get('harness_1') as string
+        expect(first).toBe('a'.repeat(64))
+        expect(second).toMatch(/^[a-z0-9_]{1,64}$/)
+        expect(second.length).toBeLessThanOrEqual(64)
+        expect(second).not.toBe(first)
+        expect(second.endsWith('_2')).toBe(true)
+    })
+
+    it('groups cards from the tools list or from edges, and leaves a lone card alone', () => {
+        const lone = harnessToolPeersFromFlow('harness_0', [harnessCard('harness_0', 'Harness', 'payroll')])
+        expect(lone).toEqual([{ id: 'harness_0', label: 'Harness', name: 'payroll' }])
+        const byEdge = harnessToolPeersFromFlow(
+            'harness_1',
+            [
+                harnessCard('harness_0', 'Payroll', 'payroll'),
+                harnessCard('harness_1', 'Bakery', 'bakery'),
+                { id: 'toolAgent_0', data: { name: 'toolAgent' } }
+            ],
+            [
+                { source: 'harness_0', target: 'toolAgent_0', targetHandle: 'toolAgent_0-input-tools-Tool' },
+                { source: 'harness_1', target: 'toolAgent_0', targetHandle: 'toolAgent_0-input-tools-Tool' }
+            ]
+        )
+        expect(byEdge.map((card: { id: string }) => card.id).sort()).toEqual(['harness_0', 'harness_1'])
+    })
+})
+
+describe('duplicate tool names on one agent', () => {
+    const { assertUniqueToolNames, AgentExecutor } = require('../../../src/agents')
+
+    it('fails the build when two tools share a name', () => {
+        expect(() => assertUniqueToolNames([{ name: 'payroll' }, { name: 'bakery' }])).not.toThrow()
+        expect(() => assertUniqueToolNames([{ name: 'harness' }, { name: 'Harness' }])).toThrow(
+            'This agent has more than one tool named "harness". Each tool on an agent needs its own name.'
+        )
+        expect(
+            () =>
+                new AgentExecutor({
+                    agent: { inputKeys: ['input'], returnValues: ['output'] },
+                    tools: [{ name: 'harness' }, { name: 'harness' }]
+                })
+        ).toThrow(/more than one tool named "harness"/)
     })
 })

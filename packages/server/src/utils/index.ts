@@ -663,6 +663,11 @@ export const buildFlow = async ({
             } else {
                 logger.debug(`[server]: [${orgId}]: Initializing ${reactFlowNode.data.label} (${reactFlowNode.data.id})`)
                 const finalQuestion = uploadedFilesContent ? `${uploadedFilesContent}\n\n${question}` : question
+                // Harness cards on one agent share this list, so each card can take a tool name the others do not use.
+                const harnessToolPeers =
+                    reactFlowNode.data.name === 'harness' && typeof nodeModule.harnessToolPeersFromFlow === 'function'
+                        ? nodeModule.harnessToolPeersFromFlow(reactFlowNode.data.id, flowNodes, reactFlowEdges)
+                        : undefined
                 const initNode = () =>
                     newNodeInstance.init(reactFlowNodeData, finalQuestion, {
                         orgId,
@@ -688,7 +693,8 @@ export const buildFlow = async ({
                         recordTokenUsage: recordCompletedRun,
                         ...harnessNodeOptions(harnessCaller),
                         ...(harnessToolPayloads ? { harnessToolPayloads } : {}),
-                        ...(cuttlelyReplay ? { cuttlelyReplay: true } : {})
+                        ...(cuttlelyReplay ? { cuttlelyReplay: true } : {}),
+                        ...(Array.isArray(harnessToolPeers) && harnessToolPeers.length ? { harnessToolPeers } : {})
                     })
                 let outputResult = isUpsert
                     ? await initNode()
