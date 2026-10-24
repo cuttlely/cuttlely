@@ -156,7 +156,26 @@ export function startGateway(options = {}) {
     if (host !== '127.0.0.1') return Promise.reject(new Error('The harness gateway listens on 127.0.0.1 only.'))
     const port = options.port == null ? gatewayListenPort() : Number(options.port)
     if (!Number.isInteger(port) || port < 0 || port > 65535) return Promise.reject(new Error('The harness gateway port is invalid.'))
-    if (port !== 0) return Promise.resolve(ensureListening(port).handle)
+    if (port !== 0) {
+        // Resolves once the port is bound, so a port another process holds fails the start instead of passing.
+        const item = ensureListening(port)
+        if (item.server.listening) return Promise.resolve(item.handle)
+        return new Promise((resolve, reject) => {
+            const done = () => {
+                item.server.off('listening', done)
+                item.server.off('error', fail)
+            }
+            const fail = (error) => {
+                done()
+                reject(error)
+            }
+            item.server.once('listening', () => {
+                done()
+                resolve(item.handle)
+            })
+            item.server.once('error', fail)
+        })
+    }
     loadTokensOnce()
     return new Promise((resolve, reject) => {
         const server = http.createServer(onRequest)

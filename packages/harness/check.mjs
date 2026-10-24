@@ -7238,6 +7238,61 @@ await expectCase('the boot sweep sets aside every older harness config and leave
         fs.rmSync(path.join(root, name), { recursive: true, force: true })
 })
 
+await expectCase('the boot recompile does not write through a linked profile folder', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const results = {}
+    for (const which of ['parent', 'specialist']) {
+        const name = `malinked${which}`
+        const record = saveHarness(
+            {
+                name,
+                chatflowId: `canvas-linked-${which}`,
+                chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                specialists: [
+                    { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                    { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+                ]
+            },
+            { overwrite: true }
+        )
+        compileProfile(record)
+        const dirs = profilesFor(name).map((profile) => profile.name)
+        for (const dir of dirs) fs.rmSync(profileFile(dir, 'harness-compiler'), { force: true })
+        const moved = which === 'parent' ? name : dirs.find((dir) => dir.includes('--'))
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.cpSync(path.join(root, moved), outside, { recursive: true })
+        fs.rmSync(path.join(root, moved), { recursive: true, force: true })
+        fs.symlinkSync(outside, path.join(root, moved))
+        const before = fs.readFileSync(path.join(outside, 'config.yaml'), 'utf8')
+        const result = recompileOutdatedProfiles([record], { log: {} })
+        const loadable = setAsideOutdatedConfigs()
+        results[which] = {
+            result,
+            unchanged: fs.readFileSync(path.join(outside, 'config.yaml'), 'utf8') === before,
+            noMarker: !fs.existsSync(path.join(outside, 'harness-compiler')),
+            held: loadable.some((dir) => dir.endsWith(moved))
+        }
+        fs.rmSync(path.join(root, moved), { force: true })
+        fs.rmSync(outside, { recursive: true, force: true })
+        for (const dir of dirs) fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    check(
+        'the boot recompile does not write through a linked profile folder',
+        Object.values(results).every(
+            (item) =>
+                item.result.length === 1 &&
+                item.result[0].status === 'failed' &&
+                /link/.test(item.result[0].error) &&
+                item.unchanged &&
+                item.noMarker &&
+                item.held
+        ),
+        JSON.stringify(results)
+    )
+})
+
 await expectCase('specialist folders whose parent folder is gone are compiled again at boot', async () => {
     const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
     const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
@@ -14179,6 +14234,19 @@ await expectCase('a stored question is redacted in full and does not push the tr
 contract.server.close()
 const gatewayMod = await import('./gateway.mjs')
 const healthGateway = await gatewayMod.startGateway({ host: '127.0.0.1', port: 0 })
+{
+    // A port another process holds fails the start, so the boot pass keeps health held instead of trusting that process.
+    const holder = http.createServer((req, res) => res.end('{"status":"ok"}'))
+    await new Promise((resolve) => holder.listen(0, '127.0.0.1', resolve))
+    let busyError = null
+    try {
+        await gatewayMod.startGateway({ host: '127.0.0.1', port: holder.address().port })
+    } catch (error) {
+        busyError = error
+    }
+    await new Promise((resolve) => holder.close(resolve))
+    check('the gateway start fails when its port is taken', busyError?.code === 'EADDRINUSE', String(busyError?.message || 'resolved'))
+}
 const healthResponse = await fetch(`http://127.0.0.1:${healthGateway.port}/health`)
 const healthBody = await healthResponse.json()
 check(

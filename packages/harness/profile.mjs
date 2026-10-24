@@ -1454,6 +1454,40 @@ export function profileOutdated(record) {
     return false
 }
 
+function isLink(dir) {
+    try {
+        return fs.lstatSync(dir).isSymbolicLink()
+    } catch {
+        return false
+    }
+}
+
+// Profile folders of this harness that are links. The boot pass never compiles through one: it would write into the
+// link's target, and the boot sweep reports the link and keeps health held.
+function linkedProfileDirs(record) {
+    const dirs = new Set([profileDir(record.name)])
+    for (const specialist of onDiskRoster(profileDir(record.name))?.specialists || []) {
+        if (specialist?.profileName) dirs.add(profileDir(specialist.profileName))
+    }
+    for (const specialist of Array.isArray(record.specialists) ? record.specialists : []) {
+        try {
+            dirs.add(profileDir(specialistProfileName(record.name, specialist?.name)))
+        } catch {
+            // A name that cannot get its own profile; the compile reports it.
+        }
+    }
+    const root = path.join(hermesHome(), 'profiles')
+    try {
+        for (const entry of fs.readdirSync(root)) {
+            const dir = path.join(root, entry)
+            if (isLink(dir) && readMarker(path.join(dir, 'harness-parent')) === String(record.name)) dirs.add(dir)
+        }
+    } catch {
+        // No profiles folder yet.
+    }
+    return [...dirs].filter(isLink)
+}
+
 // Runs at server start, before the gateway answers and so before Hermes loads any profile. Recompiles each saved
 // harness whose published profile directory is on disk from an older compiler. Profiles never compiled stay uncompiled, and
 // a second run finds nothing to do. The caller holds the profile lock.
@@ -1469,6 +1503,11 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
             continue
         }
         if (!outdated) continue
+        const linked = linkedProfileDirs(record)
+        if (linked.length) {
+            results.push({ name: record.name, status: 'failed', error: `profile folder is a link: ${linked.join(', ')}` })
+            continue
+        }
         const roster = onDiskRoster(profileDir(record.name))
         // Specialist tokens from before the createdAt stamp are kept only when the profile on disk is this record's.
         const sameRecord = Boolean(record.createdAt) && String(roster?.createdAt || '') === String(record.createdAt)
