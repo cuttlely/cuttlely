@@ -6528,14 +6528,25 @@ await expectCase('typed MCP server extras stay raw', async () => {
             )
         )
     )
-    const yaml = profilesFor('maMcpExtra')
+    const extraProfiles = profilesFor('maMcpExtra')
+    const yaml = extraProfiles.map((profile) => profile.yaml).join('\n')
+    const specialistYaml = extraProfiles
+        .filter((profile) => profile.name.includes('--'))
         .map((profile) => profile.yaml)
         .join('\n')
+    const chiefFile = profileFile('maMcpExtra', 'config.yaml')
+    const chiefYaml = fs.existsSync(chiefFile) ? fs.readFileSync(chiefFile, 'utf8') : ''
     if (!componentsBuilt) console.log('skip the typed MCP server extra is written raw (components not built)')
     check(
         'typed MCP server extras stay raw',
-        (!componentsBuilt || yaml.includes('keep-extra')) && !yaml.includes('do-not-launch') && yaml.includes('mcp-bridge.mjs'),
-        yaml.includes('do-not-launch') ? 'custom MCP was written raw' : 'typed extra or bridge missing'
+        (!componentsBuilt || yaml.includes('keep-extra')) &&
+            !yaml.includes('do-not-launch') &&
+            specialistYaml.includes('mcp-bridge.mjs') &&
+            Boolean(chiefYaml) &&
+            !chiefYaml.includes('mcp-bridge.mjs'),
+        yaml.includes('do-not-launch')
+            ? 'custom MCP was written raw'
+            : 'typed extra or bridge missing, or the bridge is in the chief profile'
     )
 })
 
@@ -6571,6 +6582,55 @@ await expectCase('hermes profiles carry a gateway token, not a provider key', as
         'hermes profiles carry a gateway token, not a provider key',
         profiles.length >= 2 && tokens.length === profiles.length && new Set(tokens).size === tokens.length && yamlOk && !leaked,
         `profiles ${profiles.length} tokens ${tokens.length}`
+    )
+})
+
+await expectCase('the chief profile starts no specialist bridge', async () => {
+    compileProfile(
+        saveHarness(
+            {
+                name: 'machiefbridges',
+                chatflowId: 'canvas-chief-bridges',
+                chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+                specialists: [
+                    {
+                        name: 'alpha',
+                        instructions: 'Alpha work.',
+                        model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } },
+                        modules: [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+                    },
+                    {
+                        name: 'beta',
+                        instructions: 'Beta work.',
+                        model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7-mini' } },
+                        modules: [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+                    }
+                ]
+            },
+            { overwrite: true }
+        )
+    )
+    const profiles = profilesFor('machiefbridges')
+    const chief = profiles.find((profile) => profile.name === 'machiefbridges')
+    const servers = yamlSection(chief?.yaml || '', 'mcp_servers')
+    const disabled = yamlSection(chief?.yaml || '', 'agent')
+    const specialists = profiles.filter((profile) => profile.name.includes('--'))
+    const bridged = specialists.filter(
+        (profile) => profile.yaml.includes('mcp-bridge.mjs') && profile.yaml.includes('CUTTLELY_HARNESS_GATEWAY_TOKEN')
+    )
+    check(
+        'the chief profile starts no specialist bridge',
+        Boolean(chief) &&
+            !chief.yaml.includes('mcp-bridge.mjs') &&
+            !chief.yaml.includes('--specialist') &&
+            !/(^|\n) {2}(alpha|beta):/.test(servers) &&
+            !/- (alpha|beta)\n/.test(disabled) &&
+            disabled.includes('disabled_toolsets') &&
+            specialists.length === 2 &&
+            bridged.length === specialists.length,
+        `${chief?.yaml || 'no chief profile'}\nspecialists ${specialists.map((profile) => profile.name).join(', ')} bridged ${
+            bridged.length
+        }`
     )
 })
 
@@ -12580,7 +12640,7 @@ try {
     )
     const sharedStatus = JSON.parse(fs.readFileSync(path.join(sharedDir, 'analyst-mcp.json'), 'utf8'))
     check(
-        'a specialist status stays ready when a parent bridge has no token',
+        'a specialist status stays ready when a bridge without a token runs',
         sharedStatus.tools === 1 && analystPingHeader(sharedDir) === 'ready',
         JSON.stringify(sharedStatus)
     )
