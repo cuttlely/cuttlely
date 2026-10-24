@@ -37,6 +37,7 @@ const {
     nodeClass: HarnessNode,
     assignHarnessToolNames,
     harnessToolPeersFromFlow,
+    harnessToolNameFromFlow,
     harnessOnEvent,
     storeHarnessImages,
     harnessToolOutput,
@@ -836,13 +837,13 @@ describe('Harness tool names on one agent', () => {
             { id: 'harness_1', label: 'Payroll team', name: 'one' },
             { id: 'harness_0', label: 'Payroll team', name: 'two' }
         ]
-        await expect(namesFor(cards)).resolves.toEqual(['payroll_team_2', 'payroll_team'])
+        await expect(namesFor(cards)).resolves.toEqual(['payroll_team_1', 'payroll_team'])
         const reversed = assignHarnessToolNames([
             { id: 'harness_0', label: 'Payroll team', name: 'two' },
             { id: 'harness_1', label: 'Payroll team', name: 'one' }
         ])
         expect(reversed.get('harness_0')).toBe('payroll_team')
-        expect(reversed.get('harness_1')).toBe('payroll_team_2')
+        expect(reversed.get('harness_1')).toBe('payroll_team_1')
     })
 
     it('uses the saved harness name when several cards still have the default title', () => {
@@ -868,7 +869,7 @@ describe('Harness tool names on one agent', () => {
         expect(second).toMatch(/^[a-z0-9_]{1,64}$/)
         expect(second.length).toBeLessThanOrEqual(64)
         expect(second).not.toBe(first)
-        expect(second.endsWith('_2')).toBe(true)
+        expect(second.endsWith('_1')).toBe(true)
     })
 
     it('groups cards from the tools list or from edges, and leaves a lone card alone', () => {
@@ -887,6 +888,85 @@ describe('Harness tool names on one agent', () => {
             ]
         )
         expect(byEdge.map((card: { id: string }) => card.id).sort()).toEqual(['harness_0', 'harness_1'])
+    })
+})
+
+describe('stable harness tool names', () => {
+    const team = (id: string) => ({ id, label: 'Team', name: 'team' })
+
+    it('orders ids 0 through 10 by the numeric part, not as text', () => {
+        const cards = []
+        for (let n = 0; n <= 10; n += 1) cards.push(team(`harness_${n}`))
+        const names = assignHarnessToolNames(cards.reverse())
+        expect(names.get('harness_0')).toBe('team')
+        expect(names.get('harness_2')).toBe('team_2')
+        expect(names.get('harness_10')).toBe('team_10')
+        expect(names.get('harness_10')).not.toBe('team_3')
+    })
+
+    it('keeps the other suffixes when a middle card is deleted', () => {
+        const cards = [team('harness_0'), team('harness_1'), team('harness_2')]
+        const before = assignHarnessToolNames(cards)
+        const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'harness_1'))
+        expect(before.get('harness_0')).toBe('team')
+        expect(before.get('harness_1')).toBe('team_1')
+        expect(before.get('harness_2')).toBe('team_2')
+        expect(after.get('harness_0')).toBe(before.get('harness_0'))
+        expect(after.get('harness_2')).toBe(before.get('harness_2'))
+    })
+
+    it('gives a replacement card that reuses a freed id the name that id had', () => {
+        const cards = [team('harness_0'), team('harness_1'), team('harness_2')]
+        const before = assignHarnessToolNames(cards)
+        const without = cards.filter((card) => card.id !== 'harness_1')
+        const again = assignHarnessToolNames(without.concat([team('harness_1')]))
+        expect(again.get('harness_1')).toBe(before.get('harness_1'))
+        expect(again.get('harness_0')).toBe(before.get('harness_0'))
+        expect(again.get('harness_2')).toBe(before.get('harness_2'))
+    })
+
+    it('orders agent-flow tool indexes numerically', () => {
+        const names = assignHarnessToolNames([
+            { id: 'harness_tool_10', label: 'Same', name: 'a' },
+            { id: 'harness_tool_2', label: 'Same', name: 'b' },
+            { id: 'harness_tool_0', label: 'Same', name: 'c' }
+        ])
+        expect(names.get('harness_tool_0')).toBe('same')
+        expect(names.get('harness_tool_2')).toBe('same_2')
+        expect(names.get('harness_tool_10')).toBe('same_10')
+    })
+
+    it('does not suffix a card on an agent that has no local collision', () => {
+        const nodes = [
+            harnessCard('harness_0', 'Payroll', 'a'),
+            harnessCard('harness_1', 'Payroll', 'b'),
+            harnessCard('harness_2', 'Payroll', 'c'),
+            {
+                id: 'toolAgent_0',
+                data: { name: 'toolAgent', inputs: { tools: ['{{harness_0.data.instance}}', '{{harness_1.data.instance}}'] } }
+            },
+            { id: 'toolAgent_1', data: { name: 'toolAgent', inputs: { tools: ['{{harness_2.data.instance}}'] } } }
+        ]
+        expect(harnessToolNameFromFlow('harness_2', nodes)).toBe('payroll')
+        expect(harnessToolNameFromFlow('harness_0', nodes)).toBe('payroll')
+        expect(harnessToolNameFromFlow('harness_1', nodes)).toBe('payroll_1')
+    })
+
+    it('picks one name for a card attached to two agents when those agents would differ', () => {
+        const nodes = [
+            harnessCard('harness_5', 'Payroll', 'shared'),
+            harnessCard('harness_0', 'Payroll', 'other'),
+            { id: 'toolAgent_0', data: { name: 'toolAgent', inputs: { tools: ['{{harness_5.data.instance}}'] } } },
+            {
+                id: 'toolAgent_1',
+                data: {
+                    name: 'toolAgent',
+                    inputs: { tools: ['{{harness_0.data.instance}}', '{{harness_5.data.instance}}'] }
+                }
+            }
+        ]
+        expect(harnessToolNameFromFlow('harness_0', nodes)).toBe('payroll')
+        expect(harnessToolNameFromFlow('harness_5', nodes)).toBe('payroll_5')
     })
 })
 

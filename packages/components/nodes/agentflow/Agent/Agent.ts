@@ -97,8 +97,8 @@ const sanitizeToolName = (name: string): string => {
     return sanitized.slice(0, 64)
 }
 
-// Each Harness tool on this agent, with a stable id from its place in the list. The Harness node
-// reads the card title and the saved harness name from these, not from the agent card.
+// Each Harness tool on this agent. The id ends with the list index, and tool names compare that
+// number as a number (harness_tool_2 before harness_tool_10), the same way canvas card ids are ordered.
 function harnessCardsOnAgent(tools: ITool[] | undefined): Array<{ id: string; label?: string; name?: string }> {
     const list = Array.isArray(tools) ? tools : []
     const cards: Array<{ id: string; label?: string; name?: string }> = []
