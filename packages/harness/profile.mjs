@@ -1093,7 +1093,7 @@ function unserveOnce(name, sock) {
             resolve(value)
         }
         timer = setTimeout(() => finish('timeout'), UNSERVE_TIMEOUT_MS)
-        socket.on('error', () => finish('error'))
+        socket.on('error', (error) => finish(error?.code === 'ECONNREFUSED' || error?.code === 'ENOENT' ? 'down' : 'error'))
         socket.on('data', (chunk) => {
             buf += String(chunk)
             const split = buf.indexOf('\n')
@@ -1106,7 +1106,9 @@ function unserveOnce(name, sock) {
                 return
             }
             const result = parsed?.ok === true ? parsed.result : null
+            const message = String(parsed?.error?.message || parsed?.error || result?.error || '')
             if (result && result.pending !== true && result.unserved === name) finish('unserved')
+            else if (message.includes(`profile '${name}' is not served`)) finish('not-served')
             else finish('pending')
         })
         socket.on('connect', () => {
@@ -1122,6 +1124,20 @@ export async function unserveRuntimeProfile(name) {
     for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
         const outcome = await unserveOnce(name, sock)
         if (outcome === 'unserved') return true
+        if (attempt + 1 < UNSERVE_ATTEMPTS) await delay(UNSERVE_RETRY_MS)
+    }
+    return false
+}
+
+// For a removal: true only when the runtime is confirmed not to serve this profile any more (it answered that it
+// stopped serving it, said it does not serve it, or no runtime is listening). Pending, timeouts and errors are false.
+export async function stopRuntimeProfile(name) {
+    const sock = gatewaySocketPath()
+    if (!name) return false
+    if (!sock || !fs.existsSync(sock)) return true
+    for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
+        const outcome = await unserveOnce(name, sock)
+        if (outcome === 'unserved' || outcome === 'not-served' || outcome === 'down') return true
         if (attempt + 1 < UNSERVE_ATTEMPTS) await delay(UNSERVE_RETRY_MS)
     }
     return false

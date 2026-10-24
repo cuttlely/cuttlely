@@ -373,7 +373,7 @@ async function removeHarnessRecord(name: string, workspaceId: string) {
     // Revokes the harness gateway tokens, removes the store file, then its runtime profile and specialist profiles.
     const cleanup = await loadHarness('cleanup.mjs')
     try {
-        await cleanup.deleteHarnessAndProfiles(name)
+        await cleanup.deleteHarnessAndProfiles(name, { revoked: true })
     } catch (error) {
         logger.warn(`[harness] ${name} was not deleted: ${getErrorMessage(error)}`)
         throw new AppError(
@@ -577,7 +577,7 @@ async function revokeRuntimeTokens(name: string): Promise<boolean> {
 async function removeRuntimeProfiles(name: string) {
     try {
         const cleanup = await loadHarness('cleanup.mjs')
-        await cleanup.removeHarnessProfiles(name)
+        await cleanup.removeHarnessProfiles(name, { revoked: true })
     } catch (error) {
         logger.warn(`[harness] runtime profiles of deleted ${name} were not removed: ${getErrorMessage(error)}`)
     }

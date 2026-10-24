@@ -16189,6 +16189,51 @@ await (async () => {
     )
     await cleanup.removeHarnessProfiles('mixed')
 
+    // A runtime that cannot be confirmed stopped (pending, timeout or error) keeps its profile for a later run.
+    reset()
+    saveJson('busy')
+    home('busy')
+    child('busy--a', 'busy')
+    child('busy--b', 'busy')
+    dropJson('busy')
+    cleanup.cleanupHooks.close = async (entry) => {
+        if (entry === 'busy--a') return false
+        if (entry === 'busy--b') throw new Error('timeout')
+        return true
+    }
+    const busy = await cleanup.removeHarnessProfiles('busy')
+    cleanup.cleanupHooks.close = async () => {}
+    check(
+        'a profile whose runtime is not confirmed stopped is kept and logged',
+        exists('busy--a') &&
+            exists('busy--b') &&
+            !exists('busy') &&
+            JSON.stringify(busy.removed) === JSON.stringify(['busy']) &&
+            lines.some((line) => line.includes('kept profiles/busy--a of harness "busy": its runtime could not be confirmed stopped')),
+        JSON.stringify({ busy, lines })
+    )
+    await cleanup.removeHarnessProfiles('busy')
+
+    // Revocation that works once and then fails: the delete has already revoked, so the record and profiles go
+    // without a second revocation that could fail after the record is gone.
+    reset()
+    saveJson('once')
+    home('once')
+    let revokeCalls = 0
+    const realRevoke = cleanup.cleanupHooks.revoke
+    cleanup.cleanupHooks.revoke = (...args) => {
+        revokeCalls += 1
+        if (revokeCalls > 1) throw new Error('second revocation failed')
+        return realRevoke(...args)
+    }
+    const once = await cleanup.deleteHarnessAndProfiles('once')
+    cleanup.cleanupHooks.revoke = realRevoke
+    check(
+        'a delete revokes once and finishes',
+        revokeCalls === 1 && !exists('once') && !fs.existsSync(path.join(harnessStoreDir(), 'once.json')) && once.error === null,
+        JSON.stringify({ once, revokeCalls, lines })
+    )
+
     for (const name of ['navi-harness', 'newname', 'capsx']) {
         dropJson(name)
         await cleanup.removeHarnessProfiles(name)
