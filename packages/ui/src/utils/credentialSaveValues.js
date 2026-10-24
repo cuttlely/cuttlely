@@ -6,19 +6,38 @@ const ENCODED_MASK_CHAR = /%E2%80%A2/i
 const URL_LIKE = /^[a-z][a-z0-9+.-]*:\/\//i
 
 /**
+ * The raw password of a URL-shaped value. WHATWG URL first; a connection string it refuses (a MongoDB replica set
+ * such as mongodb://u:p@db1:27017,db2:27017/app) is read from its authority: the user info is everything before the
+ * last @ ahead of the first /, ? or #, and the password is what follows its first colon.
+ */
+const urlPassword = (value) => {
+    try {
+        return new URL(value).password
+    } catch {
+        const rest = value.slice(value.indexOf('://') + 3)
+        const authority = rest.split(/[/?#]/, 1)[0]
+        const at = authority.lastIndexOf('@')
+        if (at < 0) return ''
+        const userInfo = authority.slice(0, at)
+        const colon = userInfo.indexOf(':')
+        return colon < 0 ? '' : userInfo.slice(colon + 1)
+    }
+}
+
+/**
  * True for a URL whose password is the mask, typed as shown or percent-encoded. Fails closed: a percent-encoded
- * bullet, or a URL-shaped value that does not parse or decode, counts as masked.
+ * bullet anywhere, or a password that does not percent-decode, counts as masked.
  */
 export const isMaskedUrlValue = (value) => {
     if (typeof value !== 'string') return false
     if (value.includes(URL_PASSWORD_MASK)) return true
     // A percent-encoded bullet anywhere (any case) is the mask, typed or pasted encoded.
     if (ENCODED_MASK_CHAR.test(value)) return true
-    // Fail closed: a value that looks like a URL but cannot be parsed or decoded is treated as masked, so it
+    // Fail closed: a URL-shaped value whose password cannot be read or decoded is treated as masked, so it
     // never replaces a stored password.
     if (!URL_LIKE.test(value.trim())) return false
     try {
-        const password = decodeURIComponent(new URL(value.trim()).password)
+        const password = decodeURIComponent(urlPassword(value.trim()))
         return password.includes(MASK_CHAR) || ENCODED_MASK_CHAR.test(password)
     } catch {
         return true

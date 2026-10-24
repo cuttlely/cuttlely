@@ -48,10 +48,20 @@ describe('isMaskedUrlValue fails closed', () => {
         expect(isMaskedUrlValue('redis://u:pw%e2%80%a2@h:6379')).toBe(true)
     })
 
-    it('treats a URL that does not parse or decode as masked', () => {
+    it('treats a password that does not decode as masked', () => {
         expect(isMaskedUrlValue('redis://u:%ZZ@h:6379')).toBe(true)
-        expect(isMaskedUrlValue('http://u:pw@[::1')).toBe(true)
         expect(isMaskedUrlValue('redis://u:%E0%A4%A@h:6379')).toBe(true)
+        expect(isMaskedUrlValue('mongodb://u:%ZZ@db1:27017,db2:27017/app')).toBe(true)
+    })
+
+    it('reads the password of a connection string the URL parser refuses (MongoDB replica set)', () => {
+        const replicaSet = 'mongodb://user:new-pw@db1:27017,db2:27017/app?replicaSet=rs0'
+        expect(() => new URL(replicaSet)).toThrow()
+        expect(isMaskedUrlValue(replicaSet)).toBe(false)
+        expect(isMaskedUrlValue(`mongodb://u:${M}@db1:27017,db2:27017/app`)).toBe(true)
+        const r = credentialSaveValues({ url: replicaSet }, { url: `mongodb://u:${M}@db1:27017/app` })
+        expect(r.plainDataObj).toEqual({ url: replicaSet })
+        expect(r.maskedEdits).toEqual([])
     })
 
     it('leaves plain values and real URLs alone', () => {
@@ -61,7 +71,7 @@ describe('isMaskedUrlValue fails closed', () => {
         expect(isMaskedUrlValue(undefined)).toBe(false)
     })
 
-    it('keeps a URL that fails to parse out of what is sent and reports it', () => {
+    it('keeps a URL whose password does not decode out of what is sent and reports it', () => {
         const r = credentialSaveValues({ url: 'redis://u:%ZZ@h:6379', key: 'new-value' }, { url: `redis://u:${M}@h:6379` })
         expect(r.plainDataObj).toEqual({ key: 'new-value' })
         expect(r.maskedEdits).toEqual(['url'])

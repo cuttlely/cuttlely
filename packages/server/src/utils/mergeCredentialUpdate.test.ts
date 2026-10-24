@@ -1,4 +1,4 @@
-import { hasMaskedUrlPassword, mergeCredentialUpdate, REDACTED_CREDENTIAL_VALUE } from '.'
+import { hasMaskedUrlPassword, mergeCredentialUpdate, redactCredentialWithPasswordType, REDACTED_CREDENTIAL_VALUE } from '.'
 
 describe('mergeCredentialUpdate', () => {
     const stored = {
@@ -53,8 +53,12 @@ describe('mergeCredentialUpdate', () => {
         }
     })
 
-    it('fails closed: a URL that does not parse or decode keeps the stored URL', () => {
-        for (const redisUrl of ['redis://user:%ZZ@new-host:6379', 'http://user:pw@[::1', 'redis://user:%E0%A4%A@host:6379']) {
+    it('fails closed: a password that does not decode keeps the stored URL', () => {
+        for (const redisUrl of [
+            'redis://user:%ZZ@new-host:6379',
+            'redis://user:%E0%A4%A@host:6379',
+            'mongodb://u:%ZZ@db1:27017,db2:27017/app'
+        ]) {
             expect(hasMaskedUrlPassword(redisUrl)).toBe(true)
             expect(mergeCredentialUpdate(stored, { redisUrl }).redisUrl).toBe('redis://user:pw-test@host:6379')
         }
@@ -74,6 +78,38 @@ describe('hasMaskedUrlPassword', () => {
         expect(hasMaskedUrlPassword('redis://user:%E2%80%A2@host:6379')).toBe(true)
         expect(hasMaskedUrlPassword('redis://user:%e2%80%a2@host:6379')).toBe(true)
         expect(hasMaskedUrlPassword('redis://user:%ZZ@host:6379')).toBe(true)
-        expect(hasMaskedUrlPassword('http://user:pw@[::1')).toBe(true)
+        expect(hasMaskedUrlPassword('mongodb://u:\u2022\u2022\u2022\u2022\u2022\u2022@db1:27017,db2:27017/app')).toBe(true)
+        expect(hasMaskedUrlPassword('mongodb://u:%E2%80%A2@db1:27017,db2:27017/app')).toBe(true)
+    })
+
+    it('reads the password of a connection string the URL parser refuses (MongoDB replica set)', () => {
+        const replicaSet = 'mongodb://user:new-pw@db1:27017,db2:27017/app?replicaSet=rs0'
+        expect(() => new URL(replicaSet)).toThrow()
+        expect(hasMaskedUrlPassword(replicaSet)).toBe(false)
+        expect(hasMaskedUrlPassword('mongodb://db1:27017,db2:27017/app?replicaSet=rs0')).toBe(false)
+        expect(hasMaskedUrlPassword('mongodb://u:p@w@db1:27017,db2:27017/app')).toBe(false)
+        expect(mergeCredentialUpdate({ mongoUrl: 'mongodb://user:old@db1:27017/app' }, { mongoUrl: replicaSet }).mongoUrl).toBe(replicaSet)
+    })
+})
+
+describe('redactCredentialWithPasswordType for URLs', () => {
+    const components = { mongo: { inputs: [{ name: 'mongoUrl', type: 'url' }] } } as any
+    const M = '\u2022\u2022\u2022\u2022\u2022\u2022'
+
+    it('masks the password of a replica-set connection string the URL parser refuses, and the mask round-trips', () => {
+        const stored = { mongoUrl: 'mongodb://user:secret-pw@db1:27017,db2:27017/app?replicaSet=rs0' }
+        const shown = redactCredentialWithPasswordType('mongo', stored, components)
+        expect(shown.mongoUrl).toBe(`mongodb://user:${M}@db1:27017,db2:27017/app?replicaSet=rs0`)
+        expect(shown.mongoUrl).not.toContain('secret-pw')
+        expect(hasMaskedUrlPassword(shown.mongoUrl)).toBe(true)
+        expect(mergeCredentialUpdate(stored, shown).mongoUrl).toBe(stored.mongoUrl)
+    })
+
+    it('masks an ordinary URL and leaves a URL without a password as it is', () => {
+        expect(redactCredentialWithPasswordType('mongo', { mongoUrl: 'redis://u:secret-pw@h:6379' }, components).mongoUrl).toBe(
+            `redis://u:${M}@h:6379`
+        )
+        const plain = 'mongodb://db1:27017,db2:27017/app'
+        expect(redactCredentialWithPasswordType('mongo', { mongoUrl: plain }, components).mongoUrl).toBe(plain)
     })
 })
