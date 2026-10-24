@@ -20,6 +20,7 @@ import { safeHarnessName } from './apiAccess'
 import { harnessCanvasDelete } from './canvasDelete'
 import type { IHarnessCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
+import { backgroundBootPass, beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete } from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -309,47 +310,104 @@ async function contextFor(record: { chatflowId?: string; workspaceId?: string | 
 
 let runtimeConfigured: Promise<void> | undefined
 
-// /health answers 503 until every outdated profile is compiled, so Hermes never loads a profile mid-write or from an
-// older compiler. The start script reads that 503 as "up and compiling" and waits up to
-// CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS (1800 by default) instead of its 180-second limit for a gateway that is not
-// up yet. The listener starts first, with health held, so the script sees the 503 from the start of the pass.
+/** The boot compile did not finish. Callers must not treat that as a successful start. */
+export class BootPassIncomplete extends Error {
+    readonly code = 'boot_incomplete'
+
+    constructor(message: string) {
+        super(message)
+        this.name = 'BootPassIncomplete'
+    }
+}
+
+// /health and /api/v1/ping answer 503 while outdated profiles are compiled, so the runtime never loads a profile
+// mid-write or from an older compiler. The listener starts first, with health held. The start script reads that 503
+// as "up and compiling" and waits up to CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS (180 by default, never more than 300).
+// A compile that is still running at that cap continues in the background: ping may answer 200, and chat and
+// prediction answer 503 with Retry-After until the pass finishes.
 export async function recompileBeforeHermes(gateway: {
     holdGatewayHealth: () => () => void
     startGateway: () => Promise<unknown>
     finishGatewayBoot?: () => void
 }): Promise<void> {
+    beginBootPass()
     const hold = gateway.holdGatewayHealth()
+    let released = false
     const release = () => {
+        if (released) return
+        released = true
         hold()
         gateway.finishGatewayBoot?.()
+        finishBootPass()
     }
-    // A gateway that does not start keeps the hold: profiles were not checked, so Hermes must not start on them.
+    const unfinished = (message: string): never => {
+        markBootIncomplete()
+        throw new BootPassIncomplete(message)
+    }
+    // A gateway that does not start keeps the hold: profiles were not checked, so the runtime must not start on them.
     await gateway.startGateway()
+    const pass = (async () => {
+        try {
+            await recompileOutdatedHarnessProfiles()
+        } catch (error) {
+            logger.error(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
+        }
+        // Whatever failed above, no config.yaml from an older compiler or a half-written one may stay where the
+        // runtime loads it: they are set aside, and if one cannot be (or the profiles cannot be read), health stays
+        // at 503 so the runtime does not start on it. That is a failed pass, not a finished one.
+        let loadable: string[]
+        try {
+            const profile = await loadHarness('profile.mjs')
+            loadable = await withProfileLock(async () => profile.setAsideOutdatedConfigs())
+        } catch (error) {
+            unfinished(`profiles could not be checked for an older compiler: ${getErrorMessage(error)}`)
+        }
+        if (loadable.length) {
+            unfinished(
+                `config.yaml from an older compiler could not be set aside in ${loadable.join(
+                    ', '
+                )}. Fix those profile folders and restart.`
+            )
+        }
+        release()
+    })()
+
+    const capMs = bootPassCapMs()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const capped = new Promise<'cap'>((resolve) => {
+        timer = setTimeout(() => resolve('cap'), capMs)
+        timer.unref?.()
+    })
+    let winner: 'cap' | 'done' | Error
     try {
-        await recompileOutdatedHarnessProfiles()
-    } catch (error) {
-        logger.error(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
+        winner = await Promise.race([
+            pass.then(
+                () => 'done' as const,
+                (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
+            ),
+            capped
+        ])
+    } finally {
+        if (timer) clearTimeout(timer)
     }
-    // Whatever failed above, no config.yaml from an older compiler or a half-written one may stay where Hermes loads
-    // it: they are set aside, and if one cannot be (or the profiles cannot be read), health stays at 503 so Hermes
-    // does not start on it.
-    let loadable: string[]
-    try {
-        const profile = await loadHarness('profile.mjs')
-        loadable = await withProfileLock(async () => profile.setAsideOutdatedConfigs())
-    } catch (error) {
-        logger.error(`[harness] Hermes is not started: profiles could not be checked for an older compiler: ${getErrorMessage(error)}`)
-        return
-    }
-    if (loadable.length) {
-        logger.error(
-            `[harness] Hermes is not started: config.yaml from an older compiler could not be set aside in ${loadable.join(
-                ', '
-            )}. Fix those profile folders and restart.`
+    if (winner === 'cap') {
+        const seconds = Math.round(capMs / 1000)
+        logger.warn(
+            `[harness] profile recompile is still running after ${seconds}s (cap ${seconds}s). ` +
+                'It continues in the background. Chat and prediction answer 503 until it finishes.'
         )
+        backgroundBootPass()
+        void pass.catch((error) => {
+            markBootIncomplete()
+            logger.error(`[harness] Hermes is not started: ${getErrorMessage(error)}`)
+        })
         return
     }
-    release()
+    if (winner instanceof Error) {
+        markBootIncomplete()
+        logger.error(`[harness] Hermes is not started: ${winner.message}`)
+        throw winner
+    }
 }
 
 // Each record is read again and compiled under its name lock and the profile lock (the order saves use), so a save,
@@ -413,8 +471,11 @@ function configureRuntime(): Promise<void> {
 
 // The server calls this once it listens. Importing this module starts nothing: CLI commands such as `pnpm user` load it
 // too (oclif reads every command), and the running server already holds the gateway port.
-const startHarnessRuntime = () =>
+const startHarnessRuntime = () => {
+    // Ping stays 503 from this moment, including while the harness modules load, until the compile finishes.
+    beginBootPass()
     void configureRuntime().catch((error) => logger.warn(`[harness] runtime context was not configured: ${getErrorMessage(error)}`))
+}
 
 // Runs in the background: a failed warm-up only means the next chat pays the cold start.
 const warmHarnesses = (names?: string[]) => {

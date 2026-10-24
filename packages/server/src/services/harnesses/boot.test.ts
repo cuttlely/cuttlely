@@ -3,11 +3,13 @@
 // reads config.yaml from disk.
 import harnessesService, {
     acquireNameLock,
+    BootPassIncomplete,
     recompileBeforeHermes,
     recompileOutdatedHarnessProfiles,
     setHarnessModuleLoader,
     withProfileLock
 } from './index'
+import { bootPassBlocksPing, bootPassBlocksRuns, bootPassPhase, resetBootPass } from './bootGate'
 
 describe('harness runtime start', () => {
     const order: string[] = []
@@ -17,6 +19,7 @@ describe('harness runtime start', () => {
     let holds = 0
     let unreadable = ''
     let busyMs = 0
+    let deferCompile: Promise<void> | null = null
 
     beforeEach(() => {
         order.length = 0
@@ -26,7 +29,10 @@ describe('harness runtime start', () => {
         ])
         unreadable = ''
         busyMs = 0
+        deferCompile = null
         failFor = ''
+        delete process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS
+        resetBootPass()
         sweep = ''
         holds = 0
         setHarnessModuleLoader(async (file: string) => {
@@ -62,8 +68,9 @@ describe('harness runtime start', () => {
                         if (sweep === 'throw') throw new Error('EACCES')
                         return sweep === 'stuck' ? ['/p/ops'] : []
                     },
-                    recompileOutdatedProfiles: (list: Array<{ name: string; version: number }>) =>
-                        list.map((record) => {
+                    recompileOutdatedProfiles: async (list: Array<{ name: string; version: number }>) => {
+                        if (deferCompile) await deferCompile
+                        return list.map((record) => {
                             order.push(`recompile ${record.name} v${record.version} holds ${holds}`)
                             // Synchronous work, as a real compile is.
                             const until = Date.now() + busyMs
@@ -74,10 +81,17 @@ describe('harness runtime start', () => {
                                 ? { name: record.name, status: 'failed', error: 'boom' }
                                 : { name: record.name, status: 'recompiled' }
                         })
+                    }
                 }
             }
             throw new Error(`unexpected ${file}`)
         })
+    })
+
+    afterEach(() => {
+        deferCompile = null
+        delete process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS
+        resetBootPass()
     })
 
     afterAll(() => setHarnessModuleLoader(null))
@@ -198,16 +212,53 @@ describe('harness runtime start', () => {
             sweep = mode
             let released = false
             let booted = false
+            await expect(
+                recompileBeforeHermes({
+                    holdGatewayHealth: () => () => (released = true),
+                    finishGatewayBoot: () => (booted = true),
+                    startGateway: async () => undefined
+                })
+            ).rejects.toBeInstanceOf(BootPassIncomplete)
+            expect(released).toBe(false)
+            expect(booted).toBe(false)
+            expect(bootPassPhase()).toBe('incomplete')
+            expect(order[order.length - 1]).toBe('set aside holds 0')
+        }
+    )
+
+    test('a compile that outlasts the cap continues in the background and stops blocking startup', async () => {
+        process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '0'
+        let releaseCompile: () => void = () => undefined
+        deferCompile = new Promise((resolve) => {
+            releaseCompile = resolve
+        })
+        let released = false
+        let booted = false
+        try {
             await recompileBeforeHermes({
-                holdGatewayHealth: () => () => (released = true),
-                finishGatewayBoot: () => (booted = true),
+                holdGatewayHealth: () => () => {
+                    released = true
+                },
+                finishGatewayBoot: () => {
+                    booted = true
+                },
                 startGateway: async () => undefined
             })
             expect(released).toBe(false)
             expect(booted).toBe(false)
-            expect(order[order.length - 1]).toBe('set aside holds 0')
+            expect(bootPassPhase()).toBe('background')
+            expect(bootPassBlocksPing()).toBe(false)
+            expect(bootPassBlocksRuns()).toBe(true)
+            releaseCompile()
+            for (let i = 0; i < 50 && !released; i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+            expect(released).toBe(true)
+            expect(booted).toBe(true)
+            expect(bootPassBlocksRuns()).toBe(false)
+            expect(bootPassPhase()).toBe('done')
+        } finally {
+            releaseCompile()
         }
-    )
+    })
 
     test('a failed compile still releases health once the sweep finds nothing loadable', async () => {
         failFor = 'ops'

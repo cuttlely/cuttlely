@@ -44,6 +44,7 @@ const {
     compileProfile,
     compileProfileCached,
     compileTryProfile,
+    forgetCompiledProfile,
     discardTryProfile,
     PROFILE_COMPILER_VERSION,
     recompileOutdatedProfiles,
@@ -7288,6 +7289,82 @@ await expectCase('the boot recompile does not write through a linked profile fol
                 item.unchanged &&
                 item.noMarker &&
                 item.held
+        ),
+        JSON.stringify(results)
+    )
+})
+
+await expectCase('warm-up never writes through a linked profile folder', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const treeText = (dir) => {
+        const lines = []
+        const walk = (current, prefix) => {
+            for (const name of fs.readdirSync(current).sort()) {
+                const file = path.join(current, name)
+                const stat = fs.lstatSync(file)
+                if (stat.isSymbolicLink()) {
+                    lines.push(`${prefix}${name} -> link`)
+                    continue
+                }
+                if (stat.isDirectory()) {
+                    lines.push(`${prefix}${name}/`)
+                    walk(file, `${prefix}${name}/`)
+                    continue
+                }
+                lines.push(`${prefix}${name}\n${fs.readFileSync(file, 'utf8')}`)
+            }
+        }
+        walk(dir, '')
+        return lines.join('\n')
+    }
+    const results = {}
+    for (const which of ['parent', 'specialist']) {
+        const name = `mawarmuplink${which}`
+        const record = saveHarness(
+            {
+                name,
+                chatflowId: `canvas-warmup-link-${which}`,
+                chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                specialists: [
+                    { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                    { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+                ]
+            },
+            { overwrite: true }
+        )
+        compileProfile(record)
+        forgetCompiledProfile(name)
+        const dirs = profilesFor(name).map((profile) => profile.name)
+        const moved = which === 'parent' ? name : dirs.find((dir) => dir.includes('--'))
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.cpSync(path.join(root, moved), outside, { recursive: true })
+        fs.rmSync(path.join(root, moved), { recursive: true, force: true })
+        fs.symlinkSync(outside, path.join(root, moved))
+        const before = treeText(outside)
+        let refused = ''
+        try {
+            compileProfileCached(getHarness(name))
+        } catch (error) {
+            refused = `${error?.code || ''} ${error?.message || error}`
+        }
+        const warmed = await warmHarnessProfiles({ names: [name], healthWaitMs: 0 })
+        const after = treeText(outside)
+        results[which] = {
+            refused,
+            warmed: warmed.length,
+            unchanged: before === after,
+            stillLinked: fs.lstatSync(path.join(root, moved)).isSymbolicLink()
+        }
+        fs.rmSync(path.join(root, moved), { force: true })
+        fs.rmSync(outside, { recursive: true, force: true })
+        for (const dir of dirs) fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    check(
+        'warm-up never writes through a linked profile folder',
+        Object.values(results).every(
+            (item) => item.refused.includes('profile_link') && item.warmed === 0 && item.unchanged && item.stillLinked
         ),
         JSON.stringify(results)
     )

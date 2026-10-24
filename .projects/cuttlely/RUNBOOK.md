@@ -106,10 +106,10 @@ The start script:
 
 -   Exits early with `pnpm install && pnpm build` when the checkout is not built, and with setup steps when the chosen Python cannot import the runtime. It uses the first of `HERMES_PYTHON`, `hermes/.venv/bin/python` or `python3`.
 -   Picks a Node that can load `node:sqlite` with `scripts/pick-cuttlely-node.mjs` (PATH's `node`, the `--experimental-sqlite` flag, or a Node 24 from nvm).
--   Starts the server first and the runtime only after the harness gateway answers `GET /health` on `CUTTLELY_HARNESS_GATEWAY_PORT` (default 43118, wait `CUTTLELY_GATEWAY_WAIT_SECONDS`, default 180).
+-   Starts the server first and the runtime only after the harness gateway answers `GET /health` on `CUTTLELY_HARNESS_GATEWAY_PORT` (default 43118, wait `CUTTLELY_GATEWAY_WAIT_SECONDS`, default 180). Once the gateway is up and compiling profiles, that wait is `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` (default 180, capped at 300). On the cap the script logs the timeout and starts the runtime when the compile finishes.
 -   Supervises the runtime: restarts it with backoff up to `CUTTLELY_HERMES_MAX_RESTARTS`, ignores missed health checks during `CUTTLELY_HERMES_HEALTH_GRACE`, and needs `CUTTLELY_HERMES_HEALTH_FAILS` misses over `CUTTLELY_HERMES_HEALTH_WINDOW` before a restart. A run with an open event stream is not restarted for missed checks.
 
-`GET /api/v1/ping` answers `pong` while the runtime is `up`, `degraded` or `restarting` (the `X-Cuttlely-Hermes` header says which) and HTTP 503 `hermes down` after the restart limit; the server itself stays up. The status file is `$CUTTLELY_DATA_DIR/hermes-supervisor.json`.
+`GET /api/v1/ping` answers 503 `profiles compiling` (`Retry-After: 30`) until the boot profile compile finishes. After that it answers `pong` while the runtime is `up`, `degraded` or `restarting` (the `X-Cuttlely-Hermes` header says which) and HTTP 503 `hermes down` after the restart limit; the server itself stays up. If the compile runs past the startup cap, ping may answer `pong` while chat and prediction still answer 503 until the compile finishes. The status file is `$CUTTLELY_DATA_DIR/hermes-supervisor.json`.
 
 **Harness model and key (D9).** Connect a chat-model node to Harness Prime, select a credential on it when the node needs one, and save. Keys never come from the shell or the runtime's env files. Each harness profile under `$CUTTLELY_HERMES_HOME/profiles/` gets a `model:` block pointing at the loopback gateway and a per-profile gateway token, never a provider key. Never commit anything under `.cuttlely/`.
 

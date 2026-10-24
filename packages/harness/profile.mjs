@@ -919,8 +919,10 @@ function setAsideConfig(dir) {
 
 // After any failed compile (boot, warm-up or a chat): the parent and every directory whose harness-parent names it,
 // including a specialist this compile just added. Best effort; the boot pass ends with setAsideOutdatedConfigs.
+// A linked folder is left alone: moving its config would write through the link.
 function setAsideUnfinishedConfigs(profileName) {
-    setAsideConfig(profileDir(profileName))
+    const parent = profileDir(profileName)
+    if (!isLink(parent)) setAsideConfig(parent)
     const root = path.join(hermesHome(), 'profiles')
     let entries = []
     try {
@@ -979,8 +981,10 @@ export function compileProfile(record, options = {}) {
     try {
         return compileProfileFiles(record, options)
     } catch (error) {
-        // A name taken by another harness is refused before anything is written; those directories are not ours.
-        if (!options.tryProfile && error?.code !== 'name_taken') setAsideUnfinishedConfigs(options.profileName || record.name)
+        // A name taken by another harness, or a folder that is a link, is refused before anything is written.
+        if (!options.tryProfile && error?.code !== 'name_taken' && error?.code !== 'profile_link') {
+            setAsideUnfinishedConfigs(options.profileName || record.name)
+        }
         throw error
     }
 }
@@ -988,6 +992,14 @@ export function compileProfile(record, options = {}) {
 function compileProfileFiles(record, options = {}) {
     const profileName = options.profileName || record.name
     const tryProfile = Boolean(options.tryProfile)
+    // Every caller (boot, warm-up, a chat, a canvas try) stops here. Writing would follow the link.
+    const linked = linkedProfileDirs(record, profileName)
+    if (linked.length) {
+        throw new HarnessError(
+            'profile_link',
+            `Harness "${record.name}" cannot be compiled: profile folder is a link: ${linked.join(', ')}`
+        )
+    }
     if (!tryProfile) {
         const taken = profileDestinationConflicts(record, profileName)
         if (taken.length) {
@@ -1462,16 +1474,23 @@ function isLink(dir) {
     }
 }
 
-// Profile folders of this harness that are links. The boot pass never compiles through one: it would write into the
-// link's target, and the boot sweep reports the link and keeps health held.
-function linkedProfileDirs(record) {
-    const dirs = new Set([profileDir(record.name)])
-    for (const specialist of onDiskRoster(profileDir(record.name))?.specialists || []) {
-        if (specialist?.profileName) dirs.add(profileDir(specialist.profileName))
+// Profile folders this compile would write that are links. Compiling through one would write into the link's target.
+// profileName is the directory being compiled (a try uses its own name, not the saved harness name).
+function linkedProfileDirs(record, profileName = record?.name) {
+    const home = String(profileName || record?.name || '')
+    const owner = String(record?.name || home)
+    const dirs = new Set()
+    const homeDir = home ? profileDir(home) : ''
+    if (homeDir) dirs.add(homeDir)
+    // A linked home is enough. Don't read the target looking for more folders.
+    if (homeDir && !isLink(homeDir)) {
+        for (const specialist of onDiskRoster(homeDir)?.specialists || []) {
+            if (specialist?.profileName) dirs.add(profileDir(specialist.profileName))
+        }
     }
-    for (const specialist of Array.isArray(record.specialists) ? record.specialists : []) {
+    for (const specialist of Array.isArray(record?.specialists) ? record.specialists : []) {
         try {
-            dirs.add(profileDir(specialistProfileName(record.name, specialist?.name)))
+            if (home) dirs.add(profileDir(specialistProfileName(home, specialist?.name)))
         } catch {
             // A name that cannot get its own profile; the compile reports it.
         }
@@ -1480,7 +1499,9 @@ function linkedProfileDirs(record) {
     try {
         for (const entry of fs.readdirSync(root)) {
             const dir = path.join(root, entry)
-            if (isLink(dir) && readMarker(path.join(dir, 'harness-parent')) === String(record.name)) dirs.add(dir)
+            if (!isLink(dir)) continue
+            const parent = readMarker(path.join(dir, 'harness-parent'))
+            if (parent === owner || (home && parent === home)) dirs.add(dir)
         }
     } catch {
         // No profiles folder yet.
