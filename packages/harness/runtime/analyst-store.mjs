@@ -1818,7 +1818,8 @@ async function queryUrlPostgres(
     const begin = async (readOnly) => {
         await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')
         await client.query(`SET LOCAL statement_timeout = ${ms}`)
-        // The text check reads '...' as standard SQL strings, so Postgres must too.
+        // Every analyst statement check reads '...' as standard SQL strings (where one statement ends depends on
+        // it), so Postgres must too, for every caller.
         await client.query('SET LOCAL standard_conforming_strings = on')
         // The node puts pg_catalog first in the search path for the check and the query alike, so a bare name finds
         // the built-in before anything with the same name elsewhere.
@@ -1858,11 +1859,19 @@ async function queryUrlPostgres(
         if (scoped) {
             await begin(false)
             try {
-                if (readOnlySql) await refuseRiskyTypes(runner, urlStoreKey(postgresUrl))
+                if (readOnlySql) await refuseRiskyTypes(runner)
                 selected = await resolveRelations(runner, relations)
-                checked = await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl), {
-                    followViews: readOnlySql
-                })
+                checked = await checkStatementScope(
+                    client,
+                    runner,
+                    text,
+                    selected,
+                    isRowQuery,
+                    readOnlySql ? '' : urlStoreKey(postgresUrl),
+                    {
+                        followViews: readOnlySql
+                    }
+                )
                 checkedBackend = await backend()
             } catch (error) {
                 throw await hinted(error)
@@ -1873,8 +1882,9 @@ async function queryUrlPostgres(
             // No selection: the node still resolves every called function through the catalog first, on every page.
             await begin(false)
             try {
-                await refuseRiskyTypes(runner, urlStoreKey(postgresUrl))
-                checked = await checkStatementRoutines(client, runner, text, isRowQuery, urlStoreKey(postgresUrl))
+                await refuseRiskyTypes(runner)
+                // No cache key: the node's catalog scans run fresh before every parse.
+                checked = await checkStatementRoutines(client, runner, text, isRowQuery, '')
                 checkedBackend = await backend()
             } catch (error) {
                 throw await hinted(error)

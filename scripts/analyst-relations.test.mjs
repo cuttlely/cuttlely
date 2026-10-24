@@ -1467,6 +1467,45 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
     })
 
+    it('refuses every node query while a catalog object can call code the statement does not show', async (t) => {
+        if (skipped(t)) return
+        const cases = [
+            [
+                `CREATE TYPE public.feel AS (v int); CREATE FUNCTION public.feel_json(public.feel) RETURNS json LANGUAGE sql AS 'SELECT to_json(pg_sleep(0))';
+                 CREATE CAST (public.feel AS json) WITH FUNCTION public.feel_json(public.feel)`,
+                /cast from feel to json/,
+                'DROP TYPE public.feel CASCADE; DROP FUNCTION IF EXISTS public.feel_json(public.feel)'
+            ],
+            [
+                `CREATE FUNCTION public.zero() RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT 0'; CREATE INDEX items_zero ON public.items ((id + public.zero()))`,
+                /index items_zero/,
+                'DROP INDEX public.items_zero; DROP FUNCTION public.zero()'
+            ],
+            [
+                `CREATE DOMAIN public.ticked AS int CHECK (VALUE < nextval('public.counter'))`,
+                /domains whose CHECK could run other code.*public\.ticked/,
+                'DROP DOMAIN public.ticked'
+            ],
+            [
+                `CREATE FUNCTION public.on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS 'BEGIN END'; CREATE EVENT TRIGGER watch_ddl ON ddl_command_end EXECUTE FUNCTION public.on_ddl()`,
+                /event trigger watch_ddl/,
+                'DROP EVENT TRIGGER watch_ddl; DROP FUNCTION public.on_ddl()'
+            ]
+        ]
+        for (const [create, expected, drop] of cases) {
+            await owner.query(create)
+            resetRiskyDomainCacheForTests()
+            try {
+                await refusal(queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }), expected)
+            } finally {
+                await owner.query(drop)
+                resetRiskyDomainCacheForTests()
+            }
+        }
+        const ok = await queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true })
+        assert.equal(ok.rows[0].v, 1)
+    })
+
     it('checks TABLESAMPLE methods and refuses foreign tables', async (t) => {
         if (skipped(t)) return
         // A sampling method's handler is checked like any function; the built-in ones are volatile and refused.
@@ -1487,7 +1526,7 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             CREATE FOREIGN TABLE public.outside (a text) SERVER files OPTIONS (filename '/dev/null');
             GRANT SELECT ON public.outside TO PUBLIC`)
         try {
-            await refusal(queryAnalystUrl(url, 'SELECT a FROM outside LIMIT 1', { readOnlySql: true }), /reads a foreign table/)
+            await refusal(queryAnalystUrl(url, 'SELECT a FROM outside LIMIT 1', { readOnlySql: true }), /foreign-data wrapper file_fdw/)
             // A foreign partition is expanded by the planner, after the check, so the database-wide scan refuses it.
             await owner.query(`CREATE TABLE public.parted (a text) PARTITION BY LIST (a); GRANT SELECT ON public.parted TO PUBLIC;
                 CREATE FOREIGN TABLE public.fpart PARTITION OF public.parted FOR VALUES IN ('x') SERVER files OPTIONS (filename '/dev/null')`)

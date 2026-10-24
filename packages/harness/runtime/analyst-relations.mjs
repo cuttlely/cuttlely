@@ -773,8 +773,23 @@ UNION
 SELECT 'foreign table ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || ' (an inheritance child or partition)'
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind = 'f' AND EXISTS (SELECT 1 FROM pg_inherits i WHERE i.inhrelid = c.oid)
+UNION
+-- Every other catalog object that calls a function outside pg_catalog: a cast to json or jsonb, which to_json
+-- and to_jsonb look up without it appearing in the statement (other casts and operators appear in the statement
+-- and are checked per query), an index expression or predicate the planner can simplify, a domain or table constraint, an event
+-- trigger that fires on the check's temporary view, a range, operator or text search object. Views and policies
+-- are followed per query instead, and triggers and column defaults do not run on a read. A domain constraint
+-- calling a volatile built-in such as nextval is refused too, since parsing a literal runs it.
+SELECT pg_describe_object(d.classid, d.objid, d.objsubid)
+FROM pg_depend d JOIN pg_proc p ON p.oid = d.refobjid JOIN pg_namespace pn ON pn.oid = p.pronamespace
+WHERE d.refclassid = 'pg_proc'::regclass AND d.deptype IN ('n', 'a')
+  AND d.classid NOT IN ('pg_rewrite'::regclass, 'pg_policy'::regclass, 'pg_trigger'::regclass, 'pg_attrdef'::regclass, 'pg_proc'::regclass, 'pg_operator'::regclass)
+  AND (d.classid <> 'pg_cast'::regclass OR EXISTS (SELECT 1 FROM pg_cast c WHERE c.oid = d.objid AND c.casttarget IN ('json'::regtype, 'jsonb'::regtype)))
+  AND (pn.nspname <> 'pg_catalog' OR (p.provolatile = 'v' AND d.classid = 'pg_constraint'::regclass))
+UNION
+SELECT 'event trigger ' || quote_ident(e.evtname) FROM pg_event_trigger e WHERE e.evtenabled <> 'D'
 ORDER BY 1`
-const riskyTypeCache = new Map()
+const riskyTypeCache = new Map() // kept for callers that pass a cache key; the node scans uncached
 
 export function scopeRiskyTypes(names) {
     return `Cuttlely refused this query: this database has types whose input runs code that is not built in, or objects that call code that is not built in or cannot be checked, and it could run while a query is checked: ${refusedList(
