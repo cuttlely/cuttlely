@@ -1,24 +1,20 @@
-import { pbkdf2Sync } from 'crypto'
-
 /**
  * Safe description of the LangSmith credential a tracer is built with.
- * Never contains the API key itself: only a short prefix, the length and a short fingerprint
- * (PBKDF2-SHA256 with the fixed salt below, so the same key can be compared from another machine).
+ * Nothing derived from the API key value is included, only its length. The credential id says which stored
+ * credential was used; a hash of the value without a server-side secret could be checked against guesses
+ * offline, and a keyed hash would need its own secret to manage, so the id and the length are enough.
  */
 export interface LangSmithCredentialShape {
     credentialId: string
     credentialDataEmpty: boolean
     fieldNames: string[]
-    apiKeyPrefix: string
     apiKeyLength: number
-    apiKeyFingerprint: string
     endpoint: string
     project: string
 }
 
-const PREFIX_LENGTH = 5
-export const FINGERPRINT_SALT = 'cuttlely-langsmith-fingerprint'
-export const FINGERPRINT_ITERATIONS = 2000
+/** Headers of a failed response passed on to the SDK; everything else is dropped. */
+export const FORWARDED_ERROR_HEADERS = ['retry-after', 'content-type'] as const
 
 /** Origin and path only: user info, query and fragment can carry secrets and are left out. */
 export const endpointForLog = (endpoint: string): string => {
@@ -29,9 +25,6 @@ export const endpointForLog = (endpoint: string): string => {
         return '(unparsed)'
     }
 }
-
-export const apiKeyFingerprint = (key: string): string =>
-    key ? pbkdf2Sync(key, FINGERPRINT_SALT, FINGERPRINT_ITERATIONS, 6, 'sha256').toString('hex') : ''
 
 export const describeLangSmithCredential = (
     credentialId: string | undefined,
@@ -46,9 +39,7 @@ export const describeLangSmithCredential = (
         credentialId: credentialId ?? '',
         credentialDataEmpty: Object.keys(data).length === 0,
         fieldNames: Object.keys(data).sort(),
-        apiKeyPrefix: key.slice(0, Math.min(PREFIX_LENGTH, Math.floor(key.length / 4))),
         apiKeyLength: key.length,
-        apiKeyFingerprint: apiKeyFingerprint(key),
         endpoint: typeof endpoint === 'string' && endpoint ? endpointForLog(endpoint) : '(default)',
         project: typeof project === 'string' && project ? project : '(default)'
     }
@@ -70,7 +61,7 @@ export const keepConfiguredLangSmithTarget = (
 
 /**
  * fetch wrapper for the LangSmith client that reports failed uploads with the flow id and the credential shape
- * (id, field names, key prefix, length and fingerprint, endpoint origin and path, project), for an error status
+ * (id, field names, key length, endpoint origin and path, project), for an error status
  * and for a request that fails outright, which is rethrown as a plain error with only its name. The key, the
  * bodies and error messages are not logged or passed on.
  */
@@ -106,15 +97,21 @@ export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: Lan
                 )}`
             )
             // The SDK puts the response body in the error it logs, and a server or proxy can echo request details
-            // or in the status text. Hand it the same status and headers with a short body and no status text instead.
+            // or in the status text or headers. Hand it the same status with a short body, no status text and only
+            // the headers it needs (retry-after for backoff, content-type for parsing).
             try {
                 await response.body?.cancel()
             } catch {
                 // the body is not needed
             }
+            const headers = new Headers()
+            for (const name of FORWARDED_ERROR_HEADERS) {
+                const value = response.headers?.get?.(name)
+                if (value !== null && value !== undefined) headers.set(name, value)
+            }
             return new Response(`LangSmith request failed with status ${response.status}`, {
                 status: response.status,
-                headers: response.headers
+                headers
             })
         }
         return response

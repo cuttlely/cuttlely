@@ -3,7 +3,6 @@ import { AsyncLocalStorageProviderSingleton } from '@langchain/core/singletons'
 import { Client } from 'langsmith'
 import { additionalCallbacks } from './handler'
 import * as utils from './utils'
-import { pbkdf2Sync } from 'crypto'
 import { describeLangSmithCredential, keepConfiguredLangSmithTarget, langSmithFailureLoggingFetch } from './langsmithCredentialDiagnostics'
 
 describe('describeLangSmithCredential', () => {
@@ -21,27 +20,29 @@ describe('describeLangSmithCredential', () => {
             credentialId: 'cred-1',
             credentialDataEmpty: false,
             fieldNames: ['langSmithApiKey', 'langSmithEndpoint'],
-            apiKeyPrefix: 'lsv2_',
             apiKeyLength: key.length,
-            apiKeyFingerprint: pbkdf2Sync(key, 'cuttlely-langsmith-fingerprint', 2000, 6, 'sha256').toString('hex'),
             endpoint: 'https://api.smith.langchain.com',
             project: 'proj'
         })
-        expect(JSON.stringify(shape)).not.toContain(key.slice(5))
+        expect(Object.keys(shape)).not.toContain('apiKeyPrefix')
+        expect(Object.keys(shape)).not.toContain('apiKeyFingerprint')
+        expect(JSON.stringify(shape)).not.toContain('lsv2')
+        expect(JSON.stringify(shape)).not.toContain(key.slice(0, 3))
     })
 
     it('flags empty credential data and a missing key', () => {
         const shape = describeLangSmithCredential('cred-2', {}, undefined, undefined, undefined)
         expect(shape.credentialDataEmpty).toBe(true)
         expect(shape.apiKeyLength).toBe(0)
-        expect(shape.apiKeyPrefix).toBe('')
-        expect(shape.apiKeyFingerprint).toBe('')
         expect(shape.endpoint).toBe('(default)')
         expect(shape.project).toBe('(default)')
     })
 
-    it('shows less of a short value', () => {
-        expect(describeLangSmithCredential('c', {}, 'abcdefgh', '', '').apiKeyPrefix).toBe('ab')
+    it('logs the same shape for two different values of the same length', () => {
+        const a = describeLangSmithCredential('c', {}, 'lsv2_pt_aaaaaaaa', '', '')
+        const b = describeLangSmithCredential('c', {}, 'zzzzzzzzzzzzzzzz', '', '')
+        expect(a).toEqual(b)
+        expect(a.apiKeyLength).toBe(16)
     })
 })
 
@@ -66,7 +67,10 @@ describe('langSmithFailureLoggingFetch', () => {
         expect(line).toContain('path=/runs/multipart')
         expect(line).toContain('flowId=flow-1')
         expect(line).toContain('"credentialId":"cred-1"')
-        expect(line).toContain('"apiKeyPrefix":"lsv2"')
+        expect(line).toContain('"apiKeyLength":19')
+        expect(line).not.toContain('lsv2')
+        expect(line).not.toContain('apiKeyPrefix')
+        expect(line).not.toContain('apiKeyFingerprint')
         expect(line).not.toContain('secret-value')
         expect(line).not.toContain('secretvalue')
     })
@@ -76,7 +80,13 @@ describe('langSmithFailureLoggingFetch', () => {
             new Response('echo x-api-key: secret-value', {
                 status: 429,
                 statusText: 'echo secret-value',
-                headers: { 'retry-after': '3' }
+                headers: {
+                    'retry-after': '3',
+                    'content-type': 'application/json',
+                    'set-cookie': 'session=secret-value',
+                    'x-echo-api-key': 'secret-value',
+                    'www-authenticate': 'Bearer secret-value'
+                }
             })
         ) as any
         jest.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -85,6 +95,11 @@ describe('langSmithFailureLoggingFetch', () => {
         expect(res.status).toBe(429)
         expect(res.statusText).toBe('')
         expect(res.headers.get('retry-after')).toBe('3')
+        expect(res.headers.get('content-type')).toBe('application/json')
+        expect(res.headers.get('x-echo-api-key')).toBeNull()
+        expect(res.headers.get('www-authenticate')).toBeNull()
+        expect([...res.headers.keys()].sort()).toEqual(['content-type', 'retry-after'])
+        expect(JSON.stringify([...res.headers.entries()])).not.toContain('secret-value')
         const body = await res.text()
         expect(body).toBe('LangSmith request failed with status 429')
         expect(body).not.toContain('secret-value')
@@ -161,5 +176,28 @@ describe('LangSmith tracer inside runWithAbortSignal', () => {
             expect(tracer.client).toBeInstanceOf(Client)
             expect((tracer.client as any).apiKey).toBe('lsv2_pt_test_only_value')
         })
+    })
+
+    it('a flow credential with no value falls back to the server env LangSmith key (docs/reference/langsmith-tracing.md)', async () => {
+        const saved = { LANGSMITH_API_KEY: process.env.LANGSMITH_API_KEY, LANGCHAIN_API_KEY: process.env.LANGCHAIN_API_KEY }
+        process.env.LANGSMITH_API_KEY = 'lsv2_pt_server_env_test_value'
+        delete process.env.LANGCHAIN_API_KEY
+        try {
+            jest.spyOn(utils, 'getCredentialData').mockResolvedValue({})
+            const options = {
+                chatflowid: 'flow-2',
+                analytic: JSON.stringify({ langSmith: { status: true, credentialId: 'cred-empty', projectName: 'Flow-Project' } })
+            }
+            const callbacks = await additionalCallbacks({ inputs: {} } as any, options)
+            const tracer = callbacks.find((cb: any) => cb?.name === 'langchain_tracer')
+            expect(tracer).toBeDefined()
+            expect(tracer.projectName).toBe('Flow-Project')
+            expect((tracer.client as any).apiKey).toBe('lsv2_pt_server_env_test_value')
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name]
+                else process.env[name] = value
+            }
+        }
     })
 })

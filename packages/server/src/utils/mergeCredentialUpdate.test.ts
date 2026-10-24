@@ -1,4 +1,4 @@
-import { mergeCredentialUpdate, REDACTED_CREDENTIAL_VALUE } from '.'
+import { hasMaskedUrlPassword, mergeCredentialUpdate, REDACTED_CREDENTIAL_VALUE } from '.'
 
 describe('mergeCredentialUpdate', () => {
     const stored = {
@@ -45,5 +45,35 @@ describe('mergeCredentialUpdate', () => {
     it('treats a missing update as no change', () => {
         expect(mergeCredentialUpdate(stored, undefined)).toEqual(stored)
         expect(mergeCredentialUpdate(stored, null)).toEqual(stored)
+    })
+
+    it('fails closed: a percent-encoded bullet in the password keeps the stored URL', () => {
+        for (const redisUrl of ['redis://user:%E2%80%A2%E2%80%A2@new-host:6379', 'redis://user:pw%e2%80%a2@new-host:6379']) {
+            expect(mergeCredentialUpdate(stored, { redisUrl }).redisUrl).toBe('redis://user:pw-test@host:6379')
+        }
+    })
+
+    it('fails closed: a URL that does not parse or decode keeps the stored URL', () => {
+        for (const redisUrl of ['redis://user:%ZZ@new-host:6379', 'http://user:pw@[::1', 'redis://user:%E0%A4%A@host:6379']) {
+            expect(hasMaskedUrlPassword(redisUrl)).toBe(true)
+            expect(mergeCredentialUpdate(stored, { redisUrl }).redisUrl).toBe('redis://user:pw-test@host:6379')
+        }
+    })
+})
+
+describe('hasMaskedUrlPassword', () => {
+    it('is false for plain values and real URLs', () => {
+        expect(hasMaskedUrlPassword('lsv2_pt_new_test_value')).toBe(false)
+        expect(hasMaskedUrlPassword('not a url %ZZ')).toBe(false)
+        expect(hasMaskedUrlPassword('redis://user:pw%20x@host:6379')).toBe(false)
+        expect(hasMaskedUrlPassword('https://api.smith.langchain.com')).toBe(false)
+    })
+
+    it('is true for the mask as shown, encoded in any case, or in a URL that fails to parse or decode', () => {
+        expect(hasMaskedUrlPassword('redis://user:\u2022\u2022\u2022\u2022\u2022\u2022@host:6379')).toBe(true)
+        expect(hasMaskedUrlPassword('redis://user:%E2%80%A2@host:6379')).toBe(true)
+        expect(hasMaskedUrlPassword('redis://user:%e2%80%a2@host:6379')).toBe(true)
+        expect(hasMaskedUrlPassword('redis://user:%ZZ@host:6379')).toBe(true)
+        expect(hasMaskedUrlPassword('http://user:pw@[::1')).toBe(true)
     })
 })

@@ -514,9 +514,18 @@ describe('switched route groups', () => {
     it('has no credential reveal route: a Builder gets 404 and no controller runs', async () => {
         memberships.set('builder|team-a', grant(builtInPermissionKeys('builder') || []))
         const builder = { id: 'builder', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
-        const res = await call(credentialsRouter, builder, { method: 'get', path: '/cred-1/reveal', permission: 'credentials:update' })
-        expect(res.status).toBe(404)
+        for (const method of ['get', 'post', 'put'] as const) {
+            const res = await call(credentialsRouter, builder, { method, path: '/cred-1/reveal', permission: 'credentials:update' })
+            expect(res.status).toBe(404)
+        }
         expect(hits.n).toBe(0)
+        const routePaths = ((credentialsRouter as any).stack ?? [])
+            .map((layer: any) => layer.route?.path)
+            .filter((path: unknown) => path !== undefined)
+            .flat()
+            .map(String)
+        expect(routePaths.length).toBeGreaterThan(0)
+        expect(routePaths.filter((path: string) => /reveal/i.test(path))).toEqual([])
     })
 
     it('refuses check history for an API key that can run a check and cannot read messages', async () => {
