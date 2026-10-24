@@ -372,6 +372,7 @@ describe('analyst relations: bakery database', () => {
         if (!admin) return
         await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
         await admin.query(`DROP ROLE IF EXISTS "${reader}"`).catch(() => {})
+        await admin.query(`DROP ROLE IF EXISTS "${etl}"`).catch(() => {})
         await admin.end().catch(() => {})
     })
 
@@ -1943,6 +1944,7 @@ describe('analyst relations: text search configuration types', () => {
     const suffix = randomBytes(4).toString('hex')
     const dbName = `tsearch_${suffix}`
     const reader = `tsearch_reader_${suffix}`
+    const etl = `tsearch_etl_${suffix}`
     const password = randomBytes(18).toString('base64url')
     let admin = null
     let owner = null
@@ -1986,7 +1988,20 @@ describe('analyst relations: text search configuration types', () => {
             CREATE MATERIALIZED VIEW util.mv_region_renewal_120d_apj AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals WHERE false;
             CREATE MATERIALIZED VIEW util.mv_region_renewal_window AS SELECT r.*, w.window_days, to_tsvector('english', r.notes) AS notes_doc
                 FROM util.renewals r CROSS JOIN (VALUES (90), (120)) AS w(window_days);`)
-        await owner.query(`GRANT USAGE ON SCHEMA s, util TO "${reader}"; GRANT SELECT ON ALL TABLES IN SCHEMA s, util TO "${reader}"`)
+        // Helper functions like the analytics._etl_safe_* ones, owned by a role that is not a superuser so they run.
+        await admin.query(`CREATE ROLE "${etl}" NOLOGIN`)
+        await owner.query(`CREATE SCHEMA analytics AUTHORIZATION "${etl}"; GRANT USAGE ON SCHEMA util TO "${etl}"; GRANT SELECT ON util.renewals TO "${etl}"; SET ROLE "${etl}";
+            CREATE FUNCTION analytics._etl_safe_numeric(text) RETURNS numeric LANGUAGE sql IMMUTABLE
+                AS $$ SELECT CASE WHEN $1 ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN $1::numeric END $$;
+            CREATE FUNCTION analytics._etl_safe_date(text) RETURNS date LANGUAGE plpgsql STABLE
+                AS $$ BEGIN RETURN $1::date; EXCEPTION WHEN others THEN RETURN NULL; END $$;
+            CREATE MATERIALIZED VIEW analytics.mv_safe_renewals AS SELECT account_id, analytics._etl_safe_numeric(renewal_acv::text) AS acv,
+                analytics._etl_safe_date(renewal_ts::text) AS renewal_date, to_tsvector('english', notes) AS notes_doc FROM util.renewals;
+            CREATE VIEW analytics.safe_renewals AS SELECT account_id, analytics._etl_safe_numeric(renewal_acv::text) AS acv FROM util.renewals;
+            RESET ROLE;`)
+        await owner.query(
+            `GRANT USAGE ON SCHEMA s, util, analytics TO "${reader}"; GRANT SELECT ON ALL TABLES IN SCHEMA s, util, analytics TO "${reader}"`
+        )
         url = urlFor(reader, password, dbName)
     })
 
@@ -2101,6 +2116,50 @@ describe('analyst relations: text search configuration types', () => {
         ]
         for (const [sql, relations] of shapes) {
             for (const options of [scoped(...relations), unscoped]) assert.equal((await queryAnalystUrl(url, sql, options)).rows.length, 2)
+        }
+    })
+
+    it('runs views over analytics._etl_safe_* helper functions next to a text search column', async (t) => {
+        if (skipped(t)) return
+        for (const name of ['analytics.mv_safe_renewals', 'analytics.safe_renewals']) {
+            const sql = `SELECT account_id, acv FROM ${name} ORDER BY account_id LIMIT 5`
+            for (const options of [scoped(name), unscoped]) {
+                const rows = (await queryAnalystUrl(url, sql, options)).rows
+                assert.deepEqual(
+                    rows.map((row) => Number(row.acv)),
+                    [500, 800],
+                    name
+                )
+            }
+        }
+    })
+
+    it('runs a renewal view whose pg_get_viewdef stores a regconfig cast, and keeps pg_get_viewdef itself refused', async (t) => {
+        if (skipped(t)) return
+        // QA read the definitions with pg_get_viewdef as the owner: to_tsvector('english', ...) is stored as 'english'::regconfig.
+        const definition = await owner.query("SELECT pg_get_viewdef('util.mv_region_renewal_outlook'::regclass) AS d")
+        assert.match(definition.rows[0].d, /'english'::regconfig/)
+        const sql = 'SELECT account_id, notes_doc FROM util.mv_region_renewal_outlook ORDER BY 1 LIMIT 5'
+        for (const options of [scoped('util.mv_region_renewal_outlook'), unscoped])
+            assert.equal((await queryAnalystUrl(url, sql, options)).rows.length, 2)
+        const viewdef = "SELECT pg_get_viewdef('util.mv_region_renewal_outlook'::regclass) AS d LIMIT 1"
+        await refusal(queryAnalystUrl(url, viewdef, scoped('util.mv_region_renewal_outlook')), /pg_get_viewdef/)
+        const error = await queryAnalystUrl(url, viewdef, unscoped).then(
+            () => null,
+            (caught) => caught
+        )
+        assert.match(String(error?.message), /pg_get_viewdef is not allowed/)
+        assert.doesNotMatch(String(error?.message), /table selection/)
+    })
+
+    it('refuses an object-identifier type inside a selected view definition, but not regconfig', async (t) => {
+        if (skipped(t)) return
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM s.self_name LIMIT 1', scoped('s.self_name')), selection)
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.mv_english LIMIT 1', scoped('s.mv_english'))).rows.length, 1)
+        for (const type of ['regprocedure', 'regoper', 'regoperator', 'regcollation']) {
+            await refusal(queryAnalystUrl(url, `SELECT id::oid::${type} FROM s.tickets LIMIT 1`, scoped('s.tickets')), selection)
+            const unscopedError = await queryAnalystUrl(url, `SELECT 0::oid::${type} AS v LIMIT 1`, unscoped).catch((error) => error)
+            assert.doesNotMatch(String(unscopedError?.message || ''), /table selection/, type)
         }
     })
 

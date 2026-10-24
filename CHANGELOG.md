@@ -19,7 +19,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   PostgreSQL MCP and analyst queries: text search configuration types are allowed again. Queries using `to_tsvector('english', ...)`, `plainto_tsquery`, `ts_headline` or `'english_stem'::regdictionary`, and materialized views that store `'english'::regconfig`, were refused with "type regconfig is not allowed while a table selection is set", even with no table selection. Object-identifier types such as `regclass`, `regtype`, `regproc`, `regnamespace` and `regrole` are still refused while a table selection is set, and only then. [Analyst tools](./docs/reference/analyst-tools.md).
+-   PostgreSQL MCP and analyst queries: the read-only checks from #292 are back (they were taken out in #294), and text search configuration types are allowed. Queries using `to_tsvector('english', ...)`, `plainto_tsquery`, `ts_headline` or `'english_stem'::regdictionary`, and materialized views that store `'english'::regconfig`, were refused with "type regconfig is not allowed while a table selection is set", even with no table selection. Views over user helper functions such as `analytics._etl_safe_numeric` run under the user-function rule. Object-identifier types such as `regclass`, `regtype`, `regproc`, `regnamespace` and `regrole` are still refused while a table selection is set, inside ticked view definitions too, and only then; a query with no selection never gets the table selection message. [Analyst tools](./docs/reference/analyst-tools.md).
 
 ## [1.4.2] - 2026-10-23
 
