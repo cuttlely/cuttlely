@@ -10,6 +10,6 @@ What this means:
 
 -   A flow that turns LangSmith on in its own Analytics settings needs a credential with a key. The server's key or profile is never used in place of that credential's key.
 -   Server-wide tracing set by the host (`LANGSMITH_TRACING` with `LANGSMITH_API_KEY`, see Startup options) still applies to flows that do not turn LangSmith on themselves. Those traces go to the server's own endpoint with the server's key.
--   A failed upload, or tracing turned off for a credential with no key, logs the flow id and the credential id, its field names, the key length, the endpoint origin and a fixed operation name (such as `/runs/multipart`). The key value, anything derived from it, and the endpoint path, query and user info are never logged.
+-   A failed upload, or tracing turned off for a credential with no key, logs the flow id and the credential id, its field names, the key length, the endpoint origin and the project; a failed upload also logs a fixed operation name (such as `/runs/multipart`). The key value, anything derived from it, and the endpoint path, query and user info are never logged.
 
 See also [Startup options](./startup-options.md) for `LANGSMITH_API_KEY`, `LANGCHAIN_API_KEY` and `LANGSMITH_PROJECT`.
