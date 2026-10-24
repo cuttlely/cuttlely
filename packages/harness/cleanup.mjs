@@ -104,13 +104,17 @@ function removeEntry(root, entry) {
     return true
 }
 
-// A profile directory moves into the trash in one rename, then the trash entry is removed.
-function removeProfileEntry(entry) {
+// A profile directory moves into the trash in one step, then the trash entry is removed. afterPark runs once the
+// profile is out of profiles/ (so the runtime's profile watcher cannot serve it again) and before anything is
+// removed; when it answers false the entry goes back to profiles/ (or, when the name was taken meanwhile, stays
+// parked in the trash with its owner note for a later run). Returns true (removed), false (kept in place) or 'parked'.
+async function removeProfileEntry(entry, afterPark = async () => true) {
     const target = containedEntry(profilesRoot(), entry)
     if (!target) return false
     const stat = lstatOrNull(target)
     if (!stat) return false
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        if (!(await afterPark(null))) return false
         fs.unlinkSync(target)
         return true
     }
@@ -126,7 +130,24 @@ function removeProfileEntry(entry) {
     // may already have taken the markers inside) still leaves a leftover the next run can attribute.
     if (owner) fs.writeFileSync(path.join(trash, `${parked}${OWNER_SUFFIX}`), `${owner.id}\n`, { flag: 'wx' })
     fs.renameSync(target, path.join(trash, parked))
+    if (!(await afterPark(path.join(trash, parked)))) return putBackParked(trash, parked, entry) ? false : 'parked'
     if (removeEntry(trash, parked)) cleanupHooks.log(`[harness] removed ${TRASH}/${parked} (was profiles/${entry})`)
+    removeOwnerNote(trash, parked)
+    return true
+}
+
+// A parked profile that is kept goes back to profiles/ by copy (timestamps kept), then the parked copy is removed.
+// Nothing comes back over an entry created under the name meanwhile; the parked copy then stays, with its owner note,
+// for a later run.
+function putBackParked(trash, parked, entry) {
+    const rootReal = checkedRoot(profilesRoot())
+    const target = rootReal && ENTRY_RE.test(entry) ? path.join(rootReal, entry) : ''
+    if (!target || path.dirname(target) !== rootReal || lstatOrNull(target)) {
+        cleanupHooks.log(`[harness] kept ${TRASH}/${parked} (was profiles/${entry}) for a later run`)
+        return false
+    }
+    fs.cpSync(path.join(trash, parked), target, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true, errorOnExist: true })
+    removeEntry(trash, parked)
     removeOwnerNote(trash, parked)
     return true
 }
@@ -259,7 +280,12 @@ function isTempProfile(dir, parent) {
 // Saved harness names straight from the store directory, compared exactly. null when the store cannot be read.
 function savedNames() {
     const dir = harnessStoreDir()
-    if (!fs.existsSync(dir)) return new Set()
+    // Only a store that is missing (ENOENT) is empty; one that cannot be checked (EACCES and the like) reads as null.
+    try {
+        fs.statSync(dir)
+    } catch (error) {
+        return error?.code === 'ENOENT' ? new Set() : null
+    }
     try {
         return new Set(
             fs
@@ -476,15 +502,11 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     const removed = []
     let after = before
     for (const [index, entry] of entries.entries()) {
-        // Each profile is stopped right before its directory goes, with nothing awaited in between, so the runtime's
-        // profile watcher cannot serve it again between the stop and the removal.
-        const stopped = await closeRuntime(id, [entry])
-        // Closing awaits; the harness may have been saved again or a profile replaced meanwhile, so check again.
         after = savedNames()
         if (stillSaved(id, after)) {
             cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it was saved again during cleanup`)
             kept.push(...entries.slice(index))
-            return { removed, kept, claimed, error: null }
+            break
         }
         const owner = profileOwner(entry)
         if (claimedBySaved(entry, after)) {
@@ -492,29 +514,46 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
             cleanupHooks.log(`[harness] kept profiles/${entry}: a saved harness has this name`)
             continue
         }
-        if (!stopped.has(entry)) {
-            kept.push(entry)
-            continue
-        }
         if (!owner || owner.id !== id || (minAgeMs && newestChange(entry) > settled.get(entry))) {
             kept.push(entry)
             cleanupHooks.log(`[harness] kept profiles/${entry}: it changed during cleanup`)
             continue
         }
-        try {
+        const beforeStop = newestChange(entry)
+        // Parked first, then stopped, then removed: once out of profiles/ the runtime cannot serve it again.
+        const afterPark = async (parkedDir) => {
+            const stopped = await closeRuntime(id, [entry])
+            if (!stopped.has(entry)) return false
+            if (stillSaved(id, savedNames())) {
+                cleanupHooks.log(`[harness] kept profiles/${entry} of harness "${id}": it was saved again during cleanup`)
+                return false
+            }
+            if (minAgeMs) {
+                const work = containedEntry(workspacesRoot(), entry)
+                const changed = Math.max(parkedDir ? newestTreeChange(parkedDir) : 0, work ? newestTreeChange(work) : 0)
+                if (changed > beforeStop) {
+                    cleanupHooks.log(`[harness] kept profiles/${entry}: it changed during cleanup`)
+                    return false
+                }
+            }
             // A workspace that is there but could not be removed (a linked or foreign root) keeps the profile, whose
             // markers are what lets a later run find the workspace again.
-            if (removeEntry(workspacesRoot(), entry))
+            if (removeEntry(workspacesRoot(), entry)) {
                 cleanupHooks.log(`[harness] removed workspaces/${entry} of harness "${id}" (${reason})`)
-            else if (lstatOrNull(path.join(workspacesRoot(), entry))) {
-                kept.push(entry)
-                cleanupHooks.log(`[harness] kept profiles/${entry} of harness "${id}": its workspace could not be removed`)
-                continue
+                return true
             }
-            if (removeProfileEntry(entry)) {
+            if (lstatOrNull(path.join(workspacesRoot(), entry))) {
+                cleanupHooks.log(`[harness] kept profiles/${entry} of harness "${id}": its workspace could not be removed`)
+                return false
+            }
+            return true
+        }
+        try {
+            const outcome = await removeProfileEntry(entry, afterPark)
+            if (outcome === true) {
                 removed.push(entry)
                 cleanupHooks.log(`[harness] removed profiles/${entry} of harness "${id}" (${reason})`)
-            } else if (lstatOrNull(path.join(profilesRoot(), entry))) {
+            } else {
                 kept.push(entry)
             }
         } catch (error) {
@@ -522,6 +561,7 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
             cleanupHooks.log(`[harness] could not remove profiles/${entry} of harness "${id}": ${error?.code || error?.name || 'error'}`)
         }
     }
+    after = savedNames()
     for (const item of trash) {
         const base = PARKED_RE.exec(item)?.[1] || ''
         if (base && stillSaved(base, after)) continue
@@ -577,7 +617,7 @@ export async function removeHarnessProfiles(name, { reason = 'harness deleted', 
 // hashes come after "--") that are still there after cleanup: a profiles or workspaces root that is not a plain
 // directory, any profile entry not owned by another harness (a linked one, one whose markers are missing, unreadable
 // or conflicting, one cleanup kept), and a workspace whose profile is gone or is not another harness's.
-// Entries of a saved harness are skipped.
+// Entries of a saved harness are skipped, except an exact output path of this harness owned by another one, which blocks.
 export function nameReuseBlockers(name, { expected = [] } = {}) {
     const id = assertHarnessName(name)
     const lower = id.toLowerCase()
@@ -591,6 +631,17 @@ export function nameReuseBlockers(name, { expected = [] } = {}) {
     const otherHarness = (entry) => {
         const owner = profileOwner(entry)
         return Boolean(owner) && owner.id.toLowerCase() !== lower
+    }
+    const destinations = new Set([lower, ...exact])
+    const foreign = (entry) => {
+        const low = entry.toLowerCase()
+        if (otherHarness(entry)) return true
+        // A saved harness of another name whose home is this entry, or whose roster this profile carries.
+        if (low !== lower && stillSaved(entry, saved)) return true
+        const dir = containedEntry(profilesRoot(), entry)
+        const roster = dir ? rosterName(dir) : ''
+        if (roster && roster.toLowerCase() !== lower && stillSaved(roster, saved)) return true
+        return false
     }
     for (const [label, root] of [
         ['profiles', profilesRoot()],
@@ -609,7 +660,14 @@ export function nameReuseBlockers(name, { expected = [] } = {}) {
             continue
         }
         for (const entry of names) {
-            if (!mine(entry) || claimedBySaved(entry, saved, root)) continue
+            if (!mine(entry)) continue
+            // An exact output path of this harness (its home or a specialist profile it compiles into) that belongs to
+            // another harness, saved or not, blocks the save: compiling would write into that harness's profile.
+            if (destinations.has(entry.toLowerCase()) && lstatOrNull(path.join(root, entry)) && foreign(entry)) {
+                blockers.push(`${label}/${entry} (belongs to another harness)`)
+                continue
+            }
+            if (claimedBySaved(entry, saved, root)) continue
             if (!lstatOrNull(path.join(root, entry))) continue
             if (label === 'profiles') {
                 if (!otherHarness(entry)) blockers.push(`profiles/${entry}`)

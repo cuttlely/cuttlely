@@ -16300,7 +16300,8 @@ await (async () => {
     dropJson('tokfile')
     await cleanup.removeHarnessProfiles('tokfile')
 
-    // Each profile is stopped right before it is removed: when the next stop runs, the one stopped before is gone.
+    // Each profile leaves profiles/ before its runtime stops (so it cannot be served again) and is removed right after,
+    // before the next one is stopped.
     reset()
     saveJson('inturn')
     home('inturn')
@@ -16316,8 +16317,8 @@ await (async () => {
         'each profile is removed right after its own runtime stop, before the next stop',
         JSON.stringify(stopsSeen) ===
             JSON.stringify([
-                ['inturn--a', true, true],
-                ['inturn', false, true]
+                ['inturn--a', false, true],
+                ['inturn', false, false]
             ]) && JSON.stringify(inTurn.removed) === JSON.stringify(['inturn--a', 'inturn']),
         JSON.stringify({ stopsSeen, inTurn })
     )
@@ -16522,6 +16523,53 @@ await (async () => {
     )
     fs.rmSync(markedTry, { recursive: true, force: true })
     fs.rmSync(path.join(workDir, 'tryx0123456789abcdef--a'), { recursive: true, force: true })
+
+    // An exact output path that belongs to another harness blocks the save, in both directions and saved or not.
+    reset()
+    home('bakery')
+    child('bakery--reader', 'bakery')
+    const orphanChildBlocks = cleanup.nameReuseBlockers('bakery--reader')
+    saveJson('bakery')
+    const savedChildBlocks = cleanup.nameReuseBlockers('bakery--reader')
+    dropJson('bakery')
+    await cleanup.removeHarnessProfiles('bakery')
+    saveJson('bakery--reader')
+    home('bakery--reader')
+    const savedHomeBlocks = cleanup.nameReuseBlockers('bakery', { expected: ['bakery--reader'] })
+    const ownUpdate = cleanup.nameReuseBlockers('bakery--reader')
+    check(
+        'a save whose exact profile path belongs to another harness is refused, and its own profiles are not',
+        orphanChildBlocks.includes('profiles/bakery--reader (belongs to another harness)') &&
+            savedChildBlocks.includes('profiles/bakery--reader (belongs to another harness)') &&
+            savedHomeBlocks.includes('profiles/bakery--reader (belongs to another harness)') &&
+            !ownUpdate.length &&
+            exists('bakery--reader'),
+        JSON.stringify({ orphanChildBlocks, savedChildBlocks, savedHomeBlocks, ownUpdate })
+    )
+    dropJson('bakery--reader')
+    await cleanup.removeHarnessProfiles('bakery--reader')
+
+    // A store that exists but cannot be checked (here a link loop) is not an empty store: the sweep removes nothing.
+    reset()
+    saveJson('kept')
+    home('kept')
+    const storeAside = `${harnessStoreDir()}-aside`
+    fs.renameSync(harnessStoreDir(), storeAside)
+    fs.symlinkSync(path.basename(harnessStoreDir()), harnessStoreDir())
+    let unreadable
+    try {
+        unreadable = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    } finally {
+        fs.unlinkSync(harnessStoreDir())
+        fs.renameSync(storeAside, harnessStoreDir())
+    }
+    check(
+        'a harness store that cannot be checked removes nothing',
+        exists('kept') && !unreadable.removed.length && lines.some((line) => line.includes('store could not be read')),
+        JSON.stringify({ unreadable, lines })
+    )
+    dropJson('kept')
+    await cleanup.removeHarnessProfiles('kept')
 
     // A harness saved while its delete runs compiles without published tokens; the end of the delete drops that
     // compiled profile, so its next run compiles again with working tokens.
