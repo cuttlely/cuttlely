@@ -185,6 +185,9 @@ def _split(url, where=None, redirected=False):
         raise FetchError(f"fetch refused: URLs with a user name or password are not fetched: {named}", url, shown=where)
     if not hostname:
         raise FetchError(f"fetch refused: no host in {where or url}", url, shown=where)
+    if "%" in hostname or any(c.isspace() or not c.isprintable() for c in hostname):
+        # A scoped IPv6 literal (fe80::1%eth0) or a host with spaces is never a public asset host.
+        raise FetchError(f"fetch refused: malformed host, {where or shown_url(url)}", url, shown=where)
     # Spaces and non-ASCII characters (Commons file names such as "Example logo.svg" or "Café.svg") are
     # percent-encoded; existing escapes and reserved characters are kept as they are.
     target = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
@@ -248,7 +251,7 @@ def _bounded(value, default, limit, name):
 
 
 def _declared_length(response, max_bytes):
-    """The declared Content-Length as an int, None when absent or not digits, -1 when repeated with different values.
+    """The declared Content-Length as an int, None when absent, -1 when malformed or repeated with different values.
 
     The value is server text: it is compared, never printed. Repeated headers (or a comma list) that agree count once.
     Leading zeros do not count toward its size; a number with more than 18 digits is over any cap.
@@ -259,7 +262,7 @@ def _declared_length(response, max_bytes):
     numbers = set()
     for value in values:
         if not (value.isascii() and value.isdigit()):
-            return None
+            return -1
         value = value.lstrip("0") or "0"
         numbers.add(max_bytes + 1 if len(value) > 18 else int(value))
     if not numbers:
@@ -293,7 +296,11 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
         if remaining <= 0:
             raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {where}", current, shown=where)
         connection_type = _PinnedHTTPSConnection if scheme == "https" else _PinnedHTTPConnection
-        connection = connection_type(host, port, address, remaining, deadline)
+        try:
+            connection = connection_type(host, port, address, remaining, deadline)
+        except (ValueError, http.client.HTTPException):
+            # The constructor's message quotes the host, which after a redirect is server text: fixed words only.
+            raise FetchError(f"fetch refused: malformed host, {where}", current, shown=where) from None
         # Socket timeouts only bound each idle wait, so a peer trickling bytes could outlast them. At the deadline
         # this watchdog shuts the socket down, which ends any read in progress (headers, chunks or body).
         expired = threading.Event()
@@ -339,7 +346,7 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
                 content_type = "unrecognized"
             declared = _declared_length(response, max_bytes)
             if declared == -1:
-                raise FetchError(f"fetch failed: HTTP {status}, conflicting declared sizes, at {where}", current, status, shown=where)
+                raise FetchError(f"fetch failed: HTTP {status}, malformed or conflicting declared sizes, at {where}", current, status, shown=where)
             if declared is not None and declared > max_bytes:
                 raise FetchError(
                     f"fetch failed: HTTP {status}, declared size is over the {max_bytes} byte cap, at {where}", current, status, shown=where

@@ -71,6 +71,11 @@ class Handler(BaseHTTPRequestHandler):
             "/short-twice": lambda: self._raw_lengths(["100", "100"], b"abcde"),
             "/length-list": lambda: self._raw_lengths(["5, 5"], b"abcde"),
             "/length-conflict": lambda: self._raw_lengths(["5", "6"], b"abcde"),
+            "/length-bad-second": lambda: self._raw_lengths(["100", "oops"], b"abcde"),
+            "/length-bad-list": lambda: self._raw_lengths(["100, oops"], b"abcde"),
+            "/length-empty-second": lambda: self._raw_lengths(["100", ""], b"abcde"),
+            "/to-scoped": lambda: self._send(302, headers={"Location": "http://[fe80::1%25eth0]/x.png"}),
+            "/to-scoped-spaced": lambda: self._send(302, headers={"Location": "http://[fe80::1%opaque value]/x.png"}),
             "/length-zeros": lambda: self._raw_lengths(["0000000000000000000005"], b"abcde"),
             "/drip-40": self._drip_40,
             "/trickle-headers": self._trickle_headers,
@@ -405,7 +410,24 @@ class FetchTest(unittest.TestCase):
         self.assertEqual(net.fetch(self.url("/length-zeros"), max_bytes=10)["bytes"], b"abcde")
         with self.assertRaises(net.FetchError) as caught:
             net.fetch(self.url("/length-conflict"))
-        self.assertIn("conflicting declared sizes", str(caught.exception))
+        self.assertIn("malformed or conflicting declared sizes", str(caught.exception))
+        for path in ("/length-bad-second", "/length-bad-list", "/length-empty-second"):
+            with self.assertRaisesRegex(net.FetchError, "malformed or conflicting declared sizes"):
+                net.fetch(self.url(path))
+            self.assertFalse((self.out / "bad.png").exists())
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(net.FetchError):
+                net.fetch_asset(self.url(path), self.out / "bad.png")
+            self.assertFalse((self.out / "bad.png").exists())
+
+    def test_a_scoped_or_spaced_redirect_host_is_refused_without_echo(self):
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch(self.url("/to-scoped"))
+        self.assertIn("malformed host", str(caught.exception))
+        self.assertNotIn("eth0", str(caught.exception))
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch(self.url("/to-scoped-spaced"))
+        self.assertTrue(str(caught.exception).startswith("fetch refused"), str(caught.exception))
+        self.assertNotIn("opaque", str(caught.exception))
 
     def test_test_server_keeps_reflected_values_to_one_header(self):
         self.assertEqual(header_value("a\r\nX-Injected: 1"), "aX-Injected: 1")
