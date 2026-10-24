@@ -100,25 +100,12 @@ def shown_url(url):
     return f"{parts.scheme}://{netloc}{parts.path}" + ("?(query hidden)" if parts.query else "") if parts.scheme or netloc else "(URL hidden)"
 
 
-def _blocked_ipv4(ip):
-    """True when an IPv4 address must not be fetched from. Shared by plain IPv4 and IPv4-mapped IPv6."""
-    if any(ip in net for net in _BLOCKED_NETWORKS if net.version == 4):
-        return True
-    return not ip.is_global or ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_loopback
-
-
 def blocked_address(address):
     """True when an IP address (str or ipaddress object) must not be fetched from."""
     ip = ipaddress.ip_address(address) if isinstance(address, str) else address
-    if isinstance(ip, ipaddress.IPv4Address):
-        return _blocked_ipv4(ip)
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        # The mapped form sits in a reserved IPv6 block on this runtime. The public or private
-        # decision belongs to the IPv4 address it carries.
-        return _blocked_ipv4(ip.ipv4_mapped)
     if isinstance(ip, ipaddress.IPv6Address):
-        # IPv4-compatible, 6to4 and NAT64 forms carry an IPv4 address; check that address too.
-        mapped = ip.sixtofour
+        # IPv4-mapped, IPv4-compatible, 6to4 and NAT64 forms carry an IPv4 address; check that address too.
+        mapped = ip.ipv4_mapped or ip.sixtofour
         if mapped is None and ip in ipaddress.ip_network("64:ff9b::/96"):
             mapped = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
         if mapped is None and int(ip) >> 32 == 0 and int(ip) > 1:
