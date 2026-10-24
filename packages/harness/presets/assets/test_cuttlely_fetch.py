@@ -310,6 +310,7 @@ class HttpsDeadlineTest(unittest.TestCase):
         cls.server.daemon_threads = True
         cls.server.handle_error = lambda request, address: None
         server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        server_context.minimum_version = ssl.TLSVersion.TLSv1_2
         server_context.load_cert_chain(str(cert), str(key))
         cls.server.socket = server_context.wrap_socket(cls.server.socket, server_side=True)
         cls.port = cls.server.server_address[1]
