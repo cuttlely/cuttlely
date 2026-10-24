@@ -508,7 +508,7 @@ function pushProviders(yaml) {
 
 // Hermes sends OPENAI_API_KEY only when OPENAI_BASE_URL equals model.base_url
 // (_host_gated_env_key_candidates). model.api_key and model.key_env stay unset.
-function issueSpecialistToken(record, specialist, profileName, tryProfile) {
+function issueSpecialistToken(record, specialist, profileName, tryProfile, adoptUnstamped = false) {
     const key = modelKey(specialist.model)
     const base = gatewayUrl()
     const previous = readEnvFile(profileEnvPath(specialist.profileName))
@@ -517,7 +517,9 @@ function issueSpecialistToken(record, specialist, profileName, tryProfile) {
     // the name (another createdAt, or none) gets a fresh token, so a bearer refused at startup never comes back.
     const sameRecord = tryProfile
         ? previous.CUTTLELY_GATEWAY_TRY === '1'
-        : Boolean(record?.createdAt) && previous.CUTTLELY_GATEWAY_CREATED === String(record.createdAt)
+        : (Boolean(record?.createdAt) && previous.CUTTLELY_GATEWAY_CREATED === String(record.createdAt)) ||
+          // A profile compiled before the stamp existed keeps its token when the boot upgrade has matched its owner.
+          (adoptUnstamped && previous.CUTTLELY_GATEWAY_CREATED === undefined)
     const reusable =
         sameBase && sameRecord && previous.CUTTLELY_MODEL_KEY === key && /^[A-Za-z0-9_-]{43}$/.test(previous.OPENAI_API_KEY || '')
     const token = reusable ? previous.OPENAI_API_KEY : crypto.randomBytes(32).toString('base64url')
@@ -747,16 +749,19 @@ export function writePlaybooks(dir, playbooks) {
     }
 }
 
-function compileSpecialistProfile(record, specialist, profileName, tryProfile) {
+function compileSpecialistProfile(record, specialist, profileName, tryProfile, adoptUnstamped = false) {
     const dir = profileDir(specialist.profileName)
     fs.mkdirSync(dir, { recursive: true })
     const workspace = specialistWorkspace(specialist.profileName)
     fs.mkdirSync(workspace, { recursive: true })
     installPresetKit(specialist, workspace)
+    // Read before harness-parent is written: an unstamped token is adopted only from a profile this harness already owned.
+    const ownedBefore = readMarker(path.join(dir, 'harness-parent')) === String(profileName)
     writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
+    writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
-    const issued = issueSpecialistToken(record, specialist, profileName, tryProfile)
+    const issued = issueSpecialistToken(record, specialist, profileName, tryProfile, adoptUnstamped && ownedBefore)
     const bridgeOn = usesBridge(specialist)
     const bridge = serverNameFor(specialist)
     const enabled = specialist.hermesToolsets.filter((name) => bridgeOn || name !== bridge || requestedBuiltin(specialist, name))
@@ -899,7 +904,7 @@ export function compileProfile(record, options = {}) {
     for (const specialist of resolved.specialists) {
         if (!specialist.profileName) continue
         keep.add(specialist.profileName)
-        compileSpecialistProfile(record, specialist, profileName, tryProfile)
+        compileSpecialistProfile(record, specialist, profileName, tryProfile, Boolean(options.adoptUnstampedTokens))
     }
     forgetRetiredSpecialistProfiles(profileName, keep)
 
@@ -952,6 +957,8 @@ export function compileProfile(record, options = {}) {
     pushMcpServers(yaml, mcpBlocks)
     pushModel(yaml, profileName)
     writeIfChanged(path.join(dir, 'config.yaml'), yaml.join('\n') + '\n')
+    // Written last: a compile that stopped partway leaves the old version, so the next boot finishes it.
+    writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
 
     const apiServerKey = writeProfileSecrets(profileName, toolCredentialEnv(record))
     return { dir, roster: compiled, apiServerKey }
@@ -1289,6 +1296,70 @@ export async function discardTryProfile(tryId) {
 export { noteLiveTry }
 
 const compiledProfiles = new Map()
+
+// Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
+// at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
+// compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
+export const PROFILE_COMPILER_VERSION = '2'
+
+function compilerVersionOf(dir) {
+    return readMarker(path.join(dir, 'harness-compiler'))
+}
+
+function onDiskRoster(dir) {
+    try {
+        return JSON.parse(fs.readFileSync(path.join(dir, 'harness-roster.json'), 'utf8'))
+    } catch {
+        return null
+    }
+}
+
+// Whether the published profile for this record, or one of its specialists, came from another compiler version.
+export function profileOutdated(record) {
+    const dir = profileDir(record.name)
+    if (!fs.existsSync(path.join(dir, 'config.yaml'))) return false
+    if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION) return true
+    const roster = onDiskRoster(dir)
+    for (const specialist of roster?.specialists || []) {
+        if (!specialist?.profileName) continue
+        const child = profileDir(specialist.profileName)
+        if (fs.existsSync(child) && compilerVersionOf(child) !== PROFILE_COMPILER_VERSION) return true
+    }
+    return false
+}
+
+// Runs at server start, before the gateway answers and so before Hermes loads any profile. Recompiles each saved
+// harness whose published profile is on disk from an older compiler. Profiles never compiled stay uncompiled, and
+// a second run finds nothing to do. The caller holds the profile lock.
+export function recompileOutdatedProfiles(records, { log = console } = {}) {
+    const results = []
+    for (const record of records) {
+        if (!record?.name) continue
+        let outdated
+        try {
+            outdated = profileOutdated(record)
+        } catch (error) {
+            results.push({ name: record.name, status: 'failed', error: error.message })
+            continue
+        }
+        if (!outdated) continue
+        const roster = onDiskRoster(profileDir(record.name))
+        // Specialist tokens from before the createdAt stamp are kept only when the profile on disk is this record's.
+        const sameRecord = Boolean(record.createdAt) && String(roster?.createdAt || '') === String(record.createdAt)
+        try {
+            compileProfile(record, { adoptUnstampedTokens: sameRecord })
+            forgetCompiledProfile(record.name)
+            results.push({ name: record.name, status: 'recompiled' })
+        } catch (error) {
+            results.push({ name: record.name, status: 'failed', error: error.message })
+        }
+    }
+    const failed = results.filter((result) => result.status === 'failed')
+    const done = results.length - failed.length
+    if (done) log.info?.(`[harness] recompiled ${done} profile(s) from an older compiler before the runtime starts`)
+    for (const result of failed) log.warn?.(`[harness] ${result.name} profile was not recompiled: ${result.error}`)
+    return results
+}
 
 function credentialIdsIn(record) {
     const ids = []

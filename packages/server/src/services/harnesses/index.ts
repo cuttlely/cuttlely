@@ -309,12 +309,33 @@ async function contextFor(record: { chatflowId?: string; workspaceId?: string | 
 
 let runtimeConfigured: Promise<void> | undefined
 
+// Each record is compiled under the profile lock, so a save or delete never interleaves with it. One failure is
+// logged and the rest still run.
+export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
+    const [profile, store] = await Promise.all([loadHarness('profile.mjs'), loadHarness('store.mjs')])
+    let records: any[]
+    try {
+        records = store.listHarnesses()
+    } catch (error) {
+        logger.warn(`[harness] profiles were not checked for an older compiler: ${getErrorMessage(error)}`)
+        return []
+    }
+    const results: Array<{ name: string; status: string; error?: string }> = []
+    for (const record of records) {
+        results.push(...(await withProfileLock(async () => profile.recompileOutdatedProfiles([record], { log: logger }))))
+    }
+    return results
+}
+
 // Registers once. contextFor itself runs only when a server-initiated harness run asks for options.
 function configureRuntime(): Promise<void> {
     if (!runtimeConfigured) {
         runtimeConfigured = loadHarness('run.mjs')
             .then(async (engine) => {
                 engine.configureHarnessRuntime({ contextFor })
+                // Before the gateway answers: the start script launches Hermes only then, and Hermes reads each
+                // profile's config.yaml from disk. A profile from an older compiler is compiled again first.
+                await recompileOutdatedHarnessProfiles()
                 const gateway = await loadHarness('gateway.mjs')
                 await gateway.startGateway()
                 // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
@@ -1364,6 +1385,7 @@ export default {
     removeHarnessesForCanvas,
     withNameLock,
     withProfileLock,
+    recompileOutdatedHarnessProfiles,
     syncUnderNameLock,
     assertNameAvailable,
     listHarnesses,

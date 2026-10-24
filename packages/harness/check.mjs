@@ -45,6 +45,8 @@ const {
     compileProfileCached,
     compileTryProfile,
     discardTryProfile,
+    PROFILE_COMPILER_VERSION,
+    recompileOutdatedProfiles,
     hermesToolsetsFor,
     mcpValidatorPath,
     modelConfigured,
@@ -6984,6 +6986,92 @@ await expectCase('the chief profile starts no specialist bridge', async () => {
         `${chief?.yaml || 'no chief profile'}\nspecialists ${specialists.map((profile) => profile.name).join(', ')} bridged ${
             bridged.length
         }`
+    )
+})
+
+await expectCase('a parent profile from before the bridge fix is compiled again at boot', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const record = saveHarness(
+        {
+            name: 'maoldchief',
+            chatflowId: 'canvas-old-chief',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [
+                { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const bridge = path.join(process.cwd(), 'packages', 'harness', 'mcp-bridge.mjs')
+    // The shape an older server left: the parent lists every specialist bridge, without a token, and no profile
+    // carries a compiler version. Specialist .env files from before the createdAt stamp lack CUTTLELY_GATEWAY_CREATED.
+    const chiefConfig = profileFile('maoldchief', 'config.yaml')
+    const oldBlocks = ['alpha', 'beta']
+        .map((name) => `  ${name}:\n    command: node\n    args:\n      - ${bridge}\n      - --specialist\n      - ${name}\n`)
+        .join('')
+    fs.writeFileSync(chiefConfig, fs.readFileSync(chiefConfig, 'utf8') + `mcp_servers:\n${oldBlocks}`)
+    const specialistNames = profilesFor('maoldchief')
+        .map((profile) => profile.name)
+        .filter((name) => name.includes('--'))
+    for (const name of ['maoldchief', ...specialistNames]) fs.rmSync(profileFile(name, 'harness-compiler'), { force: true })
+    for (const name of specialistNames) {
+        const envFile = profileFile(name, '.env')
+        const kept = fs
+            .readFileSync(envFile, 'utf8')
+            .split('\n')
+            .filter((line) => !line.startsWith('CUTTLELY_GATEWAY_CREATED='))
+        fs.writeFileSync(envFile, kept.join('\n'))
+    }
+    const tokensBefore = specialistNames.map((name) => readProfileEnv(name).OPENAI_API_KEY)
+    // The in-memory compile cache is empty after a restart; a never-compiled harness stays uncompiled.
+    const neverCompiled = { name: 'manevercompiled', chief: { instructions: 'x', model: xai('grok-4.7') }, specialists: [] }
+    const first = recompileOutdatedProfiles([record, neverCompiled], { log: {} })
+    const chiefYaml = fs.readFileSync(chiefConfig, 'utf8')
+    const tokensAfter = specialistNames.map((name) => readProfileEnv(name).OPENAI_API_KEY)
+    const versions = ['maoldchief', ...specialistNames].map((name) => fs.readFileSync(profileFile(name, 'harness-compiler'), 'utf8').trim())
+    const second = recompileOutdatedProfiles([record], { log: {} })
+    check(
+        'a parent profile from before the bridge fix is compiled again at boot',
+        JSON.stringify(first) === JSON.stringify([{ name: 'maoldchief', status: 'recompiled' }]) &&
+            second.length === 0 &&
+            !chiefYaml.includes('mcp-bridge.mjs') &&
+            !chiefYaml.includes('--specialist') &&
+            specialistNames.length === 2 &&
+            tokensAfter.every((token, i) => token && token === tokensBefore[i]) &&
+            versions.every((version) => version === PROFILE_COMPILER_VERSION) &&
+            !fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'manevercompiled')),
+        JSON.stringify({ first, second, tokensSame: tokensAfter.map((t, i) => t === tokensBefore[i]), versions, chiefYaml })
+    )
+})
+
+await expectCase('a profile with the current compiler version keeps its files at boot', async () => {
+    const record = saveHarness(
+        {
+            name: 'macurrentchief',
+            chatflowId: 'canvas-current-chief',
+            chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+            specialists: [
+                {
+                    name: 'alpha',
+                    instructions: 'Alpha work.',
+                    model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } },
+                    modules: [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const soul = profileFile('macurrentchief', 'SOUL.md')
+    fs.writeFileSync(soul, 'edited after compile\n')
+    const results = recompileOutdatedProfiles([record], { log: {} })
+    check(
+        'a profile with the current compiler version keeps its files at boot',
+        results.length === 0 && fs.readFileSync(soul, 'utf8') === 'edited after compile\n',
+        JSON.stringify(results)
     )
 })
 
