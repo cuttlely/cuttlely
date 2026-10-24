@@ -1880,17 +1880,35 @@ function forwardHermes(context, specialist, event) {
         forwardDelta(context, specialist, String(event.delta))
         return
     }
-    if (kind !== 'tool.started' && kind !== 'tool.completed') return
+    const data = hermesToolEvent(specialist.name, event)
+    if (data) emitTool(context, data)
+}
+
+// A tool result that reports a failure in its own body: execute_code's {"status": "error", ...} or a non-zero
+// exit code. The runtime's error flag is the first signal; this catches a result it missed.
+const FAILED_RESULT = /^\s*\{\s*"status"\s*:\s*"(?:error|timeout|interrupted)"|"exit_code"\s*:\s*(?:-|[1-9])/
+
+export function hermesToolFailed(event) {
+    if (!event || typeof event !== 'object') return false
+    if (event.event === 'tool.failed' || event.error === true) return true
+    return event.event === 'tool.completed' && typeof event.preview === 'string' && FAILED_RESULT.test(event.preview)
+}
+
+// One Hermes run event as a harness tool step, or null when it is not a tool event. A failed call is a failed
+// step, never done.
+export function hermesToolEvent(name, event) {
+    const kind = event?.event
+    if (kind !== 'tool.started' && kind !== 'tool.completed' && kind !== 'tool.failed') return null
     const detail = event.preview ? String(event.preview) : ''
     const callId = hermesEventCallId(event)
-    emitTool(context, {
+    return {
         phase: kind === 'tool.started' ? 'start' : 'done',
-        specialist: specialist.name,
-        name: String(event.tool || 'tool'),
-        ...(event.error ? { error: true } : {}),
+        specialist: name,
+        name: String(event.tool || event.tool_name || 'tool'),
+        ...(kind !== 'tool.started' && hermesToolFailed(event) ? { error: true } : {}),
         ...(detail ? { detail } : {}),
         ...(callId ? { callId } : {})
-    })
+    }
 }
 
 function analystQueryCount(context, name) {
