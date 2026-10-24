@@ -1107,6 +1107,33 @@ describe('analyst relations: read-only SQL check for the PostgreSQL MCP node', (
         refused('SELECT U&"pg\\005fsleep"(1) LIMIT 1', /U& escapes/)
     })
 
+    it('refuses functions that run SQL text, take session locks or reach outside the database', () => {
+        refused("SELECT query_to_xml($$SELECT pg_sleep(1)::text AS slept$$, false, false, '') LIMIT 1", /query_to_xml is not allowed/)
+        refused("SELECT cursor_to_xml('c', 1, false, false, '') LIMIT 1", /cursor_to_xml is not allowed/)
+        refused("SELECT ts_stat('SELECT v FROM t') LIMIT 1", /ts_stat is not allowed/)
+        refused('SELECT pg_advisory_lock(1) LIMIT 1', /pg_advisory_lock is not allowed/)
+        refused('SELECT pg_try_advisory_lock(1) LIMIT 1', /pg_try_advisory_lock is not allowed/)
+        refused("SELECT dblink('x', 'SELECT 1') LIMIT 1", /dblink is not allowed/)
+        refused("SELECT pg_read_file('/etc/hosts') LIMIT 1", /pg_read_file is not allowed/)
+        refused('SELECT lo_import(1) LIMIT 1', /lo_import is not allowed/)
+        refused("SELECT pg_notify('c', 'x') LIMIT 1", /pg_notify is not allowed/)
+    })
+
+    it('ends a -- comment at a carriage return and nests block comments, as Postgres does', () => {
+        refused('/* outer /* inner */ x */ SELECT 1 LIMIT 1 --comment\r; COMMIT; INSERT INTO t VALUES (1); COMMIT', /semicolon/)
+        refused('SELECT 1 LIMIT 1 --c\rUNION SELECT pg_sleep(1)', /pg_sleep is not allowed/)
+        assert.equal(checkReadOnlySql('/* a /* b */ c */ SELECT 1 LIMIT 1'), '/* a /* b */ c */ SELECT 1 LIMIT 1')
+        refused('/* a /* b */ SELECT 1 LIMIT 1', /unfinished comment/)
+    })
+
+    it('counts LIMIT only as the clause, not as a name', () => {
+        refused('SELECT 1 AS limit', /add a LIMIT/)
+        refused('SELECT 1 limit', /add a LIMIT/)
+        refused('SELECT x limit FROM t', /add a LIMIT/)
+        assert.equal(checkReadOnlySql('SELECT x FROM t LIMIT ALL'), 'SELECT x FROM t LIMIT ALL')
+        assert.equal(checkReadOnlySql('SELECT x FROM t LIMIT (5)'), 'SELECT x FROM t LIMIT (5)')
+    })
+
     it('refuses semicolons, more than one statement and a missing LIMIT', () => {
         refused('SELECT 1 LIMIT 1;', /semicolon/)
         refused('SELECT 1 LIMIT 1; SELECT 2 LIMIT 1', /semicolon/)
@@ -1218,6 +1245,14 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         )
         const mode = await queryAnalystUrl(url, "SELECT current_setting('transaction_read_only') AS ro LIMIT 1", { readOnlySql: true })
         assert.equal(mode.rows[0].ro, 'on')
+        const scopedMode = await queryAnalystUrl(url, "SELECT current_setting('transaction_read_only') AS ro FROM items LIMIT 1", {
+            readOnlySql: true,
+            relations: ['public.items']
+        })
+        assert.equal(scopedMode.rows[0].ro, 'on')
+        // A carriage-return comment cannot carry a second statement past either check.
+        await refusal(queryAnalystUrl(url, 'SELECT 1 LIMIT 1 --c\r; COMMIT; DELETE FROM items; COMMIT', { readOnlySql: true }), /semicolon/)
+        await assert.rejects(queryAnalystUrl(url, 'SELECT 1 --c\r; COMMIT; DELETE FROM items; COMMIT'), /one statement/)
         assert.equal(await count(), 3)
     })
 

@@ -280,7 +280,7 @@ The selection is checked by Postgres, on the server, for every query and every `
     - it calls a built-in that can reach other data, report on objects outside the selection, act on other sessions, or change how names resolve: `query_to_xml` and the other `*_to_xml` functions, `ts_stat`, `set_config`, `pg_input_is_valid` and `pg_input_error_info`, `obj_description`, `col_description` and `shobj_description`, the `pg_stat_get_*` statistics, `pg_relation_size` and the other size functions, `pg_get_*` definitions, `has_*_privilege`, `*_is_visible`, `to_reg*`, `pg_terminate_backend` and `pg_cancel_backend`, large-object and file functions, and `dblink`;
     - it uses a type whose input, output, receive or send function is outside `pg_catalog` (an extension type such as `citext`), or an object-identifier type such as `regclass`. The check follows a domain's base type, an array's element, a composite type's columns and a range's subtype.
 6. The temporary view is dropped and the check transaction rolls back, so the temporary view and anything else it changed is undone. A sequence advanced by `nextval` is the exception, which is one reason a domain check that calls it counts as risky.
-7. The statement runs in a new `BEGIN READ ONLY` transaction on the same connection. Cuttlely confirms `transaction_read_only` is `on` just before the statement runs, and refuses to run it otherwise. That transaction also ends with a rollback.
+7. The statement runs in a new `BEGIN READ ONLY` transaction on the same connection. Cuttlely confirms `transaction_read_only` is `on` and that the transaction is on the same server session as the check (a transaction-pooling proxy such as PgBouncer could switch it). It takes an `ACCESS SHARE` lock on each ticked table and view, so none can be dropped, renamed or replaced until the query ends, and confirms each still has the id the check allowed. A materialized view cannot be locked and keeps only the id check. If anything differs, the query is refused with `the selected tables or views changed while it was being checked. Run it again.` That transaction also ends with a rollback.
 
 ### Checks before connecting
 
@@ -290,9 +290,9 @@ The PostgreSQL MCP node's **QUERY** checks the SQL text before it opens a connec
 -   A `;` is refused, so a second statement cannot follow.
 -   `SET`, `RESET`, `BEGIN`, `COMMIT`, `COPY` and `DO` are refused.
 -   `INSERT`, `UPDATE` and `DELETE` are refused anywhere in the query. Inside a `WITH` they make a writable CTE, and the refusal names it: `Cuttlely refused this query: DELETE inside WITH is a writable CTE, which is not allowed. Only reads are allowed.`
--   `set_config` and `pg_sleep` (with `pg_sleep_for` and `pg_sleep_until`) are refused.
+-   `set_config` and `pg_sleep` (with `pg_sleep_for` and `pg_sleep_until`) are refused, and so are functions that run SQL given as text (`query_to_xml` and the other `*_to_xml` functions, `ts_stat`, `ts_rewrite`), advisory locks (`pg_advisory_*`, `pg_try_advisory_*`), `pg_notify`, `pg_terminate_backend`, `pg_cancel_backend`, and large-object, file and `dblink` functions.
 
-These checks read words outside comments and string literals, so a column named `limit` or `update` must be quoted, and a query that only mentions one of these words as a name is refused. The read-only transaction and the scope check above still apply to everything that passes.
+These checks read words outside comments and string literals, as Postgres splits them: a `--` comment ends at a newline or a carriage return, and block comments nest. `LIMIT` counts only as the clause, followed by a count, `ALL` or a parenthesis, so `SELECT 1 AS limit` is refused. A column named `update` or `set` must be quoted, and a query that mentions one of these words as an unquoted name is refused. The read-only transaction and the scope check above still apply to everything that passes.
 
 When a query names a table that does not exist, the error ends with the closest real names: the ticked ones with a selection, otherwise every table and view the login can read.
 

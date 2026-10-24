@@ -716,7 +716,53 @@ async function refuseTypes(runner, typeSet) {
 // early and plainly; the read-only transaction and the scope check still decide what runs.
 const READ_ONLY_SQL_KEYWORDS = new Set(['set', 'reset', 'begin', 'commit', 'copy', 'do'])
 const WRITE_KEYWORDS = new Set(['insert', 'update', 'delete', 'merge'])
-const READ_ONLY_SQL_FUNCTIONS = new Set(['set_config', 'pg_sleep', 'pg_sleep_for', 'pg_sleep_until'])
+const READ_ONLY_SQL_FUNCTIONS = new Set([
+    'set_config',
+    'pg_sleep',
+    'pg_sleep_for',
+    'pg_sleep_until',
+    'ts_stat',
+    'ts_rewrite',
+    'pg_notify',
+    'pg_terminate_backend',
+    'pg_cancel_backend',
+    'pg_reload_conf',
+    'pg_rotate_logfile',
+    'pg_switch_wal',
+    'pg_stat_file'
+])
+// Functions that run SQL given as text (so a name inside a string literal would run unchecked), take session locks,
+// or reach files, large objects or other databases.
+const READ_ONLY_SQL_PREFIXES = ['lo_', 'dblink', 'pg_advisory', 'pg_try_advisory', 'pg_read_', 'pg_ls_']
+const READ_ONLY_SQL_SUFFIXES = ['_to_xml', '_to_xmlschema', '_to_xml_and_xmlschema']
+// Words after which a top-level LIMIT is a name, not the clause.
+const LIMIT_NOT_CLAUSE_AFTER = new Set(['as'])
+// Words that cannot start a LIMIT count, so a LIMIT before them is a name.
+const LIMIT_NOT_COUNT = new Set([
+    'from',
+    'where',
+    'group',
+    'having',
+    'window',
+    'order',
+    'union',
+    'intersect',
+    'except',
+    'offset',
+    'fetch',
+    'for',
+    'limit',
+    'into'
+])
+
+export function readOnlySqlDeniedFunction(name) {
+    const value = String(name || '').toLowerCase()
+    return (
+        READ_ONLY_SQL_FUNCTIONS.has(value) ||
+        READ_ONLY_SQL_PREFIXES.some((prefix) => value.startsWith(prefix)) ||
+        READ_ONLY_SQL_SUFFIXES.some((suffix) => value.endsWith(suffix))
+    )
+}
 
 // Words and symbols outside comments and string literals. A quoted identifier is a word with quoted: true.
 export function sqlTokens(sql) {
@@ -727,8 +773,9 @@ export function sqlTokens(sql) {
         const ch = text[i]
         const pair = text.slice(i, i + 2)
         if (pair === '--') {
-            const newline = text.indexOf('\n', i)
-            i = newline === -1 ? text.length : newline + 1
+            // Postgres ends a -- comment at a newline or a carriage return.
+            const rest = text.slice(i).search(/[\r\n]/)
+            i = rest === -1 ? text.length : i + rest + 1
             continue
         }
         if (pair === '/*') {
@@ -846,7 +893,7 @@ export function checkReadOnlySql(sql) {
     }
     let depth = 0
     let topLimit = false
-    for (const token of tokens) {
+    for (const [index, token] of tokens.entries()) {
         if (token.type === 'symbol') {
             if (token.value === '(') depth += 1
             else if (token.value === ')') depth = Math.max(0, depth - 1)
@@ -854,7 +901,7 @@ export function checkReadOnlySql(sql) {
         }
         if (token.type !== 'word') continue
         const name = token.quoted ? token.value.toLowerCase() : token.value
-        if (READ_ONLY_SQL_FUNCTIONS.has(name)) refuse(`${name} is not allowed.`)
+        if (readOnlySqlDeniedFunction(name)) refuse(`${name} is not allowed.`)
         if (token.quoted) continue
         if (WRITE_KEYWORDS.has(name)) {
             refuse(
@@ -864,10 +911,23 @@ export function checkReadOnlySql(sql) {
             )
         }
         if (READ_ONLY_SQL_KEYWORDS.has(name)) refuse(`${name.toUpperCase()} is not allowed.`)
-        if (name === 'limit' && depth === 0) topLimit = true
+        if (name === 'limit' && depth === 0 && limitClauseAt(tokens, index)) topLimit = true
     }
     if (!topLimit) refuse('add a LIMIT to the query, such as LIMIT 100.')
     return sql
+}
+
+// LIMIT is the clause when a count follows it: a number, ALL, a parenthesis or a word that can start an
+// expression. After AS, or before FROM and the like, it is a column name or alias.
+function limitClauseAt(tokens, index) {
+    const before = tokens[index - 1]
+    if (before?.type === 'word' && !before.quoted && LIMIT_NOT_CLAUSE_AFTER.has(before.value)) return false
+    const next = tokens[index + 1]
+    if (!next) return false
+    if (next.type === 'number') return true
+    if (next.type === 'symbol') return next.value === '('
+    if (next.type === 'word') return next.quoted || !LIMIT_NOT_COUNT.has(next.value)
+    return false
 }
 
 function editDistance(a, b) {

@@ -292,6 +292,27 @@ export function asAnalystToolError(error) {
     return new AnalystToolError(message, outcome)
 }
 
+// Where a comment that starts at i ends. A -- comment ends at a newline or carriage return, as in Postgres, and
+// block comments nest. An unfinished block comment returns -1.
+function sqlCommentEnd(text, i) {
+    if (text.startsWith('--', i)) {
+        const rest = text.slice(i).search(/[\r\n]/)
+        return rest === -1 ? text.length : i + rest + 1
+    }
+    let depth = 1
+    let j = i + 2
+    while (j < text.length && depth > 0) {
+        if (text.startsWith('/*', j)) {
+            depth += 1
+            j += 2
+        } else if (text.startsWith('*/', j)) {
+            depth -= 1
+            j += 2
+        } else j += 1
+    }
+    return depth > 0 ? -1 : j
+}
+
 export function oneSqlStatement(sql) {
     const text = String(sql ?? '')
     let i = 0
@@ -299,15 +320,10 @@ export function oneSqlStatement(sql) {
     let sawWord = false
     while (i < text.length) {
         const pair = text.slice(i, i + 2)
-        if (pair === '--') {
-            const newline = text.indexOf('\n', i)
-            i = newline === -1 ? text.length : newline + 1
-            continue
-        }
-        if (pair === '/*') {
-            const end = text.indexOf('*/', i + 2)
+        if (pair === '--' || pair === '/*') {
+            const end = sqlCommentEnd(text, i)
             if (end === -1) throw new AnalystToolError('Analyst SQL has an unfinished comment.', 'expected')
-            i = end + 2
+            i = end
             continue
         }
         const ch = text[i]
@@ -355,14 +371,9 @@ export function oneSqlStatement(sql) {
 function isRowQuery(sql) {
     let i = 0
     while (i < sql.length) {
-        if (sql.startsWith('--', i)) {
-            const newline = sql.indexOf('\n', i)
-            i = newline === -1 ? sql.length : newline + 1
-            continue
-        }
-        if (sql.startsWith('/*', i)) {
-            const end = sql.indexOf('*/', i + 2)
-            i = end === -1 ? sql.length : end + 2
+        if (sql.startsWith('--', i) || sql.startsWith('/*', i)) {
+            const end = sqlCommentEnd(sql, i)
+            i = end === -1 ? sql.length : end
             continue
         }
         if (/\s/.test(sql[i])) {
@@ -1782,9 +1793,14 @@ async function queryUrlPostgres(
     replay,
     timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS,
     env = process.env,
-    relations = []
+    relations = [],
+    { readOnlySql = false } = {}
 ) {
     const scoped = relations.length > 0
+    // The text check passed only row queries. Anything else would go out as a simple-protocol query.
+    if (readOnlySql && !replay?.plan && !isRowQuery(statement)) {
+        throw new AnalystToolError('Cuttlely refused this query: only one SELECT or WITH query is allowed.', 'expected')
+    }
     const ms = analystStatementTimeoutMs(timeoutMs ?? ANALYST_STATEMENT_TIMEOUT_MS, env)
     const text = replay?.plan?.statement || statement
     const client = new Client({
@@ -1821,6 +1837,8 @@ async function queryUrlPostgres(
         if (hint && error instanceof Error) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
         return error
     }
+    const backend = async () => String((await client.query('SELECT pg_backend_pid() AS pid')).rows?.[0]?.pid ?? '')
+    let checkedBackend = ''
     try {
         await client.connect()
         if (scoped) {
@@ -1828,6 +1846,7 @@ async function queryUrlPostgres(
             try {
                 selected = await resolveRelations(runner, relations)
                 await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl))
+                checkedBackend = await backend()
             } catch (error) {
                 throw await hinted(error)
             } finally {
@@ -1840,6 +1859,7 @@ async function queryUrlPostgres(
             if (mode.rows?.[0]?.transaction_read_only !== 'on') {
                 throw new AnalystToolError('Cuttlely could not start a read-only transaction, so the query did not run.', 'expected')
             }
+            if (scoped) await keepCheckedScope(client, runner, relations, selected, checkedBackend, await backend())
             if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
             return await runPostgresStatement(client, statement, replay?.paging, runner)
         } catch (error) {
@@ -1853,6 +1873,27 @@ async function queryUrlPostgres(
         await client.query('ROLLBACK').catch(() => {})
         await client.end().catch(() => {})
     }
+}
+
+const SCOPE_CHANGED = 'Cuttlely refused this query: the selected tables or views changed while it was being checked. Run it again.'
+
+// The check ran in its own transaction, which released its locks. The query transaction runs on the same server
+// session (a transaction-pooling proxy could hand it another one), takes ACCESS SHARE locks on the selected
+// relations so they cannot be dropped, renamed or replaced until it ends, and confirms each still has the oid
+// the check allowed.
+async function keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend) {
+    if (!checkedBackend || checkedBackend !== queryBackend) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
+    // Postgres cannot LOCK a materialized view or every foreign table; those keep the oid check below.
+    for (const relation of selected) {
+        if (relation.kind === 'table' || relation.kind === 'view') {
+            await client.query(`LOCK TABLE ONLY ${relation.name} IN ACCESS SHARE MODE`)
+        }
+    }
+    const now = await resolveRelations(runner, relations)
+    const same =
+        now.length === selected.length &&
+        now.every((relation) => selected.some((checked) => checked.name === relation.name && checked.oid === relation.oid))
+    if (!same) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
 }
 
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
@@ -1885,7 +1926,8 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         },
         options.statementTimeoutMs,
         env,
-        relations
+        relations,
+        { readOnlySql: Boolean(options.readOnlySql) }
     )
 }
 
