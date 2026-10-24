@@ -309,25 +309,51 @@ async function contextFor(record: { chatflowId?: string; workspaceId?: string | 
 
 let runtimeConfigured: Promise<void> | undefined
 
+// The start script stops waiting for the gateway after CUTTLELY_GATEWAY_WAIT_SECONDS (180 by default) and then never
+// starts Hermes, so /health is held for at most CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS (60 by default). Profiles still
+// compiling after that finish while Hermes starts; the next boot finds anything left.
+export async function recompileBeforeHermes(gateway: { holdGatewayHealth: () => () => void }): Promise<void> {
+    const release = gateway.holdGatewayHealth()
+    const seconds = Number(process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS)
+    const holdMs = (Number.isFinite(seconds) && seconds >= 0 ? seconds : 60) * 1000
+    const cap = setTimeout(() => {
+        logger.warn(`[harness] profile recompile still running after ${holdMs / 1000}s; the gateway answers health now`)
+        release()
+    }, holdMs)
+    try {
+        await recompileOutdatedHarnessProfiles()
+    } catch (error) {
+        logger.warn(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
+    } finally {
+        clearTimeout(cap)
+        release()
+    }
+}
+
 // Each record is read again and compiled under its name lock and the profile lock (the order saves use), so a save,
 // sync or delete that ran while this waited is what gets compiled, or the deleted record is skipped. One failure
 // is logged and the rest still run.
 export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
     const [profile, store] = await Promise.all([loadHarness('profile.mjs'), loadHarness('store.mjs')])
-    let records: any[]
+    let names: string[]
     try {
-        records = store.listHarnesses()
+        names = store.listHarnessNames()
     } catch (error) {
         logger.warn(`[harness] profiles were not checked for an older compiler: ${getErrorMessage(error)}`)
         return []
     }
     const results: Array<{ name: string; status: string; error?: string }> = []
-    for (const listed of records) {
-        const name = String(listed?.name || '')
-        if (!name) continue
+    for (const name of names) {
         const done = await withNameLock(name, () =>
             withProfileLock(async () => {
-                const record = store.getHarness(name)
+                let record
+                try {
+                    record = store.getHarness(name)
+                } catch (error) {
+                    // One unreadable record is reported; the others still run.
+                    logger.warn(`[harness] ${name} profile was not recompiled: ${getErrorMessage(error)}`)
+                    return [{ name, status: 'failed', error: getErrorMessage(error) }]
+                }
                 return record ? profile.recompileOutdatedProfiles([record], { log: logger }) : []
             })
         )
@@ -345,12 +371,7 @@ function configureRuntime(): Promise<void> {
                 // Before the gateway answers: the start script launches Hermes only once /health answers, and Hermes
                 // reads each profile's config.yaml from disk. A compile binds the listener, so /health is held meanwhile.
                 const gateway = await loadHarness('gateway.mjs')
-                const release = gateway.holdGatewayHealth()
-                try {
-                    await recompileOutdatedHarnessProfiles()
-                } finally {
-                    release()
-                }
+                await recompileBeforeHermes(gateway)
                 await gateway.startGateway()
                 // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
                 const cleanup = await loadHarness('cleanup.mjs')
@@ -1400,6 +1421,7 @@ export default {
     withNameLock,
     withProfileLock,
     recompileOutdatedHarnessProfiles,
+    recompileBeforeHermes,
     syncUnderNameLock,
     assertNameAvailable,
     listHarnesses,

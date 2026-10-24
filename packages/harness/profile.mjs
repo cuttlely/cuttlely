@@ -1319,9 +1319,10 @@ function onDiskRoster(dir) {
 }
 
 // Whether the published profile for this record, or one of its specialists, came from another compiler version.
+// A directory with no version file is a compile from an older server or one that stopped partway.
 export function profileOutdated(record) {
     const dir = profileDir(record.name)
-    if (!fs.existsSync(path.join(dir, 'config.yaml'))) return false
+    if (!fs.existsSync(dir)) return false
     if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION) return true
     const roster = onDiskRoster(dir)
     for (const specialist of roster?.specialists || []) {
@@ -1333,7 +1334,7 @@ export function profileOutdated(record) {
 }
 
 // Runs at server start, before the gateway answers and so before Hermes loads any profile. Recompiles each saved
-// harness whose published profile is on disk from an older compiler. Profiles never compiled stay uncompiled, and
+// harness whose published profile directory is on disk from an older compiler. Profiles never compiled stay uncompiled, and
 // a second run finds nothing to do. The caller holds the profile lock.
 export function recompileOutdatedProfiles(records, { log = console } = {}) {
     const results = []

@@ -7082,6 +7082,11 @@ await expectCase('a compile that fails partway leaves the profile outdated for t
     fs.rmSync(blocked, { recursive: true, force: true })
     const repaired = recompileOutdatedProfiles([record], { log: {} })
     const after = recompileOutdatedProfiles([record], { log: {} })
+    // A first compile that stopped before the parent config.yaml: the directory is there, the config and version are not.
+    fs.rmSync(profileFile('mahalfchief', 'config.yaml'), { force: true })
+    fs.rmSync(profileFile('mahalfchief', 'harness-compiler'), { force: true })
+    const noConfig = recompileOutdatedProfiles([record], { log: {} })
+    const configBack = fs.existsSync(profileFile('mahalfchief', 'config.yaml'))
     check(
         'a compile that fails partway leaves the profile outdated for the next boot',
         threw &&
@@ -7091,8 +7096,10 @@ await expectCase('a compile that fails partway leaves the profile outdated for t
             failed.length === 1 &&
             failed[0].status === 'failed' &&
             JSON.stringify(repaired) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
-            after.length === 0,
-        JSON.stringify({ threw, specialists, versionFiles, failed, repaired, after })
+            after.length === 0 &&
+            JSON.stringify(noConfig) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
+            configBack,
+        JSON.stringify({ threw, specialists, versionFiles, failed, repaired, after, noConfig, configBack })
     )
 })
 
