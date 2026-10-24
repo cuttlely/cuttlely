@@ -1356,6 +1356,11 @@
             "to": "packages/server/src/utils/getUploadsConfig.ts"
         },
         {
+            "from": "packages/server/src/utils/mergeCredentialUpdate.test.ts",
+            "to": "packages/server/src/utils/index.ts",
+            "reason": "Test for mergeCredentialUpdate in the server utils module"
+        },
+        {
             "from": "packages/server/src/utils/modelRetryBudget.test.ts",
             "to": "packages/components/src/index.ts"
         },
