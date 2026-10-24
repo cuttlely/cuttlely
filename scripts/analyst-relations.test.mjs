@@ -2138,6 +2138,33 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(ok.rows[0].v, 1)
     })
 
+    it('refuses a 40-deep chain and reports a non-empty reason; 20-deep still passes', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        // Build a 40-deep chain
+        for (let i = 39; i >= 0; i -= 1) {
+            const name = `s.deep_${i}`
+            const body = i === 39 ? 'SELECT 1' : `SELECT s.deep_${i + 1}()`
+            // eslint-disable-next-line no-await-in-loop
+            await owner.query(`CREATE OR REPLACE FUNCTION ${name}() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC ${body}; END`)
+        }
+        await owner.query('RESET ROLE')
+        // 20-deep passes (reuse link_0 from earlier test)
+        const ok20 = await queryAnalystUrl(url, 'SELECT s.link_0() AS v LIMIT 1', { ...node, relations: ['analytics.clean_orders'] })
+        assert.equal(ok20.rows[0].v, 1)
+        // 40-deep is refused and includes a non-empty reason
+        const err = await queryAnalystUrl(url, 'SELECT s.deep_0() LIMIT 1', {
+            ...node,
+            relations: ['analytics.clean_orders']
+        }).then(
+            () => null,
+            (e) => e
+        )
+        assert.ok(err, 'expected refusal for 40-deep chain')
+        assert.match(String(err.message), /found:/i)
+        assert.doesNotMatch(String(err.message), /found:\s*\.\s*$/i)
+    })
+
     it('allow-list of a parent function does not bypass checks for its callees or defaults', async (t) => {
         if (skipped(t)) return
         await owner.query(`CREATE FUNCTION s.parent_calls_leak() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_secret(); END`)

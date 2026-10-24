@@ -634,11 +634,38 @@ export async function checkStatementScope(
         const stack = []
         let badTopReg = false
         const top = () => (stack.length ? stack[stack.length - 1] : null)
+        const ALLOWED_NODE_KINDS = new Set([
+            'QUERY',
+            'RANGETBLENTRY',
+            'ALIAS',
+            'RTEPERMISSIONINFO',
+            'FROMEXPR',
+            'RANGETBLREF',
+            'TARGETENTRY',
+            'VAR',
+            'CONST',
+            'FUNCEXPR',
+            'OPEXPR',
+            'COERCEVIAIO',
+            'RELABELTYPE',
+            'SCALARARRAYOPEXPR',
+            'NULLTEST',
+            'BOOLTEST',
+            'SUBLINK',
+            'AGGREF',
+            'WINDOWFUNC',
+            'SORTGROUPCLAUSE',
+            'LIMITCOUNT',
+            'LIMITOFFSET'
+        ])
         for (let i = 0; i < text.length; i += 1) {
             const ch = text[i]
             if (ch === '{') {
                 const m = /^([A-Z_]+)/.exec(text.slice(i + 1))
                 const name = m ? m[1] : ''
+                if (!ALLOWED_NODE_KINDS.has(name) && !/(EXPR|ENTRY|REF|INFO|CLAUSE|CLAUSES|LIST|STMT)$/.test(name)) {
+                    throw new ScopeRefusal('Cuttlely refused this query: it uses a construct not allowed while a table selection is set.')
+                }
                 stack.push({
                     name,
                     funcId: null,
@@ -1248,16 +1275,16 @@ async function refuseRoutines(
         for (const id of add.types || []) into.types.add(Number(id))
         return into
     }
-    async function defaultsSafeTree(info) {
+    async function defaultsSafeTree(info, depth = 0) {
         const declared = Number(info.nargs_default || 0)
         if (!declared) return true
         const tree = String(info.argdefaults_tree || '').trim()
         if (!tree) return false
         // The defaults tree is a nodeToString form; walk it and vet the found ids.
         const found = treeObjectIds(tree)
-        return await vetFound(found)
+        return await vetFound(found, depth)
     }
-    async function vetFound(found) {
+    async function vetFound(found, depth = 0) {
         // Relations: any access is refused in scoped mode unless that relation is selected.
         if (relations?.length) {
             const allowedSet = new Set((relations || []).map((r) => Number(r.oid)))
@@ -1306,13 +1333,13 @@ async function refuseRoutines(
         }
         // Functions: recursively vet.
         for (const fn of new Set([...(found.functions || []), ...addFns])) {
-            const ok = await strictlyAllowedScoped(Number(fn))
+            const ok = await strictlyAllowedScoped(Number(fn), depth + 1)
             if (!ok) return false
         }
         return true
     }
     async function strictlyAllowedScoped(functionOid, depth = 0) {
-        if (depth > 32) return false
+        // depth is the length of the call chain to this function; cap it.
         if (memo.has(functionOid)) return memo.get(functionOid)
         if (visiting.has(functionOid)) {
             memo.set(functionOid, false)
@@ -1333,6 +1360,12 @@ async function refuseRoutines(
                 [functionOid]
             ))
         if (!info) return false
+        if (depth > 32) {
+            info.refusal = info.refusal || 'call graph too deep'
+            memo.set(functionOid, false)
+            visiting.delete(functionOid)
+            return false
+        }
         if (builtIn(info)) {
             // Allowed built-in only when not denied; volatile built-ins are screened by volatile flag at the call site.
             if (isDenied(info.name)) return false
@@ -1354,13 +1387,38 @@ async function refuseRoutines(
                 [functionOid]
             )
             if (!agg) {
+                info.refusal = info.refusal || 'aggregate metadata not found'
                 memo.set(functionOid, false)
                 visiting.delete(functionOid)
                 return false
             }
+            // Walk or refuse the aggregate's sort operator
+            const sortop = Number(agg.sortop)
+            if (sortop > 0) {
+                const op = await runner.get(
+                    'SELECT o.oid::int8 AS oid, n.nspname AS schema, o.oprcode::oid::int8 AS code FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = ?::oid',
+                    [sortop]
+                )
+                if (!op || String(op.schema) !== 'pg_catalog') {
+                    info.refusal = info.refusal || 'aggregate sort operator is not built in'
+                    memo.set(functionOid, false)
+                    visiting.delete(functionOid)
+                    return false
+                }
+                if (Number(op.code) > 0) {
+                    const okSort = await strictlyAllowedScoped(Number(op.code), depth + 1)
+                    if (!okSort) {
+                        info.refusal = info.refusal || 'aggregate sort operator function is not allowed'
+                        memo.set(functionOid, false)
+                        visiting.delete(functionOid)
+                        return false
+                    }
+                }
+            }
             for (const fid of [Number(agg.trans), Number(agg.final), Number(agg.combine)].filter((x) => x > 0)) {
                 const ok = await strictlyAllowedScoped(fid, depth + 1)
                 if (!ok) {
+                    info.refusal = info.refusal || 'aggregate helper function is not allowed'
                     memo.set(functionOid, false)
                     visiting.delete(functionOid)
                     return false
@@ -1413,15 +1471,17 @@ async function refuseRoutines(
         }
         if (body) {
             const found = treeObjectIds(body)
-            const ok = await vetFound(found)
+            const ok = await vetFound(found, depth)
             if (!ok) {
+                info.refusal = info.refusal || 'calls a function that is not allowed'
                 memo.set(functionOid, false)
                 visiting.delete(functionOid)
                 return false
             }
         }
-        const defaultsOk = await defaultsSafeTree(info)
+        const defaultsOk = await defaultsSafeTree(info, depth)
         if (!defaultsOk) {
+            info.refusal = info.refusal || 'unsafe default argument'
             memo.set(functionOid, false)
             visiting.delete(functionOid)
             return false
