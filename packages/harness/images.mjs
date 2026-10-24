@@ -195,8 +195,10 @@ function tokenMask(raw, root, continued) {
     if (/^[\/\\~]$/.test(token)) return { text: raw, masked: continued === true ? true : 'soft' }
     const slash = /[\/\\]/.test(token)
     const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
-    const numeric = continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
-    if (!candidate && !(continued && slash && !numeric)) return { text: raw, masked: false }
+    const numeric = !candidate && continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
+    // A number kept after a lone slash still passes the soft continuation on, so a path piece after it is hidden.
+    if (numeric) return { text: raw, masked: 'soft' }
+    if (!candidate && !(continued && slash)) return { text: raw, masked: false }
     let local = token.replace(/^file:\/\/[^/\\\s]*/i, '')
     try {
         local = decodeURIComponent(local)

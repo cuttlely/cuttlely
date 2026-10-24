@@ -8342,6 +8342,7 @@ check(
             [5, 'Dates: 10/24/2026 / 10/25/2026', 'Dates: 10/24/2026 / 10/25/2026'],
             [5, '/tmp/My / 3/4', 'a server path / a server path'],
             [5, '/ 2026/private.txt', '/ a server path'],
+            [5, '/ 123/456 private/report.txt', '/ 123/456 a server path'],
             [5, '/tmp/My ~ Reports/private.txt', 'a server path ~ a server path'],
             [5, '/tmp/My \\ Reports/private.txt', 'a server path \\ a server path'],
             [3, 'C:\\private\\deck.pptx', 'a server path'],
