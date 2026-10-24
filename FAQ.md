@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.4.1)
+# Cuttlely FAQ (1.4.2)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,15 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.4.2?
+
+-   LangSmith traces from flow runs upload with the LangSmith credential and project set in the flow's Analytics settings, instead of no credential and the `default` project.
+-   Model calls a harness makes in process during a harness tool run show as child runs of that tool run in LangSmith. Agent-loop specialist calls through the harness gateway and jobs run by another worker are not attached.
+-   A failed LangSmith upload is logged with its status, path and flow id.
+-   Editing a credential keeps its saved values instead of replacing them with the placeholders the dialog shows.
+
+Full notes: [v1.4.2 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.2).
 
 ### What's new in 1.4.1?
 
