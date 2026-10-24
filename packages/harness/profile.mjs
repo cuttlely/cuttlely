@@ -879,10 +879,22 @@ export function profileDestinationConflicts(record, profileName = record?.name) 
     return conflicts
 }
 
+// Whether a path exists, telling a missing one from one that cannot be checked: existsSync is false for both, and the
+// boot sweep must not take a folder it cannot read for an empty one. Throws for anything but a missing path.
+function present(file) {
+    try {
+        fs.statSync(file)
+        return true
+    } catch (error) {
+        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false
+        throw error
+    }
+}
+
 // A harness profile directory: a parent holds harness-roster.json, a specialist its harness-parent marker. Compilers
 // before the version marker wrote both, so this finds their profiles too, and leaves Hermes profiles of other origin.
 function harnessOwnedDir(dir) {
-    return fs.existsSync(path.join(dir, 'harness-roster.json')) || fs.existsSync(path.join(dir, 'harness-parent'))
+    return present(path.join(dir, 'harness-roster.json')) || present(path.join(dir, 'harness-parent'))
 }
 
 // Moves config.yaml to config.yaml.outdated in a directory without the current compiler version, so Hermes does not
@@ -892,12 +904,16 @@ function harnessOwnedDir(dir) {
 function setAsideConfig(dir) {
     const config = path.join(dir, 'config.yaml')
     try {
-        if (!fs.existsSync(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) return true
+        if (!present(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) return true
         fs.rmSync(config + '.outdated', { recursive: true, force: true })
         fs.renameSync(config, config + '.outdated')
         return true
     } catch {
-        return !fs.existsSync(config)
+        try {
+            return !present(config)
+        } catch {
+            return false
+        }
     }
 }
 
@@ -928,7 +944,7 @@ function setAsideUnfinishedConfigs(profileName) {
 // checked; the caller keeps Hermes waiting while there are any. Throws when the profiles folder cannot be read.
 export function setAsideOutdatedConfigs() {
     const root = path.join(hermesHome(), 'profiles')
-    if (!fs.existsSync(root)) return []
+    if (!present(root)) return []
     const loadable = []
     for (const entry of fs.readdirSync(root)) {
         const dir = path.join(root, entry)
@@ -1396,7 +1412,18 @@ function onDiskRoster(dir) {
 // A directory with no version file is a compile from an older server or one that stopped partway.
 export function profileOutdated(record) {
     const dir = profileDir(record.name)
-    if (!fs.existsSync(dir)) return false
+    if (!fs.existsSync(dir)) {
+        // No parent folder: never compiled, unless specialist folders of this harness survived it.
+        const root = path.join(hermesHome(), 'profiles')
+        if (!fs.existsSync(root)) return false
+        return fs
+            .readdirSync(root)
+            .some(
+                (entry) =>
+                    readMarker(path.join(root, entry, 'harness-parent')) === String(record.name) &&
+                    compilerVersionOf(path.join(root, entry)) !== PROFILE_COMPILER_VERSION
+            )
+    }
     if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION) return true
     const roster = onDiskRoster(dir)
     for (const specialist of roster?.specialists || []) {

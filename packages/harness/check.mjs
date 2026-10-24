@@ -7194,8 +7194,61 @@ await expectCase('the boot sweep sets aside every older harness config and leave
             has('maownprofile', 'config.yaml'),
         JSON.stringify({ loadable, second })
     )
+    // A folder the sweep cannot read is not taken for an empty one: health stays held.
+    make('masweeplocked', { 'config.yaml': 'old\n', 'harness-parent': 'masweepold\n' })
+    fs.chmodSync(path.join(root, 'masweeplocked'), 0o000)
+    let lockedLoadable = []
+    let lockedReadable = false
+    try {
+        fs.readdirSync(path.join(root, 'masweeplocked'))
+        lockedReadable = true
+    } catch {
+        lockedReadable = false
+    }
+    try {
+        lockedLoadable = setAsideOutdatedConfigs()
+    } finally {
+        fs.chmodSync(path.join(root, 'masweeplocked'), 0o755)
+        fs.rmSync(path.join(root, 'masweeplocked'), { recursive: true, force: true })
+    }
+    check(
+        'the boot sweep reports a harness folder it cannot read',
+        // Root ignores folder permissions; there is nothing to check then.
+        lockedReadable || lockedLoadable.some((dir) => dir.endsWith('masweeplocked')),
+        JSON.stringify({ lockedReadable, lockedLoadable })
+    )
     for (const name of ['masweepold', 'masweepold--alpha', 'masweepnew', 'maownprofile'])
         fs.rmSync(path.join(root, name), { recursive: true, force: true })
+})
+
+await expectCase('specialist folders whose parent folder is gone are compiled again at boot', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const record = saveHarness(
+        {
+            name: 'malostparent',
+            chatflowId: 'canvas-lost-parent',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [
+                { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const child = profilesFor('malostparent').find((profile) => profile.name.includes('--'))?.name
+    fs.rmSync(profileFile(child, 'harness-compiler'), { force: true })
+    fs.rmSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'malostparent'), { recursive: true, force: true })
+    const results = recompileOutdatedProfiles([record], { log: {} })
+    check(
+        'specialist folders whose parent folder is gone are compiled again at boot',
+        Boolean(child) &&
+            results[0]?.status === 'recompiled' &&
+            fs.existsSync(profileFile('malostparent', 'config.yaml')) &&
+            fs.readFileSync(profileFile(child, 'harness-compiler'), 'utf8').trim() === PROFILE_COMPILER_VERSION,
+        JSON.stringify({ child, results })
+    )
 })
 
 await expectCase('a profile with the current compiler version keeps its files at boot', async () => {
