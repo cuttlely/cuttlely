@@ -168,8 +168,10 @@ function assertNoProfileConflicts(profile: HarnessModule, record: Record<string,
     let taken: string[] = []
     try {
         taken = profile.profileDestinationConflicts({ ...record, name })
-    } catch {
-        // A roster that cannot be resolved is refused by the save itself, with its own message.
+    } catch (error) {
+        // A roster that cannot be resolved (two specialists that land in one profile) would fail its compile after the
+        // record is written, so it is refused here, before anything is written.
+        throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
     }
     if (taken.length) {
         throw new AppError(
@@ -178,6 +180,15 @@ function assertNoProfileConflicts(profile: HarnessModule, record: Record<string,
                 .map((entry) => `profiles/${entry}`)
                 .join(', ')} belongs to another harness. Choose another harness or specialist name.`
         )
+    }
+}
+
+// A record that belongs to another canvas is refused before it is claimed, as the store would refuse the save.
+function assertSameCanvas(existing: { chatflowId?: unknown } | null, record: { chatflowId?: unknown } | null | undefined, name: string) {
+    const had = typeof existing?.chatflowId === 'string' ? existing.chatflowId : ''
+    const given = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
+    if (had && given && had !== given) {
+        throw new AppError(StatusCodes.CONFLICT, `Harness name "${name}" is already used. Choose a different name.`)
     }
 }
 
@@ -204,6 +215,7 @@ async function saveUnderName(
         const owner = await ownerOf(existing)
         // No resolved team is not this caller. The file, including its run history, stays as it is.
         if (!inWorkspace(owner, ws)) throw nameClash(name)
+        assertSameCanvas(existing, record, name)
         if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
     } else if (name) {
         await clearStaleNameData(name, record as { specialists?: Array<{ name?: unknown }> })
@@ -222,7 +234,7 @@ async function saveUnderName(
 export async function assertNameAvailable(
     name: string,
     workspaceId?: string | null,
-    opts: { claiming?: boolean; record?: { specialists?: Array<{ name?: unknown }> } | null } = {}
+    opts: { claiming?: boolean; readOnly?: boolean; record?: { specialists?: Array<{ name?: unknown }> } | null } = {}
 ) {
     const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
@@ -235,12 +247,14 @@ export async function assertNameAvailable(
         return
     }
     if (!existing) {
-        if (opts.claiming) await clearStaleNameData(name, opts.record)
+        if (opts.claiming && !opts.readOnly) await clearStaleNameData(name, opts.record)
         else await assertNotStaged(name)
         return
     }
     const owner = await ownerOf(existing)
     if (!inWorkspace(owner, ws)) throw nameClash(name)
+    if (opts.readOnly) return
+    assertSameCanvas(existing, opts.record as { chatflowId?: unknown } | null, name)
     if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
 }
 

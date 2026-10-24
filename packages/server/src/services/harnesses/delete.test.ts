@@ -11,6 +11,16 @@ jest.mock('./apiAccess', () => ({
     removeHarnessFromKeyLists: jest.fn(async () => 0)
 }))
 
+// The install default team: none unless a test names one.
+const defaultTeams: { id: string }[] = []
+jest.mock('../../utils/getRunningExpressApp', () => ({
+    getRunningExpressApp: () => ({
+        AppDataSource: {
+            getRepository: () => ({ find: async () => defaultTeams, findOneBy: async () => null })
+        }
+    })
+}))
+
 import harnessesService, {
     resetNameLocks,
     acquireNameLock,
@@ -89,7 +99,10 @@ const fakeModules = (file: string) => {
         return Promise.resolve({
             specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`,
             compileProfileCached: () => undefined,
-            profileDestinationConflicts: (row: Row) => takenProfiles.filter((entry) => entry.startsWith(`${row.name.toLowerCase()}`))
+            profileDestinationConflicts: (row: Row) => {
+                if (takenProfiles.includes('unresolvable')) throw new Error('Specialist "scout" collides with another model profile.')
+                return takenProfiles.filter((entry) => entry.startsWith(`${row.name.toLowerCase()}`))
+            }
         })
     }
     if (file === 'schedule.mjs') return Promise.resolve({ deleteSchedule: (name: string) => schedules.delete(name) })
@@ -498,6 +511,36 @@ describe('a reused name never sees an earlier harness data', () => {
         ).rejects.toMatchObject({ statusCode: 409 })
         expect(claimedNames).toEqual([])
         expect(fs.readFileSync(fileOf('legacy'), 'utf8')).toBe(before)
+    })
+
+    it('a roster that cannot be resolved is refused before the record is written', async () => {
+        takenProfiles = ['unresolvable']
+        const before = fs.readFileSync(fileOf('NAVI-B'), 'utf8')
+        await expect(
+            harnessesService.saveHarness({ name: 'NAVI-B', specialists: [{ name: 'Scout' }, { name: 'scout' }] }, TEAM)
+        ).rejects.toMatchObject({ statusCode: 400 })
+        expect(fs.readFileSync(fileOf('NAVI-B'), 'utf8')).toBe(before)
+        expect(cleaned).toEqual([])
+    })
+
+    it('a name check for a flow whose roster cannot be built clears nothing', async () => {
+        await harnessesService.assertNameAvailable('ghost', TEAM, { claiming: true, readOnly: true, record: null })
+        expect(cleaned).toEqual([])
+    })
+
+    it('a record of another canvas is not claimed by a refused canvas save', async () => {
+        fs.writeFileSync(fileOf('legacy'), JSON.stringify({ name: 'legacy', chatflowId: 'canvas-one', specialists: [{ name: 'scout' }] }))
+        defaultTeams.splice(0, defaultTeams.length, { id: TEAM })
+        const before = fs.readFileSync(fileOf('legacy'), 'utf8')
+        await expect(
+            harnessesService.assertNameAvailable('legacy', TEAM, {
+                claiming: true,
+                record: { name: 'legacy', chatflowId: 'canvas-two', specialists: [{ name: 'scout' }] } as never
+            })
+        ).rejects.toMatchObject({ statusCode: 409 })
+        expect(claimedNames).toEqual([])
+        expect(fs.readFileSync(fileOf('legacy'), 'utf8')).toBe(before)
+        defaultTeams.length = 0
     })
 
     it('saves of different names hold the shared profile lock from the conflict check through the save', async () => {

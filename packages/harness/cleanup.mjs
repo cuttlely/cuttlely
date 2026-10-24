@@ -664,7 +664,18 @@ export async function removeHarnessProfiles(name, { reason = 'harness deleted', 
     const trash = trashEntries()
         .filter((item) => item.id === id)
         .map((item) => item.entry)
-    const outcome = await removeOwned(id, profilesOf(id), { reason, trash, revoked })
+    const owned = profilesOf(id)
+    // What this cleanup cannot remove (not this harness's) is found first: when anything would block the name anyway,
+    // nothing is removed.
+    // Its own profiles, and the names its parked profiles had (their workspaces go with them).
+    const ownSet = new Set([...owned, ...trash.map((entry) => PARKED_RE.exec(entry)?.[1] || entry)])
+    const blockerEntry = (item) => item.replace(/^(profiles|workspaces)\//, '').replace(/ \(.*\)$/, '')
+    const unremovable = nameReuseBlockers(id, { expected }).filter((item) => !ownSet.has(blockerEntry(item)))
+    if (unremovable.length) {
+        for (const item of unremovable) cleanupHooks.log(`[harness] removed nothing for harness "${id}" (${reason}): ${item} is left over`)
+        return { removed: [], kept: [...owned, ...unremovable], error: null }
+    }
+    const outcome = await removeOwned(id, owned, { reason, trash, revoked })
     // Anything a new harness with this name would compile into and that cleanup could not attribute or remove
     // (a linked root or entry, a workspace without its profile) is a leftover too, so the name is not reused over it.
     const blockers = nameReuseBlockers(id, { expected }).filter((item) => !outcome.kept.includes(item.replace(/^profiles\//, '')))

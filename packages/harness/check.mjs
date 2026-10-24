@@ -16886,6 +16886,23 @@ await (async () => {
     )
     await cleanup.removeHarnessProfiles('held')
 
+    // A leftover cleanup cannot remove (a workspace with no profile at a name the new roster compiles into) is found
+    // before anything is removed, so the refused name keeps all of its data.
+    reset()
+    saveJson('pre')
+    home('pre')
+    dropJson('pre')
+    fs.mkdirSync(path.join(workDir, 'pre--x'), { recursive: true })
+    fs.writeFileSync(path.join(workDir, 'pre--x', 'keep.txt'), 'x')
+    const preflight = await cleanup.removeHarnessProfiles('pre', { reason: 'name saved again', expected: ['pre--x'] })
+    check(
+        'a name with a leftover cleanup cannot remove keeps every profile, removing nothing',
+        exists('pre') && preflight.removed.length === 0 && preflight.kept.includes('workspaces/pre--x') && revoked.length === 0,
+        JSON.stringify({ preflight, revoked, lines })
+    )
+    fs.rmSync(path.join(workDir, 'pre--x'), { recursive: true, force: true })
+    await cleanup.removeHarnessProfiles('pre')
+
     // A runtime that cannot be confirmed stopped (pending, timeout or error) keeps its profile for a later run.
     reset()
     saveJson('busy')
