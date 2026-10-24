@@ -40,12 +40,21 @@ export const operationForLog = (pathname: string): string => {
     return '(other)'
 }
 
-/** The key as the LangSmith SDK reads it: trimmed, then one pair of surrounding double and then single quotes removed. */
-export const normalizeLangSmithKey = (apiKey: string): string =>
-    apiKey
-        .trim()
-        .replace(/^"(.*)"$/, '$1')
-        .replace(/^'(.*)'$/, '$1')
+/**
+ * The key as the LangSmith SDK reads it (trimmed, then one pair of surrounding double and then single quotes
+ * removed), repeated until nothing changes, so the SDK's own pass over the result leaves it as it is.
+ */
+export const normalizeLangSmithKey = (apiKey: string): string => {
+    let key = apiKey
+    for (;;) {
+        const next = key
+            .trim()
+            .replace(/^"(.*)"$/s, '$1')
+            .replace(/^'(.*)'$/s, '$1')
+        if (next === key) return key
+        key = next
+    }
+}
 
 /**
  * The key and endpoint a flow's LangSmith client is built with, or undefined when the credential has no key

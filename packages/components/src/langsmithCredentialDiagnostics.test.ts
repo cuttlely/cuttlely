@@ -12,6 +12,19 @@ import {
     operationForLog
 } from './langsmithCredentialDiagnostics'
 
+describe('langSmithClientConfig with quoted keys', () => {
+    it.each(['" k "', "' k '", '"\'k\'"', '" \'k\' "', '  "k"  ', 'k'])('the SDK keeps the key it is given for %s', (raw) => {
+        const config = langSmithClientConfig(raw, 'https://example.test')
+        expect(config?.apiKey).toBe('k')
+        const client = new Client(config)
+        expect(langSmithClientUsesOwnKey(client, config!.apiKey)).toBe(true)
+    })
+
+    it.each(['""', '" "', '"\'\'"', '\' " " \''])('gives no client for %s', (raw) => {
+        expect(langSmithClientConfig(raw, undefined)).toBeUndefined()
+    })
+})
+
 describe('describeLangSmithCredential', () => {
     const key = 'lsv2_pt_' + 'a'.repeat(40) + '_' + 'b'.repeat(10)
 
