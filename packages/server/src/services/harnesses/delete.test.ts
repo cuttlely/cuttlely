@@ -420,6 +420,21 @@ describe('orphan cleanup migration', () => {
         await expect(harnessesService.removeOrphanHarnesses()).resolves.toEqual({ removed: [] })
     })
 
+    it('rechecks the record under the name lock and leaves a harness saved under the name meanwhile', async () => {
+        const CANVAS_NEW = 'canvas-new'
+        let sweep: Promise<{ removed: string[] }> | undefined
+        await harnessesService.withNameLock('navi-harness', async () => {
+            sweep = harnessesService.removeOrphanHarnesses()
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            canvases.set(CANVAS_NEW, { workspaceId: 'team-b', type: 'HARNESS' })
+            write({ name: 'navi-harness', chatflowId: CANVAS_NEW, workspaceId: 'team-b', specialists: [{ name: 'scout' }] })
+        })
+        await expect(sweep).resolves.toEqual({ removed: [] })
+        expect(has('navi-harness')).toBe(true)
+        expect(JSON.parse(fs.readFileSync(fileOf('navi-harness'), 'utf8'))).toMatchObject({ chatflowId: CANVAS_NEW })
+        expect(cleaned).not.toContain('navi-harness')
+    })
+
     it('keeps a record when the canvas lookup fails', async () => {
         canvases.set(CANVAS_GONE, 'fail')
         await expect(harnessesService.removeOrphanHarnesses()).resolves.toEqual({ removed: [] })

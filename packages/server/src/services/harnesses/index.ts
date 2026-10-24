@@ -723,7 +723,17 @@ export async function removeOrphanHarnesses() {
         if (!(await isOrphan(row))) continue
         try {
             const owner = await ownerOf(row)
-            await withNameLock(row.name, () => removeHarnessRecord(row.name, owner || ''))
+            // Checked again under the lock: while this waited, another delete may have finished and a canvas sync saved
+            // a new harness under the name, which this sweep must not touch.
+            const done = await withNameLock(row.name, async () => {
+                const current = store.getHarness(row.name) as HarnessRow | undefined
+                if (!current || current.chatflowId !== row.chatflowId || (current.workspaceId || '') !== (row.workspaceId || ''))
+                    return false
+                if (!(await isOrphan(current))) return false
+                await removeHarnessRecord(row.name, owner || '')
+                return true
+            })
+            if (!done) continue
             removed.push(row.name)
         } catch (error) {
             logger.warn(`[harness] orphan ${row.name} was kept: ${getErrorMessage(error)}`)

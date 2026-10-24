@@ -391,6 +391,15 @@ function readEnvFile(file) {
     return env
 }
 
+// A request checks its token again after every await: a delete that revoked the token while the request waited for
+// its body or its owner (and maybe a new harness saved under the name) must not reach that new harness.
+class RevokedDuringRequest extends Error {}
+
+function assertStillValid(meta) {
+    for (const value of tokens.values()) if (value === meta) return
+    throw new RevokedDuringRequest('Unauthorized')
+}
+
 function lookupToken(presented) {
     const text = String(presented || '')
     const given = Buffer.from(text)
@@ -478,7 +487,10 @@ async function onRequest(req, res) {
         if (req.method === 'POST' && pathName === '/harness/tools/list') {
             const record = requireHarness(meta)
             const ctx = await ownerContext(record)
-            sendJson(res, 200, { tools: await toolSpecs(record, meta.specialistName, ctx, meta.profileName) })
+            assertStillValid(meta)
+            const specs = await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
+            assertStillValid(meta)
+            sendJson(res, 200, { tools: specs })
             return
         }
         if (req.method === 'POST' && pathName === '/harness/tools/call') {
@@ -488,6 +500,10 @@ async function onRequest(req, res) {
         sendJson(res, 404, { error: { message: 'Not found', type: 'invalid_request_error' } })
     } catch (error) {
         if (res.writableEnded || res.destroyed) return
+        if (error instanceof RevokedDuringRequest) {
+            sendJson(res, 401, { error: { message: 'Unauthorized', type: 'authentication_error' } })
+            return
+        }
         if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
             if (!res.headersSent) sendJson(res, 499, { error: { message: 'Client disconnected', type: 'aborted' } })
             return
@@ -603,6 +619,7 @@ function finishReason(toolCalls) {
 
 async function completeChat(req, res, meta) {
     const body = await parseJson(req)
+    assertStillValid(meta)
     if (!Array.isArray(body.messages)) {
         sendJson(res, 400, { error: { message: 'messages must be an array.', type: 'invalid_request_error' } })
         return
@@ -613,6 +630,7 @@ async function completeChat(req, res, meta) {
     }
     const record = requireHarness(meta)
     const ctx = await ownerContext(record)
+    assertStillValid(meta)
     const primary = modelBinding(record, meta.specialistName)
     const fallback = fallbackBinding(record, meta.specialistName)
     const bound = bindRequest(req, res, meta.profileName)
@@ -828,12 +846,14 @@ function toolSpec(binding, kind, ownName) {
 
 async function callTool(req, res, meta) {
     const body = await parseJson(req)
+    assertStillValid(meta)
     if (!body.name || typeof body.name !== 'string') {
         sendJson(res, 400, { error: { message: 'Tool name is required.', type: 'invalid_request_error' } })
         return
     }
     const record = requireHarness(meta)
     const ctx = await ownerContext(record)
+    assertStillValid(meta)
     // The page cursor and the analyst session use the saved harness name. meta.harnessName is the try profile.
     const scope = callScope(body.scope, record.name)
     const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? { ...body.arguments } : {}

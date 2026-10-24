@@ -560,7 +560,53 @@ export async function removeHarnessProfiles(name, { reason = 'harness deleted', 
     const trash = trashEntries()
         .filter((item) => item.id === id)
         .map((item) => item.entry)
-    return removeOwned(id, profilesOf(id), { reason, trash, revoked })
+    const outcome = await removeOwned(id, profilesOf(id), { reason, trash, revoked })
+    // Anything a new harness with this name would compile into and that cleanup could not attribute or remove
+    // (a linked root or entry, a workspace without its profile) is a leftover too, so the name is not reused over it.
+    const blockers = nameReuseBlockers(id).filter((item) => !outcome.kept.includes(item))
+    for (const item of blockers) cleanupHooks.log(`[harness] left over for harness "${id}": ${item}`)
+    return blockers.length ? { ...outcome, kept: [...outcome.kept, ...blockers] } : outcome
+}
+
+// Paths a harness saved under this name would compile into, that are there but are not a profile cleanup can
+// attribute: a profiles or workspaces root that is not a plain directory, a linked or non-directory profile entry,
+// and a specialist workspace whose profile is gone. Entries of a saved harness or owned by another one are skipped.
+export function nameReuseBlockers(name) {
+    const id = assertHarnessName(name)
+    const saved = savedNames()
+    const blockers = []
+    const mine = (entry) => entry === id || entry.startsWith(`${id}--`)
+    for (const [label, root] of [
+        ['profiles', profilesRoot()],
+        ['workspaces', workspacesRoot()]
+    ]) {
+        const stat = lstatOrNull(root)
+        if (!stat) continue
+        if (!realDir(root)) {
+            blockers.push(`${label} (not a plain directory)`)
+            continue
+        }
+        let names = []
+        try {
+            names = fs.readdirSync(root).sort()
+        } catch {
+            blockers.push(`${label} (could not be read)`)
+            continue
+        }
+        for (const entry of names) {
+            if (!mine(entry) || claimedBySaved(entry, saved, root)) continue
+            const entryStat = lstatOrNull(path.join(root, entry))
+            if (!entryStat) continue
+            if (label === 'profiles') {
+                if (entryStat.isSymbolicLink() || !entryStat.isDirectory()) blockers.push(`profiles/${entry}`)
+                continue
+            }
+            // A workspace beside its profile is handled with that profile.
+            if (lstatOrNull(path.join(profilesRoot(), entry))) continue
+            blockers.push(`workspaces/${entry}`)
+        }
+    }
+    return blockers
 }
 
 // The harness delete: tokens are revoked first (a failure keeps the store file and every profile),

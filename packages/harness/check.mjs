@@ -6014,6 +6014,42 @@ await expectCase('custom MCP runs through the node', async () => {
     )
 })
 
+// A token revoked while its request still waits for the body is refused once the body arrives.
+{
+    const gateway = await import('./gateway.mjs')
+    const opened = await openGateway()
+    const token = `revoked-midway-${Date.now()}`
+    gateway.registerProfileToken({ token, harnessName: 'midway', specialistName: 'a', profileName: 'midway--a' })
+    let status = 0
+    try {
+        status = await new Promise((resolve, reject) => {
+            const req = http.request(
+                {
+                    host: '127.0.0.1',
+                    port: opened.port,
+                    method: 'POST',
+                    path: '/harness/tools/call',
+                    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+                },
+                (res) => {
+                    res.resume()
+                    resolve(res.statusCode)
+                }
+            )
+            req.on('error', reject)
+            req.write('{"name":"tool",')
+            setTimeout(() => {
+                gateway.revokeHarnessTokens('midway')
+                req.end('"arguments":{}}')
+            }, 50)
+        })
+    } finally {
+        gateway.forgetProfileToken(token)
+        await opened.close()
+    }
+    check('a token revoked while its request waits for the body is refused', status === 401, String(status))
+}
+
 const { SQL_TOOL_REFUSED, refusedRawServer, runsSql } = await import('./sql-tools.mjs')
 {
     const str = (description = '') => ({ type: 'string', description })
@@ -16016,6 +16052,29 @@ await (async () => {
             cleanup.containedEntry(profilesDir, '.') === '',
         fs.readdirSync(outside).join(', ')
     )
+    // What cleanup could not remove blocks name reuse: the linked profile, a workspace whose profile is gone, a linked root.
+    const linkedOutcome = await cleanup.removeHarnessProfiles('linked')
+    fs.mkdirSync(path.join(workDir, 'wsonly--a'), { recursive: true })
+    fs.writeFileSync(path.join(workDir, 'wsonly--a', 'notes.txt'), 'old harness files')
+    const wsOnly = await cleanup.removeHarnessProfiles('wsonly')
+    const realProfiles = `${profilesDir}-real`
+    fs.cpSync(profilesDir, realProfiles, { recursive: true, verbatimSymlinks: true })
+    fs.rmSync(profilesDir, { recursive: true, force: true })
+    fs.symlinkSync(realProfiles, profilesDir)
+    const linkedRoot = await cleanup.removeHarnessProfiles('linked')
+    fs.rmSync(profilesDir)
+    fs.cpSync(realProfiles, profilesDir, { recursive: true, verbatimSymlinks: true })
+    fs.rmSync(realProfiles, { recursive: true, force: true })
+    check(
+        'a leftover cleanup cannot attribute or remove is reported, so the name is not reused over it',
+        linkedOutcome.kept.includes('profiles/linked') &&
+            wsOnly.kept.includes('workspaces/wsonly--a') &&
+            fs.existsSync(path.join(workDir, 'wsonly--a', 'notes.txt')) &&
+            linkedRoot.kept.includes('profiles (not a plain directory)') &&
+            !cleanup.nameReuseBlockers('gone').length,
+        JSON.stringify({ linkedOutcome, wsOnly, linkedRoot })
+    )
+    fs.rmSync(path.join(workDir, 'wsonly--a'), { recursive: true, force: true })
     fs.rmSync(path.join(profilesDir, 'linked'))
     fs.rmSync(outside, { recursive: true, force: true })
 
