@@ -1,5 +1,4 @@
 import { createHash } from 'crypto'
-import { ICommonObject } from './Interface'
 
 /**
  * Safe description of the LangSmith credential a tracer is built with.
@@ -20,7 +19,7 @@ const PREFIX_LENGTH = 5
 
 export const describeLangSmithCredential = (
     credentialId: string | undefined,
-    credentialData: ICommonObject | undefined,
+    credentialData: Record<string, unknown> | undefined,
     apiKey: unknown,
     endpoint: unknown,
     project: unknown

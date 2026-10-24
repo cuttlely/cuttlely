@@ -1978,6 +1978,11 @@
     ],
     "r4Edges": [
         {
+            "from": "packages/components/src/handler.ts",
+            "to": "packages/components/src/langsmithCredentialDiagnostics.ts",
+            "reason": "LangSmith tracer setup in handler.ts logs the credential shape for the 1.4.2 tracing diagnosis"
+        },
+        {
             "from": "packages/server/src/controllers/chat-messages/index.ts",
             "to": "packages/server/src/utils/feedbackTypeFilters.ts",
             "reason": "the inherited chat message routes parse feedbackType with the shared filter"
