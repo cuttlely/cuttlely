@@ -2073,6 +2073,18 @@ describe('analyst relations: user functions inside views', () => {
             queryAnalystUrl(url, 'SELECT s.op_wrap() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
             /calls .*s\.text_eq|reads s\.secret|Allowed functions/
         )
+        // A plpgsql string-body function as an operator callee is also refused.
+        await owner.query(
+            `CREATE FUNCTION s.pl_text_eq(a text, b text) RETURNS boolean LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN a = b; END $$`
+        )
+        await owner.query(`CREATE OPERATOR s.=: (LEFTARG = text, RIGHTARG = text, PROCEDURE = s.pl_text_eq)`)
+        await owner.query(
+            `CREATE FUNCTION s.op_wrap_pl() RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT 'x' OPERATOR(s.=:) 'x'; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.op_wrap_pl() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /written in plpgsql|Allowed functions/
+        )
         // Diamond: top -> left -> leaf and top -> right -> leaf should pass without being treated as a cycle.
         await owner.query(`CREATE FUNCTION s.leaf() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 1; END`)
         await owner.query(`CREATE FUNCTION s.left() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
@@ -2083,6 +2095,49 @@ describe('analyst relations: user functions inside views', () => {
             relations: ['analytics.clean_orders']
         })
         assert.equal(okTop.rows[0].v, 2)
+    })
+
+    it('refuses a cycle and allows a chain of 20 safe functions; names the refused function', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE FUNCTION s.cycle_a() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cycle_b(); END`)
+        await owner.query(`CREATE FUNCTION s.cycle_b() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cycle_a(); END`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.cycle_a() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /add s\.cycle_b\(\) to Allowed functions|Allowed functions|cycle/i
+        )
+        // Chain of 20 safe functions
+        for (let i = 0; i < 20; i += 1) {
+            const name = `s.link_${i}`
+            const body = i === 19 ? 'SELECT 1' : `SELECT link_${i + 1}()`
+            // eslint-disable-next-line no-await-in-loop
+            await owner.query(`CREATE FUNCTION ${name}() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC ${body}; END`)
+        }
+        const ok = await queryAnalystUrl(url, 'SELECT s.link_0() AS v LIMIT 1', { ...node, relations: ['analytics.clean_orders'] })
+        assert.equal(ok.rows[0].v, 1)
+    })
+
+    it('allow-list of a parent function does not bypass checks for its callees or defaults', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE FUNCTION s.parent_calls_leak() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_secret(); END`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.parent_calls_leak() LIMIT 1', {
+                ...node,
+                relations: ['analytics.clean_orders'],
+                allowedFunctions: 's.parent_calls_leak()'
+            }),
+            /Allowed functions|add s\.read_secret\(\) to Allowed functions/
+        )
+        await owner.query(
+            `CREATE FUNCTION s.parent_dflt(a text DEFAULT s.read_secret()) RETURNS text LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT coalesce($1,''); END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.parent_dflt() LIMIT 1', {
+                ...node,
+                relations: ['analytics.clean_orders'],
+                allowedFunctions: 's.parent_dflt(text)'
+            }),
+            /default: .*read_secret|Allowed functions/
+        )
     })
     it('ignores an allow-list sent in the tool input', async (t) => {
         if (skipped(t)) return

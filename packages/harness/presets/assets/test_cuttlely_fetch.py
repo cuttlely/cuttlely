@@ -257,6 +257,7 @@ class FetchTest(unittest.TestCase):
             for url in [
                 "http://169.254.169.254/latest/meta-data/",
                 "http://[::1]/",
+                "http://[::ffff:127.0.0.1]/",
                 "http://[fd00:ec2::254]/",
                 "http://[::ffff:169.254.169.254]/",
                 f"http://meta.test:{self.port}/",
