@@ -469,6 +469,15 @@ In **Try it**, `VACUUM INTO` a file path comes back as the refusal, word for wor
 
 Unqualified `"user"` looks only in schema `analyst` and returns that the relation does not exist. That is `search_path`, not a grant on `public`. Table names can still show up in `pg_catalog`. The analyst still cannot select those tables.
 
+### Use a dedicated read-only login
+
+Connect the PostgreSQL MCP node, `CUTTLELY_POSTGRES_URL` and Postgres URL credentials with a login made only for Cuttlely:
+
+-   Grant it `CONNECT` on the database, `USAGE` on the schemas it reads, `SELECT` on the tables and views it needs, and `TEMP` (the node's checks need it). Grant nothing else, and do not make it a superuser or a member of a role that can write.
+-   Use a database where no untrusted role can `CREATE` in any schema on that login's `search_path`. Check with `SHOW search_path` as the login, then run `REVOKE CREATE ON SCHEMA <schema> FROM PUBLIC` (and from any other untrusted role) for each schema listed. On PostgreSQL 14 and earlier, `public` grants `CREATE` to `PUBLIC` by default.
+
+The node's checks refuse functions, operators and types that are not built in, but they can only judge what is in the catalog when they run. A role that can create objects in a schema the login searches can change what a name means between queries. Keeping those schemas closed to untrusted roles, and the login read-only, is what keeps every node query a plain read. The [1.4.3 known issues](../../CHANGELOG.md#known-issues) carry the same note.
+
 ### Row cap and query timeout
 
 **Admin** > **Server Settings** > **Analyst** sets both. They apply on the next start. The defaults are the limits this guide's examples use: 100 rows and 15 seconds.
