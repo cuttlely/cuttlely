@@ -57,6 +57,11 @@
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/agents/ToolAgent/ToolAgent.ts",
+            "reason": "The acceptance test runs two Harness cards through the Tool Agent with a mocked model, and checks that a repeated tool name fails that build."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
             "to": "packages/components/src/agents.ts"
         },
         {

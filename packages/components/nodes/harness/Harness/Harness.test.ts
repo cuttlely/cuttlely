@@ -907,3 +907,151 @@ describe('duplicate tool names on one agent', () => {
         ).toThrow(/more than one tool named "harness"/)
     })
 })
+
+describe('Harness acceptance', () => {
+    const { BaseChatModel } = require('@langchain/core/language_models/chat_models')
+    const { AIMessage } = require('@langchain/core/messages')
+    const { nodeClass: ToolAgent } = require('../../agents/ToolAgent/ToolAgent')
+
+    it('H1: two Harness nodes on one Tool Agent are both invoked under distinct tool names', async () => {
+        const canvas = [
+            harnessCard('harness_0', 'Harness', 'payroll'),
+            harnessCard('harness_1', 'Harness', 'bakery'),
+            agentWith(['harness_0', 'harness_1'])
+        ]
+        const peers = harnessToolPeersFromFlow('harness_0', canvas)
+        const harness = new HarnessNode()
+        const tools = []
+        for (const id of ['harness_0', 'harness_1']) {
+            const card = canvas.find((node) => node.id === id) as { data: { label: string; inputs: { harnessName: string } } }
+            tools.push(
+                await harness.init(
+                    { id, label: card.data.label, inputs: { ...card.data.inputs, returnDirect: false } } as never,
+                    'Who is paid, and how many loaves?',
+                    {
+                        chatId: 'chat-1',
+                        workspaceId: 'ws-1',
+                        harnessToolPeers: peers
+                    }
+                )
+            )
+        }
+        const toolNames = tools.map((tool) => tool.name)
+        expect(new Set(toolNames).size).toBe(2)
+        expect(toolNames.sort()).toEqual(['bakery', 'payroll'])
+
+        const ran: Array<{ name: string; input: string }> = []
+        queuedRun.mockReset()
+        queuedRun.mockImplementation(async (opts?: { onRecorded?: (row: unknown) => void; chatId?: string }) => {
+            const call = opts as { name?: string; input?: string } | undefined
+            ran.push({ name: String(call?.name), input: String(call?.input) })
+            return { text: `${call?.name} done`, harness: call?.name }
+        })
+
+        const bound: string[][] = []
+        const model = new (class extends BaseChatModel {
+            boundTools: Array<{ name: string }> = []
+            turns = 0
+            constructor() {
+                super({})
+            }
+            _llmType() {
+                return 'fake-harness-agent'
+            }
+            bindTools(next: Array<{ name: string }>) {
+                this.boundTools = next
+                bound.push(next.map((tool) => tool.name))
+                return this
+            }
+            async _generate() {
+                this.turns += 1
+                if (this.turns === 1) {
+                    return {
+                        generations: [
+                            {
+                                text: '',
+                                message: new AIMessage({
+                                    content: '',
+                                    tool_calls: this.boundTools.map((tool, index) => ({
+                                        id: `call-${index}`,
+                                        name: tool.name,
+                                        args: { input: `ask ${tool.name}` },
+                                        type: 'tool_call'
+                                    }))
+                                })
+                            }
+                        ]
+                    }
+                }
+                return {
+                    generations: [
+                        {
+                            text: 'Both teams answered.',
+                            message: new AIMessage({ content: 'Both teams answered.' })
+                        }
+                    ]
+                }
+            }
+        })()
+
+        const agent = new ToolAgent()
+        const executor = await agent.init(
+            {
+                inputs: {
+                    model,
+                    memory: {
+                        memoryKey: 'chat_history',
+                        inputKey: 'input',
+                        getChatMessages: async () => []
+                    },
+                    systemMessage: 'Payroll questions go to the payroll tool. Bakery questions go to the bakery tool.',
+                    tools,
+                    maxIterations: 4
+                }
+            } as never,
+            'Who is paid, and how many loaves?',
+            { chatId: 'chat-1' }
+        )
+        const result = await executor.invoke({ input: 'Who is paid, and how many loaves?' })
+
+        expect(bound[0].sort()).toEqual(['bakery', 'payroll'])
+        expect(ran.map((call) => call.name).sort()).toEqual(['bakery', 'payroll'])
+        expect(new Set(ran.map((call) => call.name)).size).toBe(2)
+        expect(result.output).toBe('Both teams answered.')
+    })
+
+    it('H2: a lone harness with no label keeps the tool name harness', async () => {
+        const harness = new HarnessNode()
+        for (const label of [undefined, '', '   ']) {
+            const data: { id: string; label?: string; inputs: { harnessName: string } } = {
+                id: 'harness_0',
+                inputs: { harnessName: 'payroll' }
+            }
+            if (label !== undefined) data.label = label
+            const tool = await harness.init(data as never, '', {})
+            expect(tool.name).toBe('harness')
+        }
+    })
+
+    it('H3: duplicate tool names on one agent fail the build with a clear error', async () => {
+        const agent = new ToolAgent()
+        const model = { bindTools: () => model }
+        await expect(
+            agent.init(
+                {
+                    inputs: {
+                        model,
+                        memory: { memoryKey: 'chat_history', inputKey: 'input', getChatMessages: async () => [] },
+                        systemMessage: 'You are a helpful assistant.',
+                        tools: [
+                            { name: 'harness', description: 'payroll' },
+                            { name: 'harness', description: 'bakery' }
+                        ]
+                    }
+                } as never,
+                'Pay the bakers.',
+                {}
+            )
+        ).rejects.toThrow('This agent has more than one tool named "harness". Each tool on an agent needs its own name.')
+    })
+})
