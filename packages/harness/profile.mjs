@@ -196,9 +196,128 @@ export function specialistWorkspace(profileName) {
     return path.join(dataRoot(), 'workspaces', profileName)
 }
 
+function profilesRoot() {
+    return path.join(hermesHome(), 'profiles')
+}
+
+function workspacesRoot() {
+    return path.join(dataRoot(), 'workspaces')
+}
+
+function throwLink(where) {
+    throw new HarnessError('profile_link', `profile path is a link: ${where}`)
+}
+
+// Removes the symlink itself. The target is left where it is, and the runtime no longer has a path to it.
+function quarantineSymlink(linkPath) {
+    try {
+        if (!fs.lstatSync(linkPath).isSymbolicLink()) return false
+        fs.unlinkSync(linkPath)
+        return true
+    } catch {
+        return false
+    }
+}
+
+function rootFor(file) {
+    const resolved = path.resolve(file)
+    for (const root of [profilesRoot(), workspacesRoot()]) {
+        const base = path.resolve(root)
+        if (resolved === base || resolved.startsWith(base + path.sep)) return base
+    }
+    throwLink(file)
+}
+
+// Refuse a symlink at the root and at every segment down to the file. realpath of what exists must stay inside the root.
+function assertContained(file) {
+    const root = rootFor(file)
+    let rootStat
+    try {
+        rootStat = fs.lstatSync(root)
+    } catch (error) {
+        if (error?.code === 'ENOENT') return
+        throw error
+    }
+    if (rootStat.isSymbolicLink()) {
+        quarantineSymlink(root)
+        throwLink(root)
+    }
+    const rel = path.relative(root, path.resolve(file))
+    if (rel.startsWith('..') || path.isAbsolute(rel)) throwLink(file)
+    if (!rel) return
+    let cursor = root
+    for (const part of rel.split(path.sep)) {
+        if (!part) continue
+        cursor = path.join(cursor, part)
+        let st
+        try {
+            st = fs.lstatSync(cursor)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return
+            throw error
+        }
+        if (st.isSymbolicLink()) {
+            quarantineSymlink(cursor)
+            throwLink(cursor)
+        }
+    }
+    let realRoot
+    try {
+        realRoot = fs.realpathSync(root)
+    } catch {
+        return
+    }
+    let existing = path.resolve(file)
+    while (!fs.existsSync(existing)) {
+        const parent = path.dirname(existing)
+        if (parent === existing) return
+        existing = parent
+    }
+    let realExisting
+    try {
+        realExisting = fs.realpathSync(existing)
+    } catch {
+        return
+    }
+    const within = path.relative(realRoot, realExisting)
+    if (within.startsWith('..') || path.isAbsolute(within)) throwLink(file)
+}
+
+// O_NOFOLLOW so a symlink that appears at the last moment is not followed.
+function writeContained(file, text, mode = 0o644) {
+    assertContained(file)
+    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | (fs.constants.O_NOFOLLOW || 0)
+    let fd
+    try {
+        fd = fs.openSync(file, flags, mode)
+    } catch (error) {
+        if (error?.code === 'ELOOP' || error?.code === 'EEXIST') {
+            quarantineSymlink(file)
+            throwLink(file)
+        }
+        throw error
+    }
+    try {
+        fs.writeFileSync(fd, text)
+    } finally {
+        fs.closeSync(fd)
+    }
+}
+
 function writeIfChanged(file, text) {
-    if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === text) return
-    fs.writeFileSync(file, text)
+    assertContained(file)
+    let st = null
+    try {
+        st = fs.lstatSync(file)
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+    }
+    if (st?.isSymbolicLink()) {
+        quarantineSymlink(file)
+        throwLink(file)
+    }
+    if (st && fs.readFileSync(file, 'utf8') === text) return
+    writeContained(file, text)
 }
 
 function readEnvFile(file) {
@@ -217,8 +336,19 @@ function readEnvFile(file) {
 function writeEnvFile(file, env) {
     const lines = Object.entries(env).map(([key, value]) => `${key}=${value ?? ''}`)
     const text = lines.join('\n') + '\n'
-    if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === text) return
-    fs.writeFileSync(file, text, { mode: 0o600 })
+    assertContained(file)
+    let st = null
+    try {
+        st = fs.lstatSync(file)
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+    }
+    if (st?.isSymbolicLink()) {
+        quarantineSymlink(file)
+        throwLink(file)
+    }
+    if (st && fs.readFileSync(file, 'utf8') === text) return
+    writeContained(file, text, 0o600)
 }
 
 export function profileEnvPath(name) {
@@ -722,6 +852,7 @@ export function specialistSoul(specialist, env = process.env) {
 // removed are deleted; nothing outside harness-playbooks is touched.
 export function writePlaybooks(dir, playbooks) {
     const root = path.join(dir, 'skills', PLAYBOOK_DIR)
+    assertContained(root)
     if (!playbooks.length) {
         fs.rmSync(root, { recursive: true, force: true })
         return
@@ -749,12 +880,32 @@ export function writePlaybooks(dir, playbooks) {
     }
 }
 
+function preflightTree(dir) {
+    assertContained(dir)
+    for (const rel of [
+        'config.yaml',
+        '.env',
+        'memory',
+        path.join('memory', 'MEMORY.md'),
+        'skills',
+        path.join('skills', PLAYBOOK_DIR),
+        'sessions',
+        'harness-compiler',
+        'SOUL.md',
+        'harness-roster.json'
+    ]) {
+        assertContained(path.join(dir, rel))
+    }
+}
+
 function compileSpecialistProfile(record, specialist, profileName, tryProfile, adoptUnstamped = false) {
     const dir = profileDir(specialist.profileName)
-    fs.mkdirSync(dir, { recursive: true })
+    preflightTree(dir)
     const workspace = specialistWorkspace(specialist.profileName)
+    assertContained(workspace)
+    fs.mkdirSync(dir, { recursive: true })
     fs.mkdirSync(workspace, { recursive: true })
-    installPresetKit(specialist, workspace)
+    installPresetKit(specialist, workspace, (file, text) => writeContained(file, text))
     // Read before harness-parent is written: an unstamped token is adopted only from a profile this harness already owned.
     const ownedBefore = readMarker(path.join(dir, 'harness-parent')) === String(profileName)
     // The version file says the compile finished: it goes first and comes back after the last write.
@@ -904,6 +1055,22 @@ function harnessOwnedDir(dir) {
 function setAsideConfig(dir) {
     const config = path.join(dir, 'config.yaml')
     try {
+        if (fs.lstatSync(dir).isSymbolicLink()) {
+            quarantineSymlink(dir)
+            return true
+        }
+    } catch (error) {
+        if (error?.code !== 'ENOENT') return false
+    }
+    try {
+        if (fs.lstatSync(config).isSymbolicLink()) {
+            quarantineSymlink(config)
+            return true
+        }
+    } catch (error) {
+        if (error?.code !== 'ENOENT') return false
+    }
+    try {
         if (!present(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) return true
         fs.rmSync(config + '.outdated', { recursive: true, force: true })
         fs.renameSync(config, config + '.outdated')
@@ -947,6 +1114,15 @@ function setAsideUnfinishedConfigs(profileName) {
 // checked; the caller keeps Hermes waiting while there are any. Throws when the profiles folder cannot be read.
 export function setAsideOutdatedConfigs() {
     const root = path.join(hermesHome(), 'profiles')
+    try {
+        if (fs.lstatSync(root).isSymbolicLink()) {
+            quarantineSymlink(root)
+            return []
+        }
+    } catch (error) {
+        if (error?.code === 'ENOENT') return []
+        throw error
+    }
     if (!present(root)) return []
     const loadable = []
     for (const entry of fs.readdirSync(root)) {
@@ -960,16 +1136,10 @@ export function setAsideOutdatedConfigs() {
             owned = true
         }
         if (!owned) continue
-        // This app never links a profile folder: one that links elsewhere is not changed, and Hermes waits while it
-        // holds a config from an older compiler.
+        // A linked profile folder is removed from the load path. The target is not changed, and config.yaml is not
+        // left where the runtime would follow the link.
         if (linked) {
-            let current = false
-            try {
-                current = !present(path.join(dir, 'config.yaml')) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION
-            } catch {
-                current = false
-            }
-            if (!current) loadable.push(dir)
+            quarantineSymlink(dir)
             continue
         }
         if (!setAsideConfig(dir)) loadable.push(dir)
@@ -992,9 +1162,14 @@ export function compileProfile(record, options = {}) {
 function compileProfileFiles(record, options = {}) {
     const profileName = options.profileName || record.name
     const tryProfile = Boolean(options.tryProfile)
+    // The profiles directory itself, then every segment this compile would write. A link is removed from the
+    // load path so the runtime does not read config.yaml through it.
+    assertContained(profilesRoot())
+    preflightTree(profileDir(profileName))
     // Every caller (boot, warm-up, a chat, a canvas try) stops here. Writing would follow the link.
     const linked = linkedProfileDirs(record, profileName)
     if (linked.length) {
+        for (const dir of linked) quarantineSymlink(dir)
         throw new HarnessError(
             'profile_link',
             `Harness "${record.name}" cannot be compiled: profile folder is a link: ${linked.join(', ')}`
@@ -1041,7 +1216,7 @@ function compileProfileFiles(record, options = {}) {
     writeIfChanged(path.join(dir, 'SOUL.md'), chiefPrompt(compiled, { specialists: resolved.specialists, mixed: resolved.mixed }))
 
     const memoryFile = path.join(dir, 'memory', 'MEMORY.md')
-    if (!fs.existsSync(memoryFile)) fs.writeFileSync(memoryFile, `# ${record.name}\n`)
+    if (!fs.existsSync(memoryFile)) writeContained(memoryFile, `# ${record.name}\n`)
 
     const disabled = [...BLOCKED_UNLESS_ENABLED]
     if (resolved.mixed) disabled.push('delegation')
@@ -1526,6 +1701,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
         if (!outdated) continue
         const linked = linkedProfileDirs(record)
         if (linked.length) {
+            for (const dir of linked) quarantineSymlink(dir)
             results.push({ name: record.name, status: 'failed', error: `profile folder is a link: ${linked.join(', ')}` })
             continue
         }

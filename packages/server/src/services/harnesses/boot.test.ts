@@ -7,6 +7,7 @@ import harnessesService, {
     logger,
     recompileBeforeHermes,
     recompileOutdatedHarnessProfiles,
+    resetHarnessRuntimeForTests,
     setHarnessModuleLoader,
     withProfileLock
 } from './index'
@@ -37,7 +38,14 @@ describe('harness runtime start', () => {
         sweep = ''
         holds = 0
         setHarnessModuleLoader(async (file: string) => {
-            if (file === 'run.mjs') return { configureHarnessRuntime: () => order.push('configure') }
+            if (file === 'run.mjs') {
+                return {
+                    configureHarnessRuntime: () => order.push('configure'),
+                    warmHarnessProfiles: async () => {
+                        order.push('warm')
+                    }
+                }
+            }
             if (file === 'gateway.mjs') {
                 return {
                     holdGatewayHealth: () => {
@@ -253,6 +261,41 @@ describe('harness runtime start', () => {
         expect(released).toBe(true)
         expect(booted).toBe(true)
         expect(bootPassBlocksPing()).toBe(false)
+    })
+
+    test('warm-up after the cap takes the profile lock', async () => {
+        resetHarnessRuntimeForTests()
+        process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '0'
+        harnessesService.startHarnessRuntime()
+        for (let i = 0; i < 50 && !order.includes('sweep'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+        expect(order).toContain('sweep')
+        let releaseLock: () => void = () => undefined
+        const held = withProfileLock(
+            () =>
+                new Promise<void>((resolve) => {
+                    releaseLock = resolve
+                })
+        )
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        harnessesService.warmHarnesses()
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        expect(order).not.toContain('warm')
+        releaseLock()
+        await held
+        for (let i = 0; i < 50 && !order.includes('warm'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+        expect(order).toContain('warm')
+    })
+
+    test('ping opens at the cap when harness modules fail to load', async () => {
+        resetHarnessRuntimeForTests()
+        process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '0'
+        setHarnessModuleLoader(async () => {
+            throw new Error('harness module missing')
+        })
+        harnessesService.startHarnessRuntime()
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        expect(bootPassBlocksPing()).toBe(false)
+        expect(bootPassPhase()).toBe('background')
     })
 
     test('a compile that outlasts the cap continues in the background and stops blocking startup', async () => {

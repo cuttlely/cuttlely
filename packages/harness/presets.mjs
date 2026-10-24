@@ -78,20 +78,22 @@ export function presetSummary(specialist) {
 }
 
 // Copies the preset's kit files into the specialist's working directory. A file that is already the same is left.
-export function installPresetKit(specialist, workspace) {
+export function installPresetKit(specialist, workspace, writeFile = null) {
     const name = presetName(specialist?.preset)
     if (!name || !workspace) return []
+    const write = writeFile || ((file, text) => fs.writeFileSync(file, text))
     const written = []
     for (const source of SPECIALIST_PRESETS[name].kit || []) {
         const target = path.join(workspace, path.basename(source))
         const text = fs.readFileSync(source, 'utf8')
         let current = null
         try {
-            current = fs.readFileSync(target, 'utf8')
+            if (fs.lstatSync(target).isSymbolicLink()) current = null
+            else current = fs.readFileSync(target, 'utf8')
         } catch {
             // not there yet
         }
-        if (current !== text) fs.writeFileSync(target, text)
+        if (current !== text) write(target, text)
         written.push(target)
     }
     return written

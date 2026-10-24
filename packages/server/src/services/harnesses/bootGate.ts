@@ -28,9 +28,14 @@ export function beginBootPass(): void {
     phase = 'running'
 }
 
+/** The startup cap has been reached. Ping answers 200 from running or from a pass that did not finish. */
+export function openBootAfterCap(): void {
+    if (phase === 'running' || phase === 'incomplete') phase = 'background'
+}
+
 /** The blocking wait is over. The compile continues, and startup is no longer held. */
 export function backgroundBootPass(): void {
-    if (phase === 'running') phase = 'background'
+    openBootAfterCap()
 }
 
 /**

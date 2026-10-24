@@ -242,9 +242,12 @@ wait_for_gateway() {
     local i=0
     local port="${CUTTLELY_HARNESS_GATEWAY_PORT:-43118}"
     local answer
+    local started_epoch
+    started_epoch=$(date +%s)
     GATEWAY_STILL_COMPILING=0
     echo "Waiting for the harness gateway on 127.0.0.1:${port}."
-    while [[ "$i" -lt "$limit" || ( "$starting" -eq 1 && "$i" -lt "$starting_limit" ) ]]; do
+    # starting_limit is the total cap. The OR form let CUTTLELY_GATEWAY_WAIT_SECONDS run past it.
+    while [[ "$i" -lt "$starting_limit" && ( "$starting" -eq 1 || "$i" -lt "$limit" ) ]]; do
         if [[ -n "${CUTTLELY_PID:-}" ]] && ! kill -0 "$CUTTLELY_PID" 2>/dev/null; then
             echo "Cuttlely exited before the harness gateway answered." >&2
             return 1
@@ -262,11 +265,12 @@ wait_for_gateway() {
         i=$((i + 1))
         sleep 1
     done
+    local elapsed=$(( $(date +%s) - started_epoch ))
     if [[ "$starting" -eq 1 ]]; then
         GATEWAY_STILL_COMPILING=1
-        echo "Harness gateway on 127.0.0.1:${port} was still compiling agent profiles after ${starting_limit}s (cap ${starting_limit}s). The wait stops here so the deploy can finish. Hermes starts when that compile finishes." >&2
+        echo "Harness gateway on 127.0.0.1:${port} was still compiling agent profiles after ${elapsed}s (cap ${starting_limit}s). The wait stops here so the deploy can finish. Hermes starts when that compile finishes." >&2
     else
-        echo "Harness gateway on 127.0.0.1:${port} did not answer within ${limit}s. Hermes will not start." >&2
+        echo "Harness gateway on 127.0.0.1:${port} did not answer within ${elapsed}s (limit ${limit}s, cap ${starting_limit}s). Hermes will not start." >&2
     fi
     return 1
 }

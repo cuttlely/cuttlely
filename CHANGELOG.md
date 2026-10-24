@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Profiles compiled by an older version are compiled again at startup, before the agent runtime reads them. `GET /api/v1/ping` answers 503 while that pass is the startup gate, then 200. One profile that cannot be read or set aside is logged and skipped, so the rest of the service still comes up. The start script waits at most a few minutes for the pass.
+-   Profiles compiled by an older version are compiled again at startup, before the agent runtime reads them. `GET /api/v1/ping` answers 503 while that pass is the startup gate, then 200. A profile that cannot be read or set aside is logged and taken off the path the runtime loads, including when that path is a link, so the runtime does not read it. The rest of the service still comes up. The start script's wait is capped at a few minutes.
 
 ## [1.4.2] - 2026-10-23
 

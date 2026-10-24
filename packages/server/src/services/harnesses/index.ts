@@ -22,7 +22,7 @@ import { safeHarnessName } from './apiAccess'
 import { harnessCanvasDelete } from './canvasDelete'
 import type { IHarnessCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
-import { backgroundBootPass, beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete } from './bootGate'
+import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -397,7 +397,7 @@ export async function recompileBeforeHermes(gateway: {
             `[harness] profile recompile is still running after ${seconds}s (cap ${seconds}s). ` +
                 'It continues in the background. Chat and prediction answer 503 until it finishes.'
         )
-        backgroundBootPass()
+        openBootAfterCap()
         void pass.catch((error) => {
             // The cap already opened ping. Releasing the gateway hold lets the runtime start instead of staying down.
             logger.error(`[harness] profile compile at start did not finish: ${getErrorMessage(error)}`)
@@ -419,6 +419,11 @@ export async function recompileBeforeHermes(gateway: {
 // Each record is read again and compiled under its name lock and the profile lock (the order saves use), so a save,
 // sync or delete that ran while this waited is what gets compiled, or the deleted record is skipped. One failure
 // is logged and the rest still run.
+/** Tests start a fresh runtime after another test in this process already configured one. */
+export function resetHarnessRuntimeForTests() {
+    runtimeConfigured = undefined
+}
+
 export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
     const [profile, store] = await Promise.all([loadHarness('profile.mjs'), loadHarness('store.mjs')])
     let names: string[]
@@ -478,9 +483,15 @@ function configureRuntime(): Promise<void> {
 // The server calls this once it listens. Importing this module starts nothing: CLI commands such as `pnpm user` load it
 // too (oclif reads every command), and the running server already holds the gateway port.
 const startHarnessRuntime = () => {
-    // Ping stays 503 from this moment, including while the harness modules load, until the compile finishes.
+    // Ping stays 503 from this moment, including while the harness modules load, until the compile finishes
+    // or the startup cap opens it. A module that fails to load must not leave ping at 503 past that cap.
     beginBootPass()
-    void configureRuntime().catch((error) => logger.warn(`[harness] runtime context was not configured: ${getErrorMessage(error)}`))
+    const flip = setTimeout(() => openBootAfterCap(), bootPassCapMs())
+    flip.unref?.()
+    void configureRuntime().catch((error) => {
+        logger.warn(`[harness] runtime context was not configured: ${getErrorMessage(error)}`)
+        markBootIncomplete()
+    })
 }
 
 // Runs in the background: a failed warm-up only means the next chat pays the cold start.
@@ -488,7 +499,7 @@ const warmHarnesses = (names?: string[]) => {
     if (process.env.CUTTLELY_WARM_HERMES === 'false') return
     configureRuntime()
         .then(() => loadHarness('run.mjs'))
-        .then((engine) => engine.warmHarnessProfiles({ names }))
+        .then((engine) => withProfileLock(async () => engine.warmHarnessProfiles({ names })))
         .catch((error) => logger.warn(`[harness] Hermes warm-up failed: ${getErrorMessage(error)}`))
 }
 

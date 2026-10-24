@@ -57,7 +57,8 @@ const {
     CHIEF_TOOLSETS,
     routerDialectNote,
     specialistSoul,
-    specialistSummary
+    specialistSummary,
+    specialistWorkspace
 } = await import('./profile.mjs')
 const { appendMessage, readMessages, readPromptContext, sessionKey } = await import('./session.mjs')
 // A workspace path the scripted Harness Prime quotes in its answer, when set.
@@ -7143,9 +7144,15 @@ await expectCase('a specialist a failed compile adds has its config set aside to
     // The new specialist's version file, its last write, fails: its config.yaml is written, then the compile stops.
     const blocked = profileFile('magrowchief--gamma', 'harness-compiler')
     const writeFileSync = fs.writeFileSync
+    const openSync = fs.openSync
+    const failWrite = (file) => String(file) === blocked
     fs.writeFileSync = (file, ...rest) => {
-        if (String(file) === blocked) throw new Error('disk full')
+        if (failWrite(file)) throw new Error('disk full')
         return writeFileSync(file, ...rest)
+    }
+    fs.openSync = (file, ...rest) => {
+        if (failWrite(file)) throw new Error('disk full')
+        return openSync(file, ...rest)
     }
     let threw = false
     try {
@@ -7154,6 +7161,7 @@ await expectCase('a specialist a failed compile adds has its config set aside to
         threw = true
     } finally {
         fs.writeFileSync = writeFileSync
+        fs.openSync = openSync
     }
     const added = fs
         .readdirSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles'))
@@ -7228,10 +7236,11 @@ await expectCase('the boot sweep sets aside every older harness config and leave
     fs.rmSync(path.join(root, 'masweeplink'), { force: true })
     fs.rmSync(outside, { recursive: true, force: true })
     check(
-        'the boot sweep reports a harness folder it cannot read, and a linked one, without changing them',
+        'the boot sweep reports a harness folder it cannot read, and a linked one is not left loadable',
         lockedLoadable.some((dir) => dir.endsWith('masweeplocked')) &&
             lockedKept &&
-            linkLoadable.some((dir) => dir.endsWith('masweeplink')) &&
+            !linkLoadable.some((dir) => dir.endsWith('masweeplink')) &&
+            !fs.existsSync(path.join(root, 'masweeplink')) &&
             linkKept,
         JSON.stringify({ lockedLoadable, lockedKept, linkLoadable, linkKept })
     )
@@ -7273,7 +7282,7 @@ await expectCase('the boot recompile does not write through a linked profile fol
             result,
             unchanged: fs.readFileSync(path.join(outside, 'config.yaml'), 'utf8') === before,
             noMarker: !fs.existsSync(path.join(outside, 'harness-compiler')),
-            held: loadable.some((dir) => dir.endsWith(moved))
+            notLoadable: !loadable.some((dir) => dir.endsWith(moved)) && !fs.existsSync(path.join(root, moved))
         }
         fs.rmSync(path.join(root, moved), { force: true })
         fs.rmSync(outside, { recursive: true, force: true })
@@ -7288,7 +7297,7 @@ await expectCase('the boot recompile does not write through a linked profile fol
                 /link/.test(item.result[0].error) &&
                 item.unchanged &&
                 item.noMarker &&
-                item.held
+                item.notLoadable
         ),
         JSON.stringify(results)
     )
@@ -7349,25 +7358,236 @@ await expectCase('warm-up never writes through a linked profile folder', async (
         } catch (error) {
             refused = `${error?.code || ''} ${error?.message || error}`
         }
-        const warmed = await warmHarnessProfiles({ names: [name], healthWaitMs: 0 })
+        const linkRemoved = !fs.existsSync(path.join(root, moved))
+        await warmHarnessProfiles({ names: [name], healthWaitMs: 0 })
         const after = treeText(outside)
         results[which] = {
             refused,
-            warmed: warmed.length,
             unchanged: before === after,
-            stillLinked: fs.lstatSync(path.join(root, moved)).isSymbolicLink()
+            linkRemoved
         }
-        fs.rmSync(path.join(root, moved), { force: true })
+        fs.rmSync(path.join(root, moved), { recursive: true, force: true })
         fs.rmSync(outside, { recursive: true, force: true })
         for (const dir of dirs) fs.rmSync(path.join(root, dir), { recursive: true, force: true })
     }
     check(
         'warm-up never writes through a linked profile folder',
-        Object.values(results).every(
-            (item) => item.refused.includes('profile_link') && item.warmed === 0 && item.unchanged && item.stillLinked
-        ),
+        Object.values(results).every((item) => item.refused.includes('profile_link') && item.unchanged && item.linkRemoved),
         JSON.stringify(results)
     )
+})
+
+await expectCase('a compile refuses a symlink on each path it would write', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const recordFor = (name, specialists) =>
+        saveHarness(
+            {
+                name,
+                chatflowId: `canvas-${name}`,
+                chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                specialists
+            },
+            { overwrite: true }
+        )
+    const baseSpecialists = [
+        { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+        { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+    ]
+    const compileFresh = (name, specialists = baseSpecialists) => {
+        const record = recordFor(name, specialists)
+        compileProfile(record)
+        forgetCompiledProfile(name)
+        return record
+    }
+    const outsideFile = (label, text) => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), `malink-${label}-`))
+        const file = path.join(dir, 'payload')
+        fs.writeFileSync(file, text)
+        return { dir, file, text }
+    }
+    const outsideDir = (label, text) => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), `malink-${label}-`))
+        fs.writeFileSync(path.join(dir, 'marker'), text)
+        return dir
+    }
+    const refused = (name) => {
+        let code = ''
+        try {
+            compileProfileCached(getHarness(name))
+        } catch (error) {
+            code = error?.code || ''
+        }
+        return code
+    }
+    // config.yaml
+    {
+        const name = 'malinkconfig'
+        compileFresh(name)
+        const outside = outsideFile('config', 'config-target\n')
+        const config = profileFile(name, 'config.yaml')
+        fs.rmSync(config, { force: true })
+        fs.symlinkSync(outside.file, config)
+        const code = refused(name)
+        check(
+            'a symlinked config.yaml is not written through',
+            code === 'profile_link' && fs.readFileSync(outside.file, 'utf8') === outside.text && !fs.existsSync(config),
+            JSON.stringify({ code, exists: fs.existsSync(config) })
+        )
+        fs.rmSync(outside.dir, { recursive: true, force: true })
+        fs.rmSync(path.join(root, name), { recursive: true, force: true })
+    }
+    // specialist .env
+    {
+        const name = 'malinkenv'
+        compileFresh(name)
+        const child = profilesFor(name).find((profile) => profile.name.includes('--'))?.name
+        const outside = outsideFile('env', 'ENV_TARGET=1\n')
+        const envFile = profileFile(child, '.env')
+        fs.rmSync(envFile, { force: true })
+        fs.symlinkSync(outside.file, envFile)
+        const code = refused(name)
+        check(
+            'a symlinked specialist env file is not written through',
+            code === 'profile_link' && fs.readFileSync(outside.file, 'utf8') === outside.text && !fs.existsSync(envFile),
+            JSON.stringify({ code, child, exists: fs.existsSync(envFile) })
+        )
+        fs.rmSync(outside.dir, { recursive: true, force: true })
+        for (const dir of profilesFor(name).map((profile) => profile.name))
+            fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    // memory/
+    {
+        const name = 'malinkmemory'
+        compileFresh(name)
+        const outside = outsideDir('memory', 'memory-target\n')
+        const memory = profileFile(name, 'memory')
+        fs.rmSync(memory, { recursive: true, force: true })
+        fs.symlinkSync(outside, memory)
+        const code = refused(name)
+        check(
+            'a symlinked memory directory is not written through',
+            code === 'profile_link' &&
+                fs.readFileSync(path.join(outside, 'marker'), 'utf8') === 'memory-target\n' &&
+                !fs.existsSync(memory),
+            JSON.stringify({ code, exists: fs.existsSync(memory) })
+        )
+        fs.rmSync(outside, { recursive: true, force: true })
+        fs.rmSync(path.join(root, name), { recursive: true, force: true })
+    }
+    // skills/
+    {
+        const name = 'malinkskills'
+        compileFresh(name, [
+            {
+                name: 'alpha',
+                instructions: 'Alpha work.',
+                model: xai('grok-4.7'),
+                modules: calculator,
+                playbooks: [{ name: 'refund-rules', description: 'When to refund', content: 'Refund the order.' }]
+            }
+        ])
+        const outside = outsideDir('skills', 'skills-target\n')
+        const child = profilesFor(name).find((profile) => profile.name.includes('--'))?.name
+        const skills = profileFile(child, 'skills')
+        fs.rmSync(skills, { recursive: true, force: true })
+        fs.symlinkSync(outside, skills)
+        const code = refused(name)
+        const written = fs.readdirSync(outside)
+        check(
+            'a symlinked skills directory is not written through',
+            code === 'profile_link' && written.length === 1 && written[0] === 'marker' && !fs.existsSync(skills),
+            JSON.stringify({ code, written, exists: fs.existsSync(skills) })
+        )
+        fs.rmSync(outside, { recursive: true, force: true })
+        for (const dir of profilesFor(name).map((profile) => profile.name))
+            fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    // specialist workspace
+    {
+        const name = 'malinkwork'
+        const record = compileFresh(name, [
+            { name: 'alpha', instructions: 'Draw.', preset: 'assets', model: xai('grok-4.7'), modules: calculator }
+        ])
+        const child = profilesFor(name).find((profile) => profile.name.includes('--'))?.name
+        const outside = outsideDir('work', 'work-target\n')
+        const workspace = specialistWorkspace(child)
+        fs.rmSync(workspace, { recursive: true, force: true })
+        fs.mkdirSync(path.dirname(workspace), { recursive: true })
+        fs.symlinkSync(outside, workspace)
+        forgetCompiledProfile(name)
+        let code = ''
+        try {
+            compileProfile(record)
+        } catch (error) {
+            code = error?.code || ''
+        }
+        const written = fs.readdirSync(outside)
+        check(
+            'a symlinked specialist workspace is not written through',
+            code === 'profile_link' && written.length === 1 && written[0] === 'marker' && !fs.existsSync(workspace),
+            JSON.stringify({ code, written, child, exists: fs.existsSync(workspace) })
+        )
+        fs.rmSync(outside, { recursive: true, force: true })
+        for (const dir of profilesFor(name).map((profile) => profile.name))
+            fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    // profiles/ itself
+    {
+        const name = 'malinkroot'
+        compileFresh(name)
+        const outside = outsideDir('profiles-root', 'root-target\n')
+        const real = `${root}.real`
+        fs.renameSync(root, real)
+        fs.symlinkSync(outside, root)
+        let code = ''
+        try {
+            compileProfileCached(getHarness(name))
+        } catch (error) {
+            code = error?.code || ''
+        }
+        const written = fs.readdirSync(outside)
+        const loadable = fs.existsSync(root) ? setAsideOutdatedConfigs() : []
+        check(
+            'a symlinked profiles directory is not written through',
+            code === 'profile_link' && written.length === 1 && written[0] === 'marker' && !fs.existsSync(root) && loadable.length === 0,
+            JSON.stringify({ code, written, rootExists: fs.existsSync(root), loadable })
+        )
+        if (fs.existsSync(root) || (fs.lstatSync(root, { throwIfNoEntry: false }) && fs.lstatSync(root).isSymbolicLink())) {
+            fs.rmSync(root, { force: true })
+        }
+        fs.renameSync(real, root)
+        fs.rmSync(outside, { recursive: true, force: true })
+    }
+    // refused link is not loadable
+    {
+        const name = 'malinkload'
+        const record = compileFresh(name)
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'malink-load-'))
+        fs.cpSync(path.join(root, name), outside, { recursive: true })
+        fs.writeFileSync(path.join(outside, 'config.yaml'), 'through-the-link\n')
+        fs.rmSync(path.join(root, name), { recursive: true, force: true })
+        fs.symlinkSync(outside, path.join(root, name))
+        forgetCompiledProfile(name)
+        let code = ''
+        try {
+            compileProfile(record)
+        } catch (error) {
+            code = error?.code || ''
+        }
+        const loadable = setAsideOutdatedConfigs()
+        check(
+            'a profile refused as a link is not left loadable',
+            code === 'profile_link' &&
+                fs.readFileSync(path.join(outside, 'config.yaml'), 'utf8') === 'through-the-link\n' &&
+                !fs.existsSync(path.join(root, name)) &&
+                !loadable.some((dir) => dir.endsWith(name)),
+            JSON.stringify({ code, loadable, exists: fs.existsSync(path.join(root, name)) })
+        )
+        fs.rmSync(outside, { recursive: true, force: true })
+    }
+    check('a compile refuses a symlink on each path it would write', true)
 })
 
 await expectCase('specialist folders whose parent folder is gone are compiled again at boot', async () => {
