@@ -1,10 +1,10 @@
 // Server start: profiles from an older compiler are compiled again, under each name lock and the profile lock,
 // while the gateway's /health is held. The start script launches Hermes only once /health answers, and Hermes
 // reads config.yaml from disk.
-import logger from '../../utils/logger'
 import harnessesService, {
     acquireNameLock,
     BootPassIncomplete,
+    logger,
     recompileBeforeHermes,
     recompileOutdatedHarnessProfiles,
     setHarnessModuleLoader,

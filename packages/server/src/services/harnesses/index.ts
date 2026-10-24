@@ -11,6 +11,8 @@ import { requireWorkspaceId } from '../../identity/workspaceScope'
 import { databaseEntities } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
+
+export { logger }
 import { orgIdForWorkspace } from '../etl'
 import flowDraftsService from '../flow-drafts'
 import { openHarnessRunTrace } from '../../metrics/tracing'
