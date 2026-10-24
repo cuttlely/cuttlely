@@ -20,6 +20,13 @@ describe('langSmithClientConfig with quoted keys', () => {
         expect(langSmithClientUsesOwnKey(client, config!.apiKey)).toBe(true)
     })
 
+    it('handles a long run of nested quotes in linear time', () => {
+        const raw = '"'.repeat(200_000) + 'k' + '"'.repeat(200_000)
+        const started = Date.now()
+        expect(langSmithClientConfig(raw, undefined)?.apiKey).toBe('k')
+        expect(Date.now() - started).toBeLessThan(1000)
+    })
+
     it.each(['""', '" "', '"\'\'"', '\' " " \''])('gives no client for %s', (raw) => {
         expect(langSmithClientConfig(raw, undefined)).toBeUndefined()
     })

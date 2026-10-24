@@ -45,14 +45,20 @@ export const operationForLog = (pathname: string): string => {
  * removed), repeated until nothing changes, so the SDK's own pass over the result leaves it as it is.
  */
 export const normalizeLangSmithKey = (apiKey: string): string => {
-    let key = apiKey
+    // One linear pass from both ends: whitespace (the set String.prototype.trim removes) and matching
+    // surrounding quote pairs are dropped until neither end has any.
+    let start = 0
+    let end = apiKey.length
     for (;;) {
-        const next = key
-            .trim()
-            .replace(/^"(.*)"$/s, '$1')
-            .replace(/^'(.*)'$/s, '$1')
-        if (next === key) return key
-        key = next
+        while (start < end && /\s/.test(apiKey[start])) start++
+        while (end > start && /\s/.test(apiKey[end - 1])) end--
+        const first = apiKey[start]
+        if (end - start >= 2 && (first === '"' || first === "'") && apiKey[end - 1] === first) {
+            start++
+            end--
+            continue
+        }
+        return apiKey.slice(start, end)
     }
 }
 
