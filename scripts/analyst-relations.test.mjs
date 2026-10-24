@@ -1938,3 +1938,173 @@ describe('analyst relations: user functions inside views', () => {
         }
     })
 })
+
+describe('analyst relations: text search configuration types', () => {
+    const suffix = randomBytes(4).toString('hex')
+    const dbName = `tsearch_${suffix}`
+    const reader = `tsearch_reader_${suffix}`
+    const password = randomBytes(18).toString('base64url')
+    let admin = null
+    let owner = null
+    let url = ''
+
+    before(async () => {
+        const client = new Client(adminConfig())
+        try {
+            await client.connect()
+        } catch (error) {
+            await client.end().catch(() => {})
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1')
+                throw new Error(`CUTTLELY_TEST_PG_REQUIRED is set and Postgres is not reachable: ${error.message}`)
+            return
+        }
+        admin = client
+        await admin.query(`CREATE DATABASE "${dbName}"`)
+        await admin.query(`CREATE ROLE "${reader}" LOGIN PASSWORD '${password}'`)
+        owner = new Client(adminConfig(dbName))
+        await owner.connect()
+        // Made-up data. The util.mv_region_renewal_* views copy only the column shape of a renewal mart.
+        await owner.query(`CREATE SCHEMA s;
+            CREATE TABLE s.tickets (id int PRIMARY KEY, notes text NOT NULL);
+            INSERT INTO s.tickets VALUES (1, 'oven runs hot'), (2, 'mixer is loud');
+            CREATE TABLE s.other (id int);
+            CREATE VIEW s.ts_english AS SELECT id, to_tsvector('english', notes) AS doc, to_tsquery('english', 'oven') AS q FROM s.tickets;
+            CREATE MATERIALIZED VIEW s.mv_english AS SELECT id, to_tsvector('english', notes) AS doc FROM s.tickets
+                WHERE to_tsvector('english', notes) @@ to_tsquery('english', 'oven');
+            CREATE VIEW s.ts_simple AS SELECT id, to_tsvector('simple', notes) AS doc FROM s.tickets;
+            CREATE VIEW s.self_name AS SELECT id, 's.tickets'::regclass AS t FROM s.tickets;
+            CREATE VIEW s.other_name AS SELECT id, 's.other'::regclass AS t FROM s.tickets;
+            CREATE VIEW s.relid_name AS SELECT relid::regclass AS t FROM pg_stat_user_tables;
+            CREATE SCHEMA util;
+            CREATE TABLE util.renewals (region_label text, risk_radar text, account_id int, opportunity_id int,
+                renewal_acv numeric, renewal_ts date, days_to_renewal int, notes text, _data_as_of timestamptz);
+            INSERT INTO util.renewals VALUES ('North', 'Low', 1, 10, 500, DATE '2026-11-15', 22, 'renewal on track', now()),
+                ('South', 'High', 2, 20, 800, DATE '2026-12-01', 38, 'budget review pending', now());
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_outlook AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals;
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_120d_amer AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals WHERE region_label = 'North';
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_120d_emea AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals WHERE region_label = 'South';
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_120d_apj AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals WHERE false;
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_window AS SELECT r.*, w.window_days, to_tsvector('english', r.notes) AS notes_doc
+                FROM util.renewals r CROSS JOIN (VALUES (90), (120)) AS w(window_days);`)
+        await owner.query(`GRANT USAGE ON SCHEMA s, util TO "${reader}"; GRANT SELECT ON ALL TABLES IN SCHEMA s, util TO "${reader}"`)
+        url = urlFor(reader, password, dbName)
+    })
+
+    after(async () => {
+        if (owner) await owner.end().catch(() => {})
+        if (!admin) return
+        await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
+        await admin.query(`DROP ROLE IF EXISTS "${reader}"`).catch(() => {})
+        await admin.end().catch(() => {})
+    })
+
+    const skipped = (t) => {
+        if (admin) return false
+        t.skip('Postgres is not reachable')
+        return true
+    }
+    const scoped = (...relations) => ({ readOnlySql: true, relations })
+    const unscoped = { readOnlySql: true }
+    const selection = /is not allowed while a table selection is set/
+
+    it('runs to_tsvector and plainto_tsquery with english, with and without a selection', async (t) => {
+        if (skipped(t)) return
+        const sql = "SELECT id FROM s.tickets WHERE to_tsvector('english', notes) @@ plainto_tsquery('english', 'oven') LIMIT 5"
+        for (const options of [scoped('s.tickets'), unscoped, { relations: ['s.tickets'] }]) {
+            assert.deepEqual((await queryAnalystUrl(url, sql, options)).rows, [{ id: 1 }])
+        }
+    })
+
+    it('runs views and materialized views that store english and simple configurations', async (t) => {
+        if (skipped(t)) return
+        for (const name of ['s.mv_english', 's.ts_english', 's.ts_simple']) {
+            const sql = `SELECT id FROM ${name} ORDER BY id LIMIT 5`
+            assert.ok((await queryAnalystUrl(url, sql, scoped(name))).rows.length >= 1, name)
+            assert.ok((await queryAnalystUrl(url, sql, unscoped)).rows.length >= 1, name)
+        }
+    })
+
+    it('runs ts_headline and a regdictionary literal with a selection', async (t) => {
+        if (skipped(t)) return
+        const headline = await queryAnalystUrl(
+            url,
+            "SELECT ts_headline('english', notes, plainto_tsquery('english', 'oven')) AS h FROM s.tickets WHERE id = 1 LIMIT 1",
+            scoped('s.tickets')
+        )
+        assert.match(headline.rows[0].h, /<b>oven<\/b>/)
+        const lexize = await queryAnalystUrl(url, "SELECT ts_lexize('english_stem'::regdictionary, 'ovens') AS l FROM s.tickets LIMIT 1", scoped('s.tickets'))
+        assert.deepEqual(lexize.rows[0].l, ['oven'])
+    })
+
+    it('runs a regclass view with no selection, and never names the selection on unscoped queries', async (t) => {
+        if (skipped(t)) return
+        assert.equal((await queryAnalystUrl(url, 'SELECT t::text AS t FROM s.self_name LIMIT 1', unscoped)).rows[0].t, 's.tickets')
+        assert.equal((await queryAnalystUrl(url, 'SELECT 1::regtype::text AS t LIMIT 1', unscoped)).rows.length, 1)
+    })
+
+    it('still refuses object-identifier types with a selection', async (t) => {
+        if (skipped(t)) return
+        await refusal(queryAnalystUrl(url, 'SELECT t FROM s.other_name LIMIT 1', scoped('s.other_name')), /s\.other|type regclass|selection/)
+        await refusal(queryAnalystUrl(url, 'SELECT t FROM s.relid_name LIMIT 1', scoped('s.relid_name')), /type regclass|selection/)
+        for (const sql of [
+            'SELECT id::oid::regtype FROM s.tickets LIMIT 1',
+            "SELECT 'int4in'::regproc FROM s.tickets LIMIT 1",
+            "SELECT to_regclass('s.other') FROM s.tickets LIMIT 1",
+            "SELECT to_regtype('int4') FROM s.tickets LIMIT 1",
+            'SELECT id::oid::regnamespace FROM s.tickets LIMIT 1',
+            'SELECT id::oid::regrole FROM s.tickets LIMIT 1'
+        ]) {
+            for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }]) await refusal(queryAnalystUrl(url, sql, options), selection)
+        }
+    })
+
+    it('runs the renewal mart query shapes on materialized views with a text search column', async (t) => {
+        if (skipped(t)) return
+        const branch = (name) =>
+            `SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.${name} WHERE renewal_ts >= DATE '2026-10-24' AND renewal_ts < DATE '2027-01-23'`
+        const shapes = [
+            [
+                `SELECT COALESCE(r.region_label, 'N/A') AS region, COALESCE(r.risk_radar, 'N/A') AS risk_radar, COUNT(DISTINCT r.opportunity_id) AS renewal_opportunities, COUNT(DISTINCT r.account_id) AS accounts, SUM(COALESCE(r.renewal_acv, 0)) AS renewal_acv_due, MAX(r._data_as_of) AS data_as_of FROM util.mv_region_renewal_outlook AS r WHERE r.days_to_renewal BETWEEN 0 AND 90 GROUP BY COALESCE(r.region_label, 'N/A'), COALESCE(r.risk_radar, 'N/A') ORDER BY SUM(COALESCE(r.renewal_acv, 0)) DESC NULLS LAST, region, risk_radar LIMIT 100`,
+                ['util.mv_region_renewal_outlook']
+            ],
+            [
+                `SELECT COALESCE(NULLIF(BTRIM(r.region_label), ''), 'N/A') AS region, COALESCE(NULLIF(BTRIM(r.risk_radar), ''), 'N/A') AS risk_radar, COUNT(DISTINCT r.opportunity_id) AS renewal_opportunities, COUNT(DISTINCT r.account_id) AS accounts, SUM(COALESCE(r.renewal_acv, 0)) AS renewal_acv_due, MAX(r._data_as_of) AS data_as_of FROM util.mv_region_renewal_outlook r WHERE r.renewal_ts >= DATE '2026-10-24' AND r.renewal_ts < DATE '2027-01-23' GROUP BY 1, 2 ORDER BY renewal_acv_due DESC NULLS LAST, region, risk_radar LIMIT 100`,
+                ['util.mv_region_renewal_outlook']
+            ],
+            [
+                `WITH w AS (${branch('mv_region_renewal_120d_amer')} UNION ALL ${branch('mv_region_renewal_120d_emea')} UNION ALL ${branch('mv_region_renewal_120d_apj')}) SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM w GROUP BY region_label, risk_radar ORDER BY renewal_acv_due DESC NULLS LAST LIMIT 100`,
+                ['util.mv_region_renewal_120d_amer', 'util.mv_region_renewal_120d_emea', 'util.mv_region_renewal_120d_apj']
+            ],
+            [
+                `SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM util.mv_region_renewal_window WHERE window_days = 90 GROUP BY region_label, risk_radar ORDER BY SUM(renewal_acv) DESC NULLS LAST, region_label, risk_radar LIMIT 100`,
+                ['util.mv_region_renewal_window']
+            ]
+        ]
+        for (const [sql, relations] of shapes) {
+            for (const options of [scoped(...relations), unscoped]) assert.equal((await queryAnalystUrl(url, sql, options)).rows.length, 2)
+        }
+    })
+
+    it('still refuses a type whose input is not built in, and a function named like a built-in, with or without a selection', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE FUNCTION public.to_tsvector(text, text, int) RETURNS tsvector LANGUAGE sql AS 'SELECT to_tsvector($2)'`)
+        try {
+            for (const options of [scoped('s.tickets'), unscoped])
+                await refusal(queryAnalystUrl(url, 'SELECT id FROM s.tickets LIMIT 1', options), /named like a built-in/)
+        } finally {
+            await owner.query('DROP FUNCTION public.to_tsvector(text, text, int)')
+        }
+        try {
+            await owner.query('CREATE EXTENSION IF NOT EXISTS citext')
+        } catch {
+            t.skip('the citext extension is not available on this server')
+            return
+        }
+        try {
+            for (const options of [scoped('s.tickets'), unscoped])
+                await refusal(queryAnalystUrl(url, "SELECT 'a'::citext FROM s.tickets LIMIT 1", options), /citext/)
+        } finally {
+            await owner.query('DROP EXTENSION citext')
+        }
+    })
+})
