@@ -1816,19 +1816,23 @@ async function queryUrlPostgres(
     client.on('error', () => {})
     const runner = postgresRunner(client, { transaction: true })
     let selected = []
+    const statementPath = async () => {
+        if (runner.statementSearchPath)
+            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
+    }
+    const catalogPath = async () => {
+        if (runner.statementSearchPath) await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+    }
     const begin = async (readOnly) => {
         await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')
         await client.query(`SET LOCAL statement_timeout = ${ms}`)
         // Every analyst statement check reads '...' as standard SQL strings (where one statement ends depends on
         // it), so Postgres must too, for every caller.
         await client.query('SET LOCAL standard_conforming_strings = on')
-        // The node puts pg_catalog first in the search path for the check and the query alike, so a bare name finds
-        // the built-in before anything with the same name elsewhere.
-        if (readOnlySql) {
-            await client.query(
-                "SELECT set_config('search_path', CASE WHEN current_setting('search_path') = '' THEN 'pg_catalog' ELSE 'pg_catalog, ' || current_setting('search_path') END, true)"
-            )
-        }
+        // The node's own catalog queries run with only pg_catalog on the search path (pg_temp is never searched
+        // for functions or operators), so a same-named function elsewhere cannot answer them. The statement itself
+        // is parsed and run with pg_catalog in front of the login's path (runner.statementSearchPath).
+        if (readOnlySql) await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
     }
     const hinted = async (error) => {
         const missing = missingRelationName(error)
@@ -1857,6 +1861,10 @@ async function queryUrlPostgres(
     let checked = null
     try {
         await client.connect()
+        if (readOnlySql) {
+            const path = (await client.query("SELECT pg_catalog.current_setting('search_path') AS p")).rows?.[0]?.p || ''
+            runner.statementSearchPath = path.trim() ? `pg_catalog, ${path}` : 'pg_catalog'
+        }
         if (scoped) {
             await begin(false)
             try {
@@ -1905,9 +1913,11 @@ async function queryUrlPostgres(
             if (checked) await keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend)
             const pageCursor = replay?.paging?.cursor
             const cursorBefore = pageCursor ? pageCursors.get(pageCursor) : undefined
+            await statementPath()
             const result = replay?.plan
                 ? await readSelectPage(runner, replay.plan, replay.paging)
                 : await runPostgresStatement(client, statement, replay?.paging, runner)
+            await catalogPath()
             // An overload or schema created after the last comparison could have changed what a name reached while
             // the statement was parsed. Its rows are not returned, the cursor stays where it was, and the transaction
             // is read only and rolls back.
@@ -2014,6 +2024,8 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     const cursor = clean(input.cursor)
     if (cursor) {
         const replay = replayCursor(cursor, input, pagingBase)
+        // A cursor made without the node's text check is checked now, before a node page connects.
+        if (options.readOnlySql) checkReadOnlySql(replay.plan.statement)
         return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations, {
             readOnlySql: Boolean(options.readOnlySql)
         })
@@ -2057,26 +2069,28 @@ export async function describeAnalystUrlRelation(postgresUrl, input, names, opti
     return withUrlClient(
         postgresUrl,
         async (client, runner) => {
+            if (options.readOnlySql) {
+                // The node's describe runs its catalog queries with only pg_catalog on the search path, and only on a
+                // database its queries would not refuse.
+                await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)")
+                try {
+                    await refuseRiskyTypes(runner)
+                } catch (error) {
+                    throw new AnalystToolError(error.message, 'expected')
+                }
+            }
             const relations = await resolveRelations(runner, names)
             const relation = findRelation(relations, requested)
             if (!relation)
                 throw new AnalystToolError(relations.length ? describeRefusal(relations, requested) : SCOPE_NONE_LEFT, 'expected')
             const body = await describeRelation(runner, relation, relations)
             // The PostgreSQL MCP node's samples pass the same checks its queries do, fresh, with no cache: inside ticked
-            // views with the node denylist, and not at all on a database the node refuses.
-            const sampleable =
-                !options.readOnlySql ||
-                (await refuseRiskyTypes(runner).then(
-                    () => true,
-                    () => false
-                ))
-            const values = sampleable
-                ? await sampleRelationValues(client, runner, relation, relations, {
-                      isRowQuery,
-                      cacheKey: options.readOnlySql ? '' : urlStoreKey(postgresUrl),
-                      followViews: Boolean(options.readOnlySql)
-                  })
-                : null
+            // views, with the node denylist.
+            const values = await sampleRelationValues(client, runner, relation, relations, {
+                isRowQuery,
+                cacheKey: options.readOnlySql ? '' : urlStoreKey(postgresUrl),
+                followViews: Boolean(options.readOnlySql)
+            })
             if (values) body.values = values
             return body
         },

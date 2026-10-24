@@ -617,6 +617,9 @@ async function parsedStatementIds(client, runner, statement, cacheKey) {
     scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
     const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
     try {
+        // The node parses the statement with the login's path behind pg_catalog, and runs its own queries without it.
+        if (runner.statementSearchPath)
+            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
         // A named statement is sent with the extended protocol, which refuses a second command.
         await client.query({
             name: statementName,
@@ -627,6 +630,9 @@ async function parsedStatementIds(client, runner, statement, cacheKey) {
         throw error
     } finally {
         await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
+        // After a failed parse the transaction is aborted and rolls back, which resets the path anyway.
+        if (runner.statementSearchPath)
+            await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
     }
     const rule = await runner.get(
         `SELECT r.ev_class::int8 AS view, r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`
@@ -788,6 +794,19 @@ WHERE d.refclassid = 'pg_proc'::regclass AND d.deptype IN ('n', 'a')
   AND (pn.nspname <> 'pg_catalog' OR (p.provolatile = 'v' AND d.classid = 'pg_constraint'::regclass))
 UNION
 SELECT 'event trigger ' || quote_ident(e.evtname) FROM pg_event_trigger e WHERE e.evtenabled <> 'D'
+UNION
+-- A function or operator with a built-in's name can win overload resolution over the built-in (an exact argument
+-- match beats an implicit cast, whatever the search path order), so a name the check read as the built-in could
+-- reach it instead.
+SELECT 'function ' || quote_ident(n.nspname) || '.' || quote_ident(p.proname) || ' (named like a built-in)'
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND EXISTS (SELECT 1 FROM pg_proc b WHERE b.pronamespace = 'pg_catalog'::regnamespace AND b.proname = p.proname)
+UNION
+SELECT 'operator ' || quote_ident(n.nspname) || '.' || o.oprname || ' (named like a built-in)'
+FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace
+WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND EXISTS (SELECT 1 FROM pg_operator b WHERE b.oprnamespace = 'pg_catalog'::regnamespace AND b.oprname = o.oprname)
 ORDER BY 1`
 const riskyTypeCache = new Map() // kept for callers that pass a cache key; the node scans uncached
 

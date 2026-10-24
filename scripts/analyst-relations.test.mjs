@@ -1426,7 +1426,7 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         try {
             await refusal(
                 queryAnalystUrl(url, "SELECT lower('A'::varchar) AS l LIMIT 1", { readOnlySql: true }),
-                /changed while it was being checked/
+                /changed while it was being checked|public\.lower \(named like a built-in\)/
             )
         } finally {
             setCheckGapHookForTests(null)
@@ -1442,7 +1442,7 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         try {
             await refusal(
                 queryAnalystUrl(url, "SELECT lower('A'::varchar) AS v LIMIT 1", { readOnlySql: true }),
-                /changed while it was being checked/
+                /changed while it was being checked|public\.lower \(named like a built-in\)/
             )
         } finally {
             setCheckGapHookForTests(null)
@@ -1473,12 +1473,12 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             [
                 `CREATE TYPE public.feel AS (v int); CREATE FUNCTION public.feel_json(public.feel) RETURNS json LANGUAGE sql AS 'SELECT to_json(pg_sleep(0))';
                  CREATE CAST (public.feel AS json) WITH FUNCTION public.feel_json(public.feel)`,
-                /cast from feel to json/,
+                /cast from public\.feel to json/,
                 'DROP TYPE public.feel CASCADE; DROP FUNCTION IF EXISTS public.feel_json(public.feel)'
             ],
             [
                 `CREATE FUNCTION public.zero() RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT 0'; CREATE INDEX items_zero ON public.items ((id + public.zero()))`,
-                /index items_zero/,
+                /index public\.items_zero/,
                 'DROP INDEX public.items_zero; DROP FUNCTION public.zero()'
             ],
             [
@@ -1487,8 +1487,18 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
                 'DROP DOMAIN public.ticked'
             ],
             [
+                `CREATE FUNCTION public.quote_ident(name) RETURNS text LANGUAGE sql AS 'SELECT pg_catalog.quote_ident($1::text)'`,
+                /public\.quote_ident \(named like a built-in\)/,
+                'DROP FUNCTION public.quote_ident(name)'
+            ],
+            [
+                `CREATE FUNCTION public.lower(varchar) RETURNS text LANGUAGE sql AS 'SELECT pg_catalog.lower($1::text)'`,
+                /public\.lower \(named like a built-in\)/,
+                'DROP FUNCTION public.lower(varchar)'
+            ],
+            [
                 `CREATE FUNCTION public.on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS 'BEGIN END'; CREATE EVENT TRIGGER watch_ddl ON ddl_command_end EXECUTE FUNCTION public.on_ddl()`,
-                /event trigger watch_ddl/,
+                /event trigger (public\.)?watch_ddl/,
                 'DROP EVENT TRIGGER watch_ddl; DROP FUNCTION public.on_ddl()'
             ]
         ]
@@ -1609,6 +1619,13 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         }
         const ok = await queryAnalystUrl(url, 'SELECT name FROM outer_names ORDER BY 1 LIMIT 1', { readOnlySql: true })
         assert.deepEqual(ok.rows, [{ name: 'Baguette' }])
+    })
+
+    it('checks the statement text again when a cursor is replayed by the node', async (t) => {
+        if (skipped(t)) return
+        const first = await queryAnalystUrl(url, 'SELECT n FROM pg_catalog.generate_series(1, 30) AS n', { rowCap: 10 })
+        assert.ok(first.cursor)
+        await refusal(queryAnalystUrl(url, { cursor: first.cursor }, { rowCap: 10, readOnlySql: true }), /LIMIT/)
     })
 
     it('checks routines again on every page of an unscoped cursor', async (t) => {
