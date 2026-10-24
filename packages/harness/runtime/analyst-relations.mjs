@@ -730,7 +730,7 @@ const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])
 // A digest of every function, operator and cast outside pg_catalog. A new overload created between the check and
 // the query could change which function a name resolves to, so the query transaction compares it.
 const ROUTINE_STAMP_SQL = `SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) AS stamp FROM (
-    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || n.nspname || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text || ':' || p.pronargdefaults || ':' || coalesce(p.proargdefaults::text, '') || ':' || p.provariadic::oid || ':' || p.prokind::text FROM pg_proc p
+    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || n.nspname || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text || ':' || p.pronargdefaults || ':' || coalesce(p.proargdefaults::text, '') || ':' || p.provariadic::oid || ':' || p.prokind::text || ':' || p.prosecdef::text || ':' || coalesce(p.proconfig::text, '') || ':' || md5(coalesce(p.prosrc, '') || coalesce(p.probin, '')) FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname <> 'pg_catalog'
     UNION ALL SELECT 'o' || o.oid || ':' || o.oprnamespace || ':' || n.nspname || ':' || o.oprname || ':' || o.oprleft || ':' || o.oprright || ':' || o.oprcode::oid FROM pg_operator o
     JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE n.nspname <> 'pg_catalog'
@@ -829,6 +829,81 @@ export async function refuseRiskyTypes(runner, cacheKey = '') {
 
 const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${row.schema}.${row.name}`)
 
+// Allowed functions: set by the flow author on the PostgreSQL MCP node (stored with the flow, never read from tool
+// input). One entry per line, schema-qualified with its argument types, such as analytics._etl_safe_date(text), or
+// name(*) for every overload. A bare name matches nothing. An entry is only needed for a function the automatic rule
+// (autoAllowed) refuses. Entries resolve to function ids under the pinned pg_catalog search path each time a query is checked.
+// Allowing a function trusts its body: the check does not read inside it.
+const ALLOWED_IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)`
+const ALLOWED_ENTRY = new RegExp(String.raw`^(${ALLOWED_IDENT}\.${ALLOWED_IDENT})\s*\(([A-Za-z0-9_ ,."\[\]()*]*)\)$`)
+export const ALLOWED_FUNCTIONS_MAX = 200
+
+export function parseAllowedFunctions(value) {
+    const text = Array.isArray(value) ? value.join('\n') : typeof value === 'string' ? value : ''
+    const entries = []
+    for (const raw of text.split(/\r?\n/)) {
+        const line = raw.replace(/\s+#.*$|^#.*$/, '').trim()
+        if (!line) continue
+        const match = ALLOWED_ENTRY.exec(line)
+        if (!match) continue
+        const args = match[2].trim()
+        entries.push(args === '*' ? { name: match[1], all: true } : { name: match[1], signature: `${match[1]}(${args})` })
+        if (entries.length >= ALLOWED_FUNCTIONS_MAX) break
+    }
+    return entries
+}
+
+const NOT_ALLOWED_SCHEMA = "n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'"
+
+// Function id -> marks, for the entries that resolve now. Runs in the caller's transaction, with only pg_catalog on
+// the search path, so type names in a signature resolve the same way the refusal message prints them.
+async function resolveAllowedFunctions(runner) {
+    const entries = runner.allowedFunctions || []
+    const allowed = new Set()
+    for (const entry of entries) {
+        const rows = entry.all
+            ? await runner.all(
+                  `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace,
+                   pg_catalog.parse_ident(?) AS i WHERE pg_catalog.array_length(i, 1) = 2 AND n.nspname = i[1] AND p.proname = i[2]
+                   AND p.prokind = 'f' AND ${NOT_ALLOWED_SCHEMA}`,
+                  [entry.name]
+              )
+            : await runner.all(
+                  `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+                   WHERE p.oid = pg_catalog.to_regprocedure(?) AND p.prokind = 'f' AND ${NOT_ALLOWED_SCHEMA}`,
+                  [entry.signature]
+              )
+        for (const row of rows) allowed.add(Number(row.oid))
+    }
+    return allowed
+}
+
+const autoAllowed = (row) =>
+    (row.volatility === 'i' || row.volatility === 's') &&
+    !row.definer &&
+    row.config == null &&
+    (row.language === 'sql' || row.language === 'plpgsql') &&
+    row.super_owner === false
+
+const refusedWhy = (rows) => {
+    const reasons = new Set()
+    for (const row of rows) {
+        if (row.volatility === 'v') reasons.add('VOLATILE')
+        if (row.definer) reasons.add('SECURITY DEFINER')
+        if (row.config != null) reasons.add('has its own settings')
+        if (row.language !== 'sql' && row.language !== 'plpgsql') reasons.add(`written in ${row.language}`)
+        if (row.super_owner !== false) reasons.add('owned by a superuser')
+    }
+    return `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written in SQL or PL/pgSQL and not owned by a superuser; found: ${[
+        ...reasons
+    ].join(', ')}.`
+}
+
+const allowHint = (signatures) =>
+    ` To allow ${signatures.length > 1 ? 'them' : 'it'}, the flow author can add ${signatures.join(
+        ', '
+    )} to Allowed functions on the PostgreSQL MCP node.`
+
 const NOT_BUILT_IN = 'is not built in. Only built-in functions, operators and types run.'
 
 // Functions and operators outside pg_catalog, and denied built-ins.
@@ -851,16 +926,33 @@ async function refuseRoutines(
     }
     if (!functionIds.size) return
     const rows = await runner.all(
-        'SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?::oid[])',
+        `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility, p.prosecdef AS definer,
+                p.proconfig AS config, l.lanname AS language, coalesce(r.rolsuper, true) AS super_owner,
+                pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(p.proname) || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature
+         FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+         JOIN pg_catalog.pg_language l ON l.oid = p.prolang LEFT JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
+         WHERE p.oid = ANY(?::oid[])`,
         [[...functionIds]]
     )
     // An id the catalog does not return is refused too.
     const missing = [...functionIds].filter((id) => !rows.some((row) => Number(row.oid) === id))
     if (missing.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(missing.map(String))} ${NOT_BUILT_IN}`)
-    const foreign = rows.filter((row) => !builtIn(row)).map((row) => `${row.schema}.${row.name}`)
-    if (foreign.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(foreign)} ${NOT_BUILT_IN}`)
+    // A user function runs without any setting when it can only read and runs as the caller: STABLE or IMMUTABLE,
+    // not SECURITY DEFINER, no settings of its own, written in SQL or PL/pgSQL, and not owned by a superuser. Anything
+    // else needs an entry in the node's Allowed functions. Either way its body is trusted, not read.
+    const allowed = runner.allowedFunctions?.length ? await resolveAllowedFunctions(runner) : new Set()
+    const trusted = (row) => builtIn(row) || allowed.has(Number(row.oid)) || autoAllowed(row)
+    const foreignRows = rows.filter((row) => !trusted(row))
+    if (foreignRows.length) {
+        const signatures = [...new Set(foreignRows.map((row) => row.signature))]
+        throw new ScopeRefusal(
+            `Cuttlely refused this query: function ${refusedList(signatures)} ${NOT_BUILT_IN} ${refusedWhy(foreignRows)}${allowHint(
+                signatures
+            )}`
+        )
+    }
     const denied = rows
-        .filter((row) => isDenied(row.name) || (volatile && row.volatility === 'v' && !SAFE_VOLATILE.has(row.name)))
+        .filter((row) => isDenied(row.name) || (volatile && row.volatility === 'v' && !SAFE_VOLATILE.has(row.name) && builtIn(row)))
         .map((row) => row.name)
     if (denied.length && unscoped)
         throw new ScopeRefusal(`Cuttlely refused this query: ${refusedList([...new Set(denied)])} is not allowed.`)

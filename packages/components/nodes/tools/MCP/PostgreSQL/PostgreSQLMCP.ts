@@ -27,7 +27,7 @@ type AnalystStoreModule = {
     queryAnalystUrl: (
         postgresUrl: string,
         input: Record<string, unknown>,
-        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[]; readOnlySql?: boolean }
+        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[]; readOnlySql?: boolean; allowedFunctions?: string }
     ) => Promise<unknown>
     analystUrlToolSpec: (rowCap?: number, relations?: AnalystRelation[] | null) => { description: string; schema: Record<string, unknown> }
     analystDescribeToolSpec: () => { description: string; schema: Record<string, unknown> }
@@ -37,8 +37,14 @@ type AnalystStoreModule = {
         postgresUrl: string,
         input: Record<string, unknown>,
         names: string[],
-        options?: { timeoutMs?: number; readOnlySql?: boolean }
+        options?: { timeoutMs?: number; readOnlySql?: boolean; allowedFunctions?: string }
     ) => Promise<unknown>
+}
+
+// Allowed functions come only from the saved node inputs, written by the flow author. Tool input never reaches them.
+const nodeAllowedFunctions = (nodeData: INodeData): string => {
+    const value = nodeData?.inputs?.analystAllowedFunctions
+    return typeof value === 'string' ? value : ''
 }
 
 type AnalystRelation = { name: string; kind: string; columns: number; comment: string }
@@ -213,6 +219,17 @@ class PostgreSQL_MCP implements INode {
                     'Your own instructions for the analyst on a harness, such as which view answers which question or how names are written. They go into its instructions in a marked section. They cannot widen Tables and views or allow changes.'
             },
             {
+                label: 'Allowed functions',
+                name: 'analystAllowedFunctions',
+                type: 'string',
+                rows: 4,
+                optional: true,
+                additionalParams: true,
+                placeholder: 'analytics._etl_safe_date(text)\nanalytics._etl_safe_integer(text)',
+                description:
+                    'Functions outside pg_catalog that run even though Cuttlely would refuse them, one per line, schema-qualified with argument types, for example analytics._etl_safe_date(text). Write name(*) for every overload; a bare name matches nothing. Without an entry, a user function runs only when it is STABLE or IMMUTABLE, not SECURITY DEFINER, has no settings of its own, is written in SQL or PL/pgSQL and is not owned by a superuser. Cuttlely does not check what runs inside an allowed function, so keep each one owned by the same dedicated read-only or admin role, and give this login no dblink or file privileges. Queries still run read only with the timeout, and the deny list still applies to the query and to views.'
+            },
+            {
                 label: 'Row cap',
                 name: 'analystRowCap',
                 type: 'number',
@@ -338,7 +355,12 @@ class PostgreSQL_MCP implements INode {
         const requested = this.nodeLimits(nodeData)
         if (decision.kind === 'auto') return this.isolatedTools(typeof workspace === 'string' ? workspace : '', requested)
         const { parseRelationSelection } = await loadAnalystRelations()
-        return this.urlTools(decision.postgresUrl, requested, parseRelationSelection(nodeData?.inputs?.analystRelations))
+        return this.urlTools(
+            decision.postgresUrl,
+            requested,
+            parseRelationSelection(nodeData?.inputs?.analystRelations),
+            nodeAllowedFunctions(nodeData)
+        )
     }
 
     nodeLimits(nodeData: INodeData): { rowCap?: number; statementTimeoutMs?: number } {
@@ -381,7 +403,8 @@ class PostgreSQL_MCP implements INode {
     async urlTools(
         postgresUrl: string,
         requested: { rowCap?: number; statementTimeoutMs?: number } = {},
-        relations: string[] = []
+        relations: string[] = [],
+        allowedFunctions = ''
     ): Promise<Tool[]> {
         const store = await loadAnalystStore()
         const limits = store.analystCallLimits(requested, process.env)
@@ -404,7 +427,8 @@ class PostgreSQL_MCP implements INode {
                             rowCap: limits.rowCap,
                             statementTimeoutMs: limits.timeoutMs,
                             relations,
-                            readOnlySql: true
+                            readOnlySql: true,
+                            allowedFunctions
                         })
                     )
                 } catch (error) {
@@ -425,7 +449,8 @@ class PostgreSQL_MCP implements INode {
                     return JSON.stringify(
                         await store.describeAnalystUrlRelation(postgresUrl, input || {}, relations, {
                             timeoutMs: limits.timeoutMs,
-                            readOnlySql: true
+                            readOnlySql: true,
+                            allowedFunctions
                         })
                     )
                 } catch (error) {

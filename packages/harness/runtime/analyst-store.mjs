@@ -34,6 +34,7 @@ import {
     checkStatementRoutines,
     checkStatementScope,
     refuseRiskyTypes,
+    parseAllowedFunctions,
     refuseRiskyDomains,
     routineCatalogStamp,
     sameRelationBodies,
@@ -1799,7 +1800,7 @@ async function queryUrlPostgres(
     timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS,
     env = process.env,
     relations = [],
-    { readOnlySql = false } = {}
+    { readOnlySql = false, allowedFunctions = [] } = {}
 ) {
     const scoped = relations.length > 0
     // The text check passed only row queries. Anything else would go out as a simple-protocol query.
@@ -1815,6 +1816,8 @@ async function queryUrlPostgres(
     })
     client.on('error', () => {})
     const runner = postgresRunner(client, { transaction: true })
+    // Only the node's own setting, passed by the node from the saved flow; never the tool input.
+    if (readOnlySql) runner.allowedFunctions = parseAllowedFunctions(allowedFunctions)
     let selected = []
     const statementPath = async () => {
         if (runner.statementSearchPath)
@@ -2027,7 +2030,8 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         // A cursor made without the node's text check is checked now, before a node page connects.
         if (options.readOnlySql) checkReadOnlySql(replay.plan.statement)
         return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations, {
-            readOnlySql: Boolean(options.readOnlySql)
+            readOnlySql: Boolean(options.readOnlySql),
+            allowedFunctions: options.allowedFunctions
         })
     }
     sweepCursors(pagingBase.now)
@@ -2045,7 +2049,7 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         options.statementTimeoutMs,
         env,
         relations,
-        { readOnlySql: Boolean(options.readOnlySql) }
+        { readOnlySql: Boolean(options.readOnlySql), allowedFunctions: options.allowedFunctions }
     )
 }
 
@@ -2073,6 +2077,7 @@ export async function describeAnalystUrlRelation(postgresUrl, input, names, opti
                 // The node's describe runs its catalog queries with only pg_catalog on the search path, and only on a
                 // database its queries would not refuse.
                 await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)")
+                runner.allowedFunctions = parseAllowedFunctions(options.allowedFunctions)
                 try {
                     await refuseRiskyTypes(runner)
                 } catch (error) {
