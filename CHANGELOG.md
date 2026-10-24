@@ -8,17 +8,17 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Pending pull request 293, not merged. **Allowed functions** on the PostgreSQL MCP node lists your own SQL helpers, one `schema.fn(argtypes)` or `schema.fn(*)` per line. [How the selection is enforced](./docs/how-to/analyst.md#how-the-selection-is-enforced).
+-   **Allowed functions** on the PostgreSQL MCP node lists your own SQL helpers, one `schema.fn(argtypes)` or `schema.fn(*)` per line. [How the selection is enforced](./docs/how-to/analyst.md#how-the-selection-is-enforced).
 
 ### Changed
 
--   Pending pull request 291, not merged. At startup, a saved harness profile compiled by an older version is compiled again. The harness gateway `GET /health` and `GET /api/v1/ping` return 503 during that wait. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300. [Agent runtime health](./docs/how-to/harnesses.md#agent-runtime-health).
+-   At startup, a saved harness profile compiled by an older version is compiled again. The harness gateway `GET /health` and `GET /api/v1/ping` return 503 during that wait. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300. [Agent runtime health](./docs/how-to/harnesses.md#agent-runtime-health).
 -   Harness Prime's profile does not start a specialist's bridge. Each specialist profile starts its own.
 
 ### Fixed
 
--   Pending pull request 293, not merged. Text search types `regconfig` and `regdictionary` are allowed in analyst queries. Other object-identifier types, such as `regclass`, are refused only while a table selection is set. [Analyst tools](./docs/reference/analyst-tools.md).
--   Pending pull request 289, not merged. Chat answers keep a slash, backslash or tilde that stands alone between words, including a fraction or a date. Server paths are still hidden. [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
+-   Text search types `regconfig` and `regdictionary` are allowed in analyst queries. Other object-identifier types, such as `regclass`, are refused only while a table selection is set. [Analyst tools](./docs/reference/analyst-tools.md).
+-   Chat answers keep a slash, backslash or tilde that stands alone between words, including a fraction or a date. Server paths are still hidden. [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 -   A flow LangSmith credential with no key does not use the server's LangSmith key. Tracing for that flow stays off. A failed upload log records the credential id and the key length, not the key. [LangSmith tracing: which account gets a flow's traces](./docs/reference/langsmith-tracing.md).
 -   Deleting a harness removes its agent runtime profile, its specialists' profiles and their workspaces after their gateway tokens are revoked. [Delete a harness](./docs/how-to/harnesses.md#delete-a-harness).
 -   The assets preset fetches a file only when every address on the way is public, sends a browser-like user agent on that path, and a tool result that reports an error counts as a failed step. [Make files with the assets preset](./docs/how-to/harnesses.md#make-files-with-the-assets-preset).
