@@ -13,6 +13,7 @@ jest.mock('./apiAccess', () => ({
 
 import harnessesService, {
     resetNameLocks,
+    acquireNameLock,
     harnessCanvasLookup,
     harnessDeleteHooks,
     removeHarnessesForCanvas,
@@ -24,7 +25,7 @@ const TEAM = 'team-a'
 const CANVAS_NAVI = '11111111-1111-4111-8111-111111111111'
 const CANVAS_GONE = '22222222-2222-4222-8222-222222222222'
 
-type Row = { name: string; chatflowId?: string; workspaceId?: string; specialists: unknown[] }
+type Row = { name: string; chatflowId?: string; workspaceId?: string; createdAt?: string; specialists: unknown[] }
 let runRows: Array<{ table: string; harness: string }>
 let schedules: Set<string>
 let canvases: Map<string, { workspaceId: string; type: string } | 'fail'>
@@ -51,7 +52,11 @@ const fakeModules = (file: string) => {
                     .map((entry) => JSON.parse(fs.readFileSync(path.join(storeDir, entry), 'utf8'))),
             getHarness: (name: string) => (has(name) ? JSON.parse(fs.readFileSync(fileOf(name), 'utf8')) : null),
             deleteHarness: (name: string) => fs.rmSync(fileOf(name), { force: true }),
-            claimWorkspace: (name: string) => JSON.parse(fs.readFileSync(fileOf(name), 'utf8'))
+            claimWorkspace: (name: string) => JSON.parse(fs.readFileSync(fileOf(name), 'utf8')),
+            saveHarness: (row: Row) => {
+                write(row)
+                return row
+            }
         })
     }
     if (file === 'cleanup.mjs') {
@@ -77,7 +82,8 @@ const fakeModules = (file: string) => {
     }
     if (file === 'profile.mjs') {
         return Promise.resolve({
-            specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`
+            specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`,
+            compileProfileCached: () => undefined
         })
     }
     if (file === 'schedule.mjs') return Promise.resolve({ deleteSchedule: (name: string) => schedules.delete(name) })
@@ -384,6 +390,39 @@ describe('a reused name never sees an earlier harness data', () => {
         order.push('delete done')
         await sync
         expect(order).toEqual(['cleanup', 'delete done', 'sync'])
+    })
+
+    it('a delete that waited for the name leaves a record deleted and saved again under it meanwhile', async () => {
+        write({ name: 'NAVI-B', workspaceId: TEAM, createdAt: '2026-01-01T00:00:00.000Z', specialists: [] })
+        const release = await acquireNameLock('NAVI-B')
+        const pending = harnessesService.deleteHarness('NAVI-B', TEAM)
+        for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve))
+        write({ name: 'NAVI-B', workspaceId: TEAM, createdAt: '2026-02-01T00:00:00.000Z', specialists: [] })
+        release()
+        await pending
+        expect(has('NAVI-B')).toBe(true)
+        expect(cleaned).not.toContain('NAVI-B')
+        expect(runRows.filter((row) => row.harness === 'NAVI-B')).toHaveLength(2)
+    })
+
+    it('an API save waits for a delete of the name and then clears what the delete left', async () => {
+        const warm = process.env.CUTTLELY_WARM_HERMES
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        try {
+            const release = await acquireNameLock('NAVI-B')
+            const pending = harnessesService.saveHarness({ name: 'NAVI-B', specialists: [{ name: 'other' }] }, TEAM)
+            for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve))
+            // The delete runs while the save waits: the record is gone by the time the save looks it up.
+            fs.rmSync(fileOf('NAVI-B'))
+            release()
+            await pending
+            expect(cleaned).toEqual(['NAVI-B'])
+            expect(expectedProfiles).toEqual([['navi-b--other']])
+            expect(has('NAVI-B')).toBe(true)
+        } finally {
+            if (warm === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = warm
+        }
     })
 
     it('refuses a new harness under a name whose old profiles could not be removed', async () => {

@@ -576,6 +576,14 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
                 continue
             }
             if (stillSaved(id, savedNames()) || stillSaved(base, savedNames())) continue
+            // The parked copy is checked again before anything goes: one that changed while its runtime was stopping
+            // keeps its workspace too.
+            const trashRoot = checkedTrashRoot()
+            if (!trashRoot || trashOwner(trashRoot, item) !== id || (minAgeMs && now() - newestChange(item, trashRoot) < minAgeMs)) {
+                kept.push(`${TRASH}/${item}`)
+                cleanupHooks.log(`[harness] kept ${TRASH}/${item}: it changed during cleanup`)
+                continue
+            }
             // The workspace is left to a profile now in profiles/ under the same name.
             if (!lstatOrNull(path.join(profilesRoot(), base))) {
                 const work = containedEntry(workspacesRoot(), base)

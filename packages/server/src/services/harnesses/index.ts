@@ -149,32 +149,48 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
         const { overwrite, ...record } = body
         delete record.workspaceId
         const name = typeof record.name === 'string' ? record.name : ''
-        let existing = null
-        if (name) {
-            try {
-                existing = store.getHarness(name)
-            } catch (error) {
-                throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
-            }
-        }
-        if (existing) {
-            const owner = await ownerOf(existing)
-            // No resolved team is not this caller. The file, including its run history, stays as it is.
-            if (!inWorkspace(owner, ws)) throw nameClash(name)
-            if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
-        } else if (name) {
-            await clearStaleNameData(name, record as { specialists?: Array<{ name?: unknown }> })
-        }
-        const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
-        profile.compileProfileCached(saved)
-        warmHarnesses([saved.name])
-        return saved
+        // The name lock is held from the lookup through the compile, so a delete of the name cannot run in between
+        // and leave this save writing over profiles it kept.
+        if (!name) return await saveUnderName(store, profile, record, overwrite, ws, name)
+        return await withNameLock(name, () => saveUnderName(store, profile, record, overwrite, ws, name))
     } catch (error) {
         if (error instanceof AppError) throw error
         const code = (error as { code?: string })?.code
         if (code === 'name_clash') throw nameClash(typeof body?.name === 'string' ? body.name : '')
         throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
     }
+}
+
+type HarnessModule = Awaited<ReturnType<typeof loadHarness>>
+
+async function saveUnderName(
+    store: HarnessModule,
+    profile: HarnessModule,
+    record: Record<string, unknown>,
+    overwrite: unknown,
+    ws: string,
+    name: string
+) {
+    let existing = null
+    if (name) {
+        try {
+            existing = store.getHarness(name)
+        } catch (error) {
+            throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+        }
+    }
+    if (existing) {
+        const owner = await ownerOf(existing)
+        // No resolved team is not this caller. The file, including its run history, stays as it is.
+        if (!inWorkspace(owner, ws)) throw nameClash(name)
+        if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
+    } else if (name) {
+        await clearStaleNameData(name, record as { specialists?: Array<{ name?: unknown }> })
+    }
+    const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
+    profile.compileProfileCached(saved)
+    warmHarnesses([saved.name])
+    return saved
 }
 
 // A canvas save uses the chat flow's team. A name that already belongs to another team is refused before the file is written.
@@ -722,7 +738,13 @@ const deleteHarness = async (name: string, workspaceId?: string | null) => {
     // A record under the name that is not the one this delete started with was saved since, and is left alone.
     const replaced = () => {
         const current = store.getHarness(name)
-        return Boolean(current) && (current.chatflowId !== harness.chatflowId || (current.workspaceId || ws) !== ws)
+        return (
+            Boolean(current) &&
+            (current.chatflowId !== harness.chatflowId ||
+                (current.workspaceId || ws) !== ws ||
+                // Deleted and saved again under the same name and team: a new record, with its own creation time.
+                (current.createdAt || '') !== (harness.createdAt || ''))
+        )
     }
     if (canvas?.state === 'present' && canvas.type === 'HARNESS' && canvas.workspaceId === ws) {
         // The cascade removes the record, its profiles and its runs under the name lock.

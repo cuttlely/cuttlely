@@ -16365,6 +16365,9 @@ await (async () => {
     fs.mkdirSync(path.join(trash, 'touched--a-0123456789ab'), { recursive: true })
     fs.writeFileSync(path.join(trash, 'touched--a-0123456789ab', 'harness-parent'), 'touched\n')
     home('touched')
+    fs.mkdirSync(path.join(workDir, 'touched--a'), { recursive: true })
+    fs.writeFileSync(path.join(workDir, 'touched--a', 'notes.txt'), 'x')
+    age(path.join(workDir, 'touched--a'))
     age(path.join(trash, 'touched--a-0123456789ab'))
     cleanup.cleanupHooks.close = async () => {
         fs.writeFileSync(path.join(trash, 'touched--a-0123456789ab', 'new.txt'), 'x')
@@ -16372,11 +16375,14 @@ await (async () => {
     await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
     cleanup.cleanupHooks.close = async () => {}
     check(
-        'the sweep checks a trash leftover again after closing the runtime',
-        fs.existsSync(path.join(trash, 'touched--a-0123456789ab')) && !exists('touched'),
+        'the sweep checks a trash leftover again after closing the runtime, and keeps its workspace with it',
+        fs.existsSync(path.join(trash, 'touched--a-0123456789ab')) &&
+            fs.existsSync(path.join(workDir, 'touched--a', 'notes.txt')) &&
+            !exists('touched'),
         JSON.stringify(lines)
     )
     fs.rmSync(path.join(trash, 'touched--a-0123456789ab'), { recursive: true, force: true })
+    fs.rmSync(path.join(workDir, 'touched--a'), { recursive: true, force: true })
 
     // An old orphan with its token file goes in one sweep; a recent specialist of the same harness keeps its token.
     reset()
