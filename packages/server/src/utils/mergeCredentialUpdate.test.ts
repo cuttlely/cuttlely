@@ -112,4 +112,12 @@ describe('redactCredentialWithPasswordType for URLs', () => {
         const plain = 'mongodb://db1:27017,db2:27017/app'
         expect(redactCredentialWithPasswordType('mongo', { mongoUrl: plain }, components).mongoUrl).toBe(plain)
     })
+
+    it('replaces the password, not a username that looks like the internal marker', () => {
+        const shown = redactCredentialWithPasswordType('mongo', { mongoUrl: 'redis://CUTTLELY_MASKED:secret-pw@h:6379/0' }, components)
+        expect(shown.mongoUrl).toBe(`redis://CUTTLELY_MASKED:${M}@h:6379/0`)
+        expect(redactCredentialWithPasswordType('mongo', { mongoUrl: 'redis://:secret-pw@h:6379' }, components).mongoUrl).toBe(
+            `redis://:${M}@h:6379`
+        )
+    })
 })

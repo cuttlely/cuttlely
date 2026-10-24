@@ -3,7 +3,13 @@ import { AsyncLocalStorageProviderSingleton } from '@langchain/core/singletons'
 import { Client } from 'langsmith'
 import { additionalCallbacks } from './handler'
 import * as utils from './utils'
-import { describeLangSmithCredential, keepConfiguredLangSmithTarget, langSmithFailureLoggingFetch } from './langsmithCredentialDiagnostics'
+import {
+    describeLangSmithCredential,
+    keepConfiguredLangSmithTarget,
+    langSmithClientConfig,
+    langSmithFailureLoggingFetch,
+    operationForLog
+} from './langsmithCredentialDiagnostics'
 
 describe('describeLangSmithCredential', () => {
     const key = 'lsv2_pt_' + 'a'.repeat(40) + '_' + 'b'.repeat(10)
@@ -123,10 +129,26 @@ describe('langSmithFailureLoggingFetch', () => {
         expect(line).not.toContain('secretvalue')
     })
 
-    it('logs only the origin and path of the endpoint', () => {
+    it('logs only the origin of the endpoint', () => {
         const shape = describeLangSmithCredential('c', {}, '', 'https://u:secret-value@eu.api.example.test/base?token=secret-value#x', 'p')
-        expect(shape.endpoint).toBe('https://eu.api.example.test/base')
+        expect(shape.endpoint).toBe('https://eu.api.example.test')
+        expect(describeLangSmithCredential('c', {}, '', 'https://proxy.example.test/secret-value/api', 'p').endpoint).toBe(
+            'https://proxy.example.test'
+        )
         expect(describeLangSmithCredential('c', {}, '', 'not a url secret-value', 'p').endpoint).toBe('(unparsed)')
+    })
+
+    it('logs a fixed operation name, never a path that carries a token', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        global.fetch = jest.fn().mockResolvedValue(new Response('x', { status: 500 })) as any
+        await langSmithFailureLoggingFetch({})('https://proxy.example.test/secret-value/runs/multipart')
+        global.fetch = jest.fn().mockRejectedValue(new TypeError('fetch failed secret-value')) as any
+        await expect(langSmithFailureLoggingFetch({})('https://proxy.example.test/secret-value/other')).rejects.toThrow('TypeError')
+        const lines = warn.mock.calls.map((c) => String(c[0]))
+        expect(lines[0]).toContain('path=/runs/multipart')
+        expect(lines[1]).toContain('path=(other)')
+        for (const line of lines) expect(line).not.toContain('secret-value')
+        expect(operationForLog('/x/runs/0f8fad5b-d9cb-469f-a165-70867728950e')).toBe('/runs/:id')
     })
 
     it('stays quiet on success', async () => {
@@ -178,26 +200,41 @@ describe('LangSmith tracer inside runWithAbortSignal', () => {
         })
     })
 
-    it('a flow credential with no value falls back to the server env LangSmith key (docs/reference/langsmith-tracing.md)', async () => {
+    it('a flow credential with no key never picks up the server env key (docs/reference/langsmith-tracing.md)', async () => {
         const saved = { LANGSMITH_API_KEY: process.env.LANGSMITH_API_KEY, LANGCHAIN_API_KEY: process.env.LANGCHAIN_API_KEY }
         process.env.LANGSMITH_API_KEY = 'lsv2_pt_server_env_test_value'
-        delete process.env.LANGCHAIN_API_KEY
+        process.env.LANGCHAIN_API_KEY = 'lsv2_pt_server_env_test_value2'
         try {
-            jest.spyOn(utils, 'getCredentialData').mockResolvedValue({})
-            const options = {
-                chatflowid: 'flow-2',
-                analytic: JSON.stringify({ langSmith: { status: true, credentialId: 'cred-empty', projectName: 'Flow-Project' } })
+            for (const data of [{}, { langSmithApiKey: '' }, { langSmithEndpoint: 'https://collector.example.test' }]) {
+                jest.spyOn(utils, 'getCredentialData').mockResolvedValue(data)
+                const options = {
+                    chatflowid: 'flow-2',
+                    analytic: JSON.stringify({ langSmith: { status: true, credentialId: 'cred-empty', projectName: 'Flow-Project' } })
+                }
+                const callbacks = await additionalCallbacks({ inputs: {} } as any, options)
+                const tracer = callbacks.find((cb: any) => cb?.name === 'langchain_tracer')
+                expect(tracer).toBeDefined()
+                expect(tracer.projectName).toBe('Flow-Project')
+                expect((tracer.client as any).apiKey ?? '').toBe('')
             }
-            const callbacks = await additionalCallbacks({ inputs: {} } as any, options)
-            const tracer = callbacks.find((cb: any) => cb?.name === 'langchain_tracer')
-            expect(tracer).toBeDefined()
-            expect(tracer.projectName).toBe('Flow-Project')
-            expect((tracer.client as any).apiKey).toBe('lsv2_pt_server_env_test_value')
         } finally {
             for (const [name, value] of Object.entries(saved)) {
                 if (value === undefined) delete process.env[name]
                 else process.env[name] = value
             }
+        }
+    })
+
+    it('builds every LangSmith client with a string key, so the SDK never reads the env key', () => {
+        expect(langSmithClientConfig(undefined, undefined)).toEqual({ apiUrl: 'https://api.smith.langchain.com', apiKey: '' })
+        expect(langSmithClientConfig('k', 'https://eu.example.test')).toEqual({ apiUrl: 'https://eu.example.test', apiKey: 'k' })
+        const saved = process.env.LANGSMITH_API_KEY
+        process.env.LANGSMITH_API_KEY = 'lsv2_pt_server_env_test_value'
+        try {
+            expect((new Client(langSmithClientConfig(undefined, 'https://collector.example.test')) as any).apiKey ?? '').toBe('')
+        } finally {
+            if (saved === undefined) delete process.env.LANGSMITH_API_KEY
+            else process.env.LANGSMITH_API_KEY = saved
         }
     })
 })

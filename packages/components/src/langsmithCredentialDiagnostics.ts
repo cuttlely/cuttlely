@@ -16,15 +16,39 @@ export interface LangSmithCredentialShape {
 /** Headers of a failed response passed on to the SDK; everything else is dropped. */
 export const FORWARDED_ERROR_HEADERS = ['retry-after', 'content-type'] as const
 
-/** Origin and path only: user info, query and fragment can carry secrets and are left out. */
+/** Origin only: user info, path, query and fragment can carry secrets (a proxy token in the path) and are left out. */
 export const endpointForLog = (endpoint: string): string => {
     try {
         const url = new URL(endpoint)
-        return `${url.protocol}//${url.host}${url.pathname === '/' ? '' : url.pathname}`
+        return `${url.protocol}//${url.host}`
     } catch {
         return '(unparsed)'
     }
 }
+
+const KNOWN_OPERATIONS: Array<[RegExp, string]> = [
+    [/\/runs\/multipart$/, '/runs/multipart'],
+    [/\/runs\/batch$/, '/runs/batch'],
+    [/\/runs\/[0-9a-f-]{36}$/i, '/runs/:id'],
+    [/\/runs$/, '/runs'],
+    [/\/info$/, '/info']
+]
+
+/** A fixed name for the LangSmith operation a request path ends in, never the path itself. */
+export const operationForLog = (pathname: string): string => {
+    for (const [pattern, name] of KNOWN_OPERATIONS) if (pattern.test(pathname)) return name
+    return '(other)'
+}
+
+/**
+ * The key and endpoint a flow's LangSmith client is built with. The key is always a string: the SDK reads the
+ * server's environment key only when the key is undefined, and that key would then go to the endpoint of the
+ * flow's credential. A credential without a key gets an empty one, so its uploads fail (and are logged) instead.
+ */
+export const langSmithClientConfig = (apiKey: unknown, endpoint: unknown): { apiUrl: string; apiKey: string } => ({
+    apiUrl: typeof endpoint === 'string' && endpoint ? endpoint : 'https://api.smith.langchain.com',
+    apiKey: typeof apiKey === 'string' ? apiKey : ''
+})
 
 export const describeLangSmithCredential = (
     credentialId: string | undefined,
@@ -61,17 +85,17 @@ export const keepConfiguredLangSmithTarget = (
 
 /**
  * fetch wrapper for the LangSmith client that reports failed uploads with the flow id and the credential shape
- * (id, field names, key length, endpoint origin and path, project), for an error status
+ * (id, field names, key length, endpoint origin, project) and a fixed operation name, for an error status
  * and for a request that fails outright, which is rethrown as a plain error with only its name. The key, the
  * bodies and error messages are not logged or passed on.
  */
 export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: LangSmithCredentialShape }): typeof fetch => {
     return (async (input: any, init?: any) => {
-        let path = ''
+        let path = '(other)'
         try {
-            path = new URL(typeof input === 'string' ? input : input?.url ?? String(input)).pathname
+            path = operationForLog(new URL(typeof input === 'string' ? input : input?.url ?? String(input)).pathname)
         } catch {
-            path = ''
+            path = '(other)'
         }
         let response: Response
         try {

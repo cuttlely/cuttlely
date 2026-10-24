@@ -1666,8 +1666,10 @@ const maskUrlPassword = (value: string): string | null => {
     try {
         const url = new URL(value)
         if (!url.password) return null
-        url.password = 'CUTTLELY_MASKED'
-        return url.toString().replace('CUTTLELY_MASKED', URL_PASSWORD_MASK)
+        // Built from the parts, so a username that looks like the mask is left as it is.
+        const user = url.username ? `${url.username}:` : ':'
+        const rest = url.toString().slice(`${url.protocol}//`.length + url.username.length + 1 + url.password.length + 1)
+        return `${url.protocol}//${user}${URL_PASSWORD_MASK}@${rest}`
     } catch {
         // A connection string the URL parser refuses (MongoDB replica set): mask the password in its authority
         // the same way urlPassword reads it, so the stored password is not sent back.

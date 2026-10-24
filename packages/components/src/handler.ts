@@ -23,7 +23,12 @@ import { LunaryHandler } from '@langchain/community/callbacks/handlers/lunary'
 import { getCredentialData, getCredentialParam, getEnvironmentVariable } from './utils'
 import { applyEnvTracingProviders, tracingEnvEnabled } from './tracingEnv'
 import { otelRunCallback } from './otelRunSpans'
-import { describeLangSmithCredential, keepConfiguredLangSmithTarget, langSmithFailureLoggingFetch } from './langsmithCredentialDiagnostics'
+import {
+    describeLangSmithCredential,
+    keepConfiguredLangSmithTarget,
+    langSmithClientConfig,
+    langSmithFailureLoggingFetch
+} from './langsmithCredentialDiagnostics'
 import { EvaluationRunTracer } from '../evaluation/EvaluationRunTracer'
 import { ICommonObject, IDatabaseEntity, INodeData, IServerSideEventStreamer } from './Interface'
 
@@ -554,8 +559,7 @@ export const additionalCallbacks = async (nodeData: INodeData, options: ICommonO
                         langSmithProject
                     )
                     const client = new Client({
-                        apiUrl: langSmithEndpoint ?? 'https://api.smith.langchain.com',
-                        apiKey: langSmithApiKey,
+                        ...langSmithClientConfig(langSmithApiKey, langSmithEndpoint),
                         fetchImplementation: langSmithFailureLoggingFetch({
                             flowId: options?.chatflowid,
                             shape: langSmithShape
@@ -841,8 +845,7 @@ export class AnalyticHandler {
                 langSmithProject
             )
             const client = new LangsmithClient({
-                apiUrl: langSmithEndpoint ?? 'https://api.smith.langchain.com',
-                apiKey: langSmithApiKey,
+                ...langSmithClientConfig(langSmithApiKey, langSmithEndpoint),
                 fetchImplementation: langSmithFailureLoggingFetch({ flowId: this.options?.chatflowid, shape: langSmithShape })
             })
 
