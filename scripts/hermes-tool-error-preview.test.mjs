@@ -25,9 +25,9 @@ for node in tree.body:
 scope = {"json": json, "Any": Any, "Callable": Callable}
 exec(compile(ast.Module(body=keep, type_ignores=[]), "api_server_runs", "exec"), scope)
 preview = scope["_tool_completed_preview"]
-redact = lambda text, force=False: text.replace("sk-test-123", "***")
+redact = lambda text, force=False: text.replace("redact-me-word", "***")
 url = "https://commons.wikimedia.org/wiki/Special:FilePath/Example_logo.svg"
-error = json.dumps({"status": "error", "output": "x" * 900 + " api key sk-test-123 " + "y" * 900,
+error = json.dumps({"status": "error", "output": "x" * 900 + " note redact-me-word " + "y" * 900,
                     "error": "Traceback ...\nurllib.error.HTTPError: HTTP Error 403: Forbidden for " + url})
 ok = json.dumps({"status": "success", "output": "z" * 900 + " end"})
 print(json.dumps({"error": preview(error, redact, True), "ok": preview(ok, redact, False),
@@ -45,7 +45,7 @@ test('a failed tool preview keeps its head and its tail; a successful one is cut
     )
     assert.ok(out.error.includes(' ... '))
     assert.ok(out.error.length <= 1200, String(out.error.length))
-    assert.ok(!out.error.includes('sk-test-123'))
+    assert.ok(!out.error.includes('redact-me-word'))
     assert.equal(out.ok.length, 500)
     assert.ok(out.ok.endsWith('...'))
     assert.equal(out.default, out.ok)
