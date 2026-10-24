@@ -10,7 +10,11 @@ import { getHarness } from './store.mjs'
 export async function executeModule(binding, input, options = {}) {
     const prepared = await prepareModule(binding, input, options)
     if (options.toolName) prepared.toolName = options.toolName
-    const raw = await callPrepared(prepared, input)
+    // Preparing a node awaits; the caller may refuse the call at this point (a token revoked meanwhile).
+    if (options.beforeCall) await options.beforeCall()
+    // Checked again with nothing awaited before the tool starts: the await above yields, and a revocation may run there.
+    if (options.assertCall) options.assertCall()
+    const raw = await callPrepared(prepared, input, options.assertCall)
     return prepared.runs ? raw : normalizeResult(raw)
 }
 
@@ -89,9 +93,11 @@ async function initBinding(binding, ctx, cache, input) {
     return loaded.ready
 }
 
-export async function callPrepared(prepared, input) {
+// assertCall, when given, runs before each further attempt of a tool (a retry with another argument shape), with
+// nothing awaited in between, so a revocation during an attempt stops the retries.
+export async function callPrepared(prepared, input, assertCall) {
     if (prepared.runs) return prepared.instance.run(prepared.nodeData, textInput(input), prepared.flowOptions)
-    return readyRaw(prepared.ready, input, prepared.toolName)
+    return readyRaw(prepared.ready, input, prepared.toolName, assertCall)
 }
 
 export function preparedKind(prepared) {
@@ -200,7 +206,7 @@ function argumentFor(tool, text) {
     return { input: text }
 }
 
-async function invokeTool(tool, input) {
+async function invokeTool(tool, input, assertCall) {
     const text = textInput(input)
     const structured = input && typeof input === 'object' && !Array.isArray(input)
     const attempts = structured
@@ -211,7 +217,8 @@ async function invokeTool(tool, input) {
         ? [argumentFor(tool, text), text]
         : [text]
     let shapeError
-    for (const attempt of attempts) {
+    for (const [index, attempt] of attempts.entries()) {
+        if (index && assertCall) assertCall()
         try {
             return await tool.invoke(attempt)
         } catch (error) {
@@ -234,15 +241,15 @@ function toolsOf(ready) {
     return []
 }
 
-async function readyRaw(ready, input, toolName) {
+async function readyRaw(ready, input, toolName, assertCall) {
     if (ready == null) return ''
     if (Array.isArray(ready)) {
         const tools = toolsOf(ready)
         const tool = (toolName && tools.find((item) => item.name === toolName)) || tools[0]
         if (!tool) return ready
-        return readyRaw(tool, input)
+        return readyRaw(tool, input, '', assertCall)
     }
-    if (typeof ready.invoke === 'function') return invokeTool(ready, input)
+    if (typeof ready.invoke === 'function') return invokeTool(ready, input, assertCall)
     if (typeof ready.getRelevantDocuments === 'function') return ready.getRelevantDocuments(queryText(input))
     if (typeof ready.similaritySearch === 'function') return ready.similaritySearch(queryText(input), ready.k || 4)
     return ready
