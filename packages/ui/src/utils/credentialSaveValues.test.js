@@ -1,4 +1,4 @@
-import { credentialSaveValues, saveErrorMessage } from './credentialSaveValues'
+import { credentialSaveValues, isMaskedUrlValue, saveErrorMessage } from './credentialSaveValues'
 
 const REDACTED_CREDENTIAL_VALUE = 'test-blank-placeholder'
 jest.mock('@/store/constant', () => ({ REDACTED_CREDENTIAL_VALUE: 'test-blank-placeholder' }))
@@ -39,6 +39,42 @@ describe('credentialSaveValues', () => {
         const shown = { ...loaded }
         loaded.url = `redis://u:${M}@other:6379/0`
         expect(credentialSaveValues(loaded, shown).maskedEdits).toEqual(['url'])
+    })
+})
+
+describe('isMaskedUrlValue fails closed', () => {
+    it('treats a percent-encoded bullet in the password as masked, in any case', () => {
+        expect(isMaskedUrlValue('redis://u:%E2%80%A2%E2%80%A2@h:6379')).toBe(true)
+        expect(isMaskedUrlValue('redis://u:pw%e2%80%a2@h:6379')).toBe(true)
+    })
+
+    it('treats a password that does not decode as masked', () => {
+        expect(isMaskedUrlValue('redis://u:%ZZ@h:6379')).toBe(true)
+        expect(isMaskedUrlValue('redis://u:%E0%A4%A@h:6379')).toBe(true)
+        expect(isMaskedUrlValue('mongodb://u:%ZZ@db1:27017,db2:27017/app')).toBe(true)
+    })
+
+    it('reads the password of a connection string the URL parser refuses (MongoDB replica set)', () => {
+        const replicaSet = 'mongodb://user:new-pw@db1:27017,db2:27017/app?replicaSet=rs0'
+        expect(() => new URL(replicaSet)).toThrow()
+        expect(isMaskedUrlValue(replicaSet)).toBe(false)
+        expect(isMaskedUrlValue(`mongodb://u:${M}@db1:27017,db2:27017/app`)).toBe(true)
+        const r = credentialSaveValues({ url: replicaSet }, { url: `mongodb://u:${M}@db1:27017/app` })
+        expect(r.plainDataObj).toEqual({ url: replicaSet })
+        expect(r.maskedEdits).toEqual([])
+    })
+
+    it('leaves plain values and real URLs alone', () => {
+        expect(isMaskedUrlValue('lsv2_pt_new_test_value')).toBe(false)
+        expect(isMaskedUrlValue('not a url %ZZ')).toBe(false)
+        expect(isMaskedUrlValue('redis://u:pw%20x@h:6379')).toBe(false)
+        expect(isMaskedUrlValue(undefined)).toBe(false)
+    })
+
+    it('keeps a URL whose password does not decode out of what is sent and reports it', () => {
+        const r = credentialSaveValues({ url: 'redis://u:%ZZ@h:6379', key: 'new-value' }, { url: `redis://u:${M}@h:6379` })
+        expect(r.plainDataObj).toEqual({ key: 'new-value' })
+        expect(r.maskedEdits).toEqual(['url'])
     })
 })
 
