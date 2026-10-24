@@ -1726,6 +1726,11 @@
             "reason": "The character counter test renders the inherited Input field it covers."
         },
         {
+            "from": "packages/ui/src/ui-component/input/SensitiveInput.test.js",
+            "to": "packages/ui/src/ui-component/input/SensitiveInput.jsx",
+            "reason": "test of the inherited SensitiveInput component: the reveal prop stays removed"
+        },
+        {
             "from": "packages/ui/src/utils/credentialSaveValues.js",
             "to": "packages/ui/src/store/constant.js",
             "reason": "credential dialog save values helper reads the blank placeholder value"
