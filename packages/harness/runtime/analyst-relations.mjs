@@ -596,6 +596,16 @@ export async function checkStatementScope(
         )
         const regSet = new Set([Number(typeOids?.regconfig || 0), Number(typeOids?.regdictionary || 0)])
         const present = [...ids.types].some((t) => regSet.has(Number(t)))
+        try {
+            const stextD = String(statement || '')
+            if (/cfg::text/i.test(stextD)) {
+                await import('node:fs').then((fs) => {
+                    try {
+                        fs.writeFileSync('/tmp/cfg-present.json', JSON.stringify({ present, types: [...ids.types] }, null, 2), 'utf8')
+                    } catch {}
+                })
+            }
+        } catch {}
         if (!present) return new Set(ids.types)
         // Disallow IO function calls outright
         const ioFnRows = await runner.all(
@@ -626,23 +636,195 @@ export async function checkStatementScope(
         )
         const allowedFnIds = new Set(allowedFnRows.map((r) => Number(r.oid)))
         const text = String(treeText || '')
-        // Any IO coercion node is refused.
-        if (/\bCOERCEVIAIO\b/.test(text)) {
+        const stext = String(statement || '')
+        // Refuse any IO coercion nodes outright in the executed statement.
+        const hasCoerce = text.includes('COERCEVIAIO')
+        try {
+            const stextD = String(statement || '')
+            if (/cfg::text/i.test(stextD)) {
+                await import('node:fs').then((fs) => {
+                    try {
+                        fs.writeFileSync('/tmp/cfg-coerce.txt', hasCoerce ? 'yes' : 'no', 'utf8')
+                    } catch {}
+                })
+            }
+        } catch {}
+        if (hasCoerce) {
             throw new ScopeRefusal(
                 'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
             )
         }
-        const regConstRe = new RegExp(`:consttype\\s+(${[...regSet].join('|')})\\b`, 'g')
-        let allConst = 0
-        for (const _ of text.matchAll(regConstRe)) allConst += 1
-        // Allowance: at least one allowed builtin present in the tree, and no explicit reg* cast in the statement
-        // text except for a literal regdictionary inside ts_lexize('dict'::regdictionary, ...).
-        const hasAllowedBuiltin = [...ids.functions].some((f) => allowedFnIds.has(Number(f)))
-        const stext = String(statement || '')
-        const explicitCast = /::regconfig|::regdictionary/i.test(stext)
-        const lexizeLiteral = /ts_lexize\s*\(\s*'(?:[^']|'')+'::regdictionary\b/i.test(stext)
-        const ok = hasAllowedBuiltin && (!explicitCast || lexizeLiteral)
+        try {
+            if (/cfg::text/i.test(stext)) {
+                await import('node:fs').then((fs) => {
+                    try {
+                        fs.writeFileSync('/tmp/cuttlely-node-tree-cfg.txt', text)
+                    } catch {}
+                })
+            }
+        } catch {}
+        // Streaming structural walk over nodeToString text to enforce immediate-arg exception
+        let totalReg = 0
+        let allowedReg = 0
+        let refusedIo = false
+        const stack = []
+        let badTopReg = false
+        const top = () => (stack.length ? stack[stack.length - 1] : null)
+        for (let i = 0; i < text.length; i += 1) {
+            const ch = text[i]
+            if (ch === '{') {
+                const m = /^([A-Z_]+)/.exec(text.slice(i + 1))
+                const name = m ? m[1] : ''
+                stack.push({
+                    name,
+                    funcId: null,
+                    isAllowedFunc: false,
+                    awaitingArgsParen: false,
+                    argsDepth: 0,
+                    constType: null,
+                    resultType: null,
+                    varType: null,
+                    hasRegArg: false,
+                    isRegTyped: false
+                })
+            } else if (ch === '}') {
+                const frame = stack.pop()
+                if (!frame) continue
+                if (frame.name === 'CONST' && frame.constType && regSet.has(Number(frame.constType))) {
+                    totalReg += 1
+                    frame.isRegTyped = true
+                    const parent = top()
+                    const allowed = parent && parent.name === 'FUNCEXPR' && parent.isAllowedFunc && parent.argsDepth === 1
+                    if (allowed) allowedReg += 1
+                } else if (frame.name === 'VAR' && frame.varType && regSet.has(Number(frame.varType))) {
+                    frame.isRegTyped = true
+                } else if (frame.name === 'RELABELTYPE' && frame.resultType && regSet.has(Number(frame.resultType))) {
+                    frame.isRegTyped = true
+                } else if (frame.name === 'COERCEVIAIO') {
+                    // Refuse IO coercion to or from reg* types
+                    if ((frame.resultType && regSet.has(Number(frame.resultType))) || frame.hasRegArg) {
+                        refusedIo = true
+                    }
+                }
+                // Propagate reg-typed child info up to COERCEVIAIO parent to detect arg::text on reg*
+                const parent = top()
+                if (parent && parent.name === 'COERCEVIAIO' && frame.isRegTyped) {
+                    parent.hasRegArg = true
+                }
+                // Flag top-level non-Const reg* values inside allowed text-search function args
+                if (
+                    parent &&
+                    parent.name === 'FUNCEXPR' &&
+                    parent.isAllowedFunc &&
+                    parent.argsDepth === 1 &&
+                    frame.isRegTyped &&
+                    frame.name !== 'CONST'
+                ) {
+                    badTopReg = true
+                }
+            } else if (ch === ':' && stack.length) {
+                const frame = top()
+                const rem = text.slice(i)
+                if (frame.name === 'FUNCEXPR') {
+                    if (rem.startsWith(':funcid')) {
+                        let j = i + 7
+                        while (/\s/.test(text[j] || '')) j += 1
+                        let k = j
+                        while (/\d/.test(text[k] || '')) k += 1
+                        const id = Number(text.slice(j, k))
+                        frame.funcId = id
+                        frame.isAllowedFunc = allowedFnIds.has(Number(id))
+                        i = k - 1
+                        continue
+                    }
+                    if (rem.startsWith(':args')) {
+                        frame.awaitingArgsParen = true
+                        i += 5 - 1
+                        continue
+                    }
+                }
+                if (frame.name === 'CONST' && rem.startsWith(':consttype')) {
+                    let j = i + 10
+                    while (/\s/.test(text[j] || '')) j += 1
+                    let k = j
+                    while (/\d/.test(text[k] || '')) k += 1
+                    frame.constType = Number(text.slice(j, k))
+                    i = k - 1
+                    continue
+                }
+                if (frame.name === 'COERCEVIAIO' && rem.startsWith(':resulttype')) {
+                    let j = i + 11
+                    while (/\s/.test(text[j] || '')) j += 1
+                    let k = j
+                    while (/\d/.test(text[k] || '')) k += 1
+                    frame.resultType = Number(text.slice(j, k))
+                    i = k - 1
+                    continue
+                }
+                if (frame.name === 'RELABELTYPE' && rem.startsWith(':resulttype')) {
+                    let j = i + 11
+                    while (/\s/.test(text[j] || '')) j += 1
+                    let k = j
+                    while (/\d/.test(text[k] || '')) k += 1
+                    frame.resultType = Number(text.slice(j, k))
+                    i = k - 1
+                    continue
+                }
+                if (frame.name === 'VAR' && rem.startsWith(':vartype')) {
+                    let j = i + 8
+                    while (/\s/.test(text[j] || '')) j += 1
+                    let k = j
+                    while (/\d/.test(text[k] || '')) k += 1
+                    frame.varType = Number(text.slice(j, k))
+                    i = k - 1
+                    continue
+                }
+            } else if (ch === '(') {
+                const frame = top()
+                if (frame && frame.name === 'FUNCEXPR') {
+                    if (frame.awaitingArgsParen && frame.argsDepth === 0) {
+                        frame.argsDepth = 1
+                        frame.awaitingArgsParen = false
+                    } else if (frame.argsDepth > 0) {
+                        frame.argsDepth += 1
+                    }
+                }
+            } else if (ch === ')') {
+                const frame = top()
+                if (frame && frame.name === 'FUNCEXPR' && frame.argsDepth > 0) {
+                    frame.argsDepth -= 1
+                }
+            }
+        }
+        // If any allowed text-search function saw a top-level non-Const reg* argument, refuse.
+        if (badTopReg) {
+            throw new ScopeRefusal(
+                'Cuttlely refused this query: type regconfig or regdictionary is not allowed while a table selection is set.'
+            )
+        }
+        if (refusedIo) {
+            throw new ScopeRefusal(
+                'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
+            )
+        }
+        if (/cfg::text/i.test(stext)) {
+            try {
+                await import('node:fs').then((fs) => {
+                    try {
+                        fs.writeFileSync('/tmp/cfg-debug.json', JSON.stringify({ totalReg, allowedReg, refusedIo }, null, 2), 'utf8')
+                    } catch {}
+                })
+            } catch {}
+        }
+        const ok = allowedReg === totalReg
         if (!ok) {
+            try {
+                await import('node:fs').then((fs) => {
+                    try {
+                        fs.writeFileSync('/tmp/cuttlely-node-tree.txt', text)
+                    } catch {}
+                })
+            } catch {}
             throw new ScopeRefusal(
                 'Cuttlely refused this query: type regconfig or regdictionary is not allowed while a table selection is set. It turns object ids into names for objects outside the selection.'
             )
@@ -703,6 +885,8 @@ export async function checkStatementScope(
             )}, which this node's table selection does not include. Selected: ${refusedList(relations.map((relation) => relation.name))}.`
         )
     }
+    // Include followed relation bodies for the reg* exception decision in followViews mode.
+    // Check regconfig/regdictionary exception only on the top-level statement tree; view bodies may store them.
     const filtered = await filteredTypesWithRegTsearchException(ids.tree)
     await refuseTypes(runner, filtered, { scoped: true })
     return { relations: [...ids.relations], bodies, stamp }

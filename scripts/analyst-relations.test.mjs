@@ -708,8 +708,12 @@ describe('analyst relations: bakery database', () => {
         )
 
         if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
-            t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
-            return
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1') {
+                assert.fail('components build is missing or stale; build the components package before running PG-required tests')
+            } else {
+                t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
+                return
+            }
         }
         const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
         const node = new nodeClass()
@@ -2160,8 +2164,12 @@ describe('analyst relations: user functions inside views', () => {
         }
         await refusal(queryAnalystUrl(url, input, node), /add analytics\.touchy\(text\) to Allowed functions/)
         if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
-            t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
-            return
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1') {
+                assert.fail('components build is missing or stale; build the components package before running PG-required tests')
+            } else {
+                t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
+                return
+            }
         }
         const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
         const [query] = await new nodeClass().urlTools(url, {}, [], '')
@@ -2333,6 +2341,15 @@ describe('analyst relations: text search configuration types', () => {
         // A Const regconfig cast on its own is refused under a selection.
         await refusal(
             queryAnalystUrl(url, "SELECT 'english'::regconfig::text AS cfg LIMIT 1", scoped('s.tickets')),
+            /not allowed while a table selection is set/
+        )
+        // A regconfig Const nested under another expression inside args is refused.
+        await refusal(
+            queryAnalystUrl(
+                url,
+                "SELECT to_tsvector(coalesce('english'::regconfig, 'simple'::regconfig), notes) FROM s.tickets LIMIT 1",
+                scoped('s.tickets')
+            ),
             /not allowed while a table selection is set/
         )
         // Passing a non-Const regconfig (a cast variable) to to_tsvector is refused.
