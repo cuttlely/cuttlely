@@ -7,6 +7,7 @@ import {
     describeLangSmithCredential,
     keepConfiguredLangSmithTarget,
     langSmithClientConfig,
+    langSmithClientUsesOwnKey,
     langSmithFailureLoggingFetch,
     operationForLog
 } from './langsmithCredentialDiagnostics'
@@ -200,7 +201,16 @@ describe('LangSmith tracer inside runWithAbortSignal', () => {
         })
     })
 
-    const KEYLESS = [{}, { langSmithApiKey: '' }, { langSmithApiKey: '   ' }, { langSmithEndpoint: 'https://collector.example.test' }]
+    const KEYLESS = [
+        {},
+        { langSmithApiKey: '' },
+        { langSmithApiKey: '   ' },
+        { langSmithApiKey: '""' },
+        { langSmithApiKey: "''" },
+        { langSmithApiKey: ' "   " ' },
+        { langSmithApiKey: `"''"` },
+        { langSmithEndpoint: 'https://collector.example.test' }
+    ]
 
     const withServerKeys = async (run: () => Promise<void>) => {
         const saved = { LANGSMITH_API_KEY: process.env.LANGSMITH_API_KEY, LANGCHAIN_API_KEY: process.env.LANGCHAIN_API_KEY }
@@ -265,7 +275,21 @@ describe('LangSmith tracer inside runWithAbortSignal', () => {
         expect(langSmithClientConfig('', 'https://eu.example.test')).toBeUndefined()
         expect(langSmithClientConfig('  ', 'https://eu.example.test')).toBeUndefined()
         expect(langSmithClientConfig(42, 'https://eu.example.test')).toBeUndefined()
+        expect(langSmithClientConfig('""', undefined)).toBeUndefined()
+        expect(langSmithClientConfig("' '", undefined)).toBeUndefined()
+        expect(langSmithClientConfig(' "k" ', undefined)).toEqual({ apiUrl: 'https://api.smith.langchain.com', apiKey: 'k' })
         expect(langSmithClientConfig('k', undefined)).toEqual({ apiUrl: 'https://api.smith.langchain.com', apiKey: 'k' })
         expect(langSmithClientConfig('k', 'https://eu.example.test')).toEqual({ apiUrl: 'https://eu.example.test', apiKey: 'k' })
+    })
+
+    it('a built client is used only with its own key and no server profile auth', () => {
+        expect(langSmithClientUsesOwnKey({ apiKey: 'k' }, 'k')).toBe(true)
+        expect(langSmithClientUsesOwnKey({ apiKey: undefined }, 'k')).toBe(false)
+        expect(langSmithClientUsesOwnKey({ apiKey: 'k', profileAuth: {} }, 'k')).toBe(false)
+        expect(langSmithClientUsesOwnKey(undefined, 'k')).toBe(false)
+        for (const raw of ['k', ' "k" ', "'k'"]) {
+            const config = langSmithClientConfig(raw, 'https://collector.example.test')!
+            expect(langSmithClientUsesOwnKey(new Client(config), config.apiKey)).toBe(true)
+        }
     })
 })

@@ -40,18 +40,37 @@ export const operationForLog = (pathname: string): string => {
     return '(other)'
 }
 
+/** The key as the LangSmith SDK reads it: trimmed, then one pair of surrounding double and then single quotes removed. */
+export const normalizeLangSmithKey = (apiKey: string): string =>
+    apiKey
+        .trim()
+        .replace(/^"(.*)"$/, '$1')
+        .replace(/^'(.*)'$/, '$1')
+
 /**
- * The key and endpoint a flow's LangSmith client is built with, or undefined when the credential has no
- * nonblank key. The SDK fills a missing or empty key from the server's environment key or from a LangSmith
- * profile on the server (API key or OAuth), and that would then go to the endpoint of the flow's credential, so
- * a flow credential without a key gets no client at all and its tracing is turned off (and logged) instead.
+ * The key and endpoint a flow's LangSmith client is built with, or undefined when the credential has no key
+ * the SDK would keep. The SDK fills a missing key, or one that is blank once it trims spaces and quotes, from
+ * the server's environment key or from a LangSmith profile on the server (API key or OAuth), and that would then
+ * go to the endpoint of the flow's credential, so a flow credential without a usable key gets no client at all
+ * and its tracing is turned off (and logged) instead. The key handed over is the normalized one.
  */
 export const langSmithClientConfig = (apiKey: unknown, endpoint: unknown): { apiUrl: string; apiKey: string } | undefined => {
-    if (typeof apiKey !== 'string' || apiKey.trim() === '') return undefined
+    if (typeof apiKey !== 'string') return undefined
+    const key = normalizeLangSmithKey(apiKey)
+    if (key.trim() === '') return undefined
     return {
         apiUrl: typeof endpoint === 'string' && endpoint ? endpoint : 'https://api.smith.langchain.com',
-        apiKey
+        apiKey: key
     }
+}
+
+/**
+ * Second check on a built client: it must hold the flow credential's own key and no server profile
+ * authentication. A client that does not is not used, whatever a later SDK version does with the key.
+ */
+export const langSmithClientUsesOwnKey = (client: unknown, expectedKey: string): boolean => {
+    const c = client as { apiKey?: unknown; profileAuth?: unknown } | undefined
+    return !!c && c.apiKey === expectedKey && c.profileAuth === undefined
 }
 
 /** Logged when a flow's LangSmith tracing is off because its credential has no key. */
