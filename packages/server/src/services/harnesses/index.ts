@@ -346,15 +346,16 @@ export async function recompileBeforeHermes(gateway: {
     }
     // A gateway that does not start keeps the hold: profiles were not checked, so the runtime must not start on them.
     await gateway.startGateway()
+    const startedAt = Date.now()
     const pass = (async () => {
         try {
             await recompileOutdatedHarnessProfiles()
         } catch (error) {
             logger.error(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
         }
-        // Whatever failed above, no config.yaml from an older compiler or a half-written one may stay where the
-        // runtime loads it: they are set aside, and if one cannot be (or the profiles cannot be read), health stays
-        // at 503 so the runtime does not start on it. That is a failed pass, not a finished one.
+        // One folder that cannot be read, or one older config that cannot be moved, is named and skipped.
+        // The rest of the pass still finishes, so ping and the runtime are not held for that profile.
+        // Only a failure of the sweep itself (the profiles folder cannot be checked) is unfinished.
         let loadable: string[] = []
         try {
             const profile = await loadHarness('profile.mjs')
@@ -362,11 +363,9 @@ export async function recompileBeforeHermes(gateway: {
         } catch (error) {
             unfinished(`profiles could not be checked for an older compiler: ${getErrorMessage(error)}`)
         }
-        if (loadable.length) {
-            unfinished(
-                `config.yaml from an older compiler could not be set aside in ${loadable.join(
-                    ', '
-                )}. Fix those profile folders and restart.`
+        for (const dir of loadable) {
+            logger.error(
+                `[harness] skipped profile ${dir}: config.yaml from an older compiler could not be set aside. The other profiles still start.`
             )
         }
         release()
@@ -398,14 +397,19 @@ export async function recompileBeforeHermes(gateway: {
         )
         backgroundBootPass()
         void pass.catch((error) => {
+            // The cap already opened ping. Releasing the gateway hold lets the runtime start instead of staying down.
+            logger.error(`[harness] profile compile at start did not finish: ${getErrorMessage(error)}`)
             markBootIncomplete()
-            logger.error(`[harness] Hermes is not started: ${getErrorMessage(error)}`)
+            release()
         })
         return
     }
     if (winner instanceof Error) {
         markBootIncomplete()
-        logger.error(`[harness] Hermes is not started: ${winner.message}`)
+        logger.error(`[harness] profile compile at start did not finish: ${winner.message}`)
+        const left = Math.max(0, capMs - (Date.now() - startedAt))
+        const flip = setTimeout(() => release(), left)
+        flip.unref?.()
         throw winner
     }
 }

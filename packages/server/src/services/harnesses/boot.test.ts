@@ -1,6 +1,7 @@
 // Server start: profiles from an older compiler are compiled again, under each name lock and the profile lock,
 // while the gateway's /health is held. The start script launches Hermes only once /health answers, and Hermes
 // reads config.yaml from disk.
+import logger from '../../utils/logger'
 import harnessesService, {
     acquireNameLock,
     BootPassIncomplete,
@@ -206,25 +207,53 @@ describe('harness runtime start', () => {
         expect(order).toEqual([])
     })
 
-    test.each(['stuck', 'throw'])(
-        'a stale config that cannot be set aside (%s) keeps health held, so Hermes does not start',
-        async (mode) => {
-            sweep = mode
-            let released = false
-            let booted = false
-            await expect(
-                recompileBeforeHermes({
-                    holdGatewayHealth: () => () => (released = true),
-                    finishGatewayBoot: () => (booted = true),
-                    startGateway: async () => undefined
-                })
-            ).rejects.toBeInstanceOf(BootPassIncomplete)
-            expect(released).toBe(false)
-            expect(booted).toBe(false)
-            expect(bootPassPhase()).toBe('incomplete')
+    test('one profile that cannot be set aside is logged and skipped, and boot finishes', async () => {
+        sweep = 'stuck'
+        const errors: string[] = []
+        const spy = jest.spyOn(logger, 'error').mockImplementation((message) => {
+            errors.push(String(message))
+            return logger
+        })
+        let released = false
+        let booted = false
+        try {
+            await recompileBeforeHermes({
+                holdGatewayHealth: () => () => (released = true),
+                finishGatewayBoot: () => (booted = true),
+                startGateway: async () => undefined
+            })
+            expect(released).toBe(true)
+            expect(booted).toBe(true)
+            expect(bootPassPhase()).toBe('done')
+            expect(bootPassBlocksPing()).toBe(false)
+            expect(errors.some((line) => line.includes('skipped profile /p/ops'))).toBe(true)
             expect(order[order.length - 1]).toBe('set aside holds 0')
+        } finally {
+            spy.mockRestore()
         }
-    )
+    })
+
+    test('a failure of the sweep itself is unfinished, and ping opens at the cap', async () => {
+        sweep = 'throw'
+        process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '1'
+        let released = false
+        let booted = false
+        await expect(
+            recompileBeforeHermes({
+                holdGatewayHealth: () => () => (released = true),
+                finishGatewayBoot: () => (booted = true),
+                startGateway: async () => undefined
+            })
+        ).rejects.toBeInstanceOf(BootPassIncomplete)
+        expect(released).toBe(false)
+        expect(booted).toBe(false)
+        expect(bootPassPhase()).toBe('incomplete')
+        expect(bootPassBlocksPing()).toBe(true)
+        for (let i = 0; i < 40 && !released; i += 1) await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(released).toBe(true)
+        expect(booted).toBe(true)
+        expect(bootPassBlocksPing()).toBe(false)
+    })
 
     test('a compile that outlasts the cap continues in the background and stops blocking startup', async () => {
         process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '0'

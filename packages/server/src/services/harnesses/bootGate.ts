@@ -33,8 +33,12 @@ export function backgroundBootPass(): void {
     if (phase === 'running') phase = 'background'
 }
 
-/** The pass ended without a compile the runtime can load. Health stays down. */
+/**
+ * The pass itself failed. Ping stays 503 until the startup cap, which moves the phase on.
+ * A cap that already opened the service is left open.
+ */
 export function markBootIncomplete(): void {
+    if (phase === 'background' || phase === 'done') return
     phase = 'incomplete'
 }
 
@@ -47,8 +51,8 @@ export function resetBootPass(): void {
 }
 
 /**
- * Render's health check (/api/v1/ping) stays 503 while the compile is the startup gate, and when the pass
- * did not finish. Once the wait cap is hit the compile continues in the background and ping may answer 200.
+ * Render's health check (/api/v1/ping) stays 503 while the compile is the startup gate.
+ * One skipped profile does not leave it there. A pass that itself fails stays 503 only until the startup cap.
  */
 export function bootPassBlocksPing(): boolean {
     return phase === 'running' || phase === 'incomplete'
