@@ -716,9 +716,17 @@ describe('analyst relations: bakery database', () => {
                 tools.map((tool) => tool.name),
                 ['query', 'describe']
             )
-            const refused = JSON.parse(await tools[0].invoke({ sql: 'SELECT note FROM public.payroll_notes' }))
+            const refused = JSON.parse(await tools[0].invoke({ sql: 'SELECT note FROM public.payroll_notes LIMIT 5' }))
             assert.equal(refused.cuttlelyOutcome, 'expected')
             assert.match(refused.error, /reads public\.payroll_notes/)
+            // The node runs the read-only text check before it connects.
+            const writable = JSON.parse(
+                await tools[0].invoke({ sql: 'WITH d AS (DELETE FROM public.stores RETURNING *) SELECT * FROM d LIMIT 5' })
+            )
+            assert.equal(writable.cuttlelyOutcome, 'expected')
+            assert.match(writable.error, /DELETE inside WITH is a writable CTE/)
+            assert.match(JSON.parse(await tools[0].invoke({ sql: 'SELECT * FROM public.stores' })).error, /add a LIMIT/)
+            assert.match(tools[0].description, /with a LIMIT and no semicolon/)
             const described = JSON.parse(await tools[1].invoke({ name: 'payroll_notes' }))
             assert.equal(described.cuttlelyOutcome, 'expected')
             assert.equal(tools[0].description.includes(rule), false)
