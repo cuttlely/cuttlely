@@ -1815,6 +1815,8 @@ describe('analyst relations: user functions inside views', () => {
         await owner.query(`CREATE SCHEMA s`)
         await owner.query(`CREATE TABLE s.secret (note text)`)
         await owner.query(`INSERT INTO s.secret VALUES ('classified')`)
+        await owner.query(`GRANT USAGE ON SCHEMA s TO "${reader}"`)
+        await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA s TO "${reader}"`)
         await owner.query(`CREATE FUNCTION s.add_atomic(a int, b int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT a + b; END`)
         await owner.query(
             `CREATE FUNCTION s.read_secret() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT note FROM s.secret LIMIT 1; END`
@@ -2037,6 +2039,24 @@ describe('analyst relations: user functions inside views', () => {
         await refusal(
             queryAnalystUrl(url, 'SELECT s.other_regclass() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
             /reads .*s\.other|selection/
+        )
+    })
+
+    it('refuses calls that use unsafe default-argument expressions under a selection', async (t) => {
+        if (skipped(t)) return
+        await owner.query(
+            `CREATE FUNCTION s.fn_dflt_sleep(a int DEFAULT (pg_sleep(0), 1)) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT $1; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.fn_dflt_sleep() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /pg_sleep/
+        )
+        await owner.query(
+            `CREATE FUNCTION s.fn_dflt_reg(a oid DEFAULT 's.other'::regclass::oid) RETURNS oid LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT $1; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.fn_dflt_reg() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /selection|regclass/
         )
     })
 

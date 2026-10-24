@@ -560,7 +560,15 @@ function scopeUncheckable(error) {
 }
 
 // Runs inside a read-write transaction that the caller rolls back. The statement runs later, in its own read-only one.
-export async function checkStatementScope(client, runner, statement, relations, isRowQuery, cacheKey = '', { followViews = false } = {}) {
+export async function checkStatementScope(
+    client,
+    runner,
+    statement,
+    relations,
+    isRowQuery,
+    cacheKey = '',
+    { followViews = false, shared = null } = {}
+) {
     if (!relations.length) throw new ScopeRefusal(SCOPE_NONE_LEFT)
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
     // A literal of a composite, array or range type runs its element's input while Postgres parses, and a domain
@@ -590,7 +598,8 @@ export async function checkStatementScope(client, runner, statement, relations, 
             client,
             relations,
             isRowQuery,
-            cacheKey
+            cacheKey,
+            ...(shared ? { shared } : {})
         })
         await refuseTypes(runner, ids.types, { scoped: true })
         return undefined
@@ -603,7 +612,8 @@ export async function checkStatementScope(client, runner, statement, relations, 
         client,
         relations,
         isRowQuery,
-        cacheKey
+        cacheKey,
+        ...(shared ? { shared } : {})
     })
     await refuseTypes(runner, ids.types, { scoped: true })
     return { relations: [...ids.relations], bodies, stamp }
@@ -910,7 +920,7 @@ const refusedWhy = (rows, { scoped = false } = {}) => {
         if (row.language !== 'sql' && row.language !== 'plpgsql') reasons.add(`written in ${row.language}`)
         if (scoped) {
             if (row.language === 'plpgsql') reasons.add('written in plpgsql')
-            if (row.language === 'sql' && (!row.prosqlbody || String(row.prosqlbody).trim() === ''))
+            if (row.language === 'sql' && (!row.fndef || !/begin\s+atomic/i.test(String(row.fndef))))
                 reasons.add('SQL body is not BEGIN ATOMIC')
         }
         if (row.super_owner !== false) reasons.add('owned by a superuser')
@@ -956,14 +966,17 @@ async function refuseRoutines(
             [operatorIds]
         )
         const foreign = rows.filter((row) => !builtIn(row)).map((row) => `${row.schema}.${row.name}`)
-        if (foreign.length) throw new ScopeRefusal(`Cuttlely refused this query: operator ${refusedList(foreign)} ${NOT_BUILT_IN}`)
+        // Unscoped queries still refuse user operators outright; in scoped mode, walk their opcodes under the same rules.
+        if (foreign.length && unscoped)
+            throw new ScopeRefusal(`Cuttlely refused this query: operator ${refusedList(foreign)} ${NOT_BUILT_IN}`)
         for (const row of rows) if (Number(row.code) > 0) functionIds.add(Number(row.code))
     }
     if (!functionIds.size) return
     const rows = await runner.all(
         `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility, p.prosecdef AS definer,
                 p.proconfig AS config, l.lanname AS language, coalesce(r.rolsuper, true) AS super_owner,
-                pg_catalog.to_jsonb(p) ->> 'prosqlbody' AS prosqlbody,
+                pg_catalog.pg_get_functiondef(p.oid) AS fndef,
+                pg_catalog.pg_get_function_arguments(p.oid) AS fnargs,
                 pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(p.proname) || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature
          FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
          JOIN pg_catalog.pg_language l ON l.oid = p.prolang LEFT JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
@@ -993,12 +1006,12 @@ async function refuseRoutines(
         if (inner.endsWith(';')) inner = inner.slice(0, -1).trim()
         return inner
     }
-    async function bodyPassesScoped(sql) {
+    async function bodyPassesScoped(sql, shared) {
         if (!client) return false
         try {
             // Use the full scoped guard, including view following and node deny list/volatile checks.
             // It throws ScopeRefusal with a detailed message on failure.
-            await checkStatementScope(client, runner, sql, relations, isRowQuery, cacheKey, { followViews: true })
+            await checkStatementScope(client, runner, sql, relations, isRowQuery, cacheKey, { followViews: true, shared })
             return { ok: true }
         } catch (error) {
             if (error instanceof ScopeRefusal) {
@@ -1010,20 +1023,40 @@ async function refuseRoutines(
             throw error
         }
     }
-    async function strictlyAllowedScoped(functionOid, depth = 0) {
+    async function defaultsSafe(info, shared) {
+        const argsText = String(info.fnargs || '')
+        const defaults = []
+        for (const raw of argsText
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)) {
+            const m = /\bdefault\s+(.+)$/i.exec(raw)
+            if (m) defaults.push(m[1].trim())
+        }
+        for (const expr of defaults) {
+            const check = await bodyPassesScoped(`SELECT (${expr}) LIMIT 1`, shared)
+            if (!check.ok) {
+                info.refusal = info.refusal ? `${info.refusal}; default: ${check.reason}` : `default: ${check.reason}`
+                return false
+            }
+        }
+        return true
+    }
+    async function strictlyAllowedScoped(functionOid, depth = 0, shared = { memo, visiting, baseDepth: 0 }) {
         if (depth > 10) return false
-        if (memo.has(functionOid)) return memo.get(functionOid)
-        if (visiting.has(functionOid)) {
-            memo.set(functionOid, false)
+        if (shared.memo.has(functionOid)) return shared.memo.get(functionOid)
+        if (shared.visiting.has(functionOid)) {
+            shared.memo.set(functionOid, false)
             return false
         }
-        visiting.add(functionOid)
+        shared.visiting.add(functionOid)
         const info =
             rows.find((row) => Number(row.oid) === Number(functionOid)) ||
             (await runner.get(
                 `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility, p.prosecdef AS definer,
                         p.proconfig AS config, l.lanname AS language, coalesce(r.rolsuper, true) AS super_owner,
-                        pg_catalog.to_jsonb(p) ->> 'prosqlbody' AS prosqlbody
+                        pg_catalog.pg_get_functiondef(p.oid) AS fndef,
+                        pg_catalog.pg_get_function_arguments(p.oid) AS fnargs
                  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
                  JOIN pg_catalog.pg_language l ON l.oid = p.prolang LEFT JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
                  WHERE p.oid = ?::oid`,
@@ -1034,29 +1067,61 @@ async function refuseRoutines(
             // Allowed built-in only when not denied; volatile built-ins are screened by volatile flag at the call site.
             if (isDenied(info.name)) return false
             if (volatile && info.volatility === 'v' && !SAFE_VOLATILE.has(info.name)) return false
-            memo.set(functionOid, true)
-            visiting.delete(functionOid)
+            shared.memo.set(functionOid, true)
+            shared.visiting.delete(functionOid)
             return true
         }
-        if (!(info.language === 'sql' && typeof info.prosqlbody === 'string' && info.prosqlbody.trim().length > 0)) return false
-        if (!(info.volatility === 'i' || info.volatility === 's')) return false
-        if (info.definer) return false
-        if (info.config != null) return false
-        if (info.super_owner !== false) return false
-        // Deparse and check the SQL-standard body under the same scoped guard.
-        const inner = extractAtomicSql(info.prosqlbody)
-        if (!inner) {
-            memo.set(functionOid, false)
-            visiting.delete(functionOid)
+        if (!(info.language === 'sql')) {
+            info.refusal = info.refusal || 'written in non-SQL language'
+            shared.visiting.delete(functionOid)
+            shared.memo.set(functionOid, false)
             return false
         }
-        const outcome = await bodyPassesScoped(inner)
+        if (!(info.volatility === 'i' || info.volatility === 's')) {
+            info.refusal = info.refusal || 'not STABLE or IMMUTABLE'
+            shared.visiting.delete(functionOid)
+            shared.memo.set(functionOid, false)
+            return false
+        }
+        if (info.definer) {
+            info.refusal = info.refusal || 'SECURITY DEFINER'
+            shared.visiting.delete(functionOid)
+            shared.memo.set(functionOid, false)
+            return false
+        }
+        if (info.config != null) {
+            info.refusal = info.refusal || 'has its own settings'
+            shared.visiting.delete(functionOid)
+            shared.memo.set(functionOid, false)
+            return false
+        }
+        if (info.super_owner !== false) {
+            info.refusal = info.refusal || 'owned by a superuser'
+            shared.visiting.delete(functionOid)
+            shared.memo.set(functionOid, false)
+            return false
+        }
+        // Deparse and check the SQL-standard body under the same scoped guard.
+        const inner = extractAtomicSql(info.fndef)
+        if (!inner) {
+            info.refusal = info.refusal || 'SQL body is not BEGIN ATOMIC'
+            shared.memo.set(functionOid, false)
+            shared.visiting.delete(functionOid)
+            return false
+        }
+        const defaultsOk = await defaultsSafe(info, shared)
+        if (!defaultsOk) {
+            shared.memo.set(functionOid, false)
+            shared.visiting.delete(functionOid)
+            return false
+        }
+        const outcome = await bodyPassesScoped(inner, shared)
         if (!outcome.ok) {
             // Attach a per-row refusal detail to surface in refusedWhy.
             const row = rows.find((r) => Number(r.oid) === Number(functionOid))
             if (row) row.refusal = outcome.reason || ''
-            memo.set(functionOid, false)
-            visiting.delete(functionOid)
+            shared.memo.set(functionOid, false)
+            shared.visiting.delete(functionOid)
             return false
         }
         // Recursively trust callees resolved from the body. The nested guard above already refused on a bad callee,
@@ -1066,19 +1131,23 @@ async function refuseRoutines(
             [functionOid]
         )
         for (const callee of called) {
-            const ok = await strictlyAllowedScoped(Number(callee.oid), depth + 1)
+            const ok = await strictlyAllowedScoped(Number(callee.oid), depth + 1, shared)
             if (!ok) {
-                memo.set(functionOid, false)
-                visiting.delete(functionOid)
+                shared.memo.set(functionOid, false)
+                shared.visiting.delete(functionOid)
                 return false
             }
         }
-        memo.set(functionOid, true)
-        visiting.delete(functionOid)
+        shared.memo.set(functionOid, true)
+        shared.visiting.delete(functionOid)
         return true
     }
     const trusted = async (row) =>
-        builtIn(row) || allowed.has(Number(row.oid)) || (unscoped ? autoAllowed(row) : await strictlyAllowedScoped(Number(row.oid)))
+        builtIn(row) ||
+        (unscoped
+            ? autoAllowed(row) || allowed.has(Number(row.oid))
+            : (allowed.has(Number(row.oid)) ? await defaultsSafe(row, { memo, visiting, baseDepth: 0 }) : true) &&
+              (await strictlyAllowedScoped(Number(row.oid), 0, { memo, visiting, baseDepth: 0 })))
     const foreignRows = []
     for (const row of rows) {
         // eslint-disable-next-line no-await-in-loop
