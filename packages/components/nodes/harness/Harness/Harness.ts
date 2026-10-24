@@ -395,9 +395,10 @@ function trailingNumber(id: string): number | undefined {
  * One tool name per card. A title the person set is used when it is unique, then the saved harness
  * name. A base only one card wants is kept as it is. When several cards still want the same base, the
  * lowest id (numeric parts compared as numbers) keeps it, and each other card takes `_` plus its own
- * id number. Removing a different card does not move that suffix. A suffix is dropped only when the
- * card is the only one left that wanted the base, and the unsuffixed name moves only when the card
- * that held it is gone.
+ * id number. That id suffix wins over another card's title that spells the same text: the titled card
+ * takes the next free name. Removing a different card does not move that suffix. A suffix is dropped
+ * only when the card is the only one left that wanted the base, and the unsuffixed name moves only
+ * when the card that held it is gone.
  */
 function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const items = (Array.isArray(cards) ? cards : []).map((card, index) => ({
@@ -410,34 +411,54 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const bases = items.map((item) => ({ ...item, base: baseToolName(item.card, alone) }))
     const counts = new Map<string, number>()
     for (const item of bases) counts.set(item.base, (counts.get(item.base) || 0) + 1)
+
+    // Own-id suffixes are claimed before titles, so a title spelled team_2 cannot take harness_2's name.
+    const winnerOf = new Map<string, string>()
+    const reservedBy = new Map<string, string>()
+    for (const item of bases) {
+        if ((counts.get(item.base) || 0) <= 1) continue
+        if (!winnerOf.has(item.base)) {
+            winnerOf.set(item.base, item.id)
+            continue
+        }
+        const owned = trailingNumber(item.id)
+        const suffixName = withNumericSuffix(item.base, owned !== undefined && owned > 0 ? owned : 2)
+        if (!reservedBy.has(suffixName)) reservedBy.set(suffixName, item.id)
+    }
+
     const used = new Set<string>()
     const names = new Map<string, string>()
-    const winnerSeen = new Set<string>()
     for (const item of bases) {
         const count = counts.get(item.base) || 0
-        if (count === 1 && !used.has(item.base)) {
-            names.set(item.id, item.base)
-            used.add(item.base)
-            continue
-        }
-        if (count > 1 && !winnerSeen.has(item.base) && !used.has(item.base)) {
-            winnerSeen.add(item.base)
-            names.set(item.id, item.base)
-            used.add(item.base)
-            continue
-        }
-        winnerSeen.add(item.base)
         const owned = trailingNumber(item.id)
-        let bump = owned !== undefined && owned > 0 ? owned : 2
-        let candidate = withNumericSuffix(item.base, bump)
-        while (used.has(candidate)) {
-            bump += 1
-            candidate = withNumericSuffix(item.base, bump)
-        }
+        const preferred =
+            count > 1 && winnerOf.get(item.base) !== item.id
+                ? withNumericSuffix(item.base, owned !== undefined && owned > 0 ? owned : 2)
+                : item.base
+        const candidate = nextFreeName(preferred, item.id, used, reservedBy)
         names.set(item.id, candidate)
         used.add(candidate)
     }
     return names
+}
+
+// A name reserved for another card's id is not available. The caller takes the next free number.
+function nextFreeName(preferred: string, selfId: string, used: Set<string>, reservedBy: Map<string, string>): string {
+    const heldBy = reservedBy.get(preferred)
+    if (heldBy === selfId || (!heldBy && !used.has(preferred))) return preferred
+    const tail = trailingNumber(preferred)
+    let stem = preferred
+    let n = 2
+    if (tail !== undefined && preferred.endsWith(`_${tail}`)) {
+        stem = preferred.slice(0, -(String(tail).length + 1)) || preferred
+        n = tail + 1
+    }
+    let candidate = withNumericSuffix(stem, n)
+    while (used.has(candidate) || (reservedBy.has(candidate) && reservedBy.get(candidate) !== selfId)) {
+        n += 1
+        candidate = withNumericSuffix(stem, n)
+    }
+    return candidate
 }
 
 const TOOL_REF = /^\{\{([^}]+)\.data\.instance\}\}$/

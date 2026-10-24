@@ -915,6 +915,21 @@ describe('stable harness tool names', () => {
         expect(after.get('harness_2')).toBe(before.get('harness_2'))
     })
 
+    it('keeps an id suffix when another card is titled with that same name', () => {
+        const cards = [
+            { id: 'harness_0', label: 'team_2', name: 'a' },
+            { id: 'harness_1', label: 'Team', name: 'b' },
+            { id: 'harness_2', label: 'Team', name: 'c' }
+        ]
+        const before = assignHarnessToolNames(cards)
+        expect(before.get('harness_1')).toBe('team')
+        expect(before.get('harness_2')).toBe('team_2')
+        expect(before.get('harness_0')).toBe('team_3')
+        const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'harness_0'))
+        expect(after.get('harness_2')).toBe('team_2')
+        expect(after.get('harness_1')).toBe('team')
+    })
+
     it('gives a replacement card that reuses a freed id the name that id had', () => {
         const cards = [team('harness_0'), team('harness_1'), team('harness_2')]
         const before = assignHarnessToolNames(cards)
