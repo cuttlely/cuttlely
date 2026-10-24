@@ -1924,6 +1924,7 @@ export const KEPT_OUT: KeptOutGroup[] = [
             'CUTTLELY_PRELOAD_HERMES',
             'CUTTLELY_HERMES_RESTART_DELAY',
             'CUTTLELY_GATEWAY_WAIT_SECONDS',
+            'CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS',
             'CUTTLELY_SUPERVISED',
             'CUTTLELY_START_INNER',
             'CUTTLELY_SETTINGS_*',

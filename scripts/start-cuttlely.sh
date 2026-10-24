@@ -211,6 +211,8 @@ gateway_answers() {
         const port = process.env.CUTTLELY_HARNESS_GATEWAY_PORT || "43118"
         const req = http.get({ host: "127.0.0.1", port, path: "/health", timeout: 400 }, (res) => {
             res.resume()
+            // 503: the server is up and still compiling profiles from an older version, which Hermes must not load yet.
+            if (res.statusCode === 503) process.exit(2)
             process.exit(res.statusCode >= 200 && res.statusCode < 500 ? 0 : 1)
         })
         req.on("timeout", () => { req.destroy(); process.exit(1) })
@@ -219,17 +221,28 @@ gateway_answers() {
 }
 wait_for_gateway() {
     local limit="${CUTTLELY_GATEWAY_WAIT_SECONDS:-180}"
+    # Once the gateway has said it is compiling profiles (503), the wait is this much longer: a slow compile of a
+    # large install must not leave Hermes down until the next restart.
+    local starting_limit="${CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS:-1800}"
+    local starting=0
     local i=0
     local port="${CUTTLELY_HARNESS_GATEWAY_PORT:-43118}"
+    local answer
     echo "Waiting for the harness gateway on 127.0.0.1:${port}."
-    while [[ "$i" -lt "$limit" ]]; do
+    while [[ "$i" -lt "$limit" || ( "$starting" -eq 1 && "$i" -lt "$starting_limit" ) ]]; do
         if [[ -n "${CUTTLELY_PID:-}" ]] && ! kill -0 "$CUTTLELY_PID" 2>/dev/null; then
             echo "Cuttlely exited before the harness gateway answered." >&2
             return 1
         fi
-        if gateway_answers; then
+        answer=0
+        gateway_answers || answer=$?
+        if [[ "$answer" -eq 0 ]]; then
             echo "Harness gateway is answering on 127.0.0.1:${port}."
             return 0
+        fi
+        if [[ "$answer" -eq 2 && "$starting" -eq 0 ]]; then
+            starting=1
+            echo "Harness gateway is up and compiling agent profiles; Hermes starts when that is done."
         fi
         i=$((i + 1))
         sleep 1

@@ -309,10 +309,10 @@ async function contextFor(record: { chatflowId?: string; workspaceId?: string | 
 
 let runtimeConfigured: Promise<void> | undefined
 
-// The start script stops waiting for the gateway after CUTTLELY_GATEWAY_WAIT_SECONDS (180 by default) and then never
-// starts Hermes, so /health is held for at most CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS (60 by default). Profiles still
-// compiling after that finish while Hermes starts; the next boot finds anything left. The listener starts first, with
-// health held, so a released hold always has a gateway behind it.
+// /health answers 503 until every outdated profile is compiled, so Hermes never loads a profile mid-write or from an
+// older compiler. The start script reads that 503 as "up and compiling" and waits up to
+// CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS (1800 by default) instead of its 180-second limit for a gateway that is not
+// up yet. The listener starts first, with health held, so the script sees the 503 from the start of the pass.
 export async function recompileBeforeHermes(gateway: {
     holdGatewayHealth: () => () => void
     startGateway: () => Promise<unknown>
@@ -324,18 +324,11 @@ export async function recompileBeforeHermes(gateway: {
         release()
         throw error
     }
-    const seconds = Number(process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS)
-    const holdMs = (Number.isFinite(seconds) && seconds >= 0 ? seconds : 60) * 1000
-    const cap = setTimeout(() => {
-        logger.warn(`[harness] profile recompile still running after ${holdMs / 1000}s; the gateway answers health now`)
-        release()
-    }, holdMs)
     try {
         await recompileOutdatedHarnessProfiles()
     } catch (error) {
         logger.warn(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
     } finally {
-        clearTimeout(cap)
         release()
     }
 }
@@ -354,9 +347,9 @@ export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: 
     }
     const results: Array<{ name: string; status: string; error?: string }> = []
     for (const name of names) {
-        // Compiling is synchronous file work: a turn of the event loop between records lets the health cap and
-        // the /health answer run.
-        await new Promise((resolve) => setImmediate(resolve))
+        // Compiling is synchronous file work: a turn of the event loop between records lets /health answer its 503.
+        // A timer, not setImmediate: the loop then passes the poll phase, where a waiting HTTP request is read.
+        await new Promise((resolve) => setTimeout(resolve, 0))
         const done = await withNameLock(name, () =>
             withProfileLock(async () => {
                 let record

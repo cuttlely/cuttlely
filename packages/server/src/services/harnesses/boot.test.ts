@@ -126,59 +126,44 @@ describe('harness runtime start', () => {
         ])
     })
 
-    test('health is held for at most the configured time, then the pass finishes', async () => {
-        process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS = '0.02'
+    test('health stays held until the last record is compiled, and answers between records', async () => {
+        busyMs = 40
         let release: () => void = () => undefined
         const held = withProfileLock(() => new Promise<void>((resolve) => (release = resolve)))
         const gateway = {
             holdGatewayHealth: () => {
                 holds += 1
                 order.push('hold health')
-                let done = false
                 return () => {
-                    if (done) return
-                    done = true
                     holds -= 1
                     order.push('release health')
                 }
             },
             startGateway: async () => order.push('gateway')
         }
-        try {
-            const pass = recompileBeforeHermes(gateway)
-            await new Promise((resolve) => setTimeout(resolve, 60))
-            expect(order).toEqual(['hold health', 'gateway', 'release health'])
-            release()
-            await held
-            await pass
-            expect(order).toEqual(['hold health', 'gateway', 'release health', 'recompile navi v1 holds 0', 'recompile ops v1 holds 0'])
-        } finally {
-            delete process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS
-        }
-    })
-
-    test('the health cap fires between records even when each compile blocks', async () => {
-        process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS = '0.01'
-        busyMs = 40
-        try {
-            await recompileBeforeHermes({
-                holdGatewayHealth: () => {
-                    holds += 1
-                    order.push('hold health')
-                    let done = false
-                    return () => {
-                        if (done) return
-                        done = true
-                        holds -= 1
-                        order.push('release health')
-                    }
-                },
-                startGateway: async () => order.push('gateway')
-            })
-            expect(order).toEqual(['hold health', 'gateway', 'recompile navi v1 holds 1', 'release health', 'recompile ops v1 holds 0'])
-        } finally {
-            delete process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS
-        }
+        const pass = recompileBeforeHermes(gateway)
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        // Waiting on a lock does not release health.
+        expect(order).toEqual(['hold health', 'gateway'])
+        release()
+        await held
+        // A health request that arrives while the first record compiles is answered before the second one starts.
+        const probe = new Promise<void>((resolve) =>
+            setTimeout(() => {
+                order.push(`health probe holds ${holds}`)
+                resolve()
+            }, 1)
+        )
+        await pass
+        await probe
+        expect(order).toEqual([
+            'hold health',
+            'gateway',
+            'recompile navi v1 holds 1',
+            'health probe holds 1',
+            'recompile ops v1 holds 1',
+            'release health'
+        ])
     })
 
     test('a gateway that does not start releases the hold and fails the start', async () => {
