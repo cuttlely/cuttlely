@@ -586,13 +586,25 @@ export async function checkStatementScope(client, runner, statement, relations, 
         )
     }
     if (!followViews) {
-        await refuseRoutines(runner, ids.functions, ids.operators)
+        await refuseRoutines(runner, ids.functions, ids.operators, {
+            client,
+            relations,
+            isRowQuery,
+            cacheKey
+        })
         await refuseTypes(runner, ids.types, { scoped: true })
         return undefined
     }
     // The PostgreSQL MCP node also checks inside ticked views, with its own denylist added.
     const bodies = await followRelations(runner, ids)
-    await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, volatile: true })
+    await refuseRoutines(runner, ids.functions, ids.operators, {
+        denied: nodeDenied,
+        volatile: true,
+        client,
+        relations,
+        isRowQuery,
+        cacheKey
+    })
     await refuseTypes(runner, ids.types, { scoped: true })
     return { relations: [...ids.relations], bodies, stamp }
 }
@@ -902,6 +914,7 @@ const refusedWhy = (rows, { scoped = false } = {}) => {
                 reasons.add('SQL body is not BEGIN ATOMIC')
         }
         if (row.super_owner !== false) reasons.add('owned by a superuser')
+        if (row.refusal) reasons.add(String(row.refusal))
     }
     return scoped
         ? `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written as a SQL-standard BEGIN ATOMIC body, and not owned by a superuser; found: ${[
@@ -924,7 +937,16 @@ async function refuseRoutines(
     runner,
     functionSet,
     operatorSet,
-    { denied: isDenied = deniedFunction, unscoped = false, volatile = false } = {}
+    {
+        denied: isDenied = deniedFunction,
+        unscoped = false,
+        volatile = false,
+        // Optional scoped context for nested BEGIN ATOMIC function-body checks
+        client = null,
+        relations = [],
+        isRowQuery = () => false,
+        cacheKey = ''
+    } = {}
 ) {
     const functionIds = new Set(functionSet)
     const operatorIds = [...operatorSet]
@@ -956,11 +978,46 @@ async function refuseRoutines(
     // else needs an entry in the node's Allowed functions. Either way its body is trusted, not read.
     const allowed = runner.allowedFunctions?.length ? await resolveAllowedFunctions(runner) : new Set()
     // Strict scoped auto-allow: SQL-standard BEGIN ATOMIC body (prosqlbody present), STABLE/IMMUTABLE, not SECURITY DEFINER,
-    // no proconfig, not superuser-owned, no relation references, and every called function is an allowed built-in or itself passes.
-    async function strictlyAllowedScoped(functionOid, seen = new Set(), depth = 0) {
+    // no proconfig, not superuser-owned, and its BEGIN ATOMIC body passes the same scoped guard as a top-level query:
+    // deny list, reg* casts and relation selection, operators and their underlying functions. Callees must pass too.
+    // Cycles are refused; diamond-shaped graphs are allowed (memoised across callers).
+    const memo = new Map()
+    const visiting = new Set()
+    function extractAtomicSql(text) {
+        const body = String(text || '')
+        // Capture content between BEGIN ATOMIC and END (case-insensitive, dotall)
+        const match = /begin\s+atomic\s+([\s\S]*?)\s*end\s*;?\s*$/i.exec(body)
+        if (!match) return ''
+        let inner = match[1].trim()
+        // Strip a single trailing semicolon if present
+        if (inner.endsWith(';')) inner = inner.slice(0, -1).trim()
+        return inner
+    }
+    async function bodyPassesScoped(sql) {
+        if (!client) return false
+        try {
+            // Use the full scoped guard, including view following and node deny list/volatile checks.
+            // It throws ScopeRefusal with a detailed message on failure.
+            await checkStatementScope(client, runner, sql, relations, isRowQuery, cacheKey, { followViews: true })
+            return { ok: true }
+        } catch (error) {
+            if (error instanceof ScopeRefusal) {
+                const message = String(error.message || '')
+                // Trim the common prefix to make refusedWhy shorter.
+                const prefix = 'Cuttlely refused this query: '
+                return { ok: false, reason: message.startsWith(prefix) ? message.slice(prefix.length) : message }
+            }
+            throw error
+        }
+    }
+    async function strictlyAllowedScoped(functionOid, depth = 0) {
         if (depth > 10) return false
-        if (seen.has(functionOid)) return false
-        seen.add(functionOid)
+        if (memo.has(functionOid)) return memo.get(functionOid)
+        if (visiting.has(functionOid)) {
+            memo.set(functionOid, false)
+            return false
+        }
+        visiting.add(functionOid)
         const info =
             rows.find((row) => Number(row.oid) === Number(functionOid)) ||
             (await runner.get(
@@ -977,6 +1034,8 @@ async function refuseRoutines(
             // Allowed built-in only when not denied; volatile built-ins are screened by volatile flag at the call site.
             if (isDenied(info.name)) return false
             if (volatile && info.volatility === 'v' && !SAFE_VOLATILE.has(info.name)) return false
+            memo.set(functionOid, true)
+            visiting.delete(functionOid)
             return true
         }
         if (!(info.language === 'sql' && typeof info.prosqlbody === 'string' && info.prosqlbody.trim().length > 0)) return false
@@ -984,25 +1043,38 @@ async function refuseRoutines(
         if (info.definer) return false
         if (info.config != null) return false
         if (info.super_owner !== false) return false
-        // No relation dependencies
-        const hasRelRef = Boolean(
-            (
-                await runner.get(
-                    "SELECT 1 AS one FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = ?::oid AND d.refclassid = 'pg_class'::regclass LIMIT 1",
-                    [functionOid]
-                )
-            )?.one
-        )
-        if (hasRelRef) return false
-        // Recursively check called functions
+        // Deparse and check the SQL-standard body under the same scoped guard.
+        const inner = extractAtomicSql(info.prosqlbody)
+        if (!inner) {
+            memo.set(functionOid, false)
+            visiting.delete(functionOid)
+            return false
+        }
+        const outcome = await bodyPassesScoped(inner)
+        if (!outcome.ok) {
+            // Attach a per-row refusal detail to surface in refusedWhy.
+            const row = rows.find((r) => Number(r.oid) === Number(functionOid))
+            if (row) row.refusal = outcome.reason || ''
+            memo.set(functionOid, false)
+            visiting.delete(functionOid)
+            return false
+        }
+        // Recursively trust callees resolved from the body. The nested guard above already refused on a bad callee,
+        // but we still memoise explicit callees discovered by pg_depend for completeness.
         const called = await runner.all(
             "SELECT p2.oid::int8 AS oid, n2.nspname AS schema, p2.proname AS name, p2.provolatile AS volatility FROM pg_depend d JOIN pg_proc p2 ON p2.oid = d.refobjid JOIN pg_namespace n2 ON n2.oid = p2.pronamespace WHERE d.classid = 'pg_proc'::regclass AND d.objid = ?::oid AND d.refclassid = 'pg_proc'::regclass",
             [functionOid]
         )
         for (const callee of called) {
-            const ok = await strictlyAllowedScoped(Number(callee.oid), seen, depth + 1)
-            if (!ok) return false
+            const ok = await strictlyAllowedScoped(Number(callee.oid), depth + 1)
+            if (!ok) {
+                memo.set(functionOid, false)
+                visiting.delete(functionOid)
+                return false
+            }
         }
+        memo.set(functionOid, true)
+        visiting.delete(functionOid)
         return true
     }
     const trusted = async (row) =>

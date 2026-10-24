@@ -1815,11 +1815,9 @@ describe('analyst relations: user functions inside views', () => {
         await owner.query(`CREATE SCHEMA s`)
         await owner.query(`CREATE TABLE s.secret (note text)`)
         await owner.query(`INSERT INTO s.secret VALUES ('classified')`)
+        await owner.query(`CREATE FUNCTION s.add_atomic(a int, b int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT a + b; END`)
         await owner.query(
-            `CREATE FUNCTION s.add_atomic(a int, b int) RETURNS int LANGUAGE sql IMMUTABLE AS $$ BEGIN ATOMIC SELECT a + b; END $$`
-        )
-        await owner.query(
-            `CREATE FUNCTION s.read_secret() RETURNS text LANGUAGE sql STABLE AS $$ BEGIN ATOMIC SELECT note FROM s.secret LIMIT 1; END $$`
+            `CREATE FUNCTION s.read_secret() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT note FROM s.secret LIMIT 1; END`
         )
         await owner.query(`CREATE VIEW s.leak_view AS SELECT s.read_secret() AS v`)
         await owner.query(
@@ -1829,11 +1827,9 @@ describe('analyst relations: user functions inside views', () => {
             `CREATE FUNCTION s.upper_plpgsql(text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN RETURN upper($1); END $$`
         )
         await owner.query(
-            `CREATE FUNCTION s.safe_outer(v int) RETURNS int LANGUAGE sql IMMUTABLE AS $$ BEGIN ATOMIC SELECT s.add_atomic($1, 1); END $$`
+            `CREATE FUNCTION s.safe_outer(v int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.add_atomic($1, 1); END`
         )
-        await owner.query(
-            `CREATE FUNCTION s.unsafe_outer() RETURNS text LANGUAGE sql STABLE AS $$ BEGIN ATOMIC SELECT s.read_secret(); END $$`
-        )
+        await owner.query(`CREATE FUNCTION s.unsafe_outer() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_secret(); END`)
         url = urlFor(reader, password, dbName)
     })
 
@@ -2024,6 +2020,50 @@ describe('analyst relations: user functions inside views', () => {
         )
     })
 
+    it('refuses a BEGIN ATOMIC body that calls a denied built-in (pg_sleep) under a selection', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE FUNCTION s.pg_sleep_atomic() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT 1 FROM pg_sleep(0); END`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.pg_sleep_atomic() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /pg_sleep is not allowed|pg_sleep/
+        )
+    })
+
+    it('refuses a BEGIN ATOMIC body that casts to regclass for an unticked relation', async (t) => {
+        if (skipped(t)) return
+        await owner.query(
+            `CREATE FUNCTION s.other_regclass() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT 's.other'::regclass::text; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.other_regclass() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /reads .*s\.other|selection/
+        )
+    })
+
+    it('refuses through an operator whose underlying function reads a table; diamond callees are not cycles', async (t) => {
+        if (skipped(t)) return
+        await owner.query(
+            `CREATE FUNCTION s.text_eq(a text, b text) RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT EXISTS(SELECT 1 FROM s.secret WHERE note IS NOT NULL); END`
+        )
+        await owner.query(`CREATE OPERATOR s.=== (LEFTARG = text, RIGHTARG = text, PROCEDURE = s.text_eq)`)
+        await owner.query(
+            `CREATE FUNCTION s.op_wrap() RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT 'x' OPERATOR(s.===) 'y'; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.op_wrap() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /calls .*s\.text_eq|reads s\.secret|Allowed functions/
+        )
+        // Diamond: top -> left -> leaf and top -> right -> leaf should pass without being treated as a cycle.
+        await owner.query(`CREATE FUNCTION s.leaf() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 1; END`)
+        await owner.query(`CREATE FUNCTION s.left() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
+        await owner.query(`CREATE FUNCTION s.right() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
+        await owner.query(`CREATE FUNCTION s.top() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.left() + s.right(); END`)
+        const okTop = await queryAnalystUrl(url, 'SELECT s.top() AS v LIMIT 1', {
+            ...node,
+            relations: ['analytics.clean_orders']
+        })
+        assert.equal(okTop.rows[0].v, 2)
+    })
     it('ignores an allow-list sent in the tool input', async (t) => {
         if (skipped(t)) return
         const input = {
@@ -2178,7 +2218,7 @@ describe('analyst relations: text search configuration types', () => {
         // accepted exception. A numeric id can name a text search configuration, but not a relation, type or role.
         const byId = await queryAnalystUrl(
             url,
-            "SELECT (SELECT oid FROM pg_ts_config WHERE cfgname='english')::regconfig::text AS cfg LIMIT 1",
+            "SELECT (('english'::regconfig)::oid)::regconfig::text AS cfg LIMIT 1",
             scoped('s.mv_english')
         )
         assert.equal(byId.rows[0].cfg, 'english')
@@ -2314,14 +2354,22 @@ describe('analyst relations: text search configuration types', () => {
         if (skipped(t)) return
         for (const name of ['analytics.mv_safe_renewals', 'analytics.safe_renewals']) {
             const sql = `SELECT account_id, acv FROM ${name} ORDER BY account_id LIMIT 5`
-            for (const options of [scoped(name), unscoped]) {
-                const rows = (await queryAnalystUrl(url, sql, options)).rows
-                assert.deepEqual(
-                    rows.map((row) => Number(row.acv)),
-                    [500, 800],
-                    name
-                )
-            }
+            // Unscoped: allowed.
+            const rowsUnscoped = (await queryAnalystUrl(url, sql, unscoped)).rows
+            assert.deepEqual(
+                rowsUnscoped.map((row) => Number(row.acv)),
+                [500, 800],
+                `${name} unscoped`
+            )
+            // Scoped: refused without allow-list, then allowed with text entries for helpers.
+            await refusal(queryAnalystUrl(url, sql, scoped(name)), /Allowed functions/)
+            const allowList = ['analytics._etl_safe_numeric(text)', 'analytics._etl_safe_date(text)'].join('\n')
+            const rowsScoped = (await queryAnalystUrl(url, sql, { ...scoped(name), allowedFunctions: allowList })).rows
+            assert.deepEqual(
+                rowsScoped.map((row) => Number(row.acv)),
+                [500, 800],
+                `${name} scoped with allow-list`
+            )
         }
     })
 
