@@ -400,6 +400,8 @@ export async function sampleRelationValues(client, runner, relation, relations, 
     if (!SAMPLED_KINDS.has(relation.kind) || !relations.length) return null
     const candidates = (await runner.all(COLUMNS_SQL, [relation.oid])).filter((column) => column.textual).slice(0, SAMPLE_COLUMNS)
     const checked = []
+    // The node's samples run only if no function, operator or cast outside pg_catalog changed since they were checked.
+    const stampBefore = followViews ? await routineCatalogStamp(runner) : ''
     for (const column of candidates) {
         const statement = sampleStatement(relation, column)
         const check = await inSavepoint(client, 'cuttlely_sample_check', () =>
@@ -419,6 +421,7 @@ export async function sampleRelationValues(client, runner, relation, relations, 
         if (list.some((value) => value.length > SAMPLE_VALUE_CHARS)) continue
         values[column.name] = list.sort()
     }
+    if (followViews && (await routineCatalogStamp(runner)) !== stampBefore) return null
     return Object.keys(values).length ? values : null
 }
 
@@ -730,8 +733,8 @@ const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])
 // A digest of every function, operator and cast outside pg_catalog. A new overload created between the check and
 // the query could change which function a name resolves to, so the query transaction compares it.
 const ROUTINE_STAMP_SQL = `SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) AS stamp FROM (
-    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || n.nspname || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text || ':' || p.pronargdefaults || ':' || coalesce(p.proargdefaults::text, '') || ':' || p.provariadic::oid || ':' || p.prokind::text || ':' || p.prosecdef::text || ':' || coalesce(p.proconfig::text, '') || ':' || md5(coalesce(p.prosrc, '') || coalesce(p.probin, '')) FROM pg_proc p
-    JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname <> 'pg_catalog'
+    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || n.nspname || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text || ':' || p.pronargdefaults || ':' || coalesce(p.proargdefaults::text, '') || ':' || p.provariadic::oid || ':' || p.prokind::text || ':' || p.prosecdef::text || ':' || coalesce(p.proconfig::text, '') || ':' || p.proowner || ':' || p.prolang || ':' || coalesce(r.rolsuper::text, '-') || ':' || md5(coalesce(p.prosrc, '') || ':' || coalesce(p.probin, '') || ':' || coalesce(pg_catalog.to_jsonb(p) ->> 'prosqlbody', '')) FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace LEFT JOIN pg_roles r ON r.oid = p.proowner WHERE n.nspname <> 'pg_catalog'
     UNION ALL SELECT 'o' || o.oid || ':' || o.oprnamespace || ':' || n.nspname || ':' || o.oprname || ':' || o.oprleft || ':' || o.oprright || ':' || o.oprcode::oid FROM pg_operator o
     JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE n.nspname <> 'pg_catalog'
     UNION ALL SELECT 'c' || c.oid || ':' || c.castsource || ':' || c.casttarget || ':' || c.castfunc || ':' || c.castcontext::text || ':' || c.castmethod::text FROM pg_cast c WHERE c.oid >= 16384
@@ -835,15 +838,15 @@ const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${
 // (autoAllowed) refuses. Entries resolve to function ids under the pinned pg_catalog search path each time a query is checked.
 // Allowing a function trusts its body: the check does not read inside it.
 const ALLOWED_IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)`
-const ALLOWED_ENTRY = new RegExp(String.raw`^(${ALLOWED_IDENT}\.${ALLOWED_IDENT})\s*\(([A-Za-z0-9_ ,."\[\]()*]*)\)$`)
+const ALLOWED_ENTRY = new RegExp(String.raw`^(${ALLOWED_IDENT}\.${ALLOWED_IDENT})\s*\((.*)\)$`, 'u')
 export const ALLOWED_FUNCTIONS_MAX = 200
 
 export function parseAllowedFunctions(value) {
     const text = Array.isArray(value) ? value.join('\n') : typeof value === 'string' ? value : ''
     const entries = []
     for (const raw of text.split(/\r?\n/)) {
-        const line = raw.replace(/\s+#.*$|^#.*$/, '').trim()
-        if (!line) continue
+        const line = raw.trim()
+        if (!line || line.startsWith('#')) continue
         const match = ALLOWED_ENTRY.exec(line)
         if (!match) continue
         const args = match[2].trim()
@@ -946,7 +949,7 @@ async function refuseRoutines(
     if (foreignRows.length) {
         const signatures = [...new Set(foreignRows.map((row) => row.signature))]
         throw new ScopeRefusal(
-            `Cuttlely refused this query: function ${refusedList(signatures)} ${NOT_BUILT_IN} ${refusedWhy(foreignRows)}${allowHint(
+            `Cuttlely refused this query: function ${refusedList(signatures)} is not built in. ${refusedWhy(foreignRows)}${allowHint(
                 signatures
             )}`
         )

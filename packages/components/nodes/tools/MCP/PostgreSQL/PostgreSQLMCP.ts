@@ -44,7 +44,9 @@ type AnalystStoreModule = {
 // Allowed functions come only from the saved node inputs, written by the flow author. Tool input never reaches them.
 const nodeAllowedFunctions = (nodeData: INodeData): string => {
     const value = nodeData?.inputs?.analystAllowedFunctions
-    return typeof value === 'string' ? value : ''
+    // The server leaves this input unresolved and never takes it from a request (UNRESOLVED_INPUT_NAMES and
+    // HARD_DENIED_OVERRIDE_KEYS); a value that still names a variable is ignored whole.
+    return typeof value === 'string' && !/\{\{|\$vars|\$flow/.test(value) ? value : ''
 }
 
 type AnalystRelation = { name: string; kind: string; columns: number; comment: string }
@@ -227,7 +229,7 @@ class PostgreSQL_MCP implements INode {
                 additionalParams: true,
                 placeholder: 'analytics._etl_safe_date(text)\nanalytics._etl_safe_integer(text)',
                 description:
-                    'Functions outside pg_catalog that run even though Cuttlely would refuse them, one per line, schema-qualified with argument types, for example analytics._etl_safe_date(text). Write name(*) for every overload; a bare name matches nothing. Without an entry, a user function runs only when it is STABLE or IMMUTABLE, not SECURITY DEFINER, has no settings of its own, is written in SQL or PL/pgSQL and is not owned by a superuser. Cuttlely does not check what runs inside an allowed function, so keep each one owned by the same dedicated read-only or admin role, and give this login no dblink or file privileges. Queries still run read only with the timeout, and the deny list still applies to the query and to views.'
+                    'Functions outside pg_catalog that run even though Cuttlely would refuse them, one per line, schema-qualified with argument types, for example analytics._etl_safe_date(text). Write schema.name(*) for every overload; a bare name matches nothing. Without an entry, a user function runs only when it is STABLE or IMMUTABLE, not SECURITY DEFINER, has no settings of its own, is written in SQL or PL/pgSQL and is not owned by a superuser. Cuttlely does not check what runs inside an allowed function, so keep each one owned by the same dedicated read-only or admin role, and give this login no dblink or file privileges. A SECURITY DEFINER function you list runs with the rights of its owner. Queries still run read only with the timeout, and the deny list still applies to the query and to views.'
             },
             {
                 label: 'Row cap',

@@ -19,6 +19,7 @@ import {
     deniedFunction,
     describeRefusal,
     resetRiskyDomainCacheForTests,
+    routineCatalogStamp,
     SAMPLE_TIMEOUT_MS,
     findRelation,
     parseRelationSelection,
@@ -672,7 +673,9 @@ describe('analyst relations: bakery database', () => {
         const refused = JSON.parse(await scoped[0].invoke({ sql: 'SELECT * FROM payroll_notes' }))
         assert.equal(refused.cuttlelyOutcome, 'expected')
         const described = JSON.parse(await scoped[1].invoke({ name: 'stores' }))
-        assert.equal(described.name, 'public.stores')
+        // With citext installed, the node refuses the whole database, describe included.
+        if (citext) assert.match(described.error, /citext/)
+        else assert.equal(described.name, 'public.stores')
 
         const previous = process.env.CUTTLELY_POSTGRES_URL
         process.env.CUTTLELY_POSTGRES_URL = url
@@ -1785,6 +1788,8 @@ describe('analyst relations: user functions inside views', () => {
         await owner.query(
             `CREATE FUNCTION analytics.with_path(v text) RETURNS text LANGUAGE sql STABLE SET search_path = public AS 'SELECT v'`
         )
+        await owner.query(`CREATE DOMAIN analytics."order-kind" AS text`)
+        await owner.query(`CREATE FUNCTION analytics.kind_of(v analytics."order-kind") RETURNS text LANGUAGE sql VOLATILE AS 'SELECT v'`)
         await owner.query(`CREATE VIEW analytics.touchy_orders AS SELECT id, analytics.touchy(placed) AS placed FROM analytics.raw_orders`)
         await owner.query('RESET ROLE')
         await owner.query(
@@ -1860,6 +1865,34 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(every.rows[0].v, 1)
         // The deny list still applies with an entry, and the query still runs read only.
         await refusal(queryAnalystUrl(url, 'SELECT pg_sleep(0) LIMIT 1', { ...node, allowedFunctions: 'analytics.touchy(*)' }), /pg_sleep/)
+    })
+
+    it('takes the exact signature from the refusal, quoted type names too', async (t) => {
+        if (skipped(t)) return
+        const sql = `SELECT analytics.kind_of('a'::analytics."order-kind") AS v LIMIT 1`
+        await refusal(queryAnalystUrl(url, sql, node), /add analytics\.kind_of\(analytics\."order-kind"\) to Allowed functions/)
+        const allowed = await queryAnalystUrl(url, sql, {
+            ...node,
+            allowedFunctions: '# helpers\nanalytics.kind_of(analytics."order-kind")'
+        })
+        assert.equal(allowed.rows[0].v, 'a')
+    })
+
+    it('changes the catalog digest when a function changes owner, language rights or SQL-standard body', async (t) => {
+        if (skipped(t)) return
+        const runner = { get: async (sql) => (await owner.query(sql)).rows[0] }
+        await owner.query(`CREATE FUNCTION analytics.std_body(v int) RETURNS int LANGUAGE sql IMMUTABLE RETURN v + 1`)
+        await owner.query(`ALTER FUNCTION analytics.std_body(int) OWNER TO "${etl}"`)
+        try {
+            const first = await routineCatalogStamp(runner)
+            await owner.query(`CREATE OR REPLACE FUNCTION analytics.std_body(v int) RETURNS int LANGUAGE sql IMMUTABLE RETURN v + 2`)
+            const second = await routineCatalogStamp(runner)
+            assert.notEqual(second, first)
+            await owner.query(`ALTER FUNCTION analytics.std_body(int) OWNER TO CURRENT_USER`)
+            assert.notEqual(await routineCatalogStamp(runner), second)
+        } finally {
+            await owner.query('DROP FUNCTION analytics.std_body(int)')
+        }
     })
 
     it('ignores an allow-list sent in the tool input', async (t) => {
