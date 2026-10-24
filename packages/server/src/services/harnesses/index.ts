@@ -482,6 +482,20 @@ export async function withNameLock<T>(name: string, fn: () => Promise<T>): Promi
     }
 }
 
+// A canvas sync: the name check and the record write hold the name lock. The check claims the name with the roster
+// about to be written, so a delete that finished while this waited leaves nothing the write would compile over.
+export async function syncUnderNameLock<T>(
+    name: string,
+    workspaceId: string | null | undefined,
+    roster: { specialists?: Array<{ name?: unknown }> } | null,
+    write: () => Promise<T>
+): Promise<T> {
+    return withNameLock(name, async () => {
+        await assertNameAvailable(name, workspaceId, { claiming: true, record: roster })
+        return write()
+    })
+}
+
 // record: the harness about to be saved, when known. The profile names it compiles into (fitted names of long names
 // included) are checked for leftovers too.
 export async function clearStaleNameData(name: string, record?: { specialists?: Array<{ name?: unknown }> } | null) {
@@ -1298,6 +1312,7 @@ export default {
     removeOrphanHarnesses,
     removeHarnessesForCanvas,
     withNameLock,
+    syncUnderNameLock,
     assertNameAvailable,
     listHarnesses,
     getHarness,

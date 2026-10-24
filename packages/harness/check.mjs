@@ -6025,6 +6025,45 @@ await expectCase('custom MCP runs through the node', async () => {
                 revokedStatus === 401 && FakeMcp.calls.length === callsBefore,
                 JSON.stringify({ revokedStatus, calls: FakeMcp.calls.length - callsBefore })
             )
+            // A delete that revokes the token a few microtasks after the check passed: whenever the revocation lands
+            // before the tool would start, the synchronous check right before dispatch refuses it, and every answer is 401.
+            const results = []
+            for (let hops = 1; hops <= 8; hops++) {
+                const before = FakeMcp.calls.length
+                let held = null
+                let atRevoke = -1
+                gatewayModule.gatewayRequestHooks.beforeRun = async (meta) => {
+                    held = meta
+                    let chain = Promise.resolve()
+                    for (let i = 0; i < hops; i++) chain = chain.then(() => undefined)
+                    chain.then(() => {
+                        atRevoke = FakeMcp.calls.length - before
+                        gatewayModule.forgetProfileToken(token)
+                    })
+                }
+                let lateStatus = 0
+                try {
+                    const late = await localRequest({
+                        port: gateway.port,
+                        method: 'POST',
+                        path: '/harness/tools/call',
+                        token,
+                        body: { name: 'mcp_tool', arguments: { input: 'ping' } }
+                    })
+                    lateStatus = late.status
+                } finally {
+                    gatewayModule.gatewayRequestHooks.beforeRun = null
+                    if (held) gatewayModule.registerProfileToken({ token, ...held })
+                }
+                results.push([hops, lateStatus, atRevoke, FakeMcp.calls.length - before])
+            }
+            check(
+                'a token revoked after its check starts no tool once revoked',
+                // No tool starts after its revocation; one revoked right after the check is refused outright.
+                results.every(([, , atRevoke, calls]) => atRevoke < 0 || calls === atRevoke) &&
+                    JSON.stringify(results[0]) === JSON.stringify([1, 401, 0, 0]),
+                JSON.stringify(results)
+            )
         }
     } finally {
         await gateway?.close()
@@ -16301,6 +16340,30 @@ await (async () => {
                 !fs.existsSync(path.join(workDir, 'crashed--a')) &&
                 !recovered.kept.length,
             JSON.stringify({ refused, recovered, closes, lines })
+        )
+    }
+
+    // With no profiles directory at all, the sweep still finds and removes an old parked profile.
+    reset()
+    {
+        const parked = path.join(trash, 'noroot--a-abcdefabcdef')
+        fs.mkdirSync(path.join(parked, 'sessions'), { recursive: true })
+        fs.writeFileSync(path.join(parked, 'harness-parent'), 'noroot\n')
+        fs.writeFileSync(path.join(trash, 'noroot--a-abcdefabcdef.owner'), 'noroot\n')
+        age(parked)
+        age(path.join(trash, 'noroot--a-abcdefabcdef.owner'))
+        const aside = `${profilesDir}-aside`
+        fs.renameSync(profilesDir, aside)
+        let swept
+        try {
+            swept = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+        } finally {
+            fs.renameSync(aside, profilesDir)
+        }
+        check(
+            'the sweep recovers parked profiles when the profiles directory is missing',
+            !fs.existsSync(parked) && !fs.existsSync(path.join(trash, 'noroot--a-abcdefabcdef.owner')),
+            JSON.stringify({ swept, lines })
         )
     }
 

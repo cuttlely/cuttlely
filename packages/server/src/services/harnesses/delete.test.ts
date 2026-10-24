@@ -425,6 +425,27 @@ describe('a reused name never sees an earlier harness data', () => {
         }
     })
 
+    it('a canvas sync that waited for a delete of the name clears what it left, or is refused', async () => {
+        const writes: string[] = []
+        const release = await acquireNameLock('NAVI-B')
+        const sync = harnessesService.syncUnderNameLock('NAVI-B', TEAM, { specialists: [{ name: 'other' }] }, async () => {
+            writes.push('write')
+        })
+        for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve))
+        // The delete finished while the sync waited, but kept a profile whose runtime did not stop.
+        fs.rmSync(fileOf('NAVI-B'))
+        keptProfiles = ['navi-b--other']
+        release()
+        await expect(sync).rejects.toMatchObject({ statusCode: 503 })
+        expect(writes).toEqual([])
+        expect(expectedProfiles).toEqual([['navi-b--other']])
+        keptProfiles = []
+        await harnessesService.syncUnderNameLock('NAVI-B', TEAM, { specialists: [{ name: 'other' }] }, async () => {
+            writes.push('write')
+        })
+        expect(writes).toEqual(['write'])
+    })
+
     it('refuses a new harness under a name whose old profiles could not be removed', async () => {
         keptProfiles = ['fresh-name--a']
         await expect(harnessesService.assertNameAvailable('fresh-name', TEAM, { claiming: true })).rejects.toMatchObject({

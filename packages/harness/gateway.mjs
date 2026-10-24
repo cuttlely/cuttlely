@@ -674,6 +674,8 @@ async function completeChat(req, res, meta) {
                 const resolved = await resolveModel(binding, ctx)
                 await readyToRun(meta)
                 try {
+                    // Nothing is awaited between this check and the model call starting.
+                    assertStillValid(meta)
                     return await invokeChat(resolved, {
                         messages: body.messages,
                         tools: body.tools,
@@ -907,7 +909,8 @@ async function callTool(req, res, meta) {
                 flowOptions: ctx.flowOptions,
                 nodeCache: ctx.nodeCache,
                 // Checked once the tool's node is prepared, right before the tool itself runs.
-                beforeCall: () => readyToRun(meta)
+                beforeCall: () => readyToRun(meta),
+                assertCall: () => assertStillValid(meta)
             }),
         { workspace: record.workspaceId }
     )

@@ -12,6 +12,8 @@ export async function executeModule(binding, input, options = {}) {
     if (options.toolName) prepared.toolName = options.toolName
     // Preparing a node awaits; the caller may refuse the call at this point (a token revoked meanwhile).
     if (options.beforeCall) await options.beforeCall()
+    // Checked again with nothing awaited before the tool starts: the await above yields, and a revocation may run there.
+    if (options.assertCall) options.assertCall()
     const raw = await callPrepared(prepared, input)
     return prepared.runs ? raw : normalizeResult(raw)
 }

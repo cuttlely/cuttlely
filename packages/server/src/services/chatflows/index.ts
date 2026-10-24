@@ -949,10 +949,24 @@ export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCall
         logger.warn(`[harness] workspace org lookup failed: ${getErrorMessage(error)}`)
     }
     try {
-        // The name check and the record write hold the name, so a pending canvas delete of the same name cannot interleave.
-        await harnessesService.withNameLock(chatflow.name, async () => {
-            // A name that already belongs to another team, or one a pending delete still holds, is refused before the write.
-            await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
+        // A record deleted while this sync waited for the name is a new claim: what the delete left (profiles whose
+        // runtime did not stop, their workspaces) is cleared for every profile name this roster compiles into, under the
+        // same lock as the write, or the save is refused.
+        let roster: { specialists?: Array<{ name?: unknown }> } | null = null
+        try {
+            roster = engine.rosterFromFlow({
+                name: chatflow.name,
+                chatflowId: chatflow.id,
+                flowData: chatflow.flowData,
+                workspaceId: chatflow.workspaceId,
+                componentNodes
+            })
+        } catch {
+            // The sync below reports a roster that cannot be built.
+        }
+        // The name check and the record write hold the name, so a pending delete of the same name cannot interleave.
+        // A name that already belongs to another team, or one a pending delete still holds, is refused before the write.
+        await harnessesService.syncUnderNameLock(chatflow.name, chatflow.workspaceId, roster, async () => {
             // Warnings are logged by the harness sync. The chatflow response has no warnings field.
             await engine.syncHarnessFromFlow({
                 name: chatflow.name,

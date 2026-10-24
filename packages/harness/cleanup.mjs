@@ -747,14 +747,16 @@ export async function sweepOrphanHarnessProfiles({ mode = orphanSweepMode(), now
     const root = profilesRoot()
     const result = { mode, orphans: [], removed: [], skipped: [] }
     const started = Date.now()
-    if (!realDir(root)) return result
+    // A missing profiles root still leaves the trash to recover; one that is there but is not a plain directory stops the sweep.
+    const profilesThere = Boolean(lstatOrNull(root))
+    if (profilesThere && !realDir(root)) return result
     const saved = savedNames()
     if (!saved) {
         cleanupHooks.log('[harness] orphan profile sweep skipped: the harness store could not be read')
         return result
     }
     const groups = new Map()
-    for (const entry of fs.readdirSync(root).sort()) {
+    for (const entry of profilesThere ? fs.readdirSync(root).sort() : []) {
         const owner = profileOwner(entry)
         // Dry run and delete agree: a folder of a saved harness is not an orphan, whatever its marker says.
         if (!owner || stillSaved(owner.id, saved) || claimedBySaved(entry, saved)) continue
