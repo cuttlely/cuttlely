@@ -97,13 +97,17 @@ export function registerProfileToken({ token, harnessName, specialistName, model
     }
     // A harness being deleted gets no new published token: a run that compiles meanwhile cannot undo the revocation.
     if (!tryProfile && closingHarnesses.has(String(harnessName || ''))) return
-    tokens.set(token, {
+    const next = {
         harnessName,
         specialistName,
         modelKey: modelKey || '',
         profileName: directory,
         tryProfile: Boolean(tryProfile)
-    })
+    }
+    // An unchanged token keeps its entry, so a request already running under it is not taken for revoked.
+    const current = tokens.get(token)
+    if (current && Object.keys(next).every((key) => current[key] === next[key])) return
+    tokens.set(token, next)
 }
 
 // Whether a token is registered (used by the checks).

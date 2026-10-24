@@ -6145,6 +6145,42 @@ await expectCase('custom MCP runs through the node', async () => {
     check('a token revoked while its request waits for the body is refused', status === 401, String(status))
 }
 
+// Recompiling under an unchanged token while a request waits for its body does not turn the request away.
+{
+    const gateway = await import('./gateway.mjs')
+    const opened = await openGateway()
+    const token = `recompiled-midway-${Date.now()}`
+    gateway.registerProfileToken({ token, harnessName: 'recompiled', specialistName: 'a', profileName: 'recompiled--a' })
+    let status = 0
+    try {
+        status = await new Promise((resolve, reject) => {
+            const req = http.request(
+                {
+                    host: '127.0.0.1',
+                    port: opened.port,
+                    method: 'POST',
+                    path: '/harness/tools/call',
+                    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+                },
+                (res) => {
+                    res.resume()
+                    resolve(res.statusCode)
+                }
+            )
+            req.on('error', reject)
+            req.write('{"name":"tool",')
+            setTimeout(() => {
+                gateway.registerProfileToken({ token, harnessName: 'recompiled', specialistName: 'a', profileName: 'recompiled--a' })
+                req.end('"arguments":{}}')
+            }, 50)
+        })
+    } finally {
+        gateway.forgetProfileToken(token)
+        await opened.close()
+    }
+    check('a request under a token recompiled unchanged meanwhile is not refused as revoked', status !== 401 && status > 0, String(status))
+}
+
 const { SQL_TOOL_REFUSED, refusedRawServer, runsSql } = await import('./sql-tools.mjs')
 {
     const str = (description = '') => ({ type: 'string', description })
@@ -16588,6 +16624,53 @@ await (async () => {
         JSON.stringify({ mixed, revoked, revokeOptions, lines })
     )
     await cleanup.removeHarnessProfiles('mixed')
+
+    // A profile compiled under the same name by another harness while the runtime stops keeps its workspace.
+    reset()
+    saveJson('joined')
+    home('joined')
+    child('joined--b--c', 'joined')
+    dropJson('joined')
+    cleanup.cleanupHooks.close = async (entry) => {
+        if (entry === 'joined--b--c') {
+            child('joined--b--c', 'joined--b', { fresh: true })
+            fs.writeFileSync(path.join(workDir, 'joined--b--c', 'theirs.txt'), 'y')
+        }
+        return true
+    }
+    const joined = await cleanup.removeHarnessProfiles('joined')
+    cleanup.cleanupHooks.close = async () => {}
+    check(
+        'a profile compiled under the name by another harness during shutdown keeps itself and its workspace',
+        exists('joined--b--c') &&
+            fs.readFileSync(path.join(profilesDir, 'joined--b--c', 'harness-parent'), 'utf8').trim() === 'joined--b' &&
+            fs.existsSync(path.join(workDir, 'joined--b--c', 'theirs.txt')) &&
+            lines.some((line) => line.includes('kept workspaces/joined--b--c')),
+        JSON.stringify({ joined, lines })
+    )
+    fs.rmSync(path.join(profilesDir, 'joined--b--c'), { recursive: true, force: true })
+    fs.rmSync(path.join(workDir, 'joined--b--c'), { recursive: true, force: true })
+
+    // A kept profile is moved back, not copied: a file the runtime still holds open is the file in profiles/.
+    reset()
+    saveJson('held')
+    home('held')
+    child('held--a', 'held')
+    dropJson('held')
+    const heldFile = path.join(profilesDir, 'held--a', 'state.db')
+    fs.writeFileSync(heldFile, 'one')
+    const heldFd = fs.openSync(heldFile, 'r+')
+    cleanup.cleanupHooks.close = async (entry) => entry !== 'held--a'
+    await cleanup.removeHarnessProfiles('held')
+    cleanup.cleanupHooks.close = async () => {}
+    fs.writeSync(heldFd, 'two', 0)
+    fs.closeSync(heldFd)
+    check(
+        'a profile kept after a failed stop is moved back, so writes through open files land in it',
+        exists('held--a') && fs.readFileSync(heldFile, 'utf8') === 'two',
+        JSON.stringify({ lines })
+    )
+    await cleanup.removeHarnessProfiles('held')
 
     // A runtime that cannot be confirmed stopped (pending, timeout or error) keeps its profile for a later run.
     reset()

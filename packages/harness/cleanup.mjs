@@ -136,7 +136,7 @@ async function removeProfileEntry(entry, afterPark = async () => true) {
     return true
 }
 
-// A parked profile that is kept goes back to profiles/ by copy (timestamps kept), then the parked copy is removed.
+// A parked profile that is kept is moved back to profiles/.
 // Nothing comes back over an entry created under the name meanwhile; the parked copy then stays, with its owner note,
 // for a later run.
 function putBackParked(trash, parked, entry) {
@@ -146,8 +146,13 @@ function putBackParked(trash, parked, entry) {
         cleanupHooks.log(`[harness] kept ${TRASH}/${parked} (was profiles/${entry}) for a later run`)
         return false
     }
-    fs.cpSync(path.join(trash, parked), target, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true, errorOnExist: true })
-    removeEntry(trash, parked)
+    // Moved, not copied: a runtime that did not stop may still hold files open in it, and they stay the same files.
+    try {
+        fs.renameSync(path.join(trash, parked), target)
+    } catch (error) {
+        cleanupHooks.log(`[harness] kept ${TRASH}/${parked} (was profiles/${entry}) for a later run: ${error?.code || 'error'}`)
+        return false
+    }
     removeOwnerNote(trash, parked)
     return true
 }
@@ -545,6 +550,12 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
                     cleanupHooks.log(`[harness] kept profiles/${entry}: it changed during cleanup`)
                     return false
                 }
+            }
+            // A profile compiled under this name meanwhile (by another harness whose names join the same way) owns
+            // the workspace now; only the parked copy goes.
+            if (lstatOrNull(path.join(profilesRoot(), entry))) {
+                cleanupHooks.log(`[harness] kept workspaces/${entry}: a profile was compiled under this name during cleanup`)
+                return true
             }
             // A workspace that is there but could not be removed (a linked or foreign root) keeps the profile, whose
             // markers are what lets a later run find the workspace again.
