@@ -83,9 +83,44 @@ const DENIED_FUNCTIONS = new Set([
     'pg_identify_object',
     'pg_identify_object_as_address',
     'pg_terminate_backend',
-    'pg_cancel_backend'
+    'pg_cancel_backend',
+    'setseed',
+    'pg_promote',
+    'pg_reload_conf',
+    'pg_rotate_logfile',
+    'pg_switch_wal',
+    'pg_notify'
 ])
-const DENIED_PREFIXES = ['lo_', 'pg_read_', 'pg_ls_', 'pg_stat_file', 'pg_stat_get_', 'pg_get_', 'dblink', 'has_', 'to_reg']
+// Built-ins that change state a rollback does not undo: statistics resets, replication slots and origins, backups,
+// WAL replay, restore points, server log output and advisory locks.
+const SIDE_EFFECT_PREFIXES = [
+    'pg_stat_reset',
+    'pg_stat_clear',
+    'pg_create_',
+    'pg_drop_replication',
+    'pg_replication_',
+    'pg_copy_',
+    'pg_logical_',
+    'pg_backup_',
+    'pg_start_backup',
+    'pg_stop_backup',
+    'pg_wal_replay_',
+    'pg_log_',
+    'pg_advisory',
+    'pg_try_advisory'
+]
+const DENIED_PREFIXES = [
+    'lo_',
+    'pg_read_',
+    'pg_ls_',
+    'pg_stat_file',
+    'pg_stat_get_',
+    'pg_get_',
+    'dblink',
+    'has_',
+    'to_reg',
+    ...SIDE_EFFECT_PREFIXES
+]
 const DENIED_SUFFIXES = ['_is_visible']
 
 // Object-identifier types turn an id into a name, or a name into an id, for any object.
@@ -729,11 +764,13 @@ const READ_ONLY_SQL_FUNCTIONS = new Set([
     'pg_reload_conf',
     'pg_rotate_logfile',
     'pg_switch_wal',
-    'pg_stat_file'
+    'pg_stat_file',
+    'setseed',
+    'pg_promote'
 ])
 // Functions that run SQL given as text (so a name inside a string literal would run unchecked), take session locks,
 // or reach files, large objects or other databases.
-const READ_ONLY_SQL_PREFIXES = ['lo_', 'dblink', 'pg_advisory', 'pg_try_advisory', 'pg_read_', 'pg_ls_']
+const READ_ONLY_SQL_PREFIXES = ['lo_', 'dblink', 'pg_read_', 'pg_ls_', ...SIDE_EFFECT_PREFIXES]
 const READ_ONLY_SQL_SUFFIXES = ['_to_xml', '_to_xmlschema', '_to_xml_and_xmlschema']
 // Words after which a top-level LIMIT is a name, not the clause.
 const LIMIT_NOT_CLAUSE_AFTER = new Set(['as'])
@@ -806,7 +843,12 @@ export function sqlTokens(sql) {
             i = ch === "'" ? i + 1 : i + 2
             let closed = false
             while (i < text.length) {
-                if (escapes && text[i] === '\\') {
+                if (text[i] === '\\') {
+                    // How Postgres reads a backslash in '...' depends on standard_conforming_strings, so refuse the
+                    // ambiguity instead of guessing. E'...' always treats it as an escape.
+                    if (!escapes) {
+                        throw new ScopeRefusal("Cuttlely refused this query: write a backslash in text as E'...' with \\\\, not in '...'.")
+                    }
                     i += 2
                     continue
                 }
@@ -924,8 +966,8 @@ function limitClauseAt(tokens, index) {
     if (before?.type === 'word' && !before.quoted && LIMIT_NOT_CLAUSE_AFTER.has(before.value)) return false
     const next = tokens[index + 1]
     if (!next) return false
-    if (next.type === 'number') return true
-    if (next.type === 'symbol') return next.value === '('
+    if (next.type === 'number' || next.type === 'string') return true
+    if (next.type === 'symbol') return next.value === '(' || next.value === '+'
     if (next.type === 'word') return next.quoted || !LIMIT_NOT_COUNT.has(next.value)
     return false
 }

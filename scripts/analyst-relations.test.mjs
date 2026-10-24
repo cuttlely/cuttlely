@@ -1117,6 +1117,19 @@ describe('analyst relations: read-only SQL check for the PostgreSQL MCP node', (
         refused("SELECT pg_read_file('/etc/hosts') LIMIT 1", /pg_read_file is not allowed/)
         refused('SELECT lo_import(1) LIMIT 1', /lo_import is not allowed/)
         refused("SELECT pg_notify('c', 'x') LIMIT 1", /pg_notify is not allowed/)
+        for (const call of [
+            'setseed(0.5)',
+            'pg_stat_reset()',
+            'pg_stat_reset_shared(null)',
+            "pg_create_restore_point('x')",
+            'pg_wal_replay_pause()',
+            'pg_log_backend_memory_contexts(1)',
+            'pg_promote()'
+        ]) {
+            const name = call.slice(0, call.indexOf('('))
+            refused(`SELECT ${call} LIMIT 1`, new RegExp(`${name} is not allowed`))
+            assert.equal(deniedFunction(name), true, name)
+        }
     })
 
     it('ends a -- comment at a carriage return and nests block comments, as Postgres does', () => {
@@ -1126,12 +1139,20 @@ describe('analyst relations: read-only SQL check for the PostgreSQL MCP node', (
         refused('/* a /* b */ SELECT 1 LIMIT 1', /unfinished comment/)
     })
 
+    it('refuses a backslash in a plain string, whose meaning depends on a session setting', () => {
+        refused("SELECT '\\'' || pg_sleep(0.01)::text --'\nLIMIT 1", /backslash/)
+        refused("SELECT 'a\\b' LIMIT 1", /backslash/)
+        assert.equal(checkReadOnlySql("SELECT E'a\\\\b' LIMIT 1"), "SELECT E'a\\\\b' LIMIT 1")
+    })
+
     it('counts LIMIT only as the clause, not as a name', () => {
         refused('SELECT 1 AS limit', /add a LIMIT/)
         refused('SELECT 1 limit', /add a LIMIT/)
         refused('SELECT x limit FROM t', /add a LIMIT/)
         assert.equal(checkReadOnlySql('SELECT x FROM t LIMIT ALL'), 'SELECT x FROM t LIMIT ALL')
         assert.equal(checkReadOnlySql('SELECT x FROM t LIMIT (5)'), 'SELECT x FROM t LIMIT (5)')
+        assert.equal(checkReadOnlySql('SELECT 1 LIMIT +5'), 'SELECT 1 LIMIT +5')
+        assert.equal(checkReadOnlySql("SELECT 1 LIMIT '5'"), "SELECT 1 LIMIT '5'")
     })
 
     it('refuses semicolons, more than one statement and a missing LIMIT', () => {
@@ -1198,7 +1219,9 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         owner = new Client(adminConfig(dbName))
         await owner.connect()
         await owner.query(`CREATE TABLE items (id int PRIMARY KEY, name text NOT NULL);
-            INSERT INTO items VALUES (1, 'Rye'), (2, 'Sourdough'), (3, 'Baguette');`)
+            INSERT INTO items VALUES (1, 'Rye'), (2, 'Sourdough'), (3, 'Baguette');
+            CREATE MATERIALIZED VIEW item_names AS SELECT name FROM items;`)
+        await owner.query(`GRANT SELECT ON item_names TO "${writer}"`)
         // This login could write, so only the read-only checks stand between a query and the table.
         await owner.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON items TO "${writer}"`)
         url = urlFor(writer, password, dbName)
@@ -1250,10 +1273,27 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             relations: ['public.items']
         })
         assert.equal(scopedMode.rows[0].ro, 'on')
+        // A materialized view cannot be LOCKed; it is held by a read instead and still runs.
+        const names = await queryAnalystUrl(url, 'SELECT name FROM item_names ORDER BY 1 LIMIT 1', {
+            readOnlySql: true,
+            relations: ['public.item_names']
+        })
+        assert.deepEqual(names.rows, [{ name: 'Baguette' }])
         // A carriage-return comment cannot carry a second statement past either check.
         await refusal(queryAnalystUrl(url, 'SELECT 1 LIMIT 1 --c\r; COMMIT; DELETE FROM items; COMMIT', { readOnlySql: true }), /semicolon/)
         await assert.rejects(queryAnalystUrl(url, 'SELECT 1 --c\r; COMMIT; DELETE FROM items; COMMIT'), /one statement/)
         assert.equal(await count(), 3)
+    })
+
+    it('reads plain strings as standard SQL even when the login turns standard_conforming_strings off', async (t) => {
+        if (skipped(t)) return
+        await admin.query(`ALTER ROLE "${writer}" SET standard_conforming_strings = off`)
+        try {
+            const result = await queryAnalystUrl(url, "SELECT 'a\\b' AS v LIMIT 1")
+            assert.equal(result.rows[0].v, 'a\\b')
+        } finally {
+            await admin.query(`ALTER ROLE "${writer}" RESET standard_conforming_strings`)
+        }
     })
 
     it('suggests the closest table when one is missing', async (t) => {

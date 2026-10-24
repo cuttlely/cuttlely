@@ -1814,6 +1814,8 @@ async function queryUrlPostgres(
     const begin = async (readOnly) => {
         await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')
         await client.query(`SET LOCAL statement_timeout = ${ms}`)
+        // The text check reads '...' as standard SQL strings, so Postgres must too.
+        await client.query('SET LOCAL standard_conforming_strings = on')
     }
     const hinted = async (error) => {
         const missing = missingRelationName(error)
@@ -1883,10 +1885,13 @@ const SCOPE_CHANGED = 'Cuttlely refused this query: the selected tables or views
 // the check allowed.
 async function keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend) {
     if (!checkedBackend || checkedBackend !== queryBackend) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
-    // Postgres cannot LOCK a materialized view or every foreign table; those keep the oid check below.
+    // Postgres cannot LOCK a materialized view or every foreign table. Reading no rows from one takes the same
+    // ACCESS SHARE lock, held until the transaction ends.
     for (const relation of selected) {
         if (relation.kind === 'table' || relation.kind === 'view') {
             await client.query(`LOCK TABLE ONLY ${relation.name} IN ACCESS SHARE MODE`)
+        } else {
+            await client.query(`SELECT 1 FROM ONLY ${relation.name} LIMIT 0`)
         }
     }
     const now = await resolveRelations(runner, relations)
