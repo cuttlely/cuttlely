@@ -558,20 +558,33 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
         await restore()
         throw error
     }
+    // The name locks stay held until every profile, schedule and run of the deleted names is gone, so a canvas sync
+    // cannot save the name again halfway through the cleanup.
     const commit = async () => {
-        releaseAll()
-        const finished: string[] = []
-        for (const name of staged) {
-            // Tokens first: when revocation fails the staged record, schedule and runs stay; the startup settle retries.
-            if (!(await revokeRuntimeTokens(name))) continue
-            finished.push(name)
-            fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
-            await removeRuntimeProfiles(name)
-            await harnessDeleteHooks
-                .removeSchedule(name)
-                .catch((error: unknown) => logger.warn(`[harness] schedule cleanup for deleted ${name} failed: ${getErrorMessage(error)}`))
+        try {
+            const finished: string[] = []
+            for (const name of staged) {
+                // Tokens first: when revocation fails the staged record, schedule and runs stay; the startup settle retries.
+                if (!(await revokeRuntimeTokens(name))) continue
+                fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
+                await removeRuntimeProfiles(name)
+                // Stopping the runtime awaits: a record saved under the name meanwhile (outside the lock) owns the
+                // schedule and runs now, so they stay.
+                if (fs.existsSync(path.join(dir, `${name}.json`))) {
+                    logger.warn(`[harness] ${name} was saved again during its delete; its schedule and runs are kept`)
+                    continue
+                }
+                finished.push(name)
+                await harnessDeleteHooks
+                    .removeSchedule(name)
+                    .catch((error: unknown) =>
+                        logger.warn(`[harness] schedule cleanup for deleted ${name} failed: ${getErrorMessage(error)}`)
+                    )
+            }
+            await purgeHarnessRuns(finished)
+        } finally {
+            releaseAll()
         }
-        await purgeHarnessRuns(finished)
     }
     return { names: [...staged], restore, commit }
 }

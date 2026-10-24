@@ -33,6 +33,7 @@ let failRuns = false
 let cleaned: string[]
 let failCleanup = false
 let reopened: string[] = []
+let duringCleanup: ((name: string) => Promise<void>) | null = null
 
 const fileOf = (name: string) => path.join(storeDir, `${name}.json`)
 const has = (name: string) => fs.existsSync(fileOf(name))
@@ -63,6 +64,7 @@ const fakeModules = (file: string) => {
                 if (failCleanup) throw new Error(`revoke failed for ${name}`)
             },
             removeHarnessProfiles: async (name: string) => {
+                if (duringCleanup) await duringCleanup(name)
                 cleaned.push(name)
                 return { removed: [], kept: [], error: null }
             },
@@ -99,6 +101,7 @@ beforeEach(() => {
     cleaned = []
     reopened = []
     failCleanup = false
+    duringCleanup = null
     write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
     write({ name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
@@ -306,6 +309,35 @@ describe('a reused name never sees an earlier harness data', () => {
         await cascade.restore()
         await sync
         expect(seen).toEqual(['record'])
+    })
+
+    it('a canvas sync of the name waits until the commit cleanup has finished', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, { name: 'tx' } as any)
+        const order: string[] = []
+        let sync: Promise<void> | undefined
+        duringCleanup = async () => {
+            sync = harnessesService.withNameLock('navi', async () => {
+                order.push('sync')
+            })
+            await new Promise((resolve) => setImmediate(resolve))
+            order.push('profiles')
+        }
+        await cascade.commit()
+        order.push('commit done')
+        await sync
+        expect(order).toEqual(['profiles', 'commit done', 'sync'])
+        expect(schedules.has('navi')).toBe(false)
+    })
+
+    it('a record saved while the runtime shuts down keeps its schedule and runs', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, { name: 'tx' } as any)
+        duringCleanup = async () => {
+            write({ name: 'navi', workspaceId: TEAM, specialists: [{ name: 'other' }] })
+        }
+        await cascade.commit()
+        expect(has('navi')).toBe(true)
+        expect(schedules.has('navi')).toBe(true)
+        expect(runRows.filter((row) => row.harness === 'navi')).toHaveLength(2)
     })
 
     it('a sync that reaches the name check while a delete is staged is refused', async () => {

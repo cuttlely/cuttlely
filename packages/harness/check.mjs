@@ -16285,6 +16285,104 @@ await (async () => {
         dropJson('closing')
     }
 
+    // A saved harness whose name looks like another harness's specialist keeps its folder, whatever its marker says.
+    reset()
+    saveJson('bakery')
+    home('bakery')
+    child('bakery--a', 'bakery')
+    saveJson('bakery--reader')
+    child('bakery--reader', 'bakery')
+    home('bakery--writer', 'bakery--writer')
+    fs.writeFileSync(path.join(profilesDir, 'bakery--writer', 'harness-parent'), 'bakery\n')
+    saveJson('bakery--writer')
+    dropJson('bakery')
+    await cleanup.deleteHarnessAndProfiles('bakery')
+    check(
+        'deleting a harness never revokes or removes a folder that belongs to a saved harness',
+        !exists('bakery') &&
+            !exists('bakery--a') &&
+            exists('bakery--reader') &&
+            exists('bakery--writer') &&
+            !revoked.some((item) => item.includes('bakery--reader') || item.includes('bakery--writer')),
+        JSON.stringify({ revoked, lines })
+    )
+    for (const name of ['bakery--reader', 'bakery--writer']) {
+        dropJson(name)
+        fs.rmSync(path.join(profilesDir, name), { recursive: true, force: true })
+        fs.rmSync(path.join(workDir, name), { recursive: true, force: true })
+    }
+
+    // Temporary profiles are known by their markers, not their names: a saved harness named like a try is cleaned up.
+    reset()
+    saveJson('trycafebabe')
+    home('trycafebabe')
+    child('trycafebabe--a', 'trycafebabe')
+    dropJson('trycafebabe')
+    const tryShaped = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    saveJson('marked')
+    home('marked')
+    const markedTry = child('tryx0123456789abcdef--a', 'marked')
+    fs.writeFileSync(path.join(markedTry, '.env'), 'CUTTLELY_GATEWAY_TRY=1\n')
+    age(markedTry)
+    dropJson('marked')
+    await cleanup.removeHarnessProfiles('marked')
+    check(
+        'a harness with a try-shaped name is cleaned up, and a profile with the try flag is kept',
+        !exists('trycafebabe') &&
+            !exists('trycafebabe--a') &&
+            tryShaped.removed.includes('trycafebabe') &&
+            exists('tryx0123456789abcdef--a') &&
+            !exists('marked'),
+        JSON.stringify({ tryShaped, lines })
+    )
+    fs.rmSync(markedTry, { recursive: true, force: true })
+    fs.rmSync(path.join(workDir, 'tryx0123456789abcdef--a'), { recursive: true, force: true })
+
+    // A harness saved while its delete runs compiles without published tokens; the end of the delete drops that
+    // compiled profile, so its next run compiles again with working tokens.
+    {
+        const gw = await import('./gateway.mjs')
+        const record = {
+            name: 'resaved',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [
+                {
+                    name: 'reader',
+                    instructions: 'Read.',
+                    shell: true,
+                    browser: false,
+                    codeExecution: false,
+                    fileAccess: false,
+                    model: nodeModel('scriptedChat'),
+                    modules: [],
+                    mcpServers: []
+                }
+            ]
+        }
+        saveHarness(record, { overwrite: true })
+        cleanup.revokeHarness('resaved')
+        compileProfileCached(getHarness('resaved'))
+        const during = readProfileEnv('resaved--reader').OPENAI_API_KEY
+        const deadDuring = !gw.profileTokenKnown(during)
+        cleanup.reopenHarness('resaved')
+        compileProfileCached(getHarness('resaved'))
+        const after = readProfileEnv('resaved--reader').OPENAI_API_KEY
+        check(
+            'a harness saved during its delete gets working gateway tokens on its next run',
+            deadDuring && gw.profileTokenKnown(after),
+            JSON.stringify({
+                deadDuring,
+                during: Boolean(during),
+                after: Boolean(after),
+                same: during === after,
+                dir: fs.readdirSync(profilesDir).filter((e) => e.startsWith('resaved'))
+            })
+        )
+        gw.forgetProfileToken(after)
+        dropJson('resaved')
+        await cleanup.removeHarnessProfiles('resaved')
+    }
+
     for (const name of ['navi-harness', 'newname', 'capsx']) {
         dropJson(name)
         await cleanup.removeHarnessProfiles(name)

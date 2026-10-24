@@ -23,8 +23,6 @@ export const ORPHAN_SWEEP_ENV = 'CUTTLELY_HARNESS_ORPHAN_SWEEP'
 export const ORPHAN_SWEEP_MIN_AGE_MS = 10 * 60 * 1000
 
 const ENTRY_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
-const TRY_HOME = /^try[a-f0-9]{8,32}$/i
-const TRYX_HOME = /^tryx[a-f0-9]{16}$/i
 const TRASH = '.cuttlely-removing'
 
 // Tests replace these. revoke must throw to stop a removal; close is best effort.
@@ -236,8 +234,26 @@ function rosterName(dir) {
     }
 }
 
-function isTryName(name) {
-    return TRY_HOME.test(name) || TRYX_HOME.test(name)
+// A temporary (try) profile is known by its lifecycle markers, never by its name: its own harness-try marker, the
+// CUTTLELY_GATEWAY_TRY flag its specialist .env carries, or a parent profile that has the harness-try marker.
+function envFlag(dir, key) {
+    for (const line of readText(path.join(dir, '.env')).split(/\r?\n/)) {
+        const at = line.indexOf('=')
+        if (at > 0 && line.slice(0, at).trim() === key)
+            return line
+                .slice(at + 1)
+                .trim()
+                .replace(/^['"]|['"]$/g, '')
+    }
+    return ''
+}
+
+function isTempProfile(dir, parent) {
+    if (lstatOrNull(path.join(dir, 'harness-try'))) return true
+    if (envFlag(dir, 'CUTTLELY_GATEWAY_TRY') === '1') return true
+    if (!parent) return false
+    const parentDir = containedEntry(profilesRoot(), parent)
+    return Boolean(parentDir && lstatOrNull(path.join(parentDir, 'harness-try')))
 }
 
 // Saved harness names straight from the store directory, compared exactly. null when the store cannot be read.
@@ -283,26 +299,43 @@ function ownerOf(root, entry, base) {
     if (!dir) return null
     const stat = lstatOrNull(dir)
     if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return null
-    if (lstatOrNull(path.join(dir, 'harness-try'))) return null
     const parent = readMarker(dir, 'harness-parent')
+    if (isTempProfile(dir, parent)) return null
+    const name = rosterName(dir)
     if (parent) {
-        if (parent === base || isTryName(parent)) return null
+        if (parent === base) return null
+        // A folder whose roster names another harness is not this parent's specialist.
+        if (name && name !== parent) return null
         return { kind: 'child', id: parent }
     }
-    const name = rosterName(dir)
-    if (name && name === base && !isTryName(name)) return { kind: 'home', id: name }
+    if (name && name === base) return { kind: 'home', id: name }
     return null
+}
+
+// A profile folder named after a saved harness, or whose roster names one, belongs to that harness whatever its
+// harness-parent marker says, so it is never revoked or removed for another harness. saved null: the store could
+// not be read, and every folder counts as claimed.
+function claimedBySaved(entry, saved, root = profilesRoot()) {
+    if (stillSaved(entry, saved)) return true
+    const dir = containedEntry(root, entry)
+    const name = dir ? rosterName(dir) : ''
+    return Boolean(name) && stillSaved(name, saved)
 }
 
 // Every profile entry that belongs to this exact harness id. The home profile comes last.
 function profilesOf(id) {
     const root = profilesRoot()
     if (!realDir(root)) return []
+    const saved = savedNames()
     const children = []
     let home = ''
     for (const entry of fs.readdirSync(root).sort()) {
         const owner = profileOwner(entry)
         if (!owner || owner.id !== id) continue
+        if (claimedBySaved(entry, saved)) {
+            cleanupHooks.log(`[harness] kept profiles/${entry}: a saved harness has this name`)
+            continue
+        }
         if (owner.kind === 'home') home = entry
         else children.push(entry)
     }
@@ -406,6 +439,13 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     }
     // The sweep removes only what is older than the cutoff, checked before anything is touched.
     const kept = []
+    const before = savedNames()
+    entries = entries.filter((entry) => {
+        if (!claimedBySaved(entry, before)) return true
+        kept.push(entry)
+        cleanupHooks.log(`[harness] kept profiles/${entry}: a saved harness has this name`)
+        return false
+    })
     if (minAgeMs) {
         entries = entries.filter((entry) => {
             if (now() - newestChange(entry) >= minAgeMs) return true
@@ -416,7 +456,7 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     }
     try {
         // Scoped revocation names the parked profiles too, by the profile name they had before parking.
-        const parkedNames = trash.map((entry) => PARKED_RE.exec(entry)?.[1]).filter(Boolean)
+        const parkedNames = trash.map((entry) => PARKED_RE.exec(entry)?.[1]).filter((base) => base && !stillSaved(base, before))
         if (!revoked) revoke(id, [...entries, ...parkedNames], { harnessWide: !minAgeMs })
     } catch (error) {
         cleanupHooks.log(
@@ -433,13 +473,19 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     const settled = new Map(entries.map((entry) => [entry, newestChange(entry)]))
     const stopped = await closeRuntime(id, entries)
     // Closing awaits; the harness may have been saved again or a profile replaced meanwhile, so check again.
-    if (stillSaved(id, savedNames())) {
+    const after = savedNames()
+    if (stillSaved(id, after)) {
         cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it was saved again during cleanup`)
         return { removed: [], kept: entries, error: null }
     }
     const removed = []
     for (const entry of entries) {
         const owner = profileOwner(entry)
+        if (claimedBySaved(entry, after)) {
+            kept.push(entry)
+            cleanupHooks.log(`[harness] kept profiles/${entry}: a saved harness has this name`)
+            continue
+        }
         if (!stopped.has(entry)) {
             kept.push(entry)
             continue
@@ -461,7 +507,11 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
             cleanupHooks.log(`[harness] could not remove profiles/${entry} of harness "${id}": ${error?.code || error?.name || 'error'}`)
         }
     }
-    for (const item of trash) removeTrashEntry(id, item, { minAgeMs, now })
+    for (const item of trash) {
+        const base = PARKED_RE.exec(item)?.[1] || ''
+        if (base && stillSaved(base, after)) continue
+        removeTrashEntry(id, item, { minAgeMs, now })
+    }
     forgetCompiledProfile(id)
     return { removed, kept, error: null }
 }
@@ -483,8 +533,12 @@ export function revokeHarness(name) {
 }
 
 // A delete that stopped after revokeHarness, or one that finished: the name may register tokens again.
+// A profile compiled while the delete ran registered no tokens, so its cache entry is dropped here and the next
+// run of a harness saved meanwhile compiles again with working tokens.
 export function reopenHarness(name) {
-    reopenHarnessTokens(assertHarnessName(name))
+    const id = assertHarnessName(name)
+    reopenHarnessTokens(id)
+    forgetCompiledProfile(id)
 }
 
 // Removes the profiles of one harness that has no store file. Safe to run again after a crash.
@@ -515,7 +569,7 @@ export async function deleteHarnessAndProfiles(name, { revoked = false } = {}) {
     try {
         return await removeHarnessProfiles(id, { revoked: true })
     } finally {
-        reopenHarnessTokens(id)
+        reopenHarness(id)
     }
 }
 
