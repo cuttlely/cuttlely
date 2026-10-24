@@ -71,6 +71,30 @@ describe('langSmithFailureLoggingFetch', () => {
         expect(line).not.toContain('secretvalue')
     })
 
+    it('logs a request that fails outright and rethrows it', async () => {
+        const err = new TypeError('fetch failed https://u:secret-value@api.example.test/?token=secret-value')
+        global.fetch = jest.fn().mockRejectedValue(err) as any
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const shape = describeLangSmithCredential('cred-1', {}, 'lsv2_pt_secretvalue', '', 'proj')
+        await expect(
+            langSmithFailureLoggingFetch({ flowId: 'flow-1', shape })('https://api.smith.langchain.com/runs/multipart')
+        ).rejects.toBe(err)
+        expect(warn).toHaveBeenCalledTimes(1)
+        const line = warn.mock.calls[0][0] as string
+        expect(line).toContain('error=TypeError')
+        expect(line).toContain('path=/runs/multipart')
+        expect(line).toContain('flowId=flow-1')
+        expect(line).toContain('"credentialId":"cred-1"')
+        expect(line).not.toContain('secret-value')
+        expect(line).not.toContain('secretvalue')
+    })
+
+    it('logs only the origin and path of the endpoint', () => {
+        const shape = describeLangSmithCredential('c', {}, '', 'https://u:secret-value@eu.api.example.test/base?token=secret-value#x', 'p')
+        expect(shape.endpoint).toBe('https://eu.api.example.test/base')
+        expect(describeLangSmithCredential('c', {}, '', 'not a url secret-value', 'p').endpoint).toBe('(unparsed)')
+    })
+
     it('stays quiet on success', async () => {
         global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 202 }) as any
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)

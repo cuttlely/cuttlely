@@ -28,7 +28,8 @@ import useNotifier from '@/utils/useNotifier'
 import { initializeDefaultNodeData } from '@/utils/genericHelper'
 
 // const
-import { baseURL, REDACTED_CREDENTIAL_VALUE } from '@/store/constant'
+import { baseURL } from '@/store/constant'
+import { credentialSaveValues } from '@/utils/credentialSaveValues'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 import keySVG from '@/assets/images/key.svg'
 
@@ -117,7 +118,13 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
         return () => dispatch({ type: HIDE_CANVAS_DIALOG })
     }, [show, dispatch])
 
-    const isMaskedUrlValue = (value) => typeof value === 'string' && value.includes('\u2022\u2022\u2022\u2022\u2022\u2022')
+    const savableCredentialData = () => {
+        const { plainDataObj, maskedEdits } = credentialSaveValues(credentialData, getSpecificCredentialApi.data?.plainDataObj)
+        if (maskedEdits.length) {
+            throw new Error(`Enter the full URL, password included, to change ${maskedEdits.join(', ')}`)
+        }
+        return plainDataObj
+    }
 
     const addNewCredential = async () => {
         try {
@@ -170,12 +177,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
                 credentialName: componentCredential.name
             }
 
-            let plainDataObj = {}
-            for (const key in credentialData) {
-                if (credentialData[key] !== REDACTED_CREDENTIAL_VALUE && !isMaskedUrlValue(credentialData[key])) {
-                    plainDataObj[key] = credentialData[key]
-                }
-            }
+            const plainDataObj = savableCredentialData()
             if (Object.keys(plainDataObj).length) saveObj.plainDataObj = plainDataObj
 
             const saveResp = await credentialsApi.updateCredential(credential.id, saveObj)
@@ -238,12 +240,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
                     credentialName: componentCredential.name
                 }
 
-                let plainDataObj = {}
-                for (const key in credentialData) {
-                    if (credentialData[key] !== REDACTED_CREDENTIAL_VALUE && !isMaskedUrlValue(credentialData[key])) {
-                        plainDataObj[key] = credentialData[key]
-                    }
-                }
+                const plainDataObj = savableCredentialData()
                 if (Object.keys(plainDataObj).length) saveObj.plainDataObj = plainDataObj
 
                 const saveResp = await credentialsApi.updateCredential(credential.id, saveObj)

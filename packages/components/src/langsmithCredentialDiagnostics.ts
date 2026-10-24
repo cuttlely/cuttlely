@@ -20,6 +20,16 @@ const PREFIX_LENGTH = 5
 export const FINGERPRINT_SALT = 'cuttlely-langsmith-fingerprint'
 export const FINGERPRINT_ITERATIONS = 2000
 
+/** Origin and path only: user info, query and fragment can carry secrets and are left out. */
+export const endpointForLog = (endpoint: string): string => {
+    try {
+        const url = new URL(endpoint)
+        return `${url.protocol}//${url.host}${url.pathname === '/' ? '' : url.pathname}`
+    } catch {
+        return '(unparsed)'
+    }
+}
+
 export const apiKeyFingerprint = (key: string): string =>
     key ? pbkdf2Sync(key, FINGERPRINT_SALT, FINGERPRINT_ITERATIONS, 6, 'sha256').toString('hex') : ''
 
@@ -39,7 +49,7 @@ export const describeLangSmithCredential = (
         apiKeyPrefix: key.slice(0, Math.min(PREFIX_LENGTH, Math.floor(key.length / 4))),
         apiKeyLength: key.length,
         apiKeyFingerprint: apiKeyFingerprint(key),
-        endpoint: typeof endpoint === 'string' && endpoint ? endpoint : '(default)',
+        endpoint: typeof endpoint === 'string' && endpoint ? endpointForLog(endpoint) : '(default)',
         project: typeof project === 'string' && project ? project : '(default)'
     }
 }
@@ -60,18 +70,31 @@ export const keepConfiguredLangSmithTarget = (
 
 /**
  * fetch wrapper for the LangSmith client that reports failed uploads with the flow id and the credential shape
- * (id, field names, key prefix, length and fingerprint, endpoint, project). The key and the bodies are not logged.
+ * (id, field names, key prefix, length and fingerprint, endpoint origin and path, project), for an error status
+ * and for a request that fails outright. The key, the bodies and error messages are not logged.
  */
 export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: LangSmithCredentialShape }): typeof fetch => {
     return (async (input: any, init?: any) => {
-        const response = await fetch(input, init)
+        let path = ''
+        try {
+            path = new URL(typeof input === 'string' ? input : input?.url ?? String(input)).pathname
+        } catch {
+            path = ''
+        }
+        let response: Response
+        try {
+            response = await fetch(input, init)
+        } catch (error) {
+            // Only the error name: messages and causes can carry the URL or headers.
+            const name = error instanceof Error ? error.name : typeof error
+            console.warn(
+                `[langsmith] upload failed error=${name} path=${path} flowId=${ids.flowId ?? ''} credential=${JSON.stringify(
+                    ids.shape ?? {}
+                )}`
+            )
+            throw error
+        }
         if (!response.ok) {
-            let path = ''
-            try {
-                path = new URL(typeof input === 'string' ? input : input?.url ?? String(input)).pathname
-            } catch {
-                path = ''
-            }
             console.warn(
                 `[langsmith] upload failed status=${response.status} path=${path} flowId=${ids.flowId ?? ''} credential=${JSON.stringify(
                     ids.shape ?? {}

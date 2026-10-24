@@ -22,6 +22,11 @@ describe('mergeCredentialUpdate', () => {
         expect(merged.redisUrl).toBe('redis://user:pw-test@host:6379')
     })
 
+    it('never saves the mask, even from an older masked URL', () => {
+        const merged = mergeCredentialUpdate(stored, { redisUrl: 'redis://user:\u2022\u2022\u2022\u2022\u2022\u2022@old-host:6379' })
+        expect(merged.redisUrl).toBe('redis://user:pw-test@host:6379')
+    })
+
     it('applies real new values and keeps fields that were not sent', () => {
         const merged = mergeCredentialUpdate(stored, { langSmithApiKey: 'lsv2_pt_new_test_value', redisUrl: 'redis://host:6380' })
         expect(merged).toEqual({

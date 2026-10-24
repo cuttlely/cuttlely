@@ -1619,20 +1619,23 @@ export const transformToCredentialEntity = async (body: ICredentialReqBody): Pro
  * @param {IComponentCredentials} componentCredentials
  * @returns {ICredentialDataDecrypted}
  */
+const URL_PASSWORD_MASK = '\u2022\u2022\u2022\u2022\u2022\u2022'
+
 const maskUrlPassword = (value: string): string | null => {
     try {
         const url = new URL(value)
         if (!url.password) return null
         url.password = 'FLOWISE_MASKED'
-        return url.toString().replace('FLOWISE_MASKED', '\u2022\u2022\u2022\u2022\u2022\u2022')
+        return url.toString().replace('FLOWISE_MASKED', URL_PASSWORD_MASK)
     } catch {
         return null
     }
 }
 
 /**
- * Merges an update into the stored credential values. A value that is the blank placeholder value, or the masked
- * form of the stored URL, is what the client was shown in place of the stored value, so it keeps the stored value.
+ * Merges an update into the stored credential values. A value that is the blank placeholder value, or a URL whose
+ * password is the mask, is what the client was shown in place of the stored value (possibly an older one), so it
+ * keeps the stored value and the mask is never saved as a password.
  */
 export const mergeCredentialUpdate = (
     stored: ICredentialDataDecrypted,
@@ -1644,7 +1647,7 @@ export const mergeCredentialUpdate = (
         const value = incoming[name]
         const current = stored[name]
         if (value === REDACTED_CREDENTIAL_VALUE) continue
-        if (typeof value === 'string' && typeof current === 'string' && value !== current && maskUrlPassword(current) === value) continue
+        if (typeof value === 'string' && value !== current && value.includes(URL_PASSWORD_MASK)) continue
         merged[name] = value
     }
     return merged
