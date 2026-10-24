@@ -4263,6 +4263,27 @@ check(
     stallError?.code === 'model_failed' && stallCalls.length === 1,
     stallError?.message || stallCalls.join(',')
 )
+const seenCallbacks = []
+const traceManager = { name: 'trace-callbacks' }
+await invokeChat(
+    onceChat(async (_messages, opts) => {
+        seenCallbacks.push(opts?.callbacks)
+        return 'ok'
+    }),
+    { messages: [{ role: 'user', content: 'hi' }], timeoutMs: 1000, callbacks: traceManager }
+)
+await invokeChat(
+    onceChat(async (_messages, opts) => {
+        seenCallbacks.push(opts?.callbacks)
+        return 'ok'
+    }),
+    { messages: [{ role: 'user', content: 'hi' }], timeoutMs: 1000 }
+)
+check(
+    'a model call gets the tracer callbacks it is given, and none otherwise',
+    seenCallbacks[0] === traceManager && Array.isArray(seenCallbacks[1]) && seenCallbacks[1].length === 0,
+    String(seenCallbacks.length)
+)
 const busyCalls = []
 let busyError = null
 try {

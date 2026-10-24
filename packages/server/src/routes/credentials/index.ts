@@ -10,9 +10,6 @@ router.post('/', requirePermission('credentials:create'), credentialsController.
 router.get('/', requirePermission('credentials:view'), credentialsController.getAllCredentials)
 router.get(['/', '/:id'], requireAnyPermission('credentials:create,credentials:update'), credentialsController.getCredentialById)
 
-// REVEAL
-router.get('/:id/reveal', requireAnyPermission('credentials:create,credentials:update'), credentialsController.revealCredentialById)
-
 // UPDATE
 router.put(['/', '/:id'], requireAnyPermission('credentials:create,credentials:update'), credentialsController.updateCredential)
 

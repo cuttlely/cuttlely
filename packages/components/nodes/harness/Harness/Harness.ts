@@ -1,4 +1,5 @@
 import { DynamicTool } from '@langchain/core/tools'
+import { CallbackManager } from '@langchain/core/callbacks/manager'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../src/Interface'
 import { HarnessFlowOptions, loadHarnessEngine } from '../engine'
 import { addSingleFileToStorage, getFileFromStorage } from '../../../src/storageUtils'
@@ -105,7 +106,7 @@ class Harness_Harness implements INode {
             name: 'harness',
             description: harnessToolDescription(harnessName),
             returnDirect: nodeData.inputs?.returnDirect !== false && nodeData.inputs?.returnDirect !== 'false',
-            func: async (task: string, runManager?: { handlers?: unknown[] }) => {
+            func: async (task: string, runManager?: ToolRunManager) => {
                 const payload = await runNamedHarness(
                     harnessName,
                     harnessToolInput(nodeData, userMessage, task),
@@ -114,7 +115,8 @@ class Harness_Harness implements INode {
                     runManager,
                     streamed,
                     [],
-                    harnessToolMetadata(nodeData, userMessage, task)
+                    harnessToolMetadata(nodeData, userMessage, task),
+                    harnessTraceCallbacks(runManager)
                 )
                 rememberToolPayload(options, payload)
                 // The tool returns answer text only. The ending-node path records Harness.run; this closure records the tool.
@@ -367,6 +369,26 @@ function abortSignalOf(options: ICommonObject): AbortSignal | undefined {
     return undefined
 }
 
+type ToolRunManager = {
+    handlers?: unknown[]
+    getChild?: (tag?: string) => { handlers?: unknown[]; getParentRunId?: () => string | undefined }
+}
+
+/**
+ * The LangSmith tracers of the Harness tool run, as a child callback manager, so harness model steps show up
+ * as child runs of the tool run. Other handlers (the token counter, streamers) are left out: the tool records
+ * its usage once and streams through its own events.
+ */
+function harnessTraceCallbacks(runManager?: ToolRunManager): CallbackManager | undefined {
+    const child = typeof runManager?.getChild === 'function' ? runManager.getChild('harness') : undefined
+    if (!child) return undefined
+    const tracers = (child.handlers ?? []).filter((handler) => (handler as { name?: string } | null)?.name === 'langchain_tracer')
+    if (!tracers.length) return undefined
+    const manager = new CallbackManager(child.getParentRunId?.())
+    for (const tracer of tracers) manager.addHandler(tracer as any, true)
+    return manager
+}
+
 async function runNamedHarness(
     harnessName: string,
     input: string,
@@ -375,7 +397,8 @@ async function runNamedHarness(
     runManager?: { handlers?: unknown[] },
     streamed?: { answer: boolean },
     images: string[] = [],
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    callbacks?: CallbackManager
 ) {
     const engine = await loadHarnessEngine()
     const chatId = (options.chatId as string) || (options.sessionId as string)
@@ -416,7 +439,8 @@ async function runNamedHarness(
                 if (typeof id === 'string') runId = id
             },
             ...(images.length ? { images } : {}),
-            ...(metadata ? { metadata } : {})
+            ...(metadata ? { metadata } : {}),
+            ...(callbacks ? { callbacks } : {})
         })
         const jobRunId = takeJobRunId(payload)
         if (!runId && jobRunId) runId = jobRunId
@@ -513,5 +537,6 @@ module.exports = {
     recordHarnessToolUsage,
     harnessToolInput,
     harnessToolMetadata,
-    rememberToolPayload
+    rememberToolPayload,
+    harnessTraceCallbacks
 }

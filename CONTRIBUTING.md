@@ -86,7 +86,7 @@ The server redacts both `url` and `password` fields before returning credential 
 Use `type: 'url'` for connection strings with embedded credentials:
 
 -   Connection URLs that embed a username/password (e.g. `mongodb+srv://user:pass@host/db`, `redis://:pass@host`, `postgresql://user:pass@host/db`)
--   Displayed with the password portion masked (e.g. `mongodb+srv://user:••••••@host/db`); users with edit permission can reveal the full URL
+-   Displayed with the password portion masked (e.g. `mongodb+srv://user:••••••@host/db`); to change it, enter the full URL with its password
 
 Use `type: 'password'` for opaque secrets with no meaningful preview:
 

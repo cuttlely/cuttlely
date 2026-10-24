@@ -1,0 +1,165 @@
+import { AsyncLocalStorage } from 'async_hooks'
+import { AsyncLocalStorageProviderSingleton } from '@langchain/core/singletons'
+import { Client } from 'langsmith'
+import { additionalCallbacks } from './handler'
+import * as utils from './utils'
+import { pbkdf2Sync } from 'crypto'
+import { describeLangSmithCredential, keepConfiguredLangSmithTarget, langSmithFailureLoggingFetch } from './langsmithCredentialDiagnostics'
+
+describe('describeLangSmithCredential', () => {
+    const key = 'lsv2_pt_' + 'a'.repeat(40) + '_' + 'b'.repeat(10)
+
+    it('reports the shape without the key', () => {
+        const shape = describeLangSmithCredential(
+            'cred-1',
+            { langSmithApiKey: key, langSmithEndpoint: 'https://api.smith.langchain.com' },
+            key,
+            'https://api.smith.langchain.com',
+            'proj'
+        )
+        expect(shape).toEqual({
+            credentialId: 'cred-1',
+            credentialDataEmpty: false,
+            fieldNames: ['langSmithApiKey', 'langSmithEndpoint'],
+            apiKeyPrefix: 'lsv2_',
+            apiKeyLength: key.length,
+            apiKeyFingerprint: pbkdf2Sync(key, 'cuttlely-langsmith-fingerprint', 2000, 6, 'sha256').toString('hex'),
+            endpoint: 'https://api.smith.langchain.com',
+            project: 'proj'
+        })
+        expect(JSON.stringify(shape)).not.toContain(key.slice(5))
+    })
+
+    it('flags empty credential data and a missing key', () => {
+        const shape = describeLangSmithCredential('cred-2', {}, undefined, undefined, undefined)
+        expect(shape.credentialDataEmpty).toBe(true)
+        expect(shape.apiKeyLength).toBe(0)
+        expect(shape.apiKeyPrefix).toBe('')
+        expect(shape.apiKeyFingerprint).toBe('')
+        expect(shape.endpoint).toBe('(default)')
+        expect(shape.project).toBe('(default)')
+    })
+
+    it('shows less of a short value', () => {
+        expect(describeLangSmithCredential('c', {}, 'abcdefgh', '', '').apiKeyPrefix).toBe('ab')
+    })
+})
+
+describe('langSmithFailureLoggingFetch', () => {
+    const realFetch = global.fetch
+    afterEach(() => {
+        global.fetch = realFetch
+        jest.restoreAllMocks()
+    })
+
+    it('logs failed uploads with the flow id and the credential shape', async () => {
+        global.fetch = jest.fn().mockResolvedValue(new Response('forbidden', { status: 403 })) as any
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const shape = describeLangSmithCredential('cred-1', { langSmithApiKey: 'x' }, 'lsv2_pt_secretvalue', '', 'proj')
+        const res = await langSmithFailureLoggingFetch({ flowId: 'flow-1', shape })('https://api.smith.langchain.com/runs/multipart', {
+            headers: { 'x-api-key': 'secret-value' }
+        })
+        expect(res.status).toBe(403)
+        expect(warn).toHaveBeenCalledTimes(1)
+        const line = warn.mock.calls[0][0] as string
+        expect(line).toContain('status=403')
+        expect(line).toContain('path=/runs/multipart')
+        expect(line).toContain('flowId=flow-1')
+        expect(line).toContain('"credentialId":"cred-1"')
+        expect(line).toContain('"apiKeyPrefix":"lsv2"')
+        expect(line).not.toContain('secret-value')
+        expect(line).not.toContain('secretvalue')
+    })
+
+    it('hands the SDK the status and headers of a failed response but not its body or status text', async () => {
+        global.fetch = jest.fn().mockResolvedValue(
+            new Response('echo x-api-key: secret-value', {
+                status: 429,
+                statusText: 'echo secret-value',
+                headers: { 'retry-after': '3' }
+            })
+        ) as any
+        jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const res = await langSmithFailureLoggingFetch({ flowId: 'flow-1' })('https://api.smith.langchain.com/runs/multipart')
+        expect(res.ok).toBe(false)
+        expect(res.status).toBe(429)
+        expect(res.statusText).toBe('')
+        expect(res.headers.get('retry-after')).toBe('3')
+        const body = await res.text()
+        expect(body).toBe('LangSmith request failed with status 429')
+        expect(body).not.toContain('secret-value')
+    })
+
+    it('logs a request that fails outright and rethrows it without the original message', async () => {
+        const err = new TypeError('fetch failed https://u:secret-value@api.example.test/?token=secret-value')
+        global.fetch = jest.fn().mockRejectedValue(err) as any
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const shape = describeLangSmithCredential('cred-1', {}, 'lsv2_pt_secretvalue', '', 'proj')
+        await expect(
+            langSmithFailureLoggingFetch({ flowId: 'flow-1', shape })('https://api.smith.langchain.com/runs/multipart')
+        ).rejects.toMatchObject({ name: 'TypeError', message: 'LangSmith request failed (TypeError)' })
+        expect(warn).toHaveBeenCalledTimes(1)
+        const line = warn.mock.calls[0][0] as string
+        expect(line).toContain('error=TypeError')
+        expect(line).toContain('path=/runs/multipart')
+        expect(line).toContain('flowId=flow-1')
+        expect(line).toContain('"credentialId":"cred-1"')
+        expect(line).not.toContain('secret-value')
+        expect(line).not.toContain('secretvalue')
+    })
+
+    it('logs only the origin and path of the endpoint', () => {
+        const shape = describeLangSmithCredential('c', {}, '', 'https://u:secret-value@eu.api.example.test/base?token=secret-value#x', 'p')
+        expect(shape.endpoint).toBe('https://eu.api.example.test/base')
+        expect(describeLangSmithCredential('c', {}, '', 'not a url secret-value', 'p').endpoint).toBe('(unparsed)')
+    })
+
+    it('stays quiet on success', async () => {
+        global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 202 }) as any
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        await langSmithFailureLoggingFetch({})('https://api.smith.langchain.com/runs/multipart')
+        expect(warn).not.toHaveBeenCalled()
+    })
+})
+
+describe('keepConfiguredLangSmithTarget', () => {
+    it('keepConfiguredLangSmithTarget restores the client and project', () => {
+        const client = {}
+        const tracer = { client: {}, projectName: 'default' }
+        keepConfiguredLangSmithTarget(tracer, { client, projectName: 'NAVI-Micro' })
+        expect(tracer.client).toBe(client)
+        expect(tracer.projectName).toBe('NAVI-Micro')
+        keepConfiguredLangSmithTarget(tracer, {})
+        expect(tracer.client).toBe(client)
+        expect(tracer.projectName).toBe('default')
+    })
+})
+
+describe('LangSmith tracer inside runWithAbortSignal', () => {
+    beforeAll(() => {
+        AsyncLocalStorageProviderSingleton.initializeGlobalInstance(new AsyncLocalStorage())
+    })
+    afterEach(() => jest.restoreAllMocks())
+
+    it('the tracer from additionalCallbacks keeps the credential client and the flow project', async () => {
+        jest.spyOn(utils, 'getCredentialData').mockResolvedValue({
+            langSmithApiKey: 'lsv2_pt_test_only_value',
+            langSmithEndpoint: 'https://api.smith.langchain.com'
+        })
+        const options = {
+            chatflowid: 'flow-1',
+            analytic: JSON.stringify({ langSmith: { status: true, credentialId: 'cred-1', projectName: 'NAVI-Micro' } })
+        }
+        const signal = new AbortController().signal
+        await AsyncLocalStorageProviderSingleton.runWithConfig({ signal }, async () => {
+            // The abort signal still reaches runnables through the implicit config.
+            expect(AsyncLocalStorageProviderSingleton.getRunnableConfig()?.signal).toBe(signal)
+            const callbacks = await additionalCallbacks({ inputs: {} } as any, options)
+            const tracer = callbacks.find((cb: any) => cb?.name === 'langchain_tracer')
+            expect(tracer).toBeDefined()
+            expect(tracer.projectName).toBe('NAVI-Micro')
+            expect(tracer.client).toBeInstanceOf(Client)
+            expect((tracer.client as any).apiKey).toBe('lsv2_pt_test_only_value')
+        })
+    })
+})

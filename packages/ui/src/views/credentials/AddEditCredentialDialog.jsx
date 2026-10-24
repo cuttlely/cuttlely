@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import PropTypes from 'prop-types'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useDispatch } from 'react-redux'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
 import parser from 'html-react-parser'
@@ -25,11 +25,11 @@ import useApi from '@/hooks/useApi'
 
 // utils
 import useNotifier from '@/utils/useNotifier'
-import { useAuth } from '@/hooks/useAuth'
 import { initializeDefaultNodeData } from '@/utils/genericHelper'
 
 // const
-import { baseURL, REDACTED_CREDENTIAL_VALUE } from '@/store/constant'
+import { baseURL } from '@/store/constant'
+import { credentialSaveValues, saveErrorMessage } from '@/utils/credentialSaveValues'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 import keySVG from '@/assets/images/key.svg'
 
@@ -42,9 +42,6 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
 
     useNotifier()
 
-    const { hasPermission } = useAuth()
-    const canReveal = hasPermission('credentials:create') || hasPermission('credentials:update')
-
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
     const closeSnackbar = (...args) => dispatch(closeSnackbarAction(...args))
 
@@ -54,9 +51,9 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
     const [credential, setCredential] = useState({})
     const [name, setName] = useState('')
     const [credentialData, setCredentialData] = useState({})
+    const shownCredentialData = useRef({})
     const [componentCredential, setComponentCredential] = useState({})
     const [shared, setShared] = useState(false)
-    const [revealedData, setRevealedData] = useState(null)
 
     useEffect(() => {
         if (getSpecificCredentialApi.data) {
@@ -68,6 +65,8 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
                     setName(getSpecificCredentialApi.data.name)
                 }
                 if (getSpecificCredentialApi.data.plainDataObj) {
+                    // The inputs edit this object in place, so keep a copy of what was shown to compare against.
+                    shownCredentialData.current = { ...getSpecificCredentialApi.data.plainDataObj }
                     setCredentialData(getSpecificCredentialApi.data.plainDataObj)
                 }
                 getSpecificComponentCredentialApi.request(getSpecificCredentialApi.data.credentialName)
@@ -98,7 +97,6 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
     }, [getSpecificComponentCredentialApi.error])
 
     useEffect(() => {
-        setRevealedData(null)
         if (dialogProps.type === 'EDIT' && dialogProps.data) {
             // When credential dialog is opened from Credentials dashboard
             getSpecificCredentialApi.request(dialogProps.data.id)
@@ -123,16 +121,12 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
         return () => dispatch({ type: HIDE_CANVAS_DIALOG })
     }, [show, dispatch])
 
-    const isMaskedUrlValue = (value) => typeof value === 'string' && value.includes('\u2022\u2022\u2022\u2022\u2022\u2022')
-
-    const handleRevealField = async (fieldName) => {
-        let data = revealedData
-        if (!data) {
-            const resp = await credentialsApi.revealCredential(credential.id)
-            data = resp.data.plainDataObj
-            setRevealedData(data)
+    const savableCredentialData = () => {
+        const { plainDataObj, maskedEdits } = credentialSaveValues(credentialData, shownCredentialData.current)
+        if (maskedEdits.length) {
+            throw new Error(`Enter the full URL, password included, to change ${maskedEdits.join(', ')}`)
         }
-        return data[fieldName]
+        return plainDataObj
     }
 
     const addNewCredential = async () => {
@@ -161,9 +155,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
         } catch (error) {
             if (setError) setError(error)
             enqueueSnackbar({
-                message: `Failed to add new Credential: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to add new Credential: ${saveErrorMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -186,12 +178,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
                 credentialName: componentCredential.name
             }
 
-            let plainDataObj = {}
-            for (const key in credentialData) {
-                if (credentialData[key] !== REDACTED_CREDENTIAL_VALUE && !isMaskedUrlValue(credentialData[key])) {
-                    plainDataObj[key] = credentialData[key]
-                }
-            }
+            const plainDataObj = savableCredentialData()
             if (Object.keys(plainDataObj).length) saveObj.plainDataObj = plainDataObj
 
             const saveResp = await credentialsApi.updateCredential(credential.id, saveObj)
@@ -213,9 +200,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
         } catch (error) {
             if (setError) setError(error)
             enqueueSnackbar({
-                message: `Failed to save Credential: ${
-                    typeof error.response.data === 'object' ? error.response.data.message : error.response.data
-                }`,
+                message: `Failed to save Credential: ${saveErrorMessage(error)}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -254,12 +239,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
                     credentialName: componentCredential.name
                 }
 
-                let plainDataObj = {}
-                for (const key in credentialData) {
-                    if (credentialData[key] !== REDACTED_CREDENTIAL_VALUE && !isMaskedUrlValue(credentialData[key])) {
-                        plainDataObj[key] = credentialData[key]
-                    }
-                }
+                const plainDataObj = savableCredentialData()
                 if (Object.keys(plainDataObj).length) saveObj.plainDataObj = plainDataObj
 
                 const saveResp = await credentialsApi.updateCredential(credential.id, saveObj)
@@ -496,14 +476,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
                     componentCredential.inputs &&
                     componentCredential.inputs
                         .filter((inputParam) => inputParam.hidden !== true)
-                        .map((inputParam, index) => (
-                            <CredentialInputHandler
-                                key={index}
-                                inputParam={inputParam}
-                                data={credentialData}
-                                onReveal={dialogProps.type === 'EDIT' && canReveal ? handleRevealField : undefined}
-                            />
-                        ))}
+                        .map((inputParam, index) => <CredentialInputHandler key={index} inputParam={inputParam} data={credentialData} />)}
 
                 {!shared && componentCredential && componentCredential.name && componentCredential.name.includes('OAuth2') && (
                     <Box sx={{ p: 2 }}>
