@@ -355,7 +355,7 @@ export async function recompileBeforeHermes(gateway: {
         // Whatever failed above, no config.yaml from an older compiler or a half-written one may stay where the
         // runtime loads it: they are set aside, and if one cannot be (or the profiles cannot be read), health stays
         // at 503 so the runtime does not start on it. That is a failed pass, not a finished one.
-        let loadable: string[]
+        let loadable: string[] = []
         try {
             const profile = await loadHarness('profile.mjs')
             loadable = await withProfileLock(async () => profile.setAsideOutdatedConfigs())
