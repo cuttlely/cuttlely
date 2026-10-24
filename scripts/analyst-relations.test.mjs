@@ -1432,6 +1432,22 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             setCheckGapHookForTests(null)
             await owner.query('DROP FUNCTION IF EXISTS public.lower(varchar)')
         }
+        // Adding a default to an existing two-argument overload changes which function lower(varchar) reaches.
+        await owner.query(`CREATE FUNCTION public.lower(varchar, text) RETURNS text LANGUAGE sql AS 'SELECT pg_sleep(0)::text'`)
+        setCheckGapHookForTests(() =>
+            owner.query(
+                `CREATE OR REPLACE FUNCTION public.lower(varchar, text DEFAULT '') RETURNS text LANGUAGE sql AS 'SELECT pg_sleep(0)::text'`
+            )
+        )
+        try {
+            await refusal(
+                queryAnalystUrl(url, "SELECT lower('A'::varchar) AS v LIMIT 1", { readOnlySql: true }),
+                /changed while it was being checked/
+            )
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('DROP FUNCTION IF EXISTS public.lower(varchar, text)')
+        }
         // Moving an existing operator to another schema changes the digest too.
         setCheckGapHookForTests(() => owner.query('ALTER OPERATOR public.=== (int, int) SET SCHEMA tools'))
         try {
@@ -1515,6 +1531,23 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             )
         } finally {
             await owner.query('DROP TYPE public.span; DROP FUNCTION public.f8diff(float8, float8)')
+            resetRiskyDomainCacheForTests()
+        }
+        // So is a range over a built-in subtype whose comparison operator class calls a function that is not built in.
+        await owner.query(`CREATE FUNCTION public.f8cmp(float8, float8) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT btfloat8cmp($1, $2)';
+            CREATE OPERATOR CLASS public.f8ops FOR TYPE float8 USING btree AS
+                OPERATOR 1 <, OPERATOR 2 <=, OPERATOR 3 =, OPERATOR 4 >=, OPERATOR 5 >, FUNCTION 1 public.f8cmp(float8, float8);
+            CREATE TYPE public.cspan AS RANGE (subtype = float8, subtype_opclass = public.f8ops)`)
+        resetRiskyDomainCacheForTests()
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }),
+                /types whose input runs code that is not built in.*cspan/
+            )
+        } finally {
+            await owner.query(
+                'DROP TYPE public.cspan; DROP OPERATOR FAMILY public.f8ops USING btree; DROP FUNCTION public.f8cmp(float8, float8)'
+            )
             resetRiskyDomainCacheForTests()
         }
         const ok = await queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM items LIMIT 1', { readOnlySql: true })

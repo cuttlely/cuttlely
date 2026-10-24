@@ -564,6 +564,8 @@ export async function checkStatementScope(client, runner, statement, relations, 
     // A literal of a composite, array or range type runs its element's input while Postgres parses, and a domain
     // element runs its CHECK then, before the query tree exists and while this transaction can still write. So the
     // decision about domains comes first, from the catalog alone, and does not depend on the statement.
+    // Taken before Postgres parses the statement, so an overload created after the parse still differs at run time.
+    const stamp = await routineCatalogStamp(runner)
     const ids = await parsedStatementIds(client, runner, statement, cacheKey)
     const allowed = new Set(relations.map((relation) => relation.oid))
     const outside = [...ids.relations].filter((oid) => !allowed.has(oid))
@@ -588,7 +590,7 @@ export async function checkStatementScope(client, runner, statement, relations, 
     const bodies = await followRelations(runner, ids)
     await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, volatile: true })
     await refuseTypes(runner, ids.types)
-    return { relations: [...ids.relations], bodies, stamp: await routineCatalogStamp(runner) }
+    return { relations: [...ids.relations], bodies, stamp }
 }
 
 // Volatile built-ins the PostgreSQL MCP node still runs: they return values and change nothing. Every other
@@ -651,8 +653,9 @@ export const SCOPE_UNCHECKABLE_ANY =
 
 export async function checkStatementRoutines(client, runner, statement, isRowQuery, cacheKey = '') {
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
-    let ids
+    let ids, stamp
     try {
+        stamp = await routineCatalogStamp(runner)
         ids = await parsedStatementIds(client, runner, statement, cacheKey)
     } catch (error) {
         if (error instanceof ScopeRefusal && error.message === SCOPE_UNCHECKABLE) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
@@ -661,7 +664,7 @@ export async function checkStatementRoutines(client, runner, statement, isRowQue
     const bodies = await followRelations(runner, ids)
     await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, unscoped: true, volatile: true })
     await refuseTypes(runner, ids.types)
-    return { relations: [...ids.relations], bodies, stamp: await routineCatalogStamp(runner) }
+    return { relations: [...ids.relations], bodies, stamp }
 }
 
 const RELATION_BODIES_SQL = `SELECT c.oid::int8 AS oid, c.relkind AS kind,
@@ -717,7 +720,7 @@ const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])
 // A digest of every function, operator and cast outside pg_catalog. A new overload created between the check and
 // the query could change which function a name resolves to, so the query transaction compares it.
 const ROUTINE_STAMP_SQL = `SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) AS stamp FROM (
-    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text FROM pg_proc p
+    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text || ':' || p.pronargdefaults || ':' || coalesce(p.proargdefaults::text, '') || ':' || p.provariadic::oid || ':' || p.prokind::text FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname <> 'pg_catalog'
     UNION ALL SELECT 'o' || o.oid || ':' || o.oprnamespace || ':' || o.oprname || ':' || o.oprleft || ':' || o.oprright || ':' || o.oprcode::oid FROM pg_operator o
     JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE n.nspname <> 'pg_catalog'
@@ -740,7 +743,9 @@ export async function sameRelationBodies(runner, bodies) {
 // literal, before any check can see the statement, so the PostgreSQL MCP node refuses every query on such a database.
 const RISKY_TYPES_SQL = `SELECT DISTINCT format_type(t.oid, NULL) AS name
 FROM pg_type t LEFT JOIN pg_range r ON r.rngtypid = t.oid
-JOIN pg_proc p ON p.oid IN (t.typinput, t.typreceive, t.typoutput, t.typsend, t.typmodin, t.typmodout, r.rngcanonical, r.rngsubdiff)
+LEFT JOIN pg_opclass oc ON oc.oid = r.rngsubopc
+LEFT JOIN pg_amproc ap ON ap.amprocfamily = oc.opcfamily
+JOIN pg_proc p ON p.oid IN (t.typinput, t.typreceive, t.typoutput, t.typsend, t.typmodin, t.typmodout, r.rngcanonical, r.rngsubdiff, ap.amproc)
 JOIN pg_namespace pn ON pn.oid = p.pronamespace
 WHERE pn.nspname <> 'pg_catalog' ORDER BY 1`
 const riskyTypeCache = new Map()
