@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.4.2)
+# Cuttlely FAQ (1.4.3)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,18 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.4.3?
+
+-   With a table selection, a user SQL function runs on its own only when its body is `BEGIN ATOMIC` and it references no relations. PL/pgSQL and string-body SQL need **Allowed functions** on the PostgreSQL MCP node: one `schema.fn(argtypes)` or `schema.fn(*)` per line.
+-   Text search types `regconfig` and `regdictionary` are allowed. Other object-identifier types, such as `regclass`, are refused only while a table selection is set.
+-   At startup, harness profiles compiled by an older version are compiled again. The harness gateway health check returns 503 until that finishes. `GET /api/v1/ping` still answers `pong` when the server is up.
+-   Chat answers keep a slash between words, including a fraction or a date, and still hide server paths.
+-   A LangSmith credential with no key does not use the server's key. Tracing for that flow stays off. A failed upload log records the credential id and the key length.
+-   Deleting a harness removes its agent runtime profile and its specialists' profiles after their gateway tokens are revoked.
+-   The assets preset downloads a file only from public addresses, with a browser-like user agent, and a failed tool call shows as failed.
+
+Full notes: [v1.4.3 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.3).
 
 ### What's new in 1.4.2?
 
