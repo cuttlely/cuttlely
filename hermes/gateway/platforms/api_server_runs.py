@@ -96,17 +96,47 @@ _FIXED_EVENT_FIELDS = {
         "tool": tool, "duration": round(kw.get("duration", 0), 3), "error": kw.get("is_error", False)},
     "reasoning.available": lambda tool, preview, kw: {"text": preview or ""}}
 _TOOL_COMPLETED_PREVIEW_MAX_CHARS = 500
+_TOOL_COMPLETED_ERROR_PREVIEW_MAX_CHARS = 1200
+_TOOL_COMPLETED_ERROR_PREVIEW_HEAD_CHARS = 300
 
 
-def _tool_completed_preview(result: Any, redact_sensitive_text: Callable[..., str]) -> str:
+_FAILED_RESULT_STATUSES = frozenset({"error", "timeout", "interrupted"})
+
+
+def _result_reports_failure(result: Any) -> bool:
+    """A result that says it failed in its own top-level fields (execute_code's status or a non-zero
+    exit code), which the runtime's error flag does not always catch."""
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (ValueError, RecursionError):
+            return False
+    if not isinstance(result, dict):
+        return False
+    code = result.get("exit_code")
+    status = result.get("status")
+    return (isinstance(status, str) and status in _FAILED_RESULT_STATUSES) or (
+        isinstance(code, int) and not isinstance(code, bool) and code != 0)
+
+
+def _tool_completed_preview(result: Any, redact_sensitive_text: Callable[..., str],
+                            is_error: bool = False) -> str:
     """Bounded, secret-redacted result summary for the public run stream — redacted BEFORE
-    truncation so a cut never leaves a secret's prefix on the wire."""
+    truncation so a cut never leaves a secret's prefix on the wire. A failed call keeps its
+    head and its tail, where the exception, the URL and the HTTP status usually are."""
     if result is None:
         return ""
     text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
-    preview = redact_sensitive_text(text, force=True)
-    limit = _TOOL_COMPLETED_PREVIEW_MAX_CHARS
-    return preview if len(preview) <= limit else preview[: limit - 3] + "..."
+    # A failed call's tail usually holds the URL it was fetching, so credential-named query parameters and
+    # user:pass@ userinfo are redacted too before anything reaches the public stream.
+    preview = redact_sensitive_text(text, force=True, redact_url_credentials=True)
+    limit = _TOOL_COMPLETED_ERROR_PREVIEW_MAX_CHARS if is_error else _TOOL_COMPLETED_PREVIEW_MAX_CHARS
+    if len(preview) <= limit:
+        return preview
+    if not is_error:
+        return preview[: limit - 3] + "..."
+    head = _TOOL_COMPLETED_ERROR_PREVIEW_HEAD_CHARS
+    return preview[:head] + " ... " + preview[-(limit - head - 5):]
 
 
 _RUN_STREAM_SUBSCRIBER_OVERFLOW = object()
@@ -331,8 +361,10 @@ def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop
         if fields is not None:
             event_fields = fields(tool_name, preview, kwargs)
             if event_type == "tool.completed":
+                failed = bool(kwargs.get("is_error")) or _result_reports_failure(kwargs.get("result"))
+                event_fields["error"] = failed
                 event_fields["preview"] = _tool_completed_preview(
-                    kwargs.get("result"), redact_sensitive_text)
+                    kwargs.get("result"), redact_sensitive_text, failed)
             _push(_run_event(run_id, event_type, **event_fields))
         elif event_type in {"subagent.start", "subagent.complete"}:
             event = _run_event(run_id, event_type)

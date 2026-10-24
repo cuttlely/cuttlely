@@ -193,8 +193,10 @@ describe('orchestrate samples', () => {
         assert.match(demo, /9\s+\| Follow-up in the same thread[\s\S]*X-IBM-THREAD-ID/)
         assert.match(demo, /thread=none/)
         assert.match(demo, /forwards A2A/)
-        assert.doesNotMatch(how.replace(/`[^`\n]*`/g, ''), /!\[[^\]]*\]\([^)]+\)/)
-        assert.doesNotMatch(demo.replace(/`[^`\n]*`/g, ''), /!\[[^\]]*\]\([^)]+\)/)
+        // No rendered images on these pages. An image link quoted as inline code (the answer format) is text.
+        const outsideCode = (text) => text.replace(/`[^`\n]*`/g, '')
+        assert.doesNotMatch(outsideCode(how), /!\[[^\]]*\]\([^)]+\)/)
+        assert.doesNotMatch(outsideCode(demo), /!\[[^\]]*\]\([^)]+\)/)
         assert.ok(read('docs/README.md').includes('how-to/orchestrate.md'))
         assert.ok(read('docs/README.md').includes('how-to/orchestrate-demo.md'))
         assert.match(read('docs/api.md'), /^## MCP endpoint$/m)

@@ -916,11 +916,13 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     if (chatflow.type !== EnumChatflowType.HARNESS) return
     // Before any insert or update, so a refused key leaves no row behind. The sync checks the same caller again.
     assertCallerMayUseHarnesses(caller, [chatflow.name])
-    // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
-    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, { claiming: true })
+    // The roster is read first so a new name is checked for leftovers under every profile name it compiles into;
+    // a bad flow still answers only after the name check.
     const engine = await loadHarnessSync()
+    let roster: { specialists?: Array<{ name?: unknown }> } | null = null
+    let rosterError: unknown = null
     try {
-        engine.rosterFromFlow({
+        roster = engine.rosterFromFlow({
             name: chatflow.name,
             chatflowId: chatflow.id,
             flowData: chatflow.flowData,
@@ -928,8 +930,21 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
             componentNodes: getRunningExpressApp().nodesPool.componentNodes
         })
     } catch (error) {
-        throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+        rosterError = error
     }
+    // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
+    // Under the same locks as every save: what it claims or clears cannot interleave with another save's check.
+    // A flow whose roster cannot be built gets the name check only, which claims and clears nothing.
+    await harnessesService.withNameLock(chatflow.name, () =>
+        harnessesService.withProfileLock(() =>
+            harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, {
+                claiming: true,
+                readOnly: Boolean(rosterError),
+                record: roster
+            })
+        )
+    )
+    if (rosterError) throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(rosterError))
 }
 
 export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined) {
@@ -944,10 +959,24 @@ export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCall
         logger.warn(`[harness] workspace org lookup failed: ${getErrorMessage(error)}`)
     }
     try {
-        // The name check and the record write hold the name, so a pending canvas delete of the same name cannot interleave.
-        await harnessesService.withNameLock(chatflow.name, async () => {
-            // A name that already belongs to another team, or one a pending delete still holds, is refused before the write.
-            await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
+        // A record deleted while this sync waited for the name is a new claim: what the delete left (profiles whose
+        // runtime did not stop, their workspaces) is cleared for every profile name this roster compiles into, under the
+        // same lock as the write, or the save is refused.
+        let roster: { specialists?: Array<{ name?: unknown }> } | null = null
+        try {
+            roster = engine.rosterFromFlow({
+                name: chatflow.name,
+                chatflowId: chatflow.id,
+                flowData: chatflow.flowData,
+                workspaceId: chatflow.workspaceId,
+                componentNodes
+            })
+        } catch {
+            // The sync below reports a roster that cannot be built.
+        }
+        // The name check and the record write hold the name, so a pending delete of the same name cannot interleave.
+        // A name that already belongs to another team, or one a pending delete still holds, is refused before the write.
+        await harnessesService.syncUnderNameLock(chatflow.name, chatflow.workspaceId, roster, async () => {
             // Warnings are logged by the harness sync. The chatflow response has no warnings field.
             await engine.syncHarnessFromFlow({
                 name: chatflow.name,

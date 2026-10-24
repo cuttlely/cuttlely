@@ -9,10 +9,10 @@ import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
-import { dataRoot, repoRoot, hermesHome, profileDir } from './paths.mjs'
+import { dataRoot, harnessStoreDir, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
-import { installPresetKit, presetInstructions, presetSummary } from './presets.mjs'
+import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
 import { parseRelationSelection } from './runtime/analyst-relations.mjs'
 
 const require = createRequire(import.meta.url)
@@ -326,6 +326,10 @@ function mcpServerBlocks(record) {
     return blocks
 }
 
+function isSpecialistBridge(block) {
+    return block.args?.[0] === path.join(repoRoot(), 'packages', 'harness', 'mcp-bridge.mjs')
+}
+
 function parseServerConfig(mcp) {
     const raw = mcp.inputs?.mcpServerConfig || mcp.config
     if (!raw) return null
@@ -509,7 +513,13 @@ function issueSpecialistToken(record, specialist, profileName, tryProfile) {
     const base = gatewayUrl()
     const previous = readEnvFile(profileEnvPath(specialist.profileName))
     const sameBase = String(previous.OPENAI_BASE_URL || '').replace(/\/$/, '') === base.replace(/\/$/, '')
-    const reusable = sameBase && previous.CUTTLELY_MODEL_KEY === key && /^[A-Za-z0-9_-]{43}$/.test(previous.OPENAI_API_KEY || '')
+    // A published token is reused only for the record it was issued for: a profile left by an earlier harness under
+    // the name (another createdAt, or none) gets a fresh token, so a bearer refused at startup never comes back.
+    const sameRecord = tryProfile
+        ? previous.CUTTLELY_GATEWAY_TRY === '1'
+        : Boolean(record?.createdAt) && previous.CUTTLELY_GATEWAY_CREATED === String(record.createdAt)
+    const reusable =
+        sameBase && sameRecord && previous.CUTTLELY_MODEL_KEY === key && /^[A-Za-z0-9_-]{43}$/.test(previous.OPENAI_API_KEY || '')
     const token = reusable ? previous.OPENAI_API_KEY : crypto.randomBytes(32).toString('base64url')
     registerProfileToken({
         token,
@@ -803,7 +813,8 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile) {
         CUTTLELY_MODEL_KEY: issued.modelKey,
         CUTTLELY_GATEWAY_HARNESS: profileName,
         CUTTLELY_GATEWAY_SPECIALIST: specialist.name,
-        ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : {})
+        // The saved record this token was issued for: a later harness under the same name has another createdAt.
+        ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
     })
 }
 
@@ -817,6 +828,8 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
         const marker = path.join(dir, 'harness-parent')
         if (!fs.existsSync(marker)) continue
         if (fs.readFileSync(marker, 'utf8').trim() !== parent) continue
+        // A folder that is a harness home, or is named after a saved harness, is not a retired specialist.
+        if (fs.existsSync(path.join(dir, 'harness-roster.json')) || fs.existsSync(path.join(harnessStoreDir(), `${entry}.json`))) continue
         const retired = readEnvFile(path.join(dir, '.env'))
         forgetProfileToken(retired.OPENAI_API_KEY)
         fs.rmSync(dir, { recursive: true, force: true })
@@ -824,9 +837,55 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
     }
 }
 
+function markerText(file) {
+    try {
+        return fs.readFileSync(file, 'utf8').trim()
+    } catch {
+        return ''
+    }
+}
+
+// Profile directories this harness would compile into that another harness already has: its home holding another
+// harness's specialist, or a specialist name (joined with "--") holding another harness's home or specialist.
+// Synchronous, so a check and the compile that follows cannot be interleaved with another save in this process.
+export function profileDestinationConflicts(record, profileName = record?.name) {
+    const home = String(profileName || '')
+    // Exact: harness names are case-sensitive while profile names are lowercased, so Alpha and alpha are two owners.
+    const conflicts = []
+    const homeDir = profileDir(home)
+    const homeParent = markerText(path.join(homeDir, 'harness-parent'))
+    if (homeParent && homeParent !== home) conflicts.push(home)
+    // The roster as the save will store it: a preset switches tools on, and that can give a specialist its own profile.
+    const normalized = {
+        ...record,
+        specialists: (record?.specialists || []).map((specialist) =>
+            specialist && typeof specialist === 'object' ? normalizePresetSpecialist({ ...specialist }) : specialist
+        )
+    }
+    for (const specialist of resolveRoster(normalized, home).specialists) {
+        const dest = specialist.profileName
+        if (!dest) continue
+        const dir = profileDir(dest)
+        const parent = markerText(path.join(dir, 'harness-parent'))
+        if ((parent && parent !== home) || fs.existsSync(path.join(dir, 'harness-roster.json'))) conflicts.push(dest)
+    }
+    return conflicts
+}
+
 export function compileProfile(record, options = {}) {
     const profileName = options.profileName || record.name
     const tryProfile = Boolean(options.tryProfile)
+    if (!tryProfile) {
+        const taken = profileDestinationConflicts(record, profileName)
+        if (taken.length) {
+            throw new HarnessError(
+                'name_taken',
+                `Harness "${record.name}" cannot be compiled: ${taken
+                    .map((name) => `profiles/${name}`)
+                    .join(', ')} belongs to another harness. Rename the harness or the specialist.`
+            )
+        }
+    }
     const dir = profileDir(profileName)
     fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
@@ -859,10 +918,11 @@ export function compileProfile(record, options = {}) {
 
     const disabled = [...BLOCKED_UNLESS_ENABLED]
     if (resolved.mixed) disabled.push('delegation')
-    // The parent (router) profile does not call the analyst. Its bridge has no
-    // gateway token, and a failed tools/list would write 0 tools over the file
-    // the specialist bridge just marked ready.
-    const mcpBlocks = mcpServerBlocks(compiled).filter((block) => String(block.env?.CUTTLELY_ANALYST_BRIDGE || '') !== '1')
+    // The parent (router) profile never calls a specialist bridge directly. Each
+    // specialist profile starts its own bridge with a gateway token. A bridge here
+    // has no token, so it fails at boot, and a failed analyst tools/list would
+    // write 0 tools over the file the specialist bridge just marked ready.
+    const mcpBlocks = mcpServerBlocks(compiled).filter((block) => !isSpecialistBridge(block))
     if (resolved.mixed) {
         mcpBlocks.push({
             name: 'roster',
@@ -1093,7 +1153,7 @@ function unserveOnce(name, sock) {
             resolve(value)
         }
         timer = setTimeout(() => finish('timeout'), UNSERVE_TIMEOUT_MS)
-        socket.on('error', () => finish('error'))
+        socket.on('error', (error) => finish(error?.code === 'ECONNREFUSED' || error?.code === 'ENOENT' ? 'down' : 'error'))
         socket.on('data', (chunk) => {
             buf += String(chunk)
             const split = buf.indexOf('\n')
@@ -1106,7 +1166,9 @@ function unserveOnce(name, sock) {
                 return
             }
             const result = parsed?.ok === true ? parsed.result : null
+            const message = String(parsed?.error?.message || parsed?.error || result?.error || '')
             if (result && result.pending !== true && result.unserved === name) finish('unserved')
+            else if (message.includes(`profile '${name}' is not served`)) finish('not-served')
             else finish('pending')
         })
         socket.on('connect', () => {
@@ -1116,13 +1178,74 @@ function unserveOnce(name, sock) {
 }
 
 // Pending, a timeout, or a socket error is not a finished close. Poll until the runtime reports this profile unserved.
-async function unserveRuntimeProfile(name) {
+export async function unserveRuntimeProfile(name) {
     const sock = gatewaySocketPath()
     if (!sock || !name) return false
     for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
         const outcome = await unserveOnce(name, sock)
         if (outcome === 'unserved') return true
         if (attempt + 1 < UNSERVE_ATTEMPTS) await delay(UNSERVE_RETRY_MS)
+    }
+    return false
+}
+
+// For a removal: true only when the runtime is confirmed not to serve this profile any more (it answered that it
+// stopped serving it, said it does not serve it, or there is no socket and no live runtime process). Pending, timeouts and
+// errors are false.
+export async function stopRuntimeProfile(name) {
+    const sock = gatewaySocketPath()
+    if (!name) return false
+    // No socket proves nothing while a runtime process for this home is alive (its socket may have failed to start,
+    // or it listens on a pipe this lookup does not see): the profile is kept then.
+    if (!sock || !fs.existsSync(sock)) return !liveRuntimeRecorded()
+    for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
+        const outcome = await unserveOnce(name, sock)
+        if (outcome === 'unserved' || outcome === 'not-served') return true
+        // A refused or vanished socket is a runtime that is down only when no runtime process of this home is alive.
+        if (outcome === 'down' && !liveRuntimeRecorded()) return true
+        if (attempt + 1 < UNSERVE_ATTEMPTS) await delay(UNSERVE_RETRY_MS)
+    }
+    return false
+}
+
+function pidAlive(pid) {
+    if (!Number.isInteger(pid) || pid <= 0) return false
+    try {
+        process.kill(pid, 0)
+        return true
+    } catch (error) {
+        return error?.code === 'EPERM'
+    }
+}
+
+function readJsonOrNull(file) {
+    try {
+        return JSON.parse(fs.readFileSync(file, 'utf8'))
+    } catch {
+        return null
+    }
+}
+
+// Whether this home's pid record or runtime state names a process that is still alive. A recycled pid only keeps
+// data longer; it never lets a live runtime's profile go.
+export function liveRuntimeRecorded() {
+    const home = hermesHome()
+    const pidRecord = readJsonOrNull(path.join(home, 'gateway.pid'))
+    const pidText =
+        pidRecord == null
+            ? (() => {
+                  try {
+                      return fs.readFileSync(path.join(home, 'gateway.pid'), 'utf8').trim()
+                  } catch {
+                      return ''
+                  }
+              })()
+            : ''
+    const fromPid = Number.parseInt(pidRecord && typeof pidRecord === 'object' ? pidRecord.pid : pidRecord ?? pidText, 10)
+    if (pidAlive(fromPid)) return true
+    const state = readJsonOrNull(path.join(home, 'gateway_state.json'))
+    if (state && typeof state === 'object' && !['stopped', 'startup_failed', undefined, null].includes(state.gateway_state)) {
+        if (pidAlive(Number.parseInt(state.pid, 10))) return true
     }
     return false
 }
@@ -1179,6 +1302,10 @@ function credentialIdsIn(record) {
 // Recompiling writes several files and decrypts credentials; on a Windows-mounted drive
 // that is most of a single-tool turn. The key covers the record, the home it compiles
 // into, and each model credential's updatedDate, so a saved roster or a rotated key recompiles.
+export function forgetCompiledProfile(name) {
+    compiledProfiles.delete(name)
+}
+
 export function compileProfileCached(record) {
     const key = [hermesHome(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
     const cached = compiledProfiles.get(record.name)

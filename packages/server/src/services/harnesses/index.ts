@@ -149,26 +149,11 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
         const { overwrite, ...record } = body
         delete record.workspaceId
         const name = typeof record.name === 'string' ? record.name : ''
-        let existing = null
-        if (name) {
-            try {
-                existing = store.getHarness(name)
-            } catch (error) {
-                throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
-            }
-        }
-        if (existing) {
-            const owner = await ownerOf(existing)
-            // No resolved team is not this caller. The file, including its run history, stays as it is.
-            if (!inWorkspace(owner, ws)) throw nameClash(name)
-            if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
-        } else if (name) {
-            await clearStaleNameData(name)
-        }
-        const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
-        profile.compileProfileCached(saved)
-        warmHarnesses([saved.name])
-        return saved
+        // The name lock is held from the lookup through the compile, so a delete of the name cannot run in between
+        // and leave this save writing over profiles it kept.
+        const save = () => withProfileLock(() => saveUnderName(store, profile, record, overwrite, ws, name))
+        if (!name) return await save()
+        return await withNameLock(name, save)
     } catch (error) {
         if (error instanceof AppError) throw error
         const code = (error as { code?: string })?.code
@@ -177,11 +162,84 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
     }
 }
 
+type HarnessModule = Awaited<ReturnType<typeof loadHarness>>
+
+function assertNoProfileConflicts(profile: HarnessModule, record: Record<string, unknown>, name: string) {
+    let taken: string[] = []
+    try {
+        taken = profile.profileDestinationConflicts({ ...record, name })
+    } catch (error) {
+        // A roster that cannot be resolved (two specialists that land in one profile) would fail its compile after the
+        // record is written, so it is refused here, before anything is written.
+        throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+    }
+    if (taken.length) {
+        throw new AppError(
+            StatusCodes.CONFLICT,
+            `Harness "${name}" was not saved: ${taken
+                .map((entry) => `profiles/${entry}`)
+                .join(', ')} belongs to another harness. Choose another harness or specialist name.`
+        )
+    }
+}
+
+// A record that belongs to another canvas is refused before it is claimed, as the store would refuse the save.
+function assertSameCanvas(existing: { chatflowId?: unknown } | null, record: { chatflowId?: unknown } | null | undefined, name: string) {
+    const had = typeof existing?.chatflowId === 'string' ? existing.chatflowId : ''
+    const given = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
+    if (had && given && had !== given) {
+        throw new AppError(StatusCodes.CONFLICT, `Harness name "${name}" is already used. Choose a different name.`)
+    }
+}
+
+async function saveUnderName(
+    store: HarnessModule,
+    profile: HarnessModule,
+    record: Record<string, unknown>,
+    overwrite: unknown,
+    ws: string,
+    name: string
+) {
+    let existing = null
+    if (name) {
+        try {
+            existing = store.getHarness(name)
+        } catch (error) {
+            throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+        }
+    }
+    // First, before anything is claimed or cleared: a refused save leaves the record and every profile as they were.
+    // An update is checked like a new name.
+    assertNoProfileConflicts(profile, record, name)
+    if (existing) {
+        const owner = await ownerOf(existing)
+        // No resolved team is not this caller. The file, including its run history, stays as it is.
+        if (!inWorkspace(owner, ws)) throw nameClash(name)
+        assertSameCanvas(existing, record, name)
+        if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
+    } else if (name) {
+        await clearStaleNameData(name, record as { specialists?: Array<{ name?: unknown }> })
+    }
+    // Again with no await between it, the save and the compile: two names whose specialists join to the same profile
+    // (a + b--c, a--b + c) cannot both pass.
+    assertNoProfileConflicts(profile, record, name)
+    const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
+    profile.compileProfileCached(saved)
+    warmHarnesses([saved.name])
+    return saved
+}
+
 // A canvas save uses the chat flow's team. A name that already belongs to another team is refused before the file is written.
 // `claiming` is a HARNESS canvas save that creates the record when the name is new.
-export async function assertNameAvailable(name: string, workspaceId?: string | null, opts: { claiming?: boolean } = {}) {
+export async function assertNameAvailable(
+    name: string,
+    workspaceId?: string | null,
+    opts: { claiming?: boolean; readOnly?: boolean; record?: { specialists?: Array<{ name?: unknown }> } | null } = {}
+) {
     const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
+    // A roster that would compile into another harness's profile is refused before anything is claimed or cleared.
+    if (opts.record) assertNoProfileConflicts(await loadHarness('profile.mjs'), opts.record as Record<string, unknown>, name)
     let existing
     try {
         existing = store.getHarness(name)
@@ -189,12 +247,14 @@ export async function assertNameAvailable(name: string, workspaceId?: string | n
         return
     }
     if (!existing) {
-        if (opts.claiming) await clearStaleNameData(name)
+        if (opts.claiming && !opts.readOnly) await clearStaleNameData(name, opts.record)
         else await assertNotStaged(name)
         return
     }
     const owner = await ownerOf(existing)
     if (!inWorkspace(owner, ws)) throw nameClash(name)
+    if (opts.readOnly) return
+    assertSameCanvas(existing, opts.record as { chatflowId?: unknown } | null, name)
     if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
 }
 
@@ -257,6 +317,11 @@ function configureRuntime(): Promise<void> {
                 engine.configureHarnessRuntime({ contextFor })
                 const gateway = await loadHarness('gateway.mjs')
                 await gateway.startGateway()
+                // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
+                const cleanup = await loadHarness('cleanup.mjs')
+                await cleanup.sweepOrphanHarnessProfiles().catch((error: unknown) => {
+                    logger.warn(`[harness] orphan profile sweep failed: ${getErrorMessage(error)}`)
+                })
             })
             .catch((error) => {
                 runtimeConfigured = undefined
@@ -339,6 +404,22 @@ async function isOrphan(record: { chatflowId?: string | null }): Promise<boolean
 // Key lists and the schedule go before the file, and a failure keeps the harness: a later harness with this name
 // must not inherit the old key grants or the old owner's schedule. The file holds the roster, specialists and playbooks.
 async function removeHarnessRecord(name: string, workspaceId: string) {
+    // Gateway tokens first: when revocation fails, nothing of the harness is removed.
+    if (!(await revokeRuntimeTokens(name))) {
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Harness "${name}" was not deleted, because its gateway tokens could not be revoked. Try again.`
+        )
+    }
+    try {
+        await removeRevokedHarness(name, workspaceId)
+    } catch (error) {
+        await reopenRuntimeTokens(name)
+        throw error
+    }
+}
+
+async function removeRevokedHarness(name: string, workspaceId: string) {
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
         await removeHarnessFromKeyLists(workspaceId, name)
@@ -358,8 +439,17 @@ async function removeHarnessRecord(name: string, workspaceId: string) {
             `Harness "${name}" was not deleted, because its schedule could not be removed. Try again.`
         )
     }
-    const store = await loadHarness('store.mjs')
-    store.deleteHarness(name)
+    // Revokes the harness gateway tokens, removes the store file, then its runtime profile and specialist profiles.
+    const cleanup = await loadHarness('cleanup.mjs')
+    try {
+        await cleanup.deleteHarnessAndProfiles(name, { revoked: true })
+    } catch (error) {
+        logger.warn(`[harness] ${name} was not deleted: ${getErrorMessage(error)}`)
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Harness "${name}" was not deleted, because its gateway tokens could not be revoked. Try again.`
+        )
+    }
 }
 
 // Run history and stored results of a deleted harness. Best effort: a leftover run row is not readable once the
@@ -423,6 +513,15 @@ export function resetNameLocks() {
     nameLocks.clear()
 }
 
+// Profile directories are shared across names (a + b--c and a--b + c join to the same one), so every save holds this
+// one lock from its conflict check through its compile. It is always taken after the name lock, never before, and
+// nothing holding it waits for a name lock.
+const PROFILE_LOCK = '\u0000profiles'
+
+export function withProfileLock<T>(fn: () => Promise<T>): Promise<T> {
+    return withNameLock(PROFILE_LOCK, fn)
+}
+
 export async function withNameLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
     const release = await acquireNameLock(name)
     try {
@@ -432,8 +531,55 @@ export async function withNameLock<T>(name: string, fn: () => Promise<T>): Promi
     }
 }
 
-export async function clearStaleNameData(name: string) {
+// A canvas sync: the name check and the record write hold the name lock. The check claims the name with the roster
+// about to be written, so a delete that finished while this waited leaves nothing the write would compile over.
+export async function syncUnderNameLock<T>(
+    name: string,
+    workspaceId: string | null | undefined,
+    roster: { specialists?: Array<{ name?: unknown }> } | null,
+    write: () => Promise<T>
+): Promise<T> {
+    return withNameLock(name, () =>
+        withProfileLock(async () => {
+            await assertNameAvailable(name, workspaceId, { claiming: true, record: roster })
+            return write()
+        })
+    )
+}
+
+// record: the harness about to be saved, when known. The profile names it compiles into (fitted names of long names
+// included) are checked for leftovers too.
+export async function clearStaleNameData(name: string, record?: { specialists?: Array<{ name?: unknown }> } | null) {
     await assertNotStaged(name)
+    // Profiles, sessions and specialist workspaces an earlier delete could not remove (a runtime that did not confirm
+    // it stopped, a file that could not be removed) must not pass to the new harness. When they cannot be removed now,
+    // the save is refused.
+    let leftover: string[] = []
+    try {
+        const cleanup = await loadHarness('cleanup.mjs')
+        const expected: string[] = []
+        if (Array.isArray(record?.specialists)) {
+            const profile = await loadHarness('profile.mjs')
+            for (const specialist of record!.specialists!) {
+                try {
+                    expected.push(profile.specialistProfileName(name, specialist?.name))
+                } catch {
+                    // A name that cannot get a profile fails the save later, with its own message.
+                }
+            }
+        }
+        const outcome = await cleanup.removeHarnessProfiles(name, { reason: 'name saved again', expected })
+        leftover = outcome?.error ? ['(error)'] : outcome?.kept || []
+    } catch (error) {
+        logger.warn(`[harness] leftover profiles of ${name} could not be removed: ${getErrorMessage(error)}`)
+        leftover = ['(error)']
+    }
+    if (leftover.length) {
+        throw new AppError(
+            StatusCodes.SERVICE_UNAVAILABLE,
+            `Harness "${name}" was not saved, because profiles left by an earlier harness with this name could not be removed. Try again.`
+        )
+    }
     try {
         await harnessDeleteHooks.removeSchedule(name)
         const lock = await loadHarness('lock.mjs')
@@ -478,13 +624,16 @@ type KeyListManager = Parameters<typeof import('./apiAccess').removeHarnessFromK
  */
 export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: string, manager?: KeyListManager) {
     const store = await loadHarness('store.mjs')
-    const rows: HarnessRow[] = store
-        .listHarnesses()
-        .filter((row: HarnessRow) => row.chatflowId === chatflowId && (!row.workspaceId || row.workspaceId === workspaceId))
+    const fromCanvas = (row: HarnessRow | null | undefined) =>
+        Boolean(row) && row!.chatflowId === chatflowId && (!row!.workspaceId || row!.workspaceId === workspaceId)
+    let rows: HarnessRow[] = store.listHarnesses().filter(fromCanvas)
     const dir = await storeDir()
     const staged: string[] = []
     const releases: Array<() => void> = []
     for (const row of rows) releases.push(await acquireNameLock(row.name))
+    // Read again under the locks: while this waited, a record may have been deleted, or replaced by a harness of another
+    // canvas or team, which this cascade must not touch.
+    rows = rows.filter((row) => fromCanvas(store.getHarness(row.name)))
     const releaseAll = () => releases.forEach((release) => release())
     const putAllBack = () => {
         for (const name of staged) {
@@ -492,12 +641,30 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
             if (fs.existsSync(from)) putBack(from, path.join(dir, `${name}.json`))
         }
     }
+    const revokedNames: string[] = []
+    const reopenAll = async () => {
+        for (const name of revokedNames) await reopenRuntimeTokens(name)
+    }
     const restore = async () => {
         try {
             putAllBack()
         } finally {
             releaseAll()
+            await reopenAll()
         }
+    }
+    // Gateway tokens before anything in the canvas transaction: a failure throws, so the canvas delete rolls back
+    // with every grant, record, schedule and run still in place.
+    for (const row of rows) {
+        if (!(await revokeRuntimeTokens(row.name))) {
+            releaseAll()
+            await reopenAll()
+            throw new AppError(
+                StatusCodes.INTERNAL_SERVER_ERROR,
+                `Harness "${row.name}" was not deleted, because its gateway tokens could not be revoked. Try again.`
+            )
+        }
+        revokedNames.push(row.name)
     }
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
@@ -510,17 +677,70 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
         await restore()
         throw error
     }
+    // The name locks stay held until every profile, schedule and run of the deleted names is gone, so a canvas sync
+    // cannot save the name again halfway through the cleanup.
     const commit = async () => {
-        releaseAll()
-        for (const name of staged) {
-            fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
-            await harnessDeleteHooks
-                .removeSchedule(name)
-                .catch((error: unknown) => logger.warn(`[harness] schedule cleanup for deleted ${name} failed: ${getErrorMessage(error)}`))
+        try {
+            const finished: string[] = []
+            for (const name of staged) {
+                // Tokens first: when revocation fails the staged record, schedule and runs stay; the startup settle retries.
+                if (!(await revokeRuntimeTokens(name))) continue
+                fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
+                await removeRuntimeProfiles(name)
+                // Stopping the runtime awaits: a record saved under the name meanwhile (outside the lock) owns the
+                // schedule and runs now, so they stay.
+                if (fs.existsSync(path.join(dir, `${name}.json`))) {
+                    logger.warn(`[harness] ${name} was saved again during its delete; its schedule and runs are kept`)
+                    continue
+                }
+                finished.push(name)
+                await harnessDeleteHooks
+                    .removeSchedule(name)
+                    .catch((error: unknown) =>
+                        logger.warn(`[harness] schedule cleanup for deleted ${name} failed: ${getErrorMessage(error)}`)
+                    )
+            }
+            await purgeHarnessRuns(finished)
+        } finally {
+            releaseAll()
         }
-        await purgeHarnessRuns(staged)
     }
     return { names: [...staged], restore, commit }
+}
+
+// A delete that stopped after revokeRuntimeTokens: the harness stays and may register tokens again.
+async function reopenRuntimeTokens(name: string) {
+    try {
+        const cleanup = await loadHarness('cleanup.mjs')
+        cleanup.reopenHarness(name)
+    } catch (error) {
+        logger.warn(`[harness] could not reopen gateway tokens of ${name}: ${getErrorMessage(error)}`)
+    }
+}
+
+// Revokes the gateway tokens of a harness being deleted. false (logged) when that failed: nothing is removed then.
+async function revokeRuntimeTokens(name: string): Promise<boolean> {
+    try {
+        const cleanup = await loadHarness('cleanup.mjs')
+        cleanup.revokeHarness(name)
+        return true
+    } catch (error) {
+        logger.warn(`[harness] kept ${name}: revoking its gateway tokens failed: ${getErrorMessage(error)}`)
+        return false
+    }
+}
+
+// After the record file is gone: its runtime profile and specialist profiles. A failure is logged; the startup sweep
+// reports what is left.
+async function removeRuntimeProfiles(name: string) {
+    try {
+        const cleanup = await loadHarness('cleanup.mjs')
+        await cleanup.removeHarnessProfiles(name, { revoked: true })
+    } catch (error) {
+        logger.warn(`[harness] runtime profiles of deleted ${name} were not removed: ${getErrorMessage(error)}`)
+    } finally {
+        await reopenRuntimeTokens(name)
+    }
 }
 
 // Startup: finish or undo a canvas delete that stopped between staging a record and the end of its transaction.
@@ -544,12 +764,23 @@ async function settleStagedDeletes() {
             putBack(file, path.join(dir, `${name}.json`))
             restored.push(name)
         } else if (canvas?.state === 'missing') {
-            fs.rmSync(file, { force: true })
-            await harnessDeleteHooks.removeSchedule(name).catch(() => undefined)
-            finished.push(name)
+            // Under the name lock, like a delete: a save of the name waits until the cleanup is over, and a record
+            // saved under the name before it took the lock keeps its schedule and runs.
+            const done = await withNameLock(name, async () => {
+                if (!(await revokeRuntimeTokens(name))) return false
+                fs.rmSync(file, { force: true })
+                await removeRuntimeProfiles(name)
+                if (fs.existsSync(path.join(dir, `${name}.json`))) {
+                    logger.warn(`[harness] ${name} was saved again during its delete; its schedule and runs are kept`)
+                    return false
+                }
+                await harnessDeleteHooks.removeSchedule(name).catch(() => undefined)
+                await purgeHarnessRuns([name])
+                return true
+            })
+            if (done) finished.push(name)
         }
     }
-    await purgeHarnessRuns(finished)
     return { restored, finished }
 }
 
@@ -568,13 +799,31 @@ const deleteHarness = async (name: string, workspaceId?: string | null) => {
             `Harness "${name}" was not deleted, because its canvas could not be read. Try again.`
         )
     }
-    if (canvas?.state === 'present' && canvas.type === 'HARNESS' && canvas.workspaceId === ws) {
-        await harnessDeleteHooks.deleteCanvas(harness.chatflowId, ws)
-    }
     const store = await loadHarness('store.mjs')
-    if (store.getHarness(name)) await removeHarnessRecord(name, ws)
-    await purgeHarnessRuns([name])
-    return { name, deleted: true }
+    // A record under the name that is not the one this delete started with was saved since, and is left alone.
+    const replaced = () => {
+        const current = store.getHarness(name)
+        return (
+            Boolean(current) &&
+            (current.chatflowId !== harness.chatflowId ||
+                (current.workspaceId || ws) !== ws ||
+                // Deleted and saved again under the same name and team: a new record, with its own creation time.
+                (current.createdAt || '') !== (harness.createdAt || ''))
+        )
+    }
+    if (canvas?.state === 'present' && canvas.type === 'HARNESS' && canvas.workspaceId === ws) {
+        // The cascade removes the record, its profiles and its runs under the name lock.
+        await harnessDeleteHooks.deleteCanvas(harness.chatflowId, ws)
+        if (replaced()) return { name, deleted: true }
+    }
+    // The name lock is held through the record, profile and run cleanup, so a canvas sync cannot save the name midway.
+    return withNameLock(name, async () => {
+        if (replaced()) return { name, deleted: true }
+        if (store.getHarness(name)) await removeHarnessRecord(name, ws)
+        // Stopping the runtime awaits: a record saved meanwhile owns the run history under the name now.
+        if (!store.getHarness(name)) await purgeHarnessRuns([name])
+        return { name, deleted: true }
+    })
 }
 
 /**
@@ -590,13 +839,24 @@ export async function removeOrphanHarnesses() {
         if (!(await isOrphan(row))) continue
         try {
             const owner = await ownerOf(row)
-            await removeHarnessRecord(row.name, owner || '')
+            // Checked again under the lock: while this waited, another delete may have finished and a canvas sync saved
+            // a new harness under the name, which this sweep must not touch.
+            const done = await withNameLock(row.name, async () => {
+                const current = store.getHarness(row.name) as HarnessRow | undefined
+                if (!current || current.chatflowId !== row.chatflowId || (current.workspaceId || '') !== (row.workspaceId || ''))
+                    return false
+                if (!(await isOrphan(current))) return false
+                await removeHarnessRecord(row.name, owner || '')
+                return true
+            })
+            if (!done) continue
             removed.push(row.name)
         } catch (error) {
             logger.warn(`[harness] orphan ${row.name} was kept: ${getErrorMessage(error)}`)
         }
     }
-    await purgeHarnessRuns(removed)
+    // A name saved again while its runtime was shutting down keeps its run history.
+    await purgeHarnessRuns(removed.filter((name) => !store.getHarness(name)))
     if (removed.length) logger.info(`[harness] removed ${removed.length} harness(es) whose canvas was deleted: ${removed.join(', ')}`)
     return { removed: [...settled.finished, ...removed] }
 }
@@ -614,7 +874,7 @@ function httpHarnessError(error: unknown) {
     const code = (error as { code?: string })?.code
     const message = getErrorMessage(error)
     if (code === 'not_found') return new AppError(StatusCodes.NOT_FOUND, message)
-    if (code === 'name_clash') return new AppError(StatusCodes.CONFLICT, message)
+    if (code === 'name_clash' || code === 'name_taken') return new AppError(StatusCodes.CONFLICT, message)
     if (code === 'bad_name' || code === 'bad_session' || code === 'bad_schedule') return new AppError(StatusCodes.BAD_REQUEST, message)
     if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
     if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
@@ -1103,6 +1363,8 @@ export default {
     removeOrphanHarnesses,
     removeHarnessesForCanvas,
     withNameLock,
+    withProfileLock,
+    syncUnderNameLock,
     assertNameAvailable,
     listHarnesses,
     getHarness,

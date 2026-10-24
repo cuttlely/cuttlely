@@ -41,7 +41,8 @@ jest.mock('langsmith', () => {
         }
     }
     return {
-        Client: jest.fn().mockImplementation(() => ({})),
+        // The handler uses a client only when it holds the credential's key (langSmithClientUsesOwnKey).
+        Client: jest.fn().mockImplementation((config: any) => ({ apiKey: config?.apiKey })),
         RunTree: MockRunTree
     }
 })

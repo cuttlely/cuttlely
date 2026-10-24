@@ -10,7 +10,7 @@ import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpe
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
-import { dataRoot, hermesHome } from './paths.mjs'
+import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { getHarness } from './store.mjs'
@@ -72,6 +72,19 @@ export function gatewayUrl() {
     return `${gatewayOrigin()}/v1`
 }
 
+const closingHarnesses = new Set()
+
+// Between closeHarnessTokens and reopenHarnessTokens no published token of that exact harness name is registered.
+export function closeHarnessTokens(harnessName) {
+    // Tokens on disk are loaded first, so the revocation that follows reaches them and a later lazy load cannot.
+    loadTokensOnce()
+    if (harnessName) closingHarnesses.add(String(harnessName))
+}
+
+export function reopenHarnessTokens(harnessName) {
+    closingHarnesses.delete(String(harnessName || ''))
+}
+
 export function registerProfileToken({ token, harnessName, specialistName, modelKey, profileName, tryProfile = false }) {
     loadTokensOnce()
     // One token per profile directory. Recompiling bakery--shell replaces only that token.
@@ -82,17 +95,38 @@ export function registerProfileToken({ token, harnessName, specialistName, model
             if (meta.profileName === directory && existing !== token) tokens.delete(existing)
         }
     }
-    tokens.set(token, {
+    // A harness being deleted gets no new published token: a run that compiles meanwhile cannot undo the revocation.
+    if (!tryProfile && closingHarnesses.has(String(harnessName || ''))) return
+    const next = {
         harnessName,
         specialistName,
         modelKey: modelKey || '',
         profileName: directory,
         tryProfile: Boolean(tryProfile)
-    })
+    }
+    // An unchanged token keeps its entry, so a request already running under it is not taken for revoked.
+    const current = tokens.get(token)
+    if (current && Object.keys(next).every((key) => current[key] === next[key])) return
+    tokens.set(token, next)
+}
+
+// Whether a token is registered (used by the checks).
+export function profileTokenKnown(token) {
+    return Boolean(token) && tokens.has(token)
 }
 
 export function forgetProfileToken(token) {
     if (token) tokens.delete(token)
+}
+
+// Every published (not try) token of this exact harness name, and every token of the listed profile directories.
+export function revokeHarnessTokens(harnessName, profileNames = [], { harnessWide = true } = {}) {
+    loadTokensOnce()
+    const name = harnessWide ? String(harnessName || '') : ''
+    const directories = new Set(profileNames)
+    for (const [token, meta] of [...tokens]) {
+        if ((name && meta.harnessName === name && !meta.tryProfile) || directories.has(meta.profileName)) tokens.delete(token)
+    }
 }
 
 export function startGateway(options = {}) {
@@ -313,6 +347,13 @@ function ingestProfileTokens(abandoned = new Set()) {
         const specialistName = env.CUTTLELY_GATEWAY_SPECIALIST || ''
         if (!harnessName || !specialistName) continue
         if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
+        // A published token of a deleted harness stays revoked across restarts, even if its profile is still on disk.
+        if (env.CUTTLELY_GATEWAY_TRY !== '1' && !harnessSaved(harnessName)) continue
+        // A harness being deleted gets no published token back from disk either.
+        if (env.CUTTLELY_GATEWAY_TRY !== '1' && closingHarnesses.has(harnessName)) continue
+        // A published token was issued for one saved record. A harness saved again under the name since (another
+        // createdAt, or none recorded) gets fresh tokens when it next compiles, never this one.
+        if (env.CUTTLELY_GATEWAY_TRY !== '1' && !issuedForSavedRecord(harnessName, env.CUTTLELY_GATEWAY_CREATED)) continue
         tokens.set(token, {
             harnessName,
             specialistName,
@@ -321,6 +362,27 @@ function ingestProfileTokens(abandoned = new Set()) {
             tryProfile: env.CUTTLELY_GATEWAY_TRY === '1'
         })
     }
+}
+
+// The harness has a store file (or a staged canvas delete that can still be put back).
+function harnessSaved(name) {
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) return false
+    const dir = harnessStoreDir()
+    return fs.existsSync(path.join(dir, `${name}.json`)) || fs.existsSync(path.join(dir, `${name}.json.deleting`))
+}
+
+function issuedForSavedRecord(name, created) {
+    if (!created) return false
+    const dir = harnessStoreDir()
+    for (const file of [`${name}.json`, `${name}.json.deleting`]) {
+        try {
+            const record = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'))
+            if (record?.createdAt) return record.createdAt === created
+        } catch {
+            // Missing or unreadable: try the other file.
+        }
+    }
+    return false
 }
 
 // A process start loads tokens only after abandoned tries are gone.
@@ -353,6 +415,23 @@ function readEnvFile(file) {
         env[trimmed.slice(0, eq)] = trimmed.slice(eq + 1)
     }
     return env
+}
+
+// A request checks its token again after every await: a delete that revoked the token while the request waited for
+// its body or its owner (and maybe a new harness saved under the name) must not reach that new harness.
+class RevokedDuringRequest extends Error {}
+
+// Checks wait here (after a tool's node is prepared, or a model is resolved) to revoke a token at that point.
+export const gatewayRequestHooks = { beforeRun: null }
+
+async function readyToRun(meta) {
+    if (gatewayRequestHooks.beforeRun) await gatewayRequestHooks.beforeRun(meta)
+    assertStillValid(meta)
+}
+
+function assertStillValid(meta) {
+    for (const value of tokens.values()) if (value === meta) return
+    throw new RevokedDuringRequest('Unauthorized')
 }
 
 function lookupToken(presented) {
@@ -442,7 +521,10 @@ async function onRequest(req, res) {
         if (req.method === 'POST' && pathName === '/harness/tools/list') {
             const record = requireHarness(meta)
             const ctx = await ownerContext(record)
-            sendJson(res, 200, { tools: await toolSpecs(record, meta.specialistName, ctx, meta.profileName) })
+            assertStillValid(meta)
+            const specs = await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
+            assertStillValid(meta)
+            sendJson(res, 200, { tools: specs })
             return
         }
         if (req.method === 'POST' && pathName === '/harness/tools/call') {
@@ -452,6 +534,10 @@ async function onRequest(req, res) {
         sendJson(res, 404, { error: { message: 'Not found', type: 'invalid_request_error' } })
     } catch (error) {
         if (res.writableEnded || res.destroyed) return
+        if (error instanceof RevokedDuringRequest) {
+            sendJson(res, 401, { error: { message: 'Unauthorized', type: 'authentication_error' } })
+            return
+        }
         if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
             if (!res.headersSent) sendJson(res, 499, { error: { message: 'Client disconnected', type: 'aborted' } })
             return
@@ -567,6 +653,7 @@ function finishReason(toolCalls) {
 
 async function completeChat(req, res, meta) {
     const body = await parseJson(req)
+    assertStillValid(meta)
     if (!Array.isArray(body.messages)) {
         sendJson(res, 400, { error: { message: 'messages must be an array.', type: 'invalid_request_error' } })
         return
@@ -577,6 +664,7 @@ async function completeChat(req, res, meta) {
     }
     const record = requireHarness(meta)
     const ctx = await ownerContext(record)
+    assertStillValid(meta)
     const primary = modelBinding(record, meta.specialistName)
     const fallback = fallbackBinding(record, meta.specialistName)
     const bound = bindRequest(req, res, meta.profileName)
@@ -593,7 +681,10 @@ async function completeChat(req, res, meta) {
                 if (deadline) parts.push(deadline)
                 const signal = parts.length > 1 ? AbortSignal.any(parts) : parts[0]
                 const resolved = await resolveModel(binding, ctx)
+                await readyToRun(meta)
                 try {
+                    // Nothing is awaited between this check and the model call starting.
+                    assertStillValid(meta)
                     return await invokeChat(resolved, {
                         messages: body.messages,
                         tools: body.tools,
@@ -615,6 +706,7 @@ async function completeChat(req, res, meta) {
         bound.release()
     }
     if (bound.signal.aborted || res.writableEnded) return
+    assertStillValid(meta)
     const toolCalls = openAiToolCalls(result.toolCalls)
     const created = unixNow()
     const id = `chatcmpl-${crypto.randomBytes(8).toString('hex')}`
@@ -792,12 +884,14 @@ function toolSpec(binding, kind, ownName) {
 
 async function callTool(req, res, meta) {
     const body = await parseJson(req)
+    assertStillValid(meta)
     if (!body.name || typeof body.name !== 'string') {
         sendJson(res, 400, { error: { message: 'Tool name is required.', type: 'invalid_request_error' } })
         return
     }
     const record = requireHarness(meta)
     const ctx = await ownerContext(record)
+    assertStillValid(meta)
     // The page cursor and the analyst session use the saved harness name. meta.harnessName is the try profile.
     const scope = callScope(body.scope, record.name)
     const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? { ...body.arguments } : {}
@@ -811,6 +905,8 @@ async function callTool(req, res, meta) {
         sendJson(res, 200, { result: JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' }) })
         return
     }
+    // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
+    assertStillValid(meta)
     const result = await withAnalystScope(
         scope,
         () =>
@@ -820,10 +916,14 @@ async function callTool(req, res, meta) {
                 componentNodes: ctx.componentNodes,
                 loadNode: ctx.loadNode,
                 flowOptions: ctx.flowOptions,
-                nodeCache: ctx.nodeCache
+                nodeCache: ctx.nodeCache,
+                // Checked once the tool's node is prepared, right before the tool itself runs.
+                beforeCall: () => readyToRun(meta),
+                assertCall: () => assertStillValid(meta)
             }),
         { workspace: record.workspaceId }
     )
+    assertStillValid(meta)
     rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId)
     sendJson(res, 200, { result })
 }

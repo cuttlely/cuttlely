@@ -1,7 +1,7 @@
 import { SAVE_CALLERS, assertHarnessCaller } from './caller.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
-import { compileProfileCached } from './profile.mjs'
+import { compileProfileCached, profileDestinationConflicts } from './profile.mjs'
 import { specialistHandoffChars } from './context.mjs'
 import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
 import { toolCallingWarnings } from './tool-fallback.mjs'
@@ -250,6 +250,17 @@ export function assertFlowLimits({ name, flowData }) {
 export async function syncHarnessFromFlow(args) {
     assertHarnessCaller(args?.name, args?.caller, { allow: SAVE_CALLERS })
     const roster = rosterFromFlow(args)
+    // Checked with no await before the save and compile: a roster that would compile into another harness's profile
+    // is refused before the record is written, so a refused update leaves the saved harness as it was.
+    const taken = profileDestinationConflicts(roster)
+    if (taken.length) {
+        throw new HarnessError(
+            'name_taken',
+            `Harness "${roster.name}" was not saved: ${taken
+                .map((entry) => `profiles/${entry}`)
+                .join(', ')} belongs to another harness. Rename the harness or the specialist.`
+        )
+    }
     const saved = saveHarness(roster, { overwrite: true })
     compileProfileCached(saved)
     if (!args?.componentNodes && !args?.loadNode && !args?.flowOptions) return saved
