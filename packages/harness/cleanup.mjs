@@ -555,7 +555,8 @@ export function reopenHarness(name) {
 // Removes the profiles of one harness that has no store file. Safe to run again after a crash.
 // revoked: the caller already revoked this harness's tokens (and would have stopped on a failure), so a second
 // revocation cannot fail after the caller has removed the store record.
-export async function removeHarnessProfiles(name, { reason = 'harness deleted', revoked = false } = {}) {
+// expected: profile names the harness about to be saved compiles into (fitted tryx names included), checked too.
+export async function removeHarnessProfiles(name, { reason = 'harness deleted', revoked = false, expected = [] } = {}) {
     const id = assertHarnessName(name)
     const trash = trashEntries()
         .filter((item) => item.id === id)
@@ -563,7 +564,7 @@ export async function removeHarnessProfiles(name, { reason = 'harness deleted', 
     const outcome = await removeOwned(id, profilesOf(id), { reason, trash, revoked })
     // Anything a new harness with this name would compile into and that cleanup could not attribute or remove
     // (a linked root or entry, a workspace without its profile) is a leftover too, so the name is not reused over it.
-    const blockers = nameReuseBlockers(id).filter((item) => !outcome.kept.includes(item.replace(/^profiles\//, '')))
+    const blockers = nameReuseBlockers(id, { expected }).filter((item) => !outcome.kept.includes(item.replace(/^profiles\//, '')))
     for (const item of blockers) cleanupHooks.log(`[harness] left over for harness "${id}": ${item}`)
     return blockers.length ? { ...outcome, kept: [...outcome.kept, ...blockers] } : outcome
 }
@@ -573,14 +574,15 @@ export async function removeHarnessProfiles(name, { reason = 'harness deleted', 
 // directory, any profile entry not owned by another harness (a linked one, one whose markers are missing, unreadable
 // or conflicting, one cleanup kept), and a workspace whose profile is gone or is not another harness's.
 // Entries of a saved harness are skipped.
-export function nameReuseBlockers(name) {
+export function nameReuseBlockers(name, { expected = [] } = {}) {
     const id = assertHarnessName(name)
     const lower = id.toLowerCase()
     const saved = savedNames()
     const blockers = []
+    const exact = new Set(expected.map((entry) => String(entry).toLowerCase()))
     const mine = (entry) => {
         const low = entry.toLowerCase()
-        return low === lower || low.startsWith(`${lower}--`)
+        return low === lower || low.startsWith(`${lower}--`) || exact.has(low)
     }
     const otherHarness = (entry) => {
         const owner = profileOwner(entry)

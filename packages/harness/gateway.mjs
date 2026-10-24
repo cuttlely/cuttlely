@@ -342,6 +342,9 @@ function ingestProfileTokens(abandoned = new Set()) {
         if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
         // A published token of a deleted harness stays revoked across restarts, even if its profile is still on disk.
         if (env.CUTTLELY_GATEWAY_TRY !== '1' && !harnessSaved(harnessName)) continue
+        // A published token was issued for one saved record. A harness saved again under the name since (another
+        // createdAt, or none recorded) gets fresh tokens when it next compiles, never this one.
+        if (env.CUTTLELY_GATEWAY_TRY !== '1' && !issuedForSavedRecord(harnessName, env.CUTTLELY_GATEWAY_CREATED)) continue
         tokens.set(token, {
             harnessName,
             specialistName,
@@ -357,6 +360,20 @@ function harnessSaved(name) {
     if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) return false
     const dir = harnessStoreDir()
     return fs.existsSync(path.join(dir, `${name}.json`)) || fs.existsSync(path.join(dir, `${name}.json.deleting`))
+}
+
+function issuedForSavedRecord(name, created) {
+    if (!created) return false
+    const dir = harnessStoreDir()
+    for (const file of [`${name}.json`, `${name}.json.deleting`]) {
+        try {
+            const record = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'))
+            if (record?.createdAt) return record.createdAt === created
+        } catch {
+            // Missing or unreadable: try the other file.
+        }
+    }
+    return false
 }
 
 // A process start loads tokens only after abandoned tries are gone.

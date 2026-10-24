@@ -403,6 +403,22 @@ describe('a reused name never sees an earlier harness data', () => {
         expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(false)
     })
 
+    it('a cascade that waited for the name lock leaves a record replaced meanwhile', async () => {
+        let cascade: Awaited<ReturnType<typeof removeHarnessesForCanvas>> | undefined
+        await harnessesService.withNameLock('navi', async () => {
+            const pending = removeHarnessesForCanvas(CANVAS_NAVI, TEAM, { name: 'tx' } as any)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            write({ name: 'navi', chatflowId: 'canvas-other', workspaceId: 'team-b', specialists: [{ name: 'other' }] })
+            pending.then((value) => (cascade = value))
+        })
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await cascade!.commit()
+        expect(JSON.parse(fs.readFileSync(fileOf('navi'), 'utf8'))).toMatchObject({ chatflowId: 'canvas-other', workspaceId: 'team-b' })
+        expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(false)
+        expect(cleaned).not.toContain('navi')
+        expect(schedules.has('navi')).toBe(true)
+    })
+
     it('a canvas that only names a harness does not clear anything', async () => {
         runRows.push({ table: 'run_history', harness: 'navi-c' })
         await harnessesService.assertNameAvailable('navi-c', 'team-b')
@@ -433,6 +449,22 @@ describe('orphan cleanup migration', () => {
         expect(has('navi-harness')).toBe(true)
         expect(JSON.parse(fs.readFileSync(fileOf('navi-harness'), 'utf8'))).toMatchObject({ chatflowId: CANVAS_NEW })
         expect(cleaned).not.toContain('navi-harness')
+    })
+
+    it('a staged delete settled at startup keeps the schedule and runs of a harness saved during its cleanup', async () => {
+        const CANVAS_NEW = 'canvas-resaved'
+        fs.copyFileSync(fileOf('navi-harness'), path.join(storeDir, 'navi-harness.json.deleting'))
+        fs.rmSync(fileOf('navi-harness'))
+        canvases.set(CANVAS_NEW, { workspaceId: 'team-b', type: 'HARNESS' })
+        duringCleanup = async (name: string) => {
+            if (name === 'navi-harness' && !has('navi-harness'))
+                write({ name: 'navi-harness', chatflowId: CANVAS_NEW, workspaceId: 'team-b', specialists: [{ name: 'scout' }] })
+        }
+        await expect(harnessesService.removeOrphanHarnesses()).resolves.toEqual({ removed: [] })
+        expect(has('navi-harness')).toBe(true)
+        expect(fs.existsSync(path.join(storeDir, 'navi-harness.json.deleting'))).toBe(false)
+        expect(schedules.has('navi-harness')).toBe(true)
+        expect(runRows.some((row) => row.harness === 'navi-harness')).toBe(true)
     })
 
     it('keeps a record when the canvas lookup fails', async () => {

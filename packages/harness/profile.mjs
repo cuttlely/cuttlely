@@ -803,7 +803,8 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile) {
         CUTTLELY_MODEL_KEY: issued.modelKey,
         CUTTLELY_GATEWAY_HARNESS: profileName,
         CUTTLELY_GATEWAY_SPECIALIST: specialist.name,
-        ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : {})
+        // The saved record this token was issued for: a later harness under the same name has another createdAt.
+        ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
     })
 }
 

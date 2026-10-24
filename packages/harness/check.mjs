@@ -14627,7 +14627,7 @@ await (async () => {
     fs.mkdirSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses'), { recursive: true })
     fs.writeFileSync(
         path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', `${savedName}.json`),
-        JSON.stringify({ name: savedName, specialists: [{ name: 'clerk' }] })
+        JSON.stringify({ name: savedName, createdAt: '2026-01-02T03:04:05.000Z', specialists: [{ name: 'clerk' }] })
     )
     const savedDir = tryDir(savedName)
     const savedSpec = `${savedName}--clerk`
@@ -14640,7 +14640,7 @@ await (async () => {
     fs.writeFileSync(path.join(tryDir(savedSpec), 'harness-parent'), `${savedName}\n`)
     fs.writeFileSync(
         path.join(tryDir(savedSpec), '.env'),
-        `OPENAI_API_KEY=${savedToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${savedName}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\n`
+        `OPENAI_API_KEY=${savedToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${savedName}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_CREATED=2026-01-02T03:04:05.000Z\n`
     )
     const savedWork = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', savedName)
     fs.mkdirSync(savedWork, { recursive: true })
@@ -14648,6 +14648,15 @@ await (async () => {
     fs.mkdirSync(tryDir(savedFit), { recursive: true })
     fs.writeFileSync(path.join(tryDir(savedFit), 'harness-parent'), `${savedName}\n`)
     fs.writeFileSync(path.join(tryDir(savedFit), 'SOUL.md'), 'SAVED-FIT\n')
+    // A token issued for an earlier harness under this name (another createdAt) stays revoked after a restart.
+    const staleToken = 'Q'.repeat(43)
+    const staleSpec = `${savedName}--reader`
+    fs.mkdirSync(tryDir(staleSpec), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(staleSpec), 'harness-parent'), `${savedName}\n`)
+    fs.writeFileSync(
+        path.join(tryDir(staleSpec), '.env'),
+        `OPENAI_API_KEY=${staleToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${savedName}\nCUTTLELY_GATEWAY_SPECIALIST=reader\nCUTTLELY_GATEWAY_CREATED=2025-05-05T05:05:05.000Z\n`
+    )
     const publishedDir = tryDir('finance')
     const publishedThere = fs.existsSync(publishedDir)
     bootHarnessGateway()
@@ -14656,7 +14665,10 @@ await (async () => {
     const deadStatus = await status(deadToken)
     const liveStatus = await status(liveToken)
     const savedStatus = await status(savedToken)
+    const staleStatus = await status(staleToken)
     await gateway.close()
+    fs.rmSync(tryDir(staleSpec), { recursive: true, force: true })
+    check('a token issued for an earlier harness under the same name is not reloaded at startup', staleStatus === 401, String(staleStatus))
     const { endLiveTry } = await import('./try-live.mjs')
     endLiveTry(live)
     const savedMemory = fs.readFileSync(path.join(savedDir, 'memory', 'MEMORY.md'), 'utf8')
@@ -16117,6 +16129,17 @@ await (async () => {
             mixedCase.kept.includes('workspaces/mixedteam--reader'),
         JSON.stringify({ torn, mixedCase })
     )
+    // A fitted specialist name of a long harness name (tryx plus a hash) is checked when the save names it.
+    const fittedName = `tryx${'e7'.repeat(8)}`
+    fs.mkdirSync(path.join(workDir, fittedName), { recursive: true })
+    const fitted = await cleanup.removeHarnessProfiles('longteam', { expected: [fittedName] })
+    const unnamed = await cleanup.removeHarnessProfiles('longteam')
+    check(
+        'a leftover workspace under a fitted specialist name blocks the save that compiles into it',
+        fitted.kept.includes(`workspaces/${fittedName}`) && !unnamed.kept.length,
+        JSON.stringify({ fitted, unnamed })
+    )
+    fs.rmSync(path.join(workDir, fittedName), { recursive: true, force: true })
     fs.rmSync(path.join(profilesDir, 'torn'), { recursive: true, force: true })
     fs.rmSync(path.join(workDir, 'torn'), { recursive: true, force: true })
     fs.rmSync(path.join(workDir, 'mixedteam--reader'), { recursive: true, force: true })
