@@ -4,6 +4,17 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-10-23
+
+### Fixed
+
+-   LangSmith traces from flow runs upload again with the flow's configured LangSmith credential and project, instead of a client with no credential and the `default` project. Harness tool steps appear as child runs of the tool run in LangSmith. A failed LangSmith upload is now logged with its status, path and flow id.
+-   Editing a credential no longer overwrites its saved values with the placeholders the dialog shows. The credential dialog asks for the full URL when a masked URL is edited.
+
+### Removed
+
+-   The credential reveal endpoint and the UI call that used it.
+
 ## [1.4.1] - 2026-10-23
 
 ### Fixed
