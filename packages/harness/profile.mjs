@@ -326,6 +326,10 @@ function mcpServerBlocks(record) {
     return blocks
 }
 
+function isSpecialistBridge(block) {
+    return block.args?.[0] === path.join(repoRoot(), 'packages', 'harness', 'mcp-bridge.mjs')
+}
+
 function parseServerConfig(mcp) {
     const raw = mcp.inputs?.mcpServerConfig || mcp.config
     if (!raw) return null
@@ -862,10 +866,11 @@ export function compileProfile(record, options = {}) {
 
     const disabled = [...BLOCKED_UNLESS_ENABLED]
     if (resolved.mixed) disabled.push('delegation')
-    // The parent (router) profile does not call the analyst. Its bridge has no
-    // gateway token, and a failed tools/list would write 0 tools over the file
-    // the specialist bridge just marked ready.
-    const mcpBlocks = mcpServerBlocks(compiled).filter((block) => String(block.env?.CUTTLELY_ANALYST_BRIDGE || '') !== '1')
+    // The parent (router) profile never calls a specialist bridge directly. Each
+    // specialist profile starts its own bridge with a gateway token. A bridge here
+    // has no token, so it fails at boot, and a failed analyst tools/list would
+    // write 0 tools over the file the specialist bridge just marked ready.
+    const mcpBlocks = mcpServerBlocks(compiled).filter((block) => !isSpecialistBridge(block))
     if (resolved.mixed) {
         mcpBlocks.push({
             name: 'roster',

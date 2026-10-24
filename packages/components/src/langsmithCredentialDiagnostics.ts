@@ -1,37 +1,97 @@
-import { pbkdf2Sync } from 'crypto'
-
 /**
  * Safe description of the LangSmith credential a tracer is built with.
- * Never contains the API key itself: only a short prefix, the length and a short fingerprint
- * (PBKDF2-SHA256 with the fixed salt below, so the same key can be compared from another machine).
+ * Nothing derived from the API key value is included, only its length. The credential id says which stored
+ * credential was used; a hash of the value without a server-side secret could be checked against guesses
+ * offline, and a keyed hash would need its own secret to manage, so the id and the length are enough.
  */
 export interface LangSmithCredentialShape {
     credentialId: string
     credentialDataEmpty: boolean
     fieldNames: string[]
-    apiKeyPrefix: string
     apiKeyLength: number
-    apiKeyFingerprint: string
     endpoint: string
     project: string
 }
 
-const PREFIX_LENGTH = 5
-export const FINGERPRINT_SALT = 'cuttlely-langsmith-fingerprint'
-export const FINGERPRINT_ITERATIONS = 2000
+/** Headers of a failed response passed on to the SDK; everything else is dropped. */
+export const FORWARDED_ERROR_HEADERS = ['retry-after', 'content-type'] as const
 
-/** Origin and path only: user info, query and fragment can carry secrets and are left out. */
+/** Origin only: user info, path, query and fragment can carry secrets (a proxy token in the path) and are left out. */
 export const endpointForLog = (endpoint: string): string => {
     try {
         const url = new URL(endpoint)
-        return `${url.protocol}//${url.host}${url.pathname === '/' ? '' : url.pathname}`
+        return `${url.protocol}//${url.host}`
     } catch {
         return '(unparsed)'
     }
 }
 
-export const apiKeyFingerprint = (key: string): string =>
-    key ? pbkdf2Sync(key, FINGERPRINT_SALT, FINGERPRINT_ITERATIONS, 6, 'sha256').toString('hex') : ''
+const KNOWN_OPERATIONS: Array<[RegExp, string]> = [
+    [/\/runs\/multipart$/, '/runs/multipart'],
+    [/\/runs\/batch$/, '/runs/batch'],
+    [/\/runs\/[0-9a-f-]{36}$/i, '/runs/:id'],
+    [/\/runs$/, '/runs'],
+    [/\/info$/, '/info']
+]
+
+/** A fixed name for the LangSmith operation a request path ends in, never the path itself. */
+export const operationForLog = (pathname: string): string => {
+    for (const [pattern, name] of KNOWN_OPERATIONS) if (pattern.test(pathname)) return name
+    return '(other)'
+}
+
+/**
+ * The key as the LangSmith SDK reads it (trimmed, then one pair of surrounding double and then single quotes
+ * removed), repeated until nothing changes, so the SDK's own pass over the result leaves it as it is.
+ */
+export const normalizeLangSmithKey = (apiKey: string): string => {
+    // One linear pass from both ends: whitespace (the set String.prototype.trim removes) and matching
+    // surrounding quote pairs are dropped until neither end has any.
+    let start = 0
+    let end = apiKey.length
+    for (;;) {
+        while (start < end && /\s/.test(apiKey[start])) start++
+        while (end > start && /\s/.test(apiKey[end - 1])) end--
+        const first = apiKey[start]
+        if (end - start >= 2 && (first === '"' || first === "'") && apiKey[end - 1] === first) {
+            start++
+            end--
+            continue
+        }
+        return apiKey.slice(start, end)
+    }
+}
+
+/**
+ * The key and endpoint a flow's LangSmith client is built with, or undefined when the credential has no key
+ * the SDK would keep. The SDK fills a missing key, or one that is blank once it trims spaces and quotes, from
+ * the server's environment key or from a LangSmith profile on the server (API key or OAuth), and that would then
+ * go to the endpoint of the flow's credential, so a flow credential without a usable key gets no client at all
+ * and its tracing is turned off (and logged) instead. The key handed over is the normalized one.
+ */
+export const langSmithClientConfig = (apiKey: unknown, endpoint: unknown): { apiUrl: string; apiKey: string } | undefined => {
+    if (typeof apiKey !== 'string') return undefined
+    const key = normalizeLangSmithKey(apiKey)
+    if (key.trim() === '') return undefined
+    return {
+        apiUrl: typeof endpoint === 'string' && endpoint ? endpoint : 'https://api.smith.langchain.com',
+        apiKey: key
+    }
+}
+
+/**
+ * Second check on a built client: it must hold the flow credential's own key and no server profile
+ * authentication. A client that does not is not used, whatever a later SDK version does with the key.
+ */
+export const langSmithClientUsesOwnKey = (client: unknown, expectedKey: string): boolean => {
+    const c = client as { apiKey?: unknown; profileAuth?: unknown } | undefined
+    return !!c && c.apiKey === expectedKey && c.profileAuth === undefined
+}
+
+/** Logged when a flow's LangSmith tracing is off because its credential has no key. */
+export const warnLangSmithKeyMissing = (flowId: string | undefined, shape: LangSmithCredentialShape): void => {
+    console.warn(`[langsmith] tracing off: credential has no API key flowId=${flowId ?? ''} credential=${JSON.stringify(shape)}`)
+}
 
 export const describeLangSmithCredential = (
     credentialId: string | undefined,
@@ -46,9 +106,7 @@ export const describeLangSmithCredential = (
         credentialId: credentialId ?? '',
         credentialDataEmpty: Object.keys(data).length === 0,
         fieldNames: Object.keys(data).sort(),
-        apiKeyPrefix: key.slice(0, Math.min(PREFIX_LENGTH, Math.floor(key.length / 4))),
         apiKeyLength: key.length,
-        apiKeyFingerprint: apiKeyFingerprint(key),
         endpoint: typeof endpoint === 'string' && endpoint ? endpointForLog(endpoint) : '(default)',
         project: typeof project === 'string' && project ? project : '(default)'
     }
@@ -70,17 +128,17 @@ export const keepConfiguredLangSmithTarget = (
 
 /**
  * fetch wrapper for the LangSmith client that reports failed uploads with the flow id and the credential shape
- * (id, field names, key prefix, length and fingerprint, endpoint origin and path, project), for an error status
+ * (id, field names, key length, endpoint origin, project) and a fixed operation name, for an error status
  * and for a request that fails outright, which is rethrown as a plain error with only its name. The key, the
  * bodies and error messages are not logged or passed on.
  */
 export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: LangSmithCredentialShape }): typeof fetch => {
     return (async (input: any, init?: any) => {
-        let path = ''
+        let path = '(other)'
         try {
-            path = new URL(typeof input === 'string' ? input : input?.url ?? String(input)).pathname
+            path = operationForLog(new URL(typeof input === 'string' ? input : input?.url ?? String(input)).pathname)
         } catch {
-            path = ''
+            path = '(other)'
         }
         let response: Response
         try {
@@ -106,15 +164,21 @@ export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: Lan
                 )}`
             )
             // The SDK puts the response body in the error it logs, and a server or proxy can echo request details
-            // or in the status text. Hand it the same status and headers with a short body and no status text instead.
+            // or in the status text or headers. Hand it the same status with a short body, no status text and only
+            // the headers it needs (retry-after for backoff, content-type for parsing).
             try {
                 await response.body?.cancel()
             } catch {
                 // the body is not needed
             }
+            const headers = new Headers()
+            for (const name of FORWARDED_ERROR_HEADERS) {
+                const value = response.headers?.get?.(name)
+                if (value !== null && value !== undefined) headers.set(name, value)
+            }
             return new Response(`LangSmith request failed with status ${response.status}`, {
                 status: response.status,
-                headers: response.headers
+                headers
             })
         }
         return response
