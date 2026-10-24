@@ -1006,6 +1006,7 @@ packages/server/src/controllers/nvidia-nim/index.ts
 packages/server/src/controllers/openai-assistants-vector-store/index.ts
 packages/server/src/controllers/openai-assistants/index.ts
 packages/server/src/controllers/openai-realtime/index.ts
+packages/server/src/controllers/ping/boot-accept.test.ts
 packages/server/src/controllers/ping/index.ts
 packages/server/src/controllers/predictions/index.ts
 packages/server/src/controllers/prompts-lists/index.ts

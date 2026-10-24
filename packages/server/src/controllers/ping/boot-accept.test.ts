@@ -4,16 +4,16 @@ import path from 'path'
 import express from 'express'
 import request from 'supertest'
 import { StatusCodes } from 'http-status-codes'
-import pingController from '../../controllers/ping'
+import pingController from './index'
 import { AppError } from '../../errors/appError'
-import { BOOT_PASS_CAP_SECONDS, bootPassBlocksPing, resetBootPass } from './bootGate'
+import { BOOT_PASS_CAP_SECONDS, bootPassBlocksPing, resetBootPass } from '../../services/harnesses/bootGate'
 import harnessesService, {
     invokeHarnessForBoot,
     logger,
     recompileBeforeHermes,
     resetHarnessRuntimeForTests,
     setHarnessModuleLoader
-} from './index'
+} from '../../services/harnesses'
 
 const ROOT = path.resolve(__dirname, '../../../../..')
 
