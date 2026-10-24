@@ -1193,7 +1193,9 @@ export async function stopRuntimeProfile(name) {
     if (!sock || !fs.existsSync(sock)) return !liveRuntimeRecorded()
     for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
         const outcome = await unserveOnce(name, sock)
-        if (outcome === 'unserved' || outcome === 'not-served' || outcome === 'down') return true
+        if (outcome === 'unserved' || outcome === 'not-served') return true
+        // A refused or vanished socket is a runtime that is down only when no runtime process of this home is alive.
+        if (outcome === 'down' && !liveRuntimeRecorded()) return true
         if (attempt + 1 < UNSERVE_ATTEMPTS) await delay(UNSERVE_RETRY_MS)
     }
     return false

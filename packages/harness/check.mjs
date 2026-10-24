@@ -377,6 +377,19 @@ const opsProfile = compileProfile(ops)
         fs.writeFileSync(stateFile, JSON.stringify({ gateway_state: 'stopped', pid: process.pid }))
         const stoppedState = await stopRuntimeProfile('sockless--a')
         fs.rmSync(stateFile)
+        // A socket that refuses the connection (stale, its listener gone) is down only with no live process.
+        const staleSock = path.join(home, 'gateway.sock')
+        fs.writeFileSync(staleSock, '')
+        const staleNoRuntime = await stopRuntimeProfile('sockless--a')
+        fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid }))
+        const staleLive = await stopRuntimeProfile('sockless--a')
+        fs.rmSync(pidFile)
+        fs.rmSync(staleSock)
+        check(
+            'a refused control socket counts as a stopped runtime only when no runtime process is alive',
+            staleNoRuntime === true && staleLive === false,
+            JSON.stringify({ staleNoRuntime, staleLive })
+        )
         check(
             'with no control socket a live runtime process keeps its profiles, and no live process lets them go',
             noRuntime === true && livePid === false && liveState === false && stoppedState === true,
@@ -445,6 +458,27 @@ check(
     'canvas roster keeps shell off',
     synced.specialists.every((specialist) => !specialist.shell && !specialist.browser && !specialist.codeExecution)
 )
+// A canvas sync that would compile into another harness's profile is refused before the record is written.
+{
+    const home = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'canvasx')
+    await syncHarnessFromFlow({ name: 'canvasx', chatflowId: 'canvas-x1', flowData: canvas.flowData })
+    fs.writeFileSync(path.join(home, 'harness-parent'), 'other\n')
+    const storedBefore = JSON.stringify(getHarness('canvasx'))
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    let code = ''
+    try {
+        await syncHarnessFromFlow({ name: 'canvasx', chatflowId: 'canvas-x1', flowData: canvas.flowData })
+    } catch (error) {
+        code = error?.code || String(error)
+    }
+    check(
+        'a canvas update that would compile into another harness profile is refused and leaves the saved record',
+        code === 'name_taken' && JSON.stringify(getHarness('canvasx')) === storedBefore,
+        JSON.stringify({ code, same: JSON.stringify(getHarness('canvasx')) === storedBefore })
+    )
+    ;(await import('./store.mjs')).deleteHarness('canvasx')
+    fs.rmSync(home, { recursive: true, force: true })
+}
 const opsCanvas = readJson('samples/harnesses/ops.canvas.json')
 const syncedOps = await syncHarnessFromFlow({ name: 'ops', chatflowId: 'canvas-ops', flowData: opsCanvas.flowData })
 check(
