@@ -17,6 +17,8 @@ sends a browser-like user agent. Standard library only.
 
 import http.client
 import ipaddress
+import os
+import re
 import socket
 import ssl
 import threading
@@ -62,6 +64,9 @@ _BLOCKED_NETWORKS = [
         "64:ff9b:1::/48",  # local-use NAT64 (RFC 8215); Python 3.11 and 3.12 count it as global
     )
 ]
+
+
+_MIME = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}")
 
 
 class FetchError(Exception):
@@ -266,6 +271,8 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
                 current = urljoin(current, location)
                 continue
             content_type = (response.getheader("Content-Type") or "").split(";")[0].strip().lower()
+            if content_type and not _MIME.fullmatch(content_type):
+                content_type = "unrecognized"
             declared = response.getheader("Content-Length")
             if declared and declared.isdigit() and int(declared) > max_bytes:
                 raise FetchError(
@@ -299,7 +306,15 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
         except (OSError, http.client.HTTPException) as error:
             if expired.is_set():
                 raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current) from None
-            raise FetchError(f"fetch failed: {type(error).__name__}: {error}, at {current}", current) from None
+            # Only the error's type and, for OS errors, its errno text: a remote peer controls the rest (a malformed
+            # status line can echo the request target and its query).
+            if isinstance(error, ssl.SSLCertVerificationError):
+                detail = f"certificate check failed ({error.verify_message})"
+            elif isinstance(error, OSError) and not isinstance(error, ssl.SSLError) and isinstance(error.errno, int):
+                detail = os.strerror(error.errno)
+            else:
+                detail = ""
+            raise FetchError(f"fetch failed: {type(error).__name__}{': ' + detail if detail else ''}, at {current}", current) from None
         finally:
             watchdog.cancel()
             connection.close()
@@ -333,5 +348,5 @@ def fetch_asset(url, path, max_bytes=None, timeout_ms=None, types=ASSET_TYPES):
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
-    print(f"saved {target.name}: {len(data)} bytes, {kind}, from {final}")
+    print(f"saved {target.name}: {len(data)} bytes, {kind}, from {shown_url(final)}")
     return target

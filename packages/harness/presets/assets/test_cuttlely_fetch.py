@@ -64,6 +64,12 @@ class Handler(BaseHTTPRequestHandler):
         }
         if self.path.startswith("/files/"):
             return self._send(200, SVG, {"Content-Type": "image/svg+xml"})
+        if self.path.startswith("/echo?"):  # a broken server that reflects the request target as its status line
+            self.wfile.write(self.path.encode() + b"\r\n\r\n")
+            self.close_connection = True
+            return None
+        if self.path.startswith("/odd-type?"):
+            return self._send(200, b"x", {"Content-Type": "text/" + self.path.split("=", 1)[1]})
         routes.get(self.path, lambda: self._send(404, b"missing"))()
 
     def _big_undeclared(self):
@@ -208,6 +214,21 @@ class FetchTest(unittest.TestCase):
                 for secret in ("review-user", "review-secret", "opaque-q"):
                     self.assertNotIn(secret, text, url)
         self.assertEqual(net.shown_url("https://u:p@cdn.test:8443/x.png?sig=1"), "https://cdn.test:8443/x.png?(query hidden)")
+
+    def test_remote_text_never_carries_the_query_into_errors_or_output(self):
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch(self.url("/echo?token=opaque-q"))
+        self.assertNotIn("opaque-q", str(caught.exception))
+        self.assertIn("BadStatusLine", str(caught.exception))
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch_asset(self.url("/odd-type?t=opaque-q/zz"), self.out / "x.png")
+        self.assertNotIn("opaque-q", str(caught.exception))
+        self.assertIn("content type unrecognized", str(caught.exception))
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            net.fetch_asset(self.url("/files/a.svg?sig=opaque-q"), self.out / "a.svg")
+        self.assertIn("saved a.svg", printed.getvalue())
+        self.assertNotIn("opaque-q", printed.getvalue())
 
     def test_a_name_that_rebinds_after_the_check_is_never_connected_to(self):
         # The first answer is the checked one and the connection goes to that address; a second, private

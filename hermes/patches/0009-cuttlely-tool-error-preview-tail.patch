@@ -5,14 +5,14 @@ Subject: [PATCH] cuttlely: tool error preview tail
 
 What: the run stream's tool.completed preview keeps the head and the tail of a failed call's result, up to 1200 characters, instead of cutting it after 500. Successful calls are cut as before. Why: a failed download's exception, URL and HTTP status are at the end of the result, and the harness showed only the start.
 ---
- gateway/platforms/api_server_runs.py | 43 ++++++++++++++++++++++++----
- 1 file changed, 37 insertions(+), 6 deletions(-)
+ gateway/platforms/api_server_runs.py | 44 ++++++++++++++++++++++++----
+ 1 file changed, 38 insertions(+), 6 deletions(-)
 
 diff --git a/gateway/platforms/api_server_runs.py b/gateway/platforms/api_server_runs.py
-index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..9e0ee1dd5b15db64c06542a6d054931be73133c9 100644
+index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..555b55f1e3323c6ca004fb3b6d8c1f4b745bf2ca 100644
 --- a/gateway/platforms/api_server_runs.py
 +++ b/gateway/platforms/api_server_runs.py
-@@ -96,17 +96,46 @@ _FIXED_EVENT_FIELDS = {
+@@ -96,17 +96,47 @@ _FIXED_EVENT_FIELDS = {
          "tool": tool, "duration": round(kw.get("duration", 0), 3), "error": kw.get("is_error", False)},
      "reasoning.available": lambda tool, preview, kw: {"text": preview or ""}}
  _TOOL_COMPLETED_PREVIEW_MAX_CHARS = 500
@@ -35,7 +35,8 @@ index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..9e0ee1dd5b15db64c06542a6d054931b
 +    if not isinstance(result, dict):
 +        return False
 +    code = result.get("exit_code")
-+    return result.get("status") in _FAILED_RESULT_STATUSES or (
++    status = result.get("status")
++    return (isinstance(status, str) and status in _FAILED_RESULT_STATUSES) or (
 +        isinstance(code, int) and not isinstance(code, bool) and code != 0)
 +
 +
@@ -64,7 +65,7 @@ index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..9e0ee1dd5b15db64c06542a6d054931b
  
  
  _RUN_STREAM_SUBSCRIBER_OVERFLOW = object()
-@@ -331,8 +360,10 @@ def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop
+@@ -331,8 +361,10 @@ def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop
          if fields is not None:
              event_fields = fields(tool_name, preview, kwargs)
              if event_type == "tool.completed":

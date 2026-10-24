@@ -114,7 +114,8 @@ def _result_reports_failure(result: Any) -> bool:
     if not isinstance(result, dict):
         return False
     code = result.get("exit_code")
-    return result.get("status") in _FAILED_RESULT_STATUSES or (
+    status = result.get("status")
+    return (isinstance(status, str) and status in _FAILED_RESULT_STATUSES) or (
         isinstance(code, int) and not isinstance(code, bool) and code != 0)
 
 

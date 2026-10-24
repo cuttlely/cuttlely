@@ -74,14 +74,15 @@ f = scope["_result_reports_failure"]
 cases = [json.dumps({"status": "interrupted", "output": "x" * 2000, "exit_code": 130}),
          json.dumps({"status": "timeout"}), json.dumps({"output": "", "exit_code": 2}), {"status": "error"},
          json.dumps({"status": "success", "output": "status: error", "exit_code": 0}), "plain text", None,
-         json.dumps({"exit_code": True}), json.dumps({"nested": {"status": "error"}})]
+         json.dumps({"exit_code": True}), json.dumps({"nested": {"status": "error"}}),
+         json.dumps({"status": []}), json.dumps({"status": {}}), [1, 2]]
 print(json.dumps([f(c) for c in cases]))
 `
 
 test('a result that reports its own failure keeps its tail even without the runtime error flag', () => {
     const result = spawnSync(process.env.HERMES_PYTHON || 'python3', ['-c', FAILURE_PROBE, SOURCE], { encoding: 'utf8', timeout: 30_000 })
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.deepEqual(JSON.parse(result.stdout), [true, true, true, true, false, false, false, false, false])
+    assert.deepEqual(JSON.parse(result.stdout), [true, true, true, true, false, false, false, false, false, false, false, false])
     const text = fs.readFileSync(SOURCE, 'utf8')
     assert.match(text, /failed = bool\(kwargs\.get\("is_error"\)\) or _result_reports_failure\(kwargs\.get\("result"\)\)/)
     assert.match(text, /event_fields\["error"\] = failed/)
