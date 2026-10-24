@@ -352,6 +352,15 @@ async function removeHarnessRecord(name: string, workspaceId: string) {
         )
     }
     try {
+        await removeRevokedHarness(name, workspaceId)
+    } catch (error) {
+        await reopenRuntimeTokens(name)
+        throw error
+    }
+}
+
+async function removeRevokedHarness(name: string, workspaceId: string) {
+    try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
         await removeHarnessFromKeyLists(workspaceId, name)
     } catch (error) {
@@ -513,11 +522,16 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
             if (fs.existsSync(from)) putBack(from, path.join(dir, `${name}.json`))
         }
     }
+    const revokedNames: string[] = []
+    const reopenAll = async () => {
+        for (const name of revokedNames) await reopenRuntimeTokens(name)
+    }
     const restore = async () => {
         try {
             putAllBack()
         } finally {
             releaseAll()
+            await reopenAll()
         }
     }
     // Gateway tokens before anything in the canvas transaction: a failure throws, so the canvas delete rolls back
@@ -525,11 +539,13 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
     for (const row of rows) {
         if (!(await revokeRuntimeTokens(row.name))) {
             releaseAll()
+            await reopenAll()
             throw new AppError(
                 StatusCodes.INTERNAL_SERVER_ERROR,
                 `Harness "${row.name}" was not deleted, because its gateway tokens could not be revoked. Try again.`
             )
         }
+        revokedNames.push(row.name)
     }
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
@@ -560,6 +576,16 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
     return { names: [...staged], restore, commit }
 }
 
+// A delete that stopped after revokeRuntimeTokens: the harness stays and may register tokens again.
+async function reopenRuntimeTokens(name: string) {
+    try {
+        const cleanup = await loadHarness('cleanup.mjs')
+        cleanup.reopenHarness(name)
+    } catch (error) {
+        logger.warn(`[harness] could not reopen gateway tokens of ${name}: ${getErrorMessage(error)}`)
+    }
+}
+
 // Revokes the gateway tokens of a harness being deleted. false (logged) when that failed: nothing is removed then.
 async function revokeRuntimeTokens(name: string): Promise<boolean> {
     try {
@@ -580,6 +606,8 @@ async function removeRuntimeProfiles(name: string) {
         await cleanup.removeHarnessProfiles(name, { revoked: true })
     } catch (error) {
         logger.warn(`[harness] runtime profiles of deleted ${name} were not removed: ${getErrorMessage(error)}`)
+    } finally {
+        await reopenRuntimeTokens(name)
     }
 }
 

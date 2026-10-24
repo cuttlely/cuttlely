@@ -72,6 +72,17 @@ export function gatewayUrl() {
     return `${gatewayOrigin()}/v1`
 }
 
+const closingHarnesses = new Set()
+
+// Between closeHarnessTokens and reopenHarnessTokens no published token of that exact harness name is registered.
+export function closeHarnessTokens(harnessName) {
+    if (harnessName) closingHarnesses.add(String(harnessName))
+}
+
+export function reopenHarnessTokens(harnessName) {
+    closingHarnesses.delete(String(harnessName || ''))
+}
+
 export function registerProfileToken({ token, harnessName, specialistName, modelKey, profileName, tryProfile = false }) {
     loadTokensOnce()
     // One token per profile directory. Recompiling bakery--shell replaces only that token.
@@ -82,6 +93,8 @@ export function registerProfileToken({ token, harnessName, specialistName, model
             if (meta.profileName === directory && existing !== token) tokens.delete(existing)
         }
     }
+    // A harness being deleted gets no new published token: a run that compiles meanwhile cannot undo the revocation.
+    if (!tryProfile && closingHarnesses.has(String(harnessName || ''))) return
     tokens.set(token, {
         harnessName,
         specialistName,
@@ -89,6 +102,11 @@ export function registerProfileToken({ token, harnessName, specialistName, model
         profileName: directory,
         tryProfile: Boolean(tryProfile)
     })
+}
+
+// Whether a token is registered (used by the checks).
+export function profileTokenKnown(token) {
+    return Boolean(token) && tokens.has(token)
 }
 
 export function forgetProfileToken(token) {

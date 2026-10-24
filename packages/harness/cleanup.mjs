@@ -14,7 +14,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { HarnessError } from './errors.mjs'
-import { revokeHarnessTokens } from './gateway.mjs'
+import { closeHarnessTokens, reopenHarnessTokens, revokeHarnessTokens } from './gateway.mjs'
 import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
 import { forgetCompiledProfile, stopRuntimeProfile } from './profile.mjs'
 import { assertHarnessName, deleteHarness } from './store.mjs'
@@ -177,6 +177,13 @@ function trashEntries() {
     if (!root) return []
     const out = []
     for (const entry of fs.readdirSync(root).sort()) {
+        if (entry.endsWith(OWNER_SUFFIX)) {
+            // A note whose parked entry is gone (a crash right before the rename or after the removal).
+            const base = entry.slice(0, -OWNER_SUFFIX.length)
+            const id = PARKED_RE.test(base) && !lstatOrNull(path.join(root, base)) ? ownerNote(root, base) : ''
+            if (id) out.push({ entry: base, id })
+            continue
+        }
         const id = trashOwner(root, entry)
         if (id) out.push({ entry, id })
     }
@@ -186,6 +193,13 @@ function trashEntries() {
 function removeTrashEntry(id, entry, { minAgeMs = 0, now = Date.now } = {}) {
     const root = checkedTrashRoot()
     if (!root) return
+    if (!lstatOrNull(path.join(root, entry))) {
+        if (ownerNote(root, entry) === id) {
+            removeOwnerNote(root, entry)
+            cleanupHooks.log(`[harness] removed ${TRASH}/${entry}${OWNER_SUFFIX} of harness "${id}"`)
+        }
+        return
+    }
     // Checked again right before the removal: the entry may have changed while the runtime was closing.
     if (trashOwner(root, entry) !== id || (minAgeMs && now() - newestChange(entry, root) < minAgeMs)) {
         cleanupHooks.log(`[harness] kept ${TRASH}/${entry}: it changed during cleanup`)
@@ -445,10 +459,22 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
 // Revokes the gateway tokens of a harness and its profiles. Throws when that fails.
 // The compiled profile is forgotten too, so if the delete stops later and the harness stays, its next run compiles
 // again and registers fresh tokens.
+// From here until reopenHarness, no new published token of this harness is registered.
 export function revokeHarness(name) {
     const id = assertHarnessName(name)
-    revoke(id, profilesOf(id))
+    closeHarnessTokens(id)
+    try {
+        revoke(id, profilesOf(id))
+    } catch (error) {
+        reopenHarnessTokens(id)
+        throw error
+    }
     forgetCompiledProfile(id)
+}
+
+// A delete that stopped after revokeHarness, or one that finished: the name may register tokens again.
+export function reopenHarness(name) {
+    reopenHarnessTokens(assertHarnessName(name))
 }
 
 // Removes the profiles of one harness that has no store file. Safe to run again after a crash.
@@ -476,7 +502,11 @@ export async function deleteHarnessAndProfiles(name, { revoked = false } = {}) {
         )
     }
     deleteHarness(id)
-    return removeHarnessProfiles(id, { revoked: true })
+    try {
+        return await removeHarnessProfiles(id, { revoked: true })
+    } finally {
+        reopenHarnessTokens(id)
+    }
 }
 
 export function orphanSweepMode(env = process.env) {

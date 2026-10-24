@@ -16234,6 +16234,36 @@ await (async () => {
         JSON.stringify({ once, revokeCalls, lines })
     )
 
+    // An owner note left alone by a crash is removed by the next run for that harness, and only that harness.
+    reset()
+    fs.writeFileSync(path.join(trash, 'lone--a-ffeeddccbbaa.owner'), 'lone\n')
+    fs.writeFileSync(path.join(trash, 'other--a-ffeeddccbbaa.owner'), 'other\n')
+    await cleanup.removeHarnessProfiles('lone')
+    check(
+        'a standalone owner note is removed for its own harness only',
+        !fs.existsSync(path.join(trash, 'lone--a-ffeeddccbbaa.owner')) && fs.existsSync(path.join(trash, 'other--a-ffeeddccbbaa.owner')),
+        JSON.stringify({ lines, trash: fs.readdirSync(trash) })
+    )
+    fs.rmSync(path.join(trash, 'other--a-ffeeddccbbaa.owner'))
+
+    // While a harness is being deleted, a run that compiles cannot register a published token for it.
+    {
+        const gw = await import('./gateway.mjs')
+        saveJson('closing')
+        cleanup.revokeHarness('closing')
+        gw.registerProfileToken({ token: 'closing-token-0001', harnessName: 'closing', specialistName: 'a', profileName: 'closing--a' })
+        const blocked = !gw.profileTokenKnown('closing-token-0001')
+        cleanup.reopenHarness('closing')
+        gw.registerProfileToken({ token: 'closing-token-0002', harnessName: 'closing', specialistName: 'a', profileName: 'closing--a' })
+        check(
+            'no published token is registered for a harness between revocation and the end of its delete',
+            blocked && Boolean(gw.profileTokenKnown('closing-token-0002')),
+            'closing'
+        )
+        gw.forgetProfileToken('closing-token-0002')
+        dropJson('closing')
+    }
+
     for (const name of ['navi-harness', 'newname', 'capsx']) {
         dropJson(name)
         await cleanup.removeHarnessProfiles(name)

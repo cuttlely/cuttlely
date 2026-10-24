@@ -32,6 +32,7 @@ let storeDir: string
 let failRuns = false
 let cleaned: string[]
 let failCleanup = false
+let reopened: string[] = []
 
 const fileOf = (name: string) => path.join(storeDir, `${name}.json`)
 const has = (name: string) => fs.existsSync(fileOf(name))
@@ -57,6 +58,7 @@ const fakeModules = (file: string) => {
                 cleaned.push(name)
                 fs.rmSync(fileOf(name), { force: true })
             },
+            reopenHarness: (name: string) => reopened.push(name),
             revokeHarness: (name: string) => {
                 if (failCleanup) throw new Error(`revoke failed for ${name}`)
             },
@@ -95,6 +97,7 @@ beforeEach(() => {
     storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-delete-'))
     failRuns = false
     cleaned = []
+    reopened = []
     failCleanup = false
     write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
@@ -144,6 +147,13 @@ describe('card delete', () => {
         await harnessesService.deleteHarness('navi', TEAM)
         expect(cleaned).toEqual(['navi'])
         expect(has('navi-harness')).toBe(true)
+    })
+
+    it('lets a harness register tokens again when its delete stops after revocation', async () => {
+        ;(removeHarnessFromKeyLists as jest.Mock).mockRejectedValueOnce(new Error('api key table locked'))
+        await expect(harnessesService.deleteHarness('NAVI-B', TEAM)).rejects.toMatchObject({ statusCode: 500 })
+        expect(has('NAVI-B')).toBe(true)
+        expect(reopened).toEqual(['NAVI-B'])
     })
 
     it('keeps the harness when its gateway tokens cannot be revoked', async () => {
