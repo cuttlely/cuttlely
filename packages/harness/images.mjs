@@ -190,10 +190,13 @@ function tokenMask(raw, root, continued) {
     // A lone separator such as the '/' in 'A / B' or 'used / entitled' names no location.
     // It is shown as is but starts or keeps a rule 5 continuation, so a following token with a separator
     // (the rest of '/ Reports/private.txt' or '/tmp/My / Reports/x') is still hidden.
-    if (/^[\/\\~]$/.test(token)) return { text: raw, masked: true }
+    // Without an open path it only starts a 'soft' continuation, which lets a number, fraction or
+    // date such as 3/4 or 10/24/2026 through.
+    if (/^[\/\\~]$/.test(token)) return { text: raw, masked: continued === true ? true : 'soft' }
     const slash = /[\/\\]/.test(token)
     const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
-    if (!candidate && !(continued && slash)) return { text: raw, masked: false }
+    const numeric = continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
+    if (!candidate && !(continued && slash && !numeric)) return { text: raw, masked: false }
     let local = token.replace(/^file:\/\/[^/\\\s]*/i, '')
     try {
         local = decodeURIComponent(local)
