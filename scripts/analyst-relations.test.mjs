@@ -1149,6 +1149,8 @@ describe('analyst relations: read-only SQL check for the PostgreSQL MCP node', (
         refused('SELECT 1 AS limit', /add a LIMIT/)
         refused('SELECT 1 limit', /add a LIMIT/)
         refused('SELECT x limit FROM t', /add a LIMIT/)
+        refused('SELECT t.limit + 1 FROM (VALUES (1), (2)) AS t("limit")', /add a LIMIT/)
+        assert.equal(checkReadOnlySql('SELECT t.limit FROM t LIMIT 1'), 'SELECT t.limit FROM t LIMIT 1')
         assert.equal(checkReadOnlySql('SELECT x FROM t LIMIT ALL'), 'SELECT x FROM t LIMIT ALL')
         assert.equal(checkReadOnlySql('SELECT x FROM t LIMIT (5)'), 'SELECT x FROM t LIMIT (5)')
         assert.equal(checkReadOnlySql('SELECT 1 LIMIT +5'), 'SELECT 1 LIMIT +5')
@@ -1220,7 +1222,13 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await owner.connect()
         await owner.query(`CREATE TABLE items (id int PRIMARY KEY, name text NOT NULL);
             INSERT INTO items VALUES (1, 'Rye'), (2, 'Sourdough'), (3, 'Baguette');
-            CREATE MATERIALIZED VIEW item_names AS SELECT name FROM items;`)
+            CREATE MATERIALIZED VIEW item_names AS SELECT name FROM items;
+            CREATE FUNCTION public.pause(seconds float8) RETURNS int LANGUAGE sql AS 'SELECT 1 FROM pg_sleep(seconds)';
+            CREATE FUNCTION public.slow_eq(int, int) RETURNS boolean LANGUAGE sql AS 'SELECT $1 = $2 FROM pg_sleep(0)';
+            CREATE OPERATOR public.=== (LEFTARG = int, RIGHTARG = int, FUNCTION = public.slow_eq);
+            CREATE TYPE public.mood AS ENUM ('calm');
+            CREATE FUNCTION public.int_to_mood(int) RETURNS public.mood LANGUAGE sql AS $f$SELECT 'calm'::public.mood FROM pg_sleep(0)$f$;
+            CREATE CAST (int AS public.mood) WITH FUNCTION public.int_to_mood(int);`)
         await owner.query(`GRANT SELECT ON item_names TO "${writer}"`)
         // This login could write, so only the read-only checks stand between a query and the table.
         await owner.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON items TO "${writer}"`)
@@ -1293,6 +1301,55 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             assert.equal(result.rows[0].v, 'a\\b')
         } finally {
             await admin.query(`ALTER ROLE "${writer}" RESET standard_conforming_strings`)
+        }
+    })
+
+    it('without a table selection, refuses functions, operators and casts that are not built in, before the query runs', async (t) => {
+        if (skipped(t)) return
+        const started = Date.now()
+        await refusal(
+            queryAnalystUrl(url, 'SELECT public.pause(3) LIMIT 1', { readOnlySql: true }),
+            /function public\.pause is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT pause(3) AS p FROM items LIMIT 1', { readOnlySql: true }),
+            /public\.pause is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM items WHERE id OPERATOR(public.===) 1 LIMIT 1', { readOnlySql: true }),
+            /operator public\.=== is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT 1::public.mood AS m LIMIT 1', { readOnlySql: true }),
+            /public\.int_to_mood is not built in/
+        )
+        // A denied built-in found only through the catalog, here hidden behind a view-free subquery.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT (SELECT pg_catalog.pg_advisory_lock(1)) AS l LIMIT 1', { readOnlySql: true }),
+            /not allowed/
+        )
+        assert.ok(Date.now() - started < 2500, 'pause never ran')
+        const result = await queryAnalystUrl(
+            url,
+            "SELECT count(*)::int AS n, round(avg(id)::numeric, 1) AS mean, date_trunc('day', timestamp '2026-10-24 01:02') AS day, lower(min(name)) AS first FROM items LIMIT 1",
+            { readOnlySql: true }
+        )
+        assert.equal(result.rows[0].n, 3)
+        assert.equal(String(result.rows[0].mean), '2.0')
+        assert.equal(result.rows[0].first, 'baguette')
+        assert.equal(await count(), 3)
+    })
+
+    it('refuses an unscoped query when the login cannot create a temporary view to check it', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`REVOKE TEMPORARY ON DATABASE "${dbName}" FROM PUBLIC`)
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT count(*) FROM items LIMIT 1', { readOnlySql: true }),
+                /cannot create a temporary view/
+            )
+        } finally {
+            await owner.query(`GRANT TEMPORARY ON DATABASE "${dbName}" TO PUBLIC`)
         }
     })
 

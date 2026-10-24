@@ -563,6 +563,28 @@ export async function checkStatementScope(client, runner, statement, relations, 
     // A literal of a composite, array or range type runs its element's input while Postgres parses, and a domain
     // element runs its CHECK then, before the query tree exists and while this transaction can still write. So the
     // decision about domains comes first, from the catalog alone, and does not depend on the statement.
+    const ids = await parsedStatementIds(client, runner, statement, cacheKey)
+    const allowed = new Set(relations.map((relation) => relation.oid))
+    const outside = [...ids.relations].filter((oid) => !allowed.has(oid))
+    if (outside.length) {
+        const rows = await runner.all(
+            "SELECT coalesce(quote_ident(n.nspname) || '.' || quote_ident(c.relname), c.oid::text) AS name FROM pg_class c LEFT JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY 1",
+            [outside]
+        )
+        const names = rows.length ? rows.map((row) => row.name) : outside.map(String)
+        throw new ScopeRefusal(
+            `Cuttlely refused this query: it reads ${refusedList(
+                names
+            )}, which this node's table selection does not include. Selected: ${refusedList(relations.map((relation) => relation.name))}.`
+        )
+    }
+    await refuseRoutines(runner, ids.functions, ids.operators)
+    await refuseTypes(runner, ids.types)
+}
+
+// Parses the statement into a temporary view, inside the caller's transaction (which rolls back), and returns the
+// relations, functions, operators and types its query tree names. Nothing in the statement runs.
+async function parsedStatementIds(client, runner, statement, cacheKey) {
     const risky = await riskyDomains(runner, cacheKey)
     if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
     scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
@@ -592,28 +614,38 @@ export async function checkStatementScope(client, runner, statement, relations, 
     await client.query(`DROP VIEW pg_temp.${SCOPE_VIEW}`)
     for (const row of depends) ids.relations.add(Number(row.oid))
     ids.relations.delete(Number(rule.view))
-    const allowed = new Set(relations.map((relation) => relation.oid))
-    const outside = [...ids.relations].filter((oid) => !allowed.has(oid))
-    if (outside.length) {
-        const rows = await runner.all(
-            "SELECT coalesce(quote_ident(n.nspname) || '.' || quote_ident(c.relname), c.oid::text) AS name FROM pg_class c LEFT JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY 1",
-            [outside]
-        )
-        const names = rows.length ? rows.map((row) => row.name) : outside.map(String)
-        throw new ScopeRefusal(
-            `Cuttlely refused this query: it reads ${refusedList(
-                names
-            )}, which this node's table selection does not include. Selected: ${refusedList(relations.map((relation) => relation.name))}.`
-        )
+    return ids
+}
+
+// Without a table selection, the PostgreSQL MCP node still resolves every function, operator function and cast
+// function the statement calls through the catalog first, and refuses anything outside pg_catalog that is not on
+// ALLOWED_ROUTINES, any denied built-in, and any type whose input or output is not built in.
+export const ALLOWED_ROUTINES = new Set()
+export const SCOPE_UNCHECKABLE_ANY =
+    'Cuttlely could not check which functions this query calls: this database login cannot create a temporary view (a read replica, or no TEMP privilege). The query did not run.'
+
+export async function checkStatementRoutines(client, runner, statement, isRowQuery, cacheKey = '') {
+    if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
+    let ids
+    try {
+        ids = await parsedStatementIds(client, runner, statement, cacheKey)
+    } catch (error) {
+        if (error instanceof ScopeRefusal && error.message === SCOPE_UNCHECKABLE) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
+        throw error
     }
-    await refuseRoutines(runner, ids.functions, ids.operators)
+    await refuseRoutines(runner, ids.functions, ids.operators, {
+        denied: (name) => deniedFunction(name) || readOnlySqlDeniedFunction(name),
+        unscoped: true
+    })
     await refuseTypes(runner, ids.types)
 }
 
-const NOT_BUILT_IN = 'is not built in. With a table selection set, only built-in functions, operators and types run.'
+const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${row.schema}.${row.name}`)
+
+const NOT_BUILT_IN = 'is not built in. Only built-in functions, operators and types run.'
 
 // Functions and operators outside pg_catalog, and denied built-ins.
-async function refuseRoutines(runner, functionSet, operatorSet) {
+async function refuseRoutines(runner, functionSet, operatorSet, { denied: isDenied = deniedFunction, unscoped = false } = {}) {
     const functionIds = new Set(functionSet)
     const operatorIds = [...operatorSet]
     if (operatorIds.length) {
@@ -621,18 +653,23 @@ async function refuseRoutines(runner, functionSet, operatorSet) {
             'SELECT o.oprname AS name, n.nspname AS schema, o.oprcode::oid::int8 AS code FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = ANY(?::oid[])',
             [operatorIds]
         )
-        const foreign = rows.filter((row) => row.schema !== 'pg_catalog').map((row) => `${row.schema}.${row.name}`)
+        const foreign = rows.filter((row) => !builtIn(row)).map((row) => `${row.schema}.${row.name}`)
         if (foreign.length) throw new ScopeRefusal(`Cuttlely refused this query: operator ${refusedList(foreign)} ${NOT_BUILT_IN}`)
         for (const row of rows) if (Number(row.code) > 0) functionIds.add(Number(row.code))
     }
     if (!functionIds.size) return
     const rows = await runner.all(
-        'SELECT p.proname AS name, n.nspname AS schema FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?::oid[])',
+        'SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?::oid[])',
         [[...functionIds]]
     )
-    const foreign = rows.filter((row) => row.schema !== 'pg_catalog').map((row) => `${row.schema}.${row.name}`)
+    // An id the catalog does not return is refused too.
+    const missing = [...functionIds].filter((id) => !rows.some((row) => Number(row.oid) === id))
+    if (missing.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(missing.map(String))} ${NOT_BUILT_IN}`)
+    const foreign = rows.filter((row) => !builtIn(row)).map((row) => `${row.schema}.${row.name}`)
     if (foreign.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(foreign)} ${NOT_BUILT_IN}`)
-    const denied = rows.filter((row) => deniedFunction(row.name)).map((row) => row.name)
+    const denied = rows.filter((row) => isDenied(row.name)).map((row) => row.name)
+    if (denied.length && unscoped)
+        throw new ScopeRefusal(`Cuttlely refused this query: ${refusedList([...new Set(denied)])} is not allowed.`)
     if (denied.length) {
         throw new ScopeRefusal(
             `Cuttlely refused this query: ${refusedList([
@@ -964,7 +1001,10 @@ export function checkReadOnlySql(sql) {
 function limitClauseAt(tokens, index) {
     const before = tokens[index - 1]
     if (before?.type === 'word' && !before.quoted && LIMIT_NOT_CLAUSE_AFTER.has(before.value)) return false
+    // t.limit names a column.
+    if (before?.type === 'symbol' && before.value === '.') return false
     const next = tokens[index + 1]
+    if (next?.type === 'symbol' && next.value === '.') return false
     if (!next) return false
     if (next.type === 'number' || next.type === 'string') return true
     if (next.type === 'symbol') return next.value === '(' || next.value === '+'

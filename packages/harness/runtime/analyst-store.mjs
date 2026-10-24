@@ -31,6 +31,7 @@ import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } fro
 import {
     SCOPE_NONE_LEFT,
     checkReadOnlySql,
+    checkStatementRoutines,
     checkStatementScope,
     missingRelationHint,
     missingRelationName,
@@ -1849,6 +1850,16 @@ async function queryUrlPostgres(
                 selected = await resolveRelations(runner, relations)
                 await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl))
                 checkedBackend = await backend()
+            } catch (error) {
+                throw await hinted(error)
+            } finally {
+                await client.query('ROLLBACK').catch(() => {})
+            }
+        } else if (readOnlySql && !replay?.plan) {
+            // No selection: the node still resolves every called function through the catalog first.
+            await begin(false)
+            try {
+                await checkStatementRoutines(client, runner, text, isRowQuery, urlStoreKey(postgresUrl))
             } catch (error) {
                 throw await hinted(error)
             } finally {
