@@ -473,15 +473,19 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     }
     // What each profile looked like after cleanup's own change; a later change is someone else's and keeps it.
     const settled = new Map(entries.map((entry) => [entry, newestChange(entry)]))
-    const stopped = await closeRuntime(id, entries)
-    // Closing awaits; the harness may have been saved again or a profile replaced meanwhile, so check again.
-    const after = savedNames()
-    if (stillSaved(id, after)) {
-        cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it was saved again during cleanup`)
-        return { removed: [], kept: entries, error: null }
-    }
     const removed = []
-    for (const entry of entries) {
+    let after = before
+    for (const [index, entry] of entries.entries()) {
+        // Each profile is stopped right before its directory goes, with nothing awaited in between, so the runtime's
+        // profile watcher cannot serve it again between the stop and the removal.
+        const stopped = await closeRuntime(id, [entry])
+        // Closing awaits; the harness may have been saved again or a profile replaced meanwhile, so check again.
+        after = savedNames()
+        if (stillSaved(id, after)) {
+            cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it was saved again during cleanup`)
+            kept.push(...entries.slice(index))
+            return { removed, kept, claimed, error: null }
+        }
         const owner = profileOwner(entry)
         if (claimedBySaved(entry, after)) {
             claimed.push(entry)

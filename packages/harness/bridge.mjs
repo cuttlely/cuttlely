@@ -10,6 +10,8 @@ import { getHarness } from './store.mjs'
 export async function executeModule(binding, input, options = {}) {
     const prepared = await prepareModule(binding, input, options)
     if (options.toolName) prepared.toolName = options.toolName
+    // Preparing a node awaits; the caller may refuse the call at this point (a token revoked meanwhile).
+    if (options.beforeCall) await options.beforeCall()
     const raw = await callPrepared(prepared, input)
     return prepared.runs ? raw : normalizeResult(raw)
 }

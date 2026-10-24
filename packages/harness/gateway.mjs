@@ -412,7 +412,7 @@ function readEnvFile(file) {
 // its body or its owner (and maybe a new harness saved under the name) must not reach that new harness.
 class RevokedDuringRequest extends Error {}
 
-// Checks wait here (a slow tool discovery or model lookup) to revoke a token at that point.
+// Checks wait here (after a tool's node is prepared, or a model is resolved) to revoke a token at that point.
 export const gatewayRequestHooks = { beforeRun: null }
 
 async function readyToRun(meta) {
@@ -895,7 +895,7 @@ async function callTool(req, res, meta) {
         return
     }
     // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
-    await readyToRun(meta)
+    assertStillValid(meta)
     const result = await withAnalystScope(
         scope,
         () =>
@@ -905,10 +905,13 @@ async function callTool(req, res, meta) {
                 componentNodes: ctx.componentNodes,
                 loadNode: ctx.loadNode,
                 flowOptions: ctx.flowOptions,
-                nodeCache: ctx.nodeCache
+                nodeCache: ctx.nodeCache,
+                // Checked once the tool's node is prepared, right before the tool itself runs.
+                beforeCall: () => readyToRun(meta)
             }),
         { workspace: record.workspaceId }
     )
+    assertStillValid(meta)
     rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId)
     sendJson(res, 200, { result })
 }

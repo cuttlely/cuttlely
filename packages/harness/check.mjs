@@ -5998,7 +5998,7 @@ await expectCase('custom MCP runs through the node', async () => {
                         call.workspaceId === 'w1' &&
                         call.cachePool
                 )
-            // A delete that revokes the token while tool discovery runs: the tool never starts.
+            // A delete that revokes the token while the tool's node is prepared: the tool never starts.
             const gatewayModule = await import('./gateway.mjs')
             const callsBefore = FakeMcp.calls.length
             let heldMeta = null
@@ -6021,7 +6021,7 @@ await expectCase('custom MCP runs through the node', async () => {
                 if (heldMeta) gatewayModule.registerProfileToken({ token, ...heldMeta })
             }
             check(
-                'a token revoked while tool discovery runs starts no tool',
+                'a token revoked while the tool node is prepared starts no tool',
                 revokedStatus === 401 && FakeMcp.calls.length === callsBefore,
                 JSON.stringify({ revokedStatus, calls: FakeMcp.calls.length - callsBefore })
             )
@@ -16299,6 +16299,28 @@ await (async () => {
     )
     dropJson('tokfile')
     await cleanup.removeHarnessProfiles('tokfile')
+
+    // Each profile is stopped right before it is removed: when the next stop runs, the one stopped before is gone.
+    reset()
+    saveJson('inturn')
+    home('inturn')
+    child('inturn--a', 'inturn')
+    dropJson('inturn')
+    const stopsSeen = []
+    cleanup.cleanupHooks.close = async (entry) => {
+        stopsSeen.push([entry, exists('inturn--a'), exists('inturn')])
+    }
+    const inTurn = await cleanup.removeHarnessProfiles('inturn')
+    cleanup.cleanupHooks.close = async () => {}
+    check(
+        'each profile is removed right after its own runtime stop, before the next stop',
+        JSON.stringify(stopsSeen) ===
+            JSON.stringify([
+                ['inturn--a', true, true],
+                ['inturn', false, true]
+            ]) && JSON.stringify(inTurn.removed) === JSON.stringify(['inturn--a', 'inturn']),
+        JSON.stringify({ stopsSeen, inTurn })
+    )
 
     // A trash leftover touched while the runtime closes is kept by the sweep.
     reset()

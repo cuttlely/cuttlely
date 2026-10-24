@@ -179,7 +179,11 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
 
 // A canvas save uses the chat flow's team. A name that already belongs to another team is refused before the file is written.
 // `claiming` is a HARNESS canvas save that creates the record when the name is new.
-export async function assertNameAvailable(name: string, workspaceId?: string | null, opts: { claiming?: boolean } = {}) {
+export async function assertNameAvailable(
+    name: string,
+    workspaceId?: string | null,
+    opts: { claiming?: boolean; record?: { specialists?: Array<{ name?: unknown }> } | null } = {}
+) {
     const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
     let existing
@@ -189,7 +193,7 @@ export async function assertNameAvailable(name: string, workspaceId?: string | n
         return
     }
     if (!existing) {
-        if (opts.claiming) await clearStaleNameData(name)
+        if (opts.claiming) await clearStaleNameData(name, opts.record)
         else await assertNotStaged(name)
         return
     }

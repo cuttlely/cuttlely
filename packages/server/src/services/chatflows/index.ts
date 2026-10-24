@@ -916,11 +916,13 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
     if (chatflow.type !== EnumChatflowType.HARNESS) return
     // Before any insert or update, so a refused key leaves no row behind. The sync checks the same caller again.
     assertCallerMayUseHarnesses(caller, [chatflow.name])
-    // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
-    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, { claiming: true })
+    // The roster is read first so a new name is checked for leftovers under every profile name it compiles into;
+    // a bad flow still answers only after the name check.
     const engine = await loadHarnessSync()
+    let roster: { specialists?: Array<{ name?: unknown }> } | null = null
+    let rosterError: unknown = null
     try {
-        engine.rosterFromFlow({
+        roster = engine.rosterFromFlow({
             name: chatflow.name,
             chatflowId: chatflow.id,
             flowData: chatflow.flowData,
@@ -928,8 +930,11 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
             componentNodes: getRunningExpressApp().nodesPool.componentNodes
         })
     } catch (error) {
-        throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+        rosterError = error
     }
+    // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
+    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, { claiming: true, record: roster })
+    if (rosterError) throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(rosterError))
 }
 
 export async function syncHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller | undefined) {

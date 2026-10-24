@@ -35,6 +35,7 @@ let failCleanup = false
 let reopened: string[] = []
 let duringCleanup: ((name: string) => Promise<void>) | null = null
 let keptProfiles: string[] = []
+let expectedProfiles: string[][] = []
 
 const fileOf = (name: string) => path.join(storeDir, `${name}.json`)
 const has = (name: string) => fs.existsSync(fileOf(name))
@@ -65,12 +66,18 @@ const fakeModules = (file: string) => {
             revokeHarness: (name: string) => {
                 if (failCleanup) throw new Error(`revoke failed for ${name}`)
             },
-            removeHarnessProfiles: async (name: string) => {
+            removeHarnessProfiles: async (name: string, opts: { expected?: string[] } = {}) => {
+                expectedProfiles.push(opts.expected || [])
                 if (duringCleanup) await duringCleanup(name)
                 cleaned.push(name)
                 return { removed: [], kept: keptProfiles, error: null }
             },
             sweepOrphanHarnessProfiles: async () => ({ mode: 'log', orphans: [], removed: [], skipped: [] })
+        })
+    }
+    if (file === 'profile.mjs') {
+        return Promise.resolve({
+            specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`
         })
     }
     if (file === 'schedule.mjs') return Promise.resolve({ deleteSchedule: (name: string) => schedules.delete(name) })
@@ -105,6 +112,7 @@ beforeEach(() => {
     failCleanup = false
     duringCleanup = null
     keptProfiles = []
+    expectedProfiles = []
     write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
     write({ name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
@@ -417,6 +425,14 @@ describe('a reused name never sees an earlier harness data', () => {
         expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(false)
         expect(cleaned).not.toContain('navi')
         expect(schedules.has('navi')).toBe(true)
+    })
+
+    it('a canvas claiming a new name checks every profile name its roster compiles into', async () => {
+        await harnessesService.assertNameAvailable('Long-Team', 'team-b', {
+            claiming: true,
+            record: { specialists: [{ name: 'reader' }, { name: 'writer' }] }
+        })
+        expect(expectedProfiles).toContainEqual(['long-team--reader', 'long-team--writer'])
     })
 
     it('a canvas that only names a harness does not clear anything', async () => {
