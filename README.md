@@ -31,7 +31,7 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.4.3 is out.** With tables ticked, a user SQL function runs on its own only when its body is `BEGIN ATOMIC` and it references no relations; PL/pgSQL and string-body SQL need **Allowed functions** on the PostgreSQL MCP node, one `schema.fn(argtypes)` or `schema.fn(*)` per line. `regconfig` and `regdictionary` are allowed. At startup, harness profiles from an older compiler are compiled again, and the harness gateway health check returns 503 until that finishes. Chat answers keep an ordinary slash and still hide server paths. [Changelog](./CHANGELOG.md#143---2026-10-24)
+**1.4.3 is out.** Safer analyst queries on the PostgreSQL MCP node, with an **Allowed functions** list for your own SQL helpers, harness profiles that recompile cleanly at startup, and chat answers that keep ordinary slashes while still hiding server paths. Upgrading? Read the [upgrade notes](./CHANGELOG.md#143---2026-10-24) first. [Changelog](./CHANGELOG.md#143---2026-10-24)
 
 ## Contents
 

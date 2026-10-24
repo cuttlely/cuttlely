@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.4.3가 나왔습니다.** 테이블을 선택한 경우, 사용자 SQL 함수는 본문이 `BEGIN ATOMIC`이고 릴레이션을 참조하지 않을 때만 그대로 실행됩니다. PL/pgSQL과 문자열 본문의 SQL은 PostgreSQL MCP 노드의 **Allowed functions**에 `schema.fn(argtypes)` 또는 `schema.fn(*)`를 한 줄에 하나씩 적어야 합니다. `regconfig`와 `regdictionary`는 허용됩니다. 시작할 때 이전 컴파일러로 만든 하네스 프로필을 다시 컴파일하며, 그동안 하네스 게이트웨이 헬스 체크는 503을 반환합니다. 채팅 답변은 단어 사이의 슬래시를 유지하고 서버 경로는 계속 숨깁니다. [변경 기록](./CHANGELOG.md#143---2026-10-24)
+**1.4.3가 나왔습니다.** PostgreSQL MCP 노드의 애널리스트 질의를 더 안전하게 했습니다. 직접 쓴 SQL 헬퍼용 **Allowed functions**, 시작 때 다시 컴파일되는 하네스 프로필, 서버 경로는 숨기고 일반 슬래시는 남기는 채팅 답변입니다. 올리기 전에 [업그레이드 노트](./CHANGELOG.md#143---2026-10-24)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#143---2026-10-24)
 
 ## 목차
 
