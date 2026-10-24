@@ -57,8 +57,28 @@
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/agentflow/Agent/Agent.ts",
+            "reason": "The harness tool-name test reads each agentflow tool's own id, so removing another tool does not move that tool's suffix."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/agents/ReActAgentChat/ReActAgentChat.ts",
+            "reason": "The test builds a ReAct chat agent with a repeated tool name and checks that the build fails before the executor runs."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/agents/ReActAgentLLM/ReActAgentLLM.ts",
+            "reason": "The test builds a ReAct LLM agent with a repeated tool name and checks that the build fails before the executor runs."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
             "to": "packages/components/nodes/agents/ToolAgent/ToolAgent.ts",
             "reason": "The acceptance test runs two Harness cards through the Tool Agent with a mocked model, and checks that a repeated tool name fails that build."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/utilities/CustomFunction/CustomFunction.ts",
+            "reason": "The test calls CustomFunction.init with a repeated tool name and checks that the error says this function."
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.test.ts",

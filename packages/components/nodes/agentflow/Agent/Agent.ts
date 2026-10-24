@@ -22,7 +22,7 @@ import { flatten } from 'lodash'
 import { toolSchemaToJsonSchema, type ToolJsonSchema } from '../../../src/utils'
 import { getErrorMessage } from '../../../src/error'
 import { DataSource } from 'typeorm'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import {
     addImageArtifactsToMessages,
     extractArtifactsFromResponse,
@@ -45,6 +45,8 @@ import { getModelConfigByModelName, MODEL_TYPE } from '../../../src/modelLoader'
 import { applyModelRetryBudget } from '../../../src/modelRetryBudget'
 
 interface ITool {
+    id?: string
+    nodeId?: string
     agentSelectedTool: string
     agentSelectedToolConfig: ICommonObject
     agentSelectedToolRequiresHumanInput: boolean
@@ -97,17 +99,46 @@ const sanitizeToolName = (name: string): string => {
     return sanitized.slice(0, 64)
 }
 
-// Each Harness tool on this agent. The id ends with the list index, and tool names compare that
-// number as a number (harness_tool_2 before harness_tool_10), the same way canvas card ids are ordered.
+function textId(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : ''
+}
+
+// The suffix on a repeated tool name is the number at the end of this id.
+// It is the tool's own id, or its node id, never its place in the list: removing another tool must not move it.
+function harnessToolCardId(tool: ITool, used: Set<string>): string {
+    const config = tool?.agentSelectedToolConfig || {}
+    const explicit = textId(tool?.id) || textId(tool?.nodeId) || textId(config.id) || textId(config.nodeId)
+    let id = explicit
+    if (!id) {
+        let body = String(tool?.agentSelectedTool || '')
+        try {
+            body = JSON.stringify({ tool: tool?.agentSelectedTool, config })
+        } catch {
+            // A config that cannot be serialized still needs a stable id. The short body is that id's source.
+        }
+        const hash = createHash('sha256').update(body).digest()
+        const n = hash.readUInt32BE(0) % 1_000_000_000 || 1
+        id = `harness_tool_${n}`
+    }
+    if (!used.has(id)) return id
+    let n = 2
+    while (used.has(`${id}_${n}`)) n += 1
+    return `${id}_${n}`
+}
+
+// Each Harness tool on this agent. Tool names compare the number at the end of the id as a number
+// (harness_tool_2 before harness_tool_10), the same way canvas card ids are ordered.
 function harnessCardsOnAgent(tools: ITool[] | undefined): Array<{ id: string; label?: string; name?: string }> {
     const list = Array.isArray(tools) ? tools : []
     const cards: Array<{ id: string; label?: string; name?: string }> = []
-    for (let index = 0; index < list.length; index += 1) {
-        const tool = list[index]
+    const used = new Set<string>()
+    for (const tool of list) {
         if (tool?.agentSelectedTool !== 'harness') continue
         const config = tool.agentSelectedToolConfig || {}
+        const id = harnessToolCardId(tool, used)
+        used.add(id)
         cards.push({
-            id: `harness_tool_${index}`,
+            id,
             label: typeof config.label === 'string' ? config.label : undefined,
             name: typeof config.harnessName === 'string' ? config.harnessName : undefined
         })
@@ -796,14 +827,13 @@ class Agent_Agentflow implements INode {
 
             const toolsInstance: Tool[] = []
             const harnessCards = harnessCardsOnAgent(tools)
-            let index = 0
+            let harnessAt = 0
             for (const tool of tools) {
                 const toolConfig = tool.agentSelectedToolConfig
                 const nodeInstanceFilePath = options.componentNodes[tool.agentSelectedTool].filePath as string
                 const nodeModule = await import(nodeInstanceFilePath)
                 const newToolNodeInstance = new nodeModule.nodeClass()
-                const harnessCard =
-                    tool.agentSelectedTool === 'harness' ? harnessCards.find((card) => card.id === `harness_tool_${index}`) : undefined
+                const harnessCard = tool.agentSelectedTool === 'harness' ? harnessCards[harnessAt++] : undefined
                 const newNodeData = {
                     ...nodeData,
                     ...(harnessCard ? { id: harnessCard.id, label: harnessCard.label ?? '' } : {}),
@@ -835,7 +865,6 @@ class Agent_Agentflow implements INode {
                     }
                     toolsInstance.push(toolInstance as Tool)
                 }
-                index += 1
             }
 
             const availableTools: ISimpliefiedTool[] = toolsInstance.map((tool, index) => {
@@ -3160,4 +3189,4 @@ class Agent_Agentflow implements INode {
     }
 }
 
-module.exports = { nodeClass: Agent_Agentflow, completeStepUsage }
+module.exports = { nodeClass: Agent_Agentflow, completeStepUsage, harnessCardsOnAgent }

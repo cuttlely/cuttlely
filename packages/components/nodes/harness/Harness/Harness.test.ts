@@ -951,6 +951,33 @@ describe('stable harness tool names', () => {
         expect(names.get('harness_tool_10')).toBe('same_10')
     })
 
+    it('keeps an agentflow suffix when an earlier tool is removed', () => {
+        const { harnessCardsOnAgent } = require('../../agentflow/Agent/Agent')
+        const team = (id: string) => ({
+            id,
+            agentSelectedTool: 'harness',
+            agentSelectedToolConfig: { label: 'Team', harnessName: 'team' }
+        })
+        const calc = { agentSelectedTool: 'calculator', agentSelectedToolConfig: {} }
+        const rows = [calc, team('node_0'), team('node_2'), team('node_10')]
+        const before = assignHarnessToolNames(harnessCardsOnAgent(rows))
+        const withoutCalc = assignHarnessToolNames(harnessCardsOnAgent(rows.filter((tool) => tool !== calc)))
+        const withoutFirst = assignHarnessToolNames(harnessCardsOnAgent([team('node_2'), team('node_10')]))
+        expect(harnessCardsOnAgent(rows).map((card: { id: string }) => card.id)).toEqual(['node_0', 'node_2', 'node_10'])
+        expect(before.get('node_0')).toBe('team')
+        expect(before.get('node_2')).toBe('team_2')
+        expect(before.get('node_10')).toBe('team_10')
+        expect(withoutCalc.get('node_0')).toBe('team')
+        expect(withoutCalc.get('node_2')).toBe('team_2')
+        expect(withoutCalc.get('node_10')).toBe('team_10')
+        expect(withoutFirst.get('node_10')).toBe('team_10')
+        const byNode = harnessCardsOnAgent([
+            calc,
+            { nodeId: 'tool_node_4', agentSelectedTool: 'harness', agentSelectedToolConfig: { label: 'Team', harnessName: 'team' } }
+        ])
+        expect(byNode.map((card: { id: string }) => card.id)).toEqual(['tool_node_4'])
+    })
+
     it('does not suffix a card on an agent that has no local collision', () => {
         const nodes = [
             harnessCard('harness_0', 'Payroll', 'a'),
@@ -1148,5 +1175,42 @@ describe('Harness acceptance', () => {
                 {}
             )
         ).rejects.toThrow('This agent has more than one tool named "harness". Each tool on an agent needs its own name.')
+    })
+})
+
+describe('duplicate tool names on a ReAct agent and a Custom JS Function', () => {
+    const { nodeClass: ReActChat } = require('../../agents/ReActAgentChat/ReActAgentChat')
+    const { nodeClass: ReActLLM } = require('../../agents/ReActAgentLLM/ReActAgentLLM')
+    const { nodeClass: CustomFunction } = require('../../utilities/CustomFunction/CustomFunction')
+    const duplicateTools = [{ name: 'harness' }, { name: 'harness' }]
+
+    it('fails a ReAct chat agent before it builds', async () => {
+        const node = new ReActChat()
+        await expect(node.run({ inputs: { tools: duplicateTools, model: {}, memory: {} } } as never, 'question', {})).rejects.toThrow(
+            'This agent has more than one tool named "harness". Each tool on an agent needs its own name.'
+        )
+    })
+
+    it('fails a ReAct LLM agent before it builds', async () => {
+        const node = new ReActLLM()
+        await expect(node.run({ inputs: { tools: duplicateTools, model: {} } } as never, 'question', {})).rejects.toThrow(
+            'This agent has more than one tool named "harness". Each tool on an agent needs its own name.'
+        )
+    })
+
+    it('fails CustomFunction.init and the error says this function', async () => {
+        const node = new CustomFunction()
+        try {
+            await node.init(
+                { inputs: { tools: duplicateTools, javascriptFunction: 'return 1' }, outputs: { output: 'output' } } as never,
+                '',
+                {}
+            )
+            throw new Error('init should have failed')
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            expect(message).toBe('This function has more than one tool named "harness". Each tool on a function needs its own name.')
+            expect(message).not.toContain('This agent')
+        }
     })
 })

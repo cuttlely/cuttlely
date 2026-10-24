@@ -27,10 +27,11 @@ import { IUsedTool } from './Interface'
 import { getErrorMessage } from './error'
 
 /**
- * The agent keeps one entry per tool name, so a repeated name would drop every tool but one.
- * Fail here, while the agent is built, and name the tools that clash.
+ * One entry is kept per tool name, so a repeated name would drop every tool but one.
+ * Fail here, while the caller is built, and name the tools that clash.
+ * `subject` is the word in the error: an agent says "This agent", a Custom JS Function says "This function".
  */
-export function assertUniqueToolNames(tools: unknown): void {
+export function assertUniqueToolNames(tools: unknown, subject: 'agent' | 'function' = 'agent'): void {
     const list = flatten(Array.isArray(tools) ? tools : [])
     const counts = new Map<string, number>()
     for (const tool of list) {
@@ -46,7 +47,9 @@ export function assertUniqueToolNames(tools: unknown): void {
         .sort()
     if (!duplicates.length) return
     const quoted = duplicates.map((name) => `"${name}"`).join(' and ')
-    throw new Error(`This agent has more than one tool named ${quoted}. Each tool on an agent needs its own name.`)
+    const who = subject === 'function' ? 'function' : 'agent'
+    const where = who === 'function' ? 'a function' : 'an agent'
+    throw new Error(`This ${who} has more than one tool named ${quoted}. Each tool on ${where} needs its own name.`)
 }
 
 export const SOURCE_DOCUMENTS_PREFIX = '\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n'

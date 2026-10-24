@@ -10,6 +10,34 @@ import { showHideInputs } from '@/utils/genericHelper'
 import { cloneDeep } from 'lodash'
 import { flowContext } from '@/store/context/ReactFlowContext'
 
+// A harness tool's name suffix comes from this id. It stays on the row, so deleting another tool does not renumber it.
+const AGENT_TOOL_ID = /^harness_tool_(\d+)$/
+
+function ensureAgentToolIds(items) {
+    if (!Array.isArray(items) || !items.length) return items
+    const seen = new Set()
+    let max = 0
+    for (const item of items) {
+        const id = typeof item?.id === 'string' ? item.id.trim() : ''
+        const match = AGENT_TOOL_ID.exec(id)
+        if (match) max = Math.max(max, Number(match[1]))
+    }
+    let changed = false
+    const next = items.map((item) => {
+        const id = typeof item?.id === 'string' ? item.id.trim() : ''
+        if (id && !seen.has(id)) {
+            seen.add(id)
+            return item
+        }
+        changed = true
+        max += 1
+        const minted = `harness_tool_${max}`
+        seen.add(minted)
+        return { ...item, id: minted }
+    })
+    return changed ? next : items
+}
+
 export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }) => {
     const [arrayItems, setArrayItems] = useState([]) // these are the actual values. Ex: [{name: 'John', age: 30}, {name: 'Jane', age: 25}]
     const [itemParameters, setItemParameters] = useState([]) // these are the input parameters for each array item. Ex: [{label: 'Name', type: 'string', display: true}, {label: 'age', type: 'number', display: false}]
@@ -56,7 +84,9 @@ export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }
 
     // Initialize array items and parameters when component mounts or data changes
     useEffect(() => {
-        const initialArrayItems = data.inputs[inputParam.name] || []
+        const storedItems = data.inputs[inputParam.name] || []
+        const initialArrayItems = inputParam.name === 'agentTools' ? ensureAgentToolIds(storedItems) : storedItems
+        if (initialArrayItems !== storedItems) data.inputs[inputParam.name] = initialArrayItems
         setArrayItems(initialArrayItems)
 
         // Calculate initial display parameters for each array item
@@ -136,6 +166,9 @@ export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }
 
         for (const fieldDef of inputParam.array) {
             newItem[fieldDef.name] = fieldDef.default || ''
+        }
+        if (inputParam.name === 'agentTools') {
+            newItem.id = ensureAgentToolIds([...arrayItems, {}]).at(-1).id
         }
 
         /*if (inputParam.default?.length) {
