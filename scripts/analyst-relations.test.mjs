@@ -1780,9 +1780,19 @@ describe('analyst relations: user functions inside views', () => {
             AS $$ SELECT CASE WHEN v ~ '^-?\\d+(\\.\\d+)?$' THEN v::numeric END $$`)
         await owner.query(`CREATE FUNCTION analytics._etl_safe_timestamptz(v text) RETURNS timestamptz LANGUAGE plpgsql STABLE
             AS $$ BEGIN RETURN v::timestamptz; EXCEPTION WHEN others THEN RETURN NULL; END $$`)
+        await owner.query(`CREATE FUNCTION analytics._etl_safe_bigint(v text) RETURNS bigint LANGUAGE sql STABLE
+            AS $$ SELECT CASE WHEN v ~ '^\\d+$' THEN v::bigint END $$`)
         await owner.query(`CREATE VIEW analytics.clean_orders AS SELECT id, analytics._etl_safe_date(placed) AS placed,
             analytics._etl_safe_integer(qty) AS qty, analytics._etl_safe_numeric(amount) AS amount,
             analytics._etl_safe_timestamptz(seen) AS seen FROM analytics.raw_orders`)
+        await owner.query(`CREATE MATERIALIZED VIEW analytics.clean_orders_mv AS
+            SELECT id,
+                   analytics._etl_safe_bigint(qty)       AS big_qty,
+                   analytics._etl_safe_integer(qty)      AS qty,
+                   analytics._etl_safe_date(placed)      AS placed,
+                   analytics._etl_safe_numeric(amount)    AS amount,
+                   analytics._etl_safe_timestamptz(seen)  AS seen
+            FROM analytics.raw_orders`)
         await owner.query(`CREATE FUNCTION analytics.touchy(v text) RETURNS text LANGUAGE sql VOLATILE AS 'SELECT v'`)
         await owner.query(`CREATE FUNCTION analytics.touchy(v integer) RETURNS integer LANGUAGE sql VOLATILE AS 'SELECT v'`)
         await owner.query(`CREATE FUNCTION analytics.as_owner(v text) RETURNS text LANGUAGE sql STABLE SECURITY DEFINER AS 'SELECT v'`)
@@ -1857,6 +1867,32 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(scoped.rows.length, 2)
         const direct = await queryAnalystUrl(url, "SELECT analytics._etl_safe_numeric('1.5') AS n LIMIT 1", node)
         assert.equal(String(direct.rows[0].n), '1.5')
+    })
+
+    it('refuses analytics helpers in a materialized view without an allow-list, then allows them with text entries', async (t) => {
+        if (skipped(t)) return
+        const scoped = { ...node, relations: ['analytics.clean_orders_mv'] }
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM analytics.clean_orders_mv ORDER BY id LIMIT 5', scoped), /Allowed functions/)
+        const allowList = [
+            'analytics._etl_safe_bigint(text)',
+            'analytics._etl_safe_date(text)',
+            'analytics._etl_safe_integer(text)',
+            'analytics._etl_safe_numeric(text)',
+            'analytics._etl_safe_timestamptz(text)'
+        ].join('\n')
+        const ok = await queryAnalystUrl(url, 'SELECT id, big_qty, qty FROM analytics.clean_orders_mv ORDER BY id LIMIT 5', {
+            ...scoped,
+            allowedFunctions: allowList
+        })
+        assert.equal(ok.rows.length, 2)
+        // Direct calls also allowed with the same text entries.
+        const direct = await queryAnalystUrl(
+            url,
+            "SELECT analytics._etl_safe_bigint('42') AS b, analytics._etl_safe_integer('7') AS q LIMIT 1",
+            { ...node, relations: ['analytics.clean_orders'], allowedFunctions: allowList }
+        )
+        assert.equal(String(direct.rows[0].b), '42')
+        assert.equal(String(direct.rows[0].q), '7')
     })
 
     it('refuses user functions that fail the rule, naming the entry to add', async (t) => {
