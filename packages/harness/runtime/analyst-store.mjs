@@ -30,16 +30,7 @@ import { encryptionKeyConflict, encryptionKeyOverwrite } from '../../../scripts/
 import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
 import {
     SCOPE_NONE_LEFT,
-    checkReadOnlySql,
-    checkStatementRoutines,
     checkStatementScope,
-    refuseRiskyTypes,
-    parseAllowedFunctions,
-    refuseRiskyDomains,
-    routineCatalogStamp,
-    sameRelationBodies,
-    missingRelationHint,
-    missingRelationName,
     columnErrorHint,
     describeRefusal,
     describeRelation,
@@ -298,27 +289,6 @@ export function asAnalystToolError(error) {
     return new AnalystToolError(message, outcome)
 }
 
-// Where a comment that starts at i ends. A -- comment ends at a newline or carriage return, as in Postgres, and
-// block comments nest. An unfinished block comment returns -1.
-function sqlCommentEnd(text, i) {
-    if (text.startsWith('--', i)) {
-        const rest = text.slice(i).search(/[\r\n]/)
-        return rest === -1 ? text.length : i + rest + 1
-    }
-    let depth = 1
-    let j = i + 2
-    while (j < text.length && depth > 0) {
-        if (text.startsWith('/*', j)) {
-            depth += 1
-            j += 2
-        } else if (text.startsWith('*/', j)) {
-            depth -= 1
-            j += 2
-        } else j += 1
-    }
-    return depth > 0 ? -1 : j
-}
-
 export function oneSqlStatement(sql) {
     const text = String(sql ?? '')
     let i = 0
@@ -326,10 +296,15 @@ export function oneSqlStatement(sql) {
     let sawWord = false
     while (i < text.length) {
         const pair = text.slice(i, i + 2)
-        if (pair === '--' || pair === '/*') {
-            const end = sqlCommentEnd(text, i)
+        if (pair === '--') {
+            const newline = text.indexOf('\n', i)
+            i = newline === -1 ? text.length : newline + 1
+            continue
+        }
+        if (pair === '/*') {
+            const end = text.indexOf('*/', i + 2)
             if (end === -1) throw new AnalystToolError('Analyst SQL has an unfinished comment.', 'expected')
-            i = end
+            i = end + 2
             continue
         }
         const ch = text[i]
@@ -377,9 +352,14 @@ export function oneSqlStatement(sql) {
 function isRowQuery(sql) {
     let i = 0
     while (i < sql.length) {
-        if (sql.startsWith('--', i) || sql.startsWith('/*', i)) {
-            const end = sqlCommentEnd(sql, i)
-            i = end === -1 ? sql.length : end
+        if (sql.startsWith('--', i)) {
+            const newline = sql.indexOf('\n', i)
+            i = newline === -1 ? sql.length : newline + 1
+            continue
+        }
+        if (sql.startsWith('/*', i)) {
+            const end = sql.indexOf('*/', i + 2)
+            i = end === -1 ? sql.length : end + 2
             continue
         }
         if (/\s/.test(sql[i])) {
@@ -1790,227 +1770,39 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
     }
 }
 
-// Every query runs in BEGIN READ ONLY. With a table selection, the scope check first creates its temporary view in
-// its own short transaction on the same connection, which always rolls back. The query transaction then starts
-// read only and confirms transaction_read_only is on just before the query runs.
+// With a table selection, the scope check needs a temporary view, so the transaction starts read-write and turns
+// read only before the statement. Without one it is read only from the start, as before.
 async function queryUrlPostgres(
     postgresUrl,
     statement,
     replay,
     timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS,
     env = process.env,
-    relations = [],
-    { readOnlySql = false, allowedFunctions = [] } = {}
+    relations = []
 ) {
     const scoped = relations.length > 0
-    // The text check passed only row queries. Anything else would go out as a simple-protocol query.
-    if (readOnlySql && !replay?.plan && !isRowQuery(statement)) {
-        throw new AnalystToolError('Cuttlely refused this query: only one SELECT or WITH query is allowed.', 'expected')
-    }
-    const ms = analystStatementTimeoutMs(timeoutMs ?? ANALYST_STATEMENT_TIMEOUT_MS, env)
-    const text = replay?.plan?.statement || statement
-    const client = new Client({
-        connectionString: postgresUrl,
-        application_name: 'cuttlely-analyst',
-        connectionTimeoutMillis: 10000
-    })
-    client.on('error', () => {})
-    const runner = postgresRunner(client, { transaction: true })
-    // Only the node's own setting, passed by the node from the saved flow; never the tool input.
-    if (readOnlySql) runner.allowedFunctions = parseAllowedFunctions(allowedFunctions)
-    let selected = []
-    const statementPath = async () => {
-        if (runner.statementSearchPath)
-            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
-    }
-    const catalogPath = async () => {
-        if (runner.statementSearchPath) await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
-    }
-    const begin = async (readOnly) => {
-        await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')
-        await client.query(`SET LOCAL statement_timeout = ${ms}`)
-        // Every analyst statement check reads '...' as standard SQL strings (where one statement ends depends on
-        // it), so Postgres must too, for every caller.
-        await client.query('SET LOCAL standard_conforming_strings = on')
-        // The node's own catalog queries run with only pg_catalog on the search path (pg_temp is never searched
-        // for functions or operators), so a same-named function elsewhere cannot answer them. The statement itself
-        // is parsed and run with pg_catalog in front of the login's path (runner.statementSearchPath).
-        if (readOnlySql) await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
-    }
-    const hinted = async (error) => {
-        const missing = missingRelationName(error)
-        if (missing && error instanceof Error) {
-            let names = selected.map((relation) => relation.name)
+    return withUrlClient(
+        postgresUrl,
+        async (client, runner) => {
             if (!scoped) {
-                // The failed transaction is over. A fresh read-only one lists what this login can read.
-                await client.query('ROLLBACK').catch(() => {})
-                try {
-                    await begin(true)
-                    names = (await listRelations(runner)).map((relation) => relation.name)
-                } catch {
-                    names = []
-                }
+                if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
+                return await runPostgresStatement(client, statement, replay?.paging, runner)
             }
-            const hint = missingRelationHint(missing, names)
-            if (hint) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
-            return error
-        }
-        const hint = scoped ? columnErrorHint(error, text, selected) : ''
-        if (hint && error instanceof Error) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
-        return error
-    }
-    const backend = async () => String((await client.query('SELECT pg_backend_pid() AS pid')).rows?.[0]?.pid ?? '')
-    let checkedBackend = ''
-    let checked = null
-    try {
-        await client.connect()
-        if (readOnlySql) {
-            const path = (await client.query("SELECT pg_catalog.current_setting('search_path') AS p")).rows?.[0]?.p || ''
-            runner.statementSearchPath = path.trim() ? `pg_catalog, ${path}` : 'pg_catalog'
-        }
-        if (scoped) {
-            await begin(false)
+            const selected = await resolveRelations(runner, relations)
+            const text = replay?.plan?.statement || statement
             try {
-                if (readOnlySql) await refuseRiskyTypes(runner)
-                selected = await resolveRelations(runner, relations)
-                checked = await checkStatementScope(
-                    client,
-                    runner,
-                    text,
-                    selected,
-                    isRowQuery,
-                    readOnlySql ? '' : urlStoreKey(postgresUrl),
-                    {
-                        followViews: readOnlySql
-                    }
-                )
-                checkedBackend = await backend()
+                await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl))
+                await client.query('SET LOCAL transaction_read_only = on')
+                if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
+                return await runPostgresStatement(client, statement, replay?.paging, runner)
             } catch (error) {
-                throw await hinted(error)
-            } finally {
-                await client.query('ROLLBACK').catch(() => {})
+                const hint = columnErrorHint(error, text, selected)
+                if (hint && error instanceof Error) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
+                throw error
             }
-        } else if (readOnlySql) {
-            // No selection: the node still resolves every called function through the catalog first, on every page.
-            await begin(false)
-            try {
-                await refuseRiskyTypes(runner)
-                // No cache key: the node's catalog scans run fresh before every parse.
-                checked = await checkStatementRoutines(client, runner, text, isRowQuery, '')
-                checkedBackend = await backend()
-            } catch (error) {
-                throw await hinted(error)
-            } finally {
-                await client.query('ROLLBACK').catch(() => {})
-            }
-        }
-        if (checkGapHookForTests) await checkGapHookForTests()
-        await begin(true)
-        try {
-            const mode = await client.query('SHOW transaction_read_only')
-            if (mode.rows?.[0]?.transaction_read_only !== 'on') {
-                throw new AnalystToolError('Cuttlely could not start a read-only transaction, so the query did not run.', 'expected')
-            }
-            const queryBackend = await backend()
-            if (scoped) await keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend)
-            if (checked) await keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend)
-            const pageCursor = replay?.paging?.cursor
-            const cursorBefore = pageCursor ? pageCursors.get(pageCursor) : undefined
-            await statementPath()
-            const result = replay?.plan
-                ? await readSelectPage(runner, replay.plan, replay.paging)
-                : await runPostgresStatement(client, statement, replay?.paging, runner)
-            await catalogPath()
-            // An overload or schema created after the last comparison could have changed what a name reached while
-            // the statement was parsed. Its rows are not returned, the cursor stays where it was, and the transaction
-            // is read only and rolls back.
-            const unchanged = !checked || (await routineCatalogStamp(runner).catch(() => null)) === checked.stamp
-            if (!unchanged) {
-                if (pageCursor && cursorBefore) pageCursors.set(pageCursor, cursorBefore)
-                throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
-            }
-            return result
-        } catch (error) {
-            throw await hinted(error)
-        }
-    } catch (error) {
-        if (error instanceof AnalystToolError) throw error
-        const outcome = analystErrorOutcome(error)
-        throw new AnalystToolError(scrub(error, urlSecrets(postgresUrl)).message, outcome)
-    } finally {
-        await client.query('ROLLBACK').catch(() => {})
-        await client.end().catch(() => {})
-    }
-}
-
-const SCOPE_CHANGED = 'Cuttlely refused this query: the selected tables or views changed while it was being checked. Run it again.'
-
-// The check ran in its own transaction, which released its locks. The query transaction runs on the same server
-// session (a transaction-pooling proxy could hand it another one), takes ACCESS SHARE locks on the selected
-// relations so they cannot be dropped, renamed or replaced until it ends, and confirms each still has the oid
-// the check allowed.
-async function keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend) {
-    if (!checkedBackend || checkedBackend !== queryBackend) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
-    // Postgres cannot LOCK a materialized view or every foreign table. Reading no rows from one takes the same
-    // ACCESS SHARE lock, held until the transaction ends.
-    for (const relation of selected) {
-        if (relation.kind === 'table' || relation.kind === 'view') {
-            await client.query(`LOCK TABLE ONLY ${relation.name} IN ACCESS SHARE MODE`)
-        } else {
-            await client.query(`SELECT 1 FROM ONLY ${relation.name} LIMIT 0`)
-        }
-    }
-    const now = await resolveRelations(runner, relations)
-    const same =
-        now.length === selected.length &&
-        now.every((relation) => selected.some((checked) => checked.name === relation.name && checked.oid === relation.oid))
-    if (!same) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
-}
-
-let checkGapHookForTests = null
-
-// Tests run this between the check transaction and the query transaction to change the catalog there.
-export function setCheckGapHookForTests(hook) {
-    checkGapHookForTests = typeof hook === 'function' ? hook : null
-}
-
-const POLICY_UNLOCKED =
-    'Cuttlely refused this query: a table or view that a row-security policy reads could not be locked for the query, so the policy could not be held as checked.'
-
-// ACCESS SHARE until the transaction ends. Locking a view locks everything its definition reads. A materialized
-// view or foreign table cannot always be LOCKed, and reading no rows from it takes the same lock.
-async function lockRelations(client, runner, oids) {
-    if (!oids.length) return
-    const rows = await runner.all(
-        "SELECT c.relkind AS kind, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY c.oid",
-        [oids]
+        },
+        { timeoutMs, env, readOnly: !scoped }
     )
-    for (const row of rows) {
-        if (row.kind === 'r' || row.kind === 'p' || row.kind === 'v') await client.query(`LOCK TABLE ONLY ${row.name} IN ACCESS SHARE MODE`)
-        else if (row.kind === 'm' || row.kind === 'f') await client.query(`SELECT 1 FROM ONLY ${row.name} LIMIT 0`)
-    }
-}
-
-const DEFINITIONS_CHANGED = 'Cuttlely refused this query: a table or view it reads changed while it was being checked. Run it again.'
-
-// For the PostgreSQL MCP node. The query transaction locks the relations the statement reads (locking a view locks
-// everything its definition reads, as Postgres does), then confirms every view, materialized view and row-security
-// policy the check followed is unchanged, so a definition replaced between the two transactions is not run.
-async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend) {
-    if (!checkedBackend || checkedBackend !== queryBackend) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
-    const lockFirst = scoped ? [] : checked.relations
-    await lockRelations(client, runner, lockFirst)
-    try {
-        await lockRelations(client, runner, checked.bodies.policyRelations || [])
-    } catch {
-        throw new AnalystToolError(POLICY_UNLOCKED, 'expected')
-    }
-    // The database-wide scan runs again, uncached, so a type, operator class, text search callback or foreign
-    // partition added since the check is refused before the statement is planned.
-    await refuseRiskyTypes(runner)
-    await refuseRiskyDomains(runner)
-    if (!(await sameRelationBodies(runner, checked.bodies))) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
-    if ((await routineCatalogStamp(runner)) !== checked.stamp) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
 }
 
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
@@ -2027,18 +1819,10 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     const cursor = clean(input.cursor)
     if (cursor) {
         const replay = replayCursor(cursor, input, pagingBase)
-        // A cursor made without the node's text check is checked now, before a node page connects.
-        if (options.readOnlySql) checkReadOnlySql(replay.plan.statement)
-        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations, {
-            readOnlySql: Boolean(options.readOnlySql),
-            allowedFunctions: options.allowedFunctions
-        })
+        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations)
     }
     sweepCursors(pagingBase.now)
-    const sql = analystSqlText(input)
-    // The PostgreSQL MCP node asks for the stricter text check, which runs before any connection.
-    if (options.readOnlySql) checkReadOnlySql(sql)
-    const statement = oneSqlStatement(sql)
+    const statement = oneSqlStatement(analystSqlText(input))
     return queryUrlPostgres(
         postgresUrl,
         statement,
@@ -2048,8 +1832,7 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         },
         options.statementTimeoutMs,
         env,
-        relations,
-        { readOnlySql: Boolean(options.readOnlySql), allowedFunctions: options.allowedFunctions }
+        relations
     )
 }
 
@@ -2073,28 +1856,14 @@ export async function describeAnalystUrlRelation(postgresUrl, input, names, opti
     return withUrlClient(
         postgresUrl,
         async (client, runner) => {
-            if (options.readOnlySql) {
-                // The node's describe runs its catalog queries with only pg_catalog on the search path, and only on a
-                // database its queries would not refuse.
-                await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)")
-                runner.allowedFunctions = parseAllowedFunctions(options.allowedFunctions)
-                try {
-                    await refuseRiskyTypes(runner)
-                } catch (error) {
-                    throw new AnalystToolError(error.message, 'expected')
-                }
-            }
             const relations = await resolveRelations(runner, names)
             const relation = findRelation(relations, requested)
             if (!relation)
                 throw new AnalystToolError(relations.length ? describeRefusal(relations, requested) : SCOPE_NONE_LEFT, 'expected')
             const body = await describeRelation(runner, relation, relations)
-            // The PostgreSQL MCP node's samples pass the same checks its queries do, fresh, with no cache: inside ticked
-            // views, with the node denylist.
             const values = await sampleRelationValues(client, runner, relation, relations, {
                 isRowQuery,
-                cacheKey: options.readOnlySql ? '' : urlStoreKey(postgresUrl),
-                followViews: Boolean(options.readOnlySql)
+                cacheKey: urlStoreKey(postgresUrl)
             })
             if (values) body.values = values
             return body
