@@ -134,7 +134,9 @@ const listHarnesses = async (workspaceId?: string | null) => {
         if (!inWorkspace(owner, ws)) continue
         const shown = !row.workspaceId && owner ? store.claimWorkspace(row.name, owner) || { ...row, workspaceId: owner } : row
         // An orphan stays on the list, marked, so it can be deleted from its card.
-        visible.push((await isOrphan(shown)) ? { ...shown, orphaned: true } : shown)
+        const marked = (await isOrphan(shown)) ? { ...shown, orphaned: true } : shown
+        const failed = bootFailures.get(marked.name)
+        visible.push(failed ? { ...marked, status: 'failed', error: failed } : marked)
     }
     return visible
 }
@@ -312,6 +314,33 @@ async function contextFor(record: { chatflowId?: string; workspaceId?: string | 
 
 let runtimeConfigured: Promise<void> | undefined
 
+/** Boot compile failures, by harness name. The list API and run route read this. */
+const bootFailures = new Map<string, string>()
+/** The harness whose compile is in progress, so a cap can mark that one failed. */
+let bootActive: string | null = null
+
+function markBootFailed(name: string, error: string) {
+    if (!name || bootFailures.has(name)) return
+    bootFailures.set(name, error)
+    logger.error(`[harness] ${name} harness unavailable: ${error}`)
+}
+
+function clearBootFailure(name: string) {
+    bootFailures.delete(name)
+}
+
+/** A failed boot compile refuses a run with 503, not 500. */
+export function assertHarnessAvailable(name: string) {
+    const error = bootFailures.get(name)
+    if (!error) return
+    throw new AppError(StatusCodes.SERVICE_UNAVAILABLE, `harness unavailable: ${error}`)
+}
+
+export async function invokeHarnessForBoot(name: string, run: () => Promise<{ text: string }>) {
+    assertHarnessAvailable(name)
+    return run()
+}
+
 /** The boot compile did not finish. Callers must not treat that as a successful start. */
 export class BootPassIncomplete extends Error {
     readonly code = 'boot_incomplete'
@@ -397,6 +426,7 @@ export async function recompileBeforeHermes(gateway: {
             `[harness] profile recompile is still running after ${seconds}s (cap ${seconds}s). ` +
                 'It continues in the background. Chat and prediction answer 503 until it finishes.'
         )
+        if (bootActive) markBootFailed(bootActive, 'boot recompile stopped at the cap')
         openBootAfterCap()
         void pass.catch((error) => {
             // The cap already opened ping. Releasing the gateway hold lets the runtime start instead of staying down.
@@ -422,6 +452,8 @@ export async function recompileBeforeHermes(gateway: {
 /** Tests start a fresh runtime after another test in this process already configured one. */
 export function resetHarnessRuntimeForTests() {
     runtimeConfigured = undefined
+    bootFailures.clear()
+    bootActive = null
 }
 
 export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
@@ -438,19 +470,31 @@ export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: 
         // Compiling is synchronous file work: a turn of the event loop between records lets /health answer its 503.
         // A timer, not setImmediate: the loop then passes the poll phase, where a waiting HTTP request is read.
         await new Promise((resolve) => setTimeout(resolve, 0))
-        const done = await withNameLock(name, () =>
-            withProfileLock(async () => {
-                let record
-                try {
-                    record = store.getHarness(name)
-                } catch (error) {
-                    // One unreadable record is reported; the others still run.
-                    logger.warn(`[harness] ${name} profile was not recompiled: ${getErrorMessage(error)}`)
-                    return [{ name, status: 'failed', error: getErrorMessage(error) }]
-                }
-                return record ? profile.recompileOutdatedProfiles([record], { log: logger }) : []
-            })
-        )
+        bootActive = name
+        let done: Array<{ name: string; status: string; error?: string }> = []
+        try {
+            done = await withNameLock(name, () =>
+                withProfileLock(async () => {
+                    let record
+                    try {
+                        record = store.getHarness(name)
+                    } catch (error) {
+                        // One unreadable record is reported; the others still run.
+                        logger.warn(`[harness] ${name} profile was not recompiled: ${getErrorMessage(error)}`)
+                        return [{ name, status: 'failed', error: getErrorMessage(error) }]
+                    }
+                    return record ? profile.recompileOutdatedProfiles([record], { log: logger }) : []
+                })
+            )
+        } catch (error) {
+            done = [{ name, status: 'failed', error: getErrorMessage(error) }]
+        } finally {
+            if (bootActive === name) bootActive = null
+        }
+        for (const row of done) {
+            if (row.status === 'failed') markBootFailed(row.name, row.error || 'compile failed')
+            else if (row.status === 'recompiled') clearBootFailure(row.name)
+        }
         results.push(...done)
     }
     return results
@@ -499,7 +543,12 @@ const warmHarnesses = (names?: string[]) => {
     if (process.env.CUTTLELY_WARM_HERMES === 'false') return
     configureRuntime()
         .then(() => loadHarness('run.mjs'))
-        .then((engine) => withProfileLock(async () => engine.warmHarnessProfiles({ names })))
+        .then((engine) =>
+            engine.warmHarnessProfiles({
+                names,
+                lock: (compile: () => unknown) => withProfileLock(() => Promise.resolve(compile()))
+            })
+        )
         .catch((error) => logger.warn(`[harness] Hermes warm-up failed: ${getErrorMessage(error)}`))
 }
 
@@ -1152,6 +1201,7 @@ const startRun = async (
         caller: IHarnessCaller
     }
 ) => {
+    assertHarnessAvailable(name)
     const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
     const apiKeyId = callerKeyId(opts.caller)
     await configureRuntime()

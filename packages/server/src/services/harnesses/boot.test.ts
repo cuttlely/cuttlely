@@ -41,7 +41,23 @@ describe('harness runtime start', () => {
             if (file === 'run.mjs') {
                 return {
                     configureHarnessRuntime: () => order.push('configure'),
-                    warmHarnessProfiles: async () => {
+                    warmHarnessProfiles: async ({ lock }: { lock?: (fn: () => Promise<unknown>) => Promise<unknown> } = {}) => {
+                        order.push('warm-start')
+                        const compile = lock || (async (fn: () => Promise<unknown>) => fn())
+                        await compile(async () => {
+                            order.push('warm-locked')
+                        })
+                        // The health wait is this pause. The profile lock has to be free while it runs.
+                        order.push('hermes-healthy-wait')
+                        await new Promise((resolve) => setTimeout(resolve, 40))
+                        let acquired = false
+                        await Promise.race([
+                            withProfileLock(async () => {
+                                acquired = true
+                            }),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('health wait still holds the profile lock')), 500))
+                        ])
+                        order.push(acquired ? 'health-lock-free' : 'health-lock-held')
                         order.push('warm')
                     }
                 }
@@ -263,7 +279,7 @@ describe('harness runtime start', () => {
         expect(bootPassBlocksPing()).toBe(false)
     })
 
-    test('warm-up after the cap takes the profile lock', async () => {
+    test('warm-up holds the profile lock only during compile, not while Hermes health waits', async () => {
         resetHarnessRuntimeForTests()
         process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '0'
         harnessesService.startHarnessRuntime()
@@ -278,11 +294,16 @@ describe('harness runtime start', () => {
         )
         await new Promise((resolve) => setTimeout(resolve, 10))
         harnessesService.warmHarnesses()
-        await new Promise((resolve) => setTimeout(resolve, 40))
-        expect(order).not.toContain('warm')
+        for (let i = 0; i < 50 && !order.includes('warm-start'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+        expect(order).toContain('warm-start')
+        expect(order).not.toContain('warm-locked')
+        expect(order).not.toContain('hermes-healthy-wait')
         releaseLock()
         await held
-        for (let i = 0; i < 50 && !order.includes('warm'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+        for (let i = 0; i < 50 && !order.includes('health-lock-free'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
+        expect(order).toContain('warm-locked')
+        expect(order).toContain('hermes-healthy-wait')
+        expect(order).toContain('health-lock-free')
         expect(order).toContain('warm')
     })
 

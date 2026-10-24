@@ -377,7 +377,14 @@ function ingestProfileTokens(abandoned = new Set()) {
     if (!fs.existsSync(root)) return
     for (const entry of fs.readdirSync(root)) {
         if (abandoned.has(entry)) continue
+        // A link is not a profile the runtime loads, including one that could not be renamed aside.
+        if (entry.endsWith('.quarantine') || /\.quarantine-\d+$/.test(entry)) continue
         const dir = path.join(root, entry)
+        try {
+            if (fs.lstatSync(dir).isSymbolicLink()) continue
+        } catch {
+            continue
+        }
         const env = readEnvFile(path.join(dir, '.env'))
         const token = env.OPENAI_API_KEY || ''
         const base = String(env.OPENAI_BASE_URL || '')

@@ -102,7 +102,13 @@ export interface HarnessEngine {
             record: { chatflowId?: string; workspaceId?: string | null; name?: string } | null
         ) => HarnessRuntimeContext | Promise<HarnessRuntimeContext>
     }): void
-    warmHarnessProfiles(options?: { names?: string[]; baseUrl?: string; fetchImpl?: unknown; healthWaitMs?: number }): Promise<unknown>
+    warmHarnessProfiles(options?: {
+        names?: string[]
+        baseUrl?: string
+        fetchImpl?: unknown
+        healthWaitMs?: number
+        lock?: <T>(fn: () => T | Promise<T>) => Promise<T>
+    }): Promise<unknown>
 }
 
 // tsc rewrites import() into require(), which cannot load the ESM harness package.

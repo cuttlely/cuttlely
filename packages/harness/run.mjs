@@ -2703,13 +2703,21 @@ const HEALTH_POLL_MS = 2000
 
 // Hermes loads a profile's tools and builds its prompt on the profile's first run.
 // One short run per agent-loop specialist pays that cost before a chat does.
-export async function warmHarnessProfiles({ names, baseUrl = hermesBaseUrl(), fetchImpl = fetch, healthWaitMs = 1200000 } = {}) {
+export async function warmHarnessProfiles({
+    names,
+    baseUrl = hermesBaseUrl(),
+    fetchImpl = fetch,
+    healthWaitMs = 1200000,
+    lock = (fn) => fn()
+} = {}) {
     const records = names ? names.map((name) => getHarness(name)).filter(Boolean) : listHarnesses()
     const targets = []
     for (const record of records) {
         let roster
         try {
-            roster = compileProfileCached(record).roster || record
+            // The lock covers the compile only. The health wait below can run for minutes and must not hold it.
+            const compiled = await lock(() => compileProfileCached(record))
+            roster = compiled.roster || record
         } catch (error) {
             console.warn(`[harness] ${record.name} warm-up skipped: ${error.message}`)
             continue
@@ -2764,7 +2772,9 @@ async function hermesHealthy(baseUrl, fetchImpl, waitMs) {
         } catch {
             // Hermes is still starting.
         }
-        await new Promise((resolve) => setTimeout(resolve, HEALTH_POLL_MS))
+        const pause = Math.min(HEALTH_POLL_MS, deadline - Date.now())
+        if (pause <= 0) break
+        await new Promise((resolve) => setTimeout(resolve, pause))
     }
     console.warn(`[harness] Hermes warm-up skipped: ${baseUrl}/health did not answer`)
     return false

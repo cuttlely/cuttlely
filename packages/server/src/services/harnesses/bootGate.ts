@@ -11,7 +11,7 @@ export const BOOT_PASS_DEFAULT_SECONDS = 180
  */
 export const BOOT_PASS_CAP_SECONDS = 300
 
-export const PROFILES_COMPILING = 'profiles compiling'
+export const PROFILES_COMPILING = 'boot recompile'
 export const PROFILES_COMPILING_MESSAGE = 'Cuttlely is compiling agent profiles. Try again in a minute.'
 
 export type BootPhase = 'idle' | 'running' | 'background' | 'incomplete' | 'done'

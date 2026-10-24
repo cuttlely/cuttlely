@@ -208,15 +208,45 @@ function throwLink(where) {
     throw new HarnessError('profile_link', `profile path is a link: ${where}`)
 }
 
-// Removes the symlink itself. The target is left where it is, and the runtime no longer has a path to it.
+// A quarantined link keeps a sibling name an operator can rename back. The dot keeps it out of the runtime's profile ids.
+function isQuarantineName(name) {
+    return name.endsWith('.quarantine') || /\.quarantine-\d+$/.test(name)
+}
+
+function quarantineDest(linkPath) {
+    const dir = path.dirname(linkPath)
+    const base = path.basename(linkPath)
+    for (let n = 0; n < 1000; n += 1) {
+        const dest = path.join(dir, n === 0 ? `${base}.quarantine` : `${base}.quarantine-${n}`)
+        try {
+            fs.lstatSync(dest)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return dest
+            throw error
+        }
+    }
+    return path.join(dir, `${base}.quarantine-${Date.now()}`)
+}
+
+// Renames the symlink itself to a sibling. The target is left where it is. False when the link is still there.
 function quarantineSymlink(linkPath) {
+    let st
     try {
-        if (!fs.lstatSync(linkPath).isSymbolicLink()) return false
-        fs.unlinkSync(linkPath)
-        return true
+        st = fs.lstatSync(linkPath)
     } catch {
         return false
     }
+    if (!st.isSymbolicLink()) return false
+    let dest
+    try {
+        dest = quarantineDest(linkPath)
+        fs.renameSync(linkPath, dest)
+    } catch {
+        console.error(`[harness] profile link could not be quarantined: ${linkPath}`)
+        return false
+    }
+    console.warn(`[harness] quarantined profile link ${linkPath} as ${dest}`)
+    return true
 }
 
 function rootFor(file) {
@@ -283,24 +313,120 @@ function assertContained(file) {
     if (within.startsWith('..') || path.isAbsolute(within)) throwLink(file)
 }
 
-// O_NOFOLLOW so a symlink that appears at the last moment is not followed.
-function writeContained(file, text, mode = 0o644) {
-    assertContained(file)
-    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | (fs.constants.O_NOFOLLOW || 0)
-    let fd
-    try {
-        fd = fs.openSync(file, flags, mode)
-    } catch (error) {
-        if (error?.code === 'ELOOP' || error?.code === 'EEXIST') {
-            quarantineSymlink(file)
-            throwLink(file)
+const NOFOLLOW = fs.constants.O_NOFOLLOW || 0
+const DIR_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | NOFOLLOW
+
+// Tests replace a directory with a link after its fd is open and before the file is created.
+export const profileWriteTest = {
+    beforeFinalOpen: null
+}
+
+function fdPath(dirFd, name) {
+    if (process.platform === 'linux') return `/proc/self/fd/${dirFd}/${name}`
+    return null
+}
+
+function realOfFd(fd) {
+    if (process.platform !== 'linux') return ''
+    return fs.realpathSync(`/proc/self/fd/${fd}`)
+}
+
+function insideRoot(rootReal, candidate) {
+    if (!rootReal || !candidate) return false
+    const rel = path.relative(rootReal, candidate)
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+function closeFds(fds) {
+    for (let i = fds.length - 1; i >= 0; i -= 1) {
+        try {
+            fs.closeSync(fds[i])
+        } catch {
+            // Already closed.
         }
+    }
+}
+
+// Each directory is opened from the one above with O_DIRECTORY|O_NOFOLLOW, then the file is opened
+// from that directory fd. A link swapped in for an intermediate directory is not a path we follow.
+function writeContained(file, text, mode = 0o644) {
+    const root = rootFor(file)
+    const rel = path.relative(root, path.resolve(file))
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throwLink(file)
+    const parts = rel.split(path.sep).filter(Boolean)
+    const fileName = parts.pop()
+    if (!fileName || fileName === '.' || fileName === '..') throwLink(file)
+    let rootStat
+    try {
+        rootStat = fs.lstatSync(root)
+    } catch (error) {
         throw error
     }
+    if (rootStat.isSymbolicLink()) {
+        quarantineSymlink(root)
+        throwLink(root)
+    }
+    const fds = []
     try {
-        fs.writeFileSync(fd, text)
+        const rootFd = fs.openSync(root, DIR_FLAGS)
+        fds.push(rootFd)
+        let dirFd = rootFd
+        let logical = root
+        for (const part of parts) {
+            if (part === '.' || part === '..') throwLink(file)
+            logical = path.join(logical, part)
+            const via = fdPath(dirFd, part) || logical
+            let next
+            try {
+                next = fs.openSync(via, DIR_FLAGS)
+            } catch (error) {
+                if (error?.code === 'ENOENT') {
+                    fs.mkdirSync(via)
+                    next = fs.openSync(via, DIR_FLAGS)
+                } else if (error?.code === 'ELOOP' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') {
+                    quarantineSymlink(logical)
+                    throwLink(logical)
+                } else {
+                    throw error
+                }
+            }
+            fds.push(next)
+            dirFd = next
+        }
+        const rootReal = realOfFd(rootFd)
+        if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(file)
+        if (typeof profileWriteTest.beforeFinalOpen === 'function') profileWriteTest.beforeFinalOpen(file, dirFd)
+        try {
+            if (fs.lstatSync(logical).isSymbolicLink() && !quarantineSymlink(logical)) throwLink(logical)
+        } catch (error) {
+            if (error?.code !== 'ENOENT') throw error
+        }
+        if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(file)
+        const fileVia = fdPath(dirFd, fileName) || path.join(logical, fileName)
+        const fileFlags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | NOFOLLOW
+        let fileFd
+        try {
+            fileFd = fs.openSync(fileVia, fileFlags, mode)
+        } catch (error) {
+            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') {
+                quarantineSymlink(path.join(logical, fileName))
+                throwLink(file)
+            }
+            throw error
+        }
+        fds.push(fileFd)
+        const written = realOfFd(fileFd)
+        if (process.platform === 'linux' && !insideRoot(rootReal, written)) {
+            try {
+                fs.unlinkSync(`/proc/self/fd/${fileFd}`)
+            } catch {
+                // Closed below. Nothing was written.
+            }
+            throwLink(file)
+        }
+        fs.writeFileSync(fileFd, text)
     } finally {
-        fs.closeSync(fd)
+        closeFds(fds)
     }
 }
 
@@ -1055,18 +1181,12 @@ function harnessOwnedDir(dir) {
 function setAsideConfig(dir) {
     const config = path.join(dir, 'config.yaml')
     try {
-        if (fs.lstatSync(dir).isSymbolicLink()) {
-            quarantineSymlink(dir)
-            return true
-        }
+        if (fs.lstatSync(dir).isSymbolicLink()) return quarantineSymlink(dir)
     } catch (error) {
         if (error?.code !== 'ENOENT') return false
     }
     try {
-        if (fs.lstatSync(config).isSymbolicLink()) {
-            quarantineSymlink(config)
-            return true
-        }
+        if (fs.lstatSync(config).isSymbolicLink()) return quarantineSymlink(config)
     } catch (error) {
         if (error?.code !== 'ENOENT') return false
     }
@@ -1116,8 +1236,8 @@ export function setAsideOutdatedConfigs() {
     const root = path.join(hermesHome(), 'profiles')
     try {
         if (fs.lstatSync(root).isSymbolicLink()) {
-            quarantineSymlink(root)
-            return []
+            if (quarantineSymlink(root)) return []
+            throw new HarnessError('profile_link', `profile path is a link: ${root}`)
         }
     } catch (error) {
         if (error?.code === 'ENOENT') return []
@@ -1126,6 +1246,7 @@ export function setAsideOutdatedConfigs() {
     if (!present(root)) return []
     const loadable = []
     for (const entry of fs.readdirSync(root)) {
+        if (isQuarantineName(entry)) continue
         const dir = path.join(root, entry)
         let owned
         let linked = false
@@ -1136,10 +1257,10 @@ export function setAsideOutdatedConfigs() {
             owned = true
         }
         if (!owned) continue
-        // A linked profile folder is removed from the load path. The target is not changed, and config.yaml is not
-        // left where the runtime would follow the link.
+        // A linked profile folder is renamed off the load path. The target is not changed. A link that cannot
+        // be renamed stays failed: it is returned so the caller does not treat it as ready to load.
         if (linked) {
-            quarantineSymlink(dir)
+            if (!quarantineSymlink(dir)) loadable.push(dir)
             continue
         }
         if (!setAsideConfig(dir)) loadable.push(dir)
@@ -1169,10 +1290,15 @@ function compileProfileFiles(record, options = {}) {
     // Every caller (boot, warm-up, a chat, a canvas try) stops here. Writing would follow the link.
     const linked = linkedProfileDirs(record, profileName)
     if (linked.length) {
-        for (const dir of linked) quarantineSymlink(dir)
+        const stuck = linked.filter((dir) => !quarantineSymlink(dir))
+        const where = stuck.length ? stuck : linked
         throw new HarnessError(
             'profile_link',
-            `Harness "${record.name}" cannot be compiled: profile folder is a link: ${linked.join(', ')}`
+            stuck.length
+                ? `Harness "${
+                      record.name
+                  }" cannot be compiled: profile folder is a link and could not be moved off the load path: ${where.join(', ')}`
+                : `Harness "${record.name}" cannot be compiled: profile folder is a link: ${where.join(', ')}`
         )
     }
     if (!tryProfile) {
@@ -1673,6 +1799,7 @@ function linkedProfileDirs(record, profileName = record?.name) {
     const root = path.join(hermesHome(), 'profiles')
     try {
         for (const entry of fs.readdirSync(root)) {
+            if (isQuarantineName(entry)) continue
             const dir = path.join(root, entry)
             if (!isLink(dir)) continue
             const parent = readMarker(path.join(dir, 'harness-parent'))
@@ -1691,6 +1818,19 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
     const results = []
     for (const record of records) {
         if (!record?.name) continue
+        const linked = linkedProfileDirs(record)
+        if (linked.length) {
+            const stuck = linked.filter((dir) => !quarantineSymlink(dir))
+            const where = stuck.length ? stuck : linked
+            results.push({
+                name: record.name,
+                status: 'failed',
+                error: stuck.length
+                    ? `profile folder is a link and could not be moved off the load path: ${where.join(', ')}`
+                    : `profile folder is a link: ${where.join(', ')}`
+            })
+            continue
+        }
         let outdated
         try {
             outdated = profileOutdated(record)
@@ -1699,12 +1839,6 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
             continue
         }
         if (!outdated) continue
-        const linked = linkedProfileDirs(record)
-        if (linked.length) {
-            for (const dir of linked) quarantineSymlink(dir)
-            results.push({ name: record.name, status: 'failed', error: `profile folder is a link: ${linked.join(', ')}` })
-            continue
-        }
         const roster = onDiskRoster(profileDir(record.name))
         // Specialist tokens from before the createdAt stamp are kept only when the profile on disk is this record's.
         const sameRecord = Boolean(record.createdAt) && String(roster?.createdAt || '') === String(record.createdAt)

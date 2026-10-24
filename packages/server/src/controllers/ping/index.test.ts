@@ -39,7 +39,7 @@ describe('ping hermes health', () => {
         beginBootPass()
         expect(composePing(dir)).toEqual({
             code: 503,
-            body: 'profiles compiling',
+            body: 'boot recompile',
             header: 'compiling',
             analyst: 'unknown',
             retryAfter: 30
@@ -53,7 +53,7 @@ describe('ping hermes health', () => {
 
     it('stays 503 when the boot compile did not finish, and answers 200 while a long compile runs in the background', () => {
         markBootIncomplete()
-        expect(composePing(undefined)).toMatchObject({ code: 503, body: 'profiles compiling', retryAfter: 30 })
+        expect(composePing(undefined)).toMatchObject({ code: 503, body: 'boot recompile', retryAfter: 30 })
         resetBootPass()
         beginBootPass()
         backgroundBootPass()
