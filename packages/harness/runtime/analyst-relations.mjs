@@ -596,16 +596,7 @@ export async function checkStatementScope(
         )
         const regSet = new Set([Number(typeOids?.regconfig || 0), Number(typeOids?.regdictionary || 0)])
         const present = [...ids.types].some((t) => regSet.has(Number(t)))
-        try {
-            const stextD = String(statement || '')
-            if (/cfg::text/i.test(stextD)) {
-                await import('node:fs').then((fs) => {
-                    try {
-                        fs.writeFileSync('/tmp/cfg-present.json', JSON.stringify({ present, types: [...ids.types] }, null, 2), 'utf8')
-                    } catch {}
-                })
-            }
-        } catch {}
+        // No debug side effects or source-text checks.
         if (!present) return new Set(ids.types)
         // Disallow IO function calls outright
         const ioFnRows = await runner.all(
@@ -636,33 +627,6 @@ export async function checkStatementScope(
         )
         const allowedFnIds = new Set(allowedFnRows.map((r) => Number(r.oid)))
         const text = String(treeText || '')
-        const stext = String(statement || '')
-        // Refuse any IO coercion nodes outright in the executed statement.
-        const hasCoerce = text.includes('COERCEVIAIO')
-        try {
-            const stextD = String(statement || '')
-            if (/cfg::text/i.test(stextD)) {
-                await import('node:fs').then((fs) => {
-                    try {
-                        fs.writeFileSync('/tmp/cfg-coerce.txt', hasCoerce ? 'yes' : 'no', 'utf8')
-                    } catch {}
-                })
-            }
-        } catch {}
-        if (hasCoerce) {
-            throw new ScopeRefusal(
-                'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
-            )
-        }
-        try {
-            if (/cfg::text/i.test(stext)) {
-                await import('node:fs').then((fs) => {
-                    try {
-                        fs.writeFileSync('/tmp/cuttlely-node-tree-cfg.txt', text)
-                    } catch {}
-                })
-            }
-        } catch {}
         // Streaming structural walk over nodeToString text to enforce immediate-arg exception
         let totalReg = 0
         let allowedReg = 0
@@ -698,8 +662,11 @@ export async function checkStatementScope(
                     if (allowed) allowedReg += 1
                 } else if (frame.name === 'VAR' && frame.varType && regSet.has(Number(frame.varType))) {
                     frame.isRegTyped = true
+                    // Any non-Const reg* anywhere in the statement causes refusal.
+                    badTopReg = true
                 } else if (frame.name === 'RELABELTYPE' && frame.resultType && regSet.has(Number(frame.resultType))) {
                     frame.isRegTyped = true
+                    badTopReg = true
                 } else if (frame.name === 'COERCEVIAIO') {
                     // Refuse IO coercion to or from reg* types
                     if ((frame.resultType && regSet.has(Number(frame.resultType))) || frame.hasRegArg) {
@@ -807,24 +774,8 @@ export async function checkStatementScope(
                 'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
             )
         }
-        if (/cfg::text/i.test(stext)) {
-            try {
-                await import('node:fs').then((fs) => {
-                    try {
-                        fs.writeFileSync('/tmp/cfg-debug.json', JSON.stringify({ totalReg, allowedReg, refusedIo }, null, 2), 'utf8')
-                    } catch {}
-                })
-            } catch {}
-        }
         const ok = allowedReg === totalReg
         if (!ok) {
-            try {
-                await import('node:fs').then((fs) => {
-                    try {
-                        fs.writeFileSync('/tmp/cuttlely-node-tree.txt', text)
-                    } catch {}
-                })
-            } catch {}
             throw new ScopeRefusal(
                 'Cuttlely refused this query: type regconfig or regdictionary is not allowed while a table selection is set. It turns object ids into names for objects outside the selection.'
             )

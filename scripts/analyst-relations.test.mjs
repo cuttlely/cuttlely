@@ -708,11 +708,17 @@ describe('analyst relations: bakery database', () => {
         )
 
         if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
-            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1') {
-                assert.fail('components build is missing or stale; build the components package before running PG-required tests')
-            } else {
-                t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
-                return
+            try {
+                const { execSync } = await import('node:child_process')
+                execSync('pnpm --filter @cuttlely/components build', { stdio: 'inherit' })
+            } catch {}
+            if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
+                if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1') {
+                    assert.fail('components build is missing or stale; build the components package before running PG-required tests')
+                } else {
+                    t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
+                    return
+                }
             }
         }
         const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
@@ -2182,8 +2188,18 @@ describe('analyst relations: user functions inside views', () => {
     it('v1.3 node declares and persists analystAllowedFunctions; scoped helpers pass', async (t) => {
         if (skipped(t)) return
         if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
-            t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
-            return
+            try {
+                const { execSync } = await import('node:child_process')
+                execSync('pnpm --filter @cuttlely/components build', { stdio: 'inherit' })
+            } catch {}
+            if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
+                if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1') {
+                    assert.fail('components build is missing or stale; build the components package before running PG-required tests')
+                } else {
+                    t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
+                    return
+                }
+            }
         }
         const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
         const inst = new nodeClass()
@@ -2338,6 +2354,11 @@ describe('analyst relations: text search configuration types', () => {
             queryAnalystUrl(url, 'SELECT cfg::text AS cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
             /not allowed while a table selection is set/
         )
+        // Selecting a regconfig-typed column directly is refused under a selection.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /not allowed while a table selection is set/
+        )
         // A Const regconfig cast on its own is refused under a selection.
         await refusal(
             queryAnalystUrl(url, "SELECT 'english'::regconfig::text AS cfg LIMIT 1", scoped('s.tickets')),
@@ -2371,6 +2392,17 @@ describe('analyst relations: text search configuration types', () => {
 
     it('runs ts_headline and a regdictionary literal with a selection', async (t) => {
         if (skipped(t)) return
+        // Ensure unrelated COERCEVIAIO (jsonb::text) in the same statement does not cause refusal.
+        assert.equal(
+            (
+                await queryAnalystUrl(
+                    url,
+                    "SELECT to_tsvector('english', notes) AS d, '{\"a\":1}'::jsonb::text AS j FROM s.tickets LIMIT 1",
+                    scoped('s.tickets')
+                )
+            ).rows.length,
+            1
+        )
         const headline = await queryAnalystUrl(
             url,
             "SELECT ts_headline('english', notes, plainto_tsquery('english', 'oven')) AS h FROM s.tickets WHERE id = 1 LIMIT 1",
@@ -2383,6 +2415,33 @@ describe('analyst relations: text search configuration types', () => {
             scoped('s.tickets')
         )
         assert.deepEqual(lexize.rows[0].l, ['oven'])
+    })
+
+    it('does not write debug files during checks', async (t) => {
+        if (skipped(t)) return
+        const fs = await import('node:fs')
+        const tmpFiles = [
+            '/tmp/cfg-present.json',
+            '/tmp/cfg-coerce.txt',
+            '/tmp/cuttlely-node-tree.txt',
+            '/tmp/cuttlely-node-tree-cfg.txt',
+            '/tmp/cfg-debug.json'
+        ]
+        // Clean up any leftovers from a prior run
+        for (const f of tmpFiles) {
+            try {
+                if (fs.existsSync(f)) fs.unlinkSync(f)
+            } catch {}
+        }
+        // Run a representative query that previously triggered debug writes.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT cfg::text AS cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /not allowed while a table selection is set/
+        )
+        for (const f of tmpFiles) {
+            t.diagnostic(`checking ${f}`)
+            assert.equal(fs.existsSync(f), false, `no file should be written: ${f}`)
+        }
     })
 
     it('runs a regclass view with no selection, and never names the selection on unscoped queries', async (t) => {
