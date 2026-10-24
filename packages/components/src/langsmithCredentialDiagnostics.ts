@@ -41,14 +41,23 @@ export const operationForLog = (pathname: string): string => {
 }
 
 /**
- * The key and endpoint a flow's LangSmith client is built with. The key is always a string: the SDK reads the
- * server's environment key only when the key is undefined, and that key would then go to the endpoint of the
- * flow's credential. A credential without a key gets an empty one, so its uploads fail (and are logged) instead.
+ * The key and endpoint a flow's LangSmith client is built with, or undefined when the credential has no
+ * nonblank key. The SDK fills a missing or empty key from the server's environment key or from a LangSmith
+ * profile on the server (API key or OAuth), and that would then go to the endpoint of the flow's credential, so
+ * a flow credential without a key gets no client at all and its tracing is turned off (and logged) instead.
  */
-export const langSmithClientConfig = (apiKey: unknown, endpoint: unknown): { apiUrl: string; apiKey: string } => ({
-    apiUrl: typeof endpoint === 'string' && endpoint ? endpoint : 'https://api.smith.langchain.com',
-    apiKey: typeof apiKey === 'string' ? apiKey : ''
-})
+export const langSmithClientConfig = (apiKey: unknown, endpoint: unknown): { apiUrl: string; apiKey: string } | undefined => {
+    if (typeof apiKey !== 'string' || apiKey.trim() === '') return undefined
+    return {
+        apiUrl: typeof endpoint === 'string' && endpoint ? endpoint : 'https://api.smith.langchain.com',
+        apiKey
+    }
+}
+
+/** Logged when a flow's LangSmith tracing is off because its credential has no key. */
+export const warnLangSmithKeyMissing = (flowId: string | undefined, shape: LangSmithCredentialShape): void => {
+    console.warn(`[langsmith] tracing off: credential has no API key flowId=${flowId ?? ''} credential=${JSON.stringify(shape)}`)
+}
 
 export const describeLangSmithCredential = (
     credentialId: string | undefined,

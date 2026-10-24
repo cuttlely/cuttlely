@@ -27,6 +27,7 @@ import {
     describeLangSmithCredential,
     keepConfiguredLangSmithTarget,
     langSmithClientConfig,
+    warnLangSmithKeyMissing,
     langSmithFailureLoggingFetch
 } from './langsmithCredentialDiagnostics'
 import { EvaluationRunTracer } from '../evaluation/EvaluationRunTracer'
@@ -558,8 +559,13 @@ export const additionalCallbacks = async (nodeData: INodeData, options: ICommonO
                         langSmithEndpoint,
                         langSmithProject
                     )
+                    const langSmithConfig = langSmithClientConfig(langSmithApiKey, langSmithEndpoint)
+                    if (!langSmithConfig) {
+                        warnLangSmithKeyMissing(options?.chatflowid, langSmithShape)
+                        continue
+                    }
                     const client = new Client({
-                        ...langSmithClientConfig(langSmithApiKey, langSmithEndpoint),
+                        ...langSmithConfig,
                         fetchImplementation: langSmithFailureLoggingFetch({
                             flowId: options?.chatflowid,
                             shape: langSmithShape
@@ -844,8 +850,13 @@ export class AnalyticHandler {
                 langSmithEndpoint,
                 langSmithProject
             )
+            const langSmithConfig = langSmithClientConfig(langSmithApiKey, langSmithEndpoint)
+            if (!langSmithConfig) {
+                warnLangSmithKeyMissing(this.options?.chatflowid, langSmithShape)
+                return
+            }
             const client = new LangsmithClient({
-                ...langSmithClientConfig(langSmithApiKey, langSmithEndpoint),
+                ...langSmithConfig,
                 fetchImplementation: langSmithFailureLoggingFetch({ flowId: this.options?.chatflowid, shape: langSmithShape })
             })
 

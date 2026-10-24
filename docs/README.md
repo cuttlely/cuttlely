@@ -49,7 +49,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Audit API](./reference/audit-api.md). `GET /api/v1/audit` for an owner or `audit:view`, with type, user, and cursor filters. Login activity stays closed.
 -   [Datasets API](./reference/datasets-api.md). Save the questions ticked in Choose questions as a dataset with empty expected answers. A hand-picked check does not unblock Publish.
 -   [Startup options](./reference/startup-options.md). Every option the settings API exposes, with the default, the range, where it can be set, and whether a restart is needed. Secret values are not shown.
--   [LangSmith tracing](./reference/langsmith-tracing.md). A flow credential with no API key falls back to the server's LangSmith settings, so that flow's traces go to the server owner's account.
+-   [LangSmith tracing](./reference/langsmith-tracing.md). A flow credential with no API key turns that flow's LangSmith tracing off; it never falls back to the server's LangSmith key or profile.
 -   [Analyst tools](./reference/analyst-tools.md). The PostgreSQL MCP node fields, the `query` and `describe` tools, the one-line relation summary, and the refusals a table selection returns.
 -   [FAQ](./faq.md). Common questions, including enabling local (stdio) MCP servers safely.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
