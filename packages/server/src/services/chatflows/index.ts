@@ -933,7 +933,12 @@ async function validateHarnessCanvas(chatflow: ChatFlow, caller: IHarnessCaller 
         rosterError = error
     }
     // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
-    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, { claiming: true, record: roster })
+    // Under the same locks as every save: what it claims or clears cannot interleave with another save's check.
+    await harnessesService.withNameLock(chatflow.name, () =>
+        harnessesService.withProfileLock(() =>
+            harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId, { claiming: true, record: roster })
+        )
+    )
     if (rosterError) throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(rosterError))
 }
 

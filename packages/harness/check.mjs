@@ -355,6 +355,12 @@ const opsProfile = compileProfile(ops)
         recompiled = false
     }
     check('a harness recompiles over its own specialist profiles', recompiled && !profileDestinationConflicts(first).length)
+    // Harness names are case-sensitive: Joinx--b and joinx--b are two owners of the same lowercased profile names.
+    check(
+        'a harness whose name differs only by case does not take over the other harness profiles',
+        JSON.stringify(profileDestinationConflicts({ ...first, name: 'JOINX--b' })) === JSON.stringify(['joinx--b--c', 'joinx--b--y']),
+        JSON.stringify(profileDestinationConflicts({ ...first, name: 'JOINX--b' }))
+    )
     // A preset switches tools on at save, which gives a specialist its own profile even with one model in the roster.
     const presetOnly = {
         ...base,

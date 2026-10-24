@@ -850,11 +850,11 @@ function markerText(file) {
 // Synchronous, so a check and the compile that follows cannot be interleaved with another save in this process.
 export function profileDestinationConflicts(record, profileName = record?.name) {
     const home = String(profileName || '')
-    const own = home.toLowerCase()
+    // Exact: harness names are case-sensitive while profile names are lowercased, so Alpha and alpha are two owners.
     const conflicts = []
     const homeDir = profileDir(home)
     const homeParent = markerText(path.join(homeDir, 'harness-parent'))
-    if (homeParent && homeParent.toLowerCase() !== own) conflicts.push(home)
+    if (homeParent && homeParent !== home) conflicts.push(home)
     // The roster as the save will store it: a preset switches tools on, and that can give a specialist its own profile.
     const normalized = {
         ...record,
@@ -867,7 +867,7 @@ export function profileDestinationConflicts(record, profileName = record?.name) 
         if (!dest) continue
         const dir = profileDir(dest)
         const parent = markerText(path.join(dir, 'harness-parent'))
-        if ((parent && parent.toLowerCase() !== own) || fs.existsSync(path.join(dir, 'harness-roster.json'))) conflicts.push(dest)
+        if ((parent && parent !== home) || fs.existsSync(path.join(dir, 'harness-roster.json'))) conflicts.push(dest)
     }
     return conflicts
 }

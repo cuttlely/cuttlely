@@ -475,6 +475,31 @@ describe('a reused name never sees an earlier harness data', () => {
         }
     })
 
+    it('a refused canvas claim claims nothing and clears no stale profiles', async () => {
+        takenProfiles = ['freshcanvas--b--c', 'legacy--b--c']
+        const write = jest.fn(async () => undefined)
+        await expect(
+            harnessesService.syncUnderNameLock(
+                'freshcanvas',
+                TEAM,
+                { name: 'freshcanvas', specialists: [{ name: 'b--c' }] } as never,
+                write
+            )
+        ).rejects.toMatchObject({ statusCode: 409 })
+        expect(cleaned).toEqual([])
+        expect(write).not.toHaveBeenCalled()
+        fs.writeFileSync(fileOf('legacy'), JSON.stringify({ name: 'legacy', specialists: [{ name: 'scout' }] }))
+        const before = fs.readFileSync(fileOf('legacy'), 'utf8')
+        await expect(
+            harnessesService.assertNameAvailable('legacy', TEAM, {
+                claiming: true,
+                record: { name: 'legacy', specialists: [{ name: 'b--c' }] } as never
+            })
+        ).rejects.toMatchObject({ statusCode: 409 })
+        expect(claimedNames).toEqual([])
+        expect(fs.readFileSync(fileOf('legacy'), 'utf8')).toBe(before)
+    })
+
     it('saves of different names hold the shared profile lock from the conflict check through the save', async () => {
         const warm = process.env.CUTTLELY_WARM_HERMES
         process.env.CUTTLELY_WARM_HERMES = 'false'
