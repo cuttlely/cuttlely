@@ -565,6 +565,34 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     for (const item of trash) {
         const base = PARKED_RE.exec(item)?.[1] || ''
         if (base && stillSaved(base, after)) continue
+        // A profile parked by a run that stopped before its runtime stop goes through the same steps as one in
+        // profiles/: its runtime is stopped first, then its workspace goes, then the parked copy.
+        const parkedDir = checkedTrashRoot() ? path.join(checkedTrashRoot(), item) : ''
+        if (base && parkedDir && lstatOrNull(parkedDir)) {
+            const stopped = await closeRuntime(id, [base])
+            if (!stopped.has(base)) {
+                kept.push(`${TRASH}/${item}`)
+                cleanupHooks.log(`[harness] kept ${TRASH}/${item}: its runtime was not confirmed stopped`)
+                continue
+            }
+            if (stillSaved(id, savedNames()) || stillSaved(base, savedNames())) continue
+            // The workspace is left to a profile now in profiles/ under the same name.
+            if (!lstatOrNull(path.join(profilesRoot(), base))) {
+                const work = containedEntry(workspacesRoot(), base)
+                if (work && minAgeMs && now() - newestTreeChange(work) < minAgeMs) {
+                    kept.push(`${TRASH}/${item}`)
+                    cleanupHooks.log(`[harness] kept ${TRASH}/${item}: its workspace changed in the last 10 minutes`)
+                    continue
+                }
+                if (removeEntry(workspacesRoot(), base))
+                    cleanupHooks.log(`[harness] removed workspaces/${base} of harness "${id}" (${reason})`)
+                else if (lstatOrNull(path.join(workspacesRoot(), base))) {
+                    kept.push(`${TRASH}/${item}`)
+                    cleanupHooks.log(`[harness] kept ${TRASH}/${item}: its workspace could not be removed`)
+                    continue
+                }
+            }
+        }
         removeTrashEntry(id, item, { minAgeMs, now })
     }
     forgetCompiledProfile(id)

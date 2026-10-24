@@ -16267,6 +16267,43 @@ await (async () => {
     )
     await cleanup.removeHarnessProfiles('nested')
 
+    // A profile parked by a run that crashed before its runtime stop: the runtime is stopped first, and its workspace
+    // goes with it; while the stop is not confirmed, both stay.
+    reset()
+    {
+        const parked = path.join(trash, 'crashed--a-0123456789ab')
+        fs.mkdirSync(path.join(parked, 'sessions'), { recursive: true })
+        fs.writeFileSync(path.join(parked, 'harness-parent'), 'crashed\n')
+        fs.writeFileSync(path.join(trash, 'crashed--a-0123456789ab.owner'), 'crashed\n')
+        fs.mkdirSync(path.join(workDir, 'crashed--a'), { recursive: true })
+        fs.writeFileSync(path.join(workDir, 'crashed--a', 'notes.txt'), 'x')
+        const closes = []
+        const savedClose = cleanup.cleanupHooks.close
+        cleanup.cleanupHooks.close = async (entry) => {
+            closes.push(entry)
+            return false
+        }
+        const refused = await cleanup.removeHarnessProfiles('crashed')
+        const keptBoth = fs.existsSync(parked) && fs.existsSync(path.join(workDir, 'crashed--a', 'notes.txt'))
+        cleanup.cleanupHooks.close = async (entry) => {
+            closes.push(entry)
+            return true
+        }
+        const recovered = await cleanup.removeHarnessProfiles('crashed')
+        cleanup.cleanupHooks.close = savedClose
+        check(
+            'a parked profile left by a crash is removed with its workspace only after its runtime is confirmed stopped',
+            keptBoth &&
+                refused.kept.includes('.cuttlely-removing/crashed--a-0123456789ab') &&
+                JSON.stringify(closes) === JSON.stringify(['crashed--a', 'crashed--a']) &&
+                !fs.existsSync(parked) &&
+                !fs.existsSync(path.join(trash, 'crashed--a-0123456789ab.owner')) &&
+                !fs.existsSync(path.join(workDir, 'crashed--a')) &&
+                !recovered.kept.length,
+            JSON.stringify({ refused, recovered, closes, lines })
+        )
+    }
+
     // A leftover whose markers were already removed is still attributed through its owner note.
     reset()
     fs.mkdirSync(path.join(trash, 'noted--a-aabbccddeeff', 'sessions'), { recursive: true })
