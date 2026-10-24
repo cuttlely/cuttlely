@@ -154,15 +154,21 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
         self.sock = self.raw_socket = socket.create_connection((self._address, self.port), self.timeout)
 
 
+def _tls_context():
+    return ssl.create_default_context()
+
+
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     def __init__(self, host, port, address, timeout):
-        super().__init__(host, port, timeout=timeout, context=ssl.create_default_context())
+        super().__init__(host, port, timeout=timeout, context=_tls_context())
         self._address = address
 
     def connect(self):
+        # raw_socket is what the deadline watchdog shuts down: the TCP socket during the handshake, then the TLS
+        # socket, because wrapping moves the connection out of the TCP socket object.
         raw = self.raw_socket = socket.create_connection((self._address, self.port), self.timeout)
         # The certificate is checked against the host name, while the socket goes to the checked address.
-        self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+        self.sock = self.raw_socket = self._context.wrap_socket(raw, server_hostname=self.host)
 
 
 def _bounded(value, default, limit, name):
@@ -246,6 +252,10 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
                     raise FetchError(f"fetch failed: body is over the {max_bytes} byte cap, at {current}", current, status)
             if expired.is_set():
                 raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current, status)
+            if declared and declared.isdigit() and len(body) != int(declared):
+                raise FetchError(
+                    f"fetch failed: connection closed after {len(body)} of {declared} bytes, at {current}", current, status
+                )
             return {"status": status, "contentType": content_type, "bytes": bytes(body), "finalUrl": current}
         except FetchError:
             raise

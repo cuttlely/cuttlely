@@ -5,7 +5,10 @@
 
 import contextlib
 import io
+import shutil
 import socket
+import ssl
+import subprocess
 import sys
 import tempfile
 import threading
@@ -54,6 +57,7 @@ class Handler(BaseHTTPRequestHandler):
             "/big-declared": lambda: self._send(200, b"x" * 5000, {"Content-Type": "image/png"}),
             "/big-undeclared": self._big_undeclared,
             "/slow": self._slow,
+            "/short": self._short,
             "/trickle-headers": self._trickle_headers,
             "/trickle-body": self._trickle_body,
             "/trickle-chunked": self._trickle_chunked,
@@ -67,6 +71,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         for _ in range(10):
             self.wfile.write(b"y" * 1000)
+        self.close_connection = True
+
+    def _short(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", "100")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(b"abc")
         self.close_connection = True
 
     def _drip(self, data, gap=0.05):
@@ -220,6 +233,13 @@ class FetchTest(unittest.TestCase):
                 net.fetch(self.url(path), timeout_ms=400)
             self.assertLess(time.monotonic() - started, 1.2, path)
 
+    def test_a_body_shorter_than_its_content_length_is_a_failure(self):
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed), self.assertRaisesRegex(net.FetchError, "closed after 3 of 100 bytes"):
+            net.fetch_asset(self.url("/short"), self.out / "short.png")
+        self.assertEqual(printed.getvalue(), "")
+        self.assertFalse((self.out / "short.png").exists())
+
     def test_deadline_covers_name_resolution(self):
         net._resolve = lambda host, port: time.sleep(3) or ["127.0.0.1"]
         started = time.monotonic()
@@ -270,6 +290,60 @@ class FetchTest(unittest.TestCase):
             self.assertEqual(printed.getvalue(), "")
             self.assertFalse((self.out / "x.png").exists())
         self.assertEqual(caught.exception.status, 200)
+
+
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl is needed to make a throwaway test certificate")
+class HttpsDeadlineTest(unittest.TestCase):
+    """The deadline must also hold over TLS, where the connection moves into a wrapped socket."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = Path(tempfile.mkdtemp(prefix="cuttlely-fetch-tls-"))
+        cert, key = cls.dir / "cert.pem", cls.dir / "key.pem"
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=assets.test",
+             "-addext", "subjectAltName=DNS:assets.test", "-keyout", str(key), "-out", str(cert)],
+            check=True, capture_output=True,
+        )
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        cls.server.daemon_threads = True
+        cls.server.handle_error = lambda request, address: None
+        server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        server_context.load_cert_chain(str(cert), str(key))
+        cls.server.socket = server_context.wrap_socket(cls.server.socket, server_side=True)
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.cert = cert
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def setUp(self):
+        self._blocked, self._resolve, self._context = net.blocked_address, net._resolve, net._tls_context
+        net.blocked_address = lambda address: False if str(address) == "127.0.0.1" else self._blocked(address)
+        net._resolve = lambda host, port: ["127.0.0.1"] if host == "assets.test" else self._resolve(host, port)
+        net._tls_context = lambda: ssl.create_default_context(cafile=str(self.cert))
+
+    def tearDown(self):
+        net.blocked_address, net._resolve, net._tls_context = self._blocked, self._resolve, self._context
+
+    def test_https_fetch_verifies_the_host_name_and_works(self):
+        self.assertEqual(net.fetch(f"https://assets.test:{self.port}/logo.svg")["bytes"], SVG)
+        with self.assertRaisesRegex(net.FetchError, "CERTIFICATE_VERIFY_FAILED|certificate"):
+            net._tls_context = self._context
+            net.fetch(f"https://assets.test:{self.port}/logo.svg")
+
+    def test_https_deadline_holds_against_trickled_headers_body_and_chunks(self):
+        for path in ("/trickle-headers", "/trickle-body", "/trickle-chunked"):
+            started = time.monotonic()
+            with self.assertRaisesRegex(net.FetchError, "timed out after 400 ms"):
+                net.fetch(f"https://assets.test:{self.port}{path}", timeout_ms=400)
+            self.assertLess(time.monotonic() - started, 1.2, path)
 
 
 if __name__ == "__main__":
