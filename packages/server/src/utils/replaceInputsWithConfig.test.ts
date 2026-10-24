@@ -513,6 +513,7 @@ describe('Request overrides hard deny: credential, tracer and URL keys never app
         'FLOWISE_CREDENTIAL_ID',
         'baseOptions',
         'mcpServerConfig',
+        'analystAllowedFunctions',
         'basePath',
         'basepath',
         'baseURL',
