@@ -23,6 +23,7 @@ import { LunaryHandler } from '@langchain/community/callbacks/handlers/lunary'
 import { getCredentialData, getCredentialParam, getEnvironmentVariable } from './utils'
 import { applyEnvTracingProviders, tracingEnvEnabled } from './tracingEnv'
 import { otelRunCallback } from './otelRunSpans'
+import { describeLangSmithCredential, langSmithFailureLoggingFetch, logLangSmithCredentialShape } from './langsmithCredentialDiagnostics'
 import { EvaluationRunTracer } from '../evaluation/EvaluationRunTracer'
 import { ICommonObject, IDatabaseEntity, INodeData, IServerSideEventStreamer } from './Interface'
 
@@ -544,9 +545,24 @@ export const additionalCallbacks = async (nodeData: INodeData, options: ICommonO
                     const langSmithApiKey = getCredentialParam('langSmithApiKey', credentialData, nodeData)
                     const langSmithEndpoint = getCredentialParam('langSmithEndpoint', credentialData, nodeData)
 
+                    const langSmithCredentialId = (analytic[provider].credentialId as string) ?? ''
+                    logLangSmithCredentialShape(
+                        'additionalCallbacks',
+                        describeLangSmithCredential(
+                            langSmithCredentialId,
+                            credentialData,
+                            langSmithApiKey,
+                            langSmithEndpoint,
+                            langSmithProject
+                        )
+                    )
                     const client = new Client({
                         apiUrl: langSmithEndpoint ?? 'https://api.smith.langchain.com',
-                        apiKey: langSmithApiKey
+                        apiKey: langSmithApiKey,
+                        fetchImplementation: langSmithFailureLoggingFetch({
+                            flowId: options?.chatflowid,
+                            credentialId: langSmithCredentialId
+                        })
                     })
 
                     let langSmithField: LangChainTracerFields = {
@@ -818,9 +834,15 @@ export class AnalyticHandler {
             const langSmithApiKey = getCredentialParam('langSmithApiKey', credentialData, this.nodeData)
             const langSmithEndpoint = getCredentialParam('langSmithEndpoint', credentialData, this.nodeData)
 
+            const langSmithCredentialId = (providerConfig.credentialId as string) ?? ''
+            logLangSmithCredentialShape(
+                'AnalyticHandler',
+                describeLangSmithCredential(langSmithCredentialId, credentialData, langSmithApiKey, langSmithEndpoint, langSmithProject)
+            )
             const client = new LangsmithClient({
                 apiUrl: langSmithEndpoint ?? 'https://api.smith.langchain.com',
-                apiKey: langSmithApiKey
+                apiKey: langSmithApiKey,
+                fetchImplementation: langSmithFailureLoggingFetch({ flowId: this.options?.chatflowid, credentialId: langSmithCredentialId })
             })
 
             this.handlers['langSmith'] = {
