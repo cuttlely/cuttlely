@@ -30,7 +30,10 @@ import { encryptionKeyConflict, encryptionKeyOverwrite } from '../../../scripts/
 import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
 import {
     SCOPE_NONE_LEFT,
+    checkReadOnlySql,
     checkStatementScope,
+    missingRelationHint,
+    missingRelationName,
     columnErrorHint,
     describeRefusal,
     describeRelation,
@@ -1770,8 +1773,9 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
     }
 }
 
-// With a table selection, the scope check needs a temporary view, so the transaction starts read-write and turns
-// read only before the statement. Without one it is read only from the start, as before.
+// Every query runs in BEGIN READ ONLY. With a table selection, the scope check first creates its temporary view in
+// its own short transaction on the same connection, which always rolls back. The query transaction then starts
+// read only and confirms transaction_read_only is on just before the query runs.
 async function queryUrlPostgres(
     postgresUrl,
     statement,
@@ -1781,28 +1785,74 @@ async function queryUrlPostgres(
     relations = []
 ) {
     const scoped = relations.length > 0
-    return withUrlClient(
-        postgresUrl,
-        async (client, runner) => {
+    const ms = analystStatementTimeoutMs(timeoutMs ?? ANALYST_STATEMENT_TIMEOUT_MS, env)
+    const text = replay?.plan?.statement || statement
+    const client = new Client({
+        connectionString: postgresUrl,
+        application_name: 'cuttlely-analyst',
+        connectionTimeoutMillis: 10000
+    })
+    client.on('error', () => {})
+    const runner = postgresRunner(client, { transaction: true })
+    let selected = []
+    const begin = async (readOnly) => {
+        await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')
+        await client.query(`SET LOCAL statement_timeout = ${ms}`)
+    }
+    const hinted = async (error) => {
+        const missing = missingRelationName(error)
+        if (missing && error instanceof Error) {
+            let names = selected.map((relation) => relation.name)
             if (!scoped) {
-                if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
-                return await runPostgresStatement(client, statement, replay?.paging, runner)
+                // The failed transaction is over. A fresh read-only one lists what this login can read.
+                await client.query('ROLLBACK').catch(() => {})
+                try {
+                    await begin(true)
+                    names = (await listRelations(runner)).map((relation) => relation.name)
+                } catch {
+                    names = []
+                }
             }
-            const selected = await resolveRelations(runner, relations)
-            const text = replay?.plan?.statement || statement
+            const hint = missingRelationHint(missing, names)
+            if (hint) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
+            return error
+        }
+        const hint = scoped ? columnErrorHint(error, text, selected) : ''
+        if (hint && error instanceof Error) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
+        return error
+    }
+    try {
+        await client.connect()
+        if (scoped) {
+            await begin(false)
             try {
+                selected = await resolveRelations(runner, relations)
                 await checkStatementScope(client, runner, text, selected, isRowQuery, urlStoreKey(postgresUrl))
-                await client.query('SET LOCAL transaction_read_only = on')
-                if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
-                return await runPostgresStatement(client, statement, replay?.paging, runner)
             } catch (error) {
-                const hint = columnErrorHint(error, text, selected)
-                if (hint && error instanceof Error) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
-                throw error
+                throw await hinted(error)
+            } finally {
+                await client.query('ROLLBACK').catch(() => {})
             }
-        },
-        { timeoutMs, env, readOnly: !scoped }
-    )
+        }
+        await begin(true)
+        try {
+            const mode = await client.query('SHOW transaction_read_only')
+            if (mode.rows?.[0]?.transaction_read_only !== 'on') {
+                throw new AnalystToolError('Cuttlely could not start a read-only transaction, so the query did not run.', 'expected')
+            }
+            if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
+            return await runPostgresStatement(client, statement, replay?.paging, runner)
+        } catch (error) {
+            throw await hinted(error)
+        }
+    } catch (error) {
+        if (error instanceof AnalystToolError) throw error
+        const outcome = analystErrorOutcome(error)
+        throw new AnalystToolError(scrub(error, urlSecrets(postgresUrl)).message, outcome)
+    } finally {
+        await client.query('ROLLBACK').catch(() => {})
+        await client.end().catch(() => {})
+    }
 }
 
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
@@ -1822,7 +1872,10 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations)
     }
     sweepCursors(pagingBase.now)
-    const statement = oneSqlStatement(analystSqlText(input))
+    const sql = analystSqlText(input)
+    // The PostgreSQL MCP node asks for the stricter text check, which runs before any connection.
+    if (options.readOnlySql) checkReadOnlySql(sql)
+    const statement = oneSqlStatement(sql)
     return queryUrlPostgres(
         postgresUrl,
         statement,

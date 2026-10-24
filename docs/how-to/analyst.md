@@ -272,14 +272,31 @@ The selection is checked by Postgres, on the server, for every query and every `
 
 1. Only `SELECT`, `WITH`, `VALUES` and `TABLE` statements run. Anything else is refused with `This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.`
 2. Cuttlely looks for risky domains in the database, from the catalog alone and before the statement is parsed. If there are any, every query is refused (see below). The result is kept for one minute per database.
-3. In the same transaction, Cuttlely creates a temporary view over the statement. Postgres parses it and resolves every name exactly as it would run it. Until step 6 the transaction can write: what runs then is the parse, the temporary view and the catalog reads below.
+3. In its own short transaction, Cuttlely creates a temporary view over the statement. Postgres parses it and resolves every name exactly as it would run it. That transaction can write: what runs in it is the parse, the temporary view and the catalog reads below. It always ends with a rollback.
 4. Cuttlely reads that view's stored query tree. It names every relation, function and operator the statement uses, including those inside a `WITH`, a subquery, a system catalog such as `pg_class`, and `information_schema`.
 5. The query is refused when:
     - it reads a relation that is not ticked;
     - it calls a function or operator that is not built in (outside `pg_catalog`);
     - it calls a built-in that can reach other data, report on objects outside the selection, act on other sessions, or change how names resolve: `query_to_xml` and the other `*_to_xml` functions, `ts_stat`, `set_config`, `pg_input_is_valid` and `pg_input_error_info`, `obj_description`, `col_description` and `shobj_description`, the `pg_stat_get_*` statistics, `pg_relation_size` and the other size functions, `pg_get_*` definitions, `has_*_privilege`, `*_is_visible`, `to_reg*`, `pg_terminate_backend` and `pg_cancel_backend`, large-object and file functions, and `dblink`;
     - it uses a type whose input, output, receive or send function is outside `pg_catalog` (an extension type such as `citext`), or an object-identifier type such as `regclass`. The check follows a domain's base type, an array's element, a composite type's columns and a range's subtype.
-6. The temporary view is dropped, the transaction turns read only, and the statement runs. The transaction always ends with a rollback, so the temporary view and anything else that transaction changed is undone. A sequence advanced by `nextval` is the exception, which is one reason a domain check that calls it counts as risky.
+6. The temporary view is dropped and the check transaction rolls back, so the temporary view and anything else it changed is undone. A sequence advanced by `nextval` is the exception, which is one reason a domain check that calls it counts as risky.
+7. The statement runs in a new `BEGIN READ ONLY` transaction on the same connection. Cuttlely confirms `transaction_read_only` is `on` just before the statement runs, and refuses to run it otherwise. That transaction also ends with a rollback.
+
+### Checks before connecting
+
+The PostgreSQL MCP node's **QUERY** checks the SQL text before it opens a connection, with or without a table selection:
+
+-   It must be one `SELECT` or `WITH` query with a top-level `LIMIT`, such as `LIMIT 100`.
+-   A `;` is refused, so a second statement cannot follow.
+-   `SET`, `RESET`, `BEGIN`, `COMMIT`, `COPY` and `DO` are refused.
+-   `INSERT`, `UPDATE` and `DELETE` are refused anywhere in the query. Inside a `WITH` they make a writable CTE, and the refusal names it: `Cuttlely refused this query: DELETE inside WITH is a writable CTE, which is not allowed. Only reads are allowed.`
+-   `set_config` and `pg_sleep` (with `pg_sleep_for` and `pg_sleep_until`) are refused.
+
+These checks read words outside comments and string literals, so a column named `limit` or `update` must be quoted, and a query that only mentions one of these words as a name is refused. The read-only transaction and the scope check above still apply to everything that passes.
+
+When a query names a table that does not exist, the error ends with the closest real names: the ticked ones with a selection, otherwise every table and view the login can read.
+
+> relation "stors" does not exist. Closest tables: public.stores.
 
 A refusal is an expected result, like a syntax error, and the analyst can quote it:
 
@@ -305,7 +322,7 @@ The check is tested against Postgres 14, 15, 16, 17 and 18.
 
 Limits of the check:
 
--   The login needs `TEMP` on the database, which Postgres grants to every login by default. A read replica (hot standby) cannot create a temporary view, so with a selection set every query there is refused with `Cuttlely could not check this query against the table selection: this database login cannot create a temporary view (a read replica, or no TEMP privilege). Queries are refused while a selection is set.` Point the credential at the primary, or clear the selection.
+-   The login needs `TEMP` on the database, which Postgres grants to every login by default. A `SELECT`-only role you create for the analyst still needs it: if `TEMP` was revoked from `PUBLIC`, run `GRANT TEMPORARY ON DATABASE <database> TO <role>`. The role needs no other write privilege. A read replica (hot standby) cannot create a temporary view, so with a selection set every query there is refused with `Cuttlely could not check this query against the table selection: this database login cannot create a temporary view (a read replica, or no TEMP privilege). Queries are refused while a selection is set.` Point the credential at the primary, or clear the selection.
 -   Functions, operators and types from extensions installed outside `pg_catalog`, such as `similarity()` from `pg_trgm` or a `citext` or PostGIS column, are refused while a selection is set, including when a query only reads a column of that type. Expose such a column through a ticked view that casts it to a built-in type.
 -   One risky domain anywhere in the database stops every scoped query there, including queries that never touch it.
 -   A view you tick runs with its owner's rights, as Postgres always runs views. Whatever its definition reads, the analyst can read through it.

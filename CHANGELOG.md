@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   PostgreSQL MCP: **QUERY** checks the SQL before it connects. It runs one `SELECT` or `WITH` query with a `LIMIT` and no `;`, and refuses `SET`, `RESET`, `BEGIN`, `COMMIT`, `COPY`, `DO`, `INSERT`, `UPDATE` and `DELETE` (a writable CTE is named as such), `set_config` and `pg_sleep`. With tables ticked, the scope check's temporary view is made in its own short transaction, and the query runs in `BEGIN READ ONLY` after Cuttlely confirms `transaction_read_only` is on. A missing table gets the closest real table names. A `SELECT`-only role needs the `TEMP` privilege for a table selection. [Analyst mode](./docs/how-to/analyst.md#checks-before-connecting).
+
 ## [1.4.2] - 2026-10-23
 
 ### Fixed

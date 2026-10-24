@@ -27,7 +27,7 @@ type AnalystStoreModule = {
     queryAnalystUrl: (
         postgresUrl: string,
         input: Record<string, unknown>,
-        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[] }
+        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[]; readOnlySql?: boolean }
     ) => Promise<unknown>
     analystUrlToolSpec: (rowCap?: number, relations?: AnalystRelation[] | null) => { description: string; schema: Record<string, unknown> }
     analystDescribeToolSpec: () => { description: string; schema: Record<string, unknown> }
@@ -48,6 +48,10 @@ type AnalystRelationsModule = {
 }
 
 const RELATION_LOOKUP_MS = 10000
+// checkReadOnlySql in packages/harness/runtime/analyst-relations.mjs refuses anything else before connecting.
+const READ_ONLY_SQL_NOTE =
+    'Send one SELECT or WITH query with a LIMIT and no semicolon. SET, RESET, BEGIN, COMMIT, COPY, DO, INSERT, UPDATE, DELETE, set_config and pg_sleep are refused.'
+
 // ANALYST_RULES_MAX_CHARS in packages/harness/store.mjs, which refuses a longer save.
 const ANALYST_RULES_MAX_CHARS = 2000
 
@@ -399,7 +403,8 @@ class PostgreSQL_MCP implements INode {
                         await store.queryAnalystUrl(postgresUrl, input || {}, {
                             rowCap: limits.rowCap,
                             statementTimeoutMs: limits.timeoutMs,
-                            relations
+                            relations,
+                            readOnlySql: true
                         })
                     )
                 } catch (error) {
@@ -408,7 +413,7 @@ class PostgreSQL_MCP implements INode {
             },
             {
                 name: 'query',
-                description: spec.description,
+                description: `${spec.description} ${READ_ONLY_SQL_NOTE}`,
                 schema: spec.schema
             }
         )

@@ -10,6 +10,10 @@ import {
     SCOPE_NONE_LEFT,
     SCOPE_ONLY_SELECT,
     ambiguousRelations,
+    checkReadOnlySql,
+    closestRelationNames,
+    missingRelationHint,
+    missingRelationName,
     columnErrorHint,
     columnList,
     deniedFunction,
@@ -1033,5 +1037,191 @@ describe('analyst relations: a built-in volatile domain check alone', () => {
         assert.match(text, /could run other code or change data while a query is checked: public\.next_ref\./)
         assert.equal(await db.refusedText('SELECT name FROM stores'), text)
         assert.equal(await db.sequence('only_seq'), before)
+    })
+})
+
+describe('analyst relations: read-only SQL check for the PostgreSQL MCP node', () => {
+    const refused = (sql, pattern) =>
+        assert.throws(
+            () => checkReadOnlySql(sql),
+            (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+                assert.match(error.message, /^Cuttlely refused this query: /)
+                assert.match(error.message, pattern)
+                return true
+            }
+        )
+
+    it('allows one SELECT or WITH query with a top-level LIMIT', () => {
+        for (const sql of [
+            'SELECT * FROM stores LIMIT 10',
+            'select name from stores order by 1 limit 5 offset 5',
+            'WITH x AS (SELECT * FROM stores) SELECT * FROM x LIMIT 3',
+            'SELECT \'update; delete\' AS note, "limit" FROM t LIMIT 1',
+            '-- set\nSELECT 1 /* commit; */ LIMIT 1',
+            'SELECT $$insert$$ LIMIT 1'
+        ]) {
+            assert.equal(checkReadOnlySql(sql), sql)
+        }
+    })
+
+    it('refuses INSERT, UPDATE and DELETE', () => {
+        refused("INSERT INTO stores VALUES (9, 'Harbour') LIMIT 1", /only one SELECT or WITH/)
+        refused("UPDATE stores SET name = 'x'", /only one SELECT or WITH/)
+        refused('DELETE FROM stores', /only one SELECT or WITH/)
+        refused('SELECT * FROM (DELETE FROM stores RETURNING *) d LIMIT 1', /DELETE is not allowed/)
+        refused('SELECT * FROM stores FOR UPDATE LIMIT 1', /UPDATE is not allowed/)
+    })
+
+    it('refuses writable CTEs by name, nested ones included', () => {
+        refused('WITH d AS (DELETE FROM stores RETURNING *) SELECT * FROM d LIMIT 5', /DELETE inside WITH is a writable CTE/)
+        refused("WITH i AS (INSERT INTO stores VALUES (9, 'x') RETURNING *) SELECT * FROM i LIMIT 5", /INSERT inside WITH/)
+        refused("WITH u AS (UPDATE stores SET name = 'x' RETURNING *) SELECT * FROM u LIMIT 5", /UPDATE inside WITH/)
+        refused(
+            'WITH a AS (SELECT * FROM (WITH d AS (DELETE FROM stores RETURNING *) SELECT * FROM d) x) SELECT * FROM a LIMIT 5',
+            /DELETE inside WITH is a writable CTE/
+        )
+    })
+
+    it('refuses each blocked keyword', () => {
+        for (const keyword of ['SET', 'RESET', 'BEGIN', 'COMMIT', 'COPY', 'DO']) {
+            refused(`${keyword} x`, /only one SELECT or WITH/)
+            refused(`SELECT 1 FROM t WHERE ${keyword} LIMIT 1`, new RegExp(`${keyword} is not allowed`))
+        }
+    })
+
+    it('refuses set_config and pg_sleep, however they are written', () => {
+        refused("SELECT set_config('search_path', 'pg_temp', false) LIMIT 1", /set_config is not allowed/)
+        refused("SELECT pg_catalog.SET_CONFIG('a.b', 'c', false) LIMIT 1", /set_config is not allowed/)
+        refused('SELECT pg_sleep(10) LIMIT 1', /pg_sleep is not allowed/)
+        refused('SELECT "pg_sleep"(1) LIMIT 1', /pg_sleep is not allowed/)
+        refused("SELECT pg_sleep_for('1 second') LIMIT 1", /pg_sleep_for is not allowed/)
+        refused('SELECT U&"pg\\005fsleep"(1) LIMIT 1', /U& escapes/)
+    })
+
+    it('refuses semicolons, more than one statement and a missing LIMIT', () => {
+        refused('SELECT 1 LIMIT 1;', /semicolon/)
+        refused('SELECT 1 LIMIT 1; SELECT 2 LIMIT 1', /semicolon/)
+        refused('SELECT * FROM stores', /add a LIMIT/)
+        refused('SELECT * FROM (SELECT * FROM stores LIMIT 5) s', /add a LIMIT/)
+        refused('   ', /empty/)
+        refused('SHOW search_path', /only one SELECT or WITH/)
+        refused("SELECT 'open", /unfinished quote/)
+    })
+
+    it('refuses before it connects', async () => {
+        await assert.rejects(
+            queryAnalystUrl(
+                'postgresql://nobody:nothing@127.0.0.1:1/none',
+                'WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d LIMIT 1',
+                {
+                    readOnlySql: true
+                }
+            ),
+            (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                assert.match(error.message, /writable CTE/)
+                return true
+            }
+        )
+    })
+
+    it('suggests the closest real table names for a missing one', () => {
+        const names = ['public.stores', 'public.store_hours', 'public.orders', 'sales.monthly_sales', 'public.staff']
+        assert.equal(closestRelationNames('stors', names)[0], 'public.stores')
+        assert.equal(closestRelationNames('public.monthly_sale', names)[0], 'sales.monthly_sales')
+        assert.deepEqual(closestRelationNames('zzzzzzzzzzzz', names), [])
+        assert.equal(missingRelationName({ code: '42P01', message: 'relation "stors" does not exist' }), 'stors')
+        assert.equal(missingRelationName({ code: '42703', message: 'column "x" does not exist' }), '')
+        assert.match(missingRelationHint('stors', names), /^ Closest tables: public\.stores/)
+        assert.equal(missingRelationHint('zzzzzzzzzzzz', names), '')
+    })
+})
+
+describe('analyst relations: writable CTEs on a scratch Postgres', () => {
+    const suffix = randomBytes(4).toString('hex')
+    const dbName = `cte_${suffix}`
+    const writer = `cte_writer_${suffix}`
+    const password = randomBytes(18).toString('base64url')
+    let admin = null
+    let owner = null
+    let url = ''
+
+    before(async () => {
+        const client = new Client(adminConfig())
+        try {
+            await client.connect()
+        } catch (error) {
+            await client.end().catch(() => {})
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1')
+                throw new Error(`CUTTLELY_TEST_PG_REQUIRED is set and Postgres is not reachable: ${error.message}`)
+            return
+        }
+        admin = client
+        await admin.query(`CREATE DATABASE "${dbName}"`)
+        await admin.query(`CREATE ROLE "${writer}" LOGIN PASSWORD '${password}'`)
+        owner = new Client(adminConfig(dbName))
+        await owner.connect()
+        await owner.query(`CREATE TABLE items (id int PRIMARY KEY, name text NOT NULL);
+            INSERT INTO items VALUES (1, 'Rye'), (2, 'Sourdough'), (3, 'Baguette');`)
+        // This login could write, so only the read-only checks stand between a query and the table.
+        await owner.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON items TO "${writer}"`)
+        url = urlFor(writer, password, dbName)
+    })
+
+    after(async () => {
+        if (owner) await owner.end().catch(() => {})
+        if (!admin) return
+        await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
+        await admin.query(`DROP ROLE IF EXISTS "${writer}"`).catch(() => {})
+        await admin.end().catch(() => {})
+    })
+
+    const skipped = (t) => {
+        if (admin) return false
+        t.skip('Postgres is not reachable')
+        return true
+    }
+    const count = async () => (await owner.query('SELECT count(*)::int AS n FROM items')).rows[0].n
+    const nested = 'WITH a AS (SELECT * FROM (WITH d AS (DELETE FROM items RETURNING *) SELECT * FROM d) x) SELECT * FROM a LIMIT 5'
+    const top = 'WITH d AS (DELETE FROM items RETURNING *) SELECT * FROM d LIMIT 5'
+
+    it('refuses a nested writable CTE by name, and Postgres refuses it too', async (t) => {
+        if (skipped(t)) return
+        await refusal(queryAnalystUrl(url, nested, { readOnlySql: true }), /DELETE inside WITH is a writable CTE/)
+        await refusal(queryAnalystUrl(url, nested, { readOnlySql: true, relations: ['public.items'] }), /writable CTE/)
+        // Without the text check, the database still refuses it, with or without a table selection.
+        await assert.rejects(queryAnalystUrl(url, nested), /data-modifying|read-only/)
+        await assert.rejects(queryAnalystUrl(url, nested, { relations: ['public.items'] }), /data-modifying|read-only/)
+        await assert.rejects(queryAnalystUrl(url, top), /data-modifying|read-only/)
+        await assert.rejects(queryAnalystUrl(url, top, { relations: ['public.items'] }), /data-modifying|read-only|only SELECT/)
+        assert.equal(await count(), 3)
+    })
+
+    it('runs a ticked-table query read only after the scope check', async (t) => {
+        if (skipped(t)) return
+        const result = await queryAnalystUrl(url, 'SELECT name FROM items ORDER BY id LIMIT 2', {
+            readOnlySql: true,
+            relations: ['public.items']
+        })
+        assert.deepEqual(
+            result.rows.map((row) => row.name),
+            ['Rye', 'Sourdough']
+        )
+        const mode = await queryAnalystUrl(url, "SELECT current_setting('transaction_read_only') AS ro LIMIT 1", { readOnlySql: true })
+        assert.equal(mode.rows[0].ro, 'on')
+        assert.equal(await count(), 3)
+    })
+
+    it('suggests the closest table when one is missing', async (t) => {
+        if (skipped(t)) return
+        await assert.rejects(queryAnalystUrl(url, 'SELECT * FROM itemz LIMIT 1', { readOnlySql: true }), (error) => {
+            assert.match(error.message, /relation "itemz" does not exist\. Closest tables: public\.items\./)
+            return true
+        })
+        await assert.rejects(
+            queryAnalystUrl(url, 'SELECT * FROM itms LIMIT 1', { readOnlySql: true, relations: ['public.items'] }),
+            /Closest tables: public\.items\./
+        )
     })
 })

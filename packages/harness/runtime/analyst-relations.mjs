@@ -711,3 +711,209 @@ async function refuseTypes(runner, typeSet) {
     const foreignIo = types.filter((type) => (type.foreign_io || []).length).map((type) => type.name)
     if (foreignIo.length) throw new ScopeRefusal(`Cuttlely refused this query: type ${refusedList(foreignIo)} ${NOT_BUILT_IN}`)
 }
+
+// Checks for the PostgreSQL MCP node's query tool, before it connects. They read the SQL text only, so they refuse
+// early and plainly; the read-only transaction and the scope check still decide what runs.
+const READ_ONLY_SQL_KEYWORDS = new Set(['set', 'reset', 'begin', 'commit', 'copy', 'do'])
+const WRITE_KEYWORDS = new Set(['insert', 'update', 'delete', 'merge'])
+const READ_ONLY_SQL_FUNCTIONS = new Set(['set_config', 'pg_sleep', 'pg_sleep_for', 'pg_sleep_until'])
+
+// Words and symbols outside comments and string literals. A quoted identifier is a word with quoted: true.
+export function sqlTokens(sql) {
+    const text = String(sql ?? '')
+    const tokens = []
+    let i = 0
+    while (i < text.length) {
+        const ch = text[i]
+        const pair = text.slice(i, i + 2)
+        if (pair === '--') {
+            const newline = text.indexOf('\n', i)
+            i = newline === -1 ? text.length : newline + 1
+            continue
+        }
+        if (pair === '/*') {
+            // Postgres comments nest.
+            let depth = 1
+            i += 2
+            while (i < text.length && depth > 0) {
+                if (text.startsWith('/*', i)) {
+                    depth += 1
+                    i += 2
+                } else if (text.startsWith('*/', i)) {
+                    depth -= 1
+                    i += 2
+                } else i += 1
+            }
+            if (depth > 0) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished comment.')
+            continue
+        }
+        if (/\s/.test(ch)) {
+            i += 1
+            continue
+        }
+        if (/[uU]/.test(ch) && text[i + 1] === '&' && (text[i + 2] === '"' || text[i + 2] === "'")) {
+            throw new ScopeRefusal('Cuttlely refused this query: write names and text without U& escapes.')
+        }
+        if (ch === "'" || (/[eEbBxXnN]/.test(ch) && text[i + 1] === "'")) {
+            const escapes = /[eE]/.test(ch)
+            i = ch === "'" ? i + 1 : i + 2
+            let closed = false
+            while (i < text.length) {
+                if (escapes && text[i] === '\\') {
+                    i += 2
+                    continue
+                }
+                if (text[i] === "'" && text[i + 1] === "'") {
+                    i += 2
+                    continue
+                }
+                if (text[i] === "'") {
+                    i += 1
+                    closed = true
+                    break
+                }
+                i += 1
+            }
+            if (!closed) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quote.')
+            tokens.push({ type: 'string' })
+            continue
+        }
+        if (ch === '"') {
+            let j = i + 1
+            let value = ''
+            let closed = false
+            while (j < text.length) {
+                if (text[j] === '"' && text[j + 1] === '"') {
+                    value += '"'
+                    j += 2
+                    continue
+                }
+                if (text[j] === '"') {
+                    closed = true
+                    j += 1
+                    break
+                }
+                value += text[j]
+                j += 1
+            }
+            if (!closed) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quoted name.')
+            tokens.push({ type: 'word', value, quoted: true })
+            i = j
+            continue
+        }
+        if (ch === '$') {
+            const tag = text.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/)
+            if (tag) {
+                const close = text.indexOf(tag[0], i + tag[0].length)
+                if (close === -1) throw new ScopeRefusal('Cuttlely refused this query: it has an unfinished quote.')
+                tokens.push({ type: 'string' })
+                i = close + tag[0].length
+                continue
+            }
+        }
+        const word = text.slice(i).match(/^[A-Za-z_\u0080-\uffff][A-Za-z0-9_$\u0080-\uffff]*/)
+        if (word) {
+            tokens.push({ type: 'word', value: word[0].toLowerCase(), quoted: false })
+            i += word[0].length
+            continue
+        }
+        const number = text.slice(i).match(/^[0-9][0-9A-Za-z_.]*/)
+        if (number) {
+            tokens.push({ type: 'number' })
+            i += number[0].length
+            continue
+        }
+        tokens.push({ type: 'symbol', value: ch })
+        i += 1
+    }
+    return tokens
+}
+
+// One SELECT or WITH query with a LIMIT and no semicolon. Refuses writes anywhere in it (a writable CTE included),
+// transaction and session commands, COPY, DO, set_config and pg_sleep. Returns the statement unchanged.
+export function checkReadOnlySql(sql) {
+    const refuse = (why) => {
+        throw new ScopeRefusal(`Cuttlely refused this query: ${why}`)
+    }
+    const tokens = sqlTokens(sql)
+    if (!tokens.length) refuse('it is empty. Write one SELECT or WITH query with a LIMIT.')
+    if (tokens.some((token) => token.type === 'symbol' && token.value === ';')) {
+        refuse('it contains a semicolon. Send one SELECT or WITH query without a semicolon.')
+    }
+    const first = tokens[0]
+    if (first.type !== 'word' || first.quoted || (first.value !== 'select' && first.value !== 'with')) {
+        refuse('only one SELECT or WITH query is allowed.')
+    }
+    let depth = 0
+    let topLimit = false
+    for (const token of tokens) {
+        if (token.type === 'symbol') {
+            if (token.value === '(') depth += 1
+            else if (token.value === ')') depth = Math.max(0, depth - 1)
+            continue
+        }
+        if (token.type !== 'word') continue
+        const name = token.quoted ? token.value.toLowerCase() : token.value
+        if (READ_ONLY_SQL_FUNCTIONS.has(name)) refuse(`${name} is not allowed.`)
+        if (token.quoted) continue
+        if (WRITE_KEYWORDS.has(name)) {
+            refuse(
+                first.value === 'with'
+                    ? `${name.toUpperCase()} inside WITH is a writable CTE, which is not allowed. Only reads are allowed.`
+                    : `${name.toUpperCase()} is not allowed. Only reads are allowed.`
+            )
+        }
+        if (READ_ONLY_SQL_KEYWORDS.has(name)) refuse(`${name.toUpperCase()} is not allowed.`)
+        if (name === 'limit' && depth === 0) topLimit = true
+    }
+    if (!topLimit) refuse('add a LIMIT to the query, such as LIMIT 100.')
+    return sql
+}
+
+function editDistance(a, b) {
+    const row = Array.from({ length: b.length + 1 }, (_, j) => j)
+    for (let i = 1; i <= a.length; i += 1) {
+        let previous = row[0]
+        row[0] = i
+        for (let j = 1; j <= b.length; j += 1) {
+            const saved = row[j]
+            row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1))
+            previous = saved
+        }
+    }
+    return row[b.length]
+}
+
+// The real names closest to a missing one, compared without schema or quotes and in lower case. Names more than
+// half their length away are left out.
+export function closestRelationNames(missing, names, limit = 3) {
+    const bare = (name) => {
+        const parts = nameParts(name)
+        return (parts ? parts[1] : String(name).replace(/^.*\./, '').replace(/"/g, '')).toLowerCase()
+    }
+    const wanted = bare(missing)
+    if (!wanted) return []
+    return [...new Set(names)]
+        .map((name) => {
+            const local = bare(name)
+            const distance =
+                local.includes(wanted) || wanted.includes(local) ? Math.abs(local.length - wanted.length) / 10 : editDistance(wanted, local)
+            return { name, distance, keep: distance <= Math.max(2, Math.ceil(Math.max(wanted.length, local.length) / 2)) }
+        })
+        .filter((entry) => entry.keep)
+        .sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name))
+        .slice(0, limit)
+        .map((entry) => entry.name)
+}
+
+// The relation name in Postgres's "relation ... does not exist" error (42P01), or ''.
+export function missingRelationName(error) {
+    if (String(error?.code || '') !== '42P01') return ''
+    const match = String(error?.message || '').match(/relation "([^"]+)" does not exist/)
+    return match ? match[1] : ''
+}
+
+export function missingRelationHint(missing, names) {
+    const close = closestRelationNames(missing, names)
+    return close.length ? ` Closest tables: ${close.join(', ')}.` : ''
+}
