@@ -311,9 +311,19 @@ let runtimeConfigured: Promise<void> | undefined
 
 // The start script stops waiting for the gateway after CUTTLELY_GATEWAY_WAIT_SECONDS (180 by default) and then never
 // starts Hermes, so /health is held for at most CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS (60 by default). Profiles still
-// compiling after that finish while Hermes starts; the next boot finds anything left.
-export async function recompileBeforeHermes(gateway: { holdGatewayHealth: () => () => void }): Promise<void> {
+// compiling after that finish while Hermes starts; the next boot finds anything left. The listener starts first, with
+// health held, so a released hold always has a gateway behind it.
+export async function recompileBeforeHermes(gateway: {
+    holdGatewayHealth: () => () => void
+    startGateway: () => Promise<unknown>
+}): Promise<void> {
     const release = gateway.holdGatewayHealth()
+    try {
+        await gateway.startGateway()
+    } catch (error) {
+        release()
+        throw error
+    }
     const seconds = Number(process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS)
     const holdMs = (Number.isFinite(seconds) && seconds >= 0 ? seconds : 60) * 1000
     const cap = setTimeout(() => {
@@ -344,6 +354,9 @@ export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: 
     }
     const results: Array<{ name: string; status: string; error?: string }> = []
     for (const name of names) {
+        // Compiling is synchronous file work: a turn of the event loop between records lets the health cap and
+        // the /health answer run.
+        await new Promise((resolve) => setImmediate(resolve))
         const done = await withNameLock(name, () =>
             withProfileLock(async () => {
                 let record
@@ -372,7 +385,6 @@ function configureRuntime(): Promise<void> {
                 // reads each profile's config.yaml from disk. A compile binds the listener, so /health is held meanwhile.
                 const gateway = await loadHarness('gateway.mjs')
                 await recompileBeforeHermes(gateway)
-                await gateway.startGateway()
                 // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
                 const cleanup = await loadHarness('cleanup.mjs')
                 await cleanup.sweepOrphanHarnessProfiles().catch((error: unknown) => {

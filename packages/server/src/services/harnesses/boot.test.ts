@@ -15,6 +15,7 @@ describe('harness runtime start', () => {
     let failFor = ''
     let holds = 0
     let unreadable = ''
+    let busyMs = 0
 
     beforeEach(() => {
         order.length = 0
@@ -23,6 +24,7 @@ describe('harness runtime start', () => {
             ['ops', { name: 'ops', version: 1 }]
         ])
         unreadable = ''
+        busyMs = 0
         failFor = ''
         holds = 0
         setHarnessModuleLoader(async (file: string) => {
@@ -55,6 +57,11 @@ describe('harness runtime start', () => {
                     recompileOutdatedProfiles: (list: Array<{ name: string; version: number }>) =>
                         list.map((record) => {
                             order.push(`recompile ${record.name} v${record.version} holds ${holds}`)
+                            // Synchronous work, as a real compile is.
+                            const until = Date.now() + busyMs
+                            while (Date.now() < until) {
+                                // busy
+                            }
                             return record.name === failFor
                                 ? { name: record.name, status: 'failed', error: 'boom' }
                                 : { name: record.name, status: 'recompiled' }
@@ -80,18 +87,19 @@ describe('harness runtime start', () => {
         )
         harnessesService.startHarnessRuntime()
         await new Promise((resolve) => setTimeout(resolve, 20))
-        expect(order).toEqual(['configure', 'hold health'])
+        // The listener is up with health held while the pass waits for the lock.
+        expect(order).toEqual(['configure', 'hold health', 'gateway'])
         release()
         await held
         for (let i = 0; i < 50 && !order.includes('sweep'); i += 1) await new Promise((resolve) => setTimeout(resolve, 5))
         expect(order).toEqual([
             'configure',
             'hold health',
+            'gateway',
             'lock released',
             'recompile navi v1 holds 1',
             'recompile ops v1 holds 1',
             'release health',
-            'gateway',
             'sweep'
         ])
     })
@@ -133,19 +141,58 @@ describe('harness runtime start', () => {
                     holds -= 1
                     order.push('release health')
                 }
-            }
+            },
+            startGateway: async () => order.push('gateway')
         }
         try {
             const pass = recompileBeforeHermes(gateway)
             await new Promise((resolve) => setTimeout(resolve, 60))
-            expect(order).toEqual(['hold health', 'release health'])
+            expect(order).toEqual(['hold health', 'gateway', 'release health'])
             release()
             await held
             await pass
-            expect(order).toEqual(['hold health', 'release health', 'recompile navi v1 holds 0', 'recompile ops v1 holds 0'])
+            expect(order).toEqual(['hold health', 'gateway', 'release health', 'recompile navi v1 holds 0', 'recompile ops v1 holds 0'])
         } finally {
             delete process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS
         }
+    })
+
+    test('the health cap fires between records even when each compile blocks', async () => {
+        process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS = '0.01'
+        busyMs = 40
+        try {
+            await recompileBeforeHermes({
+                holdGatewayHealth: () => {
+                    holds += 1
+                    order.push('hold health')
+                    let done = false
+                    return () => {
+                        if (done) return
+                        done = true
+                        holds -= 1
+                        order.push('release health')
+                    }
+                },
+                startGateway: async () => order.push('gateway')
+            })
+            expect(order).toEqual(['hold health', 'gateway', 'recompile navi v1 holds 1', 'release health', 'recompile ops v1 holds 0'])
+        } finally {
+            delete process.env.CUTTLELY_BOOT_RECOMPILE_HOLD_SECONDS
+        }
+    })
+
+    test('a gateway that does not start releases the hold and fails the start', async () => {
+        let released = false
+        await expect(
+            recompileBeforeHermes({
+                holdGatewayHealth: () => () => (released = true),
+                startGateway: async () => {
+                    throw new Error('port in use')
+                }
+            })
+        ).rejects.toThrow('port in use')
+        expect(released).toBe(true)
+        expect(order).toEqual([])
     })
 
     test('one failed recompile is reported and the rest still run', async () => {
