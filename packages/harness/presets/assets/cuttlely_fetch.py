@@ -326,6 +326,29 @@ def _looks_like_html(data):
     return head.startswith(b"<!doctype html") or head.startswith(b"<html")
 
 
+_KNOWN_TYPES = frozenset(
+    {
+        "text/html", "text/plain", "text/css", "text/javascript", "text/xml", "text/csv",
+        "application/json", "application/xml", "application/javascript", "application/octet-stream",
+        "application/pdf", "application/zip", "application/xhtml+xml", "application/vnd.ms-fontobject",
+        "application/font-woff", "application/font-sfnt",
+        "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "image/avif",
+        "image/bmp", "image/tiff", "image/x-icon", "image/vnd.microsoft.icon",
+        "font/woff", "font/woff2", "font/ttf", "font/otf", "font/sfnt", "font/collection",
+    }
+)
+
+
+def shown_type(kind):
+    """A content type safe to print: a well-known type as is, anything else as a fixed word, never server text."""
+    if not kind:
+        return "missing"
+    if kind in _KNOWN_TYPES:
+        return kind
+    major = kind.split("/", 1)[0]
+    return f"other {major}" if major in ("image", "font", "text", "application", "audio", "video") else "unrecognized"
+
+
 def fetch_asset(url, path, max_bytes=None, timeout_ms=None, types=ASSET_TYPES):
     """Download an image, PDF or font to path and print its byte count. Raises FetchError when it is not one.
 
@@ -341,12 +364,12 @@ def fetch_asset(url, path, max_bytes=None, timeout_ms=None, types=ASSET_TYPES):
         raise FetchError(f"fetch_asset failed: HTTP {result['status']}, empty body from {final}", final, result["status"])
     if not kind.startswith(tuple(types)) or _looks_like_html(data):
         raise FetchError(
-            f"fetch_asset failed: HTTP {result['status']}, content type {kind or 'missing'} is not an image, PDF or font, from {final}",
+            f"fetch_asset failed: HTTP {result['status']}, content type {shown_type(kind)} is not an image, PDF or font, from {final}",
             final,
             result["status"],
         )
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
-    print(f"saved {target.name}: {len(data)} bytes, {kind}, from {shown_url(final)}")
+    print(f"saved {target.name}: {len(data)} bytes, {shown_type(kind)}, from {shown_url(final)}")
     return target

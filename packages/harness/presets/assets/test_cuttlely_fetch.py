@@ -224,6 +224,13 @@ class FetchTest(unittest.TestCase):
             net.fetch_asset(self.url("/odd-type?t=opaque-q/zz"), self.out / "x.png")
         self.assertNotIn("opaque-q", str(caught.exception))
         self.assertIn("content type unrecognized", str(caught.exception))
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch_asset(self.url("/odd-type?token=opaquesecret123"), self.out / "x.png")
+        self.assertNotIn("opaquesecret123", str(caught.exception))
+        self.assertIn("content type other text is not", str(caught.exception))
+        self.assertEqual(net.shown_type("image/opaquesecret123"), "other image")
+        self.assertEqual(net.shown_type("x-opaquesecret123/y"), "unrecognized")
+        self.assertEqual(net.shown_type("image/png"), "image/png")
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed):
             net.fetch_asset(self.url("/files/a.svg?sig=opaque-q"), self.out / "a.svg")
