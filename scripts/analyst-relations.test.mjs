@@ -1432,6 +1432,14 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             setCheckGapHookForTests(null)
             await owner.query('DROP FUNCTION IF EXISTS public.lower(varchar)')
         }
+        // Moving an existing operator to another schema changes the digest too.
+        setCheckGapHookForTests(() => owner.query('ALTER OPERATOR public.=== (int, int) SET SCHEMA tools'))
+        try {
+            await refusal(queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }), /changed while it was being checked/)
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('ALTER OPERATOR tools.=== (int, int) SET SCHEMA public')
+        }
     })
 
     it('refuses a ticked view that calls pg_sleep, which the text check cannot see', async (t) => {
@@ -1494,6 +1502,19 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             )
         } finally {
             await owner.query('DROP EXTENSION citext')
+            resetRiskyDomainCacheForTests()
+        }
+        // A range type whose built-in input calls a subtype_diff that is not built in is refused the same way.
+        await owner.query(`CREATE FUNCTION public.f8diff(float8, float8) RETURNS float8 LANGUAGE sql IMMUTABLE AS 'SELECT $1 - $2';
+            CREATE TYPE public.span AS RANGE (subtype = float8, subtype_diff = public.f8diff)`)
+        resetRiskyDomainCacheForTests()
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }),
+                /types whose input runs code that is not built in.*span/
+            )
+        } finally {
+            await owner.query('DROP TYPE public.span; DROP FUNCTION public.f8diff(float8, float8)')
             resetRiskyDomainCacheForTests()
         }
         const ok = await queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM items LIMIT 1', { readOnlySql: true })

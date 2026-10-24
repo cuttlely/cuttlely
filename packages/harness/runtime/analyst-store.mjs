@@ -1938,6 +1938,23 @@ export function setCheckGapHookForTests(hook) {
     checkGapHookForTests = typeof hook === 'function' ? hook : null
 }
 
+const POLICY_UNLOCKED =
+    'Cuttlely refused this query: a table or view that a row-security policy reads could not be locked for the query, so the policy could not be held as checked.'
+
+// ACCESS SHARE until the transaction ends. Locking a view locks everything its definition reads. A materialized
+// view or foreign table cannot always be LOCKed, and reading no rows from it takes the same lock.
+async function lockRelations(client, runner, oids) {
+    if (!oids.length) return
+    const rows = await runner.all(
+        "SELECT c.relkind AS kind, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY c.oid",
+        [oids]
+    )
+    for (const row of rows) {
+        if (row.kind === 'r' || row.kind === 'p' || row.kind === 'v') await client.query(`LOCK TABLE ONLY ${row.name} IN ACCESS SHARE MODE`)
+        else if (row.kind === 'm' || row.kind === 'f') await client.query(`SELECT 1 FROM ONLY ${row.name} LIMIT 0`)
+    }
+}
+
 const DEFINITIONS_CHANGED = 'Cuttlely refused this query: a table or view it reads changed while it was being checked. Run it again.'
 
 // For the PostgreSQL MCP node. The query transaction locks the relations the statement reads (locking a view locks
@@ -1945,16 +1962,12 @@ const DEFINITIONS_CHANGED = 'Cuttlely refused this query: a table or view it rea
 // policy the check followed is unchanged, so a definition replaced between the two transactions is not run.
 async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend) {
     if (!checkedBackend || checkedBackend !== queryBackend) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
-    if (!scoped && checked.relations.length) {
-        const rows = await runner.all(
-            "SELECT c.relkind AS kind, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY c.oid",
-            [checked.relations]
-        )
-        for (const row of rows) {
-            if (row.kind === 'r' || row.kind === 'p' || row.kind === 'v')
-                await client.query(`LOCK TABLE ONLY ${row.name} IN ACCESS SHARE MODE`)
-            else if (row.kind === 'm' || row.kind === 'f') await client.query(`SELECT 1 FROM ONLY ${row.name} LIMIT 0`)
-        }
+    const lockFirst = scoped ? [] : checked.relations
+    await lockRelations(client, runner, lockFirst)
+    try {
+        await lockRelations(client, runner, checked.bodies.policyRelations || [])
+    } catch {
+        throw new AnalystToolError(POLICY_UNLOCKED, 'expected')
     }
     if (!(await sameRelationBodies(runner, checked.bodies))) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
     if ((await routineCatalogStamp(runner)) !== checked.stamp) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')

@@ -679,6 +679,7 @@ export const VIEW_UNRESOLVED =
 // but not added to ids.relations, so a ticked view over unticked tables still passes the selection check.
 async function followRelations(runner, ids) {
     const bodies = new Map()
+    const policyRelations = new Set()
     const seen = new Set()
     let queue = [...ids.relations]
     while (queue.length) {
@@ -695,8 +696,11 @@ async function followRelations(runner, ids) {
                 if (!row.tree) throw new ScopeRefusal(VIEW_UNRESOLVED)
                 trees.push(row.tree)
             }
-            for (const tree of trees) {
+            const policyCount = (row.policies || []).length
+            for (const [index, tree] of trees.entries()) {
                 const found = treeObjectIds(tree)
+                // Policy expressions run with the reader's rights, so the query transaction locks what they read.
+                if (index < policyCount) for (const id of found.relations) policyRelations.add(id)
                 for (const id of found.functions) ids.functions.add(id)
                 for (const id of found.operators) ids.operators.add(id)
                 for (const id of found.types) ids.types.add(id)
@@ -704,6 +708,7 @@ async function followRelations(runner, ids) {
             }
         }
     }
+    bodies.policyRelations = [...policyRelations]
     return bodies
 }
 
@@ -712,11 +717,11 @@ const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])
 // A digest of every function, operator and cast outside pg_catalog. A new overload created between the check and
 // the query could change which function a name resolves to, so the query transaction compares it.
 const ROUTINE_STAMP_SQL = `SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) AS stamp FROM (
-    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || p.proname || ':' || p.proargtypes::text FROM pg_proc p
+    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname <> 'pg_catalog'
-    UNION ALL SELECT 'o' || o.oid || ':' || o.oprcode::oid FROM pg_operator o
+    UNION ALL SELECT 'o' || o.oid || ':' || o.oprnamespace || ':' || o.oprname || ':' || o.oprleft || ':' || o.oprright || ':' || o.oprcode::oid FROM pg_operator o
     JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE n.nspname <> 'pg_catalog'
-    UNION ALL SELECT 'c' || c.oid || ':' || c.castfunc FROM pg_cast c WHERE c.oid >= 16384
+    UNION ALL SELECT 'c' || c.oid || ':' || c.castsource || ':' || c.casttarget || ':' || c.castfunc || ':' || c.castcontext::text || ':' || c.castmethod::text FROM pg_cast c WHERE c.oid >= 16384
 ) s(x)`
 
 export async function routineCatalogStamp(runner) {
@@ -734,7 +739,9 @@ export async function sameRelationBodies(runner, bodies) {
 // Types whose input or receive function is outside pg_catalog. Postgres runs that function while it parses a typed
 // literal, before any check can see the statement, so the PostgreSQL MCP node refuses every query on such a database.
 const RISKY_TYPES_SQL = `SELECT DISTINCT format_type(t.oid, NULL) AS name
-FROM pg_type t JOIN pg_proc p ON p.oid IN (t.typinput, t.typreceive) JOIN pg_namespace pn ON pn.oid = p.pronamespace
+FROM pg_type t LEFT JOIN pg_range r ON r.rngtypid = t.oid
+JOIN pg_proc p ON p.oid IN (t.typinput, t.typreceive, t.typoutput, t.typsend, t.typmodin, t.typmodout, r.rngcanonical, r.rngsubdiff)
+JOIN pg_namespace pn ON pn.oid = p.pronamespace
 WHERE pn.nspname <> 'pg_catalog' ORDER BY 1`
 const riskyTypeCache = new Map()
 
