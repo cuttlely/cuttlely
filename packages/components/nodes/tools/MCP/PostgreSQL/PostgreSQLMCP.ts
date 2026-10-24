@@ -27,7 +27,7 @@ type AnalystStoreModule = {
     queryAnalystUrl: (
         postgresUrl: string,
         input: Record<string, unknown>,
-        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[]; readOnlySql?: boolean; allowedFunctions?: string }
+        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[] }
     ) => Promise<unknown>
     analystUrlToolSpec: (rowCap?: number, relations?: AnalystRelation[] | null) => { description: string; schema: Record<string, unknown> }
     analystDescribeToolSpec: () => { description: string; schema: Record<string, unknown> }
@@ -37,16 +37,8 @@ type AnalystStoreModule = {
         postgresUrl: string,
         input: Record<string, unknown>,
         names: string[],
-        options?: { timeoutMs?: number; readOnlySql?: boolean; allowedFunctions?: string }
+        options?: { timeoutMs?: number }
     ) => Promise<unknown>
-}
-
-// Allowed functions come only from the saved node inputs, written by the flow author. Tool input never reaches them.
-const nodeAllowedFunctions = (nodeData: INodeData): string => {
-    const value = nodeData?.inputs?.analystAllowedFunctions
-    // The server leaves this input unresolved and never takes it from a request (UNRESOLVED_INPUT_NAMES and
-    // HARD_DENIED_OVERRIDE_KEYS); a value that still names a variable is ignored whole.
-    return typeof value === 'string' && !/\{\{|\$vars|\$flow/.test(value) ? value : ''
 }
 
 type AnalystRelation = { name: string; kind: string; columns: number; comment: string }
@@ -56,10 +48,6 @@ type AnalystRelationsModule = {
 }
 
 const RELATION_LOOKUP_MS = 10000
-// checkReadOnlySql in packages/harness/runtime/analyst-relations.mjs refuses anything else before connecting.
-const READ_ONLY_SQL_NOTE =
-    'Send one SELECT or WITH query with a LIMIT and no semicolon. SET, RESET, BEGIN, COMMIT, COPY, DO, INSERT, UPDATE, DELETE, set_config and pg_sleep are refused.'
-
 // ANALYST_RULES_MAX_CHARS in packages/harness/store.mjs, which refuses a longer save.
 const ANALYST_RULES_MAX_CHARS = 2000
 
@@ -221,17 +209,6 @@ class PostgreSQL_MCP implements INode {
                     'Your own instructions for the analyst on a harness, such as which view answers which question or how names are written. They go into its instructions in a marked section. They cannot widen Tables and views or allow changes.'
             },
             {
-                label: 'Allowed functions',
-                name: 'analystAllowedFunctions',
-                type: 'string',
-                rows: 4,
-                optional: true,
-                additionalParams: true,
-                placeholder: 'analytics._etl_safe_date(text)\nanalytics._etl_safe_integer(text)',
-                description:
-                    'Functions outside pg_catalog that run even though Cuttlely would refuse them, one per line, schema-qualified with argument types, for example analytics._etl_safe_date(text). Write schema.name(*) for every overload; a bare name matches nothing. Without an entry, a user function runs only when it is STABLE or IMMUTABLE, not SECURITY DEFINER, has no settings of its own, is written in SQL or PL/pgSQL and is not owned by a superuser. Cuttlely does not check what runs inside an allowed function, so keep each one owned by the same dedicated read-only or admin role, and give this login no dblink or file privileges. A SECURITY DEFINER function you list runs with the rights of its owner. Queries still run read only with the timeout, and the deny list still applies to the query and to views.'
-            },
-            {
                 label: 'Row cap',
                 name: 'analystRowCap',
                 type: 'number',
@@ -357,12 +334,7 @@ class PostgreSQL_MCP implements INode {
         const requested = this.nodeLimits(nodeData)
         if (decision.kind === 'auto') return this.isolatedTools(typeof workspace === 'string' ? workspace : '', requested)
         const { parseRelationSelection } = await loadAnalystRelations()
-        return this.urlTools(
-            decision.postgresUrl,
-            requested,
-            parseRelationSelection(nodeData?.inputs?.analystRelations),
-            nodeAllowedFunctions(nodeData)
-        )
+        return this.urlTools(decision.postgresUrl, requested, parseRelationSelection(nodeData?.inputs?.analystRelations))
     }
 
     nodeLimits(nodeData: INodeData): { rowCap?: number; statementTimeoutMs?: number } {
@@ -405,8 +377,7 @@ class PostgreSQL_MCP implements INode {
     async urlTools(
         postgresUrl: string,
         requested: { rowCap?: number; statementTimeoutMs?: number } = {},
-        relations: string[] = [],
-        allowedFunctions = ''
+        relations: string[] = []
     ): Promise<Tool[]> {
         const store = await loadAnalystStore()
         const limits = store.analystCallLimits(requested, process.env)
@@ -428,9 +399,7 @@ class PostgreSQL_MCP implements INode {
                         await store.queryAnalystUrl(postgresUrl, input || {}, {
                             rowCap: limits.rowCap,
                             statementTimeoutMs: limits.timeoutMs,
-                            relations,
-                            readOnlySql: true,
-                            allowedFunctions
+                            relations
                         })
                     )
                 } catch (error) {
@@ -439,7 +408,7 @@ class PostgreSQL_MCP implements INode {
             },
             {
                 name: 'query',
-                description: `${spec.description} ${READ_ONLY_SQL_NOTE}`,
+                description: spec.description,
                 schema: spec.schema
             }
         )
@@ -449,11 +418,7 @@ class PostgreSQL_MCP implements INode {
             async (input: { name?: string }): Promise<string> => {
                 try {
                     return JSON.stringify(
-                        await store.describeAnalystUrlRelation(postgresUrl, input || {}, relations, {
-                            timeoutMs: limits.timeoutMs,
-                            readOnlySql: true,
-                            allowedFunctions
-                        })
+                        await store.describeAnalystUrlRelation(postgresUrl, input || {}, relations, { timeoutMs: limits.timeoutMs })
                     )
                 } catch (error) {
                     return toolError(error)
