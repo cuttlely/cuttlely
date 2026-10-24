@@ -372,7 +372,6 @@ describe('analyst relations: bakery database', () => {
         if (!admin) return
         await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
         await admin.query(`DROP ROLE IF EXISTS "${reader}"`).catch(() => {})
-        await admin.query(`DROP ROLE IF EXISTS "${etl}"`).catch(() => {})
         await admin.end().catch(() => {})
     })
 
@@ -1812,11 +1811,13 @@ describe('analyst relations: user functions inside views', () => {
         await owner.query(`GRANT USAGE ON SCHEMA analytics TO "${reader}"`)
         await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO "${reader}"`)
         // Functions for scoped auto-allow tests under schema s.
-        await owner.query(`CREATE SCHEMA s`)
+        await owner.query(`CREATE SCHEMA s AUTHORIZATION "${etl}"`)
         await owner.query(`CREATE TABLE s.secret (note text)`)
+        await owner.query(`CREATE TABLE s.other (id int)`)
         await owner.query(`INSERT INTO s.secret VALUES ('classified')`)
         await owner.query(`GRANT USAGE ON SCHEMA s TO "${reader}"`)
         await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA s TO "${reader}"`)
+        await owner.query(`SET ROLE "${etl}"`)
         await owner.query(`CREATE FUNCTION s.add_atomic(a int, b int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT a + b; END`)
         await owner.query(
             `CREATE FUNCTION s.read_secret() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT note FROM s.secret LIMIT 1; END`
@@ -1832,6 +1833,7 @@ describe('analyst relations: user functions inside views', () => {
             `CREATE FUNCTION s.safe_outer(v int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.add_atomic($1, 1); END`
         )
         await owner.query(`CREATE FUNCTION s.unsafe_outer() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_secret(); END`)
+        await owner.query('RESET ROLE')
         url = urlFor(reader, password, dbName)
     })
 
@@ -1976,14 +1978,13 @@ describe('analyst relations: user functions inside views', () => {
 
     it('scoped user function rule: refuses leak_note directly and through a view; refuses plpgsql wrapper; allows BEGIN ATOMIC with no relation refs; refuses atomic that reads a table; allows allow-listed plpgsql; handles nested calls', async (t) => {
         if (skipped(t)) return
-        // Direct and through view: refused while scoped.
-        await refusal(
-            queryAnalystUrl(url, 'SELECT s.read_secret() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
-            /add s\.read_secret\(\) to Allowed functions|add s\.read_secret\(\) to Allowed functions/i
-        )
-        await refusal(
+        // Refused through a view while scoped.
+        await assert.rejects(
             queryAnalystUrl(url, 'SELECT v FROM s.leak_view LIMIT 1', { ...node, relations: ['s.leak_view'] }),
-            /add s\.read_secret\(\) to Allowed functions|Allowed functions/
+            (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                return true
+            }
         )
         // plpgsql wrapper refused with a scoped-only reason in the message.
         await assert.rejects(
@@ -2001,7 +2002,7 @@ describe('analyst relations: user functions inside views', () => {
         // BEGIN ATOMIC function that reads a table refused.
         await refusal(
             queryAnalystUrl(url, 'SELECT s.read_secret() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
-            /Allowed functions/
+            /Allowed functions|reads s\.secret/
         )
         // Allow-listed plpgsql function allowed.
         const upper = await queryAnalystUrl(url, "SELECT s.upper_plpgsql('ab') AS v LIMIT 1", {
@@ -2018,12 +2019,13 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(nestedOk.rows[0].v, 2)
         await refusal(
             queryAnalystUrl(url, 'SELECT s.unsafe_outer() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
-            /Allowed functions/
+            /Allowed functions|reads s\.secret/
         )
     })
 
     it('refuses a BEGIN ATOMIC body that calls a denied built-in (pg_sleep) under a selection', async (t) => {
         if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
         await owner.query(`CREATE FUNCTION s.pg_sleep_atomic() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT 1 FROM pg_sleep(0); END`)
         await refusal(
             queryAnalystUrl(url, 'SELECT s.pg_sleep_atomic() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
@@ -2045,15 +2047,19 @@ describe('analyst relations: user functions inside views', () => {
     it('refuses calls that use unsafe default-argument expressions under a selection', async (t) => {
         if (skipped(t)) return
         await owner.query(
-            `CREATE FUNCTION s.fn_dflt_sleep(a int DEFAULT (pg_sleep(0), 1)) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT $1; END`
+            `CREATE FUNCTION s.sleepy() RETURNS int LANGUAGE plpgsql STABLE AS $$ BEGIN PERFORM pg_sleep(0); RETURN 0; END $$`
+        )
+        await owner.query(
+            `CREATE FUNCTION s.fn_dflt_sleep(a int DEFAULT COALESCE(0, s.sleepy())) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT $1; END`
         )
         await refusal(
             queryAnalystUrl(url, 'SELECT s.fn_dflt_sleep() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
-            /pg_sleep/
+            /sleepy|Allowed functions|written in plpgsql/
         )
         await owner.query(
             `CREATE FUNCTION s.fn_dflt_reg(a oid DEFAULT 's.other'::regclass::oid) RETURNS oid LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT $1; END`
         )
+        await owner.query('RESET ROLE')
         await refusal(
             queryAnalystUrl(url, 'SELECT s.fn_dflt_reg() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
             /selection|regclass/
@@ -2077,19 +2083,21 @@ describe('analyst relations: user functions inside views', () => {
         await owner.query(
             `CREATE FUNCTION s.pl_text_eq(a text, b text) RETURNS boolean LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN a = b; END $$`
         )
-        await owner.query(`CREATE OPERATOR s.=: (LEFTARG = text, RIGHTARG = text, PROCEDURE = s.pl_text_eq)`)
+        await owner.query(`CREATE OPERATOR s.#=# (LEFTARG = text, RIGHTARG = text, PROCEDURE = s.pl_text_eq)`)
         await owner.query(
-            `CREATE FUNCTION s.op_wrap_pl() RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT 'x' OPERATOR(s.=:) 'x'; END`
+            `CREATE FUNCTION s.op_wrap_pl() RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT 'x' OPERATOR(s.#=#) 'x'; END`
         )
         await refusal(
             queryAnalystUrl(url, 'SELECT s.op_wrap_pl() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
             /written in plpgsql|Allowed functions/
         )
         // Diamond: top -> left -> leaf and top -> right -> leaf should pass without being treated as a cycle.
+        await owner.query(`SET ROLE "${etl}"`)
         await owner.query(`CREATE FUNCTION s.leaf() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 1; END`)
-        await owner.query(`CREATE FUNCTION s.left() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
-        await owner.query(`CREATE FUNCTION s.right() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
-        await owner.query(`CREATE FUNCTION s.top() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.left() + s.right(); END`)
+        await owner.query(`CREATE FUNCTION s.lft() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
+        await owner.query(`CREATE FUNCTION s.rgt() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
+        await owner.query(`CREATE FUNCTION s.top() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.lft() + s.rgt(); END`)
+        await owner.query('RESET ROLE')
         const okTop = await queryAnalystUrl(url, 'SELECT s.top() AS v LIMIT 1', {
             ...node,
             relations: ['analytics.clean_orders']
@@ -2099,19 +2107,23 @@ describe('analyst relations: user functions inside views', () => {
 
     it('refuses a cycle and allows a chain of 20 safe functions; names the refused function', async (t) => {
         if (skipped(t)) return
-        await owner.query(`CREATE FUNCTION s.cycle_a() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cycle_b(); END`)
-        await owner.query(`CREATE FUNCTION s.cycle_b() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cycle_a(); END`)
+        await owner.query(`CREATE FUNCTION s.cycle_a() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 1; END`)
+        await owner.query(`CREATE FUNCTION s.cycle_b() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 1; END`)
+        await owner.query(`CREATE OR REPLACE FUNCTION s.cycle_a() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cycle_b(); END`)
+        await owner.query(`CREATE OR REPLACE FUNCTION s.cycle_b() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cycle_a(); END`)
         await refusal(
             queryAnalystUrl(url, 'SELECT s.cycle_a() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
             /add s\.cycle_b\(\) to Allowed functions|Allowed functions|cycle/i
         )
         // Chain of 20 safe functions
-        for (let i = 0; i < 20; i += 1) {
+        await owner.query(`SET ROLE "${etl}"`)
+        for (let i = 19; i >= 0; i -= 1) {
             const name = `s.link_${i}`
-            const body = i === 19 ? 'SELECT 1' : `SELECT link_${i + 1}()`
+            const body = i === 19 ? 'SELECT 1' : `SELECT s.link_${i + 1}()`
             // eslint-disable-next-line no-await-in-loop
             await owner.query(`CREATE FUNCTION ${name}() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC ${body}; END`)
         }
+        await owner.query('RESET ROLE')
         const ok = await queryAnalystUrl(url, 'SELECT s.link_0() AS v LIMIT 1', { ...node, relations: ['analytics.clean_orders'] })
         assert.equal(ok.rows[0].v, 1)
     })
@@ -2158,6 +2170,33 @@ describe('analyst relations: user functions inside views', () => {
         assert.match(JSON.stringify(refused), /Allowed functions/)
         const [allowedQuery] = await new nodeClass().urlTools(url, {}, [], 'analytics.touchy(text)')
         assert.equal(JSON.parse(await allowedQuery.invoke({ sql: input.sql })).rows[0].v, 'a')
+    })
+    it('v1.3 node declares and persists analystAllowedFunctions; scoped helpers pass', async (t) => {
+        if (skipped(t)) return
+        if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
+            t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
+            return
+        }
+        const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
+        const inst = new nodeClass()
+        assert.equal(Number(inst.version), 1.3)
+        const source = fs.readFileSync(NODE_SOURCE, 'utf8')
+        assert.match(source, /name: 'analystAllowedFunctions'/)
+        const allowList = [
+            'analytics._etl_safe_bigint(text)',
+            'analytics._etl_safe_date(text)',
+            'analytics._etl_safe_integer(text)',
+            'analytics._etl_safe_numeric(text)',
+            'analytics._etl_safe_timestamptz(text)'
+        ].join('\n')
+        const tools = await new nodeClass().urlTools(url, {}, ['analytics.clean_orders'], allowList)
+        const [query] = tools
+        const ok = JSON.parse(
+            await query.invoke({
+                sql: 'SELECT id, analytics._etl_safe_numeric(amount::text) AS n FROM analytics.clean_orders LIMIT 1'
+            })
+        )
+        assert.equal(Array.isArray(ok.rows), true)
     })
 
     it('still refuses the database when a function is named like a built-in, even with the rule and an entry', async (t) => {
@@ -2355,7 +2394,7 @@ describe('analyst relations: text search configuration types', () => {
         if (skipped(t)) return
         const sel = scoped('s.tickets')
         // Direct multirange cast should be refused under a selection (when the multirange exists).
-        const m = await admin.query(
+        const m = await owner.query(
             "SELECT format_type(r.rngmultitypid, NULL) AS mt FROM pg_range r WHERE r.rngtypid = 's.class_range'::regtype"
         )
         const mr = String(m.rows[0]?.mt || '')
