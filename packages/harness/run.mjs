@@ -263,6 +263,7 @@ async function runHarnessTurn({
     flowOptions: callerFlowOptions,
     onEvent,
     signal,
+    callbacks,
     budgetMs,
     images,
     record,
@@ -294,6 +295,7 @@ async function runHarnessTurn({
                     callerFlowOptions,
                     onEvent,
                     signal,
+                    callbacks,
                     budgetMs,
                     images,
                     replay,
@@ -330,6 +332,7 @@ async function runTurn(
         callerFlowOptions,
         onEvent,
         signal,
+        callbacks,
         budgetMs,
         images,
         replay,
@@ -355,6 +358,7 @@ async function runTurn(
             flowOptions,
             onEvent,
             signal,
+            callbacks,
             budgetMs,
             images,
             replay,
@@ -382,6 +386,7 @@ async function runTurnBody(
         flowOptions,
         onEvent,
         signal,
+        callbacks,
         budgetMs,
         images,
         replay,
@@ -422,6 +427,8 @@ async function runTurnBody(
         budgetSignal,
         budgetMs: budget,
         workSignal: combineSignals(clientSignal, budgetSignal),
+        // In-process LangSmith tracer callbacks from the calling tool run, so model steps appear as its child runs.
+        traceCallbacks: callbacks,
         profileMs,
         profileSkipped: !needsHermes,
         usage: { prompt: 0, completion: 0, cached: 0, cachedSeen: false, seen: false },
@@ -1094,7 +1101,8 @@ async function invokeOne(context, model, request, windowMs, controlSignal) {
             json: request.json,
             timeoutMs: Math.min(context.limit, 120000),
             onDelta: request.onDelta,
-            signal
+            signal,
+            callbacks: context.traceCallbacks
         })
     } catch (error) {
         if (deadline?.aborted && !context.clientSignal?.aborted && !context.budgetSignal?.aborted && !controlSignal?.aborted) {

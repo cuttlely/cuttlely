@@ -371,7 +371,7 @@ async function bindTools(chat, tools, toolChoice) {
 
 export async function invokeChat(
     resolved,
-    { messages, tools, toolChoice, temperature, maxTokens, stop, json, signal, timeoutMs, onDelta } = {}
+    { messages, tools, toolChoice, temperature, maxTokens, stop, json, signal, timeoutMs, onDelta, callbacks } = {}
 ) {
     const limit = Math.min(timeoutMs == null ? 120000 : timeoutMs, 120000)
     const prepared = json ? withJsonInstruction(messages) : messages || []
@@ -385,11 +385,8 @@ export async function invokeChat(
         }
         // A parent chat agent keeps its token counter on the async-local config. These calls are
         // route, specialist, and handoff. The tool records that payload once, so the counter must not
-        // see them too. Harness runs are not traced.
-        // A parent chat agent keeps its token counter on the async-local config. These calls are
-        // route, specialist, and handoff. The tool records that payload once, so the counter must not
-        // see them too. Harness runs are not traced.
-        const options = { signal: callSignal(signal, limit), timeout: limit, callbacks: [] }
+        // see them too. Only the tracer callbacks the Harness tool passes in (no token counter) are attached.
+        const options = { signal: callSignal(signal, limit), timeout: limit, callbacks: callbacks ?? [] }
         if (temperature != null) options.temperature = temperature
         if (maxTokens != null) options.maxTokens = maxTokens
         if (stop != null) options.stop = stop

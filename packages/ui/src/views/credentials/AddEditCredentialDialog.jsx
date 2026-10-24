@@ -25,7 +25,6 @@ import useApi from '@/hooks/useApi'
 
 // utils
 import useNotifier from '@/utils/useNotifier'
-import { useAuth } from '@/hooks/useAuth'
 import { initializeDefaultNodeData } from '@/utils/genericHelper'
 
 // const
@@ -42,9 +41,6 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
 
     useNotifier()
 
-    const { hasPermission } = useAuth()
-    const canReveal = hasPermission('credentials:create') || hasPermission('credentials:update')
-
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
     const closeSnackbar = (...args) => dispatch(closeSnackbarAction(...args))
 
@@ -56,7 +52,6 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
     const [credentialData, setCredentialData] = useState({})
     const [componentCredential, setComponentCredential] = useState({})
     const [shared, setShared] = useState(false)
-    const [revealedData, setRevealedData] = useState(null)
 
     useEffect(() => {
         if (getSpecificCredentialApi.data) {
@@ -98,7 +93,6 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
     }, [getSpecificComponentCredentialApi.error])
 
     useEffect(() => {
-        setRevealedData(null)
         if (dialogProps.type === 'EDIT' && dialogProps.data) {
             // When credential dialog is opened from Credentials dashboard
             getSpecificCredentialApi.request(dialogProps.data.id)
@@ -124,16 +118,6 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
     }, [show, dispatch])
 
     const isMaskedUrlValue = (value) => typeof value === 'string' && value.includes('\u2022\u2022\u2022\u2022\u2022\u2022')
-
-    const handleRevealField = async (fieldName) => {
-        let data = revealedData
-        if (!data) {
-            const resp = await credentialsApi.revealCredential(credential.id)
-            data = resp.data.plainDataObj
-            setRevealedData(data)
-        }
-        return data[fieldName]
-    }
 
     const addNewCredential = async () => {
         try {
@@ -496,14 +480,7 @@ const AddEditCredentialDialog = ({ show, dialogProps, onCancel, onConfirm, setEr
                     componentCredential.inputs &&
                     componentCredential.inputs
                         .filter((inputParam) => inputParam.hidden !== true)
-                        .map((inputParam, index) => (
-                            <CredentialInputHandler
-                                key={index}
-                                inputParam={inputParam}
-                                data={credentialData}
-                                onReveal={dialogProps.type === 'EDIT' && canReveal ? handleRevealField : undefined}
-                            />
-                        ))}
+                        .map((inputParam, index) => <CredentialInputHandler key={index} inputParam={inputParam} data={credentialData} />)}
 
                 {!shared && componentCredential && componentCredential.name && componentCredential.name.includes('OAuth2') && (
                     <Box sx={{ p: 2 }}>

@@ -1630,6 +1630,26 @@ const maskUrlPassword = (value: string): string | null => {
     }
 }
 
+/**
+ * Merges an update into the stored credential values. A value that is the blank placeholder value, or the masked
+ * form of the stored URL, is what the client was shown in place of the stored value, so it keeps the stored value.
+ */
+export const mergeCredentialUpdate = (
+    stored: ICredentialDataDecrypted,
+    incoming: ICredentialDataDecrypted | undefined | null
+): ICredentialDataDecrypted => {
+    const merged: ICredentialDataDecrypted = { ...stored }
+    if (!incoming || typeof incoming !== 'object') return merged
+    for (const name of Object.keys(incoming)) {
+        const value = incoming[name]
+        const current = stored[name]
+        if (value === REDACTED_CREDENTIAL_VALUE) continue
+        if (typeof value === 'string' && typeof current === 'string' && value !== current && maskUrlPassword(current) === value) continue
+        merged[name] = value
+    }
+    return merged
+}
+
 export const redactCredentialWithPasswordType = (
     componentCredentialName: string,
     decryptedCredentialObj: ICredentialDataDecrypted,

@@ -37,6 +37,8 @@ export interface HarnessRunArgs {
     modelBaseUrl?: string
     onEvent?: (event: { type: string; [key: string]: unknown }) => void
     signal?: AbortSignal
+    /** In-process LangChain callbacks (LangSmith tracers only) for the harness model calls. Not queued. */
+    callbacks?: unknown
     budgetMs?: number
     source?: string
     traceId?: string

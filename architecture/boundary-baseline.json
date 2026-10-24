@@ -138,6 +138,16 @@
             "reason": "the test drives the inherited evaluation runner's chatflow id check"
         },
         {
+            "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
+            "to": "packages/components/src/handler.ts",
+            "reason": "Regression test drives additionalCallbacks with a real LangSmith client inside the abort-signal store"
+        },
+        {
+            "from": "packages/components/src/langsmithCredentialDiagnostics.test.ts",
+            "to": "packages/components/src/utils.ts",
+            "reason": "Regression test drives additionalCallbacks with a real LangSmith client inside the abort-signal store"
+        },
+        {
             "from": "packages/components/src/oauthRefresh.test.ts",
             "to": "packages/components/src/httpSecurity.ts"
         },

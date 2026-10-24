@@ -38,15 +38,25 @@ export const describeLangSmithCredential = (
     }
 }
 
-export const logLangSmithCredentialShape = (where: string, shape: LangSmithCredentialShape): void => {
-    console.info(`[langsmith-diag] ${where} ${JSON.stringify(shape)}`)
+/**
+ * LangChainTracer's constructor adopts the client and project of the run tree in the async-local store
+ * (updateFromRunTree). A flow run inside runWithAbortSignal stores a placeholder run tree whose client is the
+ * environment default (no key on a server without LangSmith env vars) and whose project is 'default', so the
+ * configured credential and project were replaced and uploads went out without a key (403). Put them back.
+ */
+export const keepConfiguredLangSmithTarget = (
+    tracer: { client: unknown; projectName?: string },
+    fields: { client?: unknown; projectName?: string }
+): void => {
+    if (fields.client) tracer.client = fields.client
+    tracer.projectName = fields.projectName ?? 'default'
 }
 
 /**
- * fetch wrapper for the LangSmith client that reports failed uploads with the flow and credential ids.
- * The request and response bodies are not logged.
+ * fetch wrapper for the LangSmith client that reports failed uploads with the flow id and the credential shape
+ * (id, field names, key prefix, length and hash, endpoint, project). The key and the bodies are not logged.
  */
-export const langSmithFailureLoggingFetch = (ids: { flowId?: string; credentialId?: string }): typeof fetch => {
+export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: LangSmithCredentialShape }): typeof fetch => {
     return (async (input: any, init?: any) => {
         const response = await fetch(input, init)
         if (!response.ok) {
@@ -57,9 +67,9 @@ export const langSmithFailureLoggingFetch = (ids: { flowId?: string; credentialI
                 path = ''
             }
             console.warn(
-                `[langsmith-diag] upload failed status=${response.status} path=${path} flowId=${ids.flowId ?? ''} credentialId=${
-                    ids.credentialId ?? ''
-                }`
+                `[langsmith] upload failed status=${response.status} path=${path} flowId=${ids.flowId ?? ''} credential=${JSON.stringify(
+                    ids.shape ?? {}
+                )}`
             )
         }
         return response
