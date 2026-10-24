@@ -5,6 +5,7 @@
 
 import contextlib
 import io
+import re
 import shutil
 import socket
 import ssl
@@ -26,6 +27,14 @@ SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width
 SEEN = []
 
 
+def header_value(value):
+    """Header values here are built from the request path; line breaks are dropped so a value stays one header."""
+    return str(value).replace("\r", "").replace("\n", "")
+
+
+_REFLECTABLE = re.compile(r"[A-Za-z0-9._~:!$&'()*+,;=@/-]{1,8000}")
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -33,7 +42,7 @@ class Handler(BaseHTTPRequestHandler):
     def _send(self, status, body=b"", headers=None, length=True):
         self.send_response(status)
         for key, value in (headers or {}).items():
-            self.send_header(key, value)
+            self.send_header(key, header_value(value))
         if length:
             self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -58,6 +67,8 @@ class Handler(BaseHTTPRequestHandler):
             "/big-undeclared": self._big_undeclared,
             "/slow": self._slow,
             "/short": self._short,
+            "/short-5": self._short_5,
+            "/drip-40": self._drip_40,
             "/trickle-headers": self._trickle_headers,
             "/trickle-body": self._trickle_body,
             "/trickle-chunked": self._trickle_chunked,
@@ -70,6 +81,8 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if self.path.startswith("/reflect-"):  # a server that echoes the query value into a redirect or a header
             kind, value = self.path[len("/reflect-") :].split("?", 1)[0], self.path.split("=", 1)[1]
+            if not _REFLECTABLE.fullmatch(value):
+                return self._send(400, b"bad value")
             if kind == "path":
                 return self._send(302, headers={"Location": f"http://10.0.0.1/{value}"})
             if kind == "bad-host":
@@ -82,7 +95,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(302, headers={"Location": f"/files/{value}.svg"})
             return self._send(200, b"x", {"Content-Type": "image/png", "Content-Length": value}, length=False)
         if self.path.startswith("/odd-type?"):
-            return self._send(200, b"x", {"Content-Type": "text/" + self.path.split("=", 1)[1]})
+            subtype = self.path.split("=", 1)[1]
+            if not _REFLECTABLE.fullmatch(subtype):
+                return self._send(400, b"bad value")
+            return self._send(200, b"x", {"Content-Type": "text/" + subtype})
         routes.get(self.path, lambda: self._send(404, b"missing"))()
 
     def _big_undeclared(self):
@@ -102,6 +118,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"abc")
         self.close_connection = True
+
+    def _short_5(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", "100")
+        self.end_headers()
+        self.wfile.write(b"abcde")
+        self.wfile.flush()
+        self.close_connection = True
+
+    def _drip_40(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", "200")
+        self.end_headers()
+        self._drip(b"d" * 200, gap=0.04)
 
     def _drip(self, data, gap=0.05):
         for index in range(len(data)):
@@ -338,6 +370,23 @@ class FetchTest(unittest.TestCase):
             net.fetch_asset(self.url("/short"), self.out / "short.png")
         self.assertEqual(printed.getvalue(), "")
         self.assertFalse((self.out / "short.png").exists())
+
+    def test_deadline_holds_inside_one_blocking_read(self):
+        # One byte every 40 ms keeps each socket wait short; the overall deadline must still end the read.
+        started = time.monotonic()
+        with self.assertRaisesRegex(net.FetchError, "timed out after 100 ms"):
+            net.fetch(self.url("/drip-40"), timeout_ms=100)
+        self.assertLess(time.monotonic() - started, 0.35)
+
+    def test_fetch_rejects_a_body_shorter_than_its_content_length(self):
+        with self.assertRaisesRegex(net.FetchError, "closed after 5 bytes, short of the declared size"):
+            net.fetch(self.url("/short-5"))
+        self.assertEqual(net.fetch(self.url("/logo.svg"))["bytes"], SVG)
+
+    def test_test_server_keeps_reflected_values_to_one_header(self):
+        self.assertEqual(header_value("a\r\nX-Injected: 1"), "aX-Injected: 1")
+        self.assertIsNone(_REFLECTABLE.fullmatch("1\r\nX-Injected: 1"))
+        self.assertEqual(net.fetch(self.url("/odd-type?t=plain%20x"))["status"], 400)
 
     def test_file_names_with_spaces_and_unicode_are_percent_encoded(self):
         net.fetch(self.url("/files/Example logo.svg"))
