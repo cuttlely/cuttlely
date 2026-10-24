@@ -4,6 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.3] - Unreleased
+
+### Fixed
+
+-   The assets preset fetch judges an IPv4-mapped IPv6 address by the IPv4 address it contains, so a public address written that way can be fetched. Private, loopback, link-local, carrier-grade NAT, multicast, reserved and unspecified addresses in that form stay refused. 6to4 and NAT64 addresses are judged the same way.
+
 ## [1.4.2] - 2026-10-23
 
 ### Fixed
