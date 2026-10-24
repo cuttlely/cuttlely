@@ -132,8 +132,6 @@ const DENIED_TYPES = new Set([
     'regoper',
     'regoperator',
     'regtype',
-    'regconfig',
-    'regdictionary',
     'regnamespace',
     'regrole',
     'regcollation'
@@ -586,13 +584,13 @@ export async function checkStatementScope(client, runner, statement, relations, 
     }
     if (!followViews) {
         await refuseRoutines(runner, ids.functions, ids.operators)
-        await refuseTypes(runner, ids.types)
+        await refuseTypes(runner, ids.types, { scoped: true })
         return undefined
     }
     // The PostgreSQL MCP node also checks inside ticked views, with its own denylist added.
     const bodies = await followRelations(runner, ids)
     await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, volatile: true })
-    await refuseTypes(runner, ids.types)
+    await refuseTypes(runner, ids.types, { scoped: true })
     return { relations: [...ids.relations], bodies, stamp }
 }
 
@@ -672,7 +670,7 @@ export async function checkStatementRoutines(client, runner, statement, isRowQue
     }
     const bodies = await followRelations(runner, ids)
     await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, unscoped: true, volatile: true })
-    await refuseTypes(runner, ids.types)
+    await refuseTypes(runner, ids.types, { scoped: false })
     return { relations: [...ids.relations], bodies, stamp }
 }
 
@@ -1063,13 +1061,15 @@ async function riskyDomains(runner, cacheKey = '') {
     return list
 }
 
-// A type whose input, output, receive or send function is outside pg_catalog, or an object-identifier type.
+// A type whose input, output, receive or send function is outside pg_catalog is always refused. Object-identifier
+// types are refused only while a table selection is set. Text search configuration and dictionary types
+// (regconfig, regdictionary) are allowed: to_tsvector('english', ...) and materialized views built on it store them.
 // Domains with a risky CHECK never get this far: riskyDomains refuses every statement in that database.
-async function refuseTypes(runner, typeSet) {
+async function refuseTypes(runner, typeSet, { scoped }) {
     const ids = [...typeSet]
     if (!ids.length) return
     const types = await runner.all(TYPE_CLOSURE_SQL, [ids])
-    const oidTypes = types.filter((type) => type.schema === 'pg_catalog' && DENIED_TYPES.has(type.typname)).map((type) => type.name)
+    const oidTypes = !scoped ? [] : types.filter((type) => type.schema === 'pg_catalog' && DENIED_TYPES.has(type.typname)).map((type) => type.name)
     if (oidTypes.length) {
         throw new ScopeRefusal(
             `Cuttlely refused this query: type ${refusedList([
