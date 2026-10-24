@@ -837,9 +837,48 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
     }
 }
 
+function markerText(file) {
+    try {
+        return fs.readFileSync(file, 'utf8').trim()
+    } catch {
+        return ''
+    }
+}
+
+// Profile directories this harness would compile into that another harness already has: its home holding another
+// harness's specialist, or a specialist name (joined with "--") holding another harness's home or specialist.
+// Synchronous, so a check and the compile that follows cannot be interleaved with another save in this process.
+export function profileDestinationConflicts(record, profileName = record?.name) {
+    const home = String(profileName || '')
+    const own = home.toLowerCase()
+    const conflicts = []
+    const homeDir = profileDir(home)
+    const homeParent = markerText(path.join(homeDir, 'harness-parent'))
+    if (homeParent && homeParent.toLowerCase() !== own) conflicts.push(home)
+    for (const specialist of resolveRoster(record, home).specialists) {
+        const dest = specialist.profileName
+        if (!dest) continue
+        const dir = profileDir(dest)
+        const parent = markerText(path.join(dir, 'harness-parent'))
+        if ((parent && parent.toLowerCase() !== own) || fs.existsSync(path.join(dir, 'harness-roster.json'))) conflicts.push(dest)
+    }
+    return conflicts
+}
+
 export function compileProfile(record, options = {}) {
     const profileName = options.profileName || record.name
     const tryProfile = Boolean(options.tryProfile)
+    if (!tryProfile) {
+        const taken = profileDestinationConflicts(record, profileName)
+        if (taken.length) {
+            throw new HarnessError(
+                'name_taken',
+                `Harness "${record.name}" cannot be compiled: ${taken
+                    .map((name) => `profiles/${name}`)
+                    .join(', ')} belongs to another harness. Rename the harness or the specialist.`
+            )
+        }
+    }
     const dir = profileDir(profileName)
     fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
@@ -1144,15 +1183,60 @@ export async function unserveRuntimeProfile(name) {
 }
 
 // For a removal: true only when the runtime is confirmed not to serve this profile any more (it answered that it
-// stopped serving it, said it does not serve it, or no runtime is listening). Pending, timeouts and errors are false.
+// stopped serving it, said it does not serve it, or there is no socket and no live runtime process). Pending, timeouts and
+// errors are false.
 export async function stopRuntimeProfile(name) {
     const sock = gatewaySocketPath()
     if (!name) return false
-    if (!sock || !fs.existsSync(sock)) return true
+    // No socket proves nothing while a runtime process for this home is alive (its socket may have failed to start,
+    // or it listens on a pipe this lookup does not see): the profile is kept then.
+    if (!sock || !fs.existsSync(sock)) return !liveRuntimeRecorded()
     for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
         const outcome = await unserveOnce(name, sock)
         if (outcome === 'unserved' || outcome === 'not-served' || outcome === 'down') return true
         if (attempt + 1 < UNSERVE_ATTEMPTS) await delay(UNSERVE_RETRY_MS)
+    }
+    return false
+}
+
+function pidAlive(pid) {
+    if (!Number.isInteger(pid) || pid <= 0) return false
+    try {
+        process.kill(pid, 0)
+        return true
+    } catch (error) {
+        return error?.code === 'EPERM'
+    }
+}
+
+function readJsonOrNull(file) {
+    try {
+        return JSON.parse(fs.readFileSync(file, 'utf8'))
+    } catch {
+        return null
+    }
+}
+
+// Whether this home's pid record or runtime state names a process that is still alive. A recycled pid only keeps
+// data longer; it never lets a live runtime's profile go.
+export function liveRuntimeRecorded() {
+    const home = hermesHome()
+    const pidRecord = readJsonOrNull(path.join(home, 'gateway.pid'))
+    const pidText =
+        pidRecord == null
+            ? (() => {
+                  try {
+                      return fs.readFileSync(path.join(home, 'gateway.pid'), 'utf8').trim()
+                  } catch {
+                      return ''
+                  }
+              })()
+            : ''
+    const fromPid = Number.parseInt(pidRecord && typeof pidRecord === 'object' ? pidRecord.pid : pidRecord ?? pidText, 10)
+    if (pidAlive(fromPid)) return true
+    const state = readJsonOrNull(path.join(home, 'gateway_state.json'))
+    if (state && typeof state === 'object' && !['stopped', 'startup_failed', undefined, null].includes(state.gateway_state)) {
+        if (pidAlive(Number.parseInt(state.pid, 10))) return true
     }
     return false
 }

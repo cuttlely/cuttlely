@@ -310,6 +310,87 @@ saveHarness(ops, { overwrite: true })
 const researchProfile = compileProfile(research)
 const opsProfile = compileProfile(ops)
 
+// Two harnesses whose names join to the same specialist profile (joinx + b--c, joinx--b + c) cannot share it: the
+// second compile, a new name or an update, is refused before it writes anything.
+{
+    const { profileDestinationConflicts, stopRuntimeProfile } = await import('./profile.mjs')
+    const base = JSON.parse(JSON.stringify(research))
+    const spec = (name, model = 'checkmodel-a') => ({
+        ...JSON.parse(JSON.stringify(research.specialists[0])),
+        name,
+        model: { provider: 'xai', model }
+    })
+    // Two models, so each specialist compiles into its own profile.
+    const first = { ...base, name: 'joinx--b', specialists: [spec('c'), spec('y', 'checkmodel-b')] }
+    const second = { ...base, name: 'joinx', specialists: [spec('b--c'), spec('y', 'checkmodel-b')] }
+    let firstOk = false
+    try {
+        compileProfile(first)
+        firstOk = true
+    } catch (error) {
+        firstOk = String(error?.message || error)
+    }
+    const theirs = profileFile('joinx--b--c', 'harness-parent')
+    const theirsBefore = fs.existsSync(theirs) ? fs.readFileSync(theirs, 'utf8') : ''
+    let refused = ''
+    try {
+        compileProfile(second)
+    } catch (error) {
+        refused = error?.code || String(error)
+    }
+    check(
+        'a harness whose specialist joins into another harness profile is refused, and that profile is untouched',
+        firstOk === true &&
+            refused === 'name_taken' &&
+            fs.readFileSync(theirs, 'utf8') === theirsBefore &&
+            theirsBefore.trim() === 'joinx--b' &&
+            !fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'joinx')) &&
+            JSON.stringify(profileDestinationConflicts(second)) === JSON.stringify(['joinx--b--c']),
+        JSON.stringify({ firstOk, refused, theirsBefore })
+    )
+    let recompiled = true
+    try {
+        compileProfile(first)
+    } catch {
+        recompiled = false
+    }
+    check('a harness recompiles over its own specialist profiles', recompiled && !profileDestinationConflicts(first).length)
+    fs.rmSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'joinx--b'), { recursive: true, force: true })
+    for (const entry of ['joinx--b--c', 'joinx--b--y']) {
+        fs.rmSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', entry), { recursive: true, force: true })
+        fs.rmSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', entry), { recursive: true, force: true })
+    }
+
+    // With no control socket, a profile counts as stopped only when no runtime process of this home is alive.
+    const home = process.env.CUTTLELY_HERMES_HOME
+    const pidFile = path.join(home, 'gateway.pid')
+    const stateFile = path.join(home, 'gateway_state.json')
+    const hadPid = fs.existsSync(pidFile)
+    const hadState = fs.existsSync(stateFile)
+    if (!hadPid && !hadState && !fs.existsSync(path.join(home, 'gateway.sock')) && !fs.existsSync(path.join(home, 'gateway.sock.path'))) {
+        const noRuntime = await stopRuntimeProfile('sockless--a')
+        fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid }))
+        const livePid = await stopRuntimeProfile('sockless--a')
+        fs.rmSync(pidFile)
+        fs.writeFileSync(stateFile, JSON.stringify({ gateway_state: 'running', pid: process.pid }))
+        const liveState = await stopRuntimeProfile('sockless--a')
+        fs.writeFileSync(stateFile, JSON.stringify({ gateway_state: 'stopped', pid: process.pid }))
+        const stoppedState = await stopRuntimeProfile('sockless--a')
+        fs.rmSync(stateFile)
+        check(
+            'with no control socket a live runtime process keeps its profiles, and no live process lets them go',
+            noRuntime === true && livePid === false && liveState === false && stoppedState === true,
+            JSON.stringify({ noRuntime, livePid, liveState, stoppedState })
+        )
+    } else {
+        check(
+            'with no control socket a live runtime process keeps its profiles (home has no runtime files)',
+            false,
+            'runtime files present'
+        )
+    }
+}
+
 check('profile homes differ', researchProfile.dir !== opsProfile.dir)
 check('chief toolsets are delegation, memory, session_search', CHIEF_TOOLSETS.join(',') === 'delegation,memory,session_search')
 

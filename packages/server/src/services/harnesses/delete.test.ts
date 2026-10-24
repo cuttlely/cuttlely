@@ -38,6 +38,7 @@ let duringCleanup: ((name: string) => Promise<void>) | null = null
 let keptProfiles: string[] = []
 let expectedProfiles: string[][] = []
 
+let takenProfiles: string[] = []
 const fileOf = (name: string) => path.join(storeDir, `${name}.json`)
 const has = (name: string) => fs.existsSync(fileOf(name))
 const write = (row: Row) => fs.writeFileSync(fileOf(row.name), JSON.stringify(row))
@@ -83,7 +84,8 @@ const fakeModules = (file: string) => {
     if (file === 'profile.mjs') {
         return Promise.resolve({
             specialistProfileName: (harness: string, specialist: string) => `${harness.toLowerCase()}--${specialist}`,
-            compileProfileCached: () => undefined
+            compileProfileCached: () => undefined,
+            profileDestinationConflicts: (row: Row) => takenProfiles.filter((entry) => entry.startsWith(`${row.name.toLowerCase()}`))
         })
     }
     if (file === 'schedule.mjs') return Promise.resolve({ deleteSchedule: (name: string) => schedules.delete(name) })
@@ -119,6 +121,7 @@ beforeEach(() => {
     duringCleanup = null
     keptProfiles = []
     expectedProfiles = []
+    takenProfiles = []
     write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
     write({ name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
@@ -419,6 +422,22 @@ describe('a reused name never sees an earlier harness data', () => {
             expect(cleaned).toEqual(['NAVI-B'])
             expect(expectedProfiles).toEqual([['navi-b--other']])
             expect(has('NAVI-B')).toBe(true)
+        } finally {
+            if (warm === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = warm
+        }
+    })
+
+    it('an update whose specialist joins into another harness profile is refused before anything is written', async () => {
+        const warm = process.env.CUTTLELY_WARM_HERMES
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        try {
+            takenProfiles = ['navi-b--b--c']
+            const before = fs.readFileSync(fileOf('NAVI-B'), 'utf8')
+            await expect(harnessesService.saveHarness({ name: 'NAVI-B', specialists: [{ name: 'b--c' }] }, TEAM)).rejects.toMatchObject({
+                statusCode: 409
+            })
+            expect(fs.readFileSync(fileOf('NAVI-B'), 'utf8')).toBe(before)
         } finally {
             if (warm === undefined) delete process.env.CUTTLELY_WARM_HERMES
             else process.env.CUTTLELY_WARM_HERMES = warm
