@@ -293,6 +293,27 @@ class FetchTest(unittest.TestCase):
                     self.assertEqual(self._blocked(str(wrapped)), blocked, str(wrapped))
                     self.assertEqual(self._blocked(wrapped), self._blocked(ipv4), str(wrapped))
 
+    def test_terminated_6to4_relay_and_documentation_prefixes_are_refused(self):
+        relay = ipaddress.IPv4Address("192.88.99.1")
+        wrappers = {
+            "bare": relay,
+            "mapped": ipaddress.IPv6Address("::ffff:192.88.99.1"),
+            "compatible": ipaddress.IPv6Address(int(relay)),
+            "6to4": ipaddress.IPv6Address((0x2002 << 112) | (int(relay) << 80)),
+            "nat64": ipaddress.IPv6Address((0x0064FF9B << 96) | int(relay)),
+        }
+        self.assertEqual(wrappers["mapped"].ipv4_mapped, relay)
+        self.assertIsNone(wrappers["compatible"].ipv4_mapped)
+        self.assertEqual(wrappers["6to4"].sixtofour, relay)
+        for kind, address in wrappers.items():
+            with self.subTest(kind=kind, address=str(address)):
+                self.assertTrue(self._blocked(address), f"{kind} {address}")
+                self.assertTrue(self._blocked(str(address)), f"{kind} {address}")
+        self.assertTrue(self._blocked("3fff::1"), "3fff::1")
+        # Globally reachable anycasts stay refused on purpose.
+        for address in ("192.0.0.9", "192.0.0.10", "2001:1::3"):
+            self.assertTrue(self._blocked(address), address)
+
     def test_public_embedded_literals_pass_the_address_check(self):
         # Python 3.12 prints an IPv4-mapped address as ::ffff:808:808; 3.10, 3.11 and 3.13 keep the dotted form.
         for host in ("::ffff:8.8.8.8", "2002:808:808::", "64:ff9b::808:808", "::8.8.8.8"):

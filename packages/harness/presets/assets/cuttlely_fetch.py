@@ -50,7 +50,10 @@ _BLOCKED_NETWORKS = [
         "127.0.0.0/8",
         "169.254.0.0/16",
         "172.16.0.0/12",
+        # 192.0.0.9, 192.0.0.10 and 2001:1::3 are globally reachable anycasts. They are refused on purpose.
         "192.0.0.0/24",
+        "2001:1::3/128",
+        "192.88.99.0/24",  # terminated 6to4 relay anycast (RFC 7526)
         "192.168.0.0/16",
         "198.18.0.0/15",
         "224.0.0.0/4",
@@ -63,6 +66,7 @@ _BLOCKED_NETWORKS = [
         "ff00::/8",
         "fd00:ec2::254/128",
         "64:ff9b:1::/48",  # local-use NAT64 (RFC 8215); Python 3.11 and 3.12 count it as global
+        "3fff::/20",  # IPv6 documentation (RFC 9637); Python 3.12.3 counts it as global
     )
 ]
 
