@@ -71,25 +71,6 @@ const getCredentialById = async (req: Request, res: Response, next: NextFunction
     }
 }
 
-const revealCredentialById = async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: credentialsController.revealCredentialById - id not provided!`)
-        }
-        const workspaceId = req.user?.activeWorkspaceId
-        if (!workspaceId) {
-            throw new AppError(
-                StatusCodes.NOT_FOUND,
-                `Error: credentialsController.revealCredentialById - workspace ${workspaceId} not found!`
-            )
-        }
-        const apiResponse = await credentialsService.revealCredentialById(req.params.id, workspaceId)
-        return res.json(apiResponse)
-    } catch (error) {
-        next(error)
-    }
-}
-
 const updateCredential = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.id) {
@@ -114,6 +95,5 @@ export default {
     deleteCredentials,
     getAllCredentials,
     getCredentialById,
-    revealCredentialById,
     updateCredential
 }

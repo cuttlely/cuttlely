@@ -42,7 +42,8 @@ const {
     uploadedImages,
     harnessToolInput,
     harnessToolMetadata,
-    rememberToolPayload
+    rememberToolPayload,
+    harnessTraceCallbacks
 } = require('./Harness')
 const { addSingleFileToStorage, getFileFromStorage } = require('../../../src/storageUtils')
 
@@ -737,5 +738,31 @@ describe('Harness node as an agent tool', () => {
             { agentTask: task, inputSource: 'user' }
         ])
         expect(holder).toHaveLength(1)
+    })
+    it('passes only the tool run tracers to the harness run, as a child of the tool run', async () => {
+        const WORKSPACE = '11111111-1111-4111-8111-111111111111'
+        const { CallbackManager, CallbackManagerForToolRun } = require('@langchain/core/callbacks/manager')
+        const { LangChainTracer } = require('@langchain/core/tracers/tracer_langchain')
+        const tracer = new LangChainTracer({ projectName: 'NAVI-Micro', client: {} as never })
+        const counter = { name: 'token_counter', handleLLMEnd: () => undefined }
+        const parent = new CallbackManagerForToolRun('tool-run-id', [tracer, counter], [tracer, counter], [], [], {}, {})
+        const seen: unknown[] = []
+        queuedRun.mockReset()
+        queuedRun.mockImplementation(async (opts?: Record<string, unknown>) => {
+            seen.push(opts?.callbacks)
+            return { text: 'ok', harness: 'bakery' }
+        })
+        const node = new HarnessNode()
+        const tool = await node.init({ inputs: { harnessName: 'bakery' } } as never, 'hi', { chatId: 'c1', workspaceId: WORKSPACE })
+        await tool.func('task', parent)
+        const passed = seen[0] as InstanceType<typeof CallbackManager>
+        expect(passed).toBeInstanceOf(CallbackManager)
+        expect(passed.getParentRunId()).toBe('tool-run-id')
+        expect(passed.handlers).toEqual([tracer])
+        expect(harnessTraceCallbacks(undefined)).toBeUndefined()
+        const untraced = new CallbackManagerForToolRun('x', [counter], [counter], [], [], {}, {})
+        expect(harnessTraceCallbacks(untraced)).toBeUndefined()
+        await tool.func('task')
+        expect(seen[1]).toBeUndefined()
     })
 })

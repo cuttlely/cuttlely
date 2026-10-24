@@ -359,6 +359,8 @@ export async function executeJob(job) {
             modelBaseUrl: local?.modelBaseUrl,
             flowOptions: runtime.flowOptions,
             signal: controller.signal,
+            // Tracer callbacks exist only in the process that queued the job. A worker elsewhere runs untraced.
+            callbacks: local?.callbacks,
             onEvent: (event) => {
                 if (keepJobEvent(event)) appendEvent(job.id, event)
                 // In this process the waiter's own callback still gets them live, without a saved copy.
