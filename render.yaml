@@ -60,8 +60,8 @@ services:
       # not use. website/ is in .dockerignore. The root Markdown files listed
       # here are not read at runtime. Other Markdown stays out of this list on
       # purpose: the bundled handbook ETL sample indexes README.md, AGENTS.md
-      # and the .md files under docs/, .projects/ and samples/ from the image,
-      # and Hermes loads its skills and SOUL.md at runtime.
+      # and the .md files under docs/ and samples/ from the image, and Hermes
+      # loads its skills and SOUL.md at runtime.
       buildFilter:
           ignoredPaths:
               - website/**
