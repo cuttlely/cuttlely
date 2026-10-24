@@ -222,7 +222,9 @@ export const profileWriteTest = {
     beforeFinalOpen: null,
     // Runs after a quarantine destination is chosen and before the exclusive claim, so a test can
     // create a file in that gap. Production leaves this null.
-    beforeQuarantineClaim: null
+    beforeQuarantineClaim: null,
+    // Runs after link(2) names the symlink and before the source name is checked again. Production leaves this null.
+    afterQuarantineLink: null
 }
 
 const quarantineFailureLogged = new Set()
@@ -271,13 +273,38 @@ function quarantineSymlink(linkPath) {
             logQuarantineFailure(linkPath)
             return false
         }
-        if (!claimed.isSymbolicLink()) {
-            // The claim followed the symlink and named its target. Drop that extra name only when
-            // it is the same file, so the target's bytes stay as they were.
+        if (!claimed.isSymbolicLink() || claimed.dev !== st.dev || claimed.ino !== st.ino) {
+            // The claim did not name the symlink we saw. Drop that extra name only when it is the
+            // same file as the source, so a different file's bytes stay as they were.
             try {
-                if (fs.lstatSync(linkPath).ino === claimed.ino) fs.unlinkSync(dest)
+                const sourceNow = fs.lstatSync(linkPath)
+                if (sourceNow.dev === claimed.dev && sourceNow.ino === claimed.ino) fs.unlinkSync(dest)
             } catch {
-                // The source is still on the load path.
+                // The source is still on the load path, or the extra name is already gone.
+            }
+            logQuarantineFailure(linkPath)
+            return false
+        }
+        if (typeof profileWriteTest.afterQuarantineLink === 'function') profileWriteTest.afterQuarantineLink(linkPath, dest)
+        // The source name can be replaced after the link. Unlink only when it is still that symlink.
+        let sourceNow = null
+        let destNow = null
+        try {
+            sourceNow = fs.lstatSync(linkPath)
+            destNow = fs.lstatSync(dest)
+        } catch {
+            sourceNow = null
+            destNow = null
+        }
+        const sameSymlink = (stat) => stat && stat.isSymbolicLink() && stat.dev === claimed.dev && stat.ino === claimed.ino
+        if (!sameSymlink(sourceNow) || !sameSymlink(destNow)) {
+            try {
+                const stillClaimed = fs.lstatSync(dest)
+                if (stillClaimed.isSymbolicLink() && stillClaimed.dev === claimed.dev && stillClaimed.ino === claimed.ino) {
+                    fs.unlinkSync(dest)
+                }
+            } catch {
+                // The extra name is already gone.
             }
             logQuarantineFailure(linkPath)
             return false

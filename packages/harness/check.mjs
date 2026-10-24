@@ -7932,6 +7932,68 @@ await expectCase('a file created at the quarantine destination during the move k
     fs.rmSync(outside, { recursive: true, force: true })
 })
 
+await expectCase('a regular file swapped onto the profile link during the move keeps its bytes and the move fails', async () => {
+    const previous = process.env.CUTTLELY_HERMES_HOME
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'maqswap-'))
+    const root = path.join(home, 'profiles')
+    fs.mkdirSync(root)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'maqswap-target-'))
+    const targetBytes = Buffer.from('swap-target-bytes\n')
+    fs.writeFileSync(path.join(outside, 'config.yaml'), targetBytes)
+    fs.writeFileSync(path.join(outside, 'harness-roster.json'), '{"name":"swapped"}\n')
+    const link = path.join(root, 'swapped')
+    fs.symlinkSync(outside, link)
+    const planted = Buffer.from('swapped-in-regular-file\0keep-these-bytes')
+    let plantedStat = null
+    profileWriteTest.afterQuarantineLink = (linkPath) => {
+        if (plantedStat || linkPath !== link) return
+        fs.unlinkSync(linkPath)
+        fs.writeFileSync(linkPath, planted)
+        plantedStat = fs.lstatSync(linkPath)
+    }
+    process.env.CUTTLELY_HERMES_HOME = home
+    const warns = []
+    const warnLog = console.warn
+    console.warn = (...args) => {
+        warns.push(args.map(String).join(' '))
+    }
+    let loadable = []
+    try {
+        loadable = setAsideOutdatedConfigs()
+    } finally {
+        profileWriteTest.afterQuarantineLink = null
+        console.warn = warnLog
+        process.env.CUTTLELY_HERMES_HOME = previous
+    }
+    const now = fs.lstatSync(link)
+    const bytes = fs.readFileSync(link)
+    const claim = path.join(root, 'swapped.quarantine')
+    check(
+        'a regular file swapped onto the profile link during the move keeps its bytes and the move fails',
+        Boolean(plantedStat) &&
+            bytes.equals(planted) &&
+            now.isFile() &&
+            !now.isSymbolicLink() &&
+            now.ino === plantedStat.ino &&
+            now.size === planted.length &&
+            now.mtimeMs === plantedStat.mtimeMs &&
+            !fs.lstatSync(claim, { throwIfNoEntry: false }) &&
+            loadable.some((dir) => dir === link) &&
+            fs.readFileSync(path.join(outside, 'config.yaml')).equals(targetBytes) &&
+            !warns.some((line) => line.includes('quarantined profile link')),
+        JSON.stringify({
+            planted: Boolean(plantedStat),
+            bytes: bytes.toString('utf8'),
+            isFile: now.isFile(),
+            claimLeft: Boolean(fs.lstatSync(claim, { throwIfNoEntry: false })),
+            loadable,
+            warns
+        })
+    )
+    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+})
+
 await expectCase('a quarantine move stops when every suffix is taken and leaves those bytes unchanged', async () => {
     const previous = process.env.CUTTLELY_HERMES_HOME
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'maqfull-'))
