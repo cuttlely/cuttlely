@@ -896,9 +896,11 @@ const refusedWhy = (rows) => {
         if (row.definer) reasons.add('SECURITY DEFINER')
         if (row.config != null) reasons.add('has its own settings')
         if (row.language !== 'sql' && row.language !== 'plpgsql') reasons.add(`written in ${row.language}`)
+        if (row.language === 'plpgsql') reasons.add('written in plpgsql')
+        if (row.language === 'sql' && (!row.prosqlbody || String(row.prosqlbody).trim() === '')) reasons.add('SQL body is not BEGIN ATOMIC')
         if (row.super_owner !== false) reasons.add('owned by a superuser')
     }
-    return `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written in SQL or PL/pgSQL and not owned by a superuser; found: ${[
+    return `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written as a SQL-standard BEGIN ATOMIC body, and not owned by a superuser; found: ${[
         ...reasons
     ].join(', ')}.`
 }
@@ -932,6 +934,7 @@ async function refuseRoutines(
     const rows = await runner.all(
         `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility, p.prosecdef AS definer,
                 p.proconfig AS config, l.lanname AS language, coalesce(r.rolsuper, true) AS super_owner,
+                pg_catalog.to_jsonb(p) ->> 'prosqlbody' AS prosqlbody,
                 pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(p.proname) || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature
          FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
          JOIN pg_catalog.pg_language l ON l.oid = p.prolang LEFT JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
@@ -945,8 +948,63 @@ async function refuseRoutines(
     // not SECURITY DEFINER, no settings of its own, written in SQL or PL/pgSQL, and not owned by a superuser. Anything
     // else needs an entry in the node's Allowed functions. Either way its body is trusted, not read.
     const allowed = runner.allowedFunctions?.length ? await resolveAllowedFunctions(runner) : new Set()
-    const trusted = (row) => builtIn(row) || allowed.has(Number(row.oid)) || autoAllowed(row)
-    const foreignRows = rows.filter((row) => !trusted(row))
+    // Strict scoped auto-allow: SQL-standard BEGIN ATOMIC body (prosqlbody present), STABLE/IMMUTABLE, not SECURITY DEFINER,
+    // no proconfig, not superuser-owned, no relation references, and every called function is an allowed built-in or itself passes.
+    async function strictlyAllowedScoped(functionOid, seen = new Set(), depth = 0) {
+        if (depth > 10) return false
+        if (seen.has(functionOid)) return false
+        seen.add(functionOid)
+        const info =
+            rows.find((row) => Number(row.oid) === Number(functionOid)) ||
+            (await runner.get(
+                `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility, p.prosecdef AS definer,
+                        p.proconfig AS config, l.lanname AS language, coalesce(r.rolsuper, true) AS super_owner,
+                        pg_catalog.to_jsonb(p) ->> 'prosqlbody' AS prosqlbody
+                 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+                 JOIN pg_catalog.pg_language l ON l.oid = p.prolang LEFT JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
+                 WHERE p.oid = ?::oid`,
+                [functionOid]
+            ))
+        if (!info) return false
+        if (builtIn(info)) {
+            // Allowed built-in only when not denied; volatile built-ins are screened by volatile flag at the call site.
+            if (isDenied(info.name)) return false
+            if (volatile && info.volatility === 'v' && !SAFE_VOLATILE.has(info.name)) return false
+            return true
+        }
+        if (!(info.language === 'sql' && typeof info.prosqlbody === 'string' && info.prosqlbody.trim().length > 0)) return false
+        if (!(info.volatility === 'i' || info.volatility === 's')) return false
+        if (info.definer) return false
+        if (info.config != null) return false
+        if (info.super_owner !== false) return false
+        // No relation dependencies
+        const hasRelRef = Boolean(
+            (
+                await runner.get(
+                    "SELECT 1 AS one FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = ?::oid AND d.refclassid = 'pg_class'::regclass LIMIT 1",
+                    [functionOid]
+                )
+            )?.one
+        )
+        if (hasRelRef) return false
+        // Recursively check called functions
+        const called = await runner.all(
+            "SELECT p2.oid::int8 AS oid, n2.nspname AS schema, p2.proname AS name, p2.provolatile AS volatility FROM pg_depend d JOIN pg_proc p2 ON p2.oid = d.refobjid JOIN pg_namespace n2 ON n2.oid = p2.pronamespace WHERE d.classid = 'pg_proc'::regclass AND d.objid = ?::oid AND d.refclassid = 'pg_proc'::regclass",
+            [functionOid]
+        )
+        for (const callee of called) {
+            const ok = await strictlyAllowedScoped(Number(callee.oid), seen, depth + 1)
+            if (!ok) return false
+        }
+        return true
+    }
+    const trusted = async (row) =>
+        builtIn(row) || allowed.has(Number(row.oid)) || (unscoped ? autoAllowed(row) : await strictlyAllowedScoped(Number(row.oid)))
+    const foreignRows = []
+    for (const row of rows) {
+        // eslint-disable-next-line no-await-in-loop
+        if (!(await trusted(row))) foreignRows.push(row)
+    }
     if (foreignRows.length) {
         const signatures = [...new Set(foreignRows.map((row) => row.signature))]
         throw new ScopeRefusal(

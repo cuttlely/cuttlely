@@ -1800,6 +1800,29 @@ describe('analyst relations: user functions inside views', () => {
         await owner.query(`CREATE FUNCTION analytics.by_super(v text) RETURNS text LANGUAGE sql STABLE AS 'SELECT v'`)
         await owner.query(`GRANT USAGE ON SCHEMA analytics TO "${reader}"`)
         await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO "${reader}"`)
+        // Functions for scoped auto-allow tests under schema s.
+        await owner.query(`CREATE SCHEMA s`)
+        await owner.query(`CREATE TABLE s.secret (note text)`)
+        await owner.query(`INSERT INTO s.secret VALUES ('classified')`)
+        await owner.query(
+            `CREATE FUNCTION s.add_atomic(a int, b int) RETURNS int LANGUAGE sql IMMUTABLE AS $$ BEGIN ATOMIC SELECT a + b; END $$`
+        )
+        await owner.query(
+            `CREATE FUNCTION s.read_secret() RETURNS text LANGUAGE sql STABLE AS $$ BEGIN ATOMIC SELECT note FROM s.secret LIMIT 1; END $$`
+        )
+        await owner.query(`CREATE VIEW s.leak_view AS SELECT s.read_secret() AS v`)
+        await owner.query(
+            `CREATE FUNCTION s.sleep_wrap() RETURNS int LANGUAGE plpgsql STABLE AS $$ BEGIN PERFORM pg_sleep(0); RETURN 1; END $$`
+        )
+        await owner.query(
+            `CREATE FUNCTION s.upper_plpgsql(text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN RETURN upper($1); END $$`
+        )
+        await owner.query(
+            `CREATE FUNCTION s.safe_outer(v int) RETURNS int LANGUAGE sql IMMUTABLE AS $$ BEGIN ATOMIC SELECT s.add_atomic($1, 1); END $$`
+        )
+        await owner.query(
+            `CREATE FUNCTION s.unsafe_outer() RETURNS text LANGUAGE sql STABLE AS $$ BEGIN ATOMIC SELECT s.read_secret(); END $$`
+        )
         url = urlFor(reader, password, dbName)
     })
 
@@ -1825,7 +1848,12 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(plain.rows.length, 2)
         assert.equal(plain.rows[0].qty, 3)
         assert.equal(plain.rows[1].placed, null)
-        const scoped = await queryAnalystUrl(url, sql, { ...node, relations: ['analytics.clean_orders'] })
+        const scoped = await queryAnalystUrl(url, sql, {
+            ...node,
+            relations: ['analytics.clean_orders'],
+            allowedFunctions:
+                'analytics._etl_safe_date(text)\nanalytics._etl_safe_integer(text)\nanalytics._etl_safe_numeric(text)\nanalytics._etl_safe_timestamptz(text)'
+        })
         assert.equal(scoped.rows.length, 2)
         const direct = await queryAnalystUrl(url, "SELECT analytics._etl_safe_numeric('1.5') AS n LIMIT 1", node)
         assert.equal(String(direct.rows[0].n), '1.5')
@@ -1901,6 +1929,49 @@ describe('analyst relations: user functions inside views', () => {
         } finally {
             await owner.query('DROP FUNCTION analytics.std_body(int)')
         }
+    })
+
+    it('scoped user function rule: refuses leak_note directly and through a view; refuses plpgsql wrapper; allows BEGIN ATOMIC with no relation refs; refuses atomic that reads a table; allows allow-listed plpgsql; handles nested calls', async (t) => {
+        if (skipped(t)) return
+        // Direct and through view: refused while scoped.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.read_secret() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /add s\.read_secret\(\) to Allowed functions|add s\.read_secret\(\) to Allowed functions/i
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT v FROM s.leak_view LIMIT 1', { ...node, relations: ['s.leak_view'] }),
+            /add s\.read_secret\(\) to Allowed functions|Allowed functions/
+        )
+        // plpgsql wrapper refused.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.sleep_wrap() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /add s\.sleep_wrap\(\) to Allowed functions/
+        )
+        // BEGIN ATOMIC function with no relation refs allowed under a selection.
+        const ok = await queryAnalystUrl(url, 'SELECT s.add_atomic(2,3) AS v LIMIT 1', { ...node, relations: ['analytics.clean_orders'] })
+        assert.equal(ok.rows[0].v, 5)
+        // BEGIN ATOMIC function that reads a table refused.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.read_secret() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /Allowed functions/
+        )
+        // Allow-listed plpgsql function allowed.
+        const upper = await queryAnalystUrl(url, "SELECT s.upper_plpgsql('ab') AS v LIMIT 1", {
+            ...node,
+            relations: ['analytics.clean_orders'],
+            allowedFunctions: 's.upper_plpgsql(text)'
+        })
+        assert.equal(upper.rows[0].v, 'AB')
+        // Nested: safe outer ok, unsafe outer refused.
+        const nestedOk = await queryAnalystUrl(url, 'SELECT s.safe_outer(1) AS v LIMIT 1', {
+            ...node,
+            relations: ['analytics.clean_orders']
+        })
+        assert.equal(nestedOk.rows[0].v, 2)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.unsafe_outer() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /Allowed functions/
+        )
     })
 
     it('ignores an allow-list sent in the tool input', async (t) => {

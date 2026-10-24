@@ -339,15 +339,17 @@ Limits of the check:
 
 ### User functions
 
-Views often call small helper functions, such as `analytics._etl_safe_date(text)`. The PostgreSQL MCP node lets a function outside `pg_catalog` run, in a query or inside a view it reads, with no setting, when all of these hold in `pg_proc`:
+Views often call small helper functions, such as `analytics._etl_safe_date(text)`. In scoped mode (with a table selection set), the PostgreSQL MCP node automatically lets a function outside `pg_catalog` run only when all of these hold in `pg_proc`:
 
 -   it is `STABLE` or `IMMUTABLE` (not `VOLATILE`);
 -   it is not `SECURITY DEFINER`;
 -   it has no settings of its own (`proconfig` is empty, so no `SET search_path` or `SET role`);
--   it is written in `sql` or `plpgsql`;
--   its owner is not a superuser.
+-   it is written in `sql` with a SQL-standard `BEGIN ATOMIC ... END` body (`prosqlbody` present);
+-   its owner is not a superuser;
+-   it has no `pg_class` relation among its `pg_depend` references (no table reads or writes in the body); and
+-   every function it calls is an allowed built-in, or itself passes this same rule (checked recursively with a depth cap; a cycle is refused).
 
-Each call is matched by the function Postgres resolves it to (its oid), under the pinned search path. Any other function is refused with its exact signature and the reason, for example `function analytics.touchy(text) is not built in. ... found: VOLATILE. To allow it, the flow author can add analytics.touchy(text) to Allowed functions on the PostgreSQL MCP node.`
+In scoped mode, every other user function — including every PL/pgSQL function and every string-body SQL function — is refused unless it is on the node’s saved Allowed functions list. Each call is matched by the function Postgres resolves it to (its oid), under the pinned search path. A refused function is reported with its exact signature and the hint to add it to Allowed functions, for example `function analytics.touchy(text) is not built in. ... found: VOLATILE. To allow it, the flow author can add analytics.touchy(text) to Allowed functions on the PostgreSQL MCP node.`
 
 **Allowed functions** (under the node's additional parameters) lets a refused function run anyway. Only the flow author sets it; it is saved with the flow, and the model and tool input cannot add to it. Write one entry per line, schema-qualified with the argument types exactly as the refusal prints them, such as `analytics.touchy(text)`. `schema.name(*)` covers every overload of that name. A bare name such as `analytics.touchy` matches nothing. Lines starting with `#` are ignored.
 
