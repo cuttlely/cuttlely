@@ -1,6 +1,6 @@
 // A failed tool call's preview on the run stream keeps its tail (the exception, the URL, the HTTP status) instead of
 // being cut after the first 500 characters. Runs _tool_completed_preview from the vendored runtime with the standard
-// library only, so it needs no runtime virtualenv.
+// library and the runtime's own redactor (agent/redact.py), so it needs no runtime virtualenv.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -12,8 +12,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE = path.join(ROOT, 'hermes', 'gateway', 'platforms', 'api_server_runs.py')
 
 const PROBE = String.raw`
-import ast, json, sys
+import ast, json, os, sys
 from typing import Any, Callable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[1])))))
+from agent.redact import redact_sensitive_text
 source = open(sys.argv[1], encoding="utf-8").read()
 tree = ast.parse(source)
 keep = []
@@ -25,13 +27,17 @@ for node in tree.body:
 scope = {"json": json, "Any": Any, "Callable": Callable}
 exec(compile(ast.Module(body=keep, type_ignores=[]), "api_server_runs", "exec"), scope)
 preview = scope["_tool_completed_preview"]
-redact = lambda text, force=False: text.replace("redact-me-word", "***")
+redact = redact_sensitive_text
 url = "https://commons.wikimedia.org/wiki/Special:FilePath/Example_logo.svg"
-error = json.dumps({"status": "error", "output": "x" * 900 + " note redact-me-word " + "y" * 900,
+signed = "https://cdn.example.com/logo.png?token=opaque-signed-value-123&w=64"
+error = json.dumps({"status": "error", "output": "x" * 900 + " fetched " + signed + " " + "y" * 900,
                     "error": "Traceback ...\nurllib.error.HTTPError: HTTP Error 403: Forbidden for " + url})
+tail_only = json.dumps({"status": "error", "output": "w" * 1500,
+                        "error": "HTTP Error 403 for https://u:pw-value-9@cdn.example.com/a.svg?sig=opaque-sig-456"})
 ok = json.dumps({"status": "success", "output": "z" * 900 + " end"})
 print(json.dumps({"error": preview(error, redact, True), "ok": preview(ok, redact, False),
-                  "default": preview(ok, redact), "short": preview('{"status": "error", "error": "boom"}', redact, True)}))
+                  "default": preview(ok, redact), "short": preview('{"status": "error", "error": "boom"}', redact, True),
+                  "tail": preview(tail_only, redact, True)}))
 `
 
 test('a failed tool preview keeps its head and its tail; a successful one is cut as before', () => {
@@ -45,7 +51,11 @@ test('a failed tool preview keeps its head and its tail; a successful one is cut
     )
     assert.ok(out.error.includes(' ... '))
     assert.ok(out.error.length <= 1200, String(out.error.length))
-    assert.ok(!out.error.includes('redact-me-word'))
+    assert.ok(!out.error.includes('opaque-signed-value-123'), out.error)
+    // URL credentials in the kept tail go through the runtime's own redactor before anything is cut.
+    assert.ok(out.tail.endsWith('"}'), out.tail)
+    assert.ok(!out.tail.includes('opaque-sig-456') && !out.tail.includes('pw-value-9'), out.tail)
+    assert.ok(out.tail.includes('HTTP Error 403 for'), out.tail)
     assert.equal(out.ok.length, 500)
     assert.ok(out.ok.endsWith('...'))
     assert.equal(out.default, out.ok)

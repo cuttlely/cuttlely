@@ -54,6 +54,9 @@ class Handler(BaseHTTPRequestHandler):
             "/big-declared": lambda: self._send(200, b"x" * 5000, {"Content-Type": "image/png"}),
             "/big-undeclared": self._big_undeclared,
             "/slow": self._slow,
+            "/trickle-headers": self._trickle_headers,
+            "/trickle-body": self._trickle_body,
+            "/trickle-chunked": self._trickle_chunked,
         }
         routes.get(self.path, lambda: self._send(404, b"missing"))()
 
@@ -65,6 +68,30 @@ class Handler(BaseHTTPRequestHandler):
         for _ in range(10):
             self.wfile.write(b"y" * 1000)
         self.close_connection = True
+
+    def _drip(self, data, gap=0.05):
+        for index in range(len(data)):
+            self.wfile.write(data[index : index + 1])
+            self.wfile.flush()
+            time.sleep(gap)
+
+    def _trickle_headers(self):
+        # Each byte arrives well inside any per-read socket timeout; only an overall deadline stops it.
+        self._drip(b"HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nX-Pad: " + b"a" * 200 + b"\r\n\r\n")
+
+    def _trickle_body(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", "400")
+        self.end_headers()
+        self._drip(b"z" * 400)
+
+    def _trickle_chunked(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        self._drip(b"190\r\n" + b"c" * 400 + b"\r\n0\r\n\r\n")
 
     def _slow(self):
         time.sleep(2)
@@ -185,6 +212,20 @@ class FetchTest(unittest.TestCase):
         with self.assertRaisesRegex(net.FetchError, "timed out after 300 ms"):
             net.fetch(self.url("/slow"), timeout_ms=300)
         self.assertLess(time.monotonic() - started, 1.5)
+
+    def test_deadline_holds_against_trickled_headers_body_and_chunks(self):
+        for path in ("/trickle-headers", "/trickle-body", "/trickle-chunked"):
+            started = time.monotonic()
+            with self.assertRaisesRegex(net.FetchError, "timed out after 400 ms"):
+                net.fetch(self.url(path), timeout_ms=400)
+            self.assertLess(time.monotonic() - started, 1.2, path)
+
+    def test_deadline_covers_name_resolution(self):
+        net._resolve = lambda host, port: time.sleep(3) or ["127.0.0.1"]
+        started = time.monotonic()
+        with self.assertRaisesRegex(net.FetchError, "timed out resolving slow-dns.test"):
+            net.fetch("http://slow-dns.test/logo.svg", timeout_ms=300)
+        self.assertLess(time.monotonic() - started, 1.2)
 
     def test_caps_have_safe_defaults_and_ceilings(self):
         self.assertEqual(net._bounded(None, net.DEFAULT_MAX_BYTES, net.MAX_BYTES_LIMIT, "max_bytes"), 10 * 1024 * 1024)

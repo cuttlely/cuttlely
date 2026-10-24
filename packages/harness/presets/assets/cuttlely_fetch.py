@@ -19,6 +19,7 @@ import http.client
 import ipaddress
 import socket
 import ssl
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
@@ -92,15 +93,32 @@ def _resolve(host, port):
     return [info[4][0] for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)]
 
 
-def _checked_address(host, port, url):
+def _resolve_by(host, port, deadline, url):
+    """Resolve on a worker thread so a slow resolver cannot outlast the fetch deadline."""
+    outcome = {}
+
+    def work():
+        try:
+            outcome["addresses"] = _resolve(host, port)
+        except OSError as error:
+            outcome["error"] = error
+
+    worker = threading.Thread(target=work, daemon=True)
+    worker.start()
+    worker.join(max(0.0, deadline - time.monotonic()))
+    if worker.is_alive():
+        raise FetchError(f"fetch failed: timed out resolving {host}, for {url}", url)
+    if "error" in outcome:
+        raise FetchError(f"fetch failed: could not resolve {host} ({outcome['error']}) for {url}", url)
+    return outcome["addresses"]
+
+
+def _checked_address(host, port, url, deadline=None):
     try:
         literal = ipaddress.ip_address(host.strip("[]"))
         addresses = [str(literal)]
     except ValueError:
-        try:
-            addresses = _resolve(host, port)
-        except OSError as error:
-            raise FetchError(f"fetch failed: could not resolve {host} ({error}) for {url}", url) from None
+        addresses = _resolve_by(host, port, time.monotonic() + DEFAULT_TIMEOUT_MS / 1000 if deadline is None else deadline, url)
     if not addresses:
         raise FetchError(f"fetch failed: {host} has no address, for {url}", url)
     for address in addresses:
@@ -133,7 +151,7 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
         self._address = address
 
     def connect(self):
-        self.sock = socket.create_connection((self._address, self.port), self.timeout)
+        self.sock = self.raw_socket = socket.create_connection((self._address, self.port), self.timeout)
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -142,7 +160,7 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         self._address = address
 
     def connect(self):
-        raw = socket.create_connection((self._address, self.port), self.timeout)
+        raw = self.raw_socket = socket.create_connection((self._address, self.port), self.timeout)
         # The certificate is checked against the host name, while the socket goes to the checked address.
         self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
 
@@ -169,12 +187,29 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
     current = str(url)
     for _hop in range(MAX_REDIRECTS + 1):
         scheme, host, port, target = _split(current)
-        address = _checked_address(host, port, current)
+        address = _checked_address(host, port, current, deadline)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current)
         connection_type = _PinnedHTTPSConnection if scheme == "https" else _PinnedHTTPConnection
         connection = connection_type(host, port, address, remaining)
+        # Socket timeouts only bound each idle wait, so a peer trickling bytes could outlast them. At the deadline
+        # this watchdog shuts the socket down, which ends any read in progress (headers, chunks or body).
+        expired = threading.Event()
+
+        def stop(connection=connection, expired=expired):
+            expired.set()
+            # The response can hold the socket after the connection lets go of it, so the socket kept at connect is used.
+            sock = getattr(connection, "raw_socket", None)
+            if sock is not None:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+        watchdog = threading.Timer(remaining, stop)
+        watchdog.daemon = True
+        watchdog.start()
         try:
             connection.request(
                 "GET",
@@ -200,22 +235,28 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
                 left = deadline - time.monotonic()
                 if left <= 0:
                     raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current, status)
-                if connection.sock is not None:
-                    connection.sock.settimeout(left)
+                sock = getattr(connection, "raw_socket", None)
+                if sock is not None and sock.fileno() != -1:
+                    sock.settimeout(left)
                 chunk = response.read(min(CHUNK, max_bytes + 1 - len(body)))
                 if not chunk:
                     break
                 body.extend(chunk)
                 if len(body) > max_bytes:
                     raise FetchError(f"fetch failed: body is over the {max_bytes} byte cap, at {current}", current, status)
+            if expired.is_set():
+                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current, status)
             return {"status": status, "contentType": content_type, "bytes": bytes(body), "finalUrl": current}
         except FetchError:
             raise
         except (socket.timeout, TimeoutError):
             raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current) from None
         except (OSError, http.client.HTTPException) as error:
+            if expired.is_set():
+                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current) from None
             raise FetchError(f"fetch failed: {type(error).__name__}: {error}, at {current}", current) from None
         finally:
+            watchdog.cancel()
             connection.close()
     raise FetchError(f"fetch failed: more than {MAX_REDIRECTS} redirects, last at {current}", current)
 

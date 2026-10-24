@@ -5,14 +5,14 @@ Subject: [PATCH] cuttlely: tool error preview tail
 
 What: the run stream's tool.completed preview keeps the head and the tail of a failed call's result, up to 1200 characters, instead of cutting it after 500. Successful calls are cut as before. Why: a failed download's exception, URL and HTTP status are at the end of the result, and the harness showed only the start.
 ---
- gateway/platforms/api_server_runs.py | 19 ++++++++++++++-----
- 1 file changed, 14 insertions(+), 5 deletions(-)
+ gateway/platforms/api_server_runs.py | 23 +++++++++++++++++------
+ 1 file changed, 17 insertions(+), 6 deletions(-)
 
 diff --git a/gateway/platforms/api_server_runs.py b/gateway/platforms/api_server_runs.py
-index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..1061e00a3dc078e5bb564275a10cd0f5c139c2d0 100644
+index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..5e6e7a954fa3f445c7050e8c80dcadcca8c0152c 100644
 --- a/gateway/platforms/api_server_runs.py
 +++ b/gateway/platforms/api_server_runs.py
-@@ -96,17 +96,26 @@ _FIXED_EVENT_FIELDS = {
+@@ -96,17 +96,28 @@ _FIXED_EVENT_FIELDS = {
          "tool": tool, "duration": round(kw.get("duration", 0), 3), "error": kw.get("is_error", False)},
      "reasoning.available": lambda tool, preview, kw: {"text": preview or ""}}
  _TOOL_COMPLETED_PREVIEW_MAX_CHARS = 500
@@ -30,9 +30,12 @@ index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..1061e00a3dc078e5bb564275a10cd0f5
      if result is None:
          return ""
      text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
-     preview = redact_sensitive_text(text, force=True)
+-    preview = redact_sensitive_text(text, force=True)
 -    limit = _TOOL_COMPLETED_PREVIEW_MAX_CHARS
 -    return preview if len(preview) <= limit else preview[: limit - 3] + "..."
++    # A failed call's tail usually holds the URL it was fetching, so credential-named query parameters and
++    # user:pass@ userinfo are redacted too before anything reaches the public stream.
++    preview = redact_sensitive_text(text, force=True, redact_url_credentials=True)
 +    limit = _TOOL_COMPLETED_ERROR_PREVIEW_MAX_CHARS if is_error else _TOOL_COMPLETED_PREVIEW_MAX_CHARS
 +    if len(preview) <= limit:
 +        return preview
@@ -43,7 +46,7 @@ index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..1061e00a3dc078e5bb564275a10cd0f5
  
  
  _RUN_STREAM_SUBSCRIBER_OVERFLOW = object()
-@@ -332,7 +341,7 @@ def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop
+@@ -332,7 +343,7 @@ def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop
              event_fields = fields(tool_name, preview, kwargs)
              if event_type == "tool.completed":
                  event_fields["preview"] = _tool_completed_preview(

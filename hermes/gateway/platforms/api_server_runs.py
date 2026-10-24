@@ -108,7 +108,9 @@ def _tool_completed_preview(result: Any, redact_sensitive_text: Callable[..., st
     if result is None:
         return ""
     text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
-    preview = redact_sensitive_text(text, force=True)
+    # A failed call's tail usually holds the URL it was fetching, so credential-named query parameters and
+    # user:pass@ userinfo are redacted too before anything reaches the public stream.
+    preview = redact_sensitive_text(text, force=True, redact_url_credentials=True)
     limit = _TOOL_COMPLETED_ERROR_PREVIEW_MAX_CHARS if is_error else _TOOL_COMPLETED_PREVIEW_MAX_CHARS
     if len(preview) <= limit:
         return preview

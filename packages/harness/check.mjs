@@ -641,9 +641,16 @@ const recoveredTools = settleToolChips([
             !('error' in okStep) &&
             hermesToolFailed({ event: 'tool.failed', tool: 'x' }) &&
             hermesToolFailed({ event: 'tool.completed', error: true }) &&
-            hermesToolFailed({ event: 'tool.completed', preview: '{"output": "", "exit_code": 2}' }) &&
-            hermesToolFailed({ event: 'tool.completed', preview: '{"status": "timeout", "output": ""}' }) &&
-            !hermesToolFailed({ event: 'tool.completed', preview: '{"output": "ok", "exit_code": 0}' }) &&
+            hermesToolFailed({ event: 'tool.completed', tool: 'terminal', preview: '{"output": "", "exit_code": 2}' }) &&
+            hermesToolFailed({ event: 'tool.completed', tool: 'execute_code', preview: '{"status": "timeout", "output": ""}' }) &&
+            hermesToolFailed({ event: 'tool.completed', tool: 'execute_code', preview: '{"output": "failure", "status": "error"}' }) &&
+            !hermesToolFailed({ event: 'tool.completed', tool: 'terminal', preview: '{"output": "ok", "exit_code": 0}' }) &&
+            !hermesToolFailed({
+                event: 'tool.completed',
+                tool: 'execute_code',
+                preview: '{"status": "success", "data": {"exit_code": 1}}'
+            }) &&
+            !hermesToolFailed({ event: 'tool.completed', tool: 'web_extract', preview: '{"status": "error", "exit_code": 1}' }) &&
             !hermesToolFailed({ event: 'tool.started', preview: '{"status": "error"}' }) &&
             hermesToolEvent('assets', { event: 'tool.failed', tool_name: 'execute_code' }).error === true &&
             hermesToolEvent('assets', { event: 'message.delta', delta: 'x' }) === null &&
