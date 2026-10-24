@@ -586,10 +586,24 @@ export async function checkStatementScope(client, runner, statement, relations, 
     }
     // The PostgreSQL MCP node also checks inside ticked views, with its own denylist added.
     const bodies = await followRelations(runner, ids)
-    await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied })
+    await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, volatile: true })
     await refuseTypes(runner, ids.types)
-    return { relations: [...ids.relations], bodies }
+    return { relations: [...ids.relations], bodies, stamp: await routineCatalogStamp(runner) }
 }
+
+// Volatile built-ins the PostgreSQL MCP node still runs: they return values and change nothing. Every other
+// volatile function may have a side effect (nextval, setval, setseed, lo_*, pg_notify, ...) and is refused.
+export const SAFE_VOLATILE = new Set([
+    'random',
+    'random_normal',
+    'gen_random_uuid',
+    'clock_timestamp',
+    'timeofday',
+    'array_sample',
+    'array_shuffle',
+    'currval',
+    'lastval'
+])
 
 const nodeDenied = (name) => deniedFunction(name) || readOnlySqlDeniedFunction(name)
 
@@ -645,9 +659,9 @@ export async function checkStatementRoutines(client, runner, statement, isRowQue
         throw error
     }
     const bodies = await followRelations(runner, ids)
-    await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, unscoped: true })
+    await refuseRoutines(runner, ids.functions, ids.operators, { denied: nodeDenied, unscoped: true, volatile: true })
     await refuseTypes(runner, ids.types)
-    return { relations: [...ids.relations], bodies }
+    return { relations: [...ids.relations], bodies, stamp: await routineCatalogStamp(runner) }
 }
 
 const RELATION_BODIES_SQL = `SELECT c.oid::int8 AS oid, c.relkind AS kind,
@@ -695,6 +709,20 @@ async function followRelations(runner, ids) {
 
 const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])].join('\n')
 
+// A digest of every function, operator and cast outside pg_catalog. A new overload created between the check and
+// the query could change which function a name resolves to, so the query transaction compares it.
+const ROUTINE_STAMP_SQL = `SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) AS stamp FROM (
+    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || p.proname || ':' || p.proargtypes::text FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname <> 'pg_catalog'
+    UNION ALL SELECT 'o' || o.oid || ':' || o.oprcode::oid FROM pg_operator o
+    JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE n.nspname <> 'pg_catalog'
+    UNION ALL SELECT 'c' || c.oid || ':' || c.castfunc FROM pg_cast c WHERE c.oid >= 16384
+) s(x)`
+
+export async function routineCatalogStamp(runner) {
+    return String((await runner.get(ROUTINE_STAMP_SQL))?.stamp ?? '')
+}
+
 // True when every relation the check followed still has the definition and row-security policies it had then.
 export async function sameRelationBodies(runner, bodies) {
     const oids = [...bodies.keys()]
@@ -732,7 +760,12 @@ const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${
 const NOT_BUILT_IN = 'is not built in. Only built-in functions, operators and types run.'
 
 // Functions and operators outside pg_catalog, and denied built-ins.
-async function refuseRoutines(runner, functionSet, operatorSet, { denied: isDenied = deniedFunction, unscoped = false } = {}) {
+async function refuseRoutines(
+    runner,
+    functionSet,
+    operatorSet,
+    { denied: isDenied = deniedFunction, unscoped = false, volatile = false } = {}
+) {
     const functionIds = new Set(functionSet)
     const operatorIds = [...operatorSet]
     if (operatorIds.length) {
@@ -746,7 +779,7 @@ async function refuseRoutines(runner, functionSet, operatorSet, { denied: isDeni
     }
     if (!functionIds.size) return
     const rows = await runner.all(
-        'SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?::oid[])',
+        'SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?::oid[])',
         [[...functionIds]]
     )
     // An id the catalog does not return is refused too.
@@ -754,7 +787,9 @@ async function refuseRoutines(runner, functionSet, operatorSet, { denied: isDeni
     if (missing.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(missing.map(String))} ${NOT_BUILT_IN}`)
     const foreign = rows.filter((row) => !builtIn(row)).map((row) => `${row.schema}.${row.name}`)
     if (foreign.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(foreign)} ${NOT_BUILT_IN}`)
-    const denied = rows.filter((row) => isDenied(row.name)).map((row) => row.name)
+    const denied = rows
+        .filter((row) => isDenied(row.name) || (volatile && row.volatility === 'v' && !SAFE_VOLATILE.has(row.name)))
+        .map((row) => row.name)
     if (denied.length && unscoped)
         throw new ScopeRefusal(`Cuttlely refused this query: ${refusedList([...new Set(denied)])} is not allowed.`)
     if (denied.length) {
@@ -895,7 +930,7 @@ const READ_ONLY_SQL_FUNCTIONS = new Set([
 ])
 // Functions that run SQL given as text (so a name inside a string literal would run unchecked), take session locks,
 // or reach files, large objects or other databases.
-const READ_ONLY_SQL_PREFIXES = ['lo_', 'dblink', 'pg_read_', 'pg_ls_', ...SIDE_EFFECT_PREFIXES]
+const READ_ONLY_SQL_PREFIXES = ['lo_', 'dblink', 'pg_read_', 'pg_ls_', 'txid_', ...SIDE_EFFECT_PREFIXES]
 const READ_ONLY_SQL_SUFFIXES = ['_to_xml', '_to_xmlschema', '_to_xml_and_xmlschema']
 // Words after which a top-level LIMIT is a name, not the clause.
 const LIMIT_NOT_CLAUSE_AFTER = new Set(['as'])

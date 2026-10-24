@@ -1257,6 +1257,10 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             CREATE VIEW public.outer_view AS SELECT n FROM public.pause_view;
             CREATE MATERIALIZED VIEW public.pause_matview AS SELECT public.pause(0) AS n;
             CREATE VIEW public.swap_view AS SELECT g AS n FROM generate_series(1, 30) g;
+            CREATE FUNCTION public."Pause"(seconds float8) RETURNS int LANGUAGE sql AS 'SELECT 1 FROM pg_sleep(seconds)';
+            CREATE SCHEMA tools;
+            CREATE FUNCTION tools.helper(n int) RETURNS int LANGUAGE sql AS 'SELECT n FROM pg_sleep(0)';
+            CREATE SEQUENCE public.counter;
             CREATE VIEW public.sleepy_view AS SELECT 1 AS n FROM pg_sleep(0);
             CREATE VIEW public.inner_names AS SELECT name FROM items;
             CREATE VIEW public.outer_names AS SELECT name FROM public.inner_names;
@@ -1269,6 +1273,8 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await owner.query(`GRANT SELECT ON item_names TO "${writer}"`)
         // This login could write, so only the read-only checks stand between a query and the table.
         await owner.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON items TO "${writer}"`)
+        await owner.query(`GRANT USAGE ON SCHEMA tools TO "${writer}"; GRANT USAGE ON SEQUENCE public.counter TO "${writer}"`)
+        await owner.query(`ALTER ROLE "${writer}" IN DATABASE "${dbName}" SET search_path = tools, public`)
         url = urlFor(writer, password, dbName)
     })
 
@@ -1389,6 +1395,43 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         )
         const plain = await queryAnalystUrl(url, 'SELECT count(*)::int AS c FROM swap_view LIMIT 1', { readOnlySql: true })
         assert.equal(plain.rows[0].c, 30)
+    })
+
+    it('resolves each call through the catalog however it is named', async (t) => {
+        if (skipped(t)) return
+        const only = { readOnlySql: true }
+        // Schema-qualified, quoted, and found only through the login's search_path.
+        await refusal(queryAnalystUrl(url, 'SELECT public.pause(0) LIMIT 1', only), /function public\.pause is not built in/)
+        await refusal(queryAnalystUrl(url, 'SELECT "public"."Pause"(0) LIMIT 1', only), /function public\.Pause is not built in/)
+        await refusal(queryAnalystUrl(url, 'SELECT "Pause"(0) LIMIT 1', only), /function public\.Pause is not built in/)
+        await refusal(queryAnalystUrl(url, 'SELECT helper(1) LIMIT 1', only), /function tools\.helper is not built in/)
+        // Behind an operator.
+        await refusal(queryAnalystUrl(url, 'SELECT 1 OPERATOR(public.===) 1 AS v LIMIT 1', only), /operator public\.=== is not built in/)
+        // pg_sleep, by the text check and, hidden in a view, by the catalog.
+        await refusal(queryAnalystUrl(url, 'SELECT "pg_sleep"(0) LIMIT 1', only), /pg_sleep is not allowed/)
+        await refusal(queryAnalystUrl(url, 'SELECT n FROM sleepy_view LIMIT 1', only), /pg_sleep is not allowed/)
+        // A volatile built-in with a side effect is refused; one that only returns a value runs.
+        await refusal(queryAnalystUrl(url, "SELECT nextval('public.counter') LIMIT 1", only), /nextval is not allowed/)
+        const fine = await queryAnalystUrl(url, "SELECT random() < 2 AS ok, lower('A') AS l LIMIT 1", only)
+        assert.deepEqual(fine.rows, [{ ok: true, l: 'a' }])
+        const seq = await owner.query('SELECT last_value::int AS v, is_called FROM public.counter')
+        assert.equal(seq.rows[0].is_called, false)
+    })
+
+    it('refuses a query when a function, operator or cast was created between the check and the query', async (t) => {
+        if (skipped(t)) return
+        setCheckGapHookForTests(() =>
+            owner.query('CREATE FUNCTION public.lower(varchar) RETURNS text LANGUAGE sql AS $f$SELECT $1::text$f$')
+        )
+        try {
+            await refusal(
+                queryAnalystUrl(url, "SELECT lower('A'::varchar) AS l LIMIT 1", { readOnlySql: true }),
+                /changed while it was being checked/
+            )
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('DROP FUNCTION IF EXISTS public.lower(varchar)')
+        }
     })
 
     it('refuses a ticked view that calls pg_sleep, which the text check cannot see', async (t) => {

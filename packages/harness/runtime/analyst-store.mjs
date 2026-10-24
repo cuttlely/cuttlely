@@ -34,6 +34,7 @@ import {
     checkStatementRoutines,
     checkStatementScope,
     refuseRiskyTypes,
+    routineCatalogStamp,
     sameRelationBodies,
     missingRelationHint,
     missingRelationName,
@@ -1819,6 +1820,13 @@ async function queryUrlPostgres(
         await client.query(`SET LOCAL statement_timeout = ${ms}`)
         // The text check reads '...' as standard SQL strings, so Postgres must too.
         await client.query('SET LOCAL standard_conforming_strings = on')
+        // The node puts pg_catalog first in the search path for the check and the query alike, so a bare name finds
+        // the built-in before anything with the same name elsewhere.
+        if (readOnlySql) {
+            await client.query(
+                "SELECT set_config('search_path', CASE WHEN current_setting('search_path') = '' THEN 'pg_catalog' ELSE 'pg_catalog, ' || current_setting('search_path') END, true)"
+            )
+        }
     }
     const hinted = async (error) => {
         const missing = missingRelationName(error)
@@ -1949,6 +1957,7 @@ async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBa
         }
     }
     if (!(await sameRelationBodies(runner, checked.bodies))) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
+    if ((await routineCatalogStamp(runner)) !== checked.stamp) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
 }
 
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
