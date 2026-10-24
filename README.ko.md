@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.4.2가 나왔습니다.** 플로우 실행의 LangSmith 트레이스가 플로우에 설정한 LangSmith 프로젝트와 자격 증명으로 전송되고, 하네스 도구 실행 중 프로세스 내에서 이루어지는 모델 호출이 그 실행의 하위 런으로 표시됩니다. [변경 기록](./CHANGELOG.md#142---2026-10-23)
+**1.4.3가 나왔습니다.** 테이블을 선택한 경우, 사용자 SQL 함수는 본문이 `BEGIN ATOMIC`이고 릴레이션을 참조하지 않을 때만 그대로 실행됩니다. PL/pgSQL과 문자열 본문의 SQL은 PostgreSQL MCP 노드의 **Allowed functions**에 `schema.fn(argtypes)` 또는 `schema.fn(*)`를 한 줄에 하나씩 적어야 합니다. `regconfig`와 `regdictionary`는 허용됩니다. 시작할 때 이전 컴파일러로 만든 하네스 프로필을 다시 컴파일하며, 그동안 하네스 게이트웨이 헬스 체크는 503을 반환합니다. 채팅 답변은 단어 사이의 슬래시를 유지하고 서버 경로는 계속 숨깁니다. [변경 기록](./CHANGELOG.md#143---2026-10-24)
 
 ## 목차
 

@@ -31,7 +31,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.4.2 を公開しました。** フロー実行の LangSmith トレースがフローに設定した LangSmith のプロジェクトと認証情報に届くようになり、ハーネスのツール実行中にプロセス内で行われるモデル呼び出しがその実行の子ランとして表示されます。[変更履歴](./CHANGELOG.md#142---2026-10-23)
+**1.4.3 を公開しました。** テーブルを選んでいるとき、ユーザー定義の SQL 関数がそのまま実行されるのは、本体が `BEGIN ATOMIC` でリレーションを参照しない場合だけです。PL/pgSQL と文字列本体の SQL は、PostgreSQL MCP ノードの **Allowed functions** に `schema.fn(argtypes)` または `schema.fn(*)` を 1 行ずつ書く必要があります。`regconfig` と `regdictionary` は使えます。起動時に、古いコンパイラで作られたハーネスのプロファイルは作り直され、その間ハーネスゲートウェイのヘルスチェックは 503 を返します。チャットの回答は単語の間のスラッシュを残し、サーバー上のパスは隠したままです。[変更履歴](./CHANGELOG.md#143---2026-10-24)
 
 ## 目次
 
