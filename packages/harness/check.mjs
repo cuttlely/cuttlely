@@ -50,6 +50,7 @@ const {
     recompileOutdatedProfiles,
     setAsideOutdatedConfigs,
     profileWriteTest,
+    QUARANTINE_SUFFIX_CAP,
     profileOutdated,
     hermesToolsetsFor,
     mcpValidatorPath,
@@ -7851,6 +7852,135 @@ await expectCase('a profile link in a 0555 directory stays failed and off the lo
             logs.some((line) => line.includes(link)),
         JSON.stringify({ stillLink, quarantined, targetSame, loadable, results, logs, outsideNames })
     )
+})
+
+await expectCase('a file created at the quarantine destination during the move keeps its bytes', async () => {
+    const previous = process.env.CUTTLELY_HERMES_HOME
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'maqwin-'))
+    const root = path.join(home, 'profiles')
+    fs.mkdirSync(root)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'maqwin-target-'))
+    const targetBytes = Buffer.from('target-bytes-stay\n')
+    fs.writeFileSync(path.join(outside, 'config.yaml'), targetBytes)
+    fs.writeFileSync(path.join(outside, 'harness-roster.json'), '{"name":"racer"}\n')
+    const link = path.join(root, 'racer')
+    fs.symlinkSync(outside, link)
+    const planted = Buffer.from('planted-during-the-move\0do-not-touch')
+    let plantedStat = null
+    profileWriteTest.beforeQuarantineClaim = (_linkPath, dest) => {
+        if (plantedStat || path.basename(dest) !== 'racer.quarantine') return
+        fs.writeFileSync(dest, planted)
+        plantedStat = fs.lstatSync(dest)
+    }
+    process.env.CUTTLELY_HERMES_HOME = home
+    const logs = []
+    const errorLog = console.error
+    console.error = (...args) => {
+        logs.push(args.map(String).join(' '))
+    }
+    let loadable = []
+    try {
+        loadable = setAsideOutdatedConfigs()
+    } finally {
+        profileWriteTest.beforeQuarantineClaim = null
+        console.error = errorLog
+        process.env.CUTTLELY_HERMES_HOME = previous
+    }
+    const occupied = path.join(root, 'racer.quarantine')
+    const moved = path.join(root, 'racer.quarantine-1')
+    const occupiedNow = fs.lstatSync(occupied)
+    const occupiedBytes = fs.readFileSync(occupied)
+    check(
+        'a file created at the quarantine destination during the move keeps its bytes',
+        Boolean(plantedStat) &&
+            occupiedBytes.equals(planted) &&
+            occupiedNow.size === planted.length &&
+            occupiedNow.mtimeMs === plantedStat.mtimeMs &&
+            occupiedNow.ino === plantedStat.ino &&
+            !occupiedNow.isSymbolicLink() &&
+            fs.lstatSync(moved).isSymbolicLink() &&
+            fs.readlinkSync(moved) === outside &&
+            !fs.lstatSync(link, { throwIfNoEntry: false }) &&
+            loadable.length === 0 &&
+            fs.readFileSync(path.join(outside, 'config.yaml')).equals(targetBytes) &&
+            !logs.some((line) => line.includes('profile link could not be quarantined')),
+        JSON.stringify({
+            planted: Boolean(plantedStat),
+            occupiedBytes: occupiedBytes.toString('utf8'),
+            moved: fs.lstatSync(moved, { throwIfNoEntry: false })?.isSymbolicLink() === true,
+            linkGone: !fs.lstatSync(link, { throwIfNoEntry: false }),
+            loadable,
+            logs
+        })
+    )
+    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+})
+
+await expectCase('a quarantine move stops when every suffix is taken and leaves those bytes unchanged', async () => {
+    const previous = process.env.CUTTLELY_HERMES_HOME
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'maqfull-'))
+    const root = path.join(home, 'profiles')
+    fs.mkdirSync(root)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'maqfull-target-'))
+    const targetBytes = Buffer.from('full-target-bytes\n')
+    fs.writeFileSync(path.join(outside, 'config.yaml'), targetBytes)
+    fs.writeFileSync(path.join(outside, 'harness-roster.json'), '{"name":"full"}\n')
+    const link = path.join(root, 'full')
+    fs.symlinkSync(outside, link)
+    const payloads = []
+    for (let n = 0; n < QUARANTINE_SUFFIX_CAP; n += 1) {
+        const bytes = Buffer.from(`suffix-${n}-\0keep-these-bytes`)
+        payloads.push(bytes)
+        const name = n === 0 ? 'full.quarantine' : `full.quarantine-${n}`
+        fs.writeFileSync(path.join(root, name), bytes)
+    }
+    const namesBefore = fs.readdirSync(root).sort()
+    process.env.CUTTLELY_HERMES_HOME = home
+    const logs = []
+    const errorLog = console.error
+    console.error = (...args) => {
+        logs.push(args.map(String).join(' '))
+    }
+    let loadable = []
+    let second = []
+    try {
+        loadable = setAsideOutdatedConfigs()
+        second = setAsideOutdatedConfigs()
+    } finally {
+        console.error = errorLog
+        process.env.CUTTLELY_HERMES_HOME = previous
+    }
+    let bytesSame = payloads.length === QUARANTINE_SUFFIX_CAP
+    for (let n = 0; n < payloads.length; n += 1) {
+        const name = n === 0 ? 'full.quarantine' : `full.quarantine-${n}`
+        const got = fs.readFileSync(path.join(root, name))
+        if (!got.equals(payloads[n])) bytesSame = false
+    }
+    const failureLines = logs.filter((line) => line.includes('profile link could not be quarantined'))
+    check(
+        'a quarantine move stops when every suffix is taken and leaves those bytes unchanged',
+        QUARANTINE_SUFFIX_CAP === 1000 &&
+            bytesSame &&
+            fs.readdirSync(root).sort().join('\n') === namesBefore.join('\n') &&
+            fs.lstatSync(link).isSymbolicLink() &&
+            fs.readlinkSync(link) === outside &&
+            fs.readFileSync(path.join(outside, 'config.yaml')).equals(targetBytes) &&
+            loadable.some((dir) => dir.endsWith(`${path.sep}full`)) &&
+            second.some((dir) => dir.endsWith(`${path.sep}full`)) &&
+            failureLines.length === 1 &&
+            failureLines[0].includes(link),
+        JSON.stringify({
+            cap: QUARANTINE_SUFFIX_CAP,
+            bytesSame,
+            stillLink: fs.lstatSync(link).isSymbolicLink(),
+            namesSame: fs.readdirSync(root).sort().join('\n') === namesBefore.join('\n'),
+            loadable,
+            failureLines
+        })
+    )
+    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
 })
 
 await expectCase('warm-up does not hold the profile lock while Hermes health waits', async () => {

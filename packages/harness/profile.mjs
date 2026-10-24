@@ -208,27 +208,39 @@ function throwLink(where) {
     throw new HarnessError('profile_link', `profile path is a link: ${where}`)
 }
 
-// A quarantined link keeps a sibling name an operator can rename back. The dot keeps it out of the runtime's profile ids.
+// A quarantined link keeps a sibling name an operator can put back. The dot keeps it out of the runtime's profile ids.
 function isQuarantineName(name) {
     return name.endsWith('.quarantine') || /\.quarantine-\d+$/.test(name)
 }
 
-function quarantineDest(linkPath) {
-    const dir = path.dirname(linkPath)
-    const base = path.basename(linkPath)
-    for (let n = 0; n < 1000; n += 1) {
-        const dest = path.join(dir, n === 0 ? `${base}.quarantine` : `${base}.quarantine-${n}`)
-        try {
-            fs.lstatSync(dest)
-        } catch (error) {
-            if (error?.code === 'ENOENT') return dest
-            throw error
-        }
-    }
-    return path.join(dir, `${base}.quarantine-${Date.now()}`)
+// How many sibling names are tried. There is no further fallback after this.
+export const QUARANTINE_SUFFIX_CAP = 1000
+
+// Tests replace a directory with a link after its fd is open and before the file is created,
+// or create a file at a quarantine destination after that name is chosen.
+export const profileWriteTest = {
+    beforeFinalOpen: null,
+    // Runs after a quarantine destination is chosen and before the exclusive claim, so a test can
+    // create a file in that gap. Production leaves this null.
+    beforeQuarantineClaim: null
 }
 
-// Renames the symlink itself to a sibling. The target is left where it is. False when the link is still there.
+const quarantineFailureLogged = new Set()
+
+function logQuarantineFailure(linkPath) {
+    if (quarantineFailureLogged.has(linkPath)) return
+    quarantineFailureLogged.add(linkPath)
+    console.error(`[harness] profile link could not be quarantined: ${linkPath}`)
+}
+
+function quarantineSuffixName(base, n) {
+    return n === 0 ? `${base}.quarantine` : `${base}.quarantine-${n}`
+}
+
+// Moves the symlink's directory entry to a sibling. link(2) names the symlink itself and fails with
+// EEXIST instead of replacing a file that appears at that name; the next suffix is tried. The
+// target is not opened. After QUARANTINE_SUFFIX_CAP failures the link stays where it is.
+// False when the link is still there.
 function quarantineSymlink(linkPath) {
     let st
     try {
@@ -237,16 +249,52 @@ function quarantineSymlink(linkPath) {
         return false
     }
     if (!st.isSymbolicLink()) return false
-    let dest
-    try {
-        dest = quarantineDest(linkPath)
-        fs.renameSync(linkPath, dest)
-    } catch {
-        console.error(`[harness] profile link could not be quarantined: ${linkPath}`)
-        return false
+    const dir = path.dirname(linkPath)
+    const base = path.basename(linkPath)
+    for (let n = 0; n < QUARANTINE_SUFFIX_CAP; n += 1) {
+        const dest = path.join(dir, quarantineSuffixName(base, n))
+        if (typeof profileWriteTest.beforeQuarantineClaim === 'function') {
+            profileWriteTest.beforeQuarantineClaim(linkPath, dest)
+        }
+        try {
+            // Linux link(2) does not follow the symlink, and it does not replace an existing name.
+            fs.linkSync(linkPath, dest)
+        } catch (error) {
+            if (error?.code === 'EEXIST') continue
+            logQuarantineFailure(linkPath)
+            return false
+        }
+        let claimed
+        try {
+            claimed = fs.lstatSync(dest)
+        } catch {
+            logQuarantineFailure(linkPath)
+            return false
+        }
+        if (!claimed.isSymbolicLink()) {
+            // The claim followed the symlink and named its target. Drop that extra name only when
+            // it is the same file, so the target's bytes stay as they were.
+            try {
+                if (fs.lstatSync(linkPath).ino === claimed.ino) fs.unlinkSync(dest)
+            } catch {
+                // The source is still on the load path.
+            }
+            logQuarantineFailure(linkPath)
+            return false
+        }
+        try {
+            fs.unlinkSync(linkPath)
+        } catch (error) {
+            if (error?.code !== 'ENOENT') {
+                logQuarantineFailure(linkPath)
+                return false
+            }
+        }
+        console.warn(`[harness] quarantined profile link ${linkPath} as ${dest}`)
+        return true
     }
-    console.warn(`[harness] quarantined profile link ${linkPath} as ${dest}`)
-    return true
+    logQuarantineFailure(linkPath)
+    return false
 }
 
 function rootFor(file) {
@@ -315,11 +363,6 @@ function assertContained(file) {
 
 const NOFOLLOW = fs.constants.O_NOFOLLOW || 0
 const DIR_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | NOFOLLOW
-
-// Tests replace a directory with a link after its fd is open and before the file is created.
-export const profileWriteTest = {
-    beforeFinalOpen: null
-}
 
 function fdPath(dirFd, name) {
     if (process.platform === 'linux') return `/proc/self/fd/${dirFd}/${name}`
@@ -1257,8 +1300,9 @@ export function setAsideOutdatedConfigs() {
             owned = true
         }
         if (!owned) continue
-        // A linked profile folder is renamed off the load path. The target is not changed. A link that cannot
-        // be renamed stays failed: it is returned so the caller does not treat it as ready to load.
+        // A linked profile folder is moved off the load path. The target is not changed, and a file already
+        // at the destination is not replaced. A link that cannot be moved stays failed: it is returned so
+        // the caller does not treat it as ready to load.
         if (linked) {
             if (!quarantineSymlink(dir)) loadable.push(dir)
             continue

@@ -168,11 +168,29 @@ describe('harness runtime start', () => {
     })
 
     test('an unreadable record is reported and the other records still run', async () => {
+        resetHarnessRuntimeForTests()
         unreadable = 'navi'
-        expect(await recompileOutdatedHarnessProfiles()).toEqual([
-            { name: 'navi', status: 'failed', error: 'Unexpected end of JSON input' },
-            { name: 'ops', status: 'recompiled' }
-        ])
+        const lines: string[] = []
+        const errorSpy = jest.spyOn(logger, 'error').mockImplementation((message) => {
+            lines.push(`error ${String(message)}`)
+            return logger
+        })
+        const warnSpy = jest.spyOn(logger, 'warn').mockImplementation((message) => {
+            lines.push(`warn ${String(message)}`)
+            return logger
+        })
+        try {
+            expect(await recompileOutdatedHarnessProfiles()).toEqual([
+                { name: 'navi', status: 'failed', error: 'Unexpected end of JSON input' },
+                { name: 'ops', status: 'recompiled' }
+            ])
+            expect(lines.filter((line) => line.includes('navi'))).toEqual([
+                'error [harness] navi harness unavailable: Unexpected end of JSON input'
+            ])
+        } finally {
+            errorSpy.mockRestore()
+            warnSpy.mockRestore()
+        }
     })
 
     test('health stays held until the last record is compiled, and answers between records', async () => {

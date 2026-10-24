@@ -479,8 +479,7 @@ export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: 
                     try {
                         record = store.getHarness(name)
                     } catch (error) {
-                        // One unreadable record is reported; the others still run.
-                        logger.warn(`[harness] ${name} profile was not recompiled: ${getErrorMessage(error)}`)
+                        // One unreadable record is reported once, by markBootFailed. The others still run.
                         return [{ name, status: 'failed', error: getErrorMessage(error) }]
                     }
                     return record ? profile.recompileOutdatedProfiles([record], { log: logger }) : []

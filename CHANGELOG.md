@@ -8,7 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   1.4.3 compiles harness profiles from an older compiler again at startup, before the agent runtime reads them. `GET /api/v1/ping` answers 503 `boot recompile` while that pass is the startup gate, then 200. A profile that cannot be read or set aside is logged once and taken off the path the runtime loads. A link is renamed aside, and the target is left in place; a link that cannot be renamed is logged and that profile stays failed. Warm-up holds the profile lock only while it compiles, then waits for the runtime. The rest of the service still comes up. The start script waits at most 300 seconds.
+-   1.4.3 compiles harness profiles from an older compiler again at startup, before the agent runtime reads them. `GET /api/v1/ping` answers 503 `boot recompile` while that pass is the startup gate, then 200. A profile that cannot be read or set aside is logged once and taken off the path the runtime loads. A link is moved aside to a sibling `.quarantine` name, and the target is left in place. A file already at that name is left unchanged. If every suffix is taken, or the move fails, that path is logged once and the profile stays failed. Warm-up holds the profile lock only while it compiles, then waits for the runtime. The rest of the service still comes up. The start script waits at most 300 seconds.
 
 ## [1.4.2] - 2026-10-23
 
