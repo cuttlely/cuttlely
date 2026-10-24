@@ -3,7 +3,7 @@ import { AsyncLocalStorageProviderSingleton } from '@langchain/core/singletons'
 import { Client } from 'langsmith'
 import { additionalCallbacks } from './handler'
 import * as utils from './utils'
-import { createHash } from 'crypto'
+import { pbkdf2Sync } from 'crypto'
 import { describeLangSmithCredential, keepConfiguredLangSmithTarget, langSmithFailureLoggingFetch } from './langsmithCredentialDiagnostics'
 
 describe('describeLangSmithCredential', () => {
@@ -23,7 +23,7 @@ describe('describeLangSmithCredential', () => {
             fieldNames: ['langSmithApiKey', 'langSmithEndpoint'],
             apiKeyPrefix: 'lsv2_',
             apiKeyLength: key.length,
-            apiKeySha256: createHash('sha256').update(key).digest('hex').slice(0, 12),
+            apiKeyFingerprint: pbkdf2Sync(key, 'cuttlely-langsmith-fingerprint', 2000, 6, 'sha256').toString('hex'),
             endpoint: 'https://api.smith.langchain.com',
             project: 'proj'
         })
@@ -35,7 +35,7 @@ describe('describeLangSmithCredential', () => {
         expect(shape.credentialDataEmpty).toBe(true)
         expect(shape.apiKeyLength).toBe(0)
         expect(shape.apiKeyPrefix).toBe('')
-        expect(shape.apiKeySha256).toBe('')
+        expect(shape.apiKeyFingerprint).toBe('')
         expect(shape.endpoint).toBe('(default)')
         expect(shape.project).toBe('(default)')
     })

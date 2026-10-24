@@ -1,8 +1,9 @@
-import { createHash } from 'crypto'
+import { pbkdf2Sync } from 'crypto'
 
 /**
  * Safe description of the LangSmith credential a tracer is built with.
- * Never contains the API key itself: only a short prefix, the length and a short sha256 hash.
+ * Never contains the API key itself: only a short prefix, the length and a short fingerprint
+ * (PBKDF2-SHA256 with the fixed salt below, so the same key can be compared from another machine).
  */
 export interface LangSmithCredentialShape {
     credentialId: string
@@ -10,12 +11,17 @@ export interface LangSmithCredentialShape {
     fieldNames: string[]
     apiKeyPrefix: string
     apiKeyLength: number
-    apiKeySha256: string
+    apiKeyFingerprint: string
     endpoint: string
     project: string
 }
 
 const PREFIX_LENGTH = 5
+export const FINGERPRINT_SALT = 'cuttlely-langsmith-fingerprint'
+export const FINGERPRINT_ITERATIONS = 2000
+
+export const apiKeyFingerprint = (key: string): string =>
+    key ? pbkdf2Sync(key, FINGERPRINT_SALT, FINGERPRINT_ITERATIONS, 6, 'sha256').toString('hex') : ''
 
 export const describeLangSmithCredential = (
     credentialId: string | undefined,
@@ -32,7 +38,7 @@ export const describeLangSmithCredential = (
         fieldNames: Object.keys(data).sort(),
         apiKeyPrefix: key.slice(0, Math.min(PREFIX_LENGTH, Math.floor(key.length / 4))),
         apiKeyLength: key.length,
-        apiKeySha256: key ? createHash('sha256').update(key).digest('hex').slice(0, 12) : '',
+        apiKeyFingerprint: apiKeyFingerprint(key),
         endpoint: typeof endpoint === 'string' && endpoint ? endpoint : '(default)',
         project: typeof project === 'string' && project ? project : '(default)'
     }
@@ -54,7 +60,7 @@ export const keepConfiguredLangSmithTarget = (
 
 /**
  * fetch wrapper for the LangSmith client that reports failed uploads with the flow id and the credential shape
- * (id, field names, key prefix, length and hash, endpoint, project). The key and the bodies are not logged.
+ * (id, field names, key prefix, length and fingerprint, endpoint, project). The key and the bodies are not logged.
  */
 export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: LangSmithCredentialShape }): typeof fetch => {
     return (async (input: any, init?: any) => {
