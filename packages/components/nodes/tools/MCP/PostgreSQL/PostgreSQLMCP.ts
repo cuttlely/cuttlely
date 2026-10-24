@@ -37,7 +37,7 @@ type AnalystStoreModule = {
         postgresUrl: string,
         input: Record<string, unknown>,
         names: string[],
-        options?: { timeoutMs?: number }
+        options?: { timeoutMs?: number; readOnlySql?: boolean }
     ) => Promise<unknown>
 }
 
@@ -423,7 +423,10 @@ class PostgreSQL_MCP implements INode {
             async (input: { name?: string }): Promise<string> => {
                 try {
                     return JSON.stringify(
-                        await store.describeAnalystUrlRelation(postgresUrl, input || {}, relations, { timeoutMs: limits.timeoutMs })
+                        await store.describeAnalystUrlRelation(postgresUrl, input || {}, relations, {
+                            timeoutMs: limits.timeoutMs,
+                            readOnlySql: true
+                        })
                     )
                 } catch (error) {
                     return toolError(error)

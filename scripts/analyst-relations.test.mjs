@@ -1561,6 +1561,37 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         await refusal(queryAnalystUrl(url, 'SELECT n FROM sleepy_view LIMIT 1', { readOnlySql: true }), /pg_sleep is not allowed/)
     })
 
+    it('on the node, describe samples only through the query checks', async (t) => {
+        if (skipped(t)) return
+        await owner.query(
+            `CREATE VIEW public.talky_view AS SELECT pg_sleep(0)::text || 'x' AS t; GRANT SELECT ON public.talky_view TO "${writer}"`
+        )
+        try {
+            const view = await describeAnalystUrlRelation(url, { name: 'talky_view' }, ['public.talky_view'], { readOnlySql: true })
+            assert.equal(view.name, 'public.talky_view')
+            assert.equal(view.values, undefined)
+        } finally {
+            await owner.query('DROP VIEW public.talky_view')
+        }
+    })
+
+    it('refuses a query when a domain gains a risky CHECK between the check and the query', async (t) => {
+        if (skipped(t)) return
+        await owner.query('CREATE DOMAIN public.later_ref AS int')
+        setCheckGapHookForTests(() =>
+            owner.query(`ALTER DOMAIN public.later_ref ADD CONSTRAINT later_check CHECK (VALUE < nextval('public.counter'))`)
+        )
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }),
+                /domains whose CHECK could run other code.*later_ref/
+            )
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('DROP DOMAIN public.later_ref')
+        }
+    })
+
     it('refuses a query whose view definition changed between the check and the query', async (t) => {
         if (skipped(t)) return
         const replaceInner = (body) => owner.query(`CREATE OR REPLACE VIEW public.inner_names AS ${body}`)

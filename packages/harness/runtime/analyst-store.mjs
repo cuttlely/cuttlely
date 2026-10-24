@@ -34,6 +34,7 @@ import {
     checkStatementRoutines,
     checkStatementScope,
     refuseRiskyTypes,
+    refuseRiskyDomains,
     routineCatalogStamp,
     sameRelationBodies,
     missingRelationHint,
@@ -1902,13 +1903,19 @@ async function queryUrlPostgres(
             const queryBackend = await backend()
             if (scoped) await keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend)
             if (checked) await keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend)
+            const pageCursor = replay?.paging?.cursor
+            const cursorBefore = pageCursor ? pageCursors.get(pageCursor) : undefined
             const result = replay?.plan
                 ? await readSelectPage(runner, replay.plan, replay.paging)
                 : await runPostgresStatement(client, statement, replay?.paging, runner)
             // An overload or schema created after the last comparison could have changed what a name reached while
-            // the statement was parsed. Its rows are not returned; the transaction is read only and rolls back.
-            if (checked && (await routineCatalogStamp(runner)) !== checked.stamp)
+            // the statement was parsed. Its rows are not returned, the cursor stays where it was, and the transaction
+            // is read only and rolls back.
+            const unchanged = !checked || (await routineCatalogStamp(runner).catch(() => null)) === checked.stamp
+            if (!unchanged) {
+                if (pageCursor && cursorBefore) pageCursors.set(pageCursor, cursorBefore)
                 throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
+            }
             return result
         } catch (error) {
             throw await hinted(error)
@@ -1988,6 +1995,7 @@ async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBa
     // The database-wide scan runs again, uncached, so a type, operator class, text search callback or foreign
     // partition added since the check is refused before the statement is planned.
     await refuseRiskyTypes(runner)
+    await refuseRiskyDomains(runner)
     if (!(await sameRelationBodies(runner, checked.bodies))) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
     if ((await routineCatalogStamp(runner)) !== checked.stamp) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
 }
@@ -2054,10 +2062,21 @@ export async function describeAnalystUrlRelation(postgresUrl, input, names, opti
             if (!relation)
                 throw new AnalystToolError(relations.length ? describeRefusal(relations, requested) : SCOPE_NONE_LEFT, 'expected')
             const body = await describeRelation(runner, relation, relations)
-            const values = await sampleRelationValues(client, runner, relation, relations, {
-                isRowQuery,
-                cacheKey: urlStoreKey(postgresUrl)
-            })
+            // The PostgreSQL MCP node's samples pass the same checks its queries do, fresh, with no cache: inside ticked
+            // views with the node denylist, and not at all on a database the node refuses.
+            const sampleable =
+                !options.readOnlySql ||
+                (await refuseRiskyTypes(runner).then(
+                    () => true,
+                    () => false
+                ))
+            const values = sampleable
+                ? await sampleRelationValues(client, runner, relation, relations, {
+                      isRowQuery,
+                      cacheKey: options.readOnlySql ? '' : urlStoreKey(postgresUrl),
+                      followViews: Boolean(options.readOnlySql)
+                  })
+                : null
             if (values) body.values = values
             return body
         },

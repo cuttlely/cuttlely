@@ -396,14 +396,14 @@ async function inSavepoint(client, name, fn) {
 // check on its own statement (D87, D88). A column whose statement does not pass is not sampled. Call this last in
 // a read-write transaction: the checks need a temporary view, then the transaction turns read only for the samples
 // and keeps the shorter timeout.
-export async function sampleRelationValues(client, runner, relation, relations, { isRowQuery, cacheKey = '' }) {
+export async function sampleRelationValues(client, runner, relation, relations, { isRowQuery, cacheKey = '', followViews = false }) {
     if (!SAMPLED_KINDS.has(relation.kind) || !relations.length) return null
     const candidates = (await runner.all(COLUMNS_SQL, [relation.oid])).filter((column) => column.textual).slice(0, SAMPLE_COLUMNS)
     const checked = []
     for (const column of candidates) {
         const statement = sampleStatement(relation, column)
         const check = await inSavepoint(client, 'cuttlely_sample_check', () =>
-            checkStatementScope(client, runner, statement, relations, isRowQuery, cacheKey)
+            checkStatementScope(client, runner, statement, relations, isRowQuery, cacheKey, { followViews })
         )
         if (check.ok) checked.push({ column, statement })
     }
@@ -899,6 +899,13 @@ export function resetRiskyDomainCacheForTests() {
 // operator too, or uses an object-identifier type or a type with input or output outside pg_catalog. Any one of
 // them could run while the statement is parsed. The answer depends only on the catalog, so every statement in the
 // database gets the same answer in the same time. It is kept for a minute per database.
+// For the PostgreSQL MCP node's query transaction: a domain CHECK changed since the check is refused before the
+// statement is parsed again.
+export async function refuseRiskyDomains(runner) {
+    const risky = await riskyDomains(runner, '')
+    if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
+}
+
 async function riskyDomains(runner, cacheKey = '') {
     const now = Date.now()
     const cached = cacheKey ? riskyDomainCache.get(cacheKey) : null
