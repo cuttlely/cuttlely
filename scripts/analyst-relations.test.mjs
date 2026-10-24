@@ -1456,6 +1456,41 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
             setCheckGapHookForTests(null)
             await owner.query('ALTER OPERATOR tools.=== (int, int) SET SCHEMA public')
         }
+        // Renaming a schema can make a function visible under a search path entry, so schema names are in the digest.
+        await owner.query(`CREATE SCHEMA dormant; CREATE FUNCTION dormant.idle(int) RETURNS int LANGUAGE sql AS 'SELECT $1'`)
+        setCheckGapHookForTests(() => owner.query('ALTER SCHEMA dormant RENAME TO awake'))
+        try {
+            await refusal(queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }), /changed while it was being checked/)
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('DROP SCHEMA IF EXISTS dormant CASCADE; DROP SCHEMA IF EXISTS awake CASCADE')
+        }
+    })
+
+    it('checks TABLESAMPLE methods and refuses foreign tables', async (t) => {
+        if (skipped(t)) return
+        // A sampling method's handler is checked like any function; the built-in ones are volatile and refused.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM items TABLESAMPLE system(100) LIMIT 1', { readOnlySql: true }),
+            /system is not allowed/
+        )
+        await owner.query('CREATE EXTENSION IF NOT EXISTS tsm_system_rows SCHEMA public')
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT * FROM items TABLESAMPLE public.system_rows(1) LIMIT 1', { readOnlySql: true }),
+                /system_rows is not built in/
+            )
+        } finally {
+            await owner.query('DROP EXTENSION tsm_system_rows')
+        }
+        await owner.query(`CREATE EXTENSION IF NOT EXISTS file_fdw; CREATE SERVER files FOREIGN DATA WRAPPER file_fdw;
+            CREATE FOREIGN TABLE public.outside (a text) SERVER files OPTIONS (filename '/dev/null');
+            GRANT SELECT ON public.outside TO PUBLIC`)
+        try {
+            await refusal(queryAnalystUrl(url, 'SELECT a FROM outside LIMIT 1', { readOnlySql: true }), /reads a foreign table/)
+        } finally {
+            await owner.query('DROP EXTENSION file_fdw CASCADE')
+        }
     })
 
     it('refuses a ticked view that calls pg_sleep, which the text check cannot see', async (t) => {
@@ -1542,7 +1577,7 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         try {
             await refusal(
                 queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }),
-                /types whose input runs code that is not built in.*cspan/
+                /types whose input runs code that is not built in.*cspan.*operator class public\.f8ops|operator class public\.f8ops.*cspan/
             )
         } finally {
             await owner.query(

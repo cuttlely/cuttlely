@@ -1892,8 +1892,14 @@ async function queryUrlPostgres(
             const queryBackend = await backend()
             if (scoped) await keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend)
             if (checked) await keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend)
-            if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
-            return await runPostgresStatement(client, statement, replay?.paging, runner)
+            const result = replay?.plan
+                ? await readSelectPage(runner, replay.plan, replay.paging)
+                : await runPostgresStatement(client, statement, replay?.paging, runner)
+            // An overload or schema created after the last comparison could have changed what a name reached while
+            // the statement was parsed. Its rows are not returned; the transaction is read only and rolls back.
+            if (checked && (await routineCatalogStamp(runner)) !== checked.stamp)
+                throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
+            return result
         } catch (error) {
             throw await hinted(error)
         }

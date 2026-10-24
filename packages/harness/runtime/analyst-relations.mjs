@@ -498,7 +498,7 @@ function leadingId(token) {
     return match[0]
 }
 
-const FUNCTION_FIELDS = new Set(['funcid', 'aggfnoid', 'winfnoid', 'opfuncid'])
+const FUNCTION_FIELDS = new Set(['funcid', 'aggfnoid', 'winfnoid', 'opfuncid', 'tsmhandler'])
 const OPERATOR_FIELDS = new Set(['opno', 'sortop', 'eqop'])
 
 // Object ids from a stored query tree. String values in the tree escape their spaces, so text in the statement
@@ -674,6 +674,9 @@ const RELATION_BODIES_SQL = `SELECT c.oid::int8 AS oid, c.relkind AS kind,
              FROM pg_policy p WHERE p.polrelid = c.oid) AS policies
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[])`
 
+export const FOREIGN_REFUSED =
+    'Cuttlely refused this query: it reads a foreign table, and what a foreign server runs cannot be checked. The PostgreSQL MCP node does not read foreign tables.'
+
 export const VIEW_UNRESOLVED =
     'Cuttlely refused this query: it reads a view whose definition could not be read from the catalog, so its functions could not be checked.'
 
@@ -693,6 +696,7 @@ async function followRelations(runner, ids) {
         const rows = await runner.all(RELATION_BODIES_SQL, [batch])
         if (rows.length !== batch.length) throw new ScopeRefusal(VIEW_UNRESOLVED)
         for (const row of rows) {
+            if (row.kind === 'f') throw new ScopeRefusal(FOREIGN_REFUSED)
             bodies.set(Number(row.oid), relationBody(row))
             const trees = [...(row.policies || [])]
             if (row.kind === 'v' || row.kind === 'm') {
@@ -720,9 +724,9 @@ const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])
 // A digest of every function, operator and cast outside pg_catalog. A new overload created between the check and
 // the query could change which function a name resolves to, so the query transaction compares it.
 const ROUTINE_STAMP_SQL = `SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) AS stamp FROM (
-    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text || ':' || p.pronargdefaults || ':' || coalesce(p.proargdefaults::text, '') || ':' || p.provariadic::oid || ':' || p.prokind::text FROM pg_proc p
+    SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || n.nspname || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text || ':' || p.pronargdefaults || ':' || coalesce(p.proargdefaults::text, '') || ':' || p.provariadic::oid || ':' || p.prokind::text FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname <> 'pg_catalog'
-    UNION ALL SELECT 'o' || o.oid || ':' || o.oprnamespace || ':' || o.oprname || ':' || o.oprleft || ':' || o.oprright || ':' || o.oprcode::oid FROM pg_operator o
+    UNION ALL SELECT 'o' || o.oid || ':' || o.oprnamespace || ':' || n.nspname || ':' || o.oprname || ':' || o.oprleft || ':' || o.oprright || ':' || o.oprcode::oid FROM pg_operator o
     JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE n.nspname <> 'pg_catalog'
     UNION ALL SELECT 'c' || c.oid || ':' || c.castsource || ':' || c.casttarget || ':' || c.castfunc || ':' || c.castcontext::text || ':' || c.castmethod::text FROM pg_cast c WHERE c.oid >= 16384
 ) s(x)`
@@ -747,6 +751,13 @@ LEFT JOIN pg_opclass oc ON oc.oid = r.rngsubopc
 LEFT JOIN pg_amproc ap ON ap.amprocfamily = oc.opcfamily
 JOIN pg_proc p ON p.oid IN (t.typinput, t.typreceive, t.typoutput, t.typsend, t.typmodin, t.typmodout, r.rngcanonical, r.rngsubdiff, ap.amproc)
 JOIN pg_namespace pn ON pn.oid = p.pronamespace
+WHERE pn.nspname <> 'pg_catalog'
+UNION
+SELECT 'operator class ' || quote_ident(fn.nspname) || '.' || quote_ident(f.opfname)
+FROM pg_opfamily f JOIN pg_namespace fn ON fn.oid = f.opfnamespace
+LEFT JOIN pg_amproc ap ON ap.amprocfamily = f.oid LEFT JOIN pg_amop ao ON ao.amopfamily = f.oid
+LEFT JOIN pg_operator o ON o.oid = ao.amopopr
+JOIN pg_proc p ON p.oid IN (ap.amproc, o.oprcode) JOIN pg_namespace pn ON pn.oid = p.pronamespace
 WHERE pn.nspname <> 'pg_catalog' ORDER BY 1`
 const riskyTypeCache = new Map()
 
