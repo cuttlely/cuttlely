@@ -15816,7 +15816,9 @@ await (async () => {
     })
     const old = Date.now() / 1000 - 3600
     const age = (dir) => {
-        for (const file of [dir, ...fs.readdirSync(dir).map((name) => path.join(dir, name))]) fs.utimesSync(file, old, old)
+        const stat = fs.lstatSync(dir)
+        if (stat.isDirectory()) for (const name of fs.readdirSync(dir)) age(path.join(dir, name))
+        if (!stat.isSymbolicLink()) fs.utimesSync(dir, old, old)
     }
     const saveJson = (name) => {
         fs.mkdirSync(harnessStoreDir(), { recursive: true })
@@ -15839,7 +15841,10 @@ await (async () => {
         fs.writeFileSync(path.join(dir, 'config.yaml'), 'agent:\n')
         fs.mkdirSync(path.join(workDir, entry), { recursive: true })
         fs.writeFileSync(path.join(workDir, entry, 'notes.txt'), 'x')
-        if (!fresh) age(dir)
+        if (!fresh) {
+            age(dir)
+            age(path.join(workDir, entry))
+        }
         return dir
     }
     const exists = (entry) => fs.existsSync(path.join(profilesDir, entry))
@@ -16022,17 +16027,94 @@ await (async () => {
     fs.rmSync(path.join(workDir, 'halfway--a'), { recursive: true, force: true })
     const trash = path.join(cleanupHome(), '.cuttlely-removing')
     fs.mkdirSync(path.join(trash, 'halfway--b-0011aabbccdd', 'sessions'), { recursive: true })
+    fs.writeFileSync(path.join(trash, 'halfway--b-0011aabbccdd', 'harness-parent'), 'halfway\n')
+    // Another harness's leftover and an unknown entry in the trash stay.
+    fs.mkdirSync(path.join(trash, 'other--b-0011aabbccdd'), { recursive: true })
+    fs.writeFileSync(path.join(trash, 'other--b-0011aabbccdd', 'harness-parent'), 'other\n')
+    fs.mkdirSync(path.join(trash, 'unknown-thing'), { recursive: true })
     const rerun = await cleanup.deleteHarnessAndProfiles('halfway')
     const again = await cleanup.deleteHarnessAndProfiles('halfway')
     check(
         'a rerun after a partial delete finishes and a second rerun is a no-op',
         !exists('halfway') &&
             !exists('halfway--a') &&
-            fs.readdirSync(trash).length === 0 &&
+            JSON.stringify(fs.readdirSync(trash).sort()) === JSON.stringify(['other--b-0011aabbccdd', 'unknown-thing']) &&
+            lines.some((line) => line.includes('removed .cuttlely-removing/halfway--b-0011aabbccdd of harness "halfway"')) &&
             JSON.stringify(rerun.removed) === JSON.stringify(['halfway--a', 'halfway']) &&
             again.removed.length === 0,
         JSON.stringify({ rerun, again })
     )
+    fs.rmSync(path.join(trash, 'other--b-0011aabbccdd'), { recursive: true, force: true })
+    fs.rmSync(path.join(trash, 'unknown-thing'), { recursive: true, force: true })
+
+    // A failed revocation keeps the trash leftovers of that harness too.
+    reset()
+    saveJson('parked')
+    home('parked')
+    dropJson('parked')
+    fs.mkdirSync(path.join(trash, 'parked--a-00112233aabb'), { recursive: true })
+    fs.writeFileSync(path.join(trash, 'parked--a-00112233aabb', 'harness-parent'), 'parked\n')
+    failRevoke = true
+    const keptParked = await cleanup.removeHarnessProfiles('parked')
+    check(
+        'a failed revocation removes no profile and no trash entry',
+        keptParked.removed.length === 0 && exists('parked') && fs.existsSync(path.join(trash, 'parked--a-00112233aabb')),
+        JSON.stringify({ keptParked, lines })
+    )
+    failRevoke = false
+    await cleanup.removeHarnessProfiles('parked')
+
+    // A trash directory that is a link is refused: the profile stays where it is, the link target is untouched.
+    reset()
+    fs.rmSync(trash, { recursive: true, force: true })
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-trash-'))
+    fs.symlinkSync(elsewhere, trash)
+    saveJson('viatrash')
+    home('viatrash')
+    dropJson('viatrash')
+    const viaTrash = await cleanup.removeHarnessProfiles('viatrash')
+    check(
+        'a symlinked trash directory is refused and nothing moves outside the runtime home',
+        exists('viatrash') && fs.readdirSync(elsewhere).length === 0 && viaTrash.removed.length === 0,
+        JSON.stringify({ viaTrash, lines, moved: fs.readdirSync(elsewhere) })
+    )
+    fs.rmSync(trash)
+    fs.rmSync(elsewhere, { recursive: true, force: true })
+    await cleanup.removeHarnessProfiles('viatrash')
+
+    // A recent edit deep inside an old profile or its workspace keeps it from the sweep; removals are logged one by one.
+    reset()
+    saveJson('nested')
+    home('nested')
+    child('nested--a', 'nested')
+    saveJson('nestwork')
+    home('nestwork')
+    child('nestwork--a', 'nestwork')
+    dropJson('nested')
+    dropJson('nestwork')
+    fs.writeFileSync(path.join(profilesDir, 'nested', 'sessions', 'recent.json'), '{}')
+    fs.utimesSync(path.join(profilesDir, 'nested', 'sessions'), old, old)
+    fs.writeFileSync(path.join(workDir, 'nestwork--a', 'notes.txt'), 'edited')
+    const nestedSweep = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    check(
+        'the sweep keeps profiles with recent nested changes, in the profile or its workspace',
+        exists('nested') &&
+            exists('nestwork--a') &&
+            nestedSweep.skipped.includes('nested') &&
+            nestedSweep.skipped.includes('nestwork--a') &&
+            nestedSweep.removed.includes('nestwork'),
+        JSON.stringify(nestedSweep)
+    )
+    reset()
+    await cleanup.removeHarnessProfiles('nestwork')
+    check(
+        'each removed workspace and profile is logged',
+        lines.some((line) => line.includes('removed workspaces/nestwork--a of harness "nestwork"')) &&
+            lines.some((line) => line.includes('removed profiles/nestwork--a of harness "nestwork"')),
+        JSON.stringify(lines)
+    )
+    await cleanup.removeHarnessProfiles('nested')
+
     for (const name of ['navi-harness', 'newname', 'capsx']) {
         dropJson(name)
         await cleanup.removeHarnessProfiles(name)

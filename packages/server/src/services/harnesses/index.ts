@@ -527,6 +527,8 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
     const commit = async () => {
         releaseAll()
         for (const name of staged) {
+            // Tokens first: when revocation fails the staged record stays and the startup settle retries.
+            if (!(await revokeRuntimeTokens(name))) continue
             fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
             await removeRuntimeProfiles(name)
             await harnessDeleteHooks
@@ -536,6 +538,18 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
         await purgeHarnessRuns(staged)
     }
     return { names: [...staged], restore, commit }
+}
+
+// Revokes the gateway tokens of a harness being deleted. false (logged) when that failed: nothing is removed then.
+async function revokeRuntimeTokens(name: string): Promise<boolean> {
+    try {
+        const cleanup = await loadHarness('cleanup.mjs')
+        cleanup.revokeHarness(name)
+        return true
+    } catch (error) {
+        logger.warn(`[harness] kept the staged record of deleted ${name}: revoking its gateway tokens failed: ${getErrorMessage(error)}`)
+        return false
+    }
 }
 
 // After the record file is gone: its runtime profile and specialist profiles. A failure is logged; the startup sweep
@@ -570,6 +584,7 @@ async function settleStagedDeletes() {
             putBack(file, path.join(dir, `${name}.json`))
             restored.push(name)
         } else if (canvas?.state === 'missing') {
+            if (!(await revokeRuntimeTokens(name))) continue
             fs.rmSync(file, { force: true })
             await removeRuntimeProfiles(name)
             await harnessDeleteHooks.removeSchedule(name).catch(() => undefined)

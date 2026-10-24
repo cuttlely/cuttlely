@@ -57,6 +57,9 @@ const fakeModules = (file: string) => {
                 cleaned.push(name)
                 fs.rmSync(fileOf(name), { force: true })
             },
+            revokeHarness: (name: string) => {
+                if (failCleanup) throw new Error(`revoke failed for ${name}`)
+            },
             removeHarnessProfiles: async (name: string) => {
                 cleaned.push(name)
                 return { removed: [], kept: [], error: null }
@@ -188,6 +191,15 @@ describe('canvas delete cascade', () => {
         expect(schedules.has('navi')).toBe(false)
         expect(runRows.some((row) => row.harness === 'navi')).toBe(false)
         expect(has('NAVI-B')).toBe(true)
+    })
+
+    it('keeps the staged record and every profile when revocation fails at commit', async () => {
+        const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)
+        failCleanup = true
+        await cascade.commit()
+        expect(fs.existsSync(path.join(storeDir, 'navi.json.deleting'))).toBe(true)
+        expect(cleaned).toEqual([])
+        expect(schedules.has('navi')).toBe(true)
     })
 
     it('restore puts the record back when the transaction fails, with its schedule and runs untouched', async () => {

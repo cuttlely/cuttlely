@@ -26,7 +26,6 @@ const ENTRY_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const TRY_HOME = /^try[a-f0-9]{8,32}$/i
 const TRYX_HOME = /^tryx[a-f0-9]{16}$/i
 const TRASH = '.cuttlely-removing'
-const MARKERS = ['harness-parent', 'harness-roster.json', 'harness-try', 'config.yaml', '.env', 'SOUL.md']
 
 // Tests replace these. revoke must throw to stop a removal; close is best effort.
 export const cleanupHooks = {
@@ -109,24 +108,57 @@ function removeProfileEntry(entry) {
         fs.unlinkSync(target)
         return true
     }
-    fs.mkdirSync(trashRoot(), { recursive: true })
+    const trash = checkedTrashRoot(true)
+    if (!trash) {
+        cleanupHooks.log(`[harness] kept profiles/${entry}: ${TRASH} is not a plain directory inside the runtime home`)
+        return false
+    }
     const parked = `${entry}-${crypto.randomBytes(6).toString('hex')}`
-    if (path.dirname(path.join(trashRoot(), parked)) !== trashRoot()) return false
-    fs.renameSync(target, path.join(trashRoot(), parked))
-    removeEntry(trashRoot(), parked)
+    if (path.dirname(path.join(trash, parked)) !== trash) return false
+    fs.renameSync(target, path.join(trash, parked))
+    if (removeEntry(trash, parked)) cleanupHooks.log(`[harness] removed ${TRASH}/${parked} (was profiles/${entry})`)
     return true
 }
 
-function emptyTrash() {
-    const root = trashRoot()
-    const rootStat = lstatOrNull(root)
-    if (!rootStat || rootStat.isSymbolicLink() || !rootStat.isDirectory()) return
-    for (const entry of fs.readdirSync(root)) {
+// The trash directory, only when it is a real directory (not a link) directly inside the real runtime home.
+function checkedTrashRoot(create = false) {
+    const home = realDir(hermesHome())
+    if (!home) return ''
+    const want = path.join(home, TRASH)
+    if (create && !lstatOrNull(want)) {
         try {
-            removeEntry(root, entry)
+            fs.mkdirSync(want)
         } catch (error) {
-            cleanupHooks.log(`[harness] could not empty ${TRASH}/${entry}: ${error?.code || error?.name || 'error'}`)
+            if (error?.code !== 'EEXIST') throw error
         }
+    }
+    const real = realDir(want)
+    return real && real === want && path.dirname(real) === home ? real : ''
+}
+
+const PARKED_RE = /^(.+)-[a-f0-9]{12}$/
+
+// Trash entries left by a crash, with the harness each belongs to (read from the markers inside).
+function trashEntries() {
+    const root = checkedTrashRoot()
+    if (!root) return []
+    const out = []
+    for (const entry of fs.readdirSync(root).sort()) {
+        const match = PARKED_RE.exec(entry)
+        if (!match) continue
+        const owner = ownerOf(root, entry, match[1])
+        if (owner) out.push({ entry, id: owner.id })
+    }
+    return out
+}
+
+function removeTrashEntry(id, entry) {
+    const root = checkedTrashRoot()
+    if (!root) return
+    try {
+        if (removeEntry(root, entry)) cleanupHooks.log(`[harness] removed ${TRASH}/${entry} of harness "${id}"`)
+    } catch (error) {
+        cleanupHooks.log(`[harness] could not remove ${TRASH}/${entry}: ${error?.code || error?.name || 'error'}`)
     }
 }
 
@@ -187,18 +219,23 @@ function stillSaved(id, saved) {
 
 // What a profile directory belongs to: { kind: 'home' | 'child', id } or null when it is not a saved-harness profile.
 function profileOwner(entry) {
-    const dir = containedEntry(profilesRoot(), entry)
+    return ownerOf(profilesRoot(), entry, entry)
+}
+
+// base is the profile name the entry had before it was parked in the trash (the entry itself otherwise).
+function ownerOf(root, entry, base) {
+    const dir = containedEntry(root, entry)
     if (!dir) return null
     const stat = lstatOrNull(dir)
     if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return null
     if (lstatOrNull(path.join(dir, 'harness-try'))) return null
     const parent = readMarker(dir, 'harness-parent')
     if (parent) {
-        if (parent === entry || isTryName(parent)) return null
+        if (parent === base || isTryName(parent)) return null
         return { kind: 'child', id: parent }
     }
     const name = rosterName(dir)
-    if (name && name === entry && !isTryName(name)) return { kind: 'home', id: name }
+    if (name && name === base && !isTryName(name)) return { kind: 'home', id: name }
     return null
 }
 
@@ -217,12 +254,40 @@ function profilesOf(id) {
     return home ? [...children, home] : children
 }
 
-function newestChange(entry) {
-    const dir = path.join(profilesRoot(), entry)
+const WALK_LIMIT = 20000
+
+// Newest mtime of the directory and everything under it, by lstat (links are not followed). Infinity when the
+// tree is too large to walk, so a huge tree counts as recently changed and is kept.
+function newestTreeChange(dir) {
     let newest = 0
-    for (const file of [dir, ...MARKERS.map((name) => path.join(dir, name))]) {
-        const stat = lstatOrNull(file)
-        if (stat) newest = Math.max(newest, stat.mtimeMs)
+    let seen = 0
+    const stack = [dir]
+    while (stack.length) {
+        const current = stack.pop()
+        const stat = lstatOrNull(current)
+        if (!stat) continue
+        newest = Math.max(newest, stat.mtimeMs)
+        if (++seen > WALK_LIMIT) return Infinity
+        if (stat.isSymbolicLink() || !stat.isDirectory()) continue
+        let names = []
+        try {
+            names = fs.readdirSync(current)
+        } catch {
+            return Infinity
+        }
+        for (const name of names) stack.push(path.join(current, name))
+    }
+    return newest
+}
+
+// The profile and its specialist workspace.
+function newestChange(entry, root = profilesRoot()) {
+    let newest = 0
+    const profile = containedEntry(root, entry)
+    if (profile) newest = Math.max(newest, newestTreeChange(profile))
+    if (root === profilesRoot()) {
+        const work = containedEntry(workspacesRoot(), entry)
+        if (work) newest = Math.max(newest, newestTreeChange(work))
     }
     return newest
 }
@@ -245,9 +310,8 @@ async function closeRuntime(entries) {
 
 // Revokes the tokens, then removes each entry. Returns the removed entries.
 // Refuses when the harness is still saved. A revocation failure removes nothing.
-async function removeOwned(id, entries, { reason }) {
-    const saved = savedNames()
-    if (stillSaved(id, saved)) {
+async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now = Date.now } = {}) {
+    if (stillSaved(id, savedNames())) {
         cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it is still saved or the store could not be read`)
         return { removed: [], kept: entries, error: null }
     }
@@ -260,27 +324,50 @@ async function removeOwned(id, entries, { reason }) {
         return { removed: [], kept: entries, error }
     }
     await closeRuntime(entries)
+    // Closing awaits; the harness may have been saved again or a profile replaced meanwhile, so check again.
+    if (stillSaved(id, savedNames())) {
+        cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it was saved again during cleanup`)
+        return { removed: [], kept: entries, error: null }
+    }
     const removed = []
+    const kept = []
     for (const entry of entries) {
+        const owner = profileOwner(entry)
+        if (!owner || owner.id !== id || (minAgeMs && now() - newestChange(entry) < minAgeMs)) {
+            kept.push(entry)
+            cleanupHooks.log(`[harness] kept profiles/${entry}: it changed during cleanup`)
+            continue
+        }
         try {
-            removeEntry(workspacesRoot(), entry)
+            if (removeEntry(workspacesRoot(), entry))
+                cleanupHooks.log(`[harness] removed workspaces/${entry} of harness "${id}" (${reason})`)
             if (removeProfileEntry(entry)) {
                 removed.push(entry)
                 cleanupHooks.log(`[harness] removed profiles/${entry} of harness "${id}" (${reason})`)
             }
         } catch (error) {
+            kept.push(entry)
             cleanupHooks.log(`[harness] could not remove profiles/${entry} of harness "${id}": ${error?.code || error?.name || 'error'}`)
         }
     }
+    for (const item of trash) removeTrashEntry(id, item)
     forgetCompiledProfile(id)
-    return { removed, kept: [], error: null }
+    return { removed, kept, error: null }
+}
+
+// Revokes the gateway tokens of a harness and its profiles. Throws when that fails.
+export function revokeHarness(name) {
+    const id = assertHarnessName(name)
+    revoke(id, profilesOf(id))
 }
 
 // Removes the profiles of one harness that has no store file. Safe to run again after a crash.
 export async function removeHarnessProfiles(name, { reason = 'harness deleted' } = {}) {
     const id = assertHarnessName(name)
-    emptyTrash()
-    return removeOwned(id, profilesOf(id), { reason })
+    const trash = trashEntries()
+        .filter((item) => item.id === id)
+        .map((item) => item.entry)
+    return removeOwned(id, profilesOf(id), { reason, trash })
 }
 
 // The harness delete: tokens are revoked first (a failure keeps the store file and every profile),
@@ -310,8 +397,8 @@ export function orphanSweepMode(env = process.env) {
 export async function sweepOrphanHarnessProfiles({ mode = orphanSweepMode(), now = Date.now() } = {}) {
     const root = profilesRoot()
     const result = { mode, orphans: [], removed: [], skipped: [] }
+    const started = Date.now()
     if (!realDir(root)) return result
-    if (mode === 'delete') emptyTrash()
     const saved = savedNames()
     if (!saved) {
         cleanupHooks.log('[harness] orphan profile sweep skipped: the harness store could not be read')
@@ -339,12 +426,22 @@ export async function sweepOrphanHarnessProfiles({ mode = orphanSweepMode(), now
         list.push({ entry, kind: owner.kind })
         groups.set(owner.id, list)
     }
+    for (const item of trashEntries()) {
+        if (stillSaved(item.id, saved)) continue
+        if (now - newestChange(item.entry, checkedTrashRoot()) < ORPHAN_SWEEP_MIN_AGE_MS) continue
+        if (!groups.has(item.id)) groups.set(item.id, [])
+        const list = groups.get(item.id)
+        list.trash = [...(list.trash || []), item.entry]
+    }
     for (const [id, list] of groups) {
         const entries = [...list.filter((item) => item.kind === 'child'), ...list.filter((item) => item.kind === 'home')].map(
             (item) => item.entry
         )
         result.orphans.push(...entries.map((entry) => ({ id, entry })))
         if (mode !== 'delete') {
+            for (const entry of list.trash || []) {
+                cleanupHooks.log(`[harness] orphan profile sweep (dry run): would remove ${TRASH}/${entry} of harness "${id}"`)
+            }
             for (const entry of entries) {
                 cleanupHooks.log(
                     `[harness] orphan profile sweep (dry run): would remove profiles/${entry} of harness "${id}". Set ${ORPHAN_SWEEP_ENV}=delete to remove it`
@@ -352,7 +449,12 @@ export async function sweepOrphanHarnessProfiles({ mode = orphanSweepMode(), now
             }
             continue
         }
-        const outcome = await removeOwned(id, entries, { reason: 'orphan sweep' })
+        const outcome = await removeOwned(id, entries, {
+            reason: 'orphan sweep',
+            trash: list.trash || [],
+            minAgeMs: ORPHAN_SWEEP_MIN_AGE_MS,
+            now: () => now + (Date.now() - started)
+        })
         result.removed.push(...outcome.removed)
     }
     return result
