@@ -149,9 +149,11 @@ def _checked_address(host, port, url, deadline=None, where=None, redirected=Fals
     address come from the server, so they are left out of the message."""
     host_shown = "the redirect host" if redirected else host
     try:
-        literal = ipaddress.ip_address(host.strip("[]"))
-        addresses = [str(literal)]
+        addresses = [str(ipaddress.ip_address(host.strip("[]")))]
     except ValueError:
+        addresses = None
+    # Resolved outside the handler, so a failure carries no earlier exception (whose text names the host).
+    if addresses is None:
         addresses = _resolve_by(
             host, port, time.monotonic() + DEFAULT_TIMEOUT_MS / 1000 if deadline is None else deadline, url, where, host_shown
         )
@@ -351,6 +353,10 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
                 raise FetchError(
                     f"fetch failed: HTTP {status}, declared size is over the {max_bytes} byte cap, at {where}", current, status, shown=where
                 )
+            if declared is not None and not response.chunked and response.length != declared:
+                # http.client frames the body by its own reading of the header; a form it does not read the same way
+                # (a comma list, for example) would leave the body unframed, so it is refused.
+                raise FetchError(f"fetch failed: HTTP {status}, malformed or conflicting declared sizes, at {where}", current, status, shown=where)
             body = bytearray()
             while True:
                 left = deadline - time.monotonic()

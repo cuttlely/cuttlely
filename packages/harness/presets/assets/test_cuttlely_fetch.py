@@ -76,6 +76,7 @@ class Handler(BaseHTTPRequestHandler):
             "/length-empty-second": lambda: self._raw_lengths(["100", ""], b"abcde"),
             "/to-scoped": lambda: self._send(302, headers={"Location": "http://[fe80::1%25eth0]/x.png"}),
             "/to-scoped-spaced": lambda: self._send(302, headers={"Location": "http://[fe80::1%opaque value]/x.png"}),
+            "/length-twice-kept-open": self._twice_kept_open,
             "/length-zeros": lambda: self._raw_lengths(["0000000000000000000005"], b"abcde"),
             "/drip-40": self._drip_40,
             "/trickle-headers": self._trickle_headers,
@@ -147,6 +148,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.wfile.flush()
         self.close_connection = True
+
+    def _twice_kept_open(self):
+        # Two agreeing lengths on a connection that stays open: the body must end at the declared size, not at EOF.
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", "5")
+        self.send_header("Content-Length", "5")
+        self.end_headers()
+        self.wfile.write(b"abcde")
+        self.wfile.flush()
 
     def _drip_40(self):
         self.send_response(200)
@@ -406,7 +417,9 @@ class FetchTest(unittest.TestCase):
             net.fetch(self.url("/short-twice"))
 
     def test_repeated_and_zero_padded_content_lengths(self):
-        self.assertEqual(net.fetch(self.url("/length-list"))["bytes"], b"abcde")
+        with self.assertRaisesRegex(net.FetchError, "malformed or conflicting declared sizes"):
+            net.fetch(self.url("/length-list"))
+        self.assertEqual(net.fetch(self.url("/length-twice-kept-open"), timeout_ms=2000)["bytes"], b"abcde")
         self.assertEqual(net.fetch(self.url("/length-zeros"), max_bytes=10)["bytes"], b"abcde")
         with self.assertRaises(net.FetchError) as caught:
             net.fetch(self.url("/length-conflict"))
@@ -418,6 +431,18 @@ class FetchTest(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(net.FetchError):
                 net.fetch_asset(self.url(path), self.out / "bad.png")
             self.assertFalse((self.out / "bad.png").exists())
+
+    def test_a_failed_lookup_carries_no_earlier_exception(self):
+        import traceback
+
+        def fail(host, port):
+            raise OSError("lookup failed")
+
+        net._resolve = fail
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch("http://opaque-name.invalid/x.png")
+        self.assertIsNone(caught.exception.__context__)
+        self.assertNotIn("does not appear to be an IPv4 or IPv6 address", "".join(traceback.format_exception(caught.exception)))
 
     def test_a_scoped_or_spaced_redirect_host_is_refused_without_echo(self):
         with self.assertRaises(net.FetchError) as caught:
