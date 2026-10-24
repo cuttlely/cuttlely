@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.3.1)
+# Cuttlely FAQ (1.4.1)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,23 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.4.1?
+
+-   A harness called as an agent tool runs one default specialist when Harness Prime's routing reply cannot be read, instead of the whole roster. Set it in **Default Specialist** on Harness Prime.
+-   The Harness node's **Tool Input** chooses whether Harness Prime routes the person's message (the default) or the agent's task.
+-   Images and files a run stored reach watsonx Orchestrate and A2A answers as signed links. `EXTERNAL_FILE_LINK_TTL_SECONDS` sets their lifetime (default 3600, from 60 to 86400).
+
+Full notes: [v1.4.1 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.1).
+
+### What's new in 1.4.0?
+
+-   Harness specialists can send PPTX presentations as chat downloads.
+-   Harness answers show file names only, never folder paths, and Harness Prime attaches files once.
+-   ChatOpenAI and Azure ChatOpenAI honor the **Reasoning** toggle, and **Reasoning Effort** has a **None** option.
+-   PNG and JPEG images in the chat can be downloaded.
+
+Full notes: [v1.4.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.0).
 
 ### What's new in 1.3.1?
 
