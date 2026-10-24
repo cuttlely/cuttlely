@@ -21,3 +21,4 @@ hermes/tools/mcp_tool.py
 hermes/tools/subagent_worktree.py
 hermes/tui_gateway/methods_complete_helpers.py
 hermes/uv.lock
+hermes/gateway/platforms/api_server_runs.py

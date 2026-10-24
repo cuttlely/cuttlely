@@ -1888,17 +1888,52 @@ function forwardHermes(context, specialist, event) {
         forwardDelta(context, specialist, String(event.delta))
         return
     }
-    if (kind !== 'tool.started' && kind !== 'tool.completed') return
+    const data = hermesToolEvent(specialist.name, event)
+    if (data) emitTool(context, data)
+}
+
+// A code or shell tool result that reports a failure in its own top-level fields: execute_code's
+// {"status": "error", ...} or a non-zero exit code. The runtime's error flag is the first signal; this catches a result
+// it missed. Only top-level keys count (nested data is ignored) and only for tools that run code, so other tools'
+// payloads cannot flip a step's state. The preview may be cut, so this reads the leading object without JSON.parse.
+const CODE_TOOLS = new Set(['execute_code', 'terminal', 'process'])
+const FAILED_TOP_LEVEL =
+    /^\s*\{(?:\s*"[A-Za-z_]+"\s*:\s*(?:"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?|true|false|null)\s*,)*?\s*(?:"status"\s*:\s*"(?:error|timeout|interrupted)"|"exit_code"\s*:\s*(?:-\d|[1-9]))/
+// The kept tail of a cut error preview: a non-zero exit code as the very last field of the top-level object.
+const FAILED_LAST_FIELD = /[,{]\s*"exit_code"\s*:\s*(?:-\d+|[1-9]\d*)\s*\}\s*$/
+
+export function hermesToolFailed(event) {
+    if (!event || typeof event !== 'object') return false
+    if (event.event === 'tool.failed' || event.error === true) return true
+    if (event.event !== 'tool.completed' || typeof event.preview !== 'string') return false
+    if (!CODE_TOOLS.has(String(event.tool || event.tool_name || ''))) return false
+    let parsed = null
+    try {
+        parsed = JSON.parse(event.preview)
+    } catch {
+        // A cut preview is not JSON: read its leading scalar fields, and its last field when the tail is kept.
+        return FAILED_TOP_LEVEL.test(event.preview) || FAILED_LAST_FIELD.test(event.preview)
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+    const code = parsed.exit_code
+    return ['error', 'timeout', 'interrupted'].includes(parsed.status) || (Number.isInteger(code) && code !== 0)
+}
+
+// One Hermes run event as a harness tool step, or null when it is not a tool event. A failed call is a failed
+// step, never done.
+export function hermesToolEvent(name, event) {
+    const kind = event?.event
+    if (kind !== 'tool.started' && kind !== 'tool.completed' && kind !== 'tool.failed') return null
     const detail = event.preview ? String(event.preview) : ''
     const callId = hermesEventCallId(event)
-    emitTool(context, {
+    return {
         phase: kind === 'tool.started' ? 'start' : 'done',
-        specialist: specialist.name,
-        name: String(event.tool || 'tool'),
-        ...(event.error ? { error: true } : {}),
+        specialist: name,
+        name: String(event.tool || event.tool_name || 'tool'),
+        ...(kind !== 'tool.started' && hermesToolFailed(event) ? { error: true } : {}),
         ...(detail ? { detail } : {}),
         ...(callId ? { callId } : {})
-    })
+    }
 }
 
 function analystQueryCount(context, name) {

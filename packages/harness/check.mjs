@@ -617,6 +617,60 @@ const recoveredTools = settleToolChips([
     },
     { name: 'mcp__analyst__query', status: 'done' }
 ])
+{
+    // A failed execute_code call is a failed step, never done, even when the runtime's error flag is missing.
+    const { hermesToolEvent, hermesToolFailed } = await import('./run.mjs')
+    const importError =
+        '{"status": "error", "output": "--- stderr ---\\nImportError: cannot import name \'use_dir\' from \'asset_kit\'", "exit_code": 1}'
+    const failedStep = hermesToolEvent('assets', { event: 'tool.completed', tool: 'execute_code', preview: importError })
+    const okStep = hermesToolEvent('assets', {
+        event: 'tool.completed',
+        tool: 'execute_code',
+        preview: '{"status": "success", "output": "saved logo.svg: 912 bytes\\n{\\"status\\": \\"error\\"}", "exit_code": 0}'
+    })
+    const steps = reduceHarnessEvent(
+        reduceHarnessEvent(emptyTrace(), { type: 'tool', ...hermesToolEvent('assets', { event: 'tool.started', tool: 'execute_code' }) }),
+        {
+            type: 'tool',
+            ...failedStep
+        }
+    )
+    check(
+        'a failed execute_code result is a failed tool step, and a successful one stays done',
+        failedStep.error === true &&
+            !('error' in okStep) &&
+            hermesToolFailed({ event: 'tool.failed', tool: 'x' }) &&
+            hermesToolFailed({ event: 'tool.completed', error: true }) &&
+            hermesToolFailed({ event: 'tool.completed', tool: 'terminal', preview: '{"output": "", "exit_code": 2}' }) &&
+            hermesToolFailed({ event: 'tool.completed', tool: 'execute_code', preview: '{"status": "timeout", "output": ""}' }) &&
+            hermesToolFailed({ event: 'tool.completed', tool: 'execute_code', preview: '{"output": "failure", "status": "error"}' }) &&
+            !hermesToolFailed({ event: 'tool.completed', tool: 'terminal', preview: '{"output": "ok", "exit_code": 0}' }) &&
+            !hermesToolFailed({
+                event: 'tool.completed',
+                tool: 'execute_code',
+                preview: '{"status": "success", "data": {"exit_code": 1}}'
+            }) &&
+            !hermesToolFailed({ event: 'tool.completed', tool: 'web_extract', preview: '{"status": "error", "exit_code": 1}' }) &&
+            hermesToolFailed({
+                event: 'tool.completed',
+                tool: 'execute_code',
+                preview: '{"data": {}, "status": "error", "exit_code": 1}'
+            }) &&
+            // A cut error preview (head ... tail) is not JSON; a non-zero exit code as its last top-level field counts.
+            hermesToolFailed({ event: 'tool.completed', tool: 'terminal', preview: '{"output": "a\\u12 ... b", "exit_code": 2}' }) &&
+            !hermesToolFailed({
+                event: 'tool.completed',
+                tool: 'terminal',
+                preview: '{"output": "xxxx ... yyyy", "data": {"exit_code": 2}}'
+            }) &&
+            !hermesToolFailed({ event: 'tool.started', preview: '{"status": "error"}' }) &&
+            hermesToolEvent('assets', { event: 'tool.failed', tool_name: 'execute_code' }).error === true &&
+            hermesToolEvent('assets', { event: 'message.delta', delta: 'x' }) === null &&
+            JSON.stringify(steps).includes('"status":"failed"') &&
+            toolChipLabel({ name: 'execute_code', status: 'failed' }) === 'execute_code · failed',
+        JSON.stringify({ failedStep, okStep, steps })
+    )
+}
 check(
     'a recovered local tool_call batch is retried',
     recoveredTools[0].status === 'retried' && toolChipLabel(recoveredTools[0]) === 'tool_call · retried',
@@ -9328,10 +9382,38 @@ await expectCase('large file downloads survive runHarness and the fresh chat han
     const written = installPresetKit(assets, kitDir)
     check(
         'the style kit is copied into the working directory',
-        written.length === 1 &&
+        written.length === 3 &&
             path.basename(written[0]) === ASSETS_KIT_FILE &&
             fs.readFileSync(written[0], 'utf8').includes('TABLE_THEME') &&
+            written.map((file) => path.basename(file)).join(',') === 'cuttlely_assets.py,cuttlely_fetch.py,asset_kit.py' &&
             installPresetKit(plain, kitDir).length === 0
+    )
+    // A stale asset_kit.py in the workspace is replaced, so `from asset_kit import use_dir` matches the kit.
+    fs.writeFileSync(path.join(kitDir, 'asset_kit.py'), 'PALETTE = {}\n')
+    installPresetKit(assets, kitDir)
+    const kitImport = spawnSync(
+        'python3',
+        [
+            '-c',
+            'import sys; sys.path.insert(0, "."); from asset_kit import use_dir, fetch_asset, fetch; import cuttlely_assets as kit; print(kit.use_dir("out").is_dir(), kit.fetch is fetch)'
+        ],
+        { cwd: kitDir, encoding: 'utf8' }
+    )
+    check(
+        'the workspace asset_kit.py is brought back in line and imports use_dir, fetch and fetch_asset',
+        kitImport.error?.code === 'ENOENT' || (kitImport.status === 0 && kitImport.stdout.trim() === 'True True'),
+        `${kitImport.stdout}${kitImport.stderr}`
+    )
+    const assetText = SPECIALIST_PRESETS.assets.instructions
+    check(
+        'the assets instructions name fetch_asset, Wikimedia Commons Special:FilePath, the byte count rule and plain failure reports',
+        assetText.includes('kit.fetch_asset(url, path)') &&
+            assetText.includes('Special:FilePath/<File name>.svg') &&
+            assetText.includes('press kit') &&
+            assetText.includes('Never say a logo or image was embedded otherwise') &&
+            assetText.includes('When a download fails, say plainly') &&
+            assetText.includes('Do not use urllib or requests directly'),
+        assetText
     )
     fs.rmSync(kitDir, { recursive: true, force: true })
 }
