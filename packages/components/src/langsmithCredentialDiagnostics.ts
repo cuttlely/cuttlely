@@ -105,6 +105,18 @@ export const langSmithFailureLoggingFetch = (ids: { flowId?: string; shape?: Lan
                     ids.shape ?? {}
                 )}`
             )
+            // The SDK puts the response body in the error it logs, and a server or proxy can echo request details
+            // there. Hand it the same status and headers with a short body instead.
+            try {
+                await response.body?.cancel()
+            } catch {
+                // the body is not needed
+            }
+            return new Response(`LangSmith request failed with status ${response.status}`, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers
+            })
         }
         return response
     }) as typeof fetch

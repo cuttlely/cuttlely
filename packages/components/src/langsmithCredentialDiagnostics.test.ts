@@ -53,7 +53,7 @@ describe('langSmithFailureLoggingFetch', () => {
     })
 
     it('logs failed uploads with the flow id and the credential shape', async () => {
-        global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 403 }) as any
+        global.fetch = jest.fn().mockResolvedValue(new Response('forbidden', { status: 403 })) as any
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
         const shape = describeLangSmithCredential('cred-1', { langSmithApiKey: 'x' }, 'lsv2_pt_secretvalue', '', 'proj')
         const res = await langSmithFailureLoggingFetch({ flowId: 'flow-1', shape })('https://api.smith.langchain.com/runs/multipart', {
@@ -69,6 +69,25 @@ describe('langSmithFailureLoggingFetch', () => {
         expect(line).toContain('"apiKeyPrefix":"lsv2"')
         expect(line).not.toContain('secret-value')
         expect(line).not.toContain('secretvalue')
+    })
+
+    it('hands the SDK the status and headers of a failed response but not its body', async () => {
+        global.fetch = jest.fn().mockResolvedValue(
+            new Response('echo x-api-key: secret-value', {
+                status: 429,
+                statusText: 'Too Many Requests',
+                headers: { 'retry-after': '3' }
+            })
+        ) as any
+        jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        const res = await langSmithFailureLoggingFetch({ flowId: 'flow-1' })('https://api.smith.langchain.com/runs/multipart')
+        expect(res.ok).toBe(false)
+        expect(res.status).toBe(429)
+        expect(res.statusText).toBe('Too Many Requests')
+        expect(res.headers.get('retry-after')).toBe('3')
+        const body = await res.text()
+        expect(body).toBe('LangSmith request failed with status 429')
+        expect(body).not.toContain('secret-value')
     })
 
     it('logs a request that fails outright and rethrows it without the original message', async () => {
