@@ -16077,12 +16077,34 @@ await (async () => {
     const viaTrash = await cleanup.removeHarnessProfiles('viatrash')
     check(
         'a symlinked trash directory is refused and nothing moves outside the runtime home',
-        exists('viatrash') && fs.readdirSync(elsewhere).length === 0 && viaTrash.removed.length === 0,
+        exists('viatrash') && fs.readdirSync(elsewhere).length === 0 && viaTrash.removed.length === 0 && viaTrash.kept.includes('viatrash'),
         JSON.stringify({ viaTrash, lines, moved: fs.readdirSync(elsewhere) })
     )
     fs.rmSync(trash)
     fs.rmSync(elsewhere, { recursive: true, force: true })
     await cleanup.removeHarnessProfiles('viatrash')
+
+    // A workspaces root that is a link: the workspace cannot be removed, so the profile that points at it stays and
+    // the result reports it as left over (a new harness under the name is then refused).
+    reset()
+    saveJson('linkwork')
+    child('linkwork--a', 'linkwork')
+    dropJson('linkwork')
+    const realWork = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-work-'))
+    fs.renameSync(workDir, path.join(realWork, 'workspaces'))
+    fs.symlinkSync(path.join(realWork, 'workspaces'), workDir)
+    const viaLinkedWork = await cleanup.removeHarnessProfiles('linkwork')
+    const workKept = fs.existsSync(path.join(realWork, 'workspaces', 'linkwork--a'))
+    fs.rmSync(workDir)
+    fs.renameSync(path.join(realWork, 'workspaces'), workDir)
+    fs.rmSync(realWork, { recursive: true, force: true })
+    check(
+        'a workspace that cannot be removed keeps its profile and is reported as left over',
+        workKept && exists('linkwork--a') && viaLinkedWork.kept.includes('linkwork--a') && viaLinkedWork.removed.length === 0,
+        JSON.stringify({ viaLinkedWork, lines })
+    )
+    await cleanup.removeHarnessProfiles('linkwork')
+    check('the profile goes once its workspace can be removed', !exists('linkwork--a'), JSON.stringify(lines))
 
     // A recent edit deep inside an old profile or its workspace keeps it from the sweep; removals are logged one by one.
     reset()

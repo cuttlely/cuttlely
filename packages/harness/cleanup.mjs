@@ -498,11 +498,20 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
             continue
         }
         try {
+            // A workspace that is there but could not be removed (a linked or foreign root) keeps the profile, whose
+            // markers are what lets a later run find the workspace again.
             if (removeEntry(workspacesRoot(), entry))
                 cleanupHooks.log(`[harness] removed workspaces/${entry} of harness "${id}" (${reason})`)
+            else if (lstatOrNull(path.join(workspacesRoot(), entry))) {
+                kept.push(entry)
+                cleanupHooks.log(`[harness] kept profiles/${entry} of harness "${id}": its workspace could not be removed`)
+                continue
+            }
             if (removeProfileEntry(entry)) {
                 removed.push(entry)
                 cleanupHooks.log(`[harness] removed profiles/${entry} of harness "${id}" (${reason})`)
+            } else if (lstatOrNull(path.join(profilesRoot(), entry))) {
+                kept.push(entry)
             }
         } catch (error) {
             kept.push(entry)
