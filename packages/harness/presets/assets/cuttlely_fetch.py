@@ -102,12 +102,6 @@ def shown_url(url):
 
 def blocked_address(address):
     """True when an IP address (str or ipaddress object) must not be fetched from."""
-    return _blocked_address(address)
-
-
-def _blocked_address(address):
-    # Not the public name: a test replaces blocked_address so the local server is reachable, and this check
-    # must still see the real rule for an address embedded in another one.
     ip = ipaddress.ip_address(address) if isinstance(address, str) else address
     if isinstance(ip, ipaddress.IPv6Address):
         # IPv4-mapped, IPv4-compatible, 6to4 and NAT64 forms carry an IPv4 address; check that address too.
@@ -116,12 +110,8 @@ def _blocked_address(address):
             mapped = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
         if mapped is None and int(ip) >> 32 == 0 and int(ip) > 1:
             mapped = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
-        if mapped is not None and _blocked_address(mapped):
+        if mapped is not None and blocked_address(mapped):
             return True
-        # ::ffff:0:0/96 is the IPv4-mapped form. Some Python releases mark that prefix reserved even when the
-        # embedded address is public (is_global and is_reserved are both true). The embedded address was checked above.
-        if ip.ipv4_mapped is not None:
-            return False
     if any(ip in net for net in _BLOCKED_NETWORKS if net.version == ip.version):
         return True
     return not ip.is_global or ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_loopback
