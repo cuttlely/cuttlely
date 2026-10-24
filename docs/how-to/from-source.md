@@ -113,7 +113,7 @@ Server lines start with the time, then `[INFO]:`. The gateway line follows the r
 curl -fsS http://127.0.0.1:43117/api/v1/ping
 ```
 
-It prints `pong`. The `X-Cuttlely-Hermes` response header is `up` once the agent runtime is running. See [Agent runtime health](./harnesses.md#agent-runtime-health).
+It prints `pong`. The `X-Cuttlely-Hermes` response header is `up` once the agent runtime is running. See [Agent runtime health](./harnesses.md#agent-runtime-health). The wait for the harness gateway includes a 503 from its `/health` while profiles from an older compiler are compiled again. The script keeps waiting, up to `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` (default 1800 seconds). [Profiles at startup](./harnesses.md#profiles-at-startup).
 
 | Port    | What listens                             | Change it with                  |
 | ------- | ---------------------------------------- | ------------------------------- |
