@@ -309,8 +309,9 @@ async function contextFor(record: { chatflowId?: string; workspaceId?: string | 
 
 let runtimeConfigured: Promise<void> | undefined
 
-// Each record is compiled under the profile lock, so a save or delete never interleaves with it. One failure is
-// logged and the rest still run.
+// Each record is read again and compiled under its name lock and the profile lock (the order saves use), so a save,
+// sync or delete that ran while this waited is what gets compiled, or the deleted record is skipped. One failure
+// is logged and the rest still run.
 export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
     const [profile, store] = await Promise.all([loadHarness('profile.mjs'), loadHarness('store.mjs')])
     let records: any[]
@@ -321,8 +322,16 @@ export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: 
         return []
     }
     const results: Array<{ name: string; status: string; error?: string }> = []
-    for (const record of records) {
-        results.push(...(await withProfileLock(async () => profile.recompileOutdatedProfiles([record], { log: logger }))))
+    for (const listed of records) {
+        const name = String(listed?.name || '')
+        if (!name) continue
+        const done = await withNameLock(name, () =>
+            withProfileLock(async () => {
+                const record = store.getHarness(name)
+                return record ? profile.recompileOutdatedProfiles([record], { log: logger }) : []
+            })
+        )
+        results.push(...done)
     }
     return results
 }
@@ -333,10 +342,15 @@ function configureRuntime(): Promise<void> {
         runtimeConfigured = loadHarness('run.mjs')
             .then(async (engine) => {
                 engine.configureHarnessRuntime({ contextFor })
-                // Before the gateway answers: the start script launches Hermes only then, and Hermes reads each
-                // profile's config.yaml from disk. A profile from an older compiler is compiled again first.
-                await recompileOutdatedHarnessProfiles()
+                // Before the gateway answers: the start script launches Hermes only once /health answers, and Hermes
+                // reads each profile's config.yaml from disk. A compile binds the listener, so /health is held meanwhile.
                 const gateway = await loadHarness('gateway.mjs')
+                const release = gateway.holdGatewayHealth()
+                try {
+                    await recompileOutdatedHarnessProfiles()
+                } finally {
+                    release()
+                }
                 await gateway.startGateway()
                 // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
                 const cleanup = await loadHarness('cleanup.mjs')

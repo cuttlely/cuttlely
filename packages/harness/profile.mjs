@@ -757,8 +757,9 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     installPresetKit(specialist, workspace)
     // Read before harness-parent is written: an unstamped token is adopted only from a profile this harness already owned.
     const ownedBefore = readMarker(path.join(dir, 'harness-parent')) === String(profileName)
+    // The version file says the compile finished: it goes first and comes back after the last write.
+    fs.rmSync(path.join(dir, 'harness-compiler'), { force: true })
     writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
-    writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
     const issued = issueSpecialistToken(record, specialist, profileName, tryProfile, adoptUnstamped && ownedBefore)
@@ -821,6 +822,7 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
         // The saved record this token was issued for: a later harness under the same name has another createdAt.
         ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : { CUTTLELY_GATEWAY_CREATED: String(record.createdAt || '') })
     })
+    writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
 }
 
 function forgetRetiredSpecialistProfiles(harnessName, keep) {
@@ -892,6 +894,8 @@ export function compileProfile(record, options = {}) {
         }
     }
     const dir = profileDir(profileName)
+    // Cleared before any specialist compiles: a compile that fails partway leaves the parent outdated for the next boot.
+    fs.rmSync(path.join(dir, 'harness-compiler'), { force: true })
     fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
     // A try is this marker, not a name the store might also use.
@@ -957,10 +961,10 @@ export function compileProfile(record, options = {}) {
     pushMcpServers(yaml, mcpBlocks)
     pushModel(yaml, profileName)
     writeIfChanged(path.join(dir, 'config.yaml'), yaml.join('\n') + '\n')
-    // Written last: a compile that stopped partway leaves the old version, so the next boot finishes it.
-    writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
 
     const apiServerKey = writeProfileSecrets(profileName, toolCredentialEnv(record))
+    // Written last: a compile that stopped partway has no version, so the next boot compiles it again.
+    writeIfChanged(path.join(dir, 'harness-compiler'), `${PROFILE_COMPILER_VERSION}\n`)
     return { dir, roster: compiled, apiServerKey }
 }
 

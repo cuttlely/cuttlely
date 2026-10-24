@@ -7047,6 +7047,55 @@ await expectCase('a parent profile from before the bridge fix is compiled again 
     )
 })
 
+await expectCase('a compile that fails partway leaves the profile outdated for the next boot', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const record = saveHarness(
+        {
+            name: 'mahalfchief',
+            chatflowId: 'canvas-half-chief',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [
+                { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const specialists = profilesFor('mahalfchief')
+        .map((profile) => profile.name)
+        .filter((name) => name.includes('--'))
+        .sort()
+    // The second specialist's config.yaml cannot be written: a directory stands in its place.
+    const blocked = profileFile(specialists[1], 'config.yaml')
+    fs.rmSync(blocked, { force: true })
+    fs.mkdirSync(blocked)
+    let threw = false
+    try {
+        compileProfile(record)
+    } catch {
+        threw = true
+    }
+    const versionFiles = ['mahalfchief', ...specialists].map((name) => fs.existsSync(profileFile(name, 'harness-compiler')))
+    const failed = recompileOutdatedProfiles([record], { log: {} })
+    fs.rmSync(blocked, { recursive: true, force: true })
+    const repaired = recompileOutdatedProfiles([record], { log: {} })
+    const after = recompileOutdatedProfiles([record], { log: {} })
+    check(
+        'a compile that fails partway leaves the profile outdated for the next boot',
+        threw &&
+            specialists.length === 2 &&
+            versionFiles[0] === false &&
+            versionFiles[2] === false &&
+            failed.length === 1 &&
+            failed[0].status === 'failed' &&
+            JSON.stringify(repaired) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
+            after.length === 0,
+        JSON.stringify({ threw, specialists, versionFiles, failed, repaired, after })
+    )
+})
+
 await expectCase('a profile with the current compiler version keeps its files at boot', async () => {
     const record = saveHarness(
         {
@@ -13947,6 +13996,19 @@ check(
     'the harness gateway health answers without a token',
     healthResponse.status === 200 && healthBody.ok === true,
     String(healthResponse.status)
+)
+const releaseHealth = gatewayMod.holdGatewayHealth()
+const secondHold = gatewayMod.holdGatewayHealth()
+const heldStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+releaseHealth()
+releaseHealth()
+const oneHeldStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+secondHold()
+const releasedStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+check(
+    'the gateway health waits while the boot recompile holds it',
+    heldStatus === 503 && oneHeldStatus === 503 && releasedStatus === 200,
+    JSON.stringify({ heldStatus, oneHeldStatus, releasedStatus })
 )
 await healthGateway.close()
 if (typeof gatewayMod.stopGateway === 'function') await gatewayMod.stopGateway()

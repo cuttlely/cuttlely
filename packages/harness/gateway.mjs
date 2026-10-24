@@ -53,6 +53,20 @@ function notedCallerWorkspace(name) {
     return stack[stack.length - 1]
 }
 
+let healthHolds = 0
+
+// Compiling a profile binds the listener (gatewayUrl), so /health is held until the boot recompile ends.
+// The returned function releases this hold once.
+export function holdGatewayHealth() {
+    healthHolds += 1
+    let released = false
+    return () => {
+        if (released) return
+        released = true
+        healthHolds -= 1
+    }
+}
+
 export function gatewayListenPort() {
     const raw = process.env.CUTTLELY_HARNESS_GATEWAY_PORT
     if (raw == null || raw === '') return DEFAULT_PORT
@@ -496,8 +510,10 @@ async function onRequest(req, res) {
     }
     const pathName = pathnameOf(req)
     // The start script waits for this before it launches Hermes. No token: the process just has to be up.
+    // While the server compiles profiles from an older compiler, /health answers 503, so Hermes waits for them.
     if (req.method === 'GET' && pathName === '/health') {
-        sendJson(res, 200, { ok: true })
+        if (healthHolds > 0) sendJson(res, 503, { ok: false, starting: true })
+        else sendJson(res, 200, { ok: true })
         return
     }
     const token = bearer(req)
