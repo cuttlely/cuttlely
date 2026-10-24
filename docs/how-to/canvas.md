@@ -44,7 +44,7 @@ When a chat model card has a model list, such as OpenAI, Anthropic or xAI Grok, 
 
 ### Reasoning on OpenAI cards
 
-The **ChatOpenAI** and **Azure ChatOpenAI** cards honor the **Reasoning** toggle. With it off, a **Reasoning Effort** saved earlier is not sent: gpt-5.1 to gpt-5.x get `reasoning_effort` `none`, and gpt-5, o-series, GPT-6 and other reasoning models get no reasoning effort. **Reasoning Effort** also has a **None** option. gpt-5.6 with any effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools. On Azure, Responses API calls go to the resource's `/openai/v1/responses` endpoint with the deployment name as the model.
+The **ChatOpenAI** and **Azure ChatOpenAI** cards honor the **Reasoning** toggle. With it off, a **Reasoning Effort** saved earlier is not sent: gpt-5.1 to gpt-5.x get `reasoning_effort` `none`, except Codex and `-pro` models. Those, gpt-5, o-series, GPT-6 and other reasoning models get no reasoning effort, so they reason at the provider's default: off does not turn reasoning off on a model that does not accept `none`. **Reasoning Effort** also has a **None** option. GPT-6 models send their Reasoning Effort and Summary in the request's `reasoning` field, and gpt-6.1-sol gets effort `low` in place of `minimal`, which it refuses. Calls on the Responses API keep a forced tool choice (`required`, `auto`, `none` or a named function). gpt-5.6 with any effort other than None, and every GPT-6 model, use the Responses API, because chat completions does not accept their function tools. On Azure, Responses API calls go to the resource's `/openai/v1/responses` endpoint with the deployment name as the model.
 
 ## Switch between compact and classic cards
 
