@@ -8,6 +8,8 @@
     kit.docx_report(out / "memo.docx", "Q1 memo", [...])
     kit.xlsx_table(out / "orders.xlsx", rows, sheet="Orders")
     kit.csv_table(out / "orders.csv", rows)
+    out = kit.use_dir("files")                   # the folder the task names, created if missing
+    kit.fetch_asset(url, out / "logo.svg")       # prints "saved logo.svg: <n> bytes"; raises when it fails
 
 The harness copies this file into the specialist's working directory. Only matplotlib, seaborn, reportlab,
 python-docx and openpyxl are used, and each is imported when its writer is called.
@@ -16,6 +18,8 @@ python-docx and openpyxl are used, and each is imported when its writer is calle
 import csv
 from dataclasses import dataclass
 from pathlib import Path
+
+from cuttlely_fetch import FetchError, fetch, fetch_asset  # noqa: F401  (one download path, see cuttlely_fetch.py)
 
 # Palette: ink and paper for text and backgrounds, one accent, and a categorical series that keeps contrast on white.
 PALETTE = {
@@ -148,6 +152,13 @@ def line_chart(x, series, title="", ylabel="", size=(6.4, 3.6)):
     if ylabel:
         ax.set_ylabel(ylabel)
     return fig, ax
+
+
+def use_dir(path):
+    """Create the output folder if it is missing and return it as a Path."""
+    folder = Path(path)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
 
 
 def save_png(fig, path):
