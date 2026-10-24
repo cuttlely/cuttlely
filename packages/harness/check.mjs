@@ -6064,6 +6064,35 @@ await expectCase('custom MCP runs through the node', async () => {
                     JSON.stringify(results[0]) === JSON.stringify([1, 401, 0, 0]),
                 JSON.stringify(results)
             )
+            // A tool retried under another argument shape is checked again before the retry: a token revoked while
+            // the first attempt ran starts no second one.
+            {
+                const bridgeModule = await import('./bridge.mjs')
+                const attempts = []
+                let valid = true
+                const retried = {
+                    name: 'shape_tool',
+                    schema: { type: 'object' },
+                    async invoke(arg) {
+                        attempts.push(arg)
+                        valid = false
+                        throw new Error('Received tool input did not match expected schema')
+                    }
+                }
+                let refused = ''
+                try {
+                    await bridgeModule.callPrepared({ runs: false, ready: retried, toolName: '' }, { input: 'x' }, () => {
+                        if (!valid) throw new Error('revoked')
+                    })
+                } catch (error) {
+                    refused = error.message
+                }
+                check(
+                    'a tool retry after a revocation does not start',
+                    attempts.length === 1 && refused === 'revoked',
+                    JSON.stringify({ attempts, refused })
+                )
+            }
         }
     } finally {
         await gateway?.close()
@@ -16341,6 +16370,38 @@ await (async () => {
                 !recovered.kept.length,
             JSON.stringify({ refused, recovered, closes, lines })
         )
+    }
+
+    // A parked profile whose name another harness's specialist uses now (a / b--c and a--b / c both compile to
+    // a--b--c): recovering it stops, revokes and removes nothing of that other harness.
+    reset()
+    {
+        const parked = path.join(trash, 'a--b--c-0123456789ab')
+        fs.mkdirSync(path.join(parked, 'sessions'), { recursive: true })
+        fs.writeFileSync(path.join(parked, 'harness-parent'), 'a\n')
+        fs.writeFileSync(path.join(trash, 'a--b--c-0123456789ab.owner'), 'a\n')
+        saveJson('a--b')
+        home('a--b')
+        child('a--b--c', 'a--b')
+        const closes = []
+        const savedClose = cleanup.cleanupHooks.close
+        cleanup.cleanupHooks.close = async (entry) => {
+            closes.push(entry)
+            return true
+        }
+        const outcome = await cleanup.removeHarnessProfiles('a')
+        cleanup.cleanupHooks.close = savedClose
+        check(
+            'recovering a parked profile leaves the runtime, token and workspace of another harness under its name',
+            !closes.includes('a--b--c') &&
+                !revoked.some((row) => row.includes('a--b--c')) &&
+                exists('a--b--c') &&
+                fs.existsSync(path.join(workDir, 'a--b--c', 'notes.txt')) &&
+                !fs.existsSync(parked),
+            JSON.stringify({ closes, revoked, outcome, lines })
+        )
+        dropJson('a--b')
+        await cleanup.removeHarnessProfiles('a--b')
     }
 
     // With no profiles directory at all, the sweep still finds and removes an old parked profile.

@@ -348,6 +348,13 @@ function claimedBySaved(entry, saved, root = profilesRoot()) {
     return Boolean(name) && stillSaved(name, saved)
 }
 
+// A profile under this name is there and is not this harness's (another harness's, or one with no owner markers).
+function usedByOther(id, entry) {
+    if (!lstatOrNull(path.join(profilesRoot(), entry))) return false
+    const owner = profileOwner(entry)
+    return !owner || owner.id !== id
+}
+
 // Every profile entry that belongs to this exact harness id. The home profile comes last.
 function profilesOf(id) {
     const root = profilesRoot()
@@ -484,7 +491,10 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     }
     try {
         // Scoped revocation names the parked profiles too, by the profile name they had before parking.
-        const parkedNames = trash.map((entry) => PARKED_RE.exec(entry)?.[1]).filter((base) => base && !stillSaved(base, before))
+        // A name now used by another harness's profile (two rosters can compile into one name) is that harness's.
+        const parkedNames = trash
+            .map((entry) => PARKED_RE.exec(entry)?.[1])
+            .filter((base) => base && !stillSaved(base, before) && !usedByOther(id, base))
         if (!revoked) revoke(id, [...entries, ...parkedNames], { harnessWide: !minAgeMs })
     } catch (error) {
         cleanupHooks.log(
@@ -568,7 +578,9 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
         // A profile parked by a run that stopped before its runtime stop goes through the same steps as one in
         // profiles/: its runtime is stopped first, then its workspace goes, then the parked copy.
         const parkedDir = checkedTrashRoot() ? path.join(checkedTrashRoot(), item) : ''
-        if (base && parkedDir && lstatOrNull(parkedDir)) {
+        // A name another harness's profile uses now: its runtime and workspace are that harness's, so only the parked
+        // copy (which no runtime serves from the trash) goes.
+        if (base && parkedDir && lstatOrNull(parkedDir) && !usedByOther(id, base)) {
             const stopped = await closeRuntime(id, [base])
             if (!stopped.has(base)) {
                 kept.push(`${TRASH}/${item}`)
