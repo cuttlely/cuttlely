@@ -27,7 +27,7 @@ type AnalystStoreModule = {
     queryAnalystUrl: (
         postgresUrl: string,
         input: Record<string, unknown>,
-        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[]; readOnlySql?: boolean }
+        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[] }
     ) => Promise<unknown>
     analystUrlToolSpec: (rowCap?: number, relations?: AnalystRelation[] | null) => { description: string; schema: Record<string, unknown> }
     analystDescribeToolSpec: () => { description: string; schema: Record<string, unknown> }
@@ -37,7 +37,7 @@ type AnalystStoreModule = {
         postgresUrl: string,
         input: Record<string, unknown>,
         names: string[],
-        options?: { timeoutMs?: number; readOnlySql?: boolean }
+        options?: { timeoutMs?: number }
     ) => Promise<unknown>
 }
 
@@ -48,10 +48,6 @@ type AnalystRelationsModule = {
 }
 
 const RELATION_LOOKUP_MS = 10000
-// checkReadOnlySql in packages/harness/runtime/analyst-relations.mjs refuses anything else before connecting.
-const READ_ONLY_SQL_NOTE =
-    'Send one SELECT or WITH query with a LIMIT and no semicolon. SET, RESET, BEGIN, COMMIT, COPY, DO, INSERT, UPDATE, DELETE, set_config and pg_sleep are refused.'
-
 // ANALYST_RULES_MAX_CHARS in packages/harness/store.mjs, which refuses a longer save.
 const ANALYST_RULES_MAX_CHARS = 2000
 
@@ -403,8 +399,7 @@ class PostgreSQL_MCP implements INode {
                         await store.queryAnalystUrl(postgresUrl, input || {}, {
                             rowCap: limits.rowCap,
                             statementTimeoutMs: limits.timeoutMs,
-                            relations,
-                            readOnlySql: true
+                            relations
                         })
                     )
                 } catch (error) {
@@ -413,7 +408,7 @@ class PostgreSQL_MCP implements INode {
             },
             {
                 name: 'query',
-                description: `${spec.description} ${READ_ONLY_SQL_NOTE}`,
+                description: spec.description,
                 schema: spec.schema
             }
         )
@@ -423,10 +418,7 @@ class PostgreSQL_MCP implements INode {
             async (input: { name?: string }): Promise<string> => {
                 try {
                     return JSON.stringify(
-                        await store.describeAnalystUrlRelation(postgresUrl, input || {}, relations, {
-                            timeoutMs: limits.timeoutMs,
-                            readOnlySql: true
-                        })
+                        await store.describeAnalystUrlRelation(postgresUrl, input || {}, relations, { timeoutMs: limits.timeoutMs })
                     )
                 } catch (error) {
                     return toolError(error)
