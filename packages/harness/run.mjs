@@ -1899,12 +1899,24 @@ function forwardHermes(context, specialist, event) {
 const CODE_TOOLS = new Set(['execute_code', 'terminal', 'process'])
 const FAILED_TOP_LEVEL =
     /^\s*\{(?:\s*"[A-Za-z_]+"\s*:\s*(?:"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?|true|false|null)\s*,)*?\s*(?:"status"\s*:\s*"(?:error|timeout|interrupted)"|"exit_code"\s*:\s*(?:-\d|[1-9]))/
+// The kept tail of a cut error preview: a non-zero exit code as the very last field of the top-level object.
+const FAILED_LAST_FIELD = /[,{]\s*"exit_code"\s*:\s*(?:-\d+|[1-9]\d*)\s*\}\s*$/
 
 export function hermesToolFailed(event) {
     if (!event || typeof event !== 'object') return false
     if (event.event === 'tool.failed' || event.error === true) return true
     if (event.event !== 'tool.completed' || typeof event.preview !== 'string') return false
-    return CODE_TOOLS.has(String(event.tool || event.tool_name || '')) && FAILED_TOP_LEVEL.test(event.preview)
+    if (!CODE_TOOLS.has(String(event.tool || event.tool_name || ''))) return false
+    let parsed = null
+    try {
+        parsed = JSON.parse(event.preview)
+    } catch {
+        // A cut preview is not JSON: read its leading scalar fields, and its last field when the tail is kept.
+        return FAILED_TOP_LEVEL.test(event.preview) || FAILED_LAST_FIELD.test(event.preview)
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+    const code = parsed.exit_code
+    return ['error', 'timeout', 'interrupted'].includes(parsed.status) || (Number.isInteger(code) && code !== 0)
 }
 
 // One Hermes run event as a harness tool step, or null when it is not a tool event. A failed call is a failed

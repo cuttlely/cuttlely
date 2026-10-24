@@ -62,6 +62,8 @@ class Handler(BaseHTTPRequestHandler):
             "/trickle-body": self._trickle_body,
             "/trickle-chunked": self._trickle_chunked,
         }
+        if self.path.startswith("/files/"):
+            return self._send(200, SVG, {"Content-Type": "image/svg+xml"})
         routes.get(self.path, lambda: self._send(404, b"missing"))()
 
     def _big_undeclared(self):
@@ -156,6 +158,7 @@ class FetchTest(unittest.TestCase):
             "::", "::1", "fe80::1", "fc00::1", "fd12:3456::1", "ff02::1", "fd00:ec2::254",
             "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:10.0.0.1", "::127.0.0.1",
             "64:ff9b::a9fe:a9fe", "2002:7f00:1::1", "2002:a9fe:a9fe::1",
+            "64:ff9b:1:a9fe:a9:fe00::", "64:ff9b:1::1",  # local-use NAT64, global on Python 3.11 and 3.12
         ]
         for address in blocked:
             self.assertTrue(self._blocked(address), address)
@@ -240,6 +243,15 @@ class FetchTest(unittest.TestCase):
         self.assertEqual(printed.getvalue(), "")
         self.assertFalse((self.out / "short.png").exists())
 
+    def test_file_names_with_spaces_and_unicode_are_percent_encoded(self):
+        net.fetch(self.url("/files/Example logo.svg"))
+        net.fetch(self.url("/files/Caf\u00e9.svg?width=64&name=a b"))
+        net.fetch(self.url("/files/Already%20escaped.svg"))
+        self.assertEqual(
+            [seen["path"] for seen in SEEN],
+            ["/files/Example%20logo.svg", "/files/Caf%C3%A9.svg?width=64&name=a%20b", "/files/Already%20escaped.svg"],
+        )
+
     def test_deadline_covers_name_resolution(self):
         net._resolve = lambda host, port: time.sleep(3) or ["127.0.0.1"]
         started = time.monotonic()
@@ -280,7 +292,7 @@ class FetchTest(unittest.TestCase):
     def test_fetch_asset_failures_name_the_status_and_url_and_write_nothing(self):
         cases = {
             "/forbidden": r"HTTP 403 from http://127\.0\.0\.1:\d+/forbidden$",
-            "/page": r"content type text/html is not an image, PDF or font, from http://127\.0\.0\.1:\d+/page$",
+            "/page": r"HTTP 200, content type text/html is not an image, PDF or font, from http://127\.0\.0\.1:\d+/page$",
             "/fake-image": r"content type image/png is not an image, PDF or font",
         }
         for path, pattern in cases.items():
@@ -338,6 +350,18 @@ class HttpsDeadlineTest(unittest.TestCase):
         with self.assertRaisesRegex(net.FetchError, "CERTIFICATE_VERIFY_FAILED|certificate"):
             net._tls_context = self._context
             net.fetch(f"https://assets.test:{self.port}/logo.svg")
+
+    def test_https_deadline_covers_a_handshake_that_never_finishes(self):
+        silent = socket.socket()
+        silent.bind(("127.0.0.1", 0))
+        silent.listen(1)  # accepts the TCP connection in the kernel, never answers the TLS hello
+        try:
+            started = time.monotonic()
+            with self.assertRaisesRegex(net.FetchError, "timed out after 300 ms"):
+                net.fetch(f"https://assets.test:{silent.getsockname()[1]}/logo.svg", timeout_ms=300)
+            self.assertLess(time.monotonic() - started, 1.0)
+        finally:
+            silent.close()
 
     def test_https_deadline_holds_against_trickled_headers_body_and_chunks(self):
         for path in ("/trickle-headers", "/trickle-body", "/trickle-chunked"):

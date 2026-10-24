@@ -22,7 +22,7 @@ import ssl
 import threading
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Cuttlely-assets"
@@ -59,6 +59,7 @@ _BLOCKED_NETWORKS = [
         "fec0::/10",
         "ff00::/8",
         "fd00:ec2::254/128",
+        "64:ff9b:1::/48",  # local-use NAT64 (RFC 8215); Python 3.11 and 3.12 count it as global
     )
 ]
 
@@ -139,14 +140,16 @@ def _split(url):
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError:
         raise FetchError(f"fetch refused: bad port in {url}", url) from None
-    target = parts.path or "/"
+    # Spaces and non-ASCII characters (Commons file names such as "Example logo.svg" or "Café.svg") are
+    # percent-encoded; existing escapes and reserved characters are kept as they are.
+    target = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
     if parts.query:
-        target += "?" + parts.query
+        target += "?" + quote(parts.query, safe="/%:@!$&'()*+,;=-._~?")
     return parts.scheme, parts.hostname, port, target
 
 
 class _PinnedHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, host, port, address, timeout):
+    def __init__(self, host, port, address, timeout, deadline=None):
         super().__init__(host, port, timeout=timeout)
         self._address = address
 
@@ -159,16 +162,23 @@ def _tls_context():
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
-    def __init__(self, host, port, address, timeout):
+    def __init__(self, host, port, address, timeout, deadline=None):
         super().__init__(host, port, timeout=timeout, context=_tls_context())
         self._address = address
+        self._deadline = deadline
 
     def connect(self):
-        # raw_socket is what the deadline watchdog shuts down: the TCP socket during the handshake, then the TLS
-        # socket, because wrapping moves the connection out of the TCP socket object.
+        # raw_socket is what the deadline watchdog shuts down. The TLS socket is published before the handshake, so
+        # the watchdog can end a slow handshake too (wrapping moves the connection out of the TCP socket object).
         raw = self.raw_socket = socket.create_connection((self._address, self.port), self.timeout)
         # The certificate is checked against the host name, while the socket goes to the checked address.
-        self.sock = self.raw_socket = self._context.wrap_socket(raw, server_hostname=self.host)
+        wrapped = self._context.wrap_socket(raw, server_hostname=self.host, do_handshake_on_connect=False)
+        self.sock = self.raw_socket = wrapped
+        left = self._deadline - time.monotonic() if self._deadline else self.timeout
+        if left <= 0:
+            raise socket.timeout("deadline passed before the TLS handshake")
+        wrapped.settimeout(left)
+        wrapped.do_handshake()
 
 
 def _bounded(value, default, limit, name):
@@ -198,7 +208,7 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
         if remaining <= 0:
             raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current)
         connection_type = _PinnedHTTPSConnection if scheme == "https" else _PinnedHTTPConnection
-        connection = connection_type(host, port, address, remaining)
+        connection = connection_type(host, port, address, remaining, deadline)
         # Socket timeouts only bound each idle wait, so a peer trickling bytes could outlast them. At the deadline
         # this watchdog shuts the socket down, which ends any read in progress (headers, chunks or body).
         expired = threading.Event()
@@ -209,7 +219,8 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
             sock = getattr(connection, "raw_socket", None)
             if sock is not None:
                 try:
-                    sock.shutdown(socket.SHUT_RDWR)
+                    # The plain socket shutdown, so a TLS socket's state is not touched from this thread.
+                    socket.socket.shutdown(sock, socket.SHUT_RDWR)
                 except OSError:
                     pass
 
@@ -217,6 +228,9 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
         watchdog.daemon = True
         watchdog.start()
         try:
+            connection.connect()
+            if expired.is_set() or time.monotonic() >= deadline:
+                raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current)
             connection.request(
                 "GET",
                 target,
@@ -234,7 +248,7 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
             declared = response.getheader("Content-Length")
             if declared and declared.isdigit() and int(declared) > max_bytes:
                 raise FetchError(
-                    f"fetch failed: {declared} bytes is over the {max_bytes} byte cap, at {current}", current, status
+                    f"fetch failed: HTTP {status}, {declared} bytes is over the {max_bytes} byte cap, at {current}", current, status
                 )
             body = bytearray()
             while True:
@@ -249,12 +263,12 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
                     break
                 body.extend(chunk)
                 if len(body) > max_bytes:
-                    raise FetchError(f"fetch failed: body is over the {max_bytes} byte cap, at {current}", current, status)
+                    raise FetchError(f"fetch failed: HTTP {status}, body is over the {max_bytes} byte cap, at {current}", current, status)
             if expired.is_set():
                 raise FetchError(f"fetch failed: timed out after {timeout_ms} ms at {current}", current, status)
             if declared and declared.isdigit() and len(body) != int(declared):
                 raise FetchError(
-                    f"fetch failed: connection closed after {len(body)} of {declared} bytes, at {current}", current, status
+                    f"fetch failed: HTTP {status}, connection closed after {len(body)} of {declared} bytes, at {current}", current, status
                 )
             return {"status": status, "contentType": content_type, "bytes": bytes(body), "finalUrl": current}
         except FetchError:
@@ -288,10 +302,10 @@ def fetch_asset(url, path, max_bytes=None, timeout_ms=None, types=ASSET_TYPES):
     data = result["bytes"]
     kind = result["contentType"]
     if not data:
-        raise FetchError(f"fetch_asset failed: empty body from {final}", final, result["status"])
+        raise FetchError(f"fetch_asset failed: HTTP {result['status']}, empty body from {final}", final, result["status"])
     if not kind.startswith(tuple(types)) or _looks_like_html(data):
         raise FetchError(
-            f"fetch_asset failed: content type {kind or 'missing'} is not an image, PDF or font, from {final}",
+            f"fetch_asset failed: HTTP {result['status']}, content type {kind or 'missing'} is not an image, PDF or font, from {final}",
             final,
             result["status"],
         )

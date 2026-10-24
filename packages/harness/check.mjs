@@ -651,6 +651,18 @@ const recoveredTools = settleToolChips([
                 preview: '{"status": "success", "data": {"exit_code": 1}}'
             }) &&
             !hermesToolFailed({ event: 'tool.completed', tool: 'web_extract', preview: '{"status": "error", "exit_code": 1}' }) &&
+            hermesToolFailed({
+                event: 'tool.completed',
+                tool: 'execute_code',
+                preview: '{"data": {}, "status": "error", "exit_code": 1}'
+            }) &&
+            // A cut error preview (head ... tail) is not JSON; a non-zero exit code as its last top-level field counts.
+            hermesToolFailed({ event: 'tool.completed', tool: 'terminal', preview: '{"output": "a\\u12 ... b", "exit_code": 2}' }) &&
+            !hermesToolFailed({
+                event: 'tool.completed',
+                tool: 'terminal',
+                preview: '{"output": "xxxx ... yyyy", "data": {"exit_code": 2}}'
+            }) &&
             !hermesToolFailed({ event: 'tool.started', preview: '{"status": "error"}' }) &&
             hermesToolEvent('assets', { event: 'tool.failed', tool_name: 'execute_code' }).error === true &&
             hermesToolEvent('assets', { event: 'message.delta', delta: 'x' }) === null &&
