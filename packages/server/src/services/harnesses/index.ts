@@ -329,22 +329,27 @@ export async function recompileBeforeHermes(gateway: {
         release()
         throw error
     }
-    let results: Array<{ name: string; status: string; loadable?: string[] }> = []
     try {
-        results = await recompileOutdatedHarnessProfiles()
+        await recompileOutdatedHarnessProfiles()
     } catch (error) {
         logger.error(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
     }
-    // A profile that fails to compile has its config.yaml set aside (profile.mjs). When one could not be moved, Hermes
-    // would load a stale or half-written config, so health stays at 503 and Hermes does not start.
-    const loadable = results.filter((result) => result.loadable?.length)
+    // Whatever failed above, no config.yaml from an older compiler or a half-written one may stay where Hermes loads
+    // it: they are set aside, and if one cannot be (or the profiles cannot be read), health stays at 503 so Hermes
+    // does not start on it.
+    let loadable: string[]
+    try {
+        const profile = await loadHarness('profile.mjs')
+        loadable = await withProfileLock(async () => profile.setAsideOutdatedConfigs())
+    } catch (error) {
+        logger.error(`[harness] Hermes is not started: profiles could not be checked for an older compiler: ${getErrorMessage(error)}`)
+        return
+    }
     if (loadable.length) {
         logger.error(
-            `[harness] Hermes is not started: ${loadable
-                .map((result) => result.name)
-                .join(', ')} failed to compile and its config.yaml could not be set aside (${loadable
-                .flatMap((result) => result.loadable || [])
-                .join(', ')}). Fix the profile directory and restart.`
+            `[harness] Hermes is not started: config.yaml from an older compiler could not be set aside in ${loadable.join(
+                ', '
+            )}. Fix those profile folders and restart.`
         )
         return
     }
@@ -354,9 +359,7 @@ export async function recompileBeforeHermes(gateway: {
 // Each record is read again and compiled under its name lock and the profile lock (the order saves use), so a save,
 // sync or delete that ran while this waited is what gets compiled, or the deleted record is skipped. One failure
 // is logged and the rest still run.
-export async function recompileOutdatedHarnessProfiles(): Promise<
-    Array<{ name: string; status: string; error?: string; loadable?: string[] }>
-> {
+export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
     const [profile, store] = await Promise.all([loadHarness('profile.mjs'), loadHarness('store.mjs')])
     let names: string[]
     try {
@@ -365,7 +368,7 @@ export async function recompileOutdatedHarnessProfiles(): Promise<
         logger.warn(`[harness] profiles were not checked for an older compiler: ${getErrorMessage(error)}`)
         return []
     }
-    const results: Array<{ name: string; status: string; error?: string; loadable?: string[] }> = []
+    const results: Array<{ name: string; status: string; error?: string }> = []
     for (const name of names) {
         // Compiling is synchronous file work: a turn of the event loop between records lets /health answer its 503.
         // A timer, not setImmediate: the loop then passes the poll phase, where a waiting HTTP request is read.

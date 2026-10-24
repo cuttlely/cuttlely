@@ -13,7 +13,7 @@ describe('harness runtime start', () => {
     const order: string[] = []
     let saved: Map<string, { name: string; version: number }>
     let failFor = ''
-    let stuck = ''
+    let sweep = ''
     let holds = 0
     let unreadable = ''
     let busyMs = 0
@@ -27,7 +27,7 @@ describe('harness runtime start', () => {
         unreadable = ''
         busyMs = 0
         failFor = ''
-        stuck = ''
+        sweep = ''
         holds = 0
         setHarnessModuleLoader(async (file: string) => {
             if (file === 'run.mjs') return { configureHarnessRuntime: () => order.push('configure') }
@@ -57,6 +57,11 @@ describe('harness runtime start', () => {
             }
             if (file === 'profile.mjs') {
                 return {
+                    setAsideOutdatedConfigs: () => {
+                        order.push(`set aside holds ${holds}`)
+                        if (sweep === 'throw') throw new Error('EACCES')
+                        return sweep === 'stuck' ? ['/p/ops'] : []
+                    },
                     recompileOutdatedProfiles: (list: Array<{ name: string; version: number }>) =>
                         list.map((record) => {
                             order.push(`recompile ${record.name} v${record.version} holds ${holds}`)
@@ -65,8 +70,6 @@ describe('harness runtime start', () => {
                             while (Date.now() < until) {
                                 // busy
                             }
-                            if (record.name === stuck)
-                                return { name: record.name, status: 'failed', error: 'boom', loadable: ['/p/' + record.name] }
                             return record.name === failFor
                                 ? { name: record.name, status: 'failed', error: 'boom' }
                                 : { name: record.name, status: 'recompiled' }
@@ -104,6 +107,7 @@ describe('harness runtime start', () => {
             'lock released',
             'recompile navi v1 holds 1',
             'recompile ops v1 holds 1',
+            'set aside holds 1',
             'release health',
             'boot done',
             'sweep'
@@ -168,6 +172,7 @@ describe('harness runtime start', () => {
             'recompile navi v1 holds 1',
             'health probe holds 1',
             'recompile ops v1 holds 1',
+            'set aside holds 1',
             'release health'
         ])
     })
@@ -187,20 +192,24 @@ describe('harness runtime start', () => {
         expect(order).toEqual(['boot done'])
     })
 
-    test('a failed compile whose config could not be set aside keeps health held, so Hermes does not start', async () => {
-        stuck = 'ops'
-        let released = false
-        let booted = false
-        await recompileBeforeHermes({
-            holdGatewayHealth: () => () => (released = true),
-            finishGatewayBoot: () => (booted = true),
-            startGateway: async () => undefined
-        })
-        expect(released).toBe(false)
-        expect(booted).toBe(false)
-    })
+    test.each(['stuck', 'throw'])(
+        'a stale config that cannot be set aside (%s) keeps health held, so Hermes does not start',
+        async (mode) => {
+            sweep = mode
+            let released = false
+            let booted = false
+            await recompileBeforeHermes({
+                holdGatewayHealth: () => () => (released = true),
+                finishGatewayBoot: () => (booted = true),
+                startGateway: async () => undefined
+            })
+            expect(released).toBe(false)
+            expect(booted).toBe(false)
+            expect(order[order.length - 1]).toBe('set aside holds 0')
+        }
+    )
 
-    test('a failed compile whose config was set aside still releases health', async () => {
+    test('a failed compile still releases health once the sweep finds nothing loadable', async () => {
         failFor = 'ops'
         let released = false
         await recompileBeforeHermes({
@@ -209,6 +218,7 @@ describe('harness runtime start', () => {
             startGateway: async () => undefined
         })
         expect(released).toBe(true)
+        expect(order).toContain('set aside holds 0')
     })
 
     test('one failed recompile is reported and the rest still run', async () => {

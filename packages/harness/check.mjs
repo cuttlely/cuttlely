@@ -47,6 +47,7 @@ const {
     discardTryProfile,
     PROFILE_COMPILER_VERSION,
     recompileOutdatedProfiles,
+    setAsideOutdatedConfigs,
     hermesToolsetsFor,
     mcpValidatorPath,
     modelConfigured,
@@ -7137,28 +7138,64 @@ await expectCase('a specialist a failed compile adds has its config set aside to
         },
         { overwrite: true }
     )
-    // The new specialist's version file cannot be written: its config.yaml is, and then the compile stops.
+    // The new specialist's version file, its last write, fails: its config.yaml is written, then the compile stops.
     const blocked = profileFile('magrowchief--gamma', 'harness-compiler')
-    fs.mkdirSync(blocked, { recursive: true })
-    fs.writeFileSync(profileFile('magrowchief--gamma', 'harness-parent'), 'magrowchief\n')
+    const writeFileSync = fs.writeFileSync
+    fs.writeFileSync = (file, ...rest) => {
+        if (String(file) === blocked) throw new Error('disk full')
+        return writeFileSync(file, ...rest)
+    }
     let threw = false
     try {
         compileProfile(grown)
     } catch {
         threw = true
+    } finally {
+        fs.writeFileSync = writeFileSync
     }
     const added = fs
         .readdirSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles'))
         .filter((entry) => entry.startsWith('magrowchief--') && entry.includes('gamma'))
     const addedLoadable = added.filter((entry) => fs.existsSync(profileFile(entry, 'config.yaml')))
     const parentLoadable = fs.existsSync(profileFile('magrowchief', 'config.yaml'))
+    const addedAside = fs.existsSync(profileFile('magrowchief--gamma', 'config.yaml.outdated'))
     fs.rmSync(blocked, { recursive: true, force: true })
     const repaired = recompileOutdatedProfiles([grown], { log: {} })
     check(
         'a specialist a failed compile adds has its config set aside too',
-        threw && added.length === 1 && addedLoadable.length === 0 && !parentLoadable && repaired[0]?.status === 'recompiled',
-        JSON.stringify({ threw, added, addedLoadable, parentLoadable, repaired })
+        threw && added.length === 1 && addedLoadable.length === 0 && addedAside && !parentLoadable && repaired[0]?.status === 'recompiled',
+        JSON.stringify({ threw, added, addedLoadable, addedAside, parentLoadable, repaired })
     )
+})
+
+await expectCase('the boot sweep sets aside every older harness config and leaves other Hermes profiles', async () => {
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const make = (name, files) => {
+        fs.mkdirSync(path.join(root, name), { recursive: true })
+        for (const [file, text] of Object.entries(files)) fs.writeFileSync(path.join(root, name, file), text)
+    }
+    // An older parent no record compiled again (its name held by another harness, or its record unreadable),
+    // an older specialist, a current one, and a Hermes profile this app never wrote.
+    make('masweepold', { 'config.yaml': 'old\n', 'harness-roster.json': '{"name":"masweepold","specialists":[]}' })
+    make('masweepold--alpha', { 'config.yaml': 'old\n', 'harness-parent': 'masweepold\n' })
+    make('masweepnew', { 'config.yaml': 'new\n', 'harness-roster.json': '{}', 'harness-compiler': `${PROFILE_COMPILER_VERSION}\n` })
+    make('maownprofile', { 'config.yaml': 'mine\n' })
+    const loadable = setAsideOutdatedConfigs()
+    const has = (name, file) => fs.existsSync(path.join(root, name, file))
+    const second = setAsideOutdatedConfigs()
+    check(
+        'the boot sweep sets aside every older harness config and leaves other Hermes profiles',
+        loadable.length === 0 &&
+            second.length === 0 &&
+            !has('masweepold', 'config.yaml') &&
+            has('masweepold', 'config.yaml.outdated') &&
+            !has('masweepold--alpha', 'config.yaml') &&
+            has('masweepnew', 'config.yaml') &&
+            has('maownprofile', 'config.yaml'),
+        JSON.stringify({ loadable, second })
+    )
+    for (const name of ['masweepold', 'masweepold--alpha', 'masweepnew', 'maownprofile'])
+        fs.rmSync(path.join(root, name), { recursive: true, force: true })
 })
 
 await expectCase('a profile with the current compiler version keeps its files at boot', async () => {

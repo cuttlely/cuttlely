@@ -879,30 +879,66 @@ export function profileDestinationConflicts(record, profileName = record?.name) 
     return conflicts
 }
 
-// After a failed compile (at boot, in warm-up or on a chat), each of the harness's profile directories without the
-// current compiler version has its config.yaml moved to config.yaml.outdated, so Hermes never loads a config from an
-// older compiler or one written partway. Specialists are found by their harness-parent marker, written before their
-// config, so one added by this compile is covered too. The missing version keeps the profile outdated, so the next
-// compile writes it again. Returns the directories whose config could not be moved and is still loadable.
+// A harness profile directory: a parent holds harness-roster.json, a specialist its harness-parent marker. Compilers
+// before the version marker wrote both, so this finds their profiles too, and leaves Hermes profiles of other origin.
+function harnessOwnedDir(dir) {
+    return fs.existsSync(path.join(dir, 'harness-roster.json')) || fs.existsSync(path.join(dir, 'harness-parent'))
+}
+
+// Moves config.yaml to config.yaml.outdated in a directory without the current compiler version, so Hermes does not
+// load a config from an older compiler or one written partway. The missing version keeps the profile outdated, so
+// the next compile (boot, or a chat, which compiles when config.yaml is missing) writes it again. Returns false when
+// a config is still there.
+function setAsideConfig(dir) {
+    const config = path.join(dir, 'config.yaml')
+    try {
+        if (!fs.existsSync(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) return true
+        fs.rmSync(config + '.outdated', { recursive: true, force: true })
+        fs.renameSync(config, config + '.outdated')
+        return true
+    } catch {
+        return !fs.existsSync(config)
+    }
+}
+
+// After any failed compile (boot, warm-up or a chat): the parent and every directory whose harness-parent names it,
+// including a specialist this compile just added. Best effort; the boot pass ends with setAsideOutdatedConfigs.
 function setAsideUnfinishedConfigs(profileName) {
+    setAsideConfig(profileDir(profileName))
     const root = path.join(hermesHome(), 'profiles')
-    const dirs = [profileDir(profileName)]
-    if (fs.existsSync(root)) {
-        for (const entry of fs.readdirSync(root)) {
-            const dir = path.join(root, entry)
-            if (readMarker(path.join(dir, 'harness-parent')) === String(profileName)) dirs.push(dir)
+    let entries = []
+    try {
+        entries = fs.existsSync(root) ? fs.readdirSync(root) : []
+    } catch {
+        return
+    }
+    for (const entry of entries) {
+        const dir = path.join(root, entry)
+        try {
+            if (readMarker(path.join(dir, 'harness-parent')) === String(profileName)) setAsideConfig(dir)
+        } catch {
+            // The boot sweep checks every directory again.
         }
     }
+}
+
+// The last step of the boot pass, under the profile lock: every harness profile directory whose config.yaml is not
+// from the current compiler, whatever failed (a record that would not read, a name another harness holds, a store
+// that would not list), has that config set aside. Returns the directories where a config could not be moved or
+// checked; the caller keeps Hermes waiting while there are any. Throws when the profiles folder cannot be read.
+export function setAsideOutdatedConfigs() {
+    const root = path.join(hermesHome(), 'profiles')
+    if (!fs.existsSync(root)) return []
     const loadable = []
-    for (const dir of dirs) {
-        const config = path.join(dir, 'config.yaml')
+    for (const entry of fs.readdirSync(root)) {
+        const dir = path.join(root, entry)
+        let owned
         try {
-            if (!fs.existsSync(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) continue
-            fs.rmSync(config + '.outdated', { recursive: true, force: true })
-            fs.renameSync(config, config + '.outdated')
+            owned = harnessOwnedDir(dir)
         } catch {
-            if (fs.existsSync(config)) loadable.push(dir)
+            owned = true
         }
+        if (owned && !setAsideConfig(dir)) loadable.push(dir)
     }
     return loadable
 }
@@ -912,10 +948,7 @@ export function compileProfile(record, options = {}) {
         return compileProfileFiles(record, options)
     } catch (error) {
         // A name taken by another harness is refused before anything is written; those directories are not ours.
-        if (!options.tryProfile && error?.code !== 'name_taken') {
-            const loadable = setAsideUnfinishedConfigs(options.profileName || record.name)
-            if (loadable.length && error && typeof error === 'object') error.configsLoadable = loadable
-        }
+        if (!options.tryProfile && error?.code !== 'name_taken') setAsideUnfinishedConfigs(options.profileName || record.name)
         throw error
     }
 }
@@ -1397,9 +1430,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
             forgetCompiledProfile(record.name)
             results.push({ name: record.name, status: 'recompiled' })
         } catch (error) {
-            // compileProfile has set the unfinished configs aside; loadable lists any it could not move.
-            const loadable = error?.configsLoadable || []
-            results.push({ name: record.name, status: 'failed', error: error.message, ...(loadable.length ? { loadable } : {}) })
+            results.push({ name: record.name, status: 'failed', error: error.message })
         }
     }
     const failed = results.filter((result) => result.status === 'failed')
