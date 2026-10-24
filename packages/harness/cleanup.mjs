@@ -439,10 +439,12 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     }
     // The sweep removes only what is older than the cutoff, checked before anything is touched.
     const kept = []
+    // Folders of another, saved harness: never touched, and not counted as left over for this one.
+    const claimed = []
     const before = savedNames()
     entries = entries.filter((entry) => {
         if (!claimedBySaved(entry, before)) return true
-        kept.push(entry)
+        claimed.push(entry)
         cleanupHooks.log(`[harness] kept profiles/${entry}: a saved harness has this name`)
         return false
     })
@@ -482,7 +484,7 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
     for (const entry of entries) {
         const owner = profileOwner(entry)
         if (claimedBySaved(entry, after)) {
-            kept.push(entry)
+            claimed.push(entry)
             cleanupHooks.log(`[harness] kept profiles/${entry}: a saved harness has this name`)
             continue
         }
@@ -513,7 +515,7 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
         removeTrashEntry(id, item, { minAgeMs, now })
     }
     forgetCompiledProfile(id)
-    return { removed, kept, error: null }
+    return { removed, kept, claimed, error: null }
 }
 
 // Revokes the gateway tokens of a harness and its profiles. Throws when that fails.
@@ -592,7 +594,8 @@ export async function sweepOrphanHarnessProfiles({ mode = orphanSweepMode(), now
     const groups = new Map()
     for (const entry of fs.readdirSync(root).sort()) {
         const owner = profileOwner(entry)
-        if (!owner || stillSaved(owner.id, saved)) continue
+        // Dry run and delete agree: a folder of a saved harness is not an orphan, whatever its marker says.
+        if (!owner || stillSaved(owner.id, saved) || claimedBySaved(entry, saved)) continue
         let valid = true
         try {
             assertHarnessName(owner.id)

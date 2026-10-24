@@ -34,6 +34,7 @@ let cleaned: string[]
 let failCleanup = false
 let reopened: string[] = []
 let duringCleanup: ((name: string) => Promise<void>) | null = null
+let keptProfiles: string[] = []
 
 const fileOf = (name: string) => path.join(storeDir, `${name}.json`)
 const has = (name: string) => fs.existsSync(fileOf(name))
@@ -58,6 +59,7 @@ const fakeModules = (file: string) => {
                 if (failCleanup) throw new Error('revoke failed')
                 cleaned.push(name)
                 fs.rmSync(fileOf(name), { force: true })
+                if (duringCleanup) await duringCleanup(name)
             },
             reopenHarness: (name: string) => reopened.push(name),
             revokeHarness: (name: string) => {
@@ -66,7 +68,7 @@ const fakeModules = (file: string) => {
             removeHarnessProfiles: async (name: string) => {
                 if (duringCleanup) await duringCleanup(name)
                 cleaned.push(name)
-                return { removed: [], kept: [], error: null }
+                return { removed: [], kept: keptProfiles, error: null }
             },
             sweepOrphanHarnessProfiles: async () => ({ mode: 'log', orphans: [], removed: [], skipped: [] })
         })
@@ -102,6 +104,7 @@ beforeEach(() => {
     reopened = []
     failCleanup = false
     duringCleanup = null
+    keptProfiles = []
     write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
     write({ name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
@@ -338,6 +341,51 @@ describe('a reused name never sees an earlier harness data', () => {
         expect(has('navi')).toBe(true)
         expect(schedules.has('navi')).toBe(true)
         expect(runRows.filter((row) => row.harness === 'navi')).toHaveLength(2)
+    })
+
+    it('a card delete leaves a replacement saved while the cascade cleaned up', async () => {
+        duringCleanup = async () => {
+            write({ name: 'navi', workspaceId: 'team-b', specialists: [{ name: 'other' }] })
+            runRows.push({ table: 'run_history', harness: 'navi' })
+        }
+        await harnessesService.deleteHarness('navi', TEAM)
+        expect(JSON.parse(fs.readFileSync(fileOf('navi'), 'utf8'))).toMatchObject({ workspaceId: 'team-b' })
+        expect(runRows.some((row) => row.harness === 'navi')).toBe(true)
+    })
+
+    it('a direct delete keeps the runs of a record saved while the runtime shut down', async () => {
+        duringCleanup = async () => {
+            write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'other' }] })
+        }
+        await harnessesService.deleteHarness('NAVI-B', TEAM)
+        expect(has('NAVI-B')).toBe(true)
+        expect(runRows.filter((row) => row.harness === 'NAVI-B')).toHaveLength(2)
+    })
+
+    it('a direct delete holds the name lock until its cleanup is done', async () => {
+        const order: string[] = []
+        let sync: Promise<void> | undefined
+        duringCleanup = async () => {
+            sync = harnessesService.withNameLock('NAVI-B', async () => {
+                order.push('sync')
+            })
+            await new Promise((resolve) => setImmediate(resolve))
+            order.push('cleanup')
+        }
+        await harnessesService.deleteHarness('NAVI-B', TEAM)
+        order.push('delete done')
+        await sync
+        expect(order).toEqual(['cleanup', 'delete done', 'sync'])
+    })
+
+    it('refuses a new harness under a name whose old profiles could not be removed', async () => {
+        keptProfiles = ['fresh-name--a']
+        await expect(harnessesService.assertNameAvailable('fresh-name', TEAM, { claiming: true })).rejects.toMatchObject({
+            statusCode: 503
+        })
+        keptProfiles = []
+        await harnessesService.assertNameAvailable('fresh-name', TEAM, { claiming: true })
+        expect(cleaned).toEqual(['fresh-name', 'fresh-name'])
     })
 
     it('a sync that reaches the name check while a delete is staged is refused', async () => {

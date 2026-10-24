@@ -9,7 +9,7 @@ import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
-import { dataRoot, repoRoot, hermesHome, profileDir } from './paths.mjs'
+import { dataRoot, harnessStoreDir, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
 import { installPresetKit, presetInstructions, presetSummary } from './presets.mjs'
@@ -817,6 +817,8 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
         const marker = path.join(dir, 'harness-parent')
         if (!fs.existsSync(marker)) continue
         if (fs.readFileSync(marker, 'utf8').trim() !== parent) continue
+        // A folder that is a harness home, or is named after a saved harness, is not a retired specialist.
+        if (fs.existsSync(path.join(dir, 'harness-roster.json')) || fs.existsSync(path.join(harnessStoreDir(), `${entry}.json`))) continue
         const retired = readEnvFile(path.join(dir, '.env'))
         forgetProfileToken(retired.OPENAI_API_KEY)
         fs.rmSync(dir, { recursive: true, force: true })

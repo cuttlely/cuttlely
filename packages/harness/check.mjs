@@ -16296,7 +16296,20 @@ await (async () => {
     fs.writeFileSync(path.join(profilesDir, 'bakery--writer', 'harness-parent'), 'bakery\n')
     saveJson('bakery--writer')
     dropJson('bakery')
-    await cleanup.deleteHarnessAndProfiles('bakery')
+    age(path.join(profilesDir, 'bakery--writer'))
+    const bakeryDry = await cleanup.sweepOrphanHarnessProfiles({ mode: 'log' })
+    check(
+        'the dry run does not list folders that belong to a saved harness',
+        bakeryDry.orphans.some((item) => item.entry === 'bakery--a') &&
+            !bakeryDry.orphans.some((item) => item.entry === 'bakery--reader' || item.entry === 'bakery--writer'),
+        JSON.stringify(bakeryDry.orphans)
+    )
+    const bakeryOutcome = await cleanup.deleteHarnessAndProfiles('bakery')
+    check(
+        'folders of a saved harness are not reported as left over',
+        bakeryOutcome.kept.length === 0 && !bakeryOutcome.removed.includes('bakery--reader'),
+        JSON.stringify(bakeryOutcome)
+    )
     check(
         'deleting a harness never revokes or removes a folder that belongs to a saved harness',
         !exists('bakery') &&
@@ -16360,6 +16373,9 @@ await (async () => {
             ]
         }
         saveHarness(record, { overwrite: true })
+        // A saved harness named like a specialist of this one, with a stale marker, survives the compile.
+        saveJson('resaved--other')
+        child('resaved--other', 'resaved')
         cleanup.revokeHarness('resaved')
         compileProfileCached(getHarness('resaved'))
         const during = readProfileEnv('resaved--reader').OPENAI_API_KEY
@@ -16369,7 +16385,7 @@ await (async () => {
         const after = readProfileEnv('resaved--reader').OPENAI_API_KEY
         check(
             'a harness saved during its delete gets working gateway tokens on its next run',
-            deadDuring && gw.profileTokenKnown(after),
+            deadDuring && gw.profileTokenKnown(after) && exists('resaved--other'),
             JSON.stringify({
                 deadDuring,
                 during: Boolean(during),
@@ -16379,6 +16395,9 @@ await (async () => {
             })
         )
         gw.forgetProfileToken(after)
+        dropJson('resaved--other')
+        fs.rmSync(path.join(profilesDir, 'resaved--other'), { recursive: true, force: true })
+        fs.rmSync(path.join(workDir, 'resaved--other'), { recursive: true, force: true })
         dropJson('resaved')
         await cleanup.removeHarnessProfiles('resaved')
     }
