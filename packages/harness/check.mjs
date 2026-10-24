@@ -7532,6 +7532,73 @@ await expectCase(
     }
 )
 
+await expectCase('A4 a cache hit refuses a profile folder swapped for a symlink without clearing the cache', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const name = 'macacheswap'
+    const record = saveHarness(
+        {
+            name,
+            chatflowId: 'canvas-cache-swap',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
+        },
+        { overwrite: true }
+    )
+    const first = compileProfileCached(record)
+    const again = compileProfileCached(getHarness(name))
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const profilePath = path.join(root, name)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+    fs.cpSync(profilePath, outside, { recursive: true })
+    fs.writeFileSync(path.join(outside, 'sentinel'), 'cache-swap-sentinel')
+    const sent = fs.statSync(path.join(outside, 'sentinel'))
+    const before = fs.readdirSync(outside).sort()
+    const beforeConfig = fs.readFileSync(path.join(outside, 'config.yaml'))
+    fs.rmSync(profilePath, { recursive: true, force: true })
+    fs.symlinkSync(outside, profilePath)
+    let refused = ''
+    let returnedCache = false
+    try {
+        const third = compileProfileCached(getHarness(name))
+        returnedCache = third === first
+    } catch (error) {
+        refused = error?.code || ''
+    }
+    const after = fs.readdirSync(outside).sort()
+    const sentinel = fs.statSync(path.join(outside, 'sentinel'))
+    const linkGone = !fs.lstatSync(profilePath, { throwIfNoEntry: false })
+    const quarantined = fs.readdirSync(root).some((entry) => entry.startsWith(`${name}.quarantine`))
+    check(
+        'A4 a cache hit refuses a profile folder swapped for a symlink without clearing the cache',
+        again === first &&
+            refused === 'profile_link' &&
+            !returnedCache &&
+            before.join('\n') === after.join('\n') &&
+            fs.readFileSync(path.join(outside, 'config.yaml')).equals(beforeConfig) &&
+            fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'cache-swap-sentinel' &&
+            sentinel.mtimeMs === sent.mtimeMs &&
+            linkGone &&
+            quarantined,
+        JSON.stringify({
+            cacheHit: again === first,
+            refused,
+            returnedCache,
+            sameList: before.join('\n') === after.join('\n'),
+            linkGone,
+            quarantined
+        })
+    )
+    forgetCompiledProfile(name)
+    fs.rmSync(profilePath, { force: true })
+    for (const entry of fs.readdirSync(root)) {
+        if (entry === name || entry.startsWith(`${name}.quarantine`) || entry.startsWith(`${name}--`)) {
+            fs.rmSync(path.join(root, entry), { recursive: true, force: true })
+        }
+    }
+    fs.rmSync(outside, { recursive: true, force: true })
+})
+
 await expectCase('a compile refuses a symlink on each path it would write', async () => {
     const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
     const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]

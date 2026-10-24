@@ -1944,12 +1944,70 @@ export function forgetCompiledProfile(name) {
     compiledProfiles.delete(name)
 }
 
+// The profile directory and each parent, from the profiles root down. lstat does not follow a final symlink.
+// dev and ino are what a later cache hit compares, so a directory swapped for a link is not a hit.
+function profileDirectoryChain(dir) {
+    let root
+    try {
+        root = rootFor(dir)
+    } catch {
+        return null
+    }
+    const rel = path.relative(path.resolve(root), path.resolve(dir))
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+    const paths = [path.resolve(root)]
+    let cursor = paths[0]
+    for (const part of rel.split(path.sep)) {
+        if (!part || part === '.' || part === '..') return null
+        cursor = path.join(cursor, part)
+        paths.push(cursor)
+    }
+    const chain = []
+    for (const entry of paths) {
+        let stat
+        try {
+            stat = fs.lstatSync(entry)
+        } catch {
+            return null
+        }
+        if (stat.isSymbolicLink() || !stat.isDirectory()) return null
+        chain.push({ path: entry, dev: stat.dev, ino: stat.ino })
+    }
+    return chain
+}
+
+function profileDirectoryChainHeld(chain) {
+    if (!Array.isArray(chain) || chain.length === 0) return false
+    for (const entry of chain) {
+        let stat
+        try {
+            stat = fs.lstatSync(entry.path)
+        } catch {
+            return false
+        }
+        if (stat.isSymbolicLink() || stat.dev !== entry.dev || stat.ino !== entry.ino) return false
+    }
+    return true
+}
+
+// A symlink named config.yaml must not count as the compiled file. existsSync would follow it.
+function cachedConfigPresent(dir) {
+    try {
+        return fs.lstatSync(path.join(dir, 'config.yaml')).isFile()
+    } catch {
+        return false
+    }
+}
+
 export function compileProfileCached(record) {
     const key = [hermesHome(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
     const cached = compiledProfiles.get(record.name)
-    if (cached?.key === key && fs.existsSync(path.join(cached.compiled.dir, 'config.yaml'))) return cached.compiled
+    if (cached?.key === key && profileDirectoryChainHeld(cached.chain) && cachedConfigPresent(cached.compiled.dir)) {
+        return cached.compiled
+    }
+    if (cached) compiledProfiles.delete(record.name)
     const compiled = compileProfile(record)
-    compiledProfiles.set(record.name, { key, compiled })
+    compiledProfiles.set(record.name, { key, compiled, chain: profileDirectoryChain(compiled.dir) })
     return compiled
 }
 
