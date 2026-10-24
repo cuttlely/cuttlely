@@ -513,7 +513,13 @@ function issueSpecialistToken(record, specialist, profileName, tryProfile) {
     const base = gatewayUrl()
     const previous = readEnvFile(profileEnvPath(specialist.profileName))
     const sameBase = String(previous.OPENAI_BASE_URL || '').replace(/\/$/, '') === base.replace(/\/$/, '')
-    const reusable = sameBase && previous.CUTTLELY_MODEL_KEY === key && /^[A-Za-z0-9_-]{43}$/.test(previous.OPENAI_API_KEY || '')
+    // A published token is reused only for the record it was issued for: a profile left by an earlier harness under
+    // the name (another createdAt, or none) gets a fresh token, so a bearer refused at startup never comes back.
+    const sameRecord = tryProfile
+        ? previous.CUTTLELY_GATEWAY_TRY === '1'
+        : Boolean(record?.createdAt) && previous.CUTTLELY_GATEWAY_CREATED === String(record.createdAt)
+    const reusable =
+        sameBase && sameRecord && previous.CUTTLELY_MODEL_KEY === key && /^[A-Za-z0-9_-]{43}$/.test(previous.OPENAI_API_KEY || '')
     const token = reusable ? previous.OPENAI_API_KEY : crypto.randomBytes(32).toString('base64url')
     registerProfileToken({
         token,

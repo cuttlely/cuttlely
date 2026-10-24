@@ -76,6 +76,8 @@ const closingHarnesses = new Set()
 
 // Between closeHarnessTokens and reopenHarnessTokens no published token of that exact harness name is registered.
 export function closeHarnessTokens(harnessName) {
+    // Tokens on disk are loaded first, so the revocation that follows reaches them and a later lazy load cannot.
+    loadTokensOnce()
     if (harnessName) closingHarnesses.add(String(harnessName))
 }
 
@@ -115,6 +117,7 @@ export function forgetProfileToken(token) {
 
 // Every published (not try) token of this exact harness name, and every token of the listed profile directories.
 export function revokeHarnessTokens(harnessName, profileNames = [], { harnessWide = true } = {}) {
+    loadTokensOnce()
     const name = harnessWide ? String(harnessName || '') : ''
     const directories = new Set(profileNames)
     for (const [token, meta] of [...tokens]) {
@@ -342,6 +345,8 @@ function ingestProfileTokens(abandoned = new Set()) {
         if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
         // A published token of a deleted harness stays revoked across restarts, even if its profile is still on disk.
         if (env.CUTTLELY_GATEWAY_TRY !== '1' && !harnessSaved(harnessName)) continue
+        // A harness being deleted gets no published token back from disk either.
+        if (env.CUTTLELY_GATEWAY_TRY !== '1' && closingHarnesses.has(harnessName)) continue
         // A published token was issued for one saved record. A harness saved again under the name since (another
         // createdAt, or none recorded) gets fresh tokens when it next compiles, never this one.
         if (env.CUTTLELY_GATEWAY_TRY !== '1' && !issuedForSavedRecord(harnessName, env.CUTTLELY_GATEWAY_CREATED)) continue

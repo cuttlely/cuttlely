@@ -16849,6 +16849,62 @@ await (async () => {
         await cleanup.removeHarnessProfiles('resaved')
     }
 
+    // A profile left with a token issued for an earlier record under the name gets a fresh token when the saved record
+    // compiles; the same record compiling again keeps its own. A harness being deleted gets no token back from disk.
+    {
+        const gw = await import('./gateway.mjs')
+        const record = {
+            name: 'reborn',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [
+                {
+                    name: 'reader',
+                    instructions: 'Read.',
+                    shell: true,
+                    browser: false,
+                    codeExecution: false,
+                    fileAccess: false,
+                    model: nodeModel('scriptedChat'),
+                    modules: [],
+                    mcpServers: []
+                }
+            ]
+        }
+        saveHarness(record, { overwrite: true })
+        compileProfile(getHarness('reborn'))
+        const first = readProfileEnv('reborn--reader').OPENAI_API_KEY
+        compileProfile(getHarness('reborn'))
+        const again = readProfileEnv('reborn--reader').OPENAI_API_KEY
+        const envFile = path.join(profilesDir, 'reborn--reader', '.env')
+        fs.writeFileSync(
+            envFile,
+            fs.readFileSync(envFile, 'utf8').replace(/^CUTTLELY_GATEWAY_CREATED=.*$/m, 'CUTTLELY_GATEWAY_CREATED=2020-01-01T00:00:00.000Z')
+        )
+        gw.forgetProfileToken(again)
+        compileProfile(getHarness('reborn'))
+        const fresh = readProfileEnv('reborn--reader').OPENAI_API_KEY
+        check(
+            'a token issued for an earlier record under the name is not reused when the saved record compiles',
+            first === again && fresh !== again && !gw.profileTokenKnown(again) && gw.profileTokenKnown(fresh),
+            JSON.stringify({ same: first === again, renewed: fresh !== again })
+        )
+        gw.closeHarnessTokens('reborn')
+        gw.revokeHarnessTokens('reborn')
+        gw.bootHarnessGateway()
+        const closedReload = gw.profileTokenKnown(fresh)
+        gw.reopenHarnessTokens('reborn')
+        gw.bootHarnessGateway()
+        const reopenedReload = gw.profileTokenKnown(fresh)
+        check(
+            'a token on disk is not loaded back while its harness is being deleted',
+            !closedReload && reopenedReload,
+            JSON.stringify({ closedReload, reopenedReload })
+        )
+        gw.forgetProfileToken(fresh)
+        dropJson('reborn')
+        await cleanup.removeHarnessProfiles('reborn')
+    }
+
     for (const name of ['navi-harness', 'newname', 'capsx']) {
         dropJson(name)
         await cleanup.removeHarnessProfiles(name)
