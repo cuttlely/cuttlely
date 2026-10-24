@@ -1909,7 +1909,15 @@ describe('analyst relations: user functions inside views', () => {
             ["SELECT analytics.in_c('a') AS v LIMIT 1", /written in c.*add analytics\.in_c\(text\) to Allowed functions/],
             ["SELECT analytics.by_super('a') AS v LIMIT 1", /owned by a superuser.*add analytics\.by_super\(text\) to Allowed functions/]
         ]
-        for (const [sql, expected] of cases) await refusal(queryAnalystUrl(url, sql, node), expected)
+        for (const [sql, expected] of cases) {
+            await assert.rejects(queryAnalystUrl(url, sql, node), (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                assert.match(String(error.message), expected)
+                // Unscoped refusals should not cite scoped-only reasons.
+                assert.doesNotMatch(String(error.message), /BEGIN ATOMIC|written in plpgsql/)
+                return true
+            })
+        }
     })
 
     it('lets an Allowed functions entry through, exactly by signature', async (t) => {
@@ -1979,10 +1987,15 @@ describe('analyst relations: user functions inside views', () => {
             queryAnalystUrl(url, 'SELECT v FROM s.leak_view LIMIT 1', { ...node, relations: ['s.leak_view'] }),
             /add s\.read_secret\(\) to Allowed functions|Allowed functions/
         )
-        // plpgsql wrapper refused.
-        await refusal(
+        // plpgsql wrapper refused with a scoped-only reason in the message.
+        await assert.rejects(
             queryAnalystUrl(url, 'SELECT s.sleep_wrap() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
-            /add s\.sleep_wrap\(\) to Allowed functions/
+            (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                assert.match(String(error.message), /add s\.sleep_wrap\(\) to Allowed functions/)
+                assert.match(String(error.message), /written in plpgsql/)
+                return true
+            }
         )
         // BEGIN ATOMIC function with no relation refs allowed under a selection.
         const ok = await queryAnalystUrl(url, 'SELECT s.add_atomic(2,3) AS v LIMIT 1', { ...node, relations: ['analytics.clean_orders'] })

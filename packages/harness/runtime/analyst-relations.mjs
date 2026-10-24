@@ -889,20 +889,27 @@ const autoAllowed = (row) =>
     (row.language === 'sql' || row.language === 'plpgsql') &&
     row.super_owner === false
 
-const refusedWhy = (rows) => {
+const refusedWhy = (rows, { scoped = false } = {}) => {
     const reasons = new Set()
     for (const row of rows) {
         if (row.volatility === 'v') reasons.add('VOLATILE')
         if (row.definer) reasons.add('SECURITY DEFINER')
         if (row.config != null) reasons.add('has its own settings')
         if (row.language !== 'sql' && row.language !== 'plpgsql') reasons.add(`written in ${row.language}`)
-        if (row.language === 'plpgsql') reasons.add('written in plpgsql')
-        if (row.language === 'sql' && (!row.prosqlbody || String(row.prosqlbody).trim() === '')) reasons.add('SQL body is not BEGIN ATOMIC')
+        if (scoped) {
+            if (row.language === 'plpgsql') reasons.add('written in plpgsql')
+            if (row.language === 'sql' && (!row.prosqlbody || String(row.prosqlbody).trim() === ''))
+                reasons.add('SQL body is not BEGIN ATOMIC')
+        }
         if (row.super_owner !== false) reasons.add('owned by a superuser')
     }
-    return `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written as a SQL-standard BEGIN ATOMIC body, and not owned by a superuser; found: ${[
-        ...reasons
-    ].join(', ')}.`
+    return scoped
+        ? `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written as a SQL-standard BEGIN ATOMIC body, and not owned by a superuser; found: ${[
+              ...reasons
+          ].join(', ')}.`
+        : `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written in SQL or PL/pgSQL and not owned by a superuser; found: ${[
+              ...reasons
+          ].join(', ')}.`
 }
 
 const allowHint = (signatures) =>
@@ -1008,9 +1015,9 @@ async function refuseRoutines(
     if (foreignRows.length) {
         const signatures = [...new Set(foreignRows.map((row) => row.signature))]
         throw new ScopeRefusal(
-            `Cuttlely refused this query: function ${refusedList(signatures)} is not built in. ${refusedWhy(foreignRows)}${allowHint(
-                signatures
-            )}`
+            `Cuttlely refused this query: function ${refusedList(signatures)} is not built in. ${refusedWhy(foreignRows, {
+                scoped: !unscoped
+            })}${allowHint(signatures)}`
         )
     }
     const denied = rows
