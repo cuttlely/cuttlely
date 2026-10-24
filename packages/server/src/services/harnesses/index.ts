@@ -520,6 +520,17 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
             releaseAll()
         }
     }
+    // Gateway tokens before anything in the canvas transaction: a failure throws, so the canvas delete rolls back
+    // with every grant, record, schedule and run still in place.
+    for (const row of rows) {
+        if (!(await revokeRuntimeTokens(row.name))) {
+            releaseAll()
+            throw new AppError(
+                StatusCodes.INTERNAL_SERVER_ERROR,
+                `Harness "${row.name}" was not deleted, because its gateway tokens could not be revoked. Try again.`
+            )
+        }
+    }
     try {
         const { removeHarnessFromKeyLists } = await import('./apiAccess')
         for (const row of rows) {

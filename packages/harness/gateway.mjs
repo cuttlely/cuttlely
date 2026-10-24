@@ -10,7 +10,7 @@ import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpe
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
-import { dataRoot, hermesHome } from './paths.mjs'
+import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { getHarness } from './store.mjs'
@@ -96,8 +96,8 @@ export function forgetProfileToken(token) {
 }
 
 // Every published (not try) token of this exact harness name, and every token of the listed profile directories.
-export function revokeHarnessTokens(harnessName, profileNames = []) {
-    const name = String(harnessName || '')
+export function revokeHarnessTokens(harnessName, profileNames = [], { harnessWide = true } = {}) {
+    const name = harnessWide ? String(harnessName || '') : ''
     const directories = new Set(profileNames)
     for (const [token, meta] of [...tokens]) {
         if ((name && meta.harnessName === name && !meta.tryProfile) || directories.has(meta.profileName)) tokens.delete(token)
@@ -322,6 +322,8 @@ function ingestProfileTokens(abandoned = new Set()) {
         const specialistName = env.CUTTLELY_GATEWAY_SPECIALIST || ''
         if (!harnessName || !specialistName) continue
         if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
+        // A published token of a deleted harness stays revoked across restarts, even if its profile is still on disk.
+        if (env.CUTTLELY_GATEWAY_TRY !== '1' && !harnessSaved(harnessName)) continue
         tokens.set(token, {
             harnessName,
             specialistName,
@@ -330,6 +332,13 @@ function ingestProfileTokens(abandoned = new Set()) {
             tryProfile: env.CUTTLELY_GATEWAY_TRY === '1'
         })
     }
+}
+
+// The harness has a store file (or a staged canvas delete that can still be put back).
+function harnessSaved(name) {
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) return false
+    const dir = harnessStoreDir()
+    return fs.existsSync(path.join(dir, `${name}.json`)) || fs.existsSync(path.join(dir, `${name}.json.deleting`))
 }
 
 // A process start loads tokens only after abandoned tries are gone.

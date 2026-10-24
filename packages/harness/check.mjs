@@ -15805,9 +15805,11 @@ await (async () => {
     const workDir = path.join(cleanupData(), 'workspaces')
     const lines = []
     const revoked = []
+    const revokeOptions = []
     let failRevoke = false
     Object.assign(cleanup.cleanupHooks, {
-        revoke: (id, entries) => {
+        revoke: (id, entries, options) => {
+            revokeOptions.push(options)
             if (failRevoke) throw new Error('token store unavailable')
             revoked.push([id, ...entries])
         },
@@ -16165,6 +16167,27 @@ await (async () => {
         JSON.stringify(lines)
     )
     fs.rmSync(path.join(trash, 'touched--a-0123456789ab'), { recursive: true, force: true })
+
+    // An old orphan with its token file goes in one sweep; a recent specialist of the same harness keeps its token.
+    reset()
+    revokeOptions.length = 0
+    saveJson('mixed')
+    home('mixed')
+    fs.writeFileSync(path.join(profilesDir, 'mixed', '.env'), 'X=1\n')
+    age(path.join(profilesDir, 'mixed'))
+    child('mixed--a', 'mixed', { fresh: true })
+    dropJson('mixed')
+    const mixed = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    check(
+        'the sweep removes an old orphan with its token file in one pass and revokes only the profiles it removes',
+        !exists('mixed') &&
+            exists('mixed--a') &&
+            mixed.skipped.includes('mixed--a') &&
+            JSON.stringify(revoked) === JSON.stringify([['mixed', 'mixed']]) &&
+            revokeOptions[0]?.harnessWide === false,
+        JSON.stringify({ mixed, revoked, revokeOptions, lines })
+    )
+    await cleanup.removeHarnessProfiles('mixed')
 
     for (const name of ['navi-harness', 'newname', 'capsx']) {
         dropJson(name)

@@ -329,14 +329,17 @@ function newestChange(entry, root = profilesRoot()) {
     return newest
 }
 
-function revoke(id, entries) {
+// harnessWide also revokes tokens of this harness that no listed profile holds. The sweep revokes only the
+// profiles it is about to remove, so a recent profile it keeps keeps working.
+function revoke(id, entries, { harnessWide = true } = {}) {
     const fn = cleanupHooks.revoke || revokeHarnessTokens
-    fn(id, entries)
+    fn(id, entries, { harnessWide })
 }
 
 // The gateway token of a profile lives in its .env. It goes right after the in-memory revocation, so a later
 // failure to remove the directory cannot bring the token back when the gateway reloads tokens at the next start.
 function dropTokenFiles(id, entries) {
+    let failed = null
     for (const entry of entries) {
         const owner = profileOwner(entry)
         const dir = owner && owner.id === id ? containedEntry(profilesRoot(), entry) : ''
@@ -348,9 +351,11 @@ function dropTokenFiles(id, entries) {
             fs.unlinkSync(file)
             cleanupHooks.log(`[harness] removed profiles/${entry}/.env of harness "${id}"`)
         } catch (error) {
+            failed = failed || error
             cleanupHooks.log(`[harness] could not remove profiles/${entry}/.env: ${error?.code || error?.name || 'error'}`)
         }
     }
+    return failed
 }
 
 async function closeRuntime(entries) {
@@ -371,15 +376,31 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
         cleanupHooks.log(`[harness] kept the profiles of harness "${id}": it is still saved or the store could not be read`)
         return { removed: [], kept: entries, error: null }
     }
+    // The sweep removes only what is older than the cutoff, checked before anything is touched.
+    const kept = []
+    if (minAgeMs) {
+        entries = entries.filter((entry) => {
+            if (now() - newestChange(entry) >= minAgeMs) return true
+            kept.push(entry)
+            cleanupHooks.log(`[harness] kept profiles/${entry} of harness "${id}": it changed in the last 10 minutes`)
+            return false
+        })
+    }
     try {
-        revoke(id, entries)
+        revoke(id, entries, { harnessWide: !minAgeMs })
     } catch (error) {
         cleanupHooks.log(
             `[harness] removed nothing for harness "${id}" (${reason}): revoking its gateway tokens failed: ${error?.message || 'error'}`
         )
         return { removed: [], kept: entries, error }
     }
-    dropTokenFiles(id, entries)
+    const tokenError = dropTokenFiles(id, entries)
+    if (tokenError) {
+        cleanupHooks.log(`[harness] removed nothing more for harness "${id}" (${reason}): a token file could not be removed`)
+        return { removed: [], kept: [...kept, ...entries], error: tokenError }
+    }
+    // What each profile looked like after cleanup's own change; a later change is someone else's and keeps it.
+    const settled = new Map(entries.map((entry) => [entry, newestChange(entry)]))
     await closeRuntime(entries)
     // Closing awaits; the harness may have been saved again or a profile replaced meanwhile, so check again.
     if (stillSaved(id, savedNames())) {
@@ -387,10 +408,9 @@ async function removeOwned(id, entries, { reason, trash = [], minAgeMs = 0, now 
         return { removed: [], kept: entries, error: null }
     }
     const removed = []
-    const kept = []
     for (const entry of entries) {
         const owner = profileOwner(entry)
-        if (!owner || owner.id !== id || (minAgeMs && now() - newestChange(entry) < minAgeMs)) {
+        if (!owner || owner.id !== id || (minAgeMs && newestChange(entry) > settled.get(entry))) {
             kept.push(entry)
             cleanupHooks.log(`[harness] kept profiles/${entry}: it changed during cleanup`)
             continue

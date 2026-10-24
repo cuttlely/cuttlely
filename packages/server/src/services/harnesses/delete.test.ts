@@ -198,6 +198,15 @@ describe('canvas delete cascade', () => {
         expect(has('NAVI-B')).toBe(true)
     })
 
+    it('refuses the canvas delete before touching grants or records when revocation fails', async () => {
+        failCleanup = true
+        ;(removeHarnessFromKeyLists as jest.Mock).mockClear()
+        await expect(removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)).rejects.toMatchObject({ statusCode: 500 })
+        expect(removeHarnessFromKeyLists).not.toHaveBeenCalled()
+        expect(has('navi')).toBe(true)
+        expect(schedules.has('navi')).toBe(true)
+    })
+
     it('keeps the staged record and every profile when revocation fails at commit', async () => {
         const cascade = await removeHarnessesForCanvas(CANVAS_NAVI, TEAM, manager)
         failCleanup = true
