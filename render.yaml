@@ -56,6 +56,26 @@ services:
       branch: main
       # commit deploys every push to main. autoDeploy: true is the old field name.
       autoDeployTrigger: commit
+      # Skip the build and deploy when a push only touches files the image does
+      # not use. website/ is in .dockerignore. The root Markdown files listed
+      # here are not read at runtime. Other Markdown stays out of this list on
+      # purpose: the bundled handbook ETL sample indexes README.md, AGENTS.md
+      # and the .md files under docs/, .projects/ and samples/ from the image,
+      # and Hermes loads its skills and SOUL.md at runtime.
+      buildFilter:
+          ignoredPaths:
+              - website/**
+              - docs/images/**
+              - ARCHITECTURE.md
+              - CHANGELOG.md
+              - CODE_OF_CONDUCT.md
+              - CONTRIBUTING.md
+              - CREDITS.md
+              - FAQ.md
+              - README.ja.md
+              - README.ko.md
+              - SECURITY.md
+              - SUPPORT.md
       healthCheckPath: /api/v1/ping
       dockerfilePath: ./Dockerfile
       dockerContext: .
