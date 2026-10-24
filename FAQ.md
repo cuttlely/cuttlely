@@ -40,10 +40,9 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 ### What's new in 1.4.3?
 
--   With a table selection, a user SQL function runs on its own only when its body is `BEGIN ATOMIC` and it references no relations. PL/pgSQL and string-body SQL need **Allowed functions** on the PostgreSQL MCP node: one `schema.fn(argtypes)` or `schema.fn(*)` per line.
--   Text search types `regconfig` and `regdictionary` are allowed. Other object-identifier types, such as `regclass`, are refused only while a table selection is set.
--   At startup, harness profiles compiled by an older version are compiled again. The harness gateway health check returns 503 until that finishes. `GET /api/v1/ping` still answers `pong` when the server is up.
--   Chat answers keep a slash between words, including a fraction or a date, and still hide server paths.
+-   Pending pull request 293, not merged. **Allowed functions** on the PostgreSQL MCP node lists your own SQL helpers, one `schema.fn(argtypes)` or `schema.fn(*)` per line. Text search types `regconfig` and `regdictionary` are allowed there. Other object-identifier types, such as `regclass`, are refused only while a table selection is set.
+-   Pending pull request 291, not merged. At startup, harness profiles compiled by an older version are compiled again. The harness gateway health check and `GET /api/v1/ping` return 503 during that wait. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300.
+-   Pending pull request 289, not merged. Chat answers keep a slash between words, including a fraction or a date, and still hide server paths.
 -   A LangSmith credential with no key does not use the server's key. Tracing for that flow stays off. A failed upload log records the credential id and the key length.
 -   Deleting a harness removes its agent runtime profile and its specialists' profiles after their gateway tokens are revoked.
 -   The assets preset downloads a file only from public addresses, with a browser-like user agent, and a failed tool call shows as failed.

@@ -1,6 +1,6 @@
 # Status
 
-Handoff 2026-10-24: the home page release line, the public FAQ and `CHANGELOG.md` name 1.4.3. The release line covers Allowed functions for table selections, profile recompile at startup (the gateway health check returns 503 until it finishes), and chat answers that keep an ordinary slash.
+Handoff 2026-10-24: the home page release line, the public FAQ and `CHANGELOG.md` name 1.4.3. Allowed functions, profile recompile, and ordinary slashes in chat answers are pending pull requests 293, 291 and 289. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300.
 
 Handoff 2026-10-23: branch `fix/harness-delete-cleanup`: deleting a harness (card delete, canvas delete cascade, startup orphan cleanup) revokes its gateway tokens, then removes the store file, its runtime profile and the specialist profiles whose harness-parent names it exactly, with their workspaces (`packages/harness/cleanup.mjs`). A failed revocation deletes nothing. Removals stay inside the profiles and workspaces roots (realpath checks, links unlinked, never followed), go through a trash rename so a rerun after a crash finishes the job, and log the harness id and relative path. A startup sweep logs profiles whose harness is gone and removes them only with `CUTTLELY_HARNESS_ORPHAN_SWEEP=delete`; it keeps saved (any letter case) or staged harnesses, try profiles and anything changed in the last 10 minutes.
 
