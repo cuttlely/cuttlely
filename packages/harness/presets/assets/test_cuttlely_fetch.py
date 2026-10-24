@@ -74,6 +74,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(302, headers={"Location": f"http://10.0.0.1/{value}"})
             if kind == "bad-host":
                 return self._send(302, headers={"Location": f"http://[{value}]/x.png"})
+            if kind == "tls-host":
+                return self._send(302, headers={"Location": f"https://{value}.test:{port}/logo.svg"})
+            if kind == "long-host":
+                return self._send(302, headers={"Location": f"http://{value * 7}.test/logo.svg"})
             if kind == "landing":
                 return self._send(302, headers={"Location": f"/files/{value}.svg"})
             return self._send(200, b"x", {"Content-Type": "image/png", "Content-Length": value}, length=False)
@@ -233,7 +237,12 @@ class FetchTest(unittest.TestCase):
             net.fetch_asset(self.url("/odd-type?t=opaque-q/zz"), self.out / "x.png")
         self.assertNotIn("opaque-q", str(caught.exception))
         self.assertIn("content type unrecognized", str(caught.exception))
-        for path in ("/reflect-path?k=opaquesecret123", "/reflect-bad-host?k=opaquesecret123", "/reflect-length?k=987654321"):
+        for path in (
+            "/reflect-path?k=opaquesecret123",
+            "/reflect-bad-host?k=opaquesecret123",
+            "/reflect-long-host?k=opaquesecret123",
+            "/reflect-length?k=987654321",
+        ):
             with self.assertRaises(net.FetchError) as caught:
                 net.fetch(self.url(path), max_bytes=1000)
             self.assertNotIn("opaquesecret123", str(caught.exception), path)
@@ -426,7 +435,7 @@ class HttpsDeadlineTest(unittest.TestCase):
     def setUp(self):
         self._blocked, self._resolve, self._context = net.blocked_address, net._resolve, net._tls_context
         net.blocked_address = lambda address: False if str(address) == "127.0.0.1" else self._blocked(address)
-        net._resolve = lambda host, port: ["127.0.0.1"] if host == "assets.test" else self._resolve(host, port)
+        net._resolve = lambda host, port: ["127.0.0.1"] if host.endswith(".test") else self._resolve(host, port)
         net._tls_context = lambda: ssl.create_default_context(cafile=str(self.cert))
 
     def tearDown(self):
@@ -437,6 +446,12 @@ class HttpsDeadlineTest(unittest.TestCase):
         with self.assertRaisesRegex(net.FetchError, "CERTIFICATE_VERIFY_FAILED|certificate"):
             net._tls_context = self._context
             net.fetch(f"https://assets.test:{self.port}/logo.svg")
+
+    def test_certificate_errors_after_a_redirect_do_not_quote_the_host(self):
+        with self.assertRaises(net.FetchError) as caught:
+            net.fetch(f"https://assets.test:{self.port}/reflect-tls-host?k=opaquesecret123")
+        self.assertIn("certificate check failed (host name mismatch)", str(caught.exception))
+        self.assertNotIn("opaquesecret123", str(caught.exception))
 
     def test_https_deadline_covers_a_handshake_that_never_finishes(self):
         silent = socket.socket()

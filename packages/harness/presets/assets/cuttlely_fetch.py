@@ -128,7 +128,7 @@ def _resolve_by(host, port, deadline, url, where=None, host_shown=None):
     def work():
         try:
             outcome["addresses"] = _resolve(host, port)
-        except OSError as error:
+        except Exception as error:  # noqa: BLE001 - IDNA failures raise UnicodeError; every failure becomes a FetchError
             outcome["error"] = error
 
     worker = threading.Thread(target=work, daemon=True)
@@ -138,7 +138,8 @@ def _resolve_by(host, port, deadline, url, where=None, host_shown=None):
         raise FetchError(f"fetch failed: timed out resolving {host_shown or host}, for {where or url}", url, shown=where)
     if "error" in outcome:
         error = outcome["error"]
-        detail = os.strerror(error.errno) if isinstance(error.errno, int) and error.errno > 0 else type(error).__name__
+        errno = getattr(error, "errno", None)
+        detail = os.strerror(errno) if isinstance(errno, int) and errno > 0 else type(error).__name__
         raise FetchError(f"fetch failed: could not resolve {host_shown or host} ({detail}) for {where or url}", url, shown=where)
     return outcome["addresses"]
 
@@ -223,6 +224,18 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
             raise socket.timeout("deadline passed before the TLS handshake")
         wrapped.settimeout(left)
         wrapped.do_handshake()
+
+
+_CERT_REASONS = {
+    10: "certificate has expired",
+    9: "certificate is not yet valid",
+    18: "self-signed certificate",
+    19: "self-signed certificate in chain",
+    20: "unknown issuer",
+    21: "unknown issuer",
+    23: "certificate revoked",
+    62: "host name mismatch",
+}
 
 
 def _bounded(value, default, limit, name):
@@ -346,7 +359,8 @@ def fetch(url, max_bytes=None, timeout_ms=None, accept=None):
             # Only the error's type and, for OS errors, its errno text: a remote peer controls the rest (a malformed
             # status line can echo the request target and its query).
             if isinstance(error, ssl.SSLCertVerificationError):
-                detail = f"certificate check failed ({error.verify_message})"
+                # verify_message can quote the host name, which after a redirect is server text: fixed words only.
+                detail = f"certificate check failed ({_CERT_REASONS.get(error.verify_code, 'not trusted')})"
             elif isinstance(error, OSError) and not isinstance(error, ssl.SSLError) and isinstance(error.errno, int):
                 detail = os.strerror(error.errno)
             else:
