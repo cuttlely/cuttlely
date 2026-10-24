@@ -30,6 +30,8 @@ let schedules: Set<string>
 let canvases: Map<string, { workspaceId: string; type: string } | 'fail'>
 let storeDir: string
 let failRuns = false
+let cleaned: string[]
+let failCleanup = false
 
 const fileOf = (name: string) => path.join(storeDir, `${name}.json`)
 const has = (name: string) => fs.existsSync(fileOf(name))
@@ -46,6 +48,20 @@ const fakeModules = (file: string) => {
             getHarness: (name: string) => (has(name) ? JSON.parse(fs.readFileSync(fileOf(name), 'utf8')) : null),
             deleteHarness: (name: string) => fs.rmSync(fileOf(name), { force: true }),
             claimWorkspace: (name: string) => JSON.parse(fs.readFileSync(fileOf(name), 'utf8'))
+        })
+    }
+    if (file === 'cleanup.mjs') {
+        return Promise.resolve({
+            deleteHarnessAndProfiles: async (name: string) => {
+                if (failCleanup) throw new Error('revoke failed')
+                cleaned.push(name)
+                fs.rmSync(fileOf(name), { force: true })
+            },
+            removeHarnessProfiles: async (name: string) => {
+                cleaned.push(name)
+                return { removed: [], kept: [], error: null }
+            },
+            sweepOrphanHarnessProfiles: async () => ({ mode: 'log', orphans: [], removed: [], skipped: [] })
         })
     }
     if (file === 'schedule.mjs') return Promise.resolve({ deleteSchedule: (name: string) => schedules.delete(name) })
@@ -75,6 +91,8 @@ const originalFind = harnessCanvasLookup.find
 beforeEach(() => {
     storeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-delete-'))
     failRuns = false
+    cleaned = []
+    failCleanup = false
     write({ name: 'navi', chatflowId: CANVAS_NAVI, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
     write({ name: 'NAVI-B', workspaceId: TEAM, specialists: [{ name: 'scout' }, { name: 'writer' }] })
     write({ name: 'navi-harness', chatflowId: CANVAS_GONE, workspaceId: TEAM, specialists: [{ name: 'scout' }] })
@@ -117,6 +135,18 @@ describe('card delete', () => {
         expect(removeHarnessFromKeyLists).toHaveBeenCalledWith(TEAM, 'navi', undefined)
         expect(runRows.some((row) => row.harness === 'navi')).toBe(false)
         expect(runRows.filter((row) => row.harness === 'NAVI-B')).toHaveLength(2)
+    })
+
+    it('removes the runtime profiles of exactly that harness', async () => {
+        await harnessesService.deleteHarness('navi', TEAM)
+        expect(cleaned).toEqual(['navi'])
+        expect(has('navi-harness')).toBe(true)
+    })
+
+    it('keeps the harness when its gateway tokens cannot be revoked', async () => {
+        failCleanup = true
+        await expect(harnessesService.deleteHarness('NAVI-B', TEAM)).rejects.toMatchObject({ statusCode: 500 })
+        expect(has('NAVI-B')).toBe(true)
     })
 
     it('removes a harness with no canvas directly', async () => {

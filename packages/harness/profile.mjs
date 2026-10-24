@@ -1116,7 +1116,7 @@ function unserveOnce(name, sock) {
 }
 
 // Pending, a timeout, or a socket error is not a finished close. Poll until the runtime reports this profile unserved.
-async function unserveRuntimeProfile(name) {
+export async function unserveRuntimeProfile(name) {
     const sock = gatewaySocketPath()
     if (!sock || !name) return false
     for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
@@ -1179,6 +1179,10 @@ function credentialIdsIn(record) {
 // Recompiling writes several files and decrypts credentials; on a Windows-mounted drive
 // that is most of a single-tool turn. The key covers the record, the home it compiles
 // into, and each model credential's updatedDate, so a saved roster or a rotated key recompiles.
+export function forgetCompiledProfile(name) {
+    compiledProfiles.delete(name)
+}
+
 export function compileProfileCached(record) {
     const key = [hermesHome(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
     const cached = compiledProfiles.get(record.name)

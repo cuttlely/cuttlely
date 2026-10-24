@@ -257,6 +257,11 @@ function configureRuntime(): Promise<void> {
                 engine.configureHarnessRuntime({ contextFor })
                 const gateway = await loadHarness('gateway.mjs')
                 await gateway.startGateway()
+                // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
+                const cleanup = await loadHarness('cleanup.mjs')
+                await cleanup.sweepOrphanHarnessProfiles().catch((error: unknown) => {
+                    logger.warn(`[harness] orphan profile sweep failed: ${getErrorMessage(error)}`)
+                })
             })
             .catch((error) => {
                 runtimeConfigured = undefined
@@ -358,8 +363,17 @@ async function removeHarnessRecord(name: string, workspaceId: string) {
             `Harness "${name}" was not deleted, because its schedule could not be removed. Try again.`
         )
     }
-    const store = await loadHarness('store.mjs')
-    store.deleteHarness(name)
+    // Revokes the harness gateway tokens, removes the store file, then its runtime profile and specialist profiles.
+    const cleanup = await loadHarness('cleanup.mjs')
+    try {
+        await cleanup.deleteHarnessAndProfiles(name)
+    } catch (error) {
+        logger.warn(`[harness] ${name} was not deleted: ${getErrorMessage(error)}`)
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Harness "${name}" was not deleted, because its gateway tokens could not be revoked. Try again.`
+        )
+    }
 }
 
 // Run history and stored results of a deleted harness. Best effort: a leftover run row is not readable once the
@@ -514,6 +528,7 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
         releaseAll()
         for (const name of staged) {
             fs.rmSync(path.join(dir, `${name}${STAGED}`), { force: true })
+            await removeRuntimeProfiles(name)
             await harnessDeleteHooks
                 .removeSchedule(name)
                 .catch((error: unknown) => logger.warn(`[harness] schedule cleanup for deleted ${name} failed: ${getErrorMessage(error)}`))
@@ -521,6 +536,17 @@ export async function removeHarnessesForCanvas(chatflowId: string, workspaceId: 
         await purgeHarnessRuns(staged)
     }
     return { names: [...staged], restore, commit }
+}
+
+// After the record file is gone: its runtime profile and specialist profiles. A failure is logged; the startup sweep
+// reports what is left.
+async function removeRuntimeProfiles(name: string) {
+    try {
+        const cleanup = await loadHarness('cleanup.mjs')
+        await cleanup.removeHarnessProfiles(name)
+    } catch (error) {
+        logger.warn(`[harness] runtime profiles of deleted ${name} were not removed: ${getErrorMessage(error)}`)
+    }
 }
 
 // Startup: finish or undo a canvas delete that stopped between staging a record and the end of its transaction.
@@ -545,6 +571,7 @@ async function settleStagedDeletes() {
             restored.push(name)
         } else if (canvas?.state === 'missing') {
             fs.rmSync(file, { force: true })
+            await removeRuntimeProfiles(name)
             await harnessDeleteHooks.removeSchedule(name).catch(() => undefined)
             finished.push(name)
         }

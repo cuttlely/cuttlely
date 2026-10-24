@@ -95,6 +95,15 @@ export function forgetProfileToken(token) {
     if (token) tokens.delete(token)
 }
 
+// Every published (not try) token of this exact harness name, and every token of the listed profile directories.
+export function revokeHarnessTokens(harnessName, profileNames = []) {
+    const name = String(harnessName || '')
+    const directories = new Set(profileNames)
+    for (const [token, meta] of [...tokens]) {
+        if ((name && meta.harnessName === name && !meta.tryProfile) || directories.has(meta.profileName)) tokens.delete(token)
+    }
+}
+
 export function startGateway(options = {}) {
     const host = options.host ?? '127.0.0.1'
     if (host !== '127.0.0.1') return Promise.reject(new Error('The harness gateway listens on 127.0.0.1 only.'))

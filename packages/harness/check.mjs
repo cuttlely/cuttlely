@@ -15797,6 +15797,253 @@ await (async () => {
     )
 })()
 
+// Harness delete and the orphan profile sweep. Every name is made up.
+await (async () => {
+    const cleanup = await import('./cleanup.mjs')
+    const { hermesHome: cleanupHome, dataRoot: cleanupData } = await import('./paths.mjs')
+    const profilesDir = path.join(cleanupHome(), 'profiles')
+    const workDir = path.join(cleanupData(), 'workspaces')
+    const lines = []
+    const revoked = []
+    let failRevoke = false
+    Object.assign(cleanup.cleanupHooks, {
+        revoke: (id, entries) => {
+            if (failRevoke) throw new Error('token store unavailable')
+            revoked.push([id, ...entries])
+        },
+        close: async () => {},
+        log: (line) => lines.push(line)
+    })
+    const old = Date.now() / 1000 - 3600
+    const age = (dir) => {
+        for (const file of [dir, ...fs.readdirSync(dir).map((name) => path.join(dir, name))]) fs.utimesSync(file, old, old)
+    }
+    const saveJson = (name) => {
+        fs.mkdirSync(harnessStoreDir(), { recursive: true })
+        fs.writeFileSync(path.join(harnessStoreDir(), `${name}.json`), JSON.stringify({ name, chief: {}, specialists: [{ name: 'a' }] }))
+    }
+    const dropJson = (name) => fs.rmSync(path.join(harnessStoreDir(), `${name}.json`), { force: true })
+    const home = (entry, name = entry, { fresh = false, tryMarker = false } = {}) => {
+        const dir = path.join(profilesDir, entry)
+        fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
+        fs.writeFileSync(path.join(dir, 'harness-roster.json'), JSON.stringify({ name }))
+        fs.writeFileSync(path.join(dir, 'config.yaml'), 'agent:\n')
+        if (tryMarker) fs.writeFileSync(path.join(dir, 'harness-try'), `${entry}\n`)
+        if (!fresh) age(dir)
+        return dir
+    }
+    const child = (entry, parent, { fresh = false } = {}) => {
+        const dir = path.join(profilesDir, entry)
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(path.join(dir, 'harness-parent'), `${parent}\n`)
+        fs.writeFileSync(path.join(dir, 'config.yaml'), 'agent:\n')
+        fs.mkdirSync(path.join(workDir, entry), { recursive: true })
+        fs.writeFileSync(path.join(workDir, entry, 'notes.txt'), 'x')
+        if (!fresh) age(dir)
+        return dir
+    }
+    const exists = (entry) => fs.existsSync(path.join(profilesDir, entry))
+    const reset = () => {
+        lines.length = 0
+        revoked.length = 0
+        failRevoke = false
+    }
+
+    // Delete: exact name only. navi-harness and its specialist stay.
+    reset()
+    for (const name of ['navi', 'navi-harness']) saveJson(name)
+    home('navi')
+    child('navi--scout', 'navi')
+    home('navi-harness')
+    child('navi-harness--scout', 'navi-harness')
+    const deleted = await cleanup.deleteHarnessAndProfiles('navi')
+    check(
+        'deleting a harness removes its profile, its specialist profiles and workspaces, after revoking tokens',
+        !exists('navi') &&
+            !exists('navi--scout') &&
+            !fs.existsSync(path.join(workDir, 'navi--scout')) &&
+            !fs.existsSync(path.join(harnessStoreDir(), 'navi.json')) &&
+            JSON.stringify(deleted.removed) === JSON.stringify(['navi--scout', 'navi']) &&
+            revoked[0]?.[0] === 'navi' &&
+            lines.some((line) => line.includes('removed profiles/navi--scout of harness "navi"')),
+        JSON.stringify({ deleted, revoked, lines })
+    )
+    check(
+        'deleting navi leaves navi-harness and its specialist intact',
+        exists('navi-harness') &&
+            exists('navi-harness--scout') &&
+            fs.existsSync(path.join(workDir, 'navi-harness--scout', 'notes.txt')) &&
+            fs.existsSync(path.join(harnessStoreDir(), 'navi-harness.json')),
+        fs.readdirSync(profilesDir).join(', ')
+    )
+
+    // A failed revocation deletes nothing: not the store file, not a profile.
+    reset()
+    failRevoke = true
+    let revokeError = null
+    try {
+        await cleanup.deleteHarnessAndProfiles('navi-harness')
+    } catch (error) {
+        revokeError = error
+    }
+    failRevoke = false
+    check(
+        'a failed token revocation deletes nothing',
+        revokeError?.code === 'cleanup_failed' &&
+            exists('navi-harness') &&
+            exists('navi-harness--scout') &&
+            fs.existsSync(path.join(harnessStoreDir(), 'navi-harness.json')) &&
+            lines.some((line) => line.includes('removed nothing for harness "navi-harness"')),
+        JSON.stringify({ code: revokeError?.code, lines })
+    )
+
+    // A saved harness keeps its profiles even when asked directly.
+    reset()
+    const keptSaved = await cleanup.removeHarnessProfiles('navi-harness')
+    check(
+        'profiles of a harness whose store file exists are never removed',
+        keptSaved.removed.length === 0 && exists('navi-harness') && exists('navi-harness--scout') && revoked.length === 0,
+        JSON.stringify(keptSaved)
+    )
+
+    // Letter case: Caps is saved; the profile of a different harness named caps is not deleted with it.
+    reset()
+    saveJson('Caps')
+    saveJson('capsx')
+    home('Caps')
+    child('caps--a', 'Caps')
+    home('capsx', 'capsx')
+    child('capsx--a', 'capsx')
+    const lowerSweep = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    await cleanup.deleteHarnessAndProfiles('Caps')
+    check(
+        'harness ids match exactly, letter case included',
+        !exists('Caps') && !exists('caps--a') && exists('capsx') && exists('capsx--a') && !lowerSweep.removed.includes('Caps'),
+        fs.readdirSync(profilesDir).join(', ')
+    )
+    reset()
+    saveJson('Mixed')
+    home('mixed2', 'mixed')
+    child('mixed--b', 'mixed')
+    const caseSweep = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    check(
+        'the sweep keeps profiles whose id matches a saved harness in another letter case',
+        exists('mixed--b') && !caseSweep.removed.includes('mixed--b'),
+        JSON.stringify(caseSweep)
+    )
+    dropJson('Mixed')
+    fs.rmSync(path.join(profilesDir, 'mixed2'), { recursive: true, force: true })
+    fs.rmSync(path.join(profilesDir, 'mixed--b'), { recursive: true, force: true })
+    fs.rmSync(path.join(workDir, 'mixed--b'), { recursive: true, force: true })
+
+    // Rename: oldname was saved as newname. The old profiles are orphans; newname's stay.
+    reset()
+    saveJson('newname')
+    home('oldname')
+    child('oldname--a', 'oldname')
+    home('newname')
+    child('newname--a', 'newname')
+    home('notmine', 'oldname')
+    home('trydeadbeef', 'trydeadbeef', { tryMarker: true })
+    home('freshone', 'freshone', { fresh: true })
+    fs.mkdirSync(path.join(profilesDir, 'default'), { recursive: true })
+    fs.writeFileSync(path.join(harnessStoreDir(), 'staged.json.deleting'), JSON.stringify({ name: 'staged' }))
+    home('staged')
+    const dry = await cleanup.sweepOrphanHarnessProfiles({ mode: 'log' })
+    check(
+        'the sweep only logs orphans by default',
+        cleanup.orphanSweepMode({}) === 'log' &&
+            cleanup.orphanSweepMode({ CUTTLELY_HARNESS_ORPHAN_SWEEP: 'Delete' }) === 'log' &&
+            cleanup.orphanSweepMode({ CUTTLELY_HARNESS_ORPHAN_SWEEP: 'delete' }) === 'delete' &&
+            dry.removed.length === 0 &&
+            JSON.stringify(dry.orphans.map((item) => item.entry)) === JSON.stringify(['oldname--a', 'oldname']) &&
+            exists('oldname') &&
+            exists('oldname--a') &&
+            revoked.length === 0 &&
+            lines.some((line) => line.includes('would remove profiles/oldname--a of harness "oldname"')),
+        JSON.stringify({ dry, lines })
+    )
+    reset()
+    const wet = await cleanup.sweepOrphanHarnessProfiles({ mode: 'delete' })
+    check(
+        'the sweep in delete mode removes only orphans older than 10 minutes',
+        JSON.stringify(wet.removed) === JSON.stringify(['oldname--a', 'oldname']) &&
+            !exists('oldname') &&
+            !exists('oldname--a') &&
+            exists('newname') &&
+            exists('newname--a') &&
+            exists('notmine') &&
+            exists('trydeadbeef') &&
+            exists('freshone') &&
+            exists('default') &&
+            exists('staged') &&
+            wet.skipped.includes('freshone') &&
+            revoked.length === 1 &&
+            revoked[0][0] === 'oldname',
+        JSON.stringify({ wet, revoked })
+    )
+
+    // Symlinks: a profile that is a link is not followed, a link inside a profile is removed, never its target.
+    reset()
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-outside-'))
+    fs.writeFileSync(path.join(outside, 'harness-roster.json'), JSON.stringify({ name: 'linked' }))
+    fs.writeFileSync(path.join(outside, 'keep.txt'), 'keep')
+    fs.symlinkSync(outside, path.join(profilesDir, 'linked'))
+    const escape = child('gone--a', 'gone')
+    fs.symlinkSync(outside, path.join(escape, 'escape'))
+    fs.rmSync(path.join(workDir, 'gone--a'), { recursive: true, force: true })
+    fs.symlinkSync(outside, path.join(workDir, 'gone--a'))
+    await cleanup.removeHarnessProfiles('linked')
+    await cleanup.removeHarnessProfiles('gone')
+    check(
+        'a symlink never leads a removal outside the profiles root',
+        fs.existsSync(path.join(outside, 'keep.txt')) &&
+            fs.existsSync(path.join(outside, 'harness-roster.json')) &&
+            fs.lstatSync(path.join(profilesDir, 'linked')).isSymbolicLink() &&
+            !exists('gone--a') &&
+            !fs.existsSync(path.join(workDir, 'gone--a')) &&
+            cleanup.containedEntry(profilesDir, '..') === '' &&
+            cleanup.containedEntry(profilesDir, '../profiles') === '' &&
+            cleanup.containedEntry(profilesDir, 'a/../../x') === '' &&
+            cleanup.containedEntry(profilesDir, '') === '' &&
+            cleanup.containedEntry(profilesDir, '.') === '',
+        fs.readdirSync(outside).join(', ')
+    )
+    fs.rmSync(path.join(profilesDir, 'linked'))
+    fs.rmSync(outside, { recursive: true, force: true })
+
+    // A crash midway: the specialist is already gone, its home is still there and the trash holds a leftover.
+    reset()
+    saveJson('halfway')
+    home('halfway')
+    child('halfway--a', 'halfway')
+    dropJson('halfway')
+    // The workspace of halfway--a went first; a second specialist was already moved into the trash.
+    fs.rmSync(path.join(workDir, 'halfway--a'), { recursive: true, force: true })
+    const trash = path.join(cleanupHome(), '.cuttlely-removing')
+    fs.mkdirSync(path.join(trash, 'halfway--b-0011aabbccdd', 'sessions'), { recursive: true })
+    const rerun = await cleanup.deleteHarnessAndProfiles('halfway')
+    const again = await cleanup.deleteHarnessAndProfiles('halfway')
+    check(
+        'a rerun after a partial delete finishes and a second rerun is a no-op',
+        !exists('halfway') &&
+            !exists('halfway--a') &&
+            fs.readdirSync(trash).length === 0 &&
+            JSON.stringify(rerun.removed) === JSON.stringify(['halfway--a', 'halfway']) &&
+            again.removed.length === 0,
+        JSON.stringify({ rerun, again })
+    )
+    for (const name of ['navi-harness', 'newname', 'capsx']) {
+        dropJson(name)
+        await cleanup.removeHarnessProfiles(name)
+    }
+    fs.rmSync(path.join(harnessStoreDir(), 'staged.json.deleting'), { force: true })
+    for (const entry of ['notmine', 'trydeadbeef', 'freshone', 'default', 'staged']) {
+        fs.rmSync(path.join(profilesDir, entry), { recursive: true, force: true })
+        fs.rmSync(path.join(workDir, entry), { recursive: true, force: true })
+    }
+})()
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)
