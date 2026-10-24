@@ -9,6 +9,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Fixed
 
 -   Several Harness cards on one Tool Agent each get their own tool name, from the card title or, when the title is still Harness, from the saved harness name. The name uses lowercase letters, digits and underscores, at most 64 characters. A repeated name keeps the lowest card id unsuffixed and gives each other card `_` plus its own id number, so removing a different card does not move that suffix. One card titled Harness keeps the tool name `harness`, so an existing flow that calls `tool:harness` still runs. An agent whose tools share a name fails to build and the error names that tool. [#298](https://github.com/cuttlely/cuttlely/issues/298).
+-   The assets preset fetch judges an IPv4-mapped IPv6 address by the IPv4 address it contains, so a public address written that way can be fetched. Private, loopback, link-local, carrier-grade NAT, multicast, reserved and unspecified addresses in that form stay refused. 6to4 and NAT64 addresses are judged the same way. The former 6to4 relay prefix and the IPv6 documentation prefix stay refused.
 
 ## [1.4.2] - 2026-10-23
 
