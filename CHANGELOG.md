@@ -8,7 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   LangSmith traces from flow runs upload again with the flow's configured LangSmith credential and project, instead of a client with no credential and the `default` project. Harness tool steps appear as child runs of the tool run in LangSmith. A failed LangSmith upload is now logged with its status, path and flow id.
+-   LangSmith traces from flow runs upload again with the flow's configured LangSmith credential and project, instead of a client with no credential and the `default` project. Harness model calls made in process during a harness tool run appear as child runs of that tool run in LangSmith; agent-loop specialist calls through the harness gateway and jobs run by another worker are not attached. A failed LangSmith upload is now logged with its status, path and flow id.
 -   Editing a credential no longer overwrites its saved values with the placeholders the dialog shows. The credential dialog asks for the full URL when a masked URL is edited.
 
 ### Removed
@@ -483,7 +483,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/cuttlely/cuttlely/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/cuttlely/cuttlely/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/cuttlely/cuttlely/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/cuttlely/cuttlely/compare/v1.3.1...v1.3.2
