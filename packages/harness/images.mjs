@@ -187,6 +187,8 @@ function tokenMask(raw, root, continued) {
     }
     const token = raw.slice(start, end)
     if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
+    // A lone separator such as the '/' in 'A / B' or 'used / entitled' names no location.
+    if (/^[\/\\~]$/.test(token)) return { text: raw, masked: false }
     const slash = /[\/\\]/.test(token)
     const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
     if (!candidate && !(continued && slash)) return { text: raw, masked: false }
