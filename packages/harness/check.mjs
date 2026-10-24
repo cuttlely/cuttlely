@@ -355,6 +355,17 @@ const opsProfile = compileProfile(ops)
         recompiled = false
     }
     check('a harness recompiles over its own specialist profiles', recompiled && !profileDestinationConflicts(first).length)
+    // A preset switches tools on at save, which gives a specialist its own profile even with one model in the roster.
+    const presetOnly = {
+        ...base,
+        name: 'joinx',
+        specialists: [{ ...JSON.parse(JSON.stringify(research.specialists[0])), name: 'b--c', preset: 'assets' }]
+    }
+    check(
+        'a preset that gives a specialist its own profile is checked for conflicts as the save will store it',
+        JSON.stringify(profileDestinationConflicts(presetOnly)) === JSON.stringify(['joinx--b--c']),
+        JSON.stringify(profileDestinationConflicts(presetOnly))
+    )
     fs.rmSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'joinx--b'), { recursive: true, force: true })
     for (const entry of ['joinx--b--c', 'joinx--b--y']) {
         fs.rmSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', entry), { recursive: true, force: true })

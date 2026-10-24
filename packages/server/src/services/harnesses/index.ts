@@ -151,8 +151,9 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
         const name = typeof record.name === 'string' ? record.name : ''
         // The name lock is held from the lookup through the compile, so a delete of the name cannot run in between
         // and leave this save writing over profiles it kept.
-        if (!name) return await saveUnderName(store, profile, record, overwrite, ws, name)
-        return await withNameLock(name, () => saveUnderName(store, profile, record, overwrite, ws, name))
+        const save = () => withProfileLock(() => saveUnderName(store, profile, record, overwrite, ws, name))
+        if (!name) return await save()
+        return await withNameLock(name, save)
     } catch (error) {
         if (error instanceof AppError) throw error
         const code = (error as { code?: string })?.code
@@ -496,6 +497,15 @@ export function resetNameLocks() {
     nameLocks.clear()
 }
 
+// Profile directories are shared across names (a + b--c and a--b + c join to the same one), so every save holds this
+// one lock from its conflict check through its compile. It is always taken after the name lock, never before, and
+// nothing holding it waits for a name lock.
+const PROFILE_LOCK = '\u0000profiles'
+
+export function withProfileLock<T>(fn: () => Promise<T>): Promise<T> {
+    return withNameLock(PROFILE_LOCK, fn)
+}
+
 export async function withNameLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
     const release = await acquireNameLock(name)
     try {
@@ -513,10 +523,12 @@ export async function syncUnderNameLock<T>(
     roster: { specialists?: Array<{ name?: unknown }> } | null,
     write: () => Promise<T>
 ): Promise<T> {
-    return withNameLock(name, async () => {
-        await assertNameAvailable(name, workspaceId, { claiming: true, record: roster })
-        return write()
-    })
+    return withNameLock(name, () =>
+        withProfileLock(async () => {
+            await assertNameAvailable(name, workspaceId, { claiming: true, record: roster })
+            return write()
+        })
+    )
 }
 
 // record: the harness about to be saved, when known. The profile names it compiles into (fitted names of long names

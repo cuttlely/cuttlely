@@ -475,6 +475,28 @@ describe('a reused name never sees an earlier harness data', () => {
         }
     })
 
+    it('saves of different names hold the shared profile lock from the conflict check through the save', async () => {
+        const warm = process.env.CUTTLELY_WARM_HERMES
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        try {
+            let other: Promise<unknown> | null = null
+            let otherSavedDuringCleanup = true
+            duringCleanup = async (name: string) => {
+                if (name !== 'alpha') return
+                other = harnessesService.saveHarness({ name: 'beta', specialists: [{ name: 'c' }] }, TEAM)
+                for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve))
+                otherSavedDuringCleanup = has('beta')
+            }
+            await harnessesService.saveHarness({ name: 'alpha', specialists: [{ name: 'b--c' }] }, TEAM)
+            await other
+            expect(otherSavedDuringCleanup).toBe(false)
+            expect(has('alpha') && has('beta')).toBe(true)
+        } finally {
+            if (warm === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = warm
+        }
+    })
+
     it('a canvas sync that waited for a delete of the name clears what it left, or is refused', async () => {
         const writes: string[] = []
         const release = await acquireNameLock('NAVI-B')

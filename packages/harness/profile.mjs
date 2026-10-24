@@ -12,7 +12,7 @@ import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { dataRoot, harnessStoreDir, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
-import { installPresetKit, presetInstructions, presetSummary } from './presets.mjs'
+import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
 import { parseRelationSelection } from './runtime/analyst-relations.mjs'
 
 const require = createRequire(import.meta.url)
@@ -855,7 +855,14 @@ export function profileDestinationConflicts(record, profileName = record?.name) 
     const homeDir = profileDir(home)
     const homeParent = markerText(path.join(homeDir, 'harness-parent'))
     if (homeParent && homeParent.toLowerCase() !== own) conflicts.push(home)
-    for (const specialist of resolveRoster(record, home).specialists) {
+    // The roster as the save will store it: a preset switches tools on, and that can give a specialist its own profile.
+    const normalized = {
+        ...record,
+        specialists: (record?.specialists || []).map((specialist) =>
+            specialist && typeof specialist === 'object' ? normalizePresetSpecialist({ ...specialist }) : specialist
+        )
+    }
+    for (const specialist of resolveRoster(normalized, home).specialists) {
         const dest = specialist.profileName
         if (!dest) continue
         const dir = profileDir(dest)
