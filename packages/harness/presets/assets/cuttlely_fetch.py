@@ -83,6 +83,13 @@ class FetchError(Exception):
         self.status = status
 
 
+def _is_blocked_ip(ip):
+    """Address classification that ignores any monkeypatch of blocked_address in tests."""
+    if any(ip in net for net in _BLOCKED_NETWORKS if net.version == ip.version):
+        return True
+    return not ip.is_global or ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_loopback
+
+
 def shown_url(url):
     """The URL as it may appear in an error: no user name or password, and no query string, which can carry a token."""
     try:
@@ -110,11 +117,11 @@ def blocked_address(address):
             mapped = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
         if mapped is None and int(ip) >> 32 == 0 and int(ip) > 1:
             mapped = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
-        if mapped is not None and blocked_address(mapped):
-            return True
-    if any(ip in net for net in _BLOCKED_NETWORKS if net.version == ip.version):
-        return True
-    return not ip.is_global or ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_loopback
+        # Always judge IPv4-mapped/derived forms by the embedded IPv4 address. Some Python versions
+        # report .is_global False on ::ffff:0:0/96; unwrapping avoids a false block on ::ffff:8.8.8.8.
+        if mapped is not None:
+            return _is_blocked_ip(mapped)
+    return _is_blocked_ip(ip)
 
 
 def _resolve(host, port):
