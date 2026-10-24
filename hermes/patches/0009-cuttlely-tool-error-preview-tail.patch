@@ -5,14 +5,14 @@ Subject: [PATCH] cuttlely: tool error preview tail
 
 What: the run stream's tool.completed preview keeps the head and the tail of a failed call's result, up to 1200 characters, instead of cutting it after 500. Successful calls are cut as before. Why: a failed download's exception, URL and HTTP status are at the end of the result, and the harness showed only the start.
 ---
- gateway/platforms/api_server_runs.py | 23 +++++++++++++++++------
- 1 file changed, 17 insertions(+), 6 deletions(-)
+ gateway/platforms/api_server_runs.py | 43 ++++++++++++++++++++++++----
+ 1 file changed, 37 insertions(+), 6 deletions(-)
 
 diff --git a/gateway/platforms/api_server_runs.py b/gateway/platforms/api_server_runs.py
-index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..5e6e7a954fa3f445c7050e8c80dcadcca8c0152c 100644
+index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..9e0ee1dd5b15db64c06542a6d054931be73133c9 100644
 --- a/gateway/platforms/api_server_runs.py
 +++ b/gateway/platforms/api_server_runs.py
-@@ -96,17 +96,28 @@ _FIXED_EVENT_FIELDS = {
+@@ -96,17 +96,46 @@ _FIXED_EVENT_FIELDS = {
          "tool": tool, "duration": round(kw.get("duration", 0), 3), "error": kw.get("is_error", False)},
      "reasoning.available": lambda tool, preview, kw: {"text": preview or ""}}
  _TOOL_COMPLETED_PREVIEW_MAX_CHARS = 500
@@ -21,6 +21,24 @@ index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..5e6e7a954fa3f445c7050e8c80dcadcc
  
  
 -def _tool_completed_preview(result: Any, redact_sensitive_text: Callable[..., str]) -> str:
++_FAILED_RESULT_STATUSES = frozenset({"error", "timeout", "interrupted"})
++
++
++def _result_reports_failure(result: Any) -> bool:
++    """A result that says it failed in its own top-level fields (execute_code's status or a non-zero
++    exit code), which the runtime's error flag does not always catch."""
++    if isinstance(result, str):
++        try:
++            result = json.loads(result)
++        except (ValueError, RecursionError):
++            return False
++    if not isinstance(result, dict):
++        return False
++    code = result.get("exit_code")
++    return result.get("status") in _FAILED_RESULT_STATUSES or (
++        isinstance(code, int) and not isinstance(code, bool) and code != 0)
++
++
 +def _tool_completed_preview(result: Any, redact_sensitive_text: Callable[..., str],
 +                            is_error: bool = False) -> str:
      """Bounded, secret-redacted result summary for the public run stream — redacted BEFORE
@@ -46,12 +64,15 @@ index 8b662cacbdf4a541c7b7b0c0eb8c953d0180001e..5e6e7a954fa3f445c7050e8c80dcadcc
  
  
  _RUN_STREAM_SUBSCRIBER_OVERFLOW = object()
-@@ -332,7 +343,7 @@ def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop
+@@ -331,8 +360,10 @@ def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop
+         if fields is not None:
              event_fields = fields(tool_name, preview, kwargs)
              if event_type == "tool.completed":
++                failed = bool(kwargs.get("is_error")) or _result_reports_failure(kwargs.get("result"))
++                event_fields["error"] = failed
                  event_fields["preview"] = _tool_completed_preview(
 -                    kwargs.get("result"), redact_sensitive_text)
-+                    kwargs.get("result"), redact_sensitive_text, bool(kwargs.get("is_error")))
++                    kwargs.get("result"), redact_sensitive_text, failed)
              _push(_run_event(run_id, event_type, **event_fields))
          elif event_type in {"subagent.start", "subagent.complete"}:
              event = _run_event(run_id, event_type)

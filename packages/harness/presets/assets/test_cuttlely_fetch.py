@@ -195,6 +195,41 @@ class FetchTest(unittest.TestCase):
         with self.assertRaisesRegex(net.FetchError, "user name or password"):
             net.fetch("http://user:secret@example.com/")
 
+    def test_error_text_never_carries_url_credentials_or_query_values(self):
+        for url in [
+            "ftp://review-user:review-secret@example.com/a?token=opaque-q",
+            "http://review-user:review-secret@example.com/a?token=opaque-q",
+            "http://10.0.0.1/a?token=opaque-q",
+            self.url("/a?token=opaque-q", host="meta.test"),
+        ]:
+            with self.assertRaises(net.FetchError, msg=url) as caught:
+                net.fetch(url, max_bytes=100)
+            for text in (str(caught.exception), caught.exception.url):
+                for secret in ("review-user", "review-secret", "opaque-q"):
+                    self.assertNotIn(secret, text, url)
+        self.assertEqual(net.shown_url("https://u:p@cdn.test:8443/x.png?sig=1"), "https://cdn.test:8443/x.png?(query hidden)")
+
+    def test_a_name_that_rebinds_after_the_check_is_never_connected_to(self):
+        # The first answer is the checked one and the connection goes to that address; a second, private
+        # answer from the same name is never asked for or used.
+        answers = iter([["127.0.0.1"], ["169.254.169.254"]])
+        calls, targets = [], []
+        net._resolve = lambda host, port: (calls.append(host), next(answers))[1]
+        original = socket.create_connection
+
+        def record(address, *args, **kwargs):
+            targets.append(address[0])
+            return original(address, *args, **kwargs)
+
+        socket.create_connection = record
+        try:
+            result = net.fetch(self.url("/logo.svg", host="rebind.test"))
+        finally:
+            socket.create_connection = original
+        self.assertEqual(result["status"], 200)
+        self.assertEqual(calls, ["rebind.test"])
+        self.assertEqual(targets, ["127.0.0.1"])
+
     # Redirects
     def test_redirects_are_followed_one_hop_at_a_time(self):
         result = net.fetch(self.url("/to-logo"))

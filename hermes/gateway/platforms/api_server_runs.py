@@ -100,6 +100,24 @@ _TOOL_COMPLETED_ERROR_PREVIEW_MAX_CHARS = 1200
 _TOOL_COMPLETED_ERROR_PREVIEW_HEAD_CHARS = 300
 
 
+_FAILED_RESULT_STATUSES = frozenset({"error", "timeout", "interrupted"})
+
+
+def _result_reports_failure(result: Any) -> bool:
+    """A result that says it failed in its own top-level fields (execute_code's status or a non-zero
+    exit code), which the runtime's error flag does not always catch."""
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (ValueError, RecursionError):
+            return False
+    if not isinstance(result, dict):
+        return False
+    code = result.get("exit_code")
+    return result.get("status") in _FAILED_RESULT_STATUSES or (
+        isinstance(code, int) and not isinstance(code, bool) and code != 0)
+
+
 def _tool_completed_preview(result: Any, redact_sensitive_text: Callable[..., str],
                             is_error: bool = False) -> str:
     """Bounded, secret-redacted result summary for the public run stream — redacted BEFORE
@@ -342,8 +360,10 @@ def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop
         if fields is not None:
             event_fields = fields(tool_name, preview, kwargs)
             if event_type == "tool.completed":
+                failed = bool(kwargs.get("is_error")) or _result_reports_failure(kwargs.get("result"))
+                event_fields["error"] = failed
                 event_fields["preview"] = _tool_completed_preview(
-                    kwargs.get("result"), redact_sensitive_text, bool(kwargs.get("is_error")))
+                    kwargs.get("result"), redact_sensitive_text, failed)
             _push(_run_event(run_id, event_type, **event_fields))
         elif event_type in {"subagent.start", "subagent.complete"}:
             event = _run_event(run_id, event_type)

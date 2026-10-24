@@ -62,7 +62,28 @@ test('a failed tool preview keeps its head and its tail; a successful one is cut
     assert.equal(out.short, '{"status": "error", "error": "boom"}')
 })
 
-test('the run stream passes the error flag to the preview', () => {
+const FAILURE_PROBE = String.raw`
+import ast, json, sys
+from typing import Any
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+keep = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name == "_result_reports_failure")
+        or (isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "_FAILED_RESULT_STATUSES" for t in n.targets))]
+scope = {"json": json, "Any": Any}
+exec(compile(ast.Module(body=keep, type_ignores=[]), "api_server_runs", "exec"), scope)
+f = scope["_result_reports_failure"]
+cases = [json.dumps({"status": "interrupted", "output": "x" * 2000, "exit_code": 130}),
+         json.dumps({"status": "timeout"}), json.dumps({"output": "", "exit_code": 2}), {"status": "error"},
+         json.dumps({"status": "success", "output": "status: error", "exit_code": 0}), "plain text", None,
+         json.dumps({"exit_code": True}), json.dumps({"nested": {"status": "error"}})]
+print(json.dumps([f(c) for c in cases]))
+`
+
+test('a result that reports its own failure keeps its tail even without the runtime error flag', () => {
+    const result = spawnSync(process.env.HERMES_PYTHON || 'python3', ['-c', FAILURE_PROBE, SOURCE], { encoding: 'utf8', timeout: 30_000 })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.deepEqual(JSON.parse(result.stdout), [true, true, true, true, false, false, false, false, false])
     const text = fs.readFileSync(SOURCE, 'utf8')
-    assert.match(text, /_tool_completed_preview\(\s*kwargs\.get\("result"\), redact_sensitive_text, bool\(kwargs\.get\("is_error"\)\)\)/)
+    assert.match(text, /failed = bool\(kwargs\.get\("is_error"\)\) or _result_reports_failure\(kwargs\.get\("result"\)\)/)
+    assert.match(text, /event_fields\["error"\] = failed/)
+    assert.match(text, /_tool_completed_preview\(\s*kwargs\.get\("result"\), redact_sensitive_text, failed\)/)
 })

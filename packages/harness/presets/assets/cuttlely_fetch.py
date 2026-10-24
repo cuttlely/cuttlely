@@ -68,9 +68,30 @@ class FetchError(Exception):
     """A fetch that did not return a usable body. The message names the URL and, when there was one, the status."""
 
     def __init__(self, message, url="", status=None):
+        url = str(url or "")
+        shown = shown_url(url)
+        if url and url != shown:
+            message = message.replace(url, shown)
         super().__init__(message)
-        self.url = url
+        self.url = shown
         self.status = status
+
+
+def shown_url(url):
+    """The URL as it may appear in an error: no user name or password, and no query string, which can carry a token."""
+    try:
+        parts = urlsplit(str(url))
+        host = parts.hostname or ""
+    except ValueError:
+        return "(unparseable URL)"
+    if ":" in host:
+        host = f"[{host}]"
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    netloc = host + (f":{port}" if port is not None else "")
+    return f"{parts.scheme}://{netloc}{parts.path}" + ("?(query hidden)" if parts.query else "") if parts.scheme or netloc else "(URL hidden)"
 
 
 def blocked_address(address):
