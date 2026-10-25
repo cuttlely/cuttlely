@@ -1021,7 +1021,8 @@ const TEAM_OWNED_ROWS: { table: string; label: string }[] = [
     { table: 'dataset', label: 'datasets' },
     { table: 'evaluation', label: 'evaluations' },
     { table: 'evaluator', label: 'evaluators' },
-    { table: 'tool', label: 'tools' }
+    { table: 'tool', label: 'tools' },
+    { table: 'execution', label: 'executions' }
 ]
 
 function teamOwnedMessage(labels: string[]): string {
