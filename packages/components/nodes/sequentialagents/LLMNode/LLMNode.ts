@@ -1,4 +1,5 @@
-import { difference, flatten, uniq } from 'lodash'
+import { difference, uniq } from 'lodash'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import { DataSource } from 'typeorm'
 import { z } from 'zod/v3'
 import { RunnableSequence, RunnablePassthrough, RunnableConfig } from '@langchain/core/runnables'
@@ -392,7 +393,7 @@ class LLMNode_SeqAgents implements INode {
     async init(nodeData: INodeData, input: string, options: ICommonObject): Promise<any> {
         // Tools can be connected through ToolNodes
         let tools = nodeData.inputs?.tools
-        tools = flatten(tools)
+        tools = prepareAgentTools(tools)
 
         let systemPrompt = nodeData.inputs?.systemMessagePrompt as string
         systemPrompt = transformBracesWithColon(systemPrompt)

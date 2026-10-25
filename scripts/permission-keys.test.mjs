@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, it } from 'node:test'
 import {
     documentedPermissionKeys,
@@ -61,6 +64,36 @@ describe('roles and permissions guide', () => {
         assert.deepEqual(known, [])
         const live = readPermissionLiteralProblems()
         assert.deepEqual(live, [], live.join('\n'))
+    })
+
+    it('ignores the harness test double under the server source tree', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'perm-keys-'))
+        try {
+            const server = path.join(root, 'packages', 'server', 'src')
+            fs.mkdirSync(path.join(server, 'database'), { recursive: true })
+            fs.mkdirSync(path.join(server, 'identity'), { recursive: true })
+            fs.mkdirSync(path.join(server, 'services', 'harnesses', 'harness'), { recursive: true })
+            fs.mkdirSync(path.join(root, 'packages', 'ui', 'src'), { recursive: true })
+            fs.writeFileSync(path.join(server, 'database', 'identitySchema.ts'), '')
+            fs.writeFileSync(path.join(server, 'identity', 'permissionsCatalog.ts'), '')
+            fs.writeFileSync(
+                path.join(server, 'services', 'harnesses', 'harness', 'gateway.mjs'),
+                "export function start() { requirePermission('nope:view') }\n"
+            )
+            fs.writeFileSync(path.join(server, 'real.ts'), "requirePermission('chatflows:view')\n")
+            const problems = readPermissionLiteralProblems(root)
+            assert.equal(
+                problems.some((item) => item.includes('harness/gateway.mjs')),
+                false,
+                problems.join('\n')
+            )
+            assert.ok(
+                problems.some((item) => item.includes('real.ts') && item.includes('chatflows:view')),
+                problems.join('\n')
+            )
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
     })
 
     it('fails when a helper constant, a template expansion, or a spread array is not in the catalog', () => {

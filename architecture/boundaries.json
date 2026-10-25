@@ -433,6 +433,7 @@
                 "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts"
             ],
             "entryPoints": [
+                "packages/components/nodes/harness/Harness/Harness.ts",
                 "packages/server/src/utils/apiKeyAccess.ts",
                 "packages/server/src/utils/flowHarnessCaller.ts",
                 "packages/harness/trace.mjs",

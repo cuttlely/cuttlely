@@ -12,6 +12,7 @@ import { getBaseClasses, transformBracesWithColon } from '../../../src/utils'
 import { ConsoleCallbackHandler, CustomChainHandler, additionalCallbacks } from '../../../src/handler'
 import { FlowiseMemory, ICommonObject, INode, INodeData, INodeParams, IUsedTool, IServerSideEventStreamer } from '../../../src/Interface'
 import { AgentExecutor } from '../../../src/agents'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import { addImagesToMessages, llmSupportsVision } from '../../../src/multiModalUtils'
 import { checkInputs, Moderation, streamResponse } from '../../moderation/Moderation'
 import { formatResponse } from '../../outputparsers/OutputParserHelpers'
@@ -152,7 +153,7 @@ class ConversationalAgent_Agents implements INode {
             // If the tool is set to returnDirect, stream the output to the client
             if (res.usedTools && res.usedTools.length) {
                 let inputTools = nodeData.inputs?.tools
-                inputTools = flatten(inputTools)
+                inputTools = prepareAgentTools(inputTools)
                 for (const tool of res.usedTools) {
                     const inputTool = inputTools.find((inputTool: Tool) => inputTool.name === tool.tool)
                     if (inputTool && inputTool.returnDirect && options.sseStreamer) {
@@ -212,7 +213,7 @@ const prepareAgent = async (
     const model = nodeData.inputs?.model as BaseChatModel
     const maxIterations = nodeData.inputs?.maxIterations as string
     let tools = nodeData.inputs?.tools as Tool[]
-    tools = flatten(tools)
+    tools = prepareAgentTools(tools)
     const memory = nodeData.inputs?.memory as FlowiseMemory
     let systemMessage = nodeData.inputs?.systemMessage as string
     const memoryKey = memory.memoryKey ? memory.memoryKey : 'chat_history'
