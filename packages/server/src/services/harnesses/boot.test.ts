@@ -1,6 +1,9 @@
 // Server start: profiles from an older compiler are compiled again, under each name lock and the profile lock,
 // while the gateway's /health is held. The start script launches Hermes only once /health answers, and Hermes
 // reads config.yaml from disk.
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import harnessesService, {
     acquireNameLock,
     BootPassIncomplete,
@@ -18,6 +21,7 @@ describe('harness runtime start', () => {
     let saved: Map<string, { name: string; version: number }>
     let failFor = ''
     let sweep = ''
+    let sweepPaths: string[] = []
     let holds = 0
     let unreadable = ''
     let busyMs = 0
@@ -36,6 +40,7 @@ describe('harness runtime start', () => {
         delete process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS
         resetBootPass()
         sweep = ''
+        sweepPaths = []
         holds = 0
         setHarnessModuleLoader(async (file: string) => {
             if (file === 'run.mjs') {
@@ -91,6 +96,7 @@ describe('harness runtime start', () => {
                     setAsideOutdatedConfigs: () => {
                         order.push(`set aside holds ${holds}`)
                         if (sweep === 'throw') throw new Error('EACCES')
+                        if (sweep === 'link') return sweepPaths
                         return sweep === 'stuck' ? ['/p/ops'] : []
                     },
                     recompileOutdatedProfiles: async (list: Array<{ name: string; version: number }>) => {
@@ -272,6 +278,39 @@ describe('harness runtime start', () => {
             expect(order[order.length - 1]).toBe('set aside holds 0')
         } finally {
             spy.mockRestore()
+        }
+    })
+
+    test('a profile link that cannot be moved aside keeps the runtime from starting', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boot-link-'))
+        const target = path.join(dir, 'target')
+        const link = path.join(dir, 'profile')
+        fs.mkdirSync(target)
+        fs.writeFileSync(path.join(target, 'marker'), 'boot-link-sentinel\n')
+        fs.symlinkSync(target, link)
+        sweep = 'link'
+        sweepPaths = [link]
+        process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '1'
+        let released = false
+        let booted = false
+        try {
+            await expect(
+                recompileBeforeHermes({
+                    holdGatewayHealth: () => () => (released = true),
+                    finishGatewayBoot: () => (booted = true),
+                    startGateway: async () => undefined
+                })
+            ).rejects.toBeInstanceOf(BootPassIncomplete)
+            expect(released).toBe(false)
+            expect(booted).toBe(false)
+            expect(bootPassPhase()).toBe('incomplete')
+            expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+            expect(fs.readFileSync(path.join(target, 'marker'), 'utf8')).toBe('boot-link-sentinel\n')
+            for (let i = 0; i < 40 && !released; i += 1) await new Promise((resolve) => setTimeout(resolve, 50))
+            expect(released).toBe(true)
+            expect(booted).toBe(true)
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true })
         }
     })
 

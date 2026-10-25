@@ -2150,6 +2150,18 @@ function onDiskRoster(dir) {
     }
 }
 
+// A current compiler marker is not enough. The same tree check a compile uses has to pass, or the
+// runtime would load a link that was swapped in after the compile.
+function profileTreeBlocked(dir) {
+    try {
+        preflightTree(dir)
+        return false
+    } catch (error) {
+        if (error?.code === 'profile_link') return true
+        throw error
+    }
+}
+
 // Whether the published profile for this record, or one of its specialists, came from another compiler version.
 // A directory with no version file is a compile from an older server or one that stopped partway.
 export function profileOutdated(record) {
@@ -2160,24 +2172,24 @@ export function profileOutdated(record) {
         if (!fs.existsSync(root)) return false
         return fs.readdirSync(root).some((entry) => {
             try {
-                return (
-                    readMarker(path.join(root, entry, 'harness-parent')) === String(record.name) &&
-                    compilerVersionOf(path.join(root, entry)) !== PROFILE_COMPILER_VERSION
-                )
+                const child = path.join(root, entry)
+                if (readMarker(path.join(child, 'harness-parent')) !== String(record.name)) return false
+                if (compilerVersionOf(child) !== PROFILE_COMPILER_VERSION) return true
+                return profileTreeBlocked(child)
             } catch {
                 // Another profile's unreadable marker; the boot sweep reports it if it is a harness folder.
                 return false
             }
         })
     }
-    if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION) return true
+    if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION || profileTreeBlocked(dir)) return true
     const roster = onDiskRoster(dir)
     for (const specialist of roster?.specialists || []) {
         const childName = String(specialist?.profileName || '')
         // A name that leaves the profiles tree is not a profile directory. Leave that path where it is.
         if (!PROFILE_ID_RE.test(childName)) continue
         const child = profileDir(childName)
-        if (fs.existsSync(child) && compilerVersionOf(child) !== PROFILE_COMPILER_VERSION) return true
+        if (fs.existsSync(child) && (compilerVersionOf(child) !== PROFILE_COMPILER_VERSION || profileTreeBlocked(child))) return true
     }
     return false
 }

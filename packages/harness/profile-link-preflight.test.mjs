@@ -649,7 +649,8 @@ function cleanupProfile(name) {
     fs.rmSync(scratch, { recursive: true, force: true })
 }
 
-// A roster file that is a link is not read while boot decides what to compile.
+// A roster file that is a link is not read while boot decides what to compile. It is inside the
+// profiles tree, so the same check a compile uses moves it aside instead of leaving it on the load path.
 {
     const name = 'plinkroster'
     const saved = record(name)
@@ -660,15 +661,25 @@ function cleanupProfile(name) {
     const realCopy = `${roster}.real`
     fs.renameSync(roster, realCopy)
     fs.symlinkSync(outside.file, roster)
-    const guarded = guardLink(roster, outside.file, () => recompileOutdatedProfiles([saved]))
+    const guarded = guardLink(roster, outside.file, () => recompileOutdatedProfiles([saved], { log: {} }))
+    const result = Array.isArray(guarded.result) ? guarded.result : []
     const linkStat = fs.lstatSync(roster, { throwIfNoEntry: false })
     check(
         'a linked roster file is not read during boot',
-        guarded.hits.length === 0 &&
+        result.length === 1 &&
+            (result[0].status === 'recompiled' || result[0].status === 'failed') &&
+            guarded.hits.length === 0 &&
             guarded.error == null &&
             sameStamp(outside.file, outside.before) &&
-            linkStat?.isSymbolicLink() === true,
-        JSON.stringify({ hits: guarded.hits, error: guarded.error?.code || '', stillLink: linkStat?.isSymbolicLink() === true })
+            !linkStat?.isSymbolicLink() &&
+            quarantineNames(profilePath(name), 'harness-roster.json').length === 1 &&
+            !treeHas(profilePath(name), Buffer.from('"profileName":"nope"')),
+        JSON.stringify({
+            status: result[0]?.status || '',
+            error: result[0]?.error || guarded.error?.code || '',
+            hits: guarded.hits,
+            stillLink: linkStat?.isSymbolicLink() === true
+        })
     )
     fs.rmSync(realCopy, { force: true })
     cleanupProfile(name)
@@ -1046,6 +1057,41 @@ function cleanupProfile(name) {
         JSON.stringify({ swapped, refused, hits, keepText, listing: fs.readdirSync(outside.dir) })
     )
     if (held) fs.rmSync(held, { recursive: true, force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// A profile whose compiler marker is current is still checked at boot. An env link is not left for the runtime.
+{
+    const name = 'plinkbootenv'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const envFile = profilePath(name, '.env')
+    const outside = outsideFile('boot-env', 'OUTSIDE_ENV_SENTINEL=boot-current\n')
+    const realCopy = `${envFile}.real`
+    fs.renameSync(envFile, realCopy)
+    fs.symlinkSync(outside.file, envFile)
+    const guarded = guardLink(envFile, outside.file, () => recompileOutdatedProfiles([saved], { log: {} }))
+    const result = Array.isArray(guarded.result) ? guarded.result : []
+    const linkStat = fs.lstatSync(envFile, { throwIfNoEntry: false })
+    check(
+        'a current profile is preflighted at boot before an env link is left in place',
+        result.length === 1 &&
+            (result[0].status === 'recompiled' || result[0].status === 'failed') &&
+            guarded.hits.length === 0 &&
+            guarded.error == null &&
+            sameStamp(outside.file, outside.before) &&
+            !linkStat?.isSymbolicLink() &&
+            !treeHas(profilePath(name), Buffer.from('boot-current')),
+        JSON.stringify({
+            status: result[0]?.status || '',
+            error: result[0]?.error || guarded.error?.code || '',
+            hits: guarded.hits,
+            stillLink: linkStat?.isSymbolicLink() === true
+        })
+    )
+    fs.rmSync(realCopy, { force: true })
     cleanupProfile(name)
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }

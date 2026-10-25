@@ -384,9 +384,10 @@ export async function recompileBeforeHermes(gateway: {
         } catch (error) {
             logger.error(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
         }
-        // One folder that cannot be read, or one older config that cannot be moved, is named and skipped.
-        // The rest of the pass still finishes, so ping and the runtime are not held for that profile.
-        // Only a failure of the sweep itself (the profiles folder cannot be checked) is unfinished.
+        // One folder that cannot be read, or one older config that cannot be moved, is named and skipped
+        // when that path is not a link. The rest of the pass still finishes, so ping and the runtime are
+        // not held for that profile. A profile directory that is still a link, and a failure of the sweep
+        // itself, are unfinished: the runtime must not start while that link is on the load path.
         let loadable: string[] = []
         try {
             const profile = await loadHarness('profile.mjs')
@@ -394,11 +395,24 @@ export async function recompileBeforeHermes(gateway: {
         } catch (error) {
             unfinished(`profiles could not be checked for an older compiler: ${getErrorMessage(error)}`)
         }
+        const stillLinked: string[] = []
         for (const dir of loadable) {
+            let linked = false
+            try {
+                linked = fs.lstatSync(dir).isSymbolicLink()
+            } catch {
+                linked = false
+            }
+            if (linked) {
+                stillLinked.push(dir)
+                continue
+            }
             logger.error(
                 `[harness] skipped profile ${dir}: config.yaml from an older compiler could not be set aside. The other profiles still start.`
             )
         }
+        // A link left on the load path is not a skipped config. The runtime must not start while it is there.
+        if (stillLinked.length) unfinished(`profile link still on the load path: ${stillLinked.join(', ')}`)
         release()
     })()
 
