@@ -80,7 +80,7 @@ Full notes: [v1.4.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v
 ### What's new in 1.3.1?
 
 -   Every flow an MCP server: turn on **MCP Server** for a flow and other agents call its Live version over MCP. The flow's Rate Limit applies, and request bodies over 1 MB are refused.
--   Published chatflows answer IBM watsonx Orchestrate native agents. The flow needs a bound API key.
+-   Published chatflows answer watsonx Orchestrate native agents. The flow needs a bound API key.
 -   A new install opens one `/setup` page. The server log prints the link and a setup code that lasts 60 minutes and works once.
 -   `npx cuttlely start` on Node 20 waits until the health check answers.
 -   Two security fixes for versions up to and including 1.3.0: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) (setup code) and [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7) (public config endpoints).
