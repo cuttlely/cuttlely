@@ -746,6 +746,20 @@ function regUsesAreDirectConsts(tree, regSet, allowedFnIds) {
     }
 }
 
+// regconfig and regdictionary oids, and the built-in text-search functions that may receive them as a direct Const.
+async function regTsearchContext(runner) {
+    const typeOids = await runner.get(
+        "SELECT 'regconfig'::regtype::oid::int8 AS regconfig, 'regdictionary'::regtype::oid::int8 AS regdictionary"
+    )
+    const regSet = new Set([Number(typeOids?.regconfig || 0), Number(typeOids?.regdictionary || 0)].filter((oid) => oid > 0))
+    const allowedFnRows = await runner.all(
+        `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
+        [TEXT_SEARCH_FUNCTIONS]
+    )
+    return { regSet, allowedFnIds: new Set(allowedFnRows.map((row) => Number(row.oid))) }
+}
+
 // Object ids from a stored query tree. String values in the tree escape their spaces, so text in the statement
 // (an alias such as "x :relid 1") cannot add an id; constants are stored as bytes. A field name ending in type,
 // typeid or typid holds a type id (consttype, resulttype, vartype, funcresulttype, row_typeid, ...); a list of
@@ -827,10 +841,7 @@ export async function checkStatementScope(
     // Scoped reg* rule. Every statement, view, materialized view and policy tree must pass before
     // regconfig and regdictionary oids are removed from the type set. Any other reg* type stays.
     async function filteredTypesWithRegTsearchException(bodyTexts) {
-        const typeOids = await runner.get(
-            "SELECT 'regconfig'::regtype::oid::int8 AS regconfig, 'regdictionary'::regtype::oid::int8 AS regdictionary"
-        )
-        const regSet = new Set([Number(typeOids?.regconfig || 0), Number(typeOids?.regdictionary || 0)].filter((oid) => oid > 0))
+        const { regSet, allowedFnIds } = await regTsearchContext(runner)
         const ioFnRows = await runner.all(
             `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
              WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
@@ -842,12 +853,6 @@ export async function checkStatementScope(
                 'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
             )
         }
-        const allowedFnRows = await runner.all(
-            `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-             WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
-            [TEXT_SEARCH_FUNCTIONS]
-        )
-        const allowedFnIds = new Set(allowedFnRows.map((row) => Number(row.oid)))
         const texts = (Array.isArray(bodyTexts) ? bodyTexts : [bodyTexts]).map((text) => String(text || ''))
         for (const text of texts) {
             if (!text.includes('{')) continue
@@ -1355,6 +1360,11 @@ async function refuseRoutines(
     const memo = new Map()
     const heightOf = new Map()
     const visiting = new Set()
+    let regContext = null
+    const regContextOnce = async () => {
+        if (!regContext) regContext = await regTsearchContext(runner)
+        return regContext
+    }
     function mergeFound(into, add) {
         if (!add) return into
         for (const id of add.relations || []) into.relations.add(Number(id))
@@ -1370,6 +1380,7 @@ async function refuseRoutines(
         if (!tree) return false
         // The defaults tree is a nodeToString form; walk it and vet the found ids.
         const found = treeObjectIds(tree)
+        found.tree = tree
         const result = await vetFound(found, depth, { bucket })
         // A selected relation in a default is unsafe. An unselected one already threw.
         if (result === 'relation') return false
@@ -1400,11 +1411,20 @@ async function refuseRoutines(
                 return 'relation'
             }
         }
-        // Types: refuse reg* in scoped mode. Function bodies do not get the text-search Const exception.
-        if (found.types && found.types.size) {
+        // Types: refuse reg* in scoped mode. A regconfig or regdictionary Const passed directly to a
+        // built-in text-search function is the same exception as on a statement, view, or policy tree.
+        const bodyTree = String(found.tree || '')
+        let regSet = null
+        if (bodyTree.includes('{') || (found.types && found.types.size)) {
+            const ctx = await regContextOnce()
+            regSet = ctx.regSet
+            if (bodyTree.includes('{')) regUsesAreDirectConsts(bodyTree, ctx.regSet, ctx.allowedFnIds)
+        }
+        const typeIds = [...(found.types || [])].filter((oid) => !regSet || !regSet.has(Number(oid)))
+        if (typeIds.length) {
             const typeRows = await runner.all(
                 'SELECT ty.oid::int8 AS oid, ty.typname AS typname, n.nspname AS schema FROM pg_type ty JOIN pg_namespace n ON n.oid = ty.typnamespace WHERE ty.oid = ANY(?::oid[])',
-                [[...found.types]]
+                [typeIds]
             )
             const bad = typeRows
                 .filter((type) => type.schema === 'pg_catalog' && DENIED_TYPES.has(String(type.typname)))
@@ -1545,6 +1565,7 @@ async function refuseRoutines(
         const bucket = { height: 0 }
         if (body) {
             const found = treeObjectIds(body)
+            found.tree = body
             const ok = await vetFound(found, depth, { trustRelations: allowedSelf, bucket })
             if (ok === 'depth') return tooDeep()
             if (ok === 'relation') return note('reads a relation')

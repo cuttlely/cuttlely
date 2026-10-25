@@ -2679,6 +2679,46 @@ describe('analyst relations: text search configuration types', () => {
         await refusal(queryAnalystUrl(url, 'SELECT id FROM s.body_pol_view LIMIT 1', selected('s.body_pol_view')), /type regrole/)
     })
 
+    it('allows a direct text-search constant inside a relation-free BEGIN ATOMIC function', async (t) => {
+        // Requirement (a) also covers a SQL-standard function body and its default arguments.
+        if (skipped(t)) return
+        await owner.query(`GRANT CREATE ON SCHEMA s TO "${etl}"`)
+        await owner.query(`SET ROLE "${etl}"`)
+        try {
+            await owner.query(`
+                CREATE FUNCTION s.pure_search() RETURNS tsvector LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT to_tsvector('english', 'oven runs'); END;
+                CREATE FUNCTION s.pure_lexize() RETURNS text[] LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT ts_lexize('english_stem'::regdictionary, 'ovens'); END;
+                CREATE FUNCTION s.pure_phrase(q tsquery DEFAULT phraseto_tsquery('english', 'oven runs')) RETURNS tsquery
+                    LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT q; END;
+                CREATE FUNCTION s.bad_cfg() RETURNS text LANGUAGE sql STABLE
+                    BEGIN ATOMIC SELECT get_current_ts_config()::text; END;
+                CREATE FUNCTION s.bad_nested() RETURNS tsvector LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT to_tsvector(get_current_ts_config(), 'oven'); END;
+                CREATE FUNCTION s.bad_bare() RETURNS text LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT 'english'::regconfig::text; END;
+                CREATE FUNCTION s.bad_class() RETURNS text LANGUAGE sql STABLE
+                    BEGIN ATOMIC SELECT 0::oid::regclass::text; END;
+            `)
+        } finally {
+            await owner.query('RESET ROLE')
+        }
+        await owner.query(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA s TO "${reader}"`)
+        for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }]) {
+            const search = await queryAnalystUrl(url, 'SELECT s.pure_search() AS v LIMIT 1', options)
+            assert.match(String(search.rows[0].v), /oven/)
+            const lex = await queryAnalystUrl(url, 'SELECT s.pure_lexize() AS v LIMIT 1', options)
+            assert.deepEqual(lex.rows[0].v, ['oven'])
+            const phrase = await queryAnalystUrl(url, 'SELECT s.pure_phrase()::text AS v LIMIT 1', options)
+            assert.match(phrase.rows[0].v, /oven/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_cfg() AS v LIMIT 1', options), /regconfig/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_nested() AS v LIMIT 1', options), /regconfig/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_bare() AS v LIMIT 1', options), /regconfig/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_class() AS v LIMIT 1', options), /regclass/)
+        }
+    })
+
     it('does not write debug files during checks', async (t) => {
         if (skipped(t)) return
         const fs = await import('node:fs')
