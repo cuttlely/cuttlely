@@ -7599,6 +7599,191 @@ await expectCase('A4 a cache hit refuses a profile folder swapped for a symlink 
     fs.rmSync(outside, { recursive: true, force: true })
 })
 
+await expectCase('A4 cache hits refuse a specialist link, a memory link, an inode of zero, and a swap between the checks', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const warm = (name, specialists) => {
+        const record = saveHarness(
+            {
+                name,
+                chatflowId: `canvas-${name}`,
+                chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                specialists
+            },
+            { overwrite: true }
+        )
+        const first = compileProfileCached(record)
+        const again = compileProfileCached(getHarness(name))
+        return { record, first, again }
+    }
+    const cleanup = (name, outside) => {
+        forgetCompiledProfile(name)
+        for (const entry of fs.readdirSync(root)) {
+            if (entry === name || entry.startsWith(`${name}.quarantine`) || entry.startsWith(`${name}--`)) {
+                fs.rmSync(path.join(root, entry), { recursive: true, force: true })
+            }
+        }
+        if (outside) fs.rmSync(outside, { recursive: true, force: true })
+    }
+
+    // Specialist directory swapped for a symlink, cache left in place.
+    {
+        const name = 'macachespec'
+        const { first, again } = warm(name, [
+            { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), codeExecution: true, modules: [] }
+        ])
+        const child = profilesFor(name).find((profile) => profile.name.includes('--'))?.name
+        const childPath = path.join(root, child)
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.cpSync(childPath, outside, { recursive: true })
+        fs.writeFileSync(path.join(outside, 'sentinel'), 'spec-sentinel')
+        const sent = fs.statSync(path.join(outside, 'sentinel'))
+        const before = fs.readdirSync(outside).sort()
+        fs.rmSync(childPath, { recursive: true, force: true })
+        fs.symlinkSync(outside, childPath)
+        let refused = ''
+        let returnedCache = false
+        try {
+            returnedCache = compileProfileCached(getHarness(name)) === first
+        } catch (error) {
+            refused = error?.code || ''
+        }
+        const sentinel = fs.statSync(path.join(outside, 'sentinel'))
+        check(
+            'A4 a cache hit refuses a specialist folder swapped for a symlink without clearing the cache',
+            Boolean(child) &&
+                again === first &&
+                refused === 'profile_link' &&
+                !returnedCache &&
+                fs.readdirSync(outside).sort().join('\n') === before.join('\n') &&
+                fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'spec-sentinel' &&
+                sentinel.mtimeMs === sent.mtimeMs &&
+                !fs.lstatSync(childPath, { throwIfNoEntry: false }) &&
+                fs.readdirSync(root).some((entry) => entry.startsWith(`${child}.quarantine`)),
+            JSON.stringify({ child, cacheHit: again === first, refused, returnedCache })
+        )
+        cleanup(name, outside)
+    }
+
+    // memory/ under the profile swapped for a symlink, cache left in place.
+    {
+        const name = 'macachemem'
+        const { first, again } = warm(name, [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }])
+        const memory = path.join(root, name, 'memory')
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.writeFileSync(path.join(outside, 'marker'), 'memory-sentinel')
+        const sent = fs.statSync(path.join(outside, 'marker'))
+        fs.rmSync(memory, { recursive: true, force: true })
+        fs.symlinkSync(outside, memory)
+        let refused = ''
+        let returnedCache = false
+        try {
+            returnedCache = compileProfileCached(getHarness(name)) === first
+        } catch (error) {
+            refused = error?.code || ''
+        }
+        const marker = fs.statSync(path.join(outside, 'marker'))
+        check(
+            'A4 a cache hit refuses a memory directory swapped for a symlink without clearing the cache',
+            again === first &&
+                refused === 'profile_link' &&
+                !returnedCache &&
+                fs.readFileSync(path.join(outside, 'marker'), 'utf8') === 'memory-sentinel' &&
+                marker.mtimeMs === sent.mtimeMs &&
+                fs.readdirSync(outside).length === 1 &&
+                !fs.lstatSync(memory, { throwIfNoEntry: false })?.isSymbolicLink() &&
+                fs.readdirSync(path.join(root, name)).some((entry) => entry.startsWith('memory.quarantine')),
+            JSON.stringify({ cacheHit: again === first, refused, returnedCache })
+        )
+        cleanup(name, outside)
+    }
+
+    // dev/ino of 0 is not a cache hit. The profile is compiled again.
+    {
+        const name = 'macacheino'
+        const { first, again } = warm(name, [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }])
+        const realLstat = fs.lstatSync
+        fs.lstatSync = (entry, options) => {
+            const stat = realLstat(entry, options)
+            if (!options?.bigint) return stat
+            return {
+                isSymbolicLink: () => stat.isSymbolicLink(),
+                isDirectory: () => stat.isDirectory(),
+                isFile: () => stat.isFile(),
+                dev: 0n,
+                ino: 0n
+            }
+        }
+        let refused = ''
+        let third = null
+        try {
+            third = compileProfileCached(getHarness(name))
+        } catch (error) {
+            refused = error?.code || ''
+        } finally {
+            fs.lstatSync = realLstat
+        }
+        const profilePath = path.join(root, name)
+        check(
+            'A4 an inode of zero is not a cache hit and the profile is compiled again',
+            again === first &&
+                refused === '' &&
+                third &&
+                third !== first &&
+                fs.lstatSync(profilePath).isDirectory() &&
+                !fs.lstatSync(profilePath).isSymbolicLink(),
+            JSON.stringify({ cacheHit: again === first, refused, reused: third === first, got: Boolean(third) })
+        )
+        cleanup(name)
+    }
+
+    // The directory is swapped after the chain check and before config.yaml is read.
+    {
+        const name = 'macachegap'
+        const { first, again } = warm(name, [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }])
+        const profilePath = path.join(root, name)
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.cpSync(profilePath, outside, { recursive: true })
+        fs.writeFileSync(path.join(outside, 'sentinel'), 'gap-sentinel')
+        const sent = fs.statSync(path.join(outside, 'sentinel'))
+        const before = fs.readdirSync(outside).sort()
+        let swapped = false
+        profileWriteTest.betweenCacheChecks = (dirPath) => {
+            if (swapped || dirPath !== profilePath) return
+            swapped = true
+            const held = `${profilePath}.held`
+            fs.renameSync(profilePath, held)
+            fs.symlinkSync(outside, profilePath)
+        }
+        let refused = ''
+        let returnedCache = false
+        try {
+            returnedCache = compileProfileCached(getHarness(name)) === first
+        } catch (error) {
+            refused = error?.code || ''
+        } finally {
+            profileWriteTest.betweenCacheChecks = null
+        }
+        const sentinel = fs.statSync(path.join(outside, 'sentinel'))
+        check(
+            'A4 a profile folder swapped between the cache checks is refused without clearing the cache',
+            again === first &&
+                swapped &&
+                refused === 'profile_link' &&
+                !returnedCache &&
+                fs.readdirSync(outside).sort().join('\n') === before.join('\n') &&
+                fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'gap-sentinel' &&
+                sentinel.mtimeMs === sent.mtimeMs &&
+                !fs.lstatSync(profilePath, { throwIfNoEntry: false }),
+            JSON.stringify({ cacheHit: again === first, swapped, refused, returnedCache })
+        )
+        fs.rmSync(`${profilePath}.held`, { recursive: true, force: true })
+        cleanup(name, outside)
+    }
+    check('A4 cache hits refuse a specialist link, a memory link, an inode of zero, and a swap between the checks', true)
+})
+
 await expectCase('a compile refuses a symlink on each path it would write', async () => {
     const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
     const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]

@@ -224,7 +224,9 @@ export const profileWriteTest = {
     // create a file in that gap. Production leaves this null.
     beforeQuarantineClaim: null,
     // Runs after link(2) names the symlink and before the source name is checked again. Production leaves this null.
-    afterQuarantineLink: null
+    afterQuarantineLink: null,
+    // Runs after a cached compile has checked a directory and before it checks that directory's config. Production leaves this null.
+    betweenCacheChecks: null
 }
 
 const quarantineFailureLogged = new Set()
@@ -1944,70 +1946,221 @@ export function forgetCompiledProfile(name) {
     compiledProfiles.delete(name)
 }
 
-// The profile directory and each parent, from the profiles root down. lstat does not follow a final symlink.
-// dev and ino are what a later cache hit compares, so a directory swapped for a link is not a hit.
-function profileDirectoryChain(dir) {
+const PREFLIGHT_DIRS = ['memory', 'skills', path.join('skills', PLAYBOOK_DIR), 'sessions']
+const BIGINT_STAT = { bigint: true }
+
+// Directories a compile treated as real: the profile, each specialist, memory and the rest of the
+// preflight set, specialist workspaces, and every ancestor from the parent of the hermes home down.
+function trustedProfileDirs(compiled) {
+    const dirs = []
+    const addTree = (dir) => {
+        if (!dir) return
+        dirs.push(dir)
+        for (const rel of PREFLIGHT_DIRS) dirs.push(path.join(dir, rel))
+    }
+    const roster = compiled?.roster || compiled
+    addTree(compiled?.dir)
+    for (const specialist of roster?.specialists || []) {
+        if (!specialist?.profileName) continue
+        const dir = profileDir(specialist.profileName)
+        addTree(dir)
+        dirs.push(specialistWorkspace(specialist.profileName))
+    }
+    return dirs
+}
+
+// From the parent of the containment root (the hermes home, for a profile) down to dir. lstat of each
+// component does not follow that component.
+function ancestorPaths(dir) {
     let root
     try {
-        root = rootFor(dir)
+        root = path.resolve(rootFor(dir))
     } catch {
         return null
     }
-    const rel = path.relative(path.resolve(root), path.resolve(dir))
+    const aboveRoot = path.dirname(root)
+    const top = path.dirname(aboveRoot)
+    const start = top === aboveRoot ? aboveRoot : top
+    const rel = path.relative(start, path.resolve(dir))
     if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
-    const paths = [path.resolve(root)]
-    let cursor = paths[0]
+    const paths = [start]
+    let cursor = start
     for (const part of rel.split(path.sep)) {
         if (!part || part === '.' || part === '..') return null
         cursor = path.join(cursor, part)
         paths.push(cursor)
     }
-    const chain = []
-    for (const entry of paths) {
-        let stat
-        try {
-            stat = fs.lstatSync(entry)
-        } catch {
-            return null
-        }
-        if (stat.isSymbolicLink() || !stat.isDirectory()) return null
-        chain.push({ path: entry, dev: stat.dev, ino: stat.ino })
-    }
-    return chain
+    return paths
 }
 
-function profileDirectoryChainHeld(chain) {
-    if (!Array.isArray(chain) || chain.length === 0) return false
-    for (const entry of chain) {
-        let stat
+function lstatIdentity(entry) {
+    const stat = fs.lstatSync(entry, BIGINT_STAT)
+    if (stat.isSymbolicLink()) return { link: true }
+    if (stat.dev === 0n || stat.ino === 0n) return { unverifiable: true, directory: stat.isDirectory() }
+    return { dev: stat.dev, ino: stat.ino, directory: stat.isDirectory() }
+}
+
+// null when a path cannot be read. links when a symlink is in the set. unverifiable when dev or ino is 0.
+function profileDirectoryChain(compiled) {
+    const links = []
+    const dirs = []
+    const seen = new Set()
+    let unverifiable = false
+    for (const dir of trustedProfileDirs(compiled)) {
+        const paths = ancestorPaths(dir)
+        if (!paths) return null
+        for (const entry of paths) {
+            if (seen.has(entry)) continue
+            seen.add(entry)
+            let identity
+            try {
+                identity = lstatIdentity(entry)
+            } catch (error) {
+                if (error?.code === 'ENOENT') continue
+                return null
+            }
+            if (identity.link) {
+                links.push(entry)
+                continue
+            }
+            if (identity.unverifiable) {
+                unverifiable = true
+                continue
+            }
+            if (!identity.directory) continue
+            dirs.push({ path: entry, dev: identity.dev, ino: identity.ino })
+        }
+    }
+    if (links.length) return { links }
+    if (unverifiable) return { unverifiable: true }
+    if (!dirs.length) return null
+    const configs = []
+    const roster = compiled?.roster || compiled
+    const profileDirs = [compiled.dir]
+    for (const specialist of roster?.specialists || []) {
+        if (specialist?.profileName) profileDirs.push(profileDir(specialist.profileName))
+    }
+    for (const dir of profileDirs) {
+        const resolved = path.resolve(dir)
+        const recorded = dirs.find((entry) => entry.path === resolved)
+        if (!recorded) continue
+        let fileStat
         try {
-            stat = fs.lstatSync(entry.path)
+            fileStat = fs.lstatSync(path.join(resolved, 'config.yaml'), BIGINT_STAT)
+        } catch (error) {
+            if (error?.code === 'ENOENT') continue
+            return null
+        }
+        if (fileStat.isSymbolicLink()) return { links: [path.join(resolved, 'config.yaml')] }
+        if (!fileStat.isFile()) continue
+        if (fileStat.dev === 0n || fileStat.ino === 0n) return { unverifiable: true }
+        configs.push({
+            dirPath: resolved,
+            dirDev: recorded.dev,
+            dirIno: recorded.ino,
+            fileDev: fileStat.dev,
+            fileIno: fileStat.ino,
+            primary: resolved === path.resolve(compiled.dir)
+        })
+    }
+    if (!configs.length) return null
+    return { dirs, configs }
+}
+
+function directoriesStillHeld(dirs) {
+    if (!Array.isArray(dirs) || dirs.length === 0) return false
+    for (const entry of dirs) {
+        let identity
+        try {
+            identity = lstatIdentity(entry.path)
         } catch {
             return false
         }
-        if (stat.isSymbolicLink() || stat.dev !== entry.dev || stat.ino !== entry.ino) return false
+        if (identity.link || identity.unverifiable || !identity.directory) return false
+        if (identity.dev !== entry.dev || identity.ino !== entry.ino) return false
     }
     return true
 }
 
-// A symlink named config.yaml must not count as the compiled file. existsSync would follow it.
-function cachedConfigPresent(dir) {
+// The directory is opened with O_DIRECTORY|O_NOFOLLOW and config.yaml is opened from that descriptor.
+// The path is checked again afterwards so a swap between the two lookups is not a hit.
+function configHeldFromDir(config, inject) {
+    let dirFd
     try {
-        return fs.lstatSync(path.join(dir, 'config.yaml')).isFile()
+        dirFd = fs.openSync(config.dirPath, DIR_FLAGS)
+        const dirStat = fs.fstatSync(dirFd, BIGINT_STAT)
+        if (dirStat.dev === 0n || dirStat.ino === 0n) return false
+        if (dirStat.dev !== config.dirDev || dirStat.ino !== config.dirIno) return false
+        if (inject && typeof profileWriteTest.betweenCacheChecks === 'function') {
+            profileWriteTest.betweenCacheChecks(config.dirPath, dirFd)
+        }
+        const via = fdPath(dirFd, 'config.yaml') || path.join(config.dirPath, 'config.yaml')
+        let fileFd
+        try {
+            fileFd = fs.openSync(via, fs.constants.O_RDONLY | NOFOLLOW)
+            const fileStat = fs.fstatSync(fileFd, BIGINT_STAT)
+            if (!fileStat.isFile() || fileStat.dev === 0n || fileStat.ino === 0n) return false
+            if (fileStat.dev !== config.fileDev || fileStat.ino !== config.fileIno) return false
+        } finally {
+            if (fileFd != null) fs.closeSync(fileFd)
+        }
+        const again = lstatIdentity(config.dirPath)
+        if (again.link || again.unverifiable || again.dev !== config.dirDev || again.ino !== config.dirIno) return false
+        return true
     } catch {
         return false
+    } finally {
+        if (dirFd != null) {
+            try {
+                fs.closeSync(dirFd)
+            } catch {
+                // Already closed.
+            }
+        }
     }
+}
+
+function profileDirectoryChainHeld(snapshot) {
+    if (!snapshot?.dirs?.length || snapshot.unverifiable || snapshot.links?.length) return false
+    if (!directoriesStillHeld(snapshot.dirs)) return false
+    const primary = snapshot.configs?.find((entry) => entry.primary) || snapshot.configs?.[0]
+    if (!primary || !configHeldFromDir(primary, true)) return false
+    for (const config of snapshot.configs || []) {
+        if (config === primary) continue
+        if (!configHeldFromDir(config, false)) return false
+    }
+    return directoriesStillHeld(snapshot.dirs)
+}
+
+function refuseUnverifiedProfile(compiled, snapshot) {
+    const links = new Set(snapshot?.links || [])
+    if (!links.size) {
+        for (const dir of trustedProfileDirs(compiled)) {
+            const paths = ancestorPaths(dir) || [dir]
+            for (const entry of paths) {
+                try {
+                    if (fs.lstatSync(entry).isSymbolicLink()) links.add(entry)
+                } catch {
+                    // Missing. The refusal still stands.
+                }
+            }
+        }
+    }
+    for (const link of links) quarantineSymlink(link)
+    throw new HarnessError('profile_link', `profile path is a link: ${[...links].join(', ') || compiled?.dir || ''}`)
 }
 
 export function compileProfileCached(record) {
     const key = [hermesHome(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
     const cached = compiledProfiles.get(record.name)
-    if (cached?.key === key && profileDirectoryChainHeld(cached.chain) && cachedConfigPresent(cached.compiled.dir)) {
-        return cached.compiled
-    }
+    if (cached?.key === key && profileDirectoryChainHeld(cached.chain)) return cached.compiled
     if (cached) compiledProfiles.delete(record.name)
     const compiled = compileProfile(record)
-    compiledProfiles.set(record.name, { key, compiled, chain: profileDirectoryChain(compiled.dir) })
+    const chain = profileDirectoryChain(compiled)
+    if (!chain || chain.links) {
+        refuseUnverifiedProfile(compiled, chain)
+    }
+    if (!chain.unverifiable) compiledProfiles.set(record.name, { key, compiled, chain })
     return compiled
 }
 
