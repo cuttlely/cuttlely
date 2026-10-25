@@ -7221,11 +7221,31 @@ await expectCase('the boot sweep sets aside every older harness config and leave
     make('masweeplocked', { 'config.yaml': 'old\n', 'harness-parent': 'masweepold\n' })
     const lockedDir = path.join(root, 'masweeplocked')
     const statSync = fs.statSync
+    const openSync = fs.openSync
     const existsSync = fs.existsSync
-    const denied = (file) => String(file).startsWith(lockedDir + path.sep)
+    const denied = (file) => {
+        const text = String(file)
+        if (text.startsWith(lockedDir + path.sep)) return true
+        const proc = text.match(/^\/proc\/self\/fd\/(\d+)\/(.+)$/)
+        if (!proc) return false
+        try {
+            const named = path.resolve(fs.readlinkSync(`/proc/self/fd/${proc[1]}`), proc[2])
+            return named === lockedDir || named.startsWith(lockedDir + path.sep)
+        } catch {
+            return false
+        }
+    }
+    const deny = (file) => {
+        if (!denied(file)) return false
+        throw Object.assign(new Error(`EACCES: permission denied, stat '${file}'`), { code: 'EACCES' })
+    }
     fs.statSync = (file, ...rest) => {
-        if (denied(file)) throw Object.assign(new Error(`EACCES: permission denied, stat '${file}'`), { code: 'EACCES' })
+        deny(file)
         return statSync(file, ...rest)
+    }
+    fs.openSync = (file, ...rest) => {
+        deny(file)
+        return openSync(file, ...rest)
     }
     // existsSync answers false for a path it cannot check.
     fs.existsSync = (file) => (denied(file) ? false : existsSync(file))
@@ -7234,6 +7254,7 @@ await expectCase('the boot sweep sets aside every older harness config and leave
         lockedLoadable = setAsideOutdatedConfigs()
     } finally {
         fs.statSync = statSync
+        fs.openSync = openSync
         fs.existsSync = existsSync
     }
     const lockedKept = fs.existsSync(path.join(lockedDir, 'config.yaml'))

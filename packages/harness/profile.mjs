@@ -1749,21 +1749,17 @@ function present(file) {
     }
 }
 
-// A marker name is enough. lstat does not follow a symlink at that name into another file.
-function markerPresent(file) {
-    try {
-        fs.lstatSync(file)
-        return true
-    } catch (error) {
-        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false
-        throw error
-    }
-}
-
 // A harness profile directory: a parent holds harness-roster.json, a specialist its harness-parent marker. Compilers
 // before the version marker wrote both, so this finds their profiles too, and leaves Hermes profiles of other origin.
+// Markers are stated through the opened directory. An absolute stat would follow a link swapped in for dir.
 function harnessOwnedDir(dir) {
-    return markerPresent(path.join(dir, 'harness-roster.json')) || markerPresent(path.join(dir, 'harness-parent'))
+    const opened = openDirNoFollow(dir, { quiet: true })
+    if (!opened) return false
+    try {
+        return Boolean(lstatChild(opened.fd, dir, 'harness-roster.json') || lstatChild(opened.fd, dir, 'harness-parent'))
+    } finally {
+        closeFds(opened.fds)
+    }
 }
 
 // Moves config.yaml to config.yaml.outdated in a directory without the current compiler version, so Hermes does not
@@ -1807,16 +1803,16 @@ function setAsideConfig(dir) {
         }
         if (configStat?.isSymbolicLink()) return quarantineSymlink(config)
         if (!configStat) return true
-        // stat of the logical path still decides a folder this process cannot read. That failure leaves the
-        // config where it is. The move itself uses the directory descriptor opened above.
+        // A file this process cannot open stays where it is. The open uses the directory descriptor, so a
+        // link swapped in for an ancestor is not a file we read.
         try {
-            if (!present(config)) return true
-        } catch {
-            try {
-                return !present(config)
-            } catch {
-                return false
-            }
+            const via = childPath(opened.fd, dir, configName)
+            const fileFd = fs.openSync(via, fs.constants.O_RDONLY | NOFOLLOW)
+            fs.closeSync(fileFd)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return true
+            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') return Boolean(quarantineSymlink(config))
+            return false
         }
         if (compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) return true
         noteTreeMutation(dir)

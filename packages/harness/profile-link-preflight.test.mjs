@@ -2712,6 +2712,91 @@ function readText(file) {
     fs.rmSync(scratch, { recursive: true, force: true })
 }
 
+// Ownership and set-aside must not stat a child through a directory swapped for a link.
+{
+    const name = 'plinkownstat'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-own-stat-'))
+    const home = path.join(scratch, 'home')
+    const dir = path.join(home, 'profiles', name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'config.yaml'), 'old-config\n')
+    fs.writeFileSync(path.join(dir, 'harness-roster.json'), '{}\n')
+    const outside = outsideDir('own-stat', 'own-stat-sentinel\n')
+    const outsideDirPath = path.join(outside.dir, name)
+    fs.mkdirSync(outsideDirPath)
+    fs.writeFileSync(path.join(outsideDirPath, 'config.yaml'), 'outside-config\n')
+    fs.writeFileSync(path.join(outsideDirPath, 'harness-roster.json'), '{}\n')
+    const marker = fs.statSync(path.join(outsideDirPath, 'harness-roster.json'))
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const origLstat = fs.lstatSync
+    const origStat = fs.statSync
+    const origOpen = fs.openSync
+    let absoluteStats = 0
+    let followed = false
+    let swapped = false
+    let held = ''
+    const note = (p) => {
+        if (typeof p !== 'string' || path.resolve(p).startsWith('/proc/')) return
+        const resolved = path.resolve(p)
+        if (resolved !== dir && !resolved.startsWith(dir + path.sep)) return
+        if (resolved === dir) return
+        const stack = new Error().stack || ''
+        if (!stack.includes('setAsideConfig') && !stack.includes('harnessOwnedDir')) return
+        absoluteStats += 1
+        if (!swapped) {
+            swapped = true
+            held = swapTree(dir, outsideDirPath)
+        }
+    }
+    fs.lstatSync = (p, ...args) => {
+        note(p)
+        const st = origLstat(p, ...args)
+        if (
+            swapped &&
+            typeof p === 'string' &&
+            path.resolve(p) === path.join(dir, 'harness-roster.json') &&
+            st &&
+            st.ino === marker.ino &&
+            st.dev === marker.dev
+        ) {
+            followed = true
+        }
+        return st
+    }
+    fs.statSync = (p, ...args) => {
+        note(p)
+        const st = origStat(p, ...args)
+        if (swapped && typeof p === 'string' && path.resolve(p) === path.join(dir, 'config.yaml') && st && st.ino === marker.ino)
+            followed = true
+        return st
+    }
+    fs.openSync = (p, ...args) => {
+        note(p)
+        return origOpen(p, ...args)
+    }
+    try {
+        try {
+            setAsideOutdatedConfigs()
+        } catch {
+            // A refusal is fine. Stating the outside directory is not.
+        }
+    } finally {
+        fs.lstatSync = origLstat
+        fs.statSync = origStat
+        fs.openSync = origOpen
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        restoreTree(dir, held)
+    }
+    check(
+        'a boot sweep does not stat a profile child through a swapped directory',
+        absoluteStats === 0 && !followed && sameStamp(outside.file, outside.before),
+        JSON.stringify({ absoluteStats, followed, swapped })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'
