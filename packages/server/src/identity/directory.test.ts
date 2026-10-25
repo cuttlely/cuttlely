@@ -316,4 +316,27 @@ describe('team create and delete', () => {
         ])
         expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all(TEAM)).toEqual([{ id: TEAM }])
     })
+
+    it('returns 400 and leaves the team intact when it still owns an execution', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO workspace (id, name, "organizationId", "createdBy", "updatedBy")
+                VALUES ('team-run', 'Field', '${ORG}', '${OWNER}', '${OWNER}');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status, "createdBy", "updatedBy")
+                VALUES ('team-run', '${OWNER}', '${ROLE}', 'active', '${OWNER}', '${OWNER}');
+            CREATE TABLE execution (id text primary key, "workspaceId" text);
+            INSERT INTO execution (id, "workspaceId") VALUES ('run-1', 'team-run');
+        `)
+        await expect(deleteWorkspace(sql, actor, 'team-run')).rejects.toMatchObject({
+            status: 400,
+            message: "Delete this team's executions first"
+        })
+        expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all('team-run')).toEqual([{ id: 'team-run' }])
+        expect(db.prepare('SELECT id, "workspaceId" AS workspaceId FROM execution').all()).toEqual([
+            { id: 'run-1', workspaceId: 'team-run' }
+        ])
+        expect(db.prepare('SELECT "userId" AS userId FROM workspace_user WHERE "workspaceId" = ?').all('team-run')).toEqual([
+            { userId: OWNER }
+        ])
+    })
 })
