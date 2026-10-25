@@ -16,7 +16,9 @@ import {
     Sql,
     createEmailUser,
     createRole,
+    createWorkspace,
     deleteOrganizationUser,
+    deleteWorkspace,
     listOrganizationUsers,
     switchWorkspace,
     updateOrganizationUser
@@ -264,5 +266,54 @@ describe('sign-in screen contract', () => {
         const forgotPage = readFileSync(join(__dirname, '../../../ui/src/views/auth/forgotPassword.jsx'), 'utf8')
         expect(forgotPage).toContain('Password reset email is not set up')
         expect(forgotPage).toContain('response.data?.mail')
+    })
+})
+
+describe('team create and delete', () => {
+    it('creating a team leaves default membership and chatflow counts unchanged', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            UPDATE workspace_user SET "lastLogin" = '2020-01-01T00:00:00.000Z' WHERE "workspaceId" = '${TEAM}';
+            INSERT INTO chat_flow (id, "workspaceId") VALUES ('flow-1', '${TEAM}');
+        `)
+        const created = await createWorkspace(sql, actor, { name: 'Field', organizationId: ORG, description: 'ops' })
+        expect(created.id).not.toBe(TEAM)
+        expect(created.name).toBe('Field')
+        expect(db.prepare('SELECT "userId" AS userId FROM workspace_user WHERE "workspaceId" = ?').all(TEAM)).toEqual([{ userId: OWNER }])
+        expect(db.prepare('SELECT id FROM chat_flow WHERE "workspaceId" = ?').all(TEAM)).toEqual([{ id: 'flow-1' }])
+        expect(db.prepare('SELECT "userId" AS userId FROM workspace_user WHERE "workspaceId" = ?').all(created.id)).toEqual([
+            { userId: OWNER }
+        ])
+        expect(db.prepare('SELECT id FROM chat_flow WHERE "workspaceId" = ?').all(created.id)).toEqual([])
+        expect(db.prepare('SELECT "lastLogin" AS lastLogin FROM workspace_user WHERE "workspaceId" = ?').all(TEAM)).toEqual([
+            { lastLogin: '2020-01-01T00:00:00.000Z' }
+        ])
+        expect(db.prepare('SELECT "lastLogin" AS lastLogin FROM workspace_user WHERE "workspaceId" = ?').all(created.id)).toEqual([
+            { lastLogin: null }
+        ])
+    })
+
+    it('returns 400 and leaves the team intact when it still owns rows', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO workspace (id, name, "organizationId", "createdBy", "updatedBy")
+                VALUES ('team-owned', 'Field', '${ORG}', '${OWNER}', '${OWNER}');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status, "createdBy", "updatedBy")
+                VALUES ('team-owned', '${OWNER}', '${ROLE}', 'active', '${OWNER}', '${OWNER}');
+            CREATE TABLE credential (id text primary key, "workspaceId" text);
+            INSERT INTO credential (id, "workspaceId") VALUES ('cred-1', 'team-owned');
+        `)
+        await expect(deleteWorkspace(sql, actor, 'team-owned')).rejects.toMatchObject({
+            status: 400,
+            message: "Delete this team's credentials first"
+        })
+        expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all('team-owned')).toEqual([{ id: 'team-owned' }])
+        expect(db.prepare('SELECT id, "workspaceId" AS workspaceId FROM credential').all()).toEqual([
+            { id: 'cred-1', workspaceId: 'team-owned' }
+        ])
+        expect(db.prepare('SELECT "userId" AS userId FROM workspace_user WHERE "workspaceId" = ?').all('team-owned')).toEqual([
+            { userId: OWNER }
+        ])
+        expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all(TEAM)).toEqual([{ id: TEAM }])
     })
 })
