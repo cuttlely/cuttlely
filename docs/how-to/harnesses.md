@@ -394,7 +394,7 @@ Harness Prime's profile does not start a specialist's bridge. Each specialist pr
 
 At startup, each saved harness whose profile on disk was compiled by an older version, or has no compiler version, is compiled again before the agent runtime starts. A profile that already matches the current compiler is left as it is. A harness that has never been compiled is not compiled at startup. A profile compiled before the bridge change above is one this pass compiles again.
 
-While that pass runs, the harness gateway's `GET /health` (loopback, port `43118` unless `CUTTLELY_HARNESS_GATEWAY_PORT` is set) returns 503 with `{"ok":false,"starting":true}`. `GET /api/v1/ping` answers 503 (`profiles compiling`) for the same wait. The start script reads the gateway 503 as still compiling and waits up to `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` (default 180 seconds, capped at 300) for 200 before it starts the agent runtime. If the compile is still going at that cap, the wait stops: ping may answer 200, and chat and prediction stay 503 until the compile finishes.
+While that pass runs, the harness gateway's `GET /health` (loopback, port `43118` unless `CUTTLELY_HARNESS_GATEWAY_PORT` is set) returns 503 with `{"ok":false,"starting":true}`. `GET /api/v1/ping` answers 503 (`boot recompile`) for the same wait. The start script reads the gateway 503 as still compiling and waits up to `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` (default 180 seconds, capped at 300) for 200 before it starts the agent runtime. If the compile is still going at that cap, the wait stops: ping may answer 200, and chat and prediction stay 503 until the compile finishes.
 
 ## Agent runtime health
 
