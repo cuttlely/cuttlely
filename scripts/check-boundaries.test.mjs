@@ -6,7 +6,10 @@ import path from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkBoundaries, extractSpecifiers, updateBaseline } from './check-boundaries.mjs'
-import { withoutGitEnv } from './test-git.mjs'
+import { isolateProcessEnv, withoutGitEnv } from './test-git.mjs'
+
+// check-boundaries lists files with git. A hook's GIT_DIR would make that the real repository.
+isolateProcessEnv()
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const roots = []
