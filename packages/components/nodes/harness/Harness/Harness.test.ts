@@ -957,7 +957,7 @@ describe('stable harness tool names', () => {
         const before = assignHarnessToolNames(cards)
         expect(before.get('harness_1')).toBe('team')
         expect(before.get('harness_2')).toBe('team_harness_2')
-        expect(before.get('harness_0')).toBe('team_harness_3')
+        expect(before.get('harness_0')).toBe('team_harness_2_harness_0')
         const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'harness_0'))
         expect(after.get('harness_2')).toBe('team_harness_2')
         expect(after.get('harness_1')).toBe('team')
@@ -982,7 +982,7 @@ describe('stable harness tool names', () => {
         ]
         const before = assignHarnessToolNames(cards)
         const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'harness_1'))
-        expect(before.get('harness_0')).toBe('team_harness_3')
+        expect(before.get('harness_0')).toBe('team_harness_2_harness_0')
         expect(before.get('harness_1')).toBe('team')
         expect(before.get('harness_2')).toBe('team_harness_2')
         expect(after.get('harness_2')).toBe('team')
@@ -996,7 +996,7 @@ describe('stable harness tool names', () => {
         ])
         expect(names.get('harness_2')).toBe('team')
         expect(names.get('harness_9')).not.toBe('team_harness_2')
-        expect(names.get('harness_9')).toBe('team_harness_3')
+        expect(names.get('harness_9')).toBe('team_harness_2_harness_9')
     })
 
     it('gives a replacement card that reuses a freed id the name that id had', () => {
@@ -1194,12 +1194,33 @@ describe('stable harness tool names', () => {
         const before = assignHarnessToolNames(cards)
         expect(before.get('a')).toBe('team')
         expect(before.get('b')).toBe('team_b')
-        expect(before.get('c')).toBe('team_b_2')
+        expect(before.get('c')).toBe('team_b_c')
         expect(before.get('d')).toBe('other')
         const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'a'))
         expect(after.get('b')).toBe('team')
         expect(after.get('c')).toBe(before.get('c'))
         expect(after.get('d')).toBe('other')
+    })
+
+    it('keeps a title that spells a bumped name when the card that held that name is deleted', () => {
+        const cards = [
+            { id: 'a', label: 'Team' },
+            { id: 'b', label: 'Team' },
+            { id: 'c', label: 'Team_b' },
+            { id: 'd', label: 'Team_b_2' },
+            { id: 'e', label: 'Other' }
+        ]
+        const before = assignHarnessToolNames(cards)
+        expect(before.get('a')).toBe('team')
+        expect(before.get('b')).toBe('team_b')
+        expect(before.get('c')).toBe('team_b_c')
+        expect(before.get('d')).toBe('team_b_2')
+        expect(before.get('e')).toBe('other')
+        const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'c'))
+        expect(after.get('a')).toBe('team')
+        expect(after.get('b')).toBe('team_b')
+        expect(after.get('d')).toBe(before.get('d'))
+        expect(after.get('e')).toBe('other')
     })
 
     it('keeps an unnumbered id suffix when another card with the same title is deleted', () => {

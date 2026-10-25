@@ -442,8 +442,9 @@ function trailingNumber(id: string): number | undefined {
  * lowest id (numeric parts compared as numbers) keeps it, and each other card takes `_` plus its own
  * id text. That suffix does not depend on which other cards are present. It wins over another card's
  * title that spells the same text, and it stays reserved while the card that owns the id is still
- * here, even after that card takes the bare name. Removing a different card does not move that
- * suffix. The bare name moves to the next id only when the card that held it is gone.
+ * here, even after that card takes the bare name. A title that loses to that reservation takes `_`
+ * plus its own id, not the next integer, so removing a neighbor cannot slide it onto a lower number.
+ * The bare name moves to the next id only when the card that held it is gone.
  */
 function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const items = (Array.isArray(cards) ? cards : []).map((card, index) => ({
@@ -492,23 +493,21 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     return names
 }
 
-// A name reserved for another card's id is not available. The caller takes the next free number.
+function nameBlocked(name: string, selfId: string, used: Set<string>, reservedBy: Map<string, string>): boolean {
+    if (used.has(name)) return true
+    const holder = reservedBy.get(name)
+    return holder !== undefined && holder !== selfId
+}
+
+// A name reserved for another card is not available. The replacement is this card's id, not the next
+// integer: a shared counter would slide when a card in the middle of that counter is removed.
 function nextFreeName(preferred: string, selfId: string, used: Set<string>, reservedBy: Map<string, string>): string {
-    const heldBy = reservedBy.get(preferred)
-    if (heldBy === selfId || (!heldBy && !used.has(preferred))) return preferred
-    const tail = trailingNumber(preferred)
-    let stem = preferred
-    let n = 2
-    if (tail !== undefined && preferred.endsWith(`_${tail}`)) {
-        stem = preferred.slice(0, -(String(tail).length + 1)) || preferred
-        n = tail + 1
-    }
-    let candidate = withNumericSuffix(stem, n)
-    while (used.has(candidate) || (reservedBy.has(candidate) && reservedBy.get(candidate) !== selfId)) {
-        n += 1
-        candidate = withNumericSuffix(stem, n)
-    }
-    return candidate
+    if (!nameBlocked(preferred, selfId, used, reservedBy)) return preferred
+    const byId = withIdSuffix(preferred, selfId)
+    if (!nameBlocked(byId, selfId, used, reservedBy)) return byId
+    const marked = withLiteralSuffix(byId, `_${fnv1a32(`${preferred}\0${selfId}`)}`)
+    if (!nameBlocked(marked, selfId, used, reservedBy)) return marked
+    return withLiteralSuffix(preferred, `_${fnv1a32(`${selfId}\0${preferred}`)}`)
 }
 
 const TOOL_REF = /^\{\{([^}]+)\.data\.instance\}\}$/
