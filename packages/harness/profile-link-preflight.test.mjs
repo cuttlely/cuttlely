@@ -1896,6 +1896,78 @@ function restoreTree(slot, held) {
     fs.rmSync(scratch, { recursive: true, force: true })
 }
 
+// Hole: a directory that moves outside before the open, when the file is absent, is created there.
+{
+    const name = 'plinkcreate'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-create-'))
+    const home = path.join(scratch, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const saved = record(name, [])
+    let movedTo = ''
+    let refused = ''
+    let created = false
+    try {
+        compileProfileCached(saved)
+        forgetCompiledProfile(name)
+        fs.rmSync(profilePath(name, 'harness-roster.json'), { force: true })
+        profileWriteTest.beforeContainedOpen = (file) => {
+            if (movedTo || !String(file).endsWith(`${path.sep}harness-roster.json`)) return
+            movedTo = path.join(scratch, 'outside-held')
+            fs.renameSync(path.dirname(file), movedTo)
+        }
+        try {
+            compileProfileCached({ ...saved, chief: { instructions: 'Route somewhere else.', model: model() } })
+        } catch (error) {
+            refused = error?.code || ''
+        }
+        created = Boolean(movedTo) && fs.existsSync(path.join(movedTo, 'harness-roster.json'))
+    } finally {
+        profileWriteTest.beforeContainedOpen = null
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+    }
+    check(
+        'a missing profile file is not created after its directory moves outside',
+        refused === 'profile_link' && movedTo !== '' && !created,
+        JSON.stringify({ refused, movedTo, created })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
+// Hole: the boot sweep stats a marker through a link while deciding the directory is owned.
+{
+    const name = 'plinkownlink'
+    const saved = record(name, [])
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const roster = profilePath(name, 'harness-roster.json')
+    const outside = outsideFile('ownlink', 'outside-roster-secret\n')
+    const realCopy = `${roster}.real`
+    fs.renameSync(roster, realCopy)
+    fs.symlinkSync(outside.file, roster)
+    const guarded = guardLink(roster, outside.file, () => setAsideOutdatedConfigs())
+    const reported = Array.isArray(guarded.result) ? guarded.result : []
+    const linkStat = fs.lstatSync(roster, { throwIfNoEntry: false })
+    check(
+        'the boot sweep does not follow a linked roster while deciding ownership',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            sameStamp(outside.file, outside.before) &&
+            (linkStat?.isSymbolicLink() !== true || reported.some((dir) => String(dir).endsWith(`${path.sep}harness-roster.json`))),
+        JSON.stringify({
+            hits: guarded.hits,
+            error: guarded.error?.code || '',
+            reported,
+            stillLink: linkStat?.isSymbolicLink() === true
+        })
+    )
+    fs.rmSync(realCopy, { force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'

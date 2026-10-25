@@ -848,8 +848,9 @@ function writeContained(file, text, mode = 0o644) {
         const fileVia = fdPath(dirFd, fileName)
         if (!fileVia) refuseLink(path.join(logical, fileName))
         if (typeof profileWriteTest.beforeContainedOpen === 'function') profileWriteTest.beforeContainedOpen(file, dirFd)
-        // Open without truncating. The directory can move outside the root after the check above.
-        // An existing file stays intact until the opened descriptor is still inside that root.
+        // The directory can move outside the root after the earlier check. Do not create a file there.
+        if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(file)
+        // Open without truncating. An existing file stays intact until this descriptor is still inside.
         const createFlags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | NOFOLLOW
         const writeFlags = fs.constants.O_WRONLY | NOFOLLOW
         const target = path.join(logical, fileName)
@@ -873,7 +874,8 @@ function writeContained(file, text, mode = 0o644) {
         if (process.platform === 'linux' && !insideRoot(rootReal, written)) {
             if (created) {
                 try {
-                    fs.unlinkSync(`/proc/self/fd/${fileFd}`)
+                    // Unlink through the directory descriptor. Unlink of the file descriptor is refused.
+                    fs.unlinkSync(`/proc/self/fd/${dirFd}/${fileName}`)
                 } catch {
                     // Closed below. Only the file this open created is removed.
                 }
@@ -1685,10 +1687,21 @@ function present(file) {
     }
 }
 
+// A marker name is enough. lstat does not follow a symlink at that name into another file.
+function markerPresent(file) {
+    try {
+        fs.lstatSync(file)
+        return true
+    } catch (error) {
+        if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false
+        throw error
+    }
+}
+
 // A harness profile directory: a parent holds harness-roster.json, a specialist its harness-parent marker. Compilers
 // before the version marker wrote both, so this finds their profiles too, and leaves Hermes profiles of other origin.
 function harnessOwnedDir(dir) {
-    return present(path.join(dir, 'harness-roster.json')) || present(path.join(dir, 'harness-parent'))
+    return markerPresent(path.join(dir, 'harness-roster.json')) || markerPresent(path.join(dir, 'harness-parent'))
 }
 
 // Moves config.yaml to config.yaml.outdated in a directory without the current compiler version, so Hermes does not
