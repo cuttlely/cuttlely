@@ -1097,7 +1097,7 @@ class Agent_Agentflow implements INode {
             }
 
             if (llmNodeInstance && toolsInstance.length > 0) {
-                assertUniqueToolNames(toolsInstance)
+                assertUniqueToolNames(toolsInstance, 'agent', 'exact')
                 if (llmNodeInstance.bindTools === undefined) {
                     throw new Error(`Agent needs to have a function calling capable models.`)
                 }

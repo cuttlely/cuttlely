@@ -30,14 +30,20 @@ import { getErrorMessage } from './error'
  * One entry is kept per tool name, so a repeated name would drop every tool but one.
  * Fail here, while the caller is built, and name the tools that clash.
  * `subject` is the word in the error: an agent says "This agent", a Custom JS Function says "This function".
+ * `match` is `lowercase` only where the executor looks tools up in lowercase (AgentExecutor). Agentflow matches the name exactly.
  */
-export function assertUniqueToolNames(tools: unknown, subject: 'agent' | 'function' = 'agent'): void {
+export function assertUniqueToolNames(
+    tools: unknown,
+    subject: 'agent' | 'function' = 'agent',
+    match: 'lowercase' | 'exact' = 'lowercase'
+): void {
     const list = flatten(Array.isArray(tools) ? tools : [])
     const counts = new Map<string, number>()
     for (const tool of list) {
         const raw = tool && typeof tool === 'object' ? (tool as { name?: unknown }).name : undefined
         if (typeof raw !== 'string') continue
-        const name = raw.trim().toLowerCase()
+        const trimmed = raw.trim()
+        const name = match === 'lowercase' ? trimmed.toLowerCase() : trimmed
         if (!name) continue
         counts.set(name, (counts.get(name) || 0) + 1)
     }

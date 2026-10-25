@@ -805,6 +805,37 @@ describe('Harness tool names on one agent', () => {
         return built
     }
 
+    it('keeps the name harness for one card titled Payroll', async () => {
+        const tool = await node().init({ id: 'harness_0', label: 'Payroll', inputs: { harnessName: 'payroll' } } as never, '', {})
+        expect(tool.name).toBe('harness')
+        expect(assignHarnessToolNames([{ id: 'harness_0', label: 'Payroll', name: 'payroll' }]).get('harness_0')).toBe('harness')
+    })
+
+    it('prefixes a title that starts with a digit and stays within 64 characters', () => {
+        const names = assignHarnessToolNames([
+            { id: 'harness_0', label: '123 Payroll' },
+            { id: 'harness_1', label: '123 Payroll' }
+        ])
+        expect(names.get('harness_0')).toBe('h_123_payroll')
+        const second = names.get('harness_1') as string
+        expect(second).toBe('h_123_payroll_1')
+        expect(second.length).toBeLessThanOrEqual(64)
+
+        const long = `9${'A'.repeat(80)}`
+        const longNames = assignHarnessToolNames([
+            { id: 'harness_0', label: long },
+            { id: 'harness_2', label: long }
+        ])
+        const bare = longNames.get('harness_0') as string
+        const suffixed = longNames.get('harness_2') as string
+        expect(bare.startsWith('h_')).toBe(true)
+        expect(bare.length).toBeLessThanOrEqual(64)
+        expect(suffixed.startsWith('h_')).toBe(true)
+        expect(suffixed.endsWith('_2')).toBe(true)
+        expect(suffixed.length).toBeLessThanOrEqual(64)
+        expect(suffixed).not.toBe(bare)
+    })
+
     it('keeps the name harness for a single card with no label', async () => {
         const tool = await node().init({ id: 'harness_0', label: 'Harness', inputs: { harnessName: 'payroll' } } as never, '', {})
         expect(tool.name).toBe('harness')
@@ -956,6 +987,16 @@ describe('stable harness tool names', () => {
         expect(after.get('harness_0')).toBe(before.get('harness_0'))
     })
 
+    it('does not give a card a reserved suffix literal', () => {
+        const names = assignHarnessToolNames([
+            { id: 'harness_2', label: 'Team', name: 'team' },
+            { id: 'harness_9', label: 'team_2', name: 'other' }
+        ])
+        expect(names.get('harness_2')).toBe('team')
+        expect(names.get('harness_9')).not.toBe('team_2')
+        expect(names.get('harness_9')).toBe('team_3')
+    })
+
     it('gives a replacement card that reuses a freed id the name that id had', () => {
         const cards = [team('harness_0'), team('harness_1'), team('harness_2')]
         const before = assignHarnessToolNames(cards)
@@ -1071,7 +1112,7 @@ describe('stable harness tool names', () => {
             },
             { id: 'toolAgent_1', data: { name: 'toolAgent', inputs: { tools: ['{{harness_2.data.instance}}'] } } }
         ]
-        expect(harnessToolNameFromFlow('harness_2', nodes)).toBe('payroll')
+        expect(harnessToolNameFromFlow('harness_2', nodes)).toBe('harness')
         expect(harnessToolNameFromFlow('harness_0', nodes)).toBe('payroll')
         expect(harnessToolNameFromFlow('harness_1', nodes)).toBe('payroll_1')
     })
@@ -1090,7 +1131,7 @@ describe('stable harness tool names', () => {
             }
         ]
         expect(harnessToolNameFromFlow('harness_0', nodes)).toBe('payroll')
-        expect(harnessToolNameFromFlow('harness_5', nodes)).toBe('payroll_5')
+        expect(harnessToolNameFromFlow('harness_5', nodes)).toBe('harness')
     })
 
     it('gives shared cards names that stay unique on every agent they share', () => {
@@ -1329,5 +1370,138 @@ describe('duplicate tool names on a ReAct agent and a Custom JS Function', () =>
             expect(message).toBe('This function has more than one tool named "harness". Each tool on a function needs its own name.')
             expect(message).not.toContain('This agent')
         }
+    })
+
+    it('compares AgentExecutor names without letter case and agentflow names exactly', async () => {
+        const { assertUniqueToolNames, AgentExecutor } = require('../../../src/agents')
+        expect(() => assertUniqueToolNames([{ name: 'Lookup' }, { name: 'lookup' }])).toThrow(
+            'This agent has more than one tool named "lookup". Each tool on an agent needs its own name.'
+        )
+        expect(
+            () =>
+                new AgentExecutor({
+                    agent: { inputKeys: ['input'], returnValues: ['output'] },
+                    tools: [{ name: 'Lookup' }, { name: 'lookup' }]
+                })
+        ).toThrow(/more than one tool named "lookup"/)
+        expect(() => assertUniqueToolNames([{ name: 'Lookup' }, { name: 'lookup' }], 'agent', 'exact')).not.toThrow()
+
+        const fs = require('fs')
+        const os = require('os')
+        const path = require('path')
+        const { nodeClass: AgentNode } = require('../../agentflow/Agent/Agent')
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-name-case-'))
+        const modelFile = path.join(dir, 'model.js')
+        fs.writeFileSync(
+            modelFile,
+            'class Node { async init() { return { bindTools(tools) { throw new Error("TOOLS:" + tools.map((tool) => tool.name).join(",")) } } } }\nmodule.exports = { nodeClass: Node }\n'
+        )
+        const writeTool = (toolName: string) => {
+            const file = path.join(dir, `tool-${toolName}.js`)
+            fs.writeFileSync(
+                file,
+                `class Node { async init() { return { name: ${JSON.stringify(toolName)} } } }\nmodule.exports = { nodeClass: Node }\n`
+            )
+            return file
+        }
+        const lookupFile = writeTool('Lookup')
+        const lowerFile = writeTool('lookup')
+        const againFile = writeTool('LookupAgain')
+        fs.writeFileSync(againFile, 'class Node { async init() { return { name: "Lookup" } } }\nmodule.exports = { nodeClass: Node }\n')
+        const agent = new AgentNode()
+        const run = (tools: string[], nodes: Record<string, { filePath: string }>) =>
+            agent.run(
+                {
+                    id: 'agent_0',
+                    inputs: {
+                        agentModel: 'fakeModel',
+                        agentModelConfig: {},
+                        agentTools: tools.map((agentSelectedTool) => ({ agentSelectedTool, agentSelectedToolConfig: {} })),
+                        agentMessages: []
+                    }
+                } as never,
+                'question',
+                {
+                    chatId: 'c1',
+                    chatflowid: 'f1',
+                    sessionId: 's1',
+                    prependedChatHistory: [],
+                    abortController: new AbortController(),
+                    componentNodes: { fakeModel: { filePath: modelFile, label: 'Model', name: 'fakeModel' }, ...nodes }
+                }
+            )
+        await expect(run(['upper', 'lower'], { upper: { filePath: lookupFile }, lower: { filePath: lowerFile } })).rejects.toThrow(
+            'TOOLS:Lookup,lookup'
+        )
+        await expect(run(['upper', 'again'], { upper: { filePath: lookupFile }, again: { filePath: againFile } })).rejects.toThrow(
+            'more than one tool named "Lookup"'
+        )
+    })
+})
+
+describe('agentflow harness tool integration', () => {
+    const fs = require('fs')
+    const os = require('os')
+    const path = require('path')
+    const { nodeClass: AgentNode } = require('../../agentflow/Agent/Agent')
+
+    async function toolNames(rows: Array<Record<string, unknown>>): Promise<string> {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-agentflow-'))
+        const modelFile = path.join(dir, 'model.js')
+        fs.writeFileSync(
+            modelFile,
+            'class Node { async init() { return { bindTools(tools) { throw new Error("TOOLS:" + tools.map((tool) => tool.name).join(",")) } } } }\nmodule.exports = { nodeClass: Node }\n'
+        )
+        const agent = new AgentNode()
+        try {
+            await agent.run(
+                {
+                    id: 'agent_0',
+                    inputs: { agentModel: 'fakeModel', agentModelConfig: {}, agentTools: rows, agentMessages: [] }
+                } as never,
+                'question',
+                {
+                    chatId: 'c1',
+                    chatflowid: 'f1',
+                    sessionId: 's1',
+                    prependedChatHistory: [],
+                    abortController: new AbortController(),
+                    componentNodes: {
+                        fakeModel: { filePath: modelFile, label: 'Model', name: 'fakeModel' },
+                        harness: { filePath: path.join(__dirname, 'Harness.ts'), label: 'Harness', name: 'harness' }
+                    }
+                }
+            )
+        } catch (error) {
+            return error instanceof Error ? error.message : String(error)
+        }
+        throw new Error('the agentflow model should have reported the tool names')
+    }
+
+    it('names two Payroll harness rows through the agentflow Agent', async () => {
+        const message = await toolNames([
+            {
+                id: 'node_0',
+                agentSelectedTool: 'harness',
+                agentSelectedToolConfig: { label: 'Payroll', harnessName: 'payroll', returnDirect: false }
+            },
+            {
+                id: 'node_2',
+                agentSelectedTool: 'harness',
+                agentSelectedToolConfig: { label: 'Payroll', harnessName: 'payroll', returnDirect: false }
+            }
+        ])
+        expect(message).toContain('TOOLS:payroll,payroll_2')
+    })
+
+    it('names one Payroll harness row harness through the agentflow Agent', async () => {
+        const message = await toolNames([
+            {
+                id: 'node_0',
+                agentSelectedTool: 'harness',
+                agentSelectedToolConfig: { label: 'Payroll', harnessName: 'payroll', returnDirect: false }
+            }
+        ])
+        expect(message).toContain('TOOLS:harness')
     })
 })

@@ -83,7 +83,7 @@ class CustomFunction_Utilities implements INode {
         const databaseEntities = options.databaseEntities as IDatabaseEntity
         // A repeated name would keep only the last tool. Fail here, the same way an agent build does.
         const flatTools = (flatten(nodeData.inputs?.tools) as StructuredTool[]) ?? []
-        assertUniqueToolNames(flatTools, 'function')
+        assertUniqueToolNames(flatTools, 'function', 'exact')
         const tools = Object.fromEntries(flatTools.map((tool) => [tool.name, tool]))
 
         const variables = await getVars(appDataSource, databaseEntities, nodeData, options)

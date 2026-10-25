@@ -24,7 +24,7 @@ class Harness_Harness implements INode {
         this.icon = 'harness.svg'
         this.category = 'Harness'
         this.description =
-            'Attach a named harness as a tool. The tool name comes from the card title, or from the harness name when the title is still Harness. A lone card with no title of its own stays harness. A chat whose only node is this harness runs that roster for the message.'
+            'Attach a named harness as a tool. One Harness card on an agent keeps the tool name harness. Several cards use the card title, or the harness name when the title is still Harness. A chat whose only node is this harness runs that roster for the message.'
         this.baseClasses = [this.type, 'Tool']
         this.inputs = [
             {
@@ -33,7 +33,7 @@ class Harness_Harness implements INode {
                 type: 'asyncOptions',
                 loadMethod: 'listHarnesses',
                 description:
-                    'Saved harness name. As a tool, the name the agent calls comes from this card title. One card titled Harness keeps the tool name harness. Several cards use the title, or this name when the title is still Harness.'
+                    'Saved harness name. One Harness card on an agent is the tool harness. Several cards use the card title, or this name when the title is still Harness.'
             },
             {
                 label: 'Return Direct',
@@ -335,6 +335,8 @@ function sanitizeHarnessToolToken(value: string): string {
         }
     }
     if (out.endsWith('_')) out = out.slice(0, -1)
+    // A model tool name cannot start with a digit. Prefix before any suffix is added, then cap the length.
+    if (out && out.charCodeAt(0) >= 48 && out.charCodeAt(0) <= 57) out = `h_${out}`
     return out.slice(0, HARNESS_TOOL_NAME_MAX)
 }
 
@@ -342,14 +344,15 @@ function isDefaultTitle(label: string): boolean {
     return label.toLowerCase() === 'harness'
 }
 
-// A title the person set wins. Otherwise a lone card stays harness, and several cards use the saved harness name.
+// One Harness card on an agent stays harness, whatever its title, so an existing tool:harness call still works.
+// A title is used only when two or more Harness cards are on that agent. A title that is still Harness uses the saved name.
 function baseToolName(card: HarnessToolCard, alone: boolean): string {
+    if (alone) return 'harness'
     const label = textOf(card.label)
     if (label && !isDefaultTitle(label)) {
         const token = sanitizeHarnessToolToken(label)
         if (token) return token
     }
-    if (alone) return 'harness'
     const named = sanitizeHarnessToolToken(textOf(card.name))
     if (named && named !== 'harness') return named
     return 'harness'
