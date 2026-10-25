@@ -2773,7 +2773,12 @@ export function compileProfileCached(record) {
     if (cached?.key === key && cached.compiled) {
         try {
             recheckCached(cached.compiled)
-            if (profileDirectoryChainHeld(cached.chain)) return cached.compiled
+            if (profileDirectoryChainHeld(cached.chain)) {
+                // The directory check opens config.yaml after the first preflight. A file
+                // can be replaced in that gap, so the same preflight runs again before reuse.
+                recheckCached(cached.compiled)
+                return cached.compiled
+            }
         } catch (error) {
             compiledProfiles.delete(record.name)
             if (error?.code === 'profile_link') throw error

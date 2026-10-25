@@ -299,6 +299,67 @@ function cleanupProfile(name) {
     )
 }
 
+// Hole: preflight runs, then the directory identity check. A file swapped for a link in that gap is still a cache hit.
+{
+    const cases = [
+        ['plinkgapenv', '.env', 'OUTSIDE_ENV_SENTINEL=gap-env-bytes\n', 'gap-env-bytes'],
+        ['plinkgapsoul', 'SOUL.md', 'gap-soul-sentinel\n', 'gap-soul-sentinel']
+    ]
+    const results = []
+    for (const [name, file, text, needle] of cases) {
+        const { saved, first, again } = warm(name)
+        const outside = outsideFile(file, text)
+        const target = profilePath(name, file)
+        const held = `${target}.held`
+        let swapped = false
+        profileWriteTest.betweenCacheChecks = (dirPath) => {
+            if (swapped || path.resolve(dirPath) !== path.resolve(profilePath(name))) return
+            swapped = true
+            fs.renameSync(target, held)
+            fs.symlinkSync(outside.file, target)
+        }
+        let refused = ''
+        let returned = null
+        let hits = []
+        try {
+            const guarded = guardLink(target, outside.file, () => compileProfileCached(saved))
+            hits = guarded.hits
+            returned = guarded.result
+            refused = guarded.error?.code || ''
+        } finally {
+            profileWriteTest.betweenCacheChecks = null
+        }
+        const linkStat = fs.lstatSync(target, { throwIfNoEntry: false })
+        const ok =
+            swapped &&
+            again === first &&
+            refused === 'profile_link' &&
+            returned !== first &&
+            hits.length === 0 &&
+            sameStamp(outside.file, outside.before) &&
+            !treeHas(profilePath(name), Buffer.from(needle)) &&
+            !linkStat?.isSymbolicLink()
+        results.push({
+            file,
+            ok,
+            swapped,
+            cacheHit: again === first,
+            refused,
+            returnedCache: returned === first,
+            hits,
+            stillLink: linkStat?.isSymbolicLink() === true
+        })
+        fs.rmSync(held, { force: true })
+        cleanupProfile(name)
+        fs.rmSync(outside.dir, { recursive: true, force: true })
+    }
+    check(
+        'a cache hit refuses an env or soul file swapped for a link during the cache checks',
+        results.length === 2 && results.every((row) => row.ok),
+        JSON.stringify(results)
+    )
+}
+
 // Hole: a skills directory that appears as a link after the compile is still a cache hit.
 {
     const name = 'plinkskills'
