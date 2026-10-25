@@ -4,7 +4,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
-## [1.4.3] - Unreleased
+## [1.4.3] - 2026-10-25
 
 ### Fixed
 
@@ -15,6 +15,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Analyst (scoped): `regconfig` and `regdictionary` are refused by default (in `DENIED_TYPES`) with a structural exception — a direct constant argument, by oid, to built-in text-search functions (`to_tsvector`, `to_tsquery`, `plainto_tsquery`, `phraseto_tsquery`, `websearch_to_tsquery`, `ts_headline`, `ts_lexize`). All other occurrences are refused, including `get_current_ts_config()`, result columns, variables, nested expressions, and I/O coercions. The same rule reads view, materialized view and policy bodies. Unknown parse-node tags are refused on PostgreSQL 14 and 16.
 -   Analyst (scoped): The user-function rule is recursive with a depth cap that memoization cannot skip, and it vets stored BEGIN ATOMIC SQL bodies and default arguments. A BEGIN ATOMIC function is allowed on its own only when it touches no relation, including a selected one and including when no table is selected. The walker fails closed on unknown node tags and vets aggregate helpers and a selected sort operator. A 40-deep chain is refused; a 20-deep chain passes. Allow-listed function bodies are trusted by design; the entry admits that function, while its defaults and callees are still vetted.
 -   Native macOS and Windows source installs cannot save or compile agent profiles. Run Cuttlely with Docker there.
+-   A harness fixed and republished from the canvas after a failed startup compile answers again without a restart, instead of staying at 503 `harness unavailable`. A failed republish keeps the 503.
+-   Removing a harness profile stays inside the profiles or workspaces folder: if a folder is moved out of it while the removal runs, the removal stops and the moved files are left alone. [#306](https://github.com/cuttlely/cuttlely/issues/306).
+-   Deleting a harness also removes its agent runtime profile, its specialist profiles and workspaces, and revokes its gateway tokens. Startup logs leftover profiles of deleted harnesses.
+-   The Harness Prime profile no longer starts specialist bridges, so startup no longer logs `The harness gateway is not configured for this profile` for it. Each specialist still starts its own bridge.
+-   The harness assets specialist downloads logos and images through one checked fetch helper with a browser-like user agent; every redirect must resolve to a public address, and size and time are capped. A tool call whose result reports an error shows as failed in the trace, and a failed tool preview keeps its end.
+-   Chat answers keep a plain `/` between words or numbers (for example `2,499 consumed / 6,672 entitled`) instead of replacing it with `a server path`. Real server paths are still hidden.
+-   Creating a team keeps you on your current team, and the team switcher is shown to anyone in more than one team. Deleting a team that still owns credentials, variables, API keys, document stores or other records returns 400 and names them; nothing is removed.
+-   The LangSmith upload-failure log records the credential id and key length only, never part of the key. Masked connection-string passwords are detected more reliably, so editing a credential cannot save a masked value.
 
 ## [1.4.2] - 2026-10-23
 
@@ -495,7 +503,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/cuttlely/cuttlely/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/cuttlely/cuttlely/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/cuttlely/cuttlely/compare/v1.3.2...v1.4.0
