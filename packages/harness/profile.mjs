@@ -809,8 +809,8 @@ function removeChild(dirFd, logicalDir, name, rootReal = '') {
         for (const entry of namesIn(fd, logical)) {
             if (!entry || entry === '.' || entry === '..') continue
             removeChild(fd, logical, entry, rootReal)
-            // Node has no unlinkat, so a move can still land between a check and one unlink. Check again
-            // after each entry, so the walk stops at the first move it can see and goes no further.
+            // Each unlink and rmdir stays inside the root unless files are moved on the server mid-operation.
+            // The check runs again after each entry, so the walk stops at the first move it sees.
             assertInside(fd)
         }
     } finally {
