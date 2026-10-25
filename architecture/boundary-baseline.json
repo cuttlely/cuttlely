@@ -3233,6 +3233,10 @@
             "reason": "The vector upsert error helper and its test stay next to the inherited upsert path they serve."
         },
         {
+            "path": "packages/ui/src/ui-component/array/ArrayRenderer.test.js",
+            "reason": "The array editor test stays next to the inherited tool-row editor it exercises."
+        },
+        {
             "path": "packages/ui/src/ui-component/artifacts/FileArtifact.jsx",
             "reason": "Chat file artifact card and helpers, used by the inherited chat message views"
         },
