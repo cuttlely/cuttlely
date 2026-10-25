@@ -879,7 +879,11 @@ export async function checkStatementScope(
                 )}.`
             )
         }
-        const filtered = await filteredTypesWithRegTsearchException([ids.tree, ...(await relationNodeTexts(runner, ids.relations))])
+        // Body texts judge regconfig and regdictionary. Other reg* types live only in the body type ids,
+        // so those ids have to join the statement's type set before the exception is applied.
+        const nodeTexts = await relationNodeTexts(runner, ids.relations)
+        for (const oid of nodeTexts.types) ids.types.add(Number(oid))
+        const filtered = await filteredTypesWithRegTsearchException([ids.tree, ...nodeTexts.texts])
         await refuseTypes(runner, filtered, { scoped: true })
         return undefined
     }
@@ -1082,8 +1086,11 @@ async function followRelations(runner, ids) {
 
 // View, materialized view and policy trees for the reg* rule and the tag list when view bodies are not merged
 // into the statement's function set. Nested relations are followed so a view over a view is checked too.
+// Type ids are returned with the texts. The structural walk only accepts regconfig and regdictionary, so any
+// other reg* type in a body has to reach refuseTypes through this set.
 async function relationNodeTexts(runner, relationOids) {
     const texts = []
+    const types = new Set()
     const seen = new Set()
     let queue = [...relationOids]
     while (queue.length) {
@@ -1097,11 +1104,13 @@ async function relationNodeTexts(runner, relationOids) {
             if (row.kind === 'f') throw new ScopeRefusal(FOREIGN_REFUSED)
             for (const tree of relationTrees(row)) {
                 texts.push(tree.text)
-                queue.push(...treeObjectIds(tree.text).relations)
+                const found = treeObjectIds(tree.text)
+                for (const id of found.types) types.add(id)
+                queue.push(...found.relations)
             }
         }
     }
-    return texts
+    return { texts, types }
 }
 
 const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])].join('\n')

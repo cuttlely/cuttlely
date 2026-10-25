@@ -2577,7 +2577,7 @@ describe('analyst relations: text search configuration types', () => {
         )
     })
 
-    it('runs ts_headline and a regdictionary literal with a selection', async (t) => {
+    it('allows a direct constant in all seven built-in text-search functions', async (t) => {
         if (skipped(t)) return
         // Ensure unrelated COERCEVIAIO (jsonb::text) in the same statement does not cause refusal.
         assert.equal(
@@ -2590,18 +2590,93 @@ describe('analyst relations: text search configuration types', () => {
             ).rows.length,
             1
         )
-        const headline = await queryAnalystUrl(
-            url,
-            "SELECT ts_headline('english', notes, plainto_tsquery('english', 'oven')) AS h FROM s.tickets WHERE id = 1 LIMIT 1",
-            scoped('s.tickets')
+        // Requirement (a): each built-in accepts a regconfig or regdictionary Const passed directly, by oid.
+        const calls = [
+            ["SELECT to_tsvector('english', notes) AS v FROM s.tickets WHERE id = 1 LIMIT 1", (row) => assert.match(String(row.v), /oven/)],
+            ["SELECT to_tsquery('english', 'oven')::text AS v FROM s.tickets LIMIT 1", (row) => assert.match(row.v, /oven/)],
+            ["SELECT plainto_tsquery('english', 'oven')::text AS v FROM s.tickets LIMIT 1", (row) => assert.match(row.v, /oven/)],
+            ["SELECT phraseto_tsquery('english', 'oven runs')::text AS v FROM s.tickets LIMIT 1", (row) => assert.match(row.v, /oven/)],
+            ["SELECT websearch_to_tsquery('english', 'oven')::text AS v FROM s.tickets LIMIT 1", (row) => assert.match(row.v, /oven/)],
+            [
+                "SELECT ts_headline('english', notes, plainto_tsquery('english', 'oven')) AS v FROM s.tickets WHERE id = 1 LIMIT 1",
+                (row) => assert.match(row.v, /<b>oven<\/b>/)
+            ],
+            [
+                "SELECT ts_lexize('english_stem'::regdictionary, 'ovens') AS v FROM s.tickets LIMIT 1",
+                (row) => assert.deepEqual(row.v, ['oven'])
+            ]
+        ]
+        for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }]) {
+            for (const [sql, check] of calls) {
+                const result = await queryAnalystUrl(url, sql, options)
+                assert.equal(result.rows.length, 1, sql)
+                check(result.rows[0])
+            }
+        }
+    })
+
+    it('refuses regclass and other reg* types inside views, matviews, and policies when readOnlySql is unset', async (t) => {
+        // Requirements (a) and (b) on the selection path that does not set readOnlySql.
+        // relationNodeTexts must keep body type ids: the structural walk only judges regconfig and regdictionary.
+        if (skipped(t)) return
+        const selected = (name) => ({ relations: [name] })
+        // A view whose only reg* use is a direct text-search constant stays allowed.
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.ts_english LIMIT 1', selected('s.ts_english'))).rows.length, 1)
+        // The reg* column is not projected, so the outer statement's types do not name it. The body still does.
+        await owner.query(`
+            CREATE VIEW s.body_regclass AS SELECT 's.tickets'::regclass AS v;
+            CREATE VIEW s.body_regproc AS SELECT 0::oid::regproc AS v;
+            CREATE VIEW s.body_regprocedure AS SELECT 0::oid::regprocedure AS v;
+            CREATE VIEW s.body_regoperator AS SELECT 0::oid::regoperator AS v;
+            CREATE VIEW s.body_regnamespace AS SELECT 0::oid::regnamespace AS v;
+            CREATE VIEW s.body_regrole AS SELECT 0::oid::regrole AS v;
+            CREATE VIEW s.body_nested AS SELECT 1 AS n FROM s.body_regclass;
+            CREATE MATERIALIZED VIEW s.body_mv_regclass AS SELECT 's.tickets'::regclass AS v;
+            CREATE MATERIALIZED VIEW s.body_mv_regoper AS SELECT 0::oid::regoper AS v;
+            CREATE MATERIALIZED VIEW s.body_mv_regcollation AS SELECT 0::oid::regcollation AS v;
+            CREATE MATERIALIZED VIEW s.body_mv_regtype AS SELECT 0::oid::regtype AS v;
+            CREATE TABLE s.body_pol (id int);
+            INSERT INTO s.body_pol VALUES (1);
+            ALTER TABLE s.body_pol ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY body_pol_ok ON s.body_pol USING (id > 0);
+            CREATE TABLE s.body_pol_hidden (id int);
+            INSERT INTO s.body_pol_hidden VALUES (1);
+            ALTER TABLE s.body_pol_hidden ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY body_pol_hidden_regrole ON s.body_pol_hidden USING ((0::oid::regrole)::oid IS NOT NULL);
+            CREATE VIEW s.body_pol_view AS SELECT id FROM s.body_pol_hidden;
+        `)
+        await owner.query(
+            `GRANT SELECT ON s.body_regclass, s.body_regproc, s.body_regprocedure, s.body_regoperator, s.body_regnamespace, s.body_regrole, s.body_nested, s.body_mv_regclass, s.body_mv_regoper, s.body_mv_regcollation, s.body_mv_regtype, s.body_pol, s.body_pol_hidden, s.body_pol_view TO "${reader}"`
         )
-        assert.match(headline.rows[0].h, /<b>oven<\/b>/)
-        const lexize = await queryAnalystUrl(
-            url,
-            "SELECT ts_lexize('english_stem'::regdictionary, 'ovens') AS l FROM s.tickets LIMIT 1",
-            scoped('s.tickets')
-        )
-        assert.deepEqual(lexize.rows[0].l, ['oven'])
+        const cases = [
+            ['s.self_name', 'SELECT id FROM s.self_name LIMIT 1', /type regclass/],
+            ['s.body_regclass', 'SELECT 1 AS ok FROM s.body_regclass LIMIT 1', /type regclass/],
+            ['s.body_regproc', 'SELECT 1 AS ok FROM s.body_regproc LIMIT 1', /type regproc/],
+            ['s.body_regprocedure', 'SELECT 1 AS ok FROM s.body_regprocedure LIMIT 1', /type regprocedure/],
+            ['s.body_regoperator', 'SELECT 1 AS ok FROM s.body_regoperator LIMIT 1', /type regoperator/],
+            ['s.body_regnamespace', 'SELECT 1 AS ok FROM s.body_regnamespace LIMIT 1', /type regnamespace/],
+            ['s.body_regrole', 'SELECT 1 AS ok FROM s.body_regrole LIMIT 1', /type regrole/],
+            ['s.body_nested', 'SELECT n FROM s.body_nested LIMIT 1', /type regclass/],
+            ['s.body_mv_regclass', 'SELECT 1 AS ok FROM s.body_mv_regclass LIMIT 1', /type regclass/],
+            ['s.body_mv_regoper', 'SELECT 1 AS ok FROM s.body_mv_regoper LIMIT 1', /type regoper/],
+            ['s.body_mv_regcollation', 'SELECT 1 AS ok FROM s.body_mv_regcollation LIMIT 1', /type regcollation/],
+            ['s.body_mv_regtype', 'SELECT 1 AS ok FROM s.body_mv_regtype LIMIT 1', /type regtype/]
+        ]
+        for (const [name, sql, pattern] of cases) {
+            await refusal(queryAnalystUrl(url, sql, selected(name)), pattern)
+        }
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.body_pol LIMIT 1', selected('s.body_pol'))).rows.length, 1)
+        await owner.query('DROP POLICY body_pol_ok ON s.body_pol')
+        await owner.query('CREATE POLICY body_pol_regclass ON s.body_pol USING ((0::oid::regclass)::oid IS NOT NULL)')
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM s.body_pol LIMIT 1', selected('s.body_pol')), /type regclass/)
+        await owner.query('DROP POLICY body_pol_regclass ON s.body_pol')
+        await owner.query('CREATE POLICY body_pol_regtype ON s.body_pol USING (id > 0) WITH CHECK ((0::oid::regtype)::oid IS NOT NULL)')
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM s.body_pol LIMIT 1', selected('s.body_pol')), /type regtype/)
+        await owner.query('DROP POLICY body_pol_regtype ON s.body_pol')
+        await owner.query("CREATE POLICY body_pol_ts ON s.body_pol USING (to_tsvector('english', 'oven') @@ to_tsquery('english', 'oven'))")
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.body_pol LIMIT 1', selected('s.body_pol'))).rows.length, 1)
+        // A policy on a table the selected view reads is part of that body too.
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM s.body_pol_view LIMIT 1', selected('s.body_pol_view')), /type regrole/)
     })
 
     it('does not write debug files during checks', async (t) => {
