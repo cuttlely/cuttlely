@@ -213,6 +213,39 @@ describe('analyst relations: pure helpers', () => {
         assert.deepEqual([...treeObjectIds(':opnos (o 96').operators], [96])
     })
 
+    it('fails closed on unknown node tags and accepts Postgres 14 and 16 text-search tags', () => {
+        // Requirement (e): an unknown tag is refused, including one the old suffix rule would have allowed.
+        assert.throws(() => treeObjectIds('{NOT_A_REAL_NODE :consttype 23}'), /construct not allowed/)
+        assert.throws(() => treeObjectIds('{UNKNOWNEXPR :consttype 23}'), /construct not allowed/)
+        assert.throws(() => treeObjectIds('{TABLEFUNC :funcid 1}'), /construct not allowed/)
+        assert.throws(() => treeObjectIds('{XMLEXPR :funcid 1}'), /construct not allowed/)
+        assert.throws(() => treeObjectIds('{NEXTVALUEEXPR :seqid 1}'), /construct not allowed/)
+        const accepted = [
+            'COALESCE',
+            'ROW',
+            'CASE',
+            'MINMAX',
+            'RTE',
+            'SETOPERATIONSTMT',
+            'COALESCEEXPR',
+            'ROWEXPR',
+            'CASEEXPR',
+            'CASEWHEN',
+            'MINMAXEXPR',
+            'RANGETBLENTRY',
+            'NULLIFEXPR',
+            'BOOLEANTEST'
+        ]
+        for (const tag of accepted) {
+            const ids = treeObjectIds(`{${tag} :consttype 23 :vartype 25}`)
+            assert.deepEqual(
+                [...ids.types].sort((a, b) => a - b),
+                [23, 25],
+                tag
+            )
+        }
+    })
+
     it('names the columns of the selected relations a failed statement mentions, only for column errors', () => {
         const undefinedColumn = { code: '42703' }
         assert.equal(
@@ -2165,6 +2198,60 @@ describe('analyst relations: user functions inside views', () => {
         assert.doesNotMatch(String(err.message), /found:\s*\.\s*$/i)
     })
 
+    it('does not let memoization skip the call-depth cap', async (t) => {
+        // Requirement (c): a function first seen on a short path must still count toward a longer path.
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        for (let i = 39; i >= 0; i -= 1) {
+            const name = `s.cap_${i}`
+            const body = i === 39 ? 'SELECT 1' : `SELECT s.cap_${i + 1}()`
+            // eslint-disable-next-line no-await-in-loop
+            await owner.query(`CREATE FUNCTION ${name}() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC ${body}; END`)
+        }
+        await owner.query(`CREATE FUNCTION s.cap_both() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cap_20() + s.cap_0(); END`)
+        await owner.query('RESET ROLE')
+        const shallow = await queryAnalystUrl(url, 'SELECT s.cap_20() AS v LIMIT 1', {
+            ...node,
+            relations: ['analytics.clean_orders']
+        })
+        assert.equal(shallow.rows[0].v, 1)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.cap_0() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /call graph too deep|found:/i
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.cap_both() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /call graph too deep|found:/i
+        )
+    })
+
+    it('auto-allows a BEGIN ATOMIC function only when it reads no relation', async (t) => {
+        // Requirement (d): a selected relation still blocks automatic allowance.
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE TABLE s.picked (id int)`)
+        await owner.query(`INSERT INTO s.picked VALUES (1)`)
+        await owner.query(
+            `CREATE FUNCTION s.read_picked() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT id FROM s.picked LIMIT 1; END`
+        )
+        await owner.query(`CREATE FUNCTION s.pure_atomic() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 4; END`)
+        await owner.query('RESET ROLE')
+        await owner.query(`GRANT SELECT ON s.picked TO "${reader}"`)
+        const pure = await queryAnalystUrl(url, 'SELECT s.pure_atomic() AS v LIMIT 1', {
+            ...node,
+            relations: ['s.picked']
+        })
+        assert.equal(pure.rows[0].v, 4)
+        await refusal(queryAnalystUrl(url, 'SELECT s.read_picked() AS v LIMIT 1', { ...node, relations: ['s.picked'] }), /reads a relation/)
+        // An allow-listed function's own body is trusted, so the same read can run once it is listed.
+        const listed = await queryAnalystUrl(url, 'SELECT s.read_picked() AS v LIMIT 1', {
+            ...node,
+            relations: ['s.picked'],
+            allowedFunctions: 's.read_picked()'
+        })
+        assert.equal(listed.rows[0].v, 1)
+    })
+
     it('allow-list of a parent function does not bypass checks for its callees or defaults', async (t) => {
         if (skipped(t)) return
         await owner.query(`CREATE FUNCTION s.parent_calls_leak() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_secret(); END`)
@@ -2368,11 +2455,17 @@ describe('analyst relations: text search configuration types', () => {
 
     it('runs views and materialized views that store english and simple configurations', async (t) => {
         if (skipped(t)) return
-        for (const name of ['s.mv_english', 's.ts_english', 's.ts_simple']) {
+        for (const name of ['s.ts_english', 's.ts_simple']) {
             const sql = `SELECT id FROM ${name} ORDER BY id LIMIT 5`
             assert.ok((await queryAnalystUrl(url, sql, scoped(name))).rows.length >= 1, name)
             assert.ok((await queryAnalystUrl(url, sql, unscoped)).rows.length >= 1, name)
         }
+        // The materialized view stores a regconfig const that is not a text-search argument, so a selection refuses it.
+        assert.ok((await queryAnalystUrl(url, 'SELECT id FROM s.mv_english ORDER BY id LIMIT 5', unscoped)).rows.length >= 1)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /regconfig|not allowed while a table selection is set/
+        )
     })
 
     it('refuses stored regconfig uses and still lets a literal Const into built-ins', async (t) => {
@@ -2415,6 +2508,73 @@ describe('analyst relations: text search configuration types', () => {
             /not allowed while a table selection is set/
         )
         await refusal(queryAnalystUrl(url, 'SELECT id::oid::regclass FROM s.tickets LIMIT 1', scoped('s.tickets')), selection)
+    })
+
+    it('refuses non-const regconfig and regdictionary values, including get_current_ts_config()', async (t) => {
+        // Requirement (a): only a regconfig or regdictionary Const passed straight into a built-in text-search function is allowed.
+        if (skipped(t)) return
+        const queries = [
+            'SELECT get_current_ts_config() AS cfg LIMIT 1',
+            'SELECT get_current_ts_config()::text AS cfg LIMIT 1',
+            'SELECT get_current_ts_config()::regconfig AS cfg LIMIT 1',
+            'SELECT to_tsvector(get_current_ts_config(), notes) FROM s.tickets LIMIT 1',
+            'SELECT to_tsvector((SELECT get_current_ts_config()), notes) FROM s.tickets LIMIT 1',
+            "SELECT to_tsvector(COALESCE(get_current_ts_config(), 'english'::regconfig), notes) FROM s.tickets LIMIT 1",
+            "SELECT to_tsvector(CASE WHEN notes IS NULL THEN 'simple'::regconfig ELSE get_current_ts_config() END, notes) FROM s.tickets LIMIT 1",
+            "SELECT current_setting('default_text_search_config')::regconfig AS cfg LIMIT 1",
+            "SELECT to_tsvector(current_setting('default_text_search_config')::regconfig, notes) FROM s.tickets LIMIT 1",
+            "SELECT ts_lexize((SELECT 'english_stem'::regdictionary), 'ovens') AS l FROM s.tickets LIMIT 1",
+            "SELECT ts_lexize(CASE WHEN true THEN 'english_stem'::regdictionary ELSE 'simple'::regdictionary END, 'ovens') AS l FROM s.tickets LIMIT 1"
+        ]
+        for (const sql of queries) {
+            await refusal(
+                queryAnalystUrl(url, sql, scoped('s.tickets')),
+                /regconfig|regdictionary|not allowed while a table selection is set/
+            )
+        }
+        const kept = await queryAnalystUrl(
+            url,
+            "SELECT to_tsvector('english', notes) AS d, ts_lexize('english_stem'::regdictionary, 'ovens') AS l FROM s.tickets LIMIT 1",
+            scoped('s.tickets')
+        )
+        assert.equal(kept.rows.length, 1)
+        assert.deepEqual(kept.rows[0].l, ['oven'])
+    })
+
+    it('inspects view, materialized view, and policy bodies for regconfig uses', async (t) => {
+        // Requirement (b): a hidden get_current_ts_config() or a bare regconfig const is refused inside each of those bodies.
+        if (skipped(t)) return
+        await owner.query(`CREATE VIEW s.cfg_fn AS SELECT get_current_ts_config()::text AS v`)
+        await owner.query(`CREATE MATERIALIZED VIEW s.mv_cfg_fn AS SELECT get_current_ts_config()::text AS v`)
+        await owner.query(`CREATE TABLE s.guarded (id int)`)
+        await owner.query(`INSERT INTO s.guarded VALUES (1)`)
+        await owner.query(`ALTER TABLE s.guarded ENABLE ROW LEVEL SECURITY`)
+        await owner.query(`CREATE POLICY see_guarded ON s.guarded USING (id > 0)`)
+        await owner.query(`GRANT SELECT ON s.cfg_fn, s.mv_cfg_fn, s.guarded TO "${reader}"`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT v FROM s.cfg_fn LIMIT 1', scoped('s.cfg_fn')),
+            /regconfig|not allowed while a table selection is set/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT v FROM s.mv_cfg_fn LIMIT 1', scoped('s.mv_cfg_fn')),
+            /regconfig|not allowed while a table selection is set/
+        )
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.guarded LIMIT 5', scoped('s.guarded'))).rows.length, 1)
+        await owner.query(`DROP POLICY see_guarded ON s.guarded`)
+        await owner.query(`CREATE POLICY bad_guarded ON s.guarded USING ((get_current_ts_config()::text) = 'english')`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM s.guarded LIMIT 5', scoped('s.guarded')),
+            /regconfig|not allowed while a table selection is set/
+        )
+        // A with-check expression is part of the policy body too.
+        await owner.query(`DROP POLICY bad_guarded ON s.guarded`)
+        await owner.query(
+            `CREATE POLICY check_guarded ON s.guarded USING (id > 0) WITH CHECK ((get_current_ts_config()::text) = 'english')`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM s.guarded LIMIT 5', scoped('s.guarded')),
+            /regconfig|not allowed while a table selection is set/
+        )
     })
 
     it('runs ts_headline and a regdictionary literal with a selection', async (t) => {
@@ -2589,16 +2749,13 @@ describe('analyst relations: text search configuration types', () => {
         }
         const sql =
             'WITH w AS (SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_amer UNION ALL SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_emea UNION ALL SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_apj) SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM w GROUP BY region_label, risk_radar ORDER BY renewal_acv_due DESC NULLS LAST LIMIT 100'
-        assert.equal(
-            (
-                await queryAnalystUrl(
-                    url,
-                    sql,
-                    scoped('util.mv_region_renewal_120d_amer', 'util.mv_region_renewal_120d_emea', 'util.mv_region_renewal_120d_apj')
-                )
-            ).rows.length >= 0,
-            true
+        const result = await queryAnalystUrl(
+            url,
+            sql,
+            scoped('util.mv_region_renewal_120d_amer', 'util.mv_region_renewal_120d_emea', 'util.mv_region_renewal_120d_apj')
         )
+        assert.equal(result.rows.length, 2)
+        assert.deepEqual(result.rows.map((row) => row.region).sort(), ['North', 'South'])
     })
 
     it('runs views over analytics._etl_safe_* helper functions next to a text search column', async (t) => {
@@ -2642,10 +2799,15 @@ describe('analyst relations: text search configuration types', () => {
         assert.doesNotMatch(String(error?.message), /table selection/)
     })
 
-    it('refuses an object-identifier type inside a selected view definition, but not regconfig', async (t) => {
+    it('refuses an object-identifier type inside a selected view definition, and a bare regconfig const there too', async (t) => {
         if (skipped(t)) return
         await refusal(queryAnalystUrl(url, 'SELECT id FROM s.self_name LIMIT 1', scoped('s.self_name')), selection)
-        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.mv_english LIMIT 1', scoped('s.mv_english'))).rows.length, 1)
+        // s.mv_english stores 'english'::regconfig as its own column, which is not a text-search argument.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /regconfig|not allowed while a table selection is set/
+        )
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.ts_english LIMIT 1', scoped('s.ts_english'))).rows.length, 1)
         for (const type of ['regprocedure', 'regoper', 'regoperator', 'regcollation']) {
             await refusal(queryAnalystUrl(url, `SELECT id::oid::${type} FROM s.tickets LIMIT 1`, scoped('s.tickets')), selection)
             const unscopedError = await queryAnalystUrl(url, `SELECT 0::oid::${type} AS v LIMIT 1`, unscoped).catch((error) => error)

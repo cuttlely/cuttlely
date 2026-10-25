@@ -127,7 +127,9 @@ const DENIED_SUFFIXES = ['_is_visible']
 
 // Object-identifier types turn an id into a name, or a name into an id, for any object.
 // In scoped mode, regconfig and regdictionary are refused too, except when a regconfig/regdictionary Const
-// is passed directly to one of a small set of built-in text-search functions (checked on the stored node tree).
+// is passed directly, by oid, to one of a small set of built-in text-search functions (checked on the stored node tree).
+// get_current_ts_config() and every other non-Const use is refused. The same walk reads view, materialized
+// view and policy bodies.
 const DENIED_TYPES = new Set([
     'regclass',
     'regproc',
@@ -507,69 +509,255 @@ function leadingId(token) {
 const FUNCTION_FIELDS = new Set(['funcid', 'aggfnoid', 'winfnoid', 'opfuncid', 'tsmhandler'])
 const OPERATOR_FIELDS = new Set(['opno', 'sortop', 'eqop'])
 
+// Parse-node tags a read-only query, view, policy or SQL-standard function body may contain.
+// PostgreSQL 14 still writes the short names (COALESCE, RTE, CASE, ...). PostgreSQL 16 writes the
+// struct names (COALESCEEXPR, RANGETBLENTRY, CASEEXPR, ...). Anything else fails closed.
+const BANNED_NODE_TAGS = new Set(['TABLEFUNC', 'TABLEFUNCSCAN', 'XMLEXPR', 'XMLSERIALIZE', 'NEXTVALUEEXPR'])
+const QUERY_NODE_TAGS = new Set([
+    'QUERY',
+    'RTE',
+    'RANGETBLENTRY',
+    'ALIAS',
+    'RTEPERMISSIONINFO',
+    'RTEPERMINFO',
+    'WITHCLAUSE',
+    'COMMONTABLEEXPR',
+    'CTESEARCHCLAUSE',
+    'CTECYCLECLAUSE',
+    'FROMEXPR',
+    'RANGETBLREF',
+    'JOINEXPR',
+    'ROWMARKCLAUSE',
+    'LOCKROWS',
+    'TARGETENTRY',
+    'SETOPERATIONSTMT',
+    'SETOP',
+    'RANGETBLFUNCTION',
+    'TABLESAMPLECLAUSE',
+    'WITHCHECKOPTION',
+    'SORTGROUPCLAUSE',
+    'GROUPINGSET',
+    'WINDOWCLAUSE',
+    'WINDOWDEF',
+    'VAR',
+    'CONST',
+    'PARAM',
+    'FUNCEXPR',
+    'OPEXPR',
+    'DISTINCTEXPR',
+    'NULLIFEXPR',
+    'SCALARARRAYOPEXPR',
+    'BOOLEXPR',
+    'SUBLINK',
+    'SUBPLAN',
+    'ALTERNATIVESUBPLAN',
+    'AGGREF',
+    'GROUPINGFUNC',
+    'WINDOWFUNC',
+    'SUBSCRIPTINGREF',
+    'ARRAYREF',
+    'NAMEDARGEXPR',
+    'FIELDSELECT',
+    'FIELDSTORE',
+    'RELABELTYPE',
+    'COERCEVIAIO',
+    'ARRAYCOERCEEXPR',
+    'CONVERTROWTYPEEXPR',
+    'COLLATE',
+    'COLLATEEXPR',
+    'CASE',
+    'CASEEXPR',
+    'WHEN',
+    'CASEWHEN',
+    'WHENCLAUSE',
+    'CASETESTEXPR',
+    'ARRAY',
+    'ARRAYEXPR',
+    'ROW',
+    'ROWEXPR',
+    'ROWCOMPARE',
+    'ROWCOMPAREEXPR',
+    'COALESCE',
+    'COALESCEEXPR',
+    'MINMAX',
+    'MINMAXEXPR',
+    'SQLVALUEFUNCTION',
+    'NULLTEST',
+    'BOOLEANTEST',
+    'BOOLTEST',
+    'COERCETODOMAIN',
+    'COERCETODOMAINVALUE',
+    'LIMITCOUNT',
+    'LIMITOFFSET',
+    // SQL/JSON expression nodes (PostgreSQL 16+). Allowing the tag does not skip the function or type checks.
+    'JSONFORMAT',
+    'JSONRETURNING',
+    'JSONVALUEEXPR',
+    'JSONCONSTRUCTOREXPR',
+    'JSONISPREDICATE',
+    'JSONEXPR'
+])
+
+const TEXT_SEARCH_FUNCTIONS = [
+    'to_tsvector',
+    'to_tsquery',
+    'plainto_tsquery',
+    'phraseto_tsquery',
+    'websearch_to_tsquery',
+    'ts_headline',
+    'ts_lexize'
+]
+
+const MAX_CALL_DEPTH = 32
+
+function rejectUnknownNodeTags(tree) {
+    const text = String(tree || '')
+    for (let i = 0; i < text.length; i += 1) {
+        if (text[i] !== '{' || text[i - 1] === '\\') continue
+        const match = /^([A-Z][A-Z0-9_]*)/.exec(text.slice(i + 1))
+        if (!match) continue
+        const name = match[1]
+        if (BANNED_NODE_TAGS.has(name) || !QUERY_NODE_TAGS.has(name)) {
+            throw new ScopeRefusal('Cuttlely refused this query: it uses a construct not allowed while a table selection is set.')
+        }
+    }
+}
+
+function isTypeField(name) {
+    return name.endsWith('type') || name.endsWith('typeid') || name.endsWith('typid')
+}
+
+function readOidAt(text, index) {
+    let end = index
+    while (end < text.length && text[end] >= '0' && text[end] <= '9') end += 1
+    if (end === index) return { value: 0, end: index }
+    return { value: Number(text.slice(index, end)), end }
+}
+
+// An "(o 1 2)" oid list. Anything else is left for the caller.
+function readOidListAt(text, index) {
+    if (!text.startsWith('(o', index)) return { values: [], end: index }
+    const values = []
+    let cursor = index + 2
+    while (cursor < text.length && text[cursor] !== ')') {
+        while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1
+        if (cursor >= text.length || text[cursor] === ')') break
+        if (text[cursor] < '0' || text[cursor] > '9') {
+            cursor += 1
+            continue
+        }
+        const oid = readOidAt(text, cursor)
+        values.push(oid.value)
+        cursor = oid.end
+    }
+    if (text[cursor] === ')') cursor += 1
+    return { values, end: cursor }
+}
+
+// A regconfig or regdictionary value is allowed only as a Const whose immediate parent is one of the
+// built-in text-search functions and whose Const is a direct argument of that call. Every other type
+// field (a result type, a variable, a nested expression, get_current_ts_config()) is refused.
+function regUsesAreDirectConsts(tree, regSet, allowedFnIds) {
+    rejectUnknownNodeTags(tree)
+    const text = String(tree || '')
+    const stack = []
+    let bad = false
+    const top = () => (stack.length ? stack[stack.length - 1] : null)
+    for (let i = 0; i < text.length; i += 1) {
+        const ch = text[i]
+        if (ch === '\\') {
+            i += 1
+            continue
+        }
+        if (ch === '{') {
+            const match = /^([A-Z][A-Z0-9_]*)/.exec(text.slice(i + 1))
+            stack.push({
+                name: match ? match[1] : '',
+                isAllowedFunc: false,
+                awaitingArgsParen: false,
+                argsDepth: 0,
+                regConst: false,
+                regOther: false
+            })
+            continue
+        }
+        if (ch === '}') {
+            const frame = stack.pop()
+            if (!frame) continue
+            if (frame.regOther) bad = true
+            if (frame.regConst) {
+                const parent = top()
+                const allowed = parent && parent.name === 'FUNCEXPR' && parent.isAllowedFunc && parent.argsDepth === 1
+                if (!allowed) bad = true
+            }
+            continue
+        }
+        if (ch === ':' && stack.length) {
+            const match = /^:([A-Za-z_][A-Za-z0-9_]*)/.exec(text.slice(i))
+            if (!match) continue
+            const field = match[1].toLowerCase()
+            const frame = top()
+            let valueAt = i + match[0].length
+            while (valueAt < text.length && /\s/.test(text[valueAt])) valueAt += 1
+            if (frame.name === 'FUNCEXPR' && field === 'funcid') {
+                const oid = readOidAt(text, valueAt)
+                frame.isAllowedFunc = allowedFnIds.has(oid.value)
+                i = Math.max(i, oid.end - 1)
+                continue
+            }
+            if (frame.name === 'FUNCEXPR' && field === 'args') {
+                frame.awaitingArgsParen = true
+                i += match[0].length - 1
+                continue
+            }
+            if (field.endsWith('types')) {
+                const list = readOidListAt(text, valueAt)
+                if (list.values.some((oid) => regSet.has(oid))) frame.regOther = true
+                i = Math.max(i, list.end - 1)
+                continue
+            }
+            if (isTypeField(field)) {
+                const oid = readOidAt(text, valueAt)
+                if (regSet.has(oid.value)) {
+                    if (frame.name === 'CONST' && field === 'consttype') frame.regConst = true
+                    else frame.regOther = true
+                }
+                i = Math.max(i, oid.end - 1)
+                continue
+            }
+            i += match[0].length - 1
+            continue
+        }
+        if (ch === '(' || ch === ')') {
+            const frame = top()
+            if (!frame || frame.name !== 'FUNCEXPR') continue
+            if (ch === '(') {
+                if (frame.awaitingArgsParen && frame.argsDepth === 0) {
+                    frame.argsDepth = 1
+                    frame.awaitingArgsParen = false
+                } else if (frame.argsDepth > 0) frame.argsDepth += 1
+            } else if (frame.argsDepth > 0) frame.argsDepth -= 1
+        }
+    }
+    if (bad) {
+        throw new ScopeRefusal(
+            'Cuttlely refused this query: type regconfig or regdictionary is not allowed while a table selection is set.'
+        )
+    }
+}
+
 // Object ids from a stored query tree. String values in the tree escape their spaces, so text in the statement
 // (an alias such as "x :relid 1") cannot add an id; constants are stored as bytes. A field name ending in type,
 // typeid or typid holds a type id (consttype, resulttype, vartype, funcresulttype, row_typeid, ...); a list of
 // them ends in types (coltypes). Small enum fields such as jointype match too and name no type.
+// Unknown node tags fail closed, the same way as the text-search walker.
 export function treeObjectIds(tree) {
     const text = String(tree || '')
-    // Fail closed: allow-list of known parse node tags across PG14–18 for read-only queries
-    const ALLOWED_TAGS = new Set([
-        'QUERY',
-        'RTE',
-        'RANGETBLENTRY',
-        'ALIAS',
-        'RTEPERMISSIONINFO',
-        'RTEPERMINFO',
-        'WITHCLAUSE',
-        'COMMONTABLEEXPR',
-        'FROMEXPR',
-        'RANGETBLREF',
-        'JOINEXPR',
-        'ROWMARKCLAUSE',
-        'LOCKROWS',
-        'TARGETENTRY',
-        'VAR',
-        'CONST',
-        'FUNCEXPR',
-        'OPEXPR',
-        'SCALARARRAYOPEXPR',
-        'ROWCOMPARE',
-        'RELABELTYPE',
-        'COERCEVIAIO',
-        'NULLTEST',
-        'BOOLTEST',
-        'SUBLINK',
-        'AGGREF',
-        'WINDOWFUNC',
-        'WINDOWCLAUSE',
-        'SORTGROUPCLAUSE',
-        'LIMITCOUNT',
-        'LIMITOFFSET',
-        'CASEEXPR',
-        'WHENCLAUSE',
-        'COALESCEEXPR',
-        'MINMAXEXPR',
-        'ARRAYEXPR',
-        'ROWEXPR',
-        'SQLVALUEFUNCTION'
-    ])
+    rejectUnknownNodeTags(text)
     const relations = new Set()
     const functions = new Set()
     const operators = new Set()
     const types = new Set()
-    // Fail closed on constructs we do not vet under a selection.
-    const BANNED_NODE_KINDS = new Set(['TABLEFUNC', 'XMLEXPR', 'NEXTVALUEEXPR'])
-    // Ban explicit constructs; unknown tags are handled by structural walkers
-    for (let i = 0; i < text.length; i += 1) {
-        if (text[i] === '{') {
-            const m = /^([A-Z_]+)/.exec(text.slice(i + 1))
-            const name = m ? m[1] : ''
-            if (name && BANNED_NODE_KINDS.has(name)) {
-                throw new ScopeRefusal('Cuttlely refused this query: it uses a construct not allowed while a table selection is set.')
-            }
-        }
-    }
     const add = (set, value) => {
         const n = Number(value)
         if (Number.isInteger(n) && n > 0) set.add(n)
@@ -579,10 +767,6 @@ export function treeObjectIds(tree) {
     const tokens = text.split(/\s+/)
     for (let i = 0; i < tokens.length - 1; i += 1) {
         const token = tokens[i]
-        const caps = token.toUpperCase().replace(/[^A-Z]/g, '')
-        if (BANNED_NODE_KINDS.has(caps)) {
-            throw new ScopeRefusal('Cuttlely refused this query: it uses a construct not allowed while a table selection is set.')
-        }
         if (!/^:[A-Za-z_]+$/.test(token)) continue
         const name = token.slice(1).toLowerCase()
         let target = null
@@ -640,244 +824,36 @@ export async function checkStatementScope(
     let stamp = ''
     if (followViews) stamp = await routineCatalogStamp(runner)
     const ids = await parsedStatementIds(client, runner, statement, cacheKey)
-    // Scoped reg* rule helper
-    async function filteredTypesWithRegTsearchException(treeText) {
+    // Scoped reg* rule. Every statement, view, materialized view and policy tree must pass before
+    // regconfig and regdictionary oids are removed from the type set. Any other reg* type stays.
+    async function filteredTypesWithRegTsearchException(bodyTexts) {
         const typeOids = await runner.get(
             "SELECT 'regconfig'::regtype::oid::int8 AS regconfig, 'regdictionary'::regtype::oid::int8 AS regdictionary"
         )
-        const regSet = new Set([Number(typeOids?.regconfig || 0), Number(typeOids?.regdictionary || 0)])
-        const present = [...ids.types].some((t) => regSet.has(Number(t)))
-        // No debug side effects or source-text checks.
-        if (!present) return new Set(ids.types)
-        // Disallow IO function calls outright
+        const regSet = new Set([Number(typeOids?.regconfig || 0), Number(typeOids?.regdictionary || 0)].filter((oid) => oid > 0))
         const ioFnRows = await runner.all(
             `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
              WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
             [['regconfigin', 'regconfigout', 'regdictionaryin', 'regdictionaryout']]
         )
-        const ioFnIds = new Set(ioFnRows.map((r) => Number(r.oid)))
-        if ([...ids.functions].some((f) => ioFnIds.has(Number(f)))) {
+        const ioFnIds = new Set(ioFnRows.map((row) => Number(row.oid)))
+        if ([...ids.functions].some((fn) => ioFnIds.has(Number(fn)))) {
             throw new ScopeRefusal(
                 'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
             )
         }
-        // Allow only when every regconfig/regdictionary Const appears directly in args to one of these built-ins.
-        const allowedNames = [
-            'to_tsvector',
-            'to_tsquery',
-            'plainto_tsquery',
-            'phraseto_tsquery',
-            'websearch_to_tsquery',
-            'ts_headline',
-            'ts_lexize'
-        ]
         const allowedFnRows = await runner.all(
             `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
              WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
-            [allowedNames]
+            [TEXT_SEARCH_FUNCTIONS]
         )
-        const allowedFnIds = new Set(allowedFnRows.map((r) => Number(r.oid)))
-        const text = String(treeText || '')
-        // Streaming structural walk over nodeToString text to enforce immediate-arg exception
-        let totalReg = 0
-        let allowedReg = 0
-        let refusedIo = false
-        const stack = []
-        let badTopReg = false
-        const top = () => (stack.length ? stack[stack.length - 1] : null)
-        const ALLOWED_NODE_KINDS = new Set([
-            'QUERY',
-            'RTE', // PG14 name for RangeTblEntry
-            'RANGETBLENTRY',
-            'ALIAS',
-            'RTEPERMISSIONINFO',
-            'RTEPERMINFO',
-            'WITHCLAUSE',
-            'COMMONTABLEEXPR',
-            'FROMEXPR',
-            'RANGETBLREF',
-            'JOINEXPR',
-            'ROWMARKCLAUSE',
-            'LOCKROWS',
-            'TARGETENTRY',
-            'VAR',
-            'CONST',
-            'FUNCEXPR',
-            'OPEXPR',
-            'SETOP',
-            'COERCEVIAIO',
-            'RELABELTYPE',
-            'SCALARARRAYOPEXPR',
-            'ROWCOMPARE',
-            'NULLTEST',
-            'BOOLTEST',
-            'SUBLINK',
-            'AGGREF',
-            'WINDOWFUNC',
-            'WINDOWCLAUSE',
-            'SORTGROUPCLAUSE',
-            'LIMITCOUNT',
-            'LIMITOFFSET',
-            // Common additional nodes seen across PG14–18 for simple read queries
-            'CASEEXPR',
-            'WHENCLAUSE',
-            'COALESCEEXPR',
-            'MINMAXEXPR',
-            'ARRAYEXPR',
-            'ROWEXPR',
-            'SQLVALUEFUNCTION'
-        ])
-        for (let i = 0; i < text.length; i += 1) {
-            const ch = text[i]
-            if (ch === '{') {
-                const m = /^([A-Z_]+)/.exec(text.slice(i + 1))
-                const name = m ? m[1] : ''
-                if (!ALLOWED_NODE_KINDS.has(name) && !/(EXPR|ENTRY|REF|INFO|CLAUSE|CLAUSES|LIST|STMT)$/.test(name)) {
-                    throw new ScopeRefusal('Cuttlely refused this query: it uses a construct not allowed while a table selection is set.')
-                }
-                stack.push({
-                    name,
-                    funcId: null,
-                    isAllowedFunc: false,
-                    awaitingArgsParen: false,
-                    argsDepth: 0,
-                    constType: null,
-                    resultType: null,
-                    varType: null,
-                    hasRegArg: false,
-                    isRegTyped: false
-                })
-            } else if (ch === '}') {
-                const frame = stack.pop()
-                if (!frame) continue
-                if (frame.name === 'CONST' && frame.constType && regSet.has(Number(frame.constType))) {
-                    totalReg += 1
-                    frame.isRegTyped = true
-                    const parent = top()
-                    const allowed = parent && parent.name === 'FUNCEXPR' && parent.isAllowedFunc && parent.argsDepth === 1
-                    if (allowed) allowedReg += 1
-                } else if (frame.name === 'VAR' && frame.varType && regSet.has(Number(frame.varType))) {
-                    frame.isRegTyped = true
-                    // Any non-Const reg* anywhere in the statement causes refusal.
-                    badTopReg = true
-                } else if (frame.name === 'RELABELTYPE' && frame.resultType && regSet.has(Number(frame.resultType))) {
-                    frame.isRegTyped = true
-                    badTopReg = true
-                } else if (frame.name === 'COERCEVIAIO') {
-                    // Refuse IO coercion to or from reg* types
-                    if ((frame.resultType && regSet.has(Number(frame.resultType))) || frame.hasRegArg) {
-                        refusedIo = true
-                    }
-                }
-                // Propagate reg-typed child info up to COERCEVIAIO parent to detect arg::text on reg*
-                const parent = top()
-                if (parent && parent.name === 'COERCEVIAIO' && frame.isRegTyped) {
-                    parent.hasRegArg = true
-                }
-                // Flag top-level non-Const reg* values inside allowed text-search function args
-                if (
-                    parent &&
-                    parent.name === 'FUNCEXPR' &&
-                    parent.isAllowedFunc &&
-                    parent.argsDepth === 1 &&
-                    frame.isRegTyped &&
-                    frame.name !== 'CONST'
-                ) {
-                    badTopReg = true
-                }
-            } else if (ch === ':' && stack.length) {
-                const frame = top()
-                const rem = text.slice(i)
-                if (frame.name === 'FUNCEXPR') {
-                    if (rem.startsWith(':funcid')) {
-                        let j = i + 7
-                        while (/\s/.test(text[j] || '')) j += 1
-                        let k = j
-                        while (/\d/.test(text[k] || '')) k += 1
-                        const id = Number(text.slice(j, k))
-                        frame.funcId = id
-                        frame.isAllowedFunc = allowedFnIds.has(Number(id))
-                        i = k - 1
-                        continue
-                    }
-                    if (rem.startsWith(':args')) {
-                        frame.awaitingArgsParen = true
-                        i += 5 - 1
-                        continue
-                    }
-                }
-                if (frame.name === 'CONST' && rem.startsWith(':consttype')) {
-                    let j = i + 10
-                    while (/\s/.test(text[j] || '')) j += 1
-                    let k = j
-                    while (/\d/.test(text[k] || '')) k += 1
-                    frame.constType = Number(text.slice(j, k))
-                    i = k - 1
-                    continue
-                }
-                if (frame.name === 'COERCEVIAIO' && rem.startsWith(':resulttype')) {
-                    let j = i + 11
-                    while (/\s/.test(text[j] || '')) j += 1
-                    let k = j
-                    while (/\d/.test(text[k] || '')) k += 1
-                    frame.resultType = Number(text.slice(j, k))
-                    i = k - 1
-                    continue
-                }
-                if (frame.name === 'RELABELTYPE' && rem.startsWith(':resulttype')) {
-                    let j = i + 11
-                    while (/\s/.test(text[j] || '')) j += 1
-                    let k = j
-                    while (/\d/.test(text[k] || '')) k += 1
-                    frame.resultType = Number(text.slice(j, k))
-                    i = k - 1
-                    continue
-                }
-                if (frame.name === 'VAR' && rem.startsWith(':vartype')) {
-                    let j = i + 8
-                    while (/\s/.test(text[j] || '')) j += 1
-                    let k = j
-                    while (/\d/.test(text[k] || '')) k += 1
-                    frame.varType = Number(text.slice(j, k))
-                    i = k - 1
-                    continue
-                }
-            } else if (ch === '(') {
-                const frame = top()
-                if (frame && frame.name === 'FUNCEXPR') {
-                    if (frame.awaitingArgsParen && frame.argsDepth === 0) {
-                        frame.argsDepth = 1
-                        frame.awaitingArgsParen = false
-                    } else if (frame.argsDepth > 0) {
-                        frame.argsDepth += 1
-                    }
-                }
-            } else if (ch === ')') {
-                const frame = top()
-                if (frame && frame.name === 'FUNCEXPR' && frame.argsDepth > 0) {
-                    frame.argsDepth -= 1
-                }
-            }
+        const allowedFnIds = new Set(allowedFnRows.map((row) => Number(row.oid)))
+        const texts = (Array.isArray(bodyTexts) ? bodyTexts : [bodyTexts]).map((text) => String(text || ''))
+        for (const text of texts) {
+            if (!text.includes('{')) continue
+            regUsesAreDirectConsts(text, regSet, allowedFnIds)
         }
-        // If any allowed text-search function saw a top-level non-Const reg* argument, refuse.
-        if (badTopReg) {
-            throw new ScopeRefusal(
-                'Cuttlely refused this query: type regconfig or regdictionary is not allowed while a table selection is set.'
-            )
-        }
-        if (refusedIo) {
-            throw new ScopeRefusal(
-                'Cuttlely refused this query: reg* input/output functions are not allowed while a table selection is set.'
-            )
-        }
-        const ok = allowedReg === totalReg
-        if (!ok) {
-            throw new ScopeRefusal(
-                'Cuttlely refused this query: type regconfig or regdictionary is not allowed while a table selection is set. It turns object ids into names for objects outside the selection.'
-            )
-        }
-        const filtered = new Set([...ids.types].filter((t) => !regSet.has(Number(t))))
-        return filtered
+        return new Set([...ids.types].filter((oid) => !regSet.has(Number(oid))))
     }
     if (!followViews) {
         await refuseRoutines(runner, ids.functions, ids.operators, {
@@ -903,7 +879,7 @@ export async function checkStatementScope(
                 )}.`
             )
         }
-        const filtered = await filteredTypesWithRegTsearchException(ids.tree)
+        const filtered = await filteredTypesWithRegTsearchException([ids.tree, ...(await relationNodeTexts(runner, ids.relations))])
         await refuseTypes(runner, filtered, { scoped: true })
         return undefined
     }
@@ -932,9 +908,8 @@ export async function checkStatementScope(
             )}, which this node's table selection does not include. Selected: ${refusedList(relations.map((relation) => relation.name))}.`
         )
     }
-    // Include followed relation bodies for the reg* exception decision in followViews mode.
-    // Check regconfig/regdictionary exception only on the top-level statement tree; view bodies may store them.
-    const filtered = await filteredTypesWithRegTsearchException(ids.tree)
+    // The same regconfig/regdictionary rule reads the statement and every view, materialized view and policy body.
+    const filtered = await filteredTypesWithRegTsearchException([ids.tree, ...(bodies.texts || [])])
     await refuseTypes(runner, filtered, { scoped: true })
     return { relations: [...ids.relations], bodies, stamp }
 }
@@ -1060,8 +1035,22 @@ export const VIEW_UNRESOLVED =
 // Adds the functions, operators and types used by every view and materialized view the statement reads, the views
 // those read in turn, and the row-security policies of every relation on the way. Relations they read are followed
 // but not added to ids.relations, so a ticked view over unticked tables still passes the selection check.
+function relationTrees(row) {
+    const trees = []
+    for (const policy of row.policies || []) {
+        const text = String(policy || '')
+        if (text.includes('{')) trees.push({ text, policy: true })
+    }
+    if (row.kind === 'v' || row.kind === 'm') {
+        if (!row.tree) throw new ScopeRefusal(VIEW_UNRESOLVED)
+        trees.push({ text: String(row.tree), policy: false })
+    }
+    return trees
+}
+
 async function followRelations(runner, ids) {
     const bodies = new Map()
+    bodies.texts = []
     const policyRelations = new Set()
     const seen = new Set()
     let queue = [...ids.relations]
@@ -1075,16 +1064,11 @@ async function followRelations(runner, ids) {
         for (const row of rows) {
             if (row.kind === 'f') throw new ScopeRefusal(FOREIGN_REFUSED)
             bodies.set(Number(row.oid), relationBody(row))
-            const trees = [...(row.policies || [])]
-            if (row.kind === 'v' || row.kind === 'm') {
-                if (!row.tree) throw new ScopeRefusal(VIEW_UNRESOLVED)
-                trees.push(row.tree)
-            }
-            const policyCount = (row.policies || []).length
-            for (const [index, tree] of trees.entries()) {
-                const found = treeObjectIds(tree)
+            for (const tree of relationTrees(row)) {
+                if (tree.text.includes('{')) bodies.texts.push(tree.text)
+                const found = treeObjectIds(tree.text)
                 // Policy expressions run with the reader's rights, so the query transaction locks what they read.
-                if (index < policyCount) for (const id of found.relations) policyRelations.add(id)
+                if (tree.policy) for (const id of found.relations) policyRelations.add(id)
                 for (const id of found.functions) ids.functions.add(id)
                 for (const id of found.operators) ids.operators.add(id)
                 for (const id of found.types) ids.types.add(id)
@@ -1094,6 +1078,30 @@ async function followRelations(runner, ids) {
     }
     bodies.policyRelations = [...policyRelations]
     return bodies
+}
+
+// View, materialized view and policy trees for the reg* rule and the tag list when view bodies are not merged
+// into the statement's function set. Nested relations are followed so a view over a view is checked too.
+async function relationNodeTexts(runner, relationOids) {
+    const texts = []
+    const seen = new Set()
+    let queue = [...relationOids]
+    while (queue.length) {
+        const batch = [...new Set(queue)].filter((oid) => !seen.has(oid))
+        queue = []
+        if (!batch.length) break
+        for (const oid of batch) seen.add(oid)
+        const rows = await runner.all(RELATION_BODIES_SQL, [batch])
+        if (rows.length !== batch.length) throw new ScopeRefusal(VIEW_UNRESOLVED)
+        for (const row of rows) {
+            if (row.kind === 'f') throw new ScopeRefusal(FOREIGN_REFUSED)
+            for (const tree of relationTrees(row)) {
+                texts.push(tree.text)
+                queue.push(...treeObjectIds(tree.text).relations)
+            }
+        }
+    }
+    return texts
 }
 
 const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])].join('\n')
@@ -1204,7 +1212,8 @@ const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${
 // input). One entry per line, schema-qualified with its argument types, such as analytics._etl_safe_date(text), or
 // name(*) for every overload. A bare name matches nothing. An entry is only needed for a function the automatic rule
 // (autoAllowed) refuses. Entries resolve to function ids under the pinned pg_catalog search path each time a query is checked.
-// Allowing a function trusts its body: the check does not read inside it.
+// Allow-listed function bodies are trusted by design: listing a function admits that function.
+// Argument defaults and the functions it calls are still checked.
 const ALLOWED_IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)`
 const ALLOWED_ENTRY = new RegExp(String.raw`^(${ALLOWED_IDENT}\.${ALLOWED_IDENT})\s*\((.*)\)$`, 'u')
 export const ALLOWED_FUNCTIONS_MAX = 200
@@ -1335,6 +1344,7 @@ async function refuseRoutines(
     const allowed = runner.allowedFunctions?.length ? await resolveAllowedFunctions(runner) : new Set()
     // Shared recursion context
     const memo = new Map()
+    const heightOf = new Map()
     const visiting = new Set()
     function mergeFound(into, add) {
         if (!add) return into
@@ -1344,40 +1354,52 @@ async function refuseRoutines(
         for (const id of add.types || []) into.types.add(Number(id))
         return into
     }
-    async function defaultsSafeTree(info, depth = 0) {
+    async function defaultsSafeTree(info, depth = 0, bucket = null) {
         const declared = Number(info.nargs_default || 0)
         if (!declared) return true
         const tree = String(info.argdefaults_tree || '').trim()
         if (!tree) return false
         // The defaults tree is a nodeToString form; walk it and vet the found ids.
         const found = treeObjectIds(tree)
-        return await vetFound(found, depth)
+        const result = await vetFound(found, depth, { bucket })
+        // A selected relation in a default is unsafe. An unselected one already threw.
+        if (result === 'relation') return false
+        return result
     }
-    async function vetFound(found, depth = 0) {
-        // Relations: any access is refused in scoped mode unless that relation is selected.
-        if (relations?.length) {
-            const allowedSet = new Set((relations || []).map((r) => Number(r.oid)))
-            const rels = [...(found.relations || [])].filter((oid) => !allowedSet.has(Number(oid)))
+    async function vetFound(found, depth = 0, { trustRelations = false, bucket = null } = {}) {
+        // Auto-allow refuses every relation the body touches, including one in the selection.
+        // An allow-listed function trusts its own relations; callees and defaults do not.
+        if (!trustRelations && relations?.length) {
+            const rels = [...(found.relations || [])].map(Number).filter((oid) => oid > 0)
             if (rels.length) {
-                const rows = await runner.all(
-                    "SELECT coalesce(quote_ident(n.nspname) || '.' || quote_ident(c.relname), c.oid::text) AS name FROM pg_class c LEFT JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY 1",
-                    [rels]
-                )
-                const names = rows.length ? rows.map((r) => r.name) : rels.map(String)
-                throw new ScopeRefusal(
-                    `Cuttlely refused this query: it reads ${refusedList(
-                        names
-                    )}, which this node's table selection does not include. Selected: ${refusedList((relations || []).map((r) => r.name))}.`
-                )
+                const allowedSet = new Set((relations || []).map((relation) => Number(relation.oid)))
+                const outside = rels.filter((oid) => !allowedSet.has(oid))
+                if (outside.length) {
+                    const nameRows = await runner.all(
+                        "SELECT coalesce(quote_ident(n.nspname) || '.' || quote_ident(c.relname), c.oid::text) AS name FROM pg_class c LEFT JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY 1",
+                        [outside]
+                    )
+                    const names = nameRows.length ? nameRows.map((row) => row.name) : outside.map(String)
+                    throw new ScopeRefusal(
+                        `Cuttlely refused this query: it reads ${refusedList(
+                            names
+                        )}, which this node's table selection does not include. Selected: ${refusedList(
+                            (relations || []).map((relation) => relation.name)
+                        )}.`
+                    )
+                }
+                return 'relation'
             }
         }
-        // Types: refuse reg* in scoped mode.
+        // Types: refuse reg* in scoped mode. Function bodies do not get the text-search Const exception.
         if (found.types && found.types.size) {
             const typeRows = await runner.all(
                 'SELECT ty.oid::int8 AS oid, ty.typname AS typname, n.nspname AS schema FROM pg_type ty JOIN pg_namespace n ON n.oid = ty.typnamespace WHERE ty.oid = ANY(?::oid[])',
                 [[...found.types]]
             )
-            const bad = typeRows.filter((t) => t.schema === 'pg_catalog' && DENIED_TYPES.has(String(t.typname))).map((t) => t.typname)
+            const bad = typeRows
+                .filter((type) => type.schema === 'pg_catalog' && DENIED_TYPES.has(String(type.typname)))
+                .map((type) => type.typname)
             if (bad.length) {
                 throw new ScopeRefusal(
                     `Cuttlely refused this query: type ${refusedList([
@@ -1400,16 +1422,24 @@ async function refuseRoutines(
             }
             for (const row of opRows) if (Number(row.code) > 0) addFns.add(Number(row.code))
         }
-        // Functions: recursively vet.
+        let height = 0
         for (const fn of new Set([...(found.functions || []), ...addFns])) {
-            const ok = await strictlyAllowedScoped(Number(fn), depth + 1)
-            if (!ok) return false
+            const child = await strictlyAllowedScoped(Number(fn), depth + 1)
+            if (child !== true) return child === 'depth' ? 'depth' : false
+            height = Math.max(height, 1 + (heightOf.get(Number(fn)) || 0))
         }
+        if (bucket) bucket.height = Math.max(bucket.height || 0, height)
         return true
     }
     async function strictlyAllowedScoped(functionOid, depth = 0) {
-        // depth is the length of the call chain to this function; cap it.
-        if (memo.has(functionOid)) return memo.get(functionOid)
+        // Depth is checked before the memo. A hit stores the subtree height, so a short path cannot hide a longer one.
+        if (depth > MAX_CALL_DEPTH) return 'depth'
+        if (memo.has(functionOid)) {
+            const known = memo.get(functionOid)
+            if (known !== true) return false
+            if (depth + (heightOf.get(functionOid) || 0) > MAX_CALL_DEPTH) return 'depth'
+            return true
+        }
         if (visiting.has(functionOid)) {
             memo.set(functionOid, false)
             return false
@@ -1428,147 +1458,107 @@ async function refuseRoutines(
                  WHERE p.oid = ?::oid`,
                 [functionOid]
             ))
-        if (!info) return false
-        if (depth > 32) {
-            info.refusal = info.refusal || 'call graph too deep'
+        if (!info) {
+            visiting.delete(functionOid)
+            return false
+        }
+        const note = (reason) => {
+            info.refusal = info.refusal || reason
             memo.set(functionOid, false)
             visiting.delete(functionOid)
             return false
         }
-        if (builtIn(info)) {
-            // Allowed built-in only when not denied; volatile built-ins are screened by volatile flag at the call site.
-            if (isDenied(info.name)) return false
-            if (volatile && info.volatility === 'v' && !SAFE_VOLATILE.has(info.name)) return false
+        const tooDeep = () => {
+            info.refusal = info.refusal || 'call graph too deep'
+            visiting.delete(functionOid)
+            return 'depth'
+        }
+        const remember = (height) => {
+            heightOf.set(functionOid, height)
             memo.set(functionOid, true)
             visiting.delete(functionOid)
             return true
         }
+        if (builtIn(info)) {
+            // Allowed built-in only when not denied; volatile built-ins are screened by volatile flag at the call site.
+            if (isDenied(info.name)) return note('not allowed')
+            if (volatile && info.volatility === 'v' && !SAFE_VOLATILE.has(info.name)) return note('not allowed')
+            return remember(0)
+        }
         // Aggregates/windows: never deparse; allow built-ins whose trans/final functions pass; user ones need allow-list.
         if (info.prokind === 'a' || info.prokind === 'w') {
             if (info.schema !== 'pg_catalog') {
-                const listed = allowed.has(Number(functionOid))
-                memo.set(functionOid, listed)
-                visiting.delete(functionOid)
-                return listed
+                if (!allowed.has(Number(functionOid))) {
+                    memo.set(functionOid, false)
+                    visiting.delete(functionOid)
+                    return false
+                }
+                return remember(0)
             }
             const agg = await runner.get(
                 'SELECT a.aggtransfn::oid::int8 AS trans, a.aggfinalfn::oid::int8 AS final, a.aggcombinefn::oid::int8 AS combine, a.aggsortop::oid::int8 AS sortop FROM pg_aggregate a WHERE a.aggfnoid = ?::oid',
                 [functionOid]
             )
-            if (!agg) {
-                info.refusal = info.refusal || 'aggregate metadata not found'
-                memo.set(functionOid, false)
-                visiting.delete(functionOid)
-                return false
-            }
-            // Walk or refuse the aggregate's sort operator
+            if (!agg) return note('aggregate metadata not found')
+            let height = 0
             const sortop = Number(agg.sortop)
             if (sortop > 0) {
                 const op = await runner.get(
                     'SELECT o.oid::int8 AS oid, n.nspname AS schema, o.oprcode::oid::int8 AS code FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = ?::oid',
                     [sortop]
                 )
-                if (!op || String(op.schema) !== 'pg_catalog') {
-                    info.refusal = info.refusal || 'aggregate sort operator is not built in'
-                    memo.set(functionOid, false)
-                    visiting.delete(functionOid)
-                    return false
-                }
+                if (!op || String(op.schema) !== 'pg_catalog') return note('aggregate sort operator is not built in')
                 if (Number(op.code) > 0) {
                     const okSort = await strictlyAllowedScoped(Number(op.code), depth + 1)
-                    if (!okSort) {
-                        info.refusal = info.refusal || 'aggregate sort operator function is not allowed'
-                        memo.set(functionOid, false)
-                        visiting.delete(functionOid)
-                        return false
-                    }
+                    if (okSort === 'depth') return tooDeep()
+                    if (okSort !== true) return note('aggregate sort operator function is not allowed')
+                    height = Math.max(height, 1 + (heightOf.get(Number(op.code)) || 0))
                 }
             }
-            for (const fid of [Number(agg.trans), Number(agg.final), Number(agg.combine)].filter((x) => x > 0)) {
+            for (const fid of [Number(agg.trans), Number(agg.final), Number(agg.combine)].filter((oid) => oid > 0)) {
                 const ok = await strictlyAllowedScoped(fid, depth + 1)
-                if (!ok) {
-                    info.refusal = info.refusal || 'aggregate helper function is not allowed'
-                    memo.set(functionOid, false)
-                    visiting.delete(functionOid)
-                    return false
-                }
+                if (ok === 'depth') return tooDeep()
+                if (ok !== true) return note('aggregate helper function is not allowed')
+                height = Math.max(height, 1 + (heightOf.get(fid) || 0))
             }
-            memo.set(functionOid, true)
-            visiting.delete(functionOid)
-            return true
+            return remember(height)
         }
-        if (info.language !== 'sql' && !allowed.has(Number(functionOid))) {
-            info.refusal = info.refusal || 'written in non-SQL language'
-            visiting.delete(functionOid)
-            memo.set(functionOid, false)
-            return false
-        }
-        if (!(info.volatility === 'i' || info.volatility === 's')) {
-            info.refusal = info.refusal || 'not STABLE or IMMUTABLE'
-            visiting.delete(functionOid)
-            memo.set(functionOid, false)
-            return false
-        }
-        if (info.definer) {
-            info.refusal = info.refusal || 'SECURITY DEFINER'
-            visiting.delete(functionOid)
-            memo.set(functionOid, false)
-            return false
-        }
-        if (info.config != null) {
-            info.refusal = info.refusal || 'has its own settings'
-            visiting.delete(functionOid)
-            memo.set(functionOid, false)
-            return false
-        }
-        if (info.super_owner !== false) {
-            info.refusal = info.refusal || 'owned by a superuser'
-            visiting.delete(functionOid)
-            memo.set(functionOid, false)
-            return false
-        }
-        // Walk stored node tree for body and defaults.
-        // Allow-list exempts only this function itself; its defaults and callees are still vetted.
+        if (info.language !== 'sql' && !allowed.has(Number(functionOid))) return note('written in non-SQL language')
+        if (!(info.volatility === 'i' || info.volatility === 's')) return note('not STABLE or IMMUTABLE')
+        if (info.definer) return note('SECURITY DEFINER')
+        if (info.config != null) return note('has its own settings')
+        if (info.super_owner !== false) return note('owned by a superuser')
+        // Allow-list exempts only this function's own relations; its defaults and callees are still vetted.
         const body = String(info.probody || '')
         const allowedSelf = allowed.has(Number(functionOid))
         // prosqlbody holds a nodeToString form only for SQL-standard BEGIN ATOMIC bodies.
-        if (!allowedSelf && !body) {
-            info.refusal = info.refusal || 'SQL body is not BEGIN ATOMIC'
-            memo.set(functionOid, false)
-            visiting.delete(functionOid)
-            return false
-        }
+        if (!allowedSelf && !body) return note('SQL body is not BEGIN ATOMIC')
+        const bucket = { height: 0 }
         if (body) {
             const found = treeObjectIds(body)
-            const ok = await vetFound(found, depth)
-            if (!ok) {
-                info.refusal = info.refusal || 'calls a function that is not allowed'
-                memo.set(functionOid, false)
-                visiting.delete(functionOid)
-                return false
-            }
+            const ok = await vetFound(found, depth, { trustRelations: allowedSelf, bucket })
+            if (ok === 'depth') return tooDeep()
+            if (ok === 'relation') return note('reads a relation')
+            if (ok !== true) return note('calls a function that is not allowed')
         }
-        const defaultsOk = await defaultsSafeTree(info, depth)
-        if (!defaultsOk) {
-            info.refusal = info.refusal || 'unsafe default argument'
-            memo.set(functionOid, false)
-            visiting.delete(functionOid)
-            return false
-        }
-        memo.set(functionOid, true)
-        visiting.delete(functionOid)
-        return true
+        const defaultsBucket = { height: 0 }
+        const defaultsOk = await defaultsSafeTree(info, depth, defaultsBucket)
+        if (defaultsOk === 'depth') return tooDeep()
+        if (defaultsOk !== true) return note('unsafe default argument')
+        return remember(Math.max(bucket.height, defaultsBucket.height))
     }
     const trusted = async (row) => {
         if (builtIn(row)) return true
         if (unscoped) return autoAllowed(row) || allowed.has(Number(row.oid))
-        // Allow-list exempts this oid itself; still vet its defaults.
-        if (allowed.has(Number(row.oid))) {
-            const ok = await strictlyAllowedScoped(Number(row.oid), 0)
-            if (!ok) return false
-            return await defaultsSafeTree(row)
+        const result = await strictlyAllowedScoped(Number(row.oid), 0)
+        if (result === 'depth') {
+            row.refusal = row.refusal || 'call graph too deep'
+            return false
         }
-        return await strictlyAllowedScoped(Number(row.oid), 0)
+        if (result !== true) return false
+        // Allow-list admits this function; defaults were checked above and are checked again here.
+        if (allowed.has(Number(row.oid))) return (await defaultsSafeTree(row)) === true
+        return true
     }
     const foreignRows = []
     for (const row of rows) {
