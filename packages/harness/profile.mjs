@@ -764,25 +764,39 @@ function ensureContainedDir(absDir) {
 }
 
 // Removes one child of an open directory. A symlink is unlinked and its target is left in place.
-function removeChild(dirFd, logicalDir, name) {
+function removeChild(dirFd, logicalDir, name, rootReal = '') {
     const logical = path.join(logicalDir, name)
+    // A rename can carry this directory fd outside the root. Do not unlink or walk there.
+    const assertInside = (fd) => {
+        if (process.platform !== 'linux' || !rootReal) return
+        const here = realOfFd(fd)
+        if (!here || !insideRoot(rootReal, here)) throwLink(logical)
+    }
     const st = lstatChild(dirFd, logicalDir, name)
     if (!st) return
     const via = childPath(dirFd, logicalDir, name)
     if (st.isSymbolicLink()) {
+        noteTreeMutation(logical)
+        assertInside(dirFd)
         fs.unlinkSync(via)
         return
     }
     if (!st.isDirectory()) {
+        noteTreeMutation(logical)
+        assertInside(dirFd)
         fs.unlinkSync(via)
         return
     }
+    noteTreeMutation(logical)
+    assertInside(dirFd)
     let fd
     try {
         fd = fs.openSync(via, DIR_FLAGS)
     } catch (error) {
         if (error?.code === 'ELOOP' || error?.code === 'ENOTDIR' || error?.code === 'EEXIST') {
             if (lstatChild(dirFd, logicalDir, name)?.isSymbolicLink()) {
+                noteTreeMutation(logical)
+                assertInside(dirFd)
                 fs.unlinkSync(via)
                 return
             }
@@ -791,9 +805,13 @@ function removeChild(dirFd, logicalDir, name) {
         throw error
     }
     try {
+        assertInside(fd)
         for (const entry of namesIn(fd, logical)) {
             if (!entry || entry === '.' || entry === '..') continue
-            removeChild(fd, logical, entry)
+            removeChild(fd, logical, entry, rootReal)
+            // Each unlink and rmdir stays inside the root unless files are moved on the server mid-operation.
+            // The check runs again after each entry, so the walk stops at the first move it sees.
+            assertInside(fd)
         }
     } finally {
         fs.closeSync(fd)
@@ -801,9 +819,13 @@ function removeChild(dirFd, logicalDir, name) {
     const now = lstatChild(dirFd, logicalDir, name)
     if (!now) return
     if (now.isSymbolicLink()) {
+        noteTreeMutation(logical)
+        assertInside(dirFd)
         fs.unlinkSync(via)
         return
     }
+    noteTreeMutation(logical)
+    assertInside(dirFd)
     if (now.isDirectory()) fs.rmdirSync(via)
     else fs.unlinkSync(via)
 }
@@ -818,7 +840,21 @@ export function removeContainedTree(absDir) {
     const opened = openDirNoFollow(parent)
     if (!opened) return
     try {
-        removeChild(opened.fd, parent, name)
+        let rootReal = ''
+        if (process.platform === 'linux') {
+            const root = rootFor(resolved)
+            if (path.resolve(parent) === root) rootReal = realOfFd(opened.fd)
+            else {
+                const rootOpened = openDirNoFollow(root)
+                if (!rootOpened) throwLink(absDir)
+                try {
+                    rootReal = realOfFd(rootOpened.fd)
+                } finally {
+                    closeFds(rootOpened.fds)
+                }
+            }
+        }
+        removeChild(opened.fd, parent, name, rootReal)
     } finally {
         closeFds(opened.fds)
     }
