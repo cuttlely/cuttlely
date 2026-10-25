@@ -1612,23 +1612,43 @@ function linksLeftAfterPreflight(dir) {
     }
     const found = []
     const seen = new Set()
-    const consider = (file) => {
-        const key = path.resolve(file)
+    // One component at a time. A symlink is recorded and nothing beneath it is stated or listed.
+    const lstatStopped = (file) => {
+        const rel = path.relative(dir, file)
+        const parts = !rel || rel === '.' ? [] : rel.split(path.sep)
+        let cursor = dir
         let st
         try {
-            st = fs.lstatSync(file)
+            st = fs.lstatSync(cursor)
         } catch {
             return null
         }
-        if (st.isSymbolicLink() && !seen.has(key)) found.push(file)
-        seen.add(key)
+        if (st.isSymbolicLink()) {
+            if (!seen.has(cursor)) found.push(cursor)
+            seen.add(cursor)
+            return null
+        }
+        for (const part of parts) {
+            if (!part || part === '.' || part === '..') return null
+            cursor = path.join(cursor, part)
+            try {
+                st = fs.lstatSync(cursor)
+            } catch {
+                return null
+            }
+            if (st.isSymbolicLink()) {
+                if (!seen.has(cursor)) found.push(cursor)
+                seen.add(cursor)
+                return null
+            }
+        }
         return st
     }
-    consider(dir)
-    for (const rel of PREFLIGHT_RELS) consider(path.join(dir, rel))
+    lstatStopped(dir)
+    for (const rel of PREFLIGHT_RELS) lstatStopped(path.join(dir, rel))
     const books = path.join(dir, 'skills', PLAYBOOK_DIR)
     const walk = (current) => {
-        const st = consider(current)
+        const st = lstatStopped(current)
         if (!st || !st.isDirectory()) return
         let names = []
         try {
@@ -1641,7 +1661,7 @@ function linksLeftAfterPreflight(dir) {
             walk(path.join(current, name))
         }
     }
-    if (consider(books)?.isDirectory()) walk(books)
+    if (lstatStopped(books)?.isDirectory()) walk(books)
     return found
 }
 

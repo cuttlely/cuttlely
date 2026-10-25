@@ -443,9 +443,11 @@ export async function recompileBeforeHermes(gateway: {
         if (bootActive) markBootFailed(bootActive, 'boot recompile stopped at the cap')
         openBootAfterCap()
         void pass.catch((error) => {
-            // The cap already opened ping. Releasing the gateway hold lets the runtime start instead of staying down.
+            // The cap already opened ping. A link still on the load path keeps gateway health held, so the
+            // runtime does not start. Any other unfinished pass releases that hold so the runtime is not left down.
             logger.error(`[harness] profile compile at start did not finish: ${getErrorMessage(error)}`)
             markBootIncomplete()
+            if (error instanceof BootPassIncomplete && error.message.includes('profile link still on the load path')) return
             release()
         })
         return
@@ -454,7 +456,15 @@ export async function recompileBeforeHermes(gateway: {
         markBootIncomplete()
         logger.error(`[harness] profile compile at start did not finish: ${winner.message}`)
         const left = Math.max(0, capMs - (Date.now() - startedAt))
-        const flip = setTimeout(() => release(), left)
+        const linkLeft = winner instanceof BootPassIncomplete && winner.message.includes('profile link still on the load path')
+        const flip = setTimeout(() => {
+            // Ping opens at the cap. A link that is still there keeps gateway health held.
+            if (linkLeft) {
+                openBootAfterCap()
+                return
+            }
+            release()
+        }, left)
         flip.unref?.()
         throw winner
     }

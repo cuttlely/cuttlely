@@ -1189,6 +1189,53 @@ function cleanupProfile(name) {
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
+// A skills directory that cannot be moved aside is not a directory the sweep may list.
+{
+    const name = 'plinkskillsstuck'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const skills = profilePath(name, 'skills')
+    const outside = outsideDir('skills-stuck', 'skills-stuck-sentinel\n')
+    const keep = path.join(outside.dir, 'harness-playbooks', 'keep.txt')
+    fs.mkdirSync(path.dirname(keep), { recursive: true })
+    fs.writeFileSync(keep, 'keep-skills\n')
+    fs.symlinkSync(outside.dir, skills)
+    fs.chmodSync(profilePath(name), 0o555)
+    let guarded = { hits: [], error: null, result: [] }
+    try {
+        guarded = guardLink(skills, outside.dir, () => setAsideOutdatedConfigs())
+    } finally {
+        fs.chmodSync(profilePath(name), 0o755)
+    }
+    const loadable = Array.isArray(guarded.result) ? guarded.result : []
+    const linkStat = fs.lstatSync(skills, { throwIfNoEntry: false })
+    let keepText = ''
+    try {
+        keepText = fs.readFileSync(keep, 'utf8')
+    } catch {
+        keepText = ''
+    }
+    check(
+        'a skills link that cannot be moved aside is not read',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            sameStamp(outside.file, outside.before) &&
+            keepText === 'keep-skills\n' &&
+            linkStat?.isSymbolicLink() === true &&
+            loadable.includes(skills),
+        JSON.stringify({
+            hits: guarded.hits,
+            error: guarded.error?.code || '',
+            loadable,
+            stillLink: linkStat?.isSymbolicLink() === true,
+            keepText
+        })
+    )
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'

@@ -306,9 +306,13 @@ describe('harness runtime start', () => {
             expect(bootPassPhase()).toBe('incomplete')
             expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
             expect(fs.readFileSync(path.join(target, 'marker'), 'utf8')).toBe('boot-link-sentinel\n')
-            for (let i = 0; i < 40 && !released; i += 1) await new Promise((resolve) => setTimeout(resolve, 50))
-            expect(released).toBe(true)
-            expect(booted).toBe(true)
+            for (let i = 0; i < 40 && bootPassBlocksPing(); i += 1) await new Promise((resolve) => setTimeout(resolve, 50))
+            expect(released).toBe(false)
+            expect(booted).toBe(false)
+            expect(bootPassBlocksPing()).toBe(false)
+            expect(bootPassPhase()).toBe('background')
+            expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+            expect(fs.readFileSync(path.join(target, 'marker'), 'utf8')).toBe('boot-link-sentinel\n')
         } finally {
             fs.rmSync(dir, { recursive: true, force: true })
         }
