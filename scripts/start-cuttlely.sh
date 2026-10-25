@@ -193,7 +193,10 @@ hermes_answers_health() {
             res.resume()
             process.exit(res.statusCode >= 200 && res.statusCode < 500 ? 0 : 1)
         })
-        req.on("timeout", () => { req.destroy(); process.exit(1) })
+        // Connected but no answer in time: the server is up and busy compiling (synchronous file work), as with a 503.
+        let connected = false
+        req.on("socket", (socket) => socket.on("connect", () => (connected = true)))
+        req.on("timeout", () => { req.destroy(); process.exit(connected ? 2 : 1) })
         req.on("error", () => process.exit(1))
     '
 }
@@ -211,31 +214,88 @@ gateway_answers() {
         const port = process.env.CUTTLELY_HARNESS_GATEWAY_PORT || "43118"
         const req = http.get({ host: "127.0.0.1", port, path: "/health", timeout: 400 }, (res) => {
             res.resume()
+            // 503: the server is up and still compiling profiles from an older version, which Hermes must not load yet.
+            if (res.statusCode === 503) process.exit(2)
             process.exit(res.statusCode >= 200 && res.statusCode < 500 ? 0 : 1)
         })
-        req.on("timeout", () => { req.destroy(); process.exit(1) })
+        // Connected but no answer in time: the server is up and busy compiling (synchronous file work), as with a 503.
+        let connected = false
+        req.on("socket", (socket) => socket.on("connect", () => (connected = true)))
+        req.on("timeout", () => { req.destroy(); process.exit(connected ? 2 : 1) })
         req.on("error", () => process.exit(1))
     '
 }
 wait_for_gateway() {
     local limit="${CUTTLELY_GATEWAY_WAIT_SECONDS:-180}"
+    # Once the gateway has said it is compiling profiles (503), wait this much longer, still only a few minutes.
+    # Render drops a deploy that is not healthy within about 15 minutes. A compile that needs longer keeps going
+    # in the server; this wait does not.
+    local starting_limit="${CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS:-180}"
+    if [[ ! "$starting_limit" =~ ^[0-9]+$ ]]; then
+        echo "CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=${starting_limit} is not a whole number of seconds. Using 180." >&2
+        starting_limit=180
+    elif [[ "$starting_limit" -gt 300 ]]; then
+        echo "CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=${starting_limit} is above 300s. The profile compile wait is capped at 300s so a deploy can finish." >&2
+        starting_limit=300
+    fi
+    local starting=0
     local i=0
     local port="${CUTTLELY_HARNESS_GATEWAY_PORT:-43118}"
+    local answer
+    local started_epoch
+    started_epoch=$(date +%s)
+    GATEWAY_STILL_COMPILING=0
     echo "Waiting for the harness gateway on 127.0.0.1:${port}."
-    while [[ "$i" -lt "$limit" ]]; do
+    # starting_limit is elapsed seconds since the wait began, not loop turns. The OR form let CUTTLELY_GATEWAY_WAIT_SECONDS run past it.
+    while [[ "$(( $(date +%s) - started_epoch ))" -lt "$starting_limit" && ( "$starting" -eq 1 || "$i" -lt "$limit" ) ]]; do
         if [[ -n "${CUTTLELY_PID:-}" ]] && ! kill -0 "$CUTTLELY_PID" 2>/dev/null; then
             echo "Cuttlely exited before the harness gateway answered." >&2
             return 1
         fi
-        if gateway_answers; then
+        answer=0
+        gateway_answers || answer=$?
+        if [[ "$answer" -eq 0 ]]; then
             echo "Harness gateway is answering on 127.0.0.1:${port}."
             return 0
+        fi
+        if [[ "$answer" -eq 2 && "$starting" -eq 0 ]]; then
+            starting=1
+            echo "Harness gateway is up and compiling agent profiles; Hermes starts when that is done."
         fi
         i=$((i + 1))
         sleep 1
     done
-    echo "Harness gateway on 127.0.0.1:${port} did not answer within ${limit}s. Hermes will not start." >&2
+    local elapsed=$(( $(date +%s) - started_epoch ))
+    if [[ "$starting" -eq 1 ]]; then
+        GATEWAY_STILL_COMPILING=1
+        echo "Harness gateway on 127.0.0.1:${port} was still compiling agent profiles after ${elapsed}s (cap ${starting_limit}s). The wait stops here so the deploy can finish. Hermes starts when that compile finishes." >&2
+    else
+        echo "Harness gateway on 127.0.0.1:${port} did not answer within ${elapsed}s (limit ${limit}s, cap ${starting_limit}s). Hermes will not start." >&2
+    fi
     return 1
+}
+# The blocking wait hit its cap while profiles were still compiling. Poll until the gateway answers, then supervise
+# the runtime. Chat and prediction stay 503 in the server until the compile finishes.
+start_hermes_when_gateway_ready() {
+    local answer
+    echo "Waiting in the background for the profile compile to finish before starting the agent runtime."
+    while true; do
+        if [[ -f "$HERMES_STOP" ]]; then
+            return 0
+        fi
+        if [[ -n "${CUTTLELY_PID:-}" ]] && ! kill -0 "$CUTTLELY_PID" 2>/dev/null; then
+            echo "Cuttlely exited before the profile compile finished. The agent runtime will not start." >&2
+            return 0
+        fi
+        answer=0
+        gateway_answers || answer=$?
+        if [[ "$answer" -eq 0 ]]; then
+            echo "Harness gateway is answering on 127.0.0.1:${CUTTLELY_HARNESS_GATEWAY_PORT:-43118}. Starting the agent runtime."
+            supervise_hermes
+            return 0
+        fi
+        sleep 1
+    done
 }
 kill_hermes_pid() {
     local pid="$1"
@@ -385,13 +445,21 @@ supervise_hermes() {
 }
 echo "Cuttlely boot, step 1 of 2: starting the server on port ${PORT:-43117}. A browser opened now shows a 'Cuttlely is starting' page."
 cd "$ROOT/packages/server/bin"
-"${NODE_CMD[@]}" ./run start &
+# /health and /api/v1/ping answer 503 until the server has compiled outdated agent profiles, so the runtime waits.
+CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT="${CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT:-1}" "${NODE_CMD[@]}" ./run start &
 CUTTLELY_PID=$!
 cd "$ROOT"
 if ! wait_for_gateway; then
     if [[ -n "${CUTTLELY_PID:-}" ]] && kill -0 "$CUTTLELY_PID" 2>/dev/null; then
-        write_hermes_status down 0 "gateway" 0
-        echo "Cuttlely is up. Hermes stays down until the harness gateway answers and Cuttlely is started again." >&2
+        if [[ "${GATEWAY_STILL_COMPILING:-0}" -eq 1 ]]; then
+            # Do not record the runtime as down: that would hold /api/v1/ping at 503 for the rest of the deploy.
+            echo "Cuttlely is up. The profile compile continues in the background. Chat and prediction answer 503 until it finishes." >&2
+            start_hermes_when_gateway_ready &
+            HERMES_SUPERVISOR_PID=$!
+        else
+            write_hermes_status down 0 "gateway" 0
+            echo "Cuttlely is up. Hermes stays down until the harness gateway answers and Cuttlely is started again." >&2
+        fi
     else
         status=0
         wait "$CUTTLELY_PID" || status=$?

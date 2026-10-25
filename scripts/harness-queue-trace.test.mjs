@@ -41,7 +41,10 @@ await writeFile(
 }
 `
 )
-await writeFile(path.join(stubDir, 'gateway.mjs'), 'export async function startGateway() {}\n')
+await writeFile(
+    path.join(stubDir, 'gateway.mjs'),
+    'export async function startGateway() {}\nexport function holdGatewayHealth() { return () => {} }\n'
+)
 await writeFile(
     path.join(stubDir, 'history.mjs'),
     `export function listRuns() {

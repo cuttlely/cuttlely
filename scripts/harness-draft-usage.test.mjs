@@ -50,6 +50,7 @@ await writeFile(
 await writeFile(
     path.join(stubDir, 'gateway.mjs'),
     `export async function startGateway() {}
+export function holdGatewayHealth() { return () => {} }
 `
 )
 await writeFile(

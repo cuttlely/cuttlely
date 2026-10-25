@@ -44,7 +44,14 @@ const {
     compileProfile,
     compileProfileCached,
     compileTryProfile,
+    forgetCompiledProfile,
     discardTryProfile,
+    PROFILE_COMPILER_VERSION,
+    recompileOutdatedProfiles,
+    setAsideOutdatedConfigs,
+    profileWriteTest,
+    QUARANTINE_SUFFIX_CAP,
+    profileOutdated,
     hermesToolsetsFor,
     mcpValidatorPath,
     modelConfigured,
@@ -52,7 +59,8 @@ const {
     CHIEF_TOOLSETS,
     routerDialectNote,
     specialistSoul,
-    specialistSummary
+    specialistSummary,
+    specialistWorkspace
 } = await import('./profile.mjs')
 const { appendMessage, readMessages, readPromptContext, sessionKey } = await import('./session.mjs')
 // A workspace path the scripted Harness Prime quotes in its answer, when set.
@@ -6987,6 +6995,1485 @@ await expectCase('the chief profile starts no specialist bridge', async () => {
     )
 })
 
+await expectCase('a parent profile from before the bridge fix is compiled again at boot', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const record = saveHarness(
+        {
+            name: 'maoldchief',
+            chatflowId: 'canvas-old-chief',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [
+                { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const bridge = path.join(process.cwd(), 'packages', 'harness', 'mcp-bridge.mjs')
+    // The shape an older server left: the parent lists every specialist bridge, without a token, and no profile
+    // carries a compiler version. Specialist .env files from before the createdAt stamp lack CUTTLELY_GATEWAY_CREATED.
+    const chiefConfig = profileFile('maoldchief', 'config.yaml')
+    const oldBlocks = ['alpha', 'beta']
+        .map((name) => `  ${name}:\n    command: node\n    args:\n      - ${bridge}\n      - --specialist\n      - ${name}\n`)
+        .join('')
+    fs.writeFileSync(chiefConfig, fs.readFileSync(chiefConfig, 'utf8') + `mcp_servers:\n${oldBlocks}`)
+    const specialistNames = profilesFor('maoldchief')
+        .map((profile) => profile.name)
+        .filter((name) => name.includes('--'))
+    for (const name of ['maoldchief', ...specialistNames]) fs.rmSync(profileFile(name, 'harness-compiler'), { force: true })
+    for (const name of specialistNames) {
+        const envFile = profileFile(name, '.env')
+        const kept = fs
+            .readFileSync(envFile, 'utf8')
+            .split('\n')
+            .filter((line) => !line.startsWith('CUTTLELY_GATEWAY_CREATED='))
+        fs.writeFileSync(envFile, kept.join('\n'))
+    }
+    const tokensBefore = specialistNames.map((name) => readProfileEnv(name).OPENAI_API_KEY)
+    // The in-memory compile cache is empty after a restart; a never-compiled harness stays uncompiled.
+    const neverCompiled = { name: 'manevercompiled', chief: { instructions: 'x', model: xai('grok-4.7') }, specialists: [] }
+    const first = recompileOutdatedProfiles([record, neverCompiled], { log: {} })
+    const chiefYaml = fs.readFileSync(chiefConfig, 'utf8')
+    const tokensAfter = specialistNames.map((name) => readProfileEnv(name).OPENAI_API_KEY)
+    const versions = ['maoldchief', ...specialistNames].map((name) => fs.readFileSync(profileFile(name, 'harness-compiler'), 'utf8').trim())
+    const second = recompileOutdatedProfiles([record], { log: {} })
+    check(
+        'a parent profile from before the bridge fix is compiled again at boot',
+        JSON.stringify(first) === JSON.stringify([{ name: 'maoldchief', status: 'recompiled' }]) &&
+            second.length === 0 &&
+            !chiefYaml.includes('mcp-bridge.mjs') &&
+            !chiefYaml.includes('--specialist') &&
+            specialistNames.length === 2 &&
+            tokensAfter.every((token, i) => token && token === tokensBefore[i]) &&
+            versions.every((version) => version === PROFILE_COMPILER_VERSION) &&
+            !fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'manevercompiled')),
+        JSON.stringify({ first, second, tokensSame: tokensAfter.map((t, i) => t === tokensBefore[i]), versions, chiefYaml })
+    )
+})
+
+await expectCase('a compile that fails partway leaves the profile outdated for the next boot', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const record = saveHarness(
+        {
+            name: 'mahalfchief',
+            chatflowId: 'canvas-half-chief',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [
+                { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const specialists = profilesFor('mahalfchief')
+        .map((profile) => profile.name)
+        .filter((name) => name.includes('--'))
+        .sort()
+    // The second specialist's config.yaml cannot be written: a directory stands in its place.
+    const blocked = profileFile(specialists[1], 'config.yaml')
+    fs.rmSync(blocked, { force: true })
+    fs.mkdirSync(blocked)
+    let threw = false
+    try {
+        compileProfile(record)
+    } catch {
+        threw = true
+    }
+    const versionFiles = ['mahalfchief', ...specialists].map((name) => fs.existsSync(profileFile(name, 'harness-compiler')))
+    // Any failed compile (warm-up and chats call compileProfile too) sets the unfinished configs aside.
+    const asideAfterCompile =
+        !fs.existsSync(profileFile('mahalfchief', 'config.yaml')) &&
+        fs.existsSync(profileFile('mahalfchief', 'config.yaml.outdated')) &&
+        fs.existsSync(profileFile(specialists[1], 'config.yaml.outdated'))
+    fs.rmSync(profileFile(specialists[1], 'config.yaml.outdated'), { recursive: true, force: true })
+    fs.mkdirSync(blocked)
+    fs.writeFileSync(profileFile('mahalfchief', 'config.yaml'), 'from-an-older-compiler\n')
+    const failed = recompileOutdatedProfiles([record], { log: {} })
+    // Hermes must not load the parent config the failed compile left behind: it is set aside until the next compile.
+    const parentAside =
+        !fs.existsSync(profileFile('mahalfchief', 'config.yaml')) && fs.existsSync(profileFile('mahalfchief', 'config.yaml.outdated'))
+    fs.rmSync(blocked, { recursive: true, force: true })
+    fs.rmSync(blocked + '.outdated', { recursive: true, force: true })
+    const repaired = recompileOutdatedProfiles([record], { log: {} })
+    const after = recompileOutdatedProfiles([record], { log: {} })
+    // A first compile that stopped before the parent config.yaml: the directory is there, the config and version are not.
+    fs.rmSync(profileFile('mahalfchief', 'config.yaml'), { force: true })
+    fs.rmSync(profileFile('mahalfchief', 'harness-compiler'), { force: true })
+    const noConfig = recompileOutdatedProfiles([record], { log: {} })
+    const configBack = fs.existsSync(profileFile('mahalfchief', 'config.yaml'))
+    check(
+        'a compile that fails partway leaves the profile outdated for the next boot',
+        threw &&
+            specialists.length === 2 &&
+            versionFiles[0] === false &&
+            versionFiles[2] === false &&
+            failed.length === 1 &&
+            failed[0].status === 'failed' &&
+            parentAside &&
+            asideAfterCompile &&
+            JSON.stringify(repaired) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
+            after.length === 0 &&
+            JSON.stringify(noConfig) === JSON.stringify([{ name: 'mahalfchief', status: 'recompiled' }]) &&
+            configBack,
+        JSON.stringify({ threw, specialists, versionFiles, failed, parentAside, asideAfterCompile, repaired, after, noConfig, configBack })
+    )
+})
+
+await expectCase('a specialist a failed compile adds has its config set aside too', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const base = {
+        name: 'magrowchief',
+        chatflowId: 'canvas-grow-chief',
+        chief: { instructions: 'Route.', model: xai('grok-4.7') },
+        specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
+    }
+    compileProfile(saveHarness(base, { overwrite: true }))
+    const grown = saveHarness(
+        {
+            ...base,
+            specialists: [
+                ...base.specialists,
+                { name: 'gamma', instructions: 'Gamma work.', model: xai('grok-4.7-mini'), modules: calculator }
+            ]
+        },
+        { overwrite: true }
+    )
+    // The new specialist's version file, its last write, fails: its config.yaml is written, then the compile stops.
+    const blocked = profileFile('magrowchief--gamma', 'harness-compiler')
+    const writeFileSync = fs.writeFileSync
+    const openSync = fs.openSync
+    const resolvedOpen = (file) => {
+        const name = String(file)
+        const proc = /^\/proc\/self\/fd\/(\d+)\/(.+)$/.exec(name)
+        if (!proc) return name
+        try {
+            return path.join(fs.realpathSync(`/proc/self/fd/${proc[1]}`), proc[2])
+        } catch {
+            return name
+        }
+    }
+    const failWrite = (file) => resolvedOpen(file) === blocked
+    fs.writeFileSync = (file, ...rest) => {
+        if (failWrite(file)) throw new Error('disk full')
+        return writeFileSync(file, ...rest)
+    }
+    fs.openSync = (file, ...rest) => {
+        if (failWrite(file)) throw new Error('disk full')
+        return openSync(file, ...rest)
+    }
+    let threw = false
+    try {
+        compileProfile(grown)
+    } catch {
+        threw = true
+    } finally {
+        fs.writeFileSync = writeFileSync
+        fs.openSync = openSync
+    }
+    const added = fs
+        .readdirSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles'))
+        .filter((entry) => entry.startsWith('magrowchief--') && entry.includes('gamma'))
+    const addedLoadable = added.filter((entry) => fs.existsSync(profileFile(entry, 'config.yaml')))
+    const parentLoadable = fs.existsSync(profileFile('magrowchief', 'config.yaml'))
+    const addedAside = fs.existsSync(profileFile('magrowchief--gamma', 'config.yaml.outdated'))
+    fs.rmSync(blocked, { recursive: true, force: true })
+    const repaired = recompileOutdatedProfiles([grown], { log: {} })
+    check(
+        'a specialist a failed compile adds has its config set aside too',
+        threw && added.length === 1 && addedLoadable.length === 0 && addedAside && !parentLoadable && repaired[0]?.status === 'recompiled',
+        JSON.stringify({ threw, added, addedLoadable, addedAside, parentLoadable, repaired })
+    )
+})
+
+await expectCase('the boot sweep sets aside every older harness config and leaves other Hermes profiles', async () => {
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const make = (name, files) => {
+        fs.mkdirSync(path.join(root, name), { recursive: true })
+        for (const [file, text] of Object.entries(files)) fs.writeFileSync(path.join(root, name, file), text)
+    }
+    // An older parent no record compiled again (its name held by another harness, or its record unreadable),
+    // an older specialist, a current one, and a Hermes profile this app never wrote.
+    make('masweepold', { 'config.yaml': 'old\n', 'harness-roster.json': '{"name":"masweepold","specialists":[]}' })
+    make('masweepold--alpha', { 'config.yaml': 'old\n', 'harness-parent': 'masweepold\n' })
+    make('masweepnew', { 'config.yaml': 'new\n', 'harness-roster.json': '{}', 'harness-compiler': `${PROFILE_COMPILER_VERSION}\n` })
+    make('maownprofile', { 'config.yaml': 'mine\n' })
+    const loadable = setAsideOutdatedConfigs()
+    const has = (name, file) => fs.existsSync(path.join(root, name, file))
+    const second = setAsideOutdatedConfigs()
+    check(
+        'the boot sweep sets aside every older harness config and leaves other Hermes profiles',
+        loadable.length === 0 &&
+            second.length === 0 &&
+            !has('masweepold', 'config.yaml') &&
+            has('masweepold', 'config.yaml.outdated') &&
+            !has('masweepold--alpha', 'config.yaml') &&
+            has('masweepnew', 'config.yaml') &&
+            has('maownprofile', 'config.yaml'),
+        JSON.stringify({ loadable, second })
+    )
+    // A folder the sweep cannot read is not taken for an empty one: health stays held. The access error is injected,
+    // so the case holds for a user that folder permissions do not stop.
+    make('masweeplocked', { 'config.yaml': 'old\n', 'harness-parent': 'masweepold\n' })
+    const lockedDir = path.join(root, 'masweeplocked')
+    const statSync = fs.statSync
+    const openSync = fs.openSync
+    const existsSync = fs.existsSync
+    const denied = (file) => {
+        const text = String(file)
+        if (text.startsWith(lockedDir + path.sep)) return true
+        const proc = text.match(/^\/proc\/self\/fd\/(\d+)\/(.+)$/)
+        if (!proc) return false
+        try {
+            const named = path.resolve(fs.readlinkSync(`/proc/self/fd/${proc[1]}`), proc[2])
+            return named === lockedDir || named.startsWith(lockedDir + path.sep)
+        } catch {
+            return false
+        }
+    }
+    const deny = (file) => {
+        if (!denied(file)) return false
+        throw Object.assign(new Error(`EACCES: permission denied, stat '${file}'`), { code: 'EACCES' })
+    }
+    fs.statSync = (file, ...rest) => {
+        deny(file)
+        return statSync(file, ...rest)
+    }
+    fs.openSync = (file, ...rest) => {
+        deny(file)
+        return openSync(file, ...rest)
+    }
+    // existsSync answers false for a path it cannot check.
+    fs.existsSync = (file) => (denied(file) ? false : existsSync(file))
+    let lockedLoadable = []
+    try {
+        lockedLoadable = setAsideOutdatedConfigs()
+    } finally {
+        fs.statSync = statSync
+        fs.openSync = openSync
+        fs.existsSync = existsSync
+    }
+    const lockedKept = fs.existsSync(path.join(lockedDir, 'config.yaml'))
+    fs.rmSync(lockedDir, { recursive: true, force: true })
+    // A link to a harness folder elsewhere is reported, not changed.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'masweeplink-'))
+    fs.writeFileSync(path.join(outside, 'config.yaml'), 'old\n')
+    fs.writeFileSync(path.join(outside, 'harness-parent'), 'masweepold\n')
+    fs.symlinkSync(outside, path.join(root, 'masweeplink'))
+    const linkLoadable = setAsideOutdatedConfigs()
+    const linkKept = fs.existsSync(path.join(outside, 'config.yaml'))
+    fs.rmSync(path.join(root, 'masweeplink'), { force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+    check(
+        'the boot sweep reports a harness folder it cannot read, and a linked one is not left loadable',
+        lockedLoadable.some((dir) => dir.endsWith('masweeplocked')) &&
+            lockedKept &&
+            !linkLoadable.some((dir) => dir.endsWith('masweeplink')) &&
+            !fs.existsSync(path.join(root, 'masweeplink')) &&
+            linkKept,
+        JSON.stringify({ lockedLoadable, lockedKept, linkLoadable, linkKept })
+    )
+    for (const name of ['masweepold', 'masweepold--alpha', 'masweepnew', 'maownprofile'])
+        fs.rmSync(path.join(root, name), { recursive: true, force: true })
+})
+
+await expectCase('the boot recompile does not write through a linked profile folder', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const results = {}
+    for (const which of ['parent', 'specialist']) {
+        const name = `malinked${which}`
+        const record = saveHarness(
+            {
+                name,
+                chatflowId: `canvas-linked-${which}`,
+                chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                specialists: [
+                    { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                    { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+                ]
+            },
+            { overwrite: true }
+        )
+        compileProfile(record)
+        const dirs = profilesFor(name).map((profile) => profile.name)
+        for (const dir of dirs) fs.rmSync(profileFile(dir, 'harness-compiler'), { force: true })
+        const moved = which === 'parent' ? name : dirs.find((dir) => dir.includes('--'))
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.cpSync(path.join(root, moved), outside, { recursive: true })
+        fs.rmSync(path.join(root, moved), { recursive: true, force: true })
+        fs.symlinkSync(outside, path.join(root, moved))
+        const before = fs.readFileSync(path.join(outside, 'config.yaml'), 'utf8')
+        const result = recompileOutdatedProfiles([record], { log: {} })
+        const loadable = setAsideOutdatedConfigs()
+        results[which] = {
+            result,
+            unchanged: fs.readFileSync(path.join(outside, 'config.yaml'), 'utf8') === before,
+            noMarker: !fs.existsSync(path.join(outside, 'harness-compiler')),
+            notLoadable: !loadable.some((dir) => dir.endsWith(moved)) && !fs.existsSync(path.join(root, moved))
+        }
+        fs.rmSync(path.join(root, moved), { force: true })
+        fs.rmSync(outside, { recursive: true, force: true })
+        for (const dir of dirs) fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    check(
+        'the boot recompile does not write through a linked profile folder',
+        Object.values(results).every(
+            (item) =>
+                item.result.length === 1 &&
+                item.result[0].status === 'failed' &&
+                /link/.test(item.result[0].error) &&
+                item.unchanged &&
+                item.noMarker &&
+                item.notLoadable
+        ),
+        JSON.stringify(results)
+    )
+})
+
+await expectCase('warm-up never writes through a linked profile folder', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const treeText = (dir) => {
+        const lines = []
+        const walk = (current, prefix) => {
+            for (const name of fs.readdirSync(current).sort()) {
+                const file = path.join(current, name)
+                const stat = fs.lstatSync(file)
+                if (stat.isSymbolicLink()) {
+                    lines.push(`${prefix}${name} -> link`)
+                    continue
+                }
+                if (stat.isDirectory()) {
+                    lines.push(`${prefix}${name}/`)
+                    walk(file, `${prefix}${name}/`)
+                    continue
+                }
+                lines.push(`${prefix}${name}\n${fs.readFileSync(file, 'utf8')}`)
+            }
+        }
+        walk(dir, '')
+        return lines.join('\n')
+    }
+    const results = {}
+    for (const which of ['parent', 'specialist']) {
+        const name = `mawarmuplink${which}`
+        const record = saveHarness(
+            {
+                name,
+                chatflowId: `canvas-warmup-link-${which}`,
+                chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                specialists: [
+                    { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                    { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+                ]
+            },
+            { overwrite: true }
+        )
+        compileProfile(record)
+        forgetCompiledProfile(name)
+        const dirs = profilesFor(name).map((profile) => profile.name)
+        const moved = which === 'parent' ? name : dirs.find((dir) => dir.includes('--'))
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.cpSync(path.join(root, moved), outside, { recursive: true })
+        fs.rmSync(path.join(root, moved), { recursive: true, force: true })
+        fs.symlinkSync(outside, path.join(root, moved))
+        const before = treeText(outside)
+        let refused = ''
+        try {
+            compileProfileCached(getHarness(name))
+        } catch (error) {
+            refused = `${error?.code || ''} ${error?.message || error}`
+        }
+        const linkRemoved = !fs.existsSync(path.join(root, moved))
+        await warmHarnessProfiles({ names: [name], healthWaitMs: 0 })
+        const after = treeText(outside)
+        results[which] = {
+            refused,
+            unchanged: before === after,
+            linkRemoved
+        }
+        fs.rmSync(path.join(root, moved), { recursive: true, force: true })
+        fs.rmSync(outside, { recursive: true, force: true })
+        for (const dir of dirs) fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    check(
+        'warm-up never writes through a linked profile folder',
+        Object.values(results).every((item) => item.refused.includes('profile_link') && item.unchanged && item.linkRemoved),
+        JSON.stringify(results)
+    )
+})
+
+await expectCase('A5 the stamp skips the compile on a second boot, and config.yaml.outdated recovers', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const record = saveHarness(
+        {
+            name: 'maunchanged',
+            chatflowId: 'canvas-unchanged',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const first = recompileOutdatedProfiles([getHarness('maunchanged')], { log: {} })
+    const second = recompileOutdatedProfiles([getHarness('maunchanged')], { log: {} })
+    const config = profileFile('maunchanged', 'config.yaml')
+    fs.renameSync(config, `${config}.outdated`)
+    fs.rmSync(profileFile('maunchanged', 'harness-compiler'), { force: true })
+    const visible = getHarness('maunchanged')
+    const recovered = recompileOutdatedProfiles([visible], { log: {} })
+    const secondBootSkipped = first.length === 0 && second.length === 0
+    const outdatedRecovered =
+        visible?.name === 'maunchanged' &&
+        recovered.length === 1 &&
+        recovered[0].status === 'recompiled' &&
+        fs.existsSync(config) &&
+        fs.readFileSync(config, 'utf8').includes('agent:')
+    check('a second boot with unchanged profiles does zero recompiles', secondBootSkipped, JSON.stringify({ first, second }))
+    check(
+        'a config.yaml.outdated harness stays visible and recovers',
+        outdatedRecovered,
+        JSON.stringify({ visible: visible?.name, recovered, config: fs.existsSync(config) })
+    )
+    check(
+        'A5 the stamp skips the compile on a second boot, and config.yaml.outdated recovers',
+        secondBootSkipped && outdatedRecovered,
+        JSON.stringify({ first, second, visible: visible?.name, recovered, config: fs.existsSync(config) })
+    )
+})
+
+await expectCase(
+    'A4 a symlinked profile folder is refused by boot, by warm-up and by compileProfileCached, and the target file list and mtimes are unchanged',
+    async () => {
+        const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+        const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+        const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+        const snap = (dir) => {
+            const rows = []
+            const walk = (current, prefix) => {
+                for (const name of fs.readdirSync(current).sort()) {
+                    const file = path.join(current, name)
+                    const stat = fs.lstatSync(file)
+                    if (stat.isSymbolicLink()) {
+                        rows.push(`${prefix}${name} link ${stat.mtimeMs}`)
+                        continue
+                    }
+                    if (stat.isDirectory()) {
+                        rows.push(`${prefix}${name}/ ${stat.mtimeMs}`)
+                        walk(file, `${prefix}${name}/`)
+                        continue
+                    }
+                    rows.push(`${prefix}${name} ${stat.mtimeMs} ${stat.size}\n${fs.readFileSync(file)}`)
+                }
+            }
+            walk(dir, '')
+            return rows.join('\n')
+        }
+        const cases = [
+            ['boot recompile', (record) => recompileOutdatedProfiles([record], { log: {} })],
+            [
+                'warm-up',
+                async (record) => {
+                    try {
+                        await warmHarnessProfiles({ names: [record.name], healthWaitMs: 0 })
+                    } catch (error) {
+                        return error
+                    }
+                    return null
+                }
+            ],
+            [
+                'compileProfileCached',
+                (record) => {
+                    compileProfileCached(getHarness(record.name))
+                }
+            ]
+        ]
+        const a4 = []
+        for (const [label, run] of cases) {
+            const name = `masentinel${label}`.replace(/\W/g, '')
+            const record = saveHarness(
+                {
+                    name,
+                    chatflowId: `canvas-${name}`,
+                    chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                    specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
+                },
+                { overwrite: true }
+            )
+            compileProfile(record)
+            forgetCompiledProfile(name)
+            const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+            fs.cpSync(path.join(root, name), outside, { recursive: true })
+            fs.writeFileSync(path.join(outside, 'sentinel'), 'sentinel-bytes')
+            const sent = fs.statSync(path.join(outside, 'sentinel'))
+            fs.rmSync(path.join(root, name), { recursive: true, force: true })
+            fs.symlinkSync(outside, path.join(root, name))
+            const before = snap(outside)
+            let refused = false
+            try {
+                const result = await run(record)
+                refused = Array.isArray(result) ? result.some((row) => row.status === 'failed' && /link/.test(row.error || '')) : false
+            } catch (error) {
+                refused = error?.code === 'profile_link'
+            }
+            // Warm-up catches the compiler refusal. The link is gone and the target was not written.
+            if (label === 'warm-up' && !fs.existsSync(path.join(root, name))) refused = true
+            const after = snap(outside)
+            const sentinel = fs.statSync(path.join(outside, 'sentinel'))
+            const sameTree = before === after
+            const mtimeSame = sentinel.mtimeMs === sent.mtimeMs
+            const bytesSame = fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'sentinel-bytes'
+            const linkGone = !fs.existsSync(path.join(root, name))
+            const ok = refused && sameTree && mtimeSame && bytesSame && linkGone
+            a4.push({ label, ok, refused, sameTree, mtimeSame, linkGone })
+            check(
+                `a linked profile target is unchanged for ${label}`,
+                ok,
+                JSON.stringify({ label, refused, same: sameTree, mtime: mtimeSame })
+            )
+            fs.rmSync(path.join(root, name), { recursive: true, force: true })
+            fs.rmSync(outside, { recursive: true, force: true })
+        }
+        check(
+            'A4 a symlinked profile folder is refused by boot, by warm-up and by compileProfileCached, and the target file list and mtimes are unchanged',
+            a4.length === 3 &&
+                a4.every((row) => row.ok) &&
+                a4.map((row) => row.label).join(',') === 'boot recompile,warm-up,compileProfileCached',
+            JSON.stringify(a4)
+        )
+    }
+)
+
+await expectCase('A4 a cache hit refuses a profile folder swapped for a symlink without clearing the cache', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const name = 'macacheswap'
+    const record = saveHarness(
+        {
+            name,
+            chatflowId: 'canvas-cache-swap',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
+        },
+        { overwrite: true }
+    )
+    const first = compileProfileCached(record)
+    const again = compileProfileCached(getHarness(name))
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const profilePath = path.join(root, name)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+    fs.cpSync(profilePath, outside, { recursive: true })
+    fs.writeFileSync(path.join(outside, 'sentinel'), 'cache-swap-sentinel')
+    const sent = fs.statSync(path.join(outside, 'sentinel'))
+    const before = fs.readdirSync(outside).sort()
+    const beforeConfig = fs.readFileSync(path.join(outside, 'config.yaml'))
+    fs.rmSync(profilePath, { recursive: true, force: true })
+    fs.symlinkSync(outside, profilePath)
+    let refused = ''
+    let returnedCache = false
+    try {
+        const third = compileProfileCached(getHarness(name))
+        returnedCache = third === first
+    } catch (error) {
+        refused = error?.code || ''
+    }
+    const after = fs.readdirSync(outside).sort()
+    const sentinel = fs.statSync(path.join(outside, 'sentinel'))
+    const linkGone = !fs.lstatSync(profilePath, { throwIfNoEntry: false })
+    const quarantined = fs.readdirSync(root).some((entry) => entry.startsWith(`${name}.quarantine`))
+    check(
+        'A4 a cache hit refuses a profile folder swapped for a symlink without clearing the cache',
+        again === first &&
+            refused === 'profile_link' &&
+            !returnedCache &&
+            before.join('\n') === after.join('\n') &&
+            fs.readFileSync(path.join(outside, 'config.yaml')).equals(beforeConfig) &&
+            fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'cache-swap-sentinel' &&
+            sentinel.mtimeMs === sent.mtimeMs &&
+            linkGone &&
+            quarantined,
+        JSON.stringify({
+            cacheHit: again === first,
+            refused,
+            returnedCache,
+            sameList: before.join('\n') === after.join('\n'),
+            linkGone,
+            quarantined
+        })
+    )
+    forgetCompiledProfile(name)
+    fs.rmSync(profilePath, { force: true })
+    for (const entry of fs.readdirSync(root)) {
+        if (entry === name || entry.startsWith(`${name}.quarantine`) || entry.startsWith(`${name}--`)) {
+            fs.rmSync(path.join(root, entry), { recursive: true, force: true })
+        }
+    }
+    fs.rmSync(outside, { recursive: true, force: true })
+})
+
+await expectCase('A4 cache hits refuse a specialist link, a memory link, an inode of zero, and a swap between the checks', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const warm = (name, specialists) => {
+        const record = saveHarness(
+            {
+                name,
+                chatflowId: `canvas-${name}`,
+                chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                specialists
+            },
+            { overwrite: true }
+        )
+        const first = compileProfileCached(record)
+        const again = compileProfileCached(getHarness(name))
+        return { record, first, again }
+    }
+    const cleanup = (name, outside) => {
+        forgetCompiledProfile(name)
+        for (const entry of fs.readdirSync(root)) {
+            if (entry === name || entry.startsWith(`${name}.quarantine`) || entry.startsWith(`${name}--`)) {
+                fs.rmSync(path.join(root, entry), { recursive: true, force: true })
+            }
+        }
+        if (outside) fs.rmSync(outside, { recursive: true, force: true })
+    }
+
+    // Specialist directory swapped for a symlink, cache left in place.
+    {
+        const name = 'macachespec'
+        const { first, again } = warm(name, [
+            { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), codeExecution: true, modules: [] }
+        ])
+        const child = profilesFor(name).find((profile) => profile.name.includes('--'))?.name
+        const childPath = path.join(root, child)
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.cpSync(childPath, outside, { recursive: true })
+        fs.writeFileSync(path.join(outside, 'sentinel'), 'spec-sentinel')
+        const sent = fs.statSync(path.join(outside, 'sentinel'))
+        const before = fs.readdirSync(outside).sort()
+        fs.rmSync(childPath, { recursive: true, force: true })
+        fs.symlinkSync(outside, childPath)
+        let refused = ''
+        let returnedCache = false
+        try {
+            returnedCache = compileProfileCached(getHarness(name)) === first
+        } catch (error) {
+            refused = error?.code || ''
+        }
+        const sentinel = fs.statSync(path.join(outside, 'sentinel'))
+        check(
+            'A4 a cache hit refuses a specialist folder swapped for a symlink without clearing the cache',
+            Boolean(child) &&
+                again === first &&
+                refused === 'profile_link' &&
+                !returnedCache &&
+                fs.readdirSync(outside).sort().join('\n') === before.join('\n') &&
+                fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'spec-sentinel' &&
+                sentinel.mtimeMs === sent.mtimeMs &&
+                !fs.lstatSync(childPath, { throwIfNoEntry: false }) &&
+                fs.readdirSync(root).some((entry) => entry.startsWith(`${child}.quarantine`)),
+            JSON.stringify({ child, cacheHit: again === first, refused, returnedCache })
+        )
+        cleanup(name, outside)
+    }
+
+    // memory/ under the profile swapped for a symlink, cache left in place.
+    {
+        const name = 'macachemem'
+        const { first, again } = warm(name, [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }])
+        const memory = path.join(root, name, 'memory')
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.writeFileSync(path.join(outside, 'marker'), 'memory-sentinel')
+        const sent = fs.statSync(path.join(outside, 'marker'))
+        fs.rmSync(memory, { recursive: true, force: true })
+        fs.symlinkSync(outside, memory)
+        let refused = ''
+        let returnedCache = false
+        try {
+            returnedCache = compileProfileCached(getHarness(name)) === first
+        } catch (error) {
+            refused = error?.code || ''
+        }
+        const marker = fs.statSync(path.join(outside, 'marker'))
+        check(
+            'A4 a cache hit refuses a memory directory swapped for a symlink without clearing the cache',
+            again === first &&
+                refused === 'profile_link' &&
+                !returnedCache &&
+                fs.readFileSync(path.join(outside, 'marker'), 'utf8') === 'memory-sentinel' &&
+                marker.mtimeMs === sent.mtimeMs &&
+                fs.readdirSync(outside).length === 1 &&
+                !fs.lstatSync(memory, { throwIfNoEntry: false })?.isSymbolicLink() &&
+                fs.readdirSync(path.join(root, name)).some((entry) => entry.startsWith('memory.quarantine')),
+            JSON.stringify({ cacheHit: again === first, refused, returnedCache })
+        )
+        cleanup(name, outside)
+    }
+
+    // dev/ino of 0 is not a cache hit. The profile is compiled again.
+    {
+        const name = 'macacheino'
+        const { first, again } = warm(name, [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }])
+        const realLstat = fs.lstatSync
+        fs.lstatSync = (entry, options) => {
+            const stat = realLstat(entry, options)
+            if (!options?.bigint) return stat
+            return {
+                isSymbolicLink: () => stat.isSymbolicLink(),
+                isDirectory: () => stat.isDirectory(),
+                isFile: () => stat.isFile(),
+                dev: 0n,
+                ino: 0n
+            }
+        }
+        let refused = ''
+        let third = null
+        try {
+            third = compileProfileCached(getHarness(name))
+        } catch (error) {
+            refused = error?.code || ''
+        } finally {
+            fs.lstatSync = realLstat
+        }
+        const profilePath = path.join(root, name)
+        check(
+            'A4 an inode of zero is not a cache hit and the profile is compiled again',
+            again === first &&
+                refused === '' &&
+                third &&
+                third !== first &&
+                fs.lstatSync(profilePath).isDirectory() &&
+                !fs.lstatSync(profilePath).isSymbolicLink(),
+            JSON.stringify({ cacheHit: again === first, refused, reused: third === first, got: Boolean(third) })
+        )
+        cleanup(name)
+    }
+
+    // The directory is swapped after the chain check and before config.yaml is read.
+    {
+        const name = 'macachegap'
+        const { first, again } = warm(name, [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }])
+        const profilePath = path.join(root, name)
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`))
+        fs.cpSync(profilePath, outside, { recursive: true })
+        fs.writeFileSync(path.join(outside, 'sentinel'), 'gap-sentinel')
+        const sent = fs.statSync(path.join(outside, 'sentinel'))
+        const before = fs.readdirSync(outside).sort()
+        let swapped = false
+        profileWriteTest.betweenCacheChecks = (dirPath) => {
+            if (swapped || dirPath !== profilePath) return
+            swapped = true
+            const held = `${profilePath}.held`
+            fs.renameSync(profilePath, held)
+            fs.symlinkSync(outside, profilePath)
+        }
+        let refused = ''
+        let returnedCache = false
+        try {
+            returnedCache = compileProfileCached(getHarness(name)) === first
+        } catch (error) {
+            refused = error?.code || ''
+        } finally {
+            profileWriteTest.betweenCacheChecks = null
+        }
+        const sentinel = fs.statSync(path.join(outside, 'sentinel'))
+        check(
+            'A4 a profile folder swapped between the cache checks is refused without clearing the cache',
+            again === first &&
+                swapped &&
+                refused === 'profile_link' &&
+                !returnedCache &&
+                fs.readdirSync(outside).sort().join('\n') === before.join('\n') &&
+                fs.readFileSync(path.join(outside, 'sentinel'), 'utf8') === 'gap-sentinel' &&
+                sentinel.mtimeMs === sent.mtimeMs &&
+                !fs.lstatSync(profilePath, { throwIfNoEntry: false }),
+            JSON.stringify({ cacheHit: again === first, swapped, refused, returnedCache })
+        )
+        fs.rmSync(`${profilePath}.held`, { recursive: true, force: true })
+        cleanup(name, outside)
+    }
+    check('A4 cache hits refuse a specialist link, a memory link, an inode of zero, and a swap between the checks', true)
+})
+
+await expectCase('a compile refuses a symlink on each path it would write', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const recordFor = (name, specialists) =>
+        saveHarness(
+            {
+                name,
+                chatflowId: `canvas-${name}`,
+                chief: { instructions: 'Route.', model: xai('grok-4.7') },
+                specialists
+            },
+            { overwrite: true }
+        )
+    const baseSpecialists = [
+        { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+        { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+    ]
+    const compileFresh = (name, specialists = baseSpecialists) => {
+        const record = recordFor(name, specialists)
+        compileProfile(record)
+        forgetCompiledProfile(name)
+        return record
+    }
+    const outsideFile = (label, text) => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), `malink-${label}-`))
+        const file = path.join(dir, 'payload')
+        fs.writeFileSync(file, text)
+        return { dir, file, text }
+    }
+    const outsideDir = (label, text) => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), `malink-${label}-`))
+        fs.writeFileSync(path.join(dir, 'marker'), text)
+        return dir
+    }
+    const refused = (name) => {
+        let code = ''
+        try {
+            compileProfileCached(getHarness(name))
+        } catch (error) {
+            code = error?.code || ''
+        }
+        return code
+    }
+    // config.yaml
+    {
+        const name = 'malinkconfig'
+        compileFresh(name)
+        const outside = outsideFile('config', 'config-target\n')
+        const config = profileFile(name, 'config.yaml')
+        fs.rmSync(config, { force: true })
+        fs.symlinkSync(outside.file, config)
+        const code = refused(name)
+        check(
+            'a symlinked config.yaml is not written through',
+            code === 'profile_link' && fs.readFileSync(outside.file, 'utf8') === outside.text && !fs.existsSync(config),
+            JSON.stringify({ code, exists: fs.existsSync(config) })
+        )
+        fs.rmSync(outside.dir, { recursive: true, force: true })
+        fs.rmSync(path.join(root, name), { recursive: true, force: true })
+    }
+    // specialist .env
+    {
+        const name = 'malinkenv'
+        compileFresh(name)
+        const child = profilesFor(name).find((profile) => profile.name.includes('--'))?.name
+        const outside = outsideFile('env', 'ENV_TARGET=1\n')
+        const envFile = profileFile(child, '.env')
+        fs.rmSync(envFile, { force: true })
+        fs.symlinkSync(outside.file, envFile)
+        const code = refused(name)
+        check(
+            'a symlinked specialist env file is not written through',
+            code === 'profile_link' && fs.readFileSync(outside.file, 'utf8') === outside.text && !fs.existsSync(envFile),
+            JSON.stringify({ code, child, exists: fs.existsSync(envFile) })
+        )
+        fs.rmSync(outside.dir, { recursive: true, force: true })
+        for (const dir of profilesFor(name).map((profile) => profile.name))
+            fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    // memory/
+    {
+        const name = 'malinkmemory'
+        compileFresh(name)
+        const outside = outsideDir('memory', 'memory-target\n')
+        const memory = profileFile(name, 'memory')
+        fs.rmSync(memory, { recursive: true, force: true })
+        fs.symlinkSync(outside, memory)
+        const code = refused(name)
+        check(
+            'a symlinked memory directory is not written through',
+            code === 'profile_link' &&
+                fs.readFileSync(path.join(outside, 'marker'), 'utf8') === 'memory-target\n' &&
+                !fs.existsSync(memory),
+            JSON.stringify({ code, exists: fs.existsSync(memory) })
+        )
+        fs.rmSync(outside, { recursive: true, force: true })
+        fs.rmSync(path.join(root, name), { recursive: true, force: true })
+    }
+    // skills/
+    {
+        const name = 'malinkskills'
+        compileFresh(name, [
+            {
+                name: 'alpha',
+                instructions: 'Alpha work.',
+                model: xai('grok-4.7'),
+                modules: calculator,
+                playbooks: [{ name: 'refund-rules', description: 'When to refund', content: 'Refund the order.' }]
+            }
+        ])
+        const outside = outsideDir('skills', 'skills-target\n')
+        const child = profilesFor(name).find((profile) => profile.name.includes('--'))?.name
+        const skills = profileFile(child, 'skills')
+        fs.rmSync(skills, { recursive: true, force: true })
+        fs.symlinkSync(outside, skills)
+        const code = refused(name)
+        const written = fs.readdirSync(outside)
+        check(
+            'a symlinked skills directory is not written through',
+            code === 'profile_link' && written.length === 1 && written[0] === 'marker' && !fs.existsSync(skills),
+            JSON.stringify({ code, written, exists: fs.existsSync(skills) })
+        )
+        fs.rmSync(outside, { recursive: true, force: true })
+        for (const dir of profilesFor(name).map((profile) => profile.name))
+            fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    // specialist workspace
+    {
+        const name = 'malinkwork'
+        const record = compileFresh(name, [
+            { name: 'alpha', instructions: 'Draw.', preset: 'assets', model: xai('grok-4.7'), modules: calculator }
+        ])
+        const child = profilesFor(name).find((profile) => profile.name.includes('--'))?.name
+        const outside = outsideDir('work', 'work-target\n')
+        const workspace = specialistWorkspace(child)
+        fs.rmSync(workspace, { recursive: true, force: true })
+        fs.mkdirSync(path.dirname(workspace), { recursive: true })
+        fs.symlinkSync(outside, workspace)
+        forgetCompiledProfile(name)
+        let code = ''
+        try {
+            compileProfile(record)
+        } catch (error) {
+            code = error?.code || ''
+        }
+        const written = fs.readdirSync(outside)
+        const workspaceStat = fs.lstatSync(workspace, { throwIfNoEntry: false })
+        const workspaceBase = path.basename(workspace)
+        const workspaceQuarantine = fs
+            .readdirSync(path.dirname(workspace))
+            .some((entry) => entry === `${workspaceBase}.quarantine` || entry.startsWith(`${workspaceBase}.quarantine-`))
+        check(
+            'a symlinked specialist workspace is not written through',
+            code === 'profile_link' &&
+                written.length === 1 &&
+                written[0] === 'marker' &&
+                workspaceStat?.isSymbolicLink() === true &&
+                fs.readlinkSync(workspace) === outside &&
+                !workspaceQuarantine,
+            JSON.stringify({
+                code,
+                written,
+                child,
+                stillLink: workspaceStat?.isSymbolicLink() === true,
+                workspaceQuarantine
+            })
+        )
+        fs.rmSync(outside, { recursive: true, force: true })
+        for (const dir of profilesFor(name).map((profile) => profile.name))
+            fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+    }
+    // profiles/ itself
+    {
+        const name = 'malinkroot'
+        compileFresh(name)
+        const outside = outsideDir('profiles-root', 'root-target\n')
+        const real = `${root}.real`
+        fs.renameSync(root, real)
+        fs.symlinkSync(outside, root)
+        let code = ''
+        try {
+            compileProfileCached(getHarness(name))
+        } catch (error) {
+            code = error?.code || ''
+        }
+        const written = fs.readdirSync(outside)
+        const loadable = fs.existsSync(root) ? setAsideOutdatedConfigs() : []
+        check(
+            'a symlinked profiles directory is not written through',
+            code === 'profile_link' && written.length === 1 && written[0] === 'marker' && !fs.existsSync(root) && loadable.length === 0,
+            JSON.stringify({ code, written, rootExists: fs.existsSync(root), loadable })
+        )
+        if (fs.existsSync(root) || (fs.lstatSync(root, { throwIfNoEntry: false }) && fs.lstatSync(root).isSymbolicLink())) {
+            fs.rmSync(root, { force: true })
+        }
+        fs.rmSync(`${root}.quarantine`, { force: true })
+        fs.renameSync(real, root)
+        fs.rmSync(outside, { recursive: true, force: true })
+    }
+    // refused link is not loadable
+    {
+        const name = 'malinkload'
+        const record = compileFresh(name)
+        const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'malink-load-'))
+        fs.cpSync(path.join(root, name), outside, { recursive: true })
+        fs.writeFileSync(path.join(outside, 'config.yaml'), 'through-the-link\n')
+        fs.rmSync(path.join(root, name), { recursive: true, force: true })
+        fs.symlinkSync(outside, path.join(root, name))
+        forgetCompiledProfile(name)
+        let code = ''
+        try {
+            compileProfile(record)
+        } catch (error) {
+            code = error?.code || ''
+        }
+        const loadable = setAsideOutdatedConfigs()
+        check(
+            'a profile refused as a link is not left loadable',
+            code === 'profile_link' &&
+                fs.readFileSync(path.join(outside, 'config.yaml'), 'utf8') === 'through-the-link\n' &&
+                !fs.existsSync(path.join(root, name)) &&
+                !loadable.some((dir) => dir.endsWith(name)),
+            JSON.stringify({ code, loadable, exists: fs.existsSync(path.join(root, name)) })
+        )
+        fs.rmSync(outside, { recursive: true, force: true })
+    }
+    check('a compile refuses a symlink on each path it would write', true)
+})
+
+await expectCase('a memory directory swapped for a symlink during write is not followed', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const name = 'malinkrace'
+    const record = saveHarness(
+        {
+            name,
+            chatflowId: 'canvas-link-race',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator }]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    forgetCompiledProfile(name)
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const memory = profileFile(name, 'memory')
+    const original = `${memory}.realorig`
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'malink-race-'))
+    fs.writeFileSync(path.join(outside, 'marker'), 'memory-target\n')
+    const marker = fs.statSync(path.join(outside, 'marker'))
+    fs.rmSync(path.join(memory, 'MEMORY.md'), { force: true })
+    let swapped = false
+    profileWriteTest.beforeFinalOpen = (file) => {
+        if (swapped || file !== path.join(memory, 'MEMORY.md')) return
+        swapped = true
+        fs.renameSync(memory, original)
+        fs.symlinkSync(outside, memory)
+    }
+    let failed = ''
+    try {
+        compileProfileCached(getHarness(name))
+    } catch (error) {
+        failed = `${error?.code || ''} ${error?.message || error}`
+    } finally {
+        profileWriteTest.beforeFinalOpen = null
+    }
+    const outsideNames = fs.readdirSync(outside).sort()
+    const wroteOriginal = fs.existsSync(path.join(original, 'MEMORY.md'))
+    const memoryIsLink = fs.lstatSync(memory, { throwIfNoEntry: false })?.isSymbolicLink() === true
+    check(
+        'a memory directory swapped for a symlink during write is not followed',
+        swapped &&
+            !failed &&
+            outsideNames.length === 1 &&
+            outsideNames[0] === 'marker' &&
+            fs.readFileSync(path.join(outside, 'marker'), 'utf8') === 'memory-target\n' &&
+            fs.statSync(path.join(outside, 'marker')).mtimeMs === marker.mtimeMs &&
+            wroteOriginal &&
+            !memoryIsLink,
+        JSON.stringify({ swapped, failed, outsideNames, wroteOriginal, memoryIsLink })
+    )
+    fs.rmSync(path.join(root, `${name}.quarantine`), { force: true })
+    fs.rmSync(path.join(path.dirname(memory), 'memory.quarantine'), { force: true })
+    fs.rmSync(original, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+    fs.rmSync(path.join(root, name), { recursive: true, force: true })
+    for (const dir of profilesFor(name).map((profile) => profile.name)) fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+})
+
+await expectCase('a profile link in a 0555 directory stays failed and off the load path', async () => {
+    const previous = process.env.CUTTLELY_HERMES_HOME
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ma0555-'))
+    const root = path.join(home, 'profiles')
+    fs.mkdirSync(root)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ma0555-target-'))
+    fs.writeFileSync(path.join(outside, 'config.yaml'), 'secret-config\n')
+    fs.writeFileSync(path.join(outside, 'harness-roster.json'), '{"name":"locked"}\n')
+    fs.writeFileSync(path.join(outside, 'sentinel'), 'keep\n')
+    const sent = fs.statSync(path.join(outside, 'sentinel'))
+    const link = path.join(root, 'locked')
+    fs.symlinkSync(outside, link)
+    fs.chmodSync(root, 0o555)
+    const logs = []
+    const errorLog = console.error
+    const warnLog = console.warn
+    console.error = (...args) => {
+        logs.push(args.map(String).join(' '))
+    }
+    console.warn = (...args) => {
+        logs.push(args.map(String).join(' '))
+    }
+    process.env.CUTTLELY_HERMES_HOME = home
+    let loadable = []
+    let results = []
+    let stillLink = false
+    let quarantined = false
+    let targetSame = false
+    let mtimeSame = false
+    let outsideNames = []
+    try {
+        loadable = setAsideOutdatedConfigs()
+        results = recompileOutdatedProfiles([{ name: 'locked', specialists: [] }], { log: {} })
+        stillLink = fs.lstatSync(link).isSymbolicLink()
+        quarantined = fs.readdirSync(root).some((entry) => entry.startsWith('locked.quarantine'))
+        targetSame = fs.readFileSync(path.join(outside, 'config.yaml'), 'utf8') === 'secret-config\n'
+        mtimeSame = fs.statSync(path.join(outside, 'sentinel')).mtimeMs === sent.mtimeMs
+        outsideNames = fs.readdirSync(outside).sort()
+    } finally {
+        console.error = errorLog
+        console.warn = warnLog
+        fs.chmodSync(root, 0o755)
+        process.env.CUTTLELY_HERMES_HOME = previous
+        fs.rmSync(home, { recursive: true, force: true })
+        fs.rmSync(outside, { recursive: true, force: true })
+    }
+    // The array is the block list boot refuses to start on, not the set of profiles to load.
+    // This parent cannot be updated, so the link has to stay in the report or the runtime would start.
+    check(
+        'a profile link in a 0555 directory stays failed and off the load path',
+        stillLink &&
+            !quarantined &&
+            targetSame &&
+            mtimeSame &&
+            outsideNames.length === 3 &&
+            loadable.some((dir) => dir.endsWith(`${path.sep}locked`)) &&
+            results.length === 1 &&
+            results[0].status === 'failed' &&
+            /link/.test(results[0].error) &&
+            /load path/.test(results[0].error) &&
+            logs.some((line) => line.includes(link)),
+        JSON.stringify({ stillLink, quarantined, targetSame, loadable, results, logs, outsideNames })
+    )
+})
+
+await expectCase('a file created at the quarantine destination during the move keeps its bytes', async () => {
+    const previous = process.env.CUTTLELY_HERMES_HOME
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'maqwin-'))
+    const root = path.join(home, 'profiles')
+    fs.mkdirSync(root)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'maqwin-target-'))
+    const targetBytes = Buffer.from('target-bytes-stay\n')
+    fs.writeFileSync(path.join(outside, 'config.yaml'), targetBytes)
+    fs.writeFileSync(path.join(outside, 'harness-roster.json'), '{"name":"racer"}\n')
+    const link = path.join(root, 'racer')
+    fs.symlinkSync(outside, link)
+    const planted = Buffer.from('planted-during-the-move\0do-not-touch')
+    let plantedStat = null
+    profileWriteTest.beforeQuarantineClaim = (_linkPath, dest) => {
+        if (plantedStat || path.basename(dest) !== 'racer.quarantine') return
+        fs.writeFileSync(dest, planted)
+        plantedStat = fs.lstatSync(dest)
+    }
+    process.env.CUTTLELY_HERMES_HOME = home
+    const logs = []
+    const errorLog = console.error
+    console.error = (...args) => {
+        logs.push(args.map(String).join(' '))
+    }
+    let loadable = []
+    try {
+        loadable = setAsideOutdatedConfigs()
+    } finally {
+        profileWriteTest.beforeQuarantineClaim = null
+        console.error = errorLog
+        process.env.CUTTLELY_HERMES_HOME = previous
+    }
+    const occupied = path.join(root, 'racer.quarantine')
+    const moved = path.join(root, 'racer.quarantine-1')
+    const occupiedNow = fs.lstatSync(occupied)
+    const occupiedBytes = fs.readFileSync(occupied)
+    check(
+        'a file created at the quarantine destination during the move keeps its bytes',
+        Boolean(plantedStat) &&
+            occupiedBytes.equals(planted) &&
+            occupiedNow.size === planted.length &&
+            occupiedNow.mtimeMs === plantedStat.mtimeMs &&
+            occupiedNow.ino === plantedStat.ino &&
+            !occupiedNow.isSymbolicLink() &&
+            fs.lstatSync(moved).isSymbolicLink() &&
+            fs.readlinkSync(moved) === outside &&
+            !fs.lstatSync(link, { throwIfNoEntry: false }) &&
+            loadable.length === 0 &&
+            fs.readFileSync(path.join(outside, 'config.yaml')).equals(targetBytes) &&
+            !logs.some((line) => line.includes('profile link could not be quarantined')),
+        JSON.stringify({
+            planted: Boolean(plantedStat),
+            occupiedBytes: occupiedBytes.toString('utf8'),
+            moved: fs.lstatSync(moved, { throwIfNoEntry: false })?.isSymbolicLink() === true,
+            linkGone: !fs.lstatSync(link, { throwIfNoEntry: false }),
+            loadable,
+            logs
+        })
+    )
+    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+})
+
+await expectCase('a regular file swapped onto the profile link during the move keeps its bytes and the move fails', async () => {
+    const previous = process.env.CUTTLELY_HERMES_HOME
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'maqswap-'))
+    const root = path.join(home, 'profiles')
+    fs.mkdirSync(root)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'maqswap-target-'))
+    const targetBytes = Buffer.from('swap-target-bytes\n')
+    fs.writeFileSync(path.join(outside, 'config.yaml'), targetBytes)
+    fs.writeFileSync(path.join(outside, 'harness-roster.json'), '{"name":"swapped"}\n')
+    const link = path.join(root, 'swapped')
+    fs.symlinkSync(outside, link)
+    const planted = Buffer.from('swapped-in-regular-file\0keep-these-bytes')
+    let plantedStat = null
+    profileWriteTest.afterQuarantineLink = (linkPath) => {
+        if (plantedStat || linkPath !== link) return
+        fs.unlinkSync(linkPath)
+        fs.writeFileSync(linkPath, planted)
+        plantedStat = fs.lstatSync(linkPath)
+    }
+    process.env.CUTTLELY_HERMES_HOME = home
+    const warns = []
+    const warnLog = console.warn
+    console.warn = (...args) => {
+        warns.push(args.map(String).join(' '))
+    }
+    let loadable = []
+    try {
+        loadable = setAsideOutdatedConfigs()
+    } finally {
+        profileWriteTest.afterQuarantineLink = null
+        console.warn = warnLog
+        process.env.CUTTLELY_HERMES_HOME = previous
+    }
+    const now = fs.lstatSync(link)
+    const bytes = fs.readFileSync(link)
+    const claim = path.join(root, 'swapped.quarantine')
+    check(
+        'a regular file swapped onto the profile link during the move keeps its bytes and the move fails',
+        Boolean(plantedStat) &&
+            bytes.equals(planted) &&
+            now.isFile() &&
+            !now.isSymbolicLink() &&
+            now.ino === plantedStat.ino &&
+            now.size === planted.length &&
+            now.mtimeMs === plantedStat.mtimeMs &&
+            !fs.lstatSync(claim, { throwIfNoEntry: false }) &&
+            loadable.some((dir) => dir === link) &&
+            fs.readFileSync(path.join(outside, 'config.yaml')).equals(targetBytes) &&
+            !warns.some((line) => line.includes('quarantined profile link')),
+        JSON.stringify({
+            planted: Boolean(plantedStat),
+            bytes: bytes.toString('utf8'),
+            isFile: now.isFile(),
+            claimLeft: Boolean(fs.lstatSync(claim, { throwIfNoEntry: false })),
+            loadable,
+            warns
+        })
+    )
+    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+})
+
+await expectCase('a quarantine move stops when every suffix is taken and leaves those bytes unchanged', async () => {
+    const previous = process.env.CUTTLELY_HERMES_HOME
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'maqfull-'))
+    const root = path.join(home, 'profiles')
+    fs.mkdirSync(root)
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'maqfull-target-'))
+    const targetBytes = Buffer.from('full-target-bytes\n')
+    fs.writeFileSync(path.join(outside, 'config.yaml'), targetBytes)
+    fs.writeFileSync(path.join(outside, 'harness-roster.json'), '{"name":"full"}\n')
+    const link = path.join(root, 'full')
+    fs.symlinkSync(outside, link)
+    const payloads = []
+    for (let n = 0; n < QUARANTINE_SUFFIX_CAP; n += 1) {
+        const bytes = Buffer.from(`suffix-${n}-\0keep-these-bytes`)
+        payloads.push(bytes)
+        const name = n === 0 ? 'full.quarantine' : `full.quarantine-${n}`
+        fs.writeFileSync(path.join(root, name), bytes)
+    }
+    const namesBefore = fs.readdirSync(root).sort()
+    process.env.CUTTLELY_HERMES_HOME = home
+    const logs = []
+    const errorLog = console.error
+    console.error = (...args) => {
+        logs.push(args.map(String).join(' '))
+    }
+    let loadable = []
+    let second = []
+    try {
+        loadable = setAsideOutdatedConfigs()
+        second = setAsideOutdatedConfigs()
+    } finally {
+        console.error = errorLog
+        process.env.CUTTLELY_HERMES_HOME = previous
+    }
+    let bytesSame = payloads.length === QUARANTINE_SUFFIX_CAP
+    for (let n = 0; n < payloads.length; n += 1) {
+        const name = n === 0 ? 'full.quarantine' : `full.quarantine-${n}`
+        const got = fs.readFileSync(path.join(root, name))
+        if (!got.equals(payloads[n])) bytesSame = false
+    }
+    const failureLines = logs.filter((line) => line.includes('profile link could not be quarantined'))
+    check(
+        'a quarantine move stops when every suffix is taken and leaves those bytes unchanged',
+        QUARANTINE_SUFFIX_CAP === 1000 &&
+            bytesSame &&
+            fs.readdirSync(root).sort().join('\n') === namesBefore.join('\n') &&
+            fs.lstatSync(link).isSymbolicLink() &&
+            fs.readlinkSync(link) === outside &&
+            fs.readFileSync(path.join(outside, 'config.yaml')).equals(targetBytes) &&
+            loadable.some((dir) => dir.endsWith(`${path.sep}full`)) &&
+            second.some((dir) => dir.endsWith(`${path.sep}full`)) &&
+            failureLines.length === 1 &&
+            failureLines[0].includes(link),
+        JSON.stringify({
+            cap: QUARANTINE_SUFFIX_CAP,
+            bytesSame,
+            stillLink: fs.lstatSync(link).isSymbolicLink(),
+            namesSame: fs.readdirSync(root).sort().join('\n') === namesBefore.join('\n'),
+            loadable,
+            failureLines
+        })
+    )
+    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+})
+
+await expectCase('warm-up does not hold the profile lock while Hermes health waits', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const name = 'mawarmlock'
+    saveHarness(
+        {
+            name,
+            chatflowId: 'canvas-warm-lock',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [{ name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), codeExecution: true, modules: [] }]
+        },
+        { overwrite: true }
+    )
+    forgetCompiledProfile(name)
+    let held = false
+    let heldAtCompile = false
+    let heldAtHealth = true
+    let releaseHealth = () => undefined
+    const healthEntered = new Promise((resolve) => {
+        releaseHealth = resolve
+    })
+    const lock = async (fn) => {
+        held = true
+        try {
+            const compiled = await fn()
+            heldAtCompile = true
+            return compiled
+        } finally {
+            held = false
+        }
+    }
+    const fetchImpl = async () => {
+        heldAtHealth = held
+        releaseHealth()
+        await new Promise((resolve) => setTimeout(resolve, 60))
+        return { ok: false }
+    }
+    const pending = warmHarnessProfiles({ names: [name], fetchImpl, healthWaitMs: 200, lock })
+    const entered = await Promise.race([healthEntered.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 3000))])
+    check(
+        'warm-up does not hold the profile lock while Hermes health waits',
+        entered === true && heldAtCompile && heldAtHealth === false && held === false,
+        JSON.stringify({ entered, heldAtCompile, heldAtHealth, held })
+    )
+    await pending
+    const root = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    for (const dir of profilesFor(name).map((profile) => profile.name)) fs.rmSync(path.join(root, dir), { recursive: true, force: true })
+})
+
+await expectCase('specialist folders whose parent folder is gone are compiled again at boot', async () => {
+    const xai = (modelName) => ({ nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName } })
+    const calculator = [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+    const record = saveHarness(
+        {
+            name: 'malostparent',
+            chatflowId: 'canvas-lost-parent',
+            chief: { instructions: 'Route.', model: xai('grok-4.7') },
+            specialists: [
+                { name: 'alpha', instructions: 'Alpha work.', model: xai('grok-4.7'), modules: calculator },
+                { name: 'beta', instructions: 'Beta work.', model: xai('grok-4.7-mini'), modules: calculator }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const child = profilesFor('malostparent').find((profile) => profile.name.includes('--'))?.name
+    fs.rmSync(profileFile(child, 'harness-compiler'), { force: true })
+    fs.rmSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'malostparent'), { recursive: true, force: true })
+    // Another profile's marker that cannot be read does not stop the search for this harness's folders.
+    const unrelated = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'aaa-unrelated')
+    fs.mkdirSync(unrelated, { recursive: true })
+    fs.writeFileSync(path.join(unrelated, 'harness-parent'), 'someone-else\n')
+    const readFileSync = fs.readFileSync
+    fs.readFileSync = (file, ...rest) => {
+        if (String(file) === path.join(unrelated, 'harness-parent')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+        return readFileSync(file, ...rest)
+    }
+    let outdated
+    try {
+        outdated = profileOutdated(record)
+    } finally {
+        fs.readFileSync = readFileSync
+        fs.rmSync(unrelated, { recursive: true, force: true })
+    }
+    const results = recompileOutdatedProfiles([record], { log: {} })
+    check(
+        'specialist folders whose parent folder is gone are compiled again at boot',
+        Boolean(child) &&
+            outdated === true &&
+            results[0]?.status === 'recompiled' &&
+            fs.existsSync(profileFile('malostparent', 'config.yaml')) &&
+            fs.readFileSync(profileFile(child, 'harness-compiler'), 'utf8').trim() === PROFILE_COMPILER_VERSION,
+        JSON.stringify({ child, outdated, results })
+    )
+})
+
+await expectCase('a profile with the current compiler version keeps its files at boot', async () => {
+    const record = saveHarness(
+        {
+            name: 'macurrentchief',
+            chatflowId: 'canvas-current-chief',
+            chief: { instructions: 'Route.', model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } } },
+            specialists: [
+                {
+                    name: 'alpha',
+                    instructions: 'Alpha work.',
+                    model: { nodeName: 'chatXAI', label: 'xAI Grok', inputs: { modelName: 'grok-4.7' } },
+                    modules: [{ nodeName: 'calculator', label: 'Calculator', category: 'Tools', inputs: {} }]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(record)
+    const soul = profileFile('macurrentchief', 'SOUL.md')
+    fs.writeFileSync(soul, 'edited after compile\n')
+    const results = recompileOutdatedProfiles([record], { log: {} })
+    check(
+        'a profile with the current compiler version keeps its files at boot',
+        results.length === 0 && fs.readFileSync(soul, 'utf8') === 'edited after compile\n',
+        JSON.stringify(results)
+    )
+})
+
 await expectCase('the gateway answers chat completions on the node instance', async () => {
     resetFakes()
     FakeToolChat.handler = () => ({ content: '', tool_calls: [{ id: 'call_gw', name: 'calculator', args: { input: '17*3' } }] })
@@ -13876,12 +15363,51 @@ await expectCase('a stored question is redacted in full and does not push the tr
 contract.server.close()
 const gatewayMod = await import('./gateway.mjs')
 const healthGateway = await gatewayMod.startGateway({ host: '127.0.0.1', port: 0 })
+{
+    // A port another process holds fails the start, so the boot pass keeps health held instead of trusting that process.
+    const holder = http.createServer((req, res) => res.end('{"status":"ok"}'))
+    await new Promise((resolve) => holder.listen(0, '127.0.0.1', resolve))
+    let busyError = null
+    try {
+        await gatewayMod.startGateway({ host: '127.0.0.1', port: holder.address().port })
+    } catch (error) {
+        busyError = error
+    }
+    await new Promise((resolve) => holder.close(resolve))
+    check('the gateway start fails when its port is taken', busyError?.code === 'EADDRINUSE', String(busyError?.message || 'resolved'))
+}
 const healthResponse = await fetch(`http://127.0.0.1:${healthGateway.port}/health`)
 const healthBody = await healthResponse.json()
 check(
     'the harness gateway health answers without a token',
     healthResponse.status === 200 && healthBody.ok === true,
     String(healthResponse.status)
+)
+const releaseHealth = gatewayMod.holdGatewayHealth()
+const secondHold = gatewayMod.holdGatewayHealth()
+const heldStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+releaseHealth()
+releaseHealth()
+const oneHeldStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+secondHold()
+const releasedStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+// Under start-cuttlely.sh, health waits from the first request until the boot pass says it is done.
+const savedHoldUntilBoot = process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT
+process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT = '1'
+const bootPendingStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+gatewayMod.finishGatewayBoot()
+const bootDoneStatus = (await fetch(`http://127.0.0.1:${healthGateway.port}/health`)).status
+if (savedHoldUntilBoot === undefined) delete process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT
+else process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT = savedHoldUntilBoot
+check(
+    'the gateway health waits for the boot recompile when the start script asks it to',
+    bootPendingStatus === 503 && bootDoneStatus === 200,
+    JSON.stringify({ bootPendingStatus, bootDoneStatus })
+)
+check(
+    'the gateway health waits while the boot recompile holds it',
+    heldStatus === 503 && oneHeldStatus === 503 && releasedStatus === 200,
+    JSON.stringify({ heldStatus, oneHeldStatus, releasedStatus })
 )
 await healthGateway.close()
 if (typeof gatewayMod.stopGateway === 'function') await gatewayMod.stopGateway()
@@ -15325,15 +16851,38 @@ await (async () => {
     const savedToken = 'S'.repeat(43)
     const savedEnv = path.join(profiles, `${savedName}--clerk`, '.env')
     const realRm = fs.rmSync
+    const realUnlink = fs.unlinkSync
+    const realRmdir = fs.rmdirSync
     let armed = true
-    fs.rmSync = function rmSync(target, options) {
+    const busyDirs = [parentWork, childDir, fittedDir]
+    const hitsBusy = (target) => {
         const text = String(target)
-        if (armed && (text === parentWork || text === childDir || text === fittedDir)) {
-            const error = new Error('EBUSY')
-            error.code = 'EBUSY'
-            throw error
+        if (busyDirs.includes(text)) return true
+        if (!text.startsWith('/proc/self/fd/')) return false
+        try {
+            const real = fs.realpathSync(text)
+            return busyDirs.some((dir) => real === dir || real.startsWith(dir + path.sep))
+        } catch {
+            return false
         }
+    }
+    const throwBusy = (target) => {
+        if (!armed || !hitsBusy(target)) return
+        const error = new Error('EBUSY')
+        error.code = 'EBUSY'
+        throw error
+    }
+    fs.rmSync = function rmSync(target, options) {
+        throwBusy(target)
         return realRm.call(fs, target, options)
+    }
+    fs.unlinkSync = function unlinkSync(target) {
+        throwBusy(target)
+        return realUnlink.call(fs, target)
+    }
+    fs.rmdirSync = function rmdirSync(target) {
+        throwBusy(target)
+        return realRmdir.call(fs, target)
     }
     let failed = null
     try {
@@ -15391,6 +16940,8 @@ await (async () => {
         )
     } finally {
         fs.rmSync = realRm
+        fs.unlinkSync = realUnlink
+        fs.rmdirSync = realRmdir
     }
 })()
 
@@ -15852,20 +17403,48 @@ await (async () => {
         closed.push(...names)
     }
     const realRm = fs.rmSync
+    const realUnlink = fs.unlinkSync
+    const realRmdir = fs.rmdirSync
     const failedFirst = new Set()
-    fs.rmSync = function rmSync(target, options) {
+    const busyProfile = (target) => {
         const text = String(target)
-        const ownProfile =
-            text.includes(`${path.sep}profiles${path.sep}`) &&
-            (text.endsWith(`${path.sep}${scope}`) || text.endsWith(`${path.sep}${child}`))
-        if (ownProfile && closed.length === 0) removedBeforeClose = true
-        if (ownProfile && !failedFirst.has(text)) {
-            failedFirst.add(text)
+        const match = (real) => {
+            if (!real.includes(`${path.sep}profiles${path.sep}`)) return ''
+            if (real === path.join(profiles, scope) || real.startsWith(path.join(profiles, scope) + path.sep)) return scope
+            if (real === path.join(profiles, child) || real.startsWith(path.join(profiles, child) + path.sep)) return child
+            return ''
+        }
+        const direct = match(text)
+        if (direct) return direct
+        if (!text.startsWith('/proc/self/fd/')) return ''
+        try {
+            return match(fs.realpathSync(text))
+        } catch {
+            return ''
+        }
+    }
+    const throwBusyOnce = (target) => {
+        const profile = busyProfile(target)
+        if (!profile) return
+        if (closed.length === 0) removedBeforeClose = true
+        if (!failedFirst.has(profile)) {
+            failedFirst.add(profile)
             const error = new Error('EBUSY')
             error.code = 'EBUSY'
             throw error
         }
+    }
+    fs.rmSync = function rmSync(target, options) {
+        throwBusyOnce(target)
         return realRm.call(fs, target, options)
+    }
+    fs.unlinkSync = function unlinkSync(target) {
+        throwBusyOnce(target)
+        return realUnlink.call(fs, target)
+    }
+    fs.rmdirSync = function rmdirSync(target) {
+        throwBusyOnce(target)
+        return realRmdir.call(fs, target)
     }
     const warnings = []
     const realWarn = console.warn
@@ -15877,6 +17456,8 @@ await (async () => {
         failed = error
     } finally {
         fs.rmSync = realRm
+        fs.unlinkSync = realUnlink
+        fs.rmdirSync = realRmdir
         console.warn = realWarn
         tryRuntime.closeProfiles = null
         tryRuntime.afterFirstRemoval = null
@@ -15926,14 +17507,40 @@ await (async () => {
         closed.push(...names)
     }
     const realRm = fs.rmSync
-    fs.rmSync = function rmSync(target, options) {
+    const realUnlink = fs.unlinkSync
+    const realRmdir = fs.rmdirSync
+    const staysBusy = (target) => {
         const text = String(target)
-        if (text.includes(`${path.sep}profiles${path.sep}${scope}`)) {
-            const error = new Error('EBUSY')
-            error.code = 'EBUSY'
-            throw error
+        const match = (real) =>
+            real === path.join(profiles, scope) ||
+            real.startsWith(path.join(profiles, scope) + path.sep) ||
+            real === path.join(profiles, child) ||
+            real.startsWith(path.join(profiles, child) + path.sep)
+        if (match(text)) return true
+        if (!text.startsWith('/proc/self/fd/')) return false
+        try {
+            return match(fs.realpathSync(text))
+        } catch {
+            return false
         }
+    }
+    const throwBusy = (target) => {
+        if (!staysBusy(target)) return
+        const error = new Error('EBUSY')
+        error.code = 'EBUSY'
+        throw error
+    }
+    fs.rmSync = function rmSync(target, options) {
+        throwBusy(target)
         return realRm.call(fs, target, options)
+    }
+    fs.unlinkSync = function unlinkSync(target) {
+        throwBusy(target)
+        return realUnlink.call(fs, target)
+    }
+    fs.rmdirSync = function rmdirSync(target) {
+        throwBusy(target)
+        return realRmdir.call(fs, target)
     }
     const warnings = []
     const realWarn = console.warn
@@ -15945,6 +17552,8 @@ await (async () => {
         failed = error
     } finally {
         fs.rmSync = realRm
+        fs.unlinkSync = realUnlink
+        fs.rmdirSync = realRmdir
         console.warn = realWarn
         tryRuntime.closeProfiles = null
     }
