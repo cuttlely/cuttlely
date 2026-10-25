@@ -26,6 +26,38 @@ import { formatLogToString } from '@langchain/classic/agents/format_scratchpad/l
 import { IUsedTool } from './Interface'
 import { getErrorMessage } from './error'
 
+/**
+ * One entry is kept per tool name, so a repeated name would drop every tool but one.
+ * Fail here, while the caller is built, and name the tools that clash.
+ * `subject` is the word in the error: an agent says "This agent", a Custom JS Function says "This function".
+ * `match` is `lowercase` only where the executor looks tools up in lowercase (AgentExecutor). Agentflow matches the name exactly.
+ */
+export function assertUniqueToolNames(
+    tools: unknown,
+    subject: 'agent' | 'function' = 'agent',
+    match: 'lowercase' | 'exact' = 'lowercase'
+): void {
+    const list = flatten(Array.isArray(tools) ? tools : [])
+    const counts = new Map<string, number>()
+    for (const tool of list) {
+        const raw = tool && typeof tool === 'object' ? (tool as { name?: unknown }).name : undefined
+        if (typeof raw !== 'string') continue
+        const trimmed = raw.trim()
+        const name = match === 'lowercase' ? trimmed.toLowerCase() : trimmed
+        if (!name) continue
+        counts.set(name, (counts.get(name) || 0) + 1)
+    }
+    const duplicates = [...counts.entries()]
+        .filter(([, count]) => count > 1)
+        .map(([name]) => name)
+        .sort()
+    if (!duplicates.length) return
+    const quoted = duplicates.map((name) => `"${name}"`).join(' and ')
+    const who = subject === 'function' ? 'function' : 'agent'
+    const where = who === 'function' ? 'a function' : 'an agent'
+    throw new Error(`This ${who} has more than one tool named ${quoted}. Each tool on ${where} needs its own name.`)
+}
+
 export const SOURCE_DOCUMENTS_PREFIX = '\n\n----FLOWISE_SOURCE_DOCUMENTS----\n\n'
 export const ARTIFACTS_PREFIX = '\n\n----FLOWISE_ARTIFACTS----\n\n'
 
@@ -332,6 +364,7 @@ export class AgentExecutor extends BaseChain<ChainValues, AgentExecutorOutput> {
     }
 
     constructor(input: AgentExecutorInput & { sessionId?: string; chatId?: string; input?: string; isXML?: boolean }) {
+        assertUniqueToolNames(input?.tools)
         let agent: BaseSingleActionAgent | BaseMultiActionAgent
         if (Runnable.isRunnable(input.agent)) {
             agent = new RunnableAgent({ runnable: input.agent })

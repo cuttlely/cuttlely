@@ -1,4 +1,4 @@
-import { flatten } from 'lodash'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import {
     ICommonObject,
     IDatabaseEntity,
@@ -319,7 +319,7 @@ class ToolNode_SeqAgents implements INode {
         const rejectButtonText = nodeData.inputs?.rejectButtonText as string
 
         let tools = nodeData.inputs?.tools
-        tools = flatten(tools)
+        tools = prepareAgentTools(tools)
         if (!tools || !tools.length) throw new Error('Tools must not be empty')
 
         const output = nodeData.outputs?.output as string

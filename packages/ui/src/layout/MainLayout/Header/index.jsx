@@ -88,6 +88,9 @@ const Header = ({ handleLeftDrawerToggle }) => {
     const dispatch = useDispatch()
     const { isEnterpriseLicensed, isCloud } = useConfig()
     const isAuthenticated = useSelector((state) => state.auth.isAuthenticated)
+    const currentUser = useSelector((state) => state.auth.user)
+    const teamCount = currentUser?.assignedWorkspaces?.length || 0
+    const showTeamSwitcher = isAuthenticated && (isEnterpriseLicensed || teamCount > 1)
 
     useNotifier()
 
@@ -165,7 +168,7 @@ const Header = ({ handleLeftDrawerToggle }) => {
                 )}
             </Box>
             <Box sx={{ flexGrow: 1 }} />
-            {isEnterpriseLicensed && isAuthenticated && <WorkspaceSwitcher />}
+            {showTeamSwitcher && <WorkspaceSwitcher />}
             {isCloud && isAuthenticated && <OrgWorkspaceBreadcrumbs />}
             <MaterialUISwitch checked={isDark} onChange={changeDarkMode} />
             <Box sx={{ ml: 2 }}></Box>

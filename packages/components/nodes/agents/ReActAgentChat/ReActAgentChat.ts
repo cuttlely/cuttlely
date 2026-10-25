@@ -1,4 +1,3 @@
-import { flatten } from 'lodash'
 import { AgentExecutor } from '@langchain/classic/agents'
 import { ChatPromptTemplate, HumanMessagePromptTemplate } from '@langchain/core/prompts'
 import { Tool } from '@langchain/core/tools'
@@ -8,7 +7,8 @@ import { pull } from 'langchain/hub'
 import { additionalCallbacks } from '../../../src/handler'
 import { FlowiseMemory, ICommonObject, IMessage, INode, INodeData, INodeParams } from '../../../src/Interface'
 import { getBaseClasses } from '../../../src/utils'
-import { createReactAgent } from '../../../src/agents'
+import { assertUniqueToolNames, createReactAgent } from '../../../src/agents'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import { addImagesToMessages, llmSupportsVision } from '../../../src/multiModalUtils'
 import { checkInputs, Moderation } from '../../moderation/Moderation'
 import { formatResponse } from '../../outputparsers/OutputParserHelpers'
@@ -99,7 +99,9 @@ class ReActAgentChat_Agents implements INode {
                 return formatResponse(e.message)
             }
         }
-        tools = flatten(tools)
+        tools = prepareAgentTools(tools)
+        // The classic executor does not reject a repeated tool name. Fail before the hub prompt is loaded.
+        assertUniqueToolNames(tools)
 
         const prompt = await pull<PromptTemplate>('hwchase17/react-chat')
         let chatPromptTemplate = undefined
