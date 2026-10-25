@@ -532,6 +532,7 @@ packages/components/nodes/tools/ChainTool/chaintool.svg
 packages/components/nodes/tools/ChainTool/core.ts
 packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts
 packages/components/nodes/tools/ChatflowTool/chatflowTool.svg
+packages/components/nodes/tools/CurrentDateTime/CurrentDateTime.test.ts
 packages/components/nodes/tools/CurrentDateTime/CurrentDateTime.ts
 packages/components/nodes/tools/CurrentDateTime/currentDateTime.svg
 packages/components/nodes/tools/CustomTool/CustomTool.ts
