@@ -8120,6 +8120,8 @@ await expectCase('a profile link in a 0555 directory stays failed and off the lo
         fs.rmSync(home, { recursive: true, force: true })
         fs.rmSync(outside, { recursive: true, force: true })
     }
+    // The array is the block list boot refuses to start on, not the set of profiles to load.
+    // This parent cannot be updated, so the link has to stay in the report or the runtime would start.
     check(
         'a profile link in a 0555 directory stays failed and off the load path',
         stillLink &&

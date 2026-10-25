@@ -487,8 +487,10 @@ const NOFOLLOW = fs.constants.O_NOFOLLOW || 0
 const DIR_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | NOFOLLOW
 
 function fdPath(dirFd, name) {
-    if (process.platform === 'linux') return `/proc/self/fd/${dirFd}/${name}`
-    return null
+    // An absolute path opened after the parent was checked still walks every ancestor.
+    // Without a descriptor path, or without O_NOFOLLOW, that walk can follow a link.
+    if (process.platform !== 'linux' || !fs.constants.O_NOFOLLOW) return null
+    return `/proc/self/fd/${dirFd}/${name}`
 }
 
 function realOfFd(fd) {
@@ -568,7 +570,8 @@ function openDirNoFollow(dir, options = {}) {
             const logical = paths[i]
             const part = path.basename(logical)
             if (!part || part === '.' || part === '..') return stop(logical)
-            const via = fdPath(dirFd, part) || logical
+            const via = fdPath(dirFd, part)
+            if (!via) return stop(logical)
             let next
             try {
                 next = fs.openSync(via, DIR_FLAGS)
@@ -606,15 +609,17 @@ function assertDirNoFollow(dir) {
     if (opened) closeFds(opened.fds)
 }
 
-// Linux names the child through the directory descriptor. Other platforms use the path of that
-// directory, which was opened with O_NOFOLLOW, and open the child the same way.
+// The child is named through the directory descriptor. The absolute path would follow an ancestor
+// swapped after this directory was opened, so a missing descriptor path is refused.
 function childPath(dirFd, logicalDir, name) {
-    return fdPath(dirFd, name) || path.join(logicalDir, name)
+    const via = fdPath(dirFd, name)
+    if (!via) throwLink(path.join(logicalDir, name))
+    return via
 }
 
 function namesIn(fd, logicalDir) {
-    if (process.platform === 'linux') return fs.readdirSync(`/proc/self/fd/${fd}`)
-    return fs.readdirSync(logicalDir)
+    if (!fdPath(fd, '.')) throwLink(logicalDir)
+    return fs.readdirSync(`/proc/self/fd/${fd}`)
 }
 
 function lstatChild(dirFd, logicalDir, name) {
@@ -767,7 +772,8 @@ function readTextNoFollow(file, hook = false) {
         if (hook && typeof profileWriteTest.beforeEnvRead === 'function') profileWriteTest.beforeEnvRead(file)
         const base = path.basename(file)
         if (!base || base === '.' || base === '..') throwLink(file)
-        const via = fdPath(opened.fd, base) || file
+        const via = fdPath(opened.fd, base)
+        if (!via) throwLink(file)
         let fileFd
         try {
             fileFd = fs.openSync(via, fs.constants.O_RDONLY | NOFOLLOW)
@@ -809,7 +815,8 @@ function writeContained(file, text, mode = 0o644) {
         for (const part of parts) {
             if (part === '.' || part === '..') throwLink(file)
             logical = path.join(logical, part)
-            const via = fdPath(dirFd, part) || logical
+            const via = fdPath(dirFd, part)
+            if (!via) refuseLink(logical)
             let next
             try {
                 next = fs.openSync(via, DIR_FLAGS)
@@ -835,7 +842,8 @@ function writeContained(file, text, mode = 0o644) {
             if (error?.code !== 'ENOENT') throw error
         }
         if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(file)
-        const fileVia = fdPath(dirFd, fileName) || path.join(logical, fileName)
+        const fileVia = fdPath(dirFd, fileName)
+        if (!fileVia) refuseLink(path.join(logical, fileName))
         const fileFlags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | NOFOLLOW
         let fileFd
         try {
@@ -862,14 +870,33 @@ function writeContained(file, text, mode = 0o644) {
     }
 }
 
-function writeIfChanged(file, text) {
-    assertContained(file)
-    let st = null
+// Stats the final component through the opened parent. A logical lstat would follow an ancestor
+// swapped after that parent was checked.
+function lstatNoFollow(file) {
+    const parent = path.dirname(path.resolve(file))
+    const base = path.basename(path.resolve(file))
+    if (!base || base === '.' || base === '..') throwLink(file)
+    const opened = openDirNoFollow(parent)
+    if (!opened) return null
     try {
-        st = fs.lstatSync(file)
-    } catch (error) {
-        if (error?.code !== 'ENOENT') throw error
+        const via = fdPath(opened.fd, base)
+        if (!via) throwLink(file)
+        try {
+            return fs.lstatSync(via)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return null
+            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') refuseLink(file)
+            throw error
+        }
+    } finally {
+        closeFds(opened.fds)
     }
+}
+
+function writeIfChanged(file, text) {
+    refuseAncestorsOf(file)
+    assertContained(file)
+    const st = lstatNoFollow(file)
     if (st?.isSymbolicLink()) refuseLink(file)
     if (st && readTextNoFollow(file) === text) return
     writeContained(file, text)
@@ -896,13 +923,9 @@ function readEnvFile(file) {
 function writeEnvFile(file, env) {
     const lines = Object.entries(env).map(([key, value]) => `${key}=${value ?? ''}`)
     const text = lines.join('\n') + '\n'
+    refuseAncestorsOf(file)
     assertContained(file)
-    let st = null
-    try {
-        st = fs.lstatSync(file)
-    } catch (error) {
-        if (error?.code !== 'ENOENT') throw error
-    }
+    const st = lstatNoFollow(file)
     if (st?.isSymbolicLink()) refuseLink(file)
     if (st && readTextNoFollow(file) === text) return
     writeContained(file, text, 0o600)
@@ -1804,10 +1827,9 @@ function linksLeftAfterPreflight(dir) {
     const walk = (current) => {
         const st = lstatStopped(current)
         if (!st || !st.isDirectory()) return
-        let names = []
-        try {
-            names = fs.readdirSync(current)
-        } catch {
+        const names = listDirNoFollow(current)
+        if (!names) {
+            lstatStopped(current)
             return
         }
         for (const name of names) {
@@ -1840,7 +1862,20 @@ export function setAsideOutdatedConfigs() {
     }
     if (!present(root)) return []
     const loadable = []
-    for (const entry of fs.readdirSync(root)) {
+    const entries = listDirNoFollow(root)
+    if (!entries) {
+        try {
+            if (fs.lstatSync(root).isSymbolicLink()) {
+                if (quarantineSymlink(root)) return []
+                return [root]
+            }
+        } catch (error) {
+            if (error?.code === 'ENOENT') return []
+            throw error
+        }
+        throw new HarnessError('profile_link', `profile path is a link: ${root}`)
+    }
+    for (const entry of entries) {
         if (isQuarantineName(entry)) continue
         const dir = path.join(root, entry)
         let linked = false
@@ -2688,7 +2723,8 @@ function configHeldFromDir(config, inject) {
         if (inject && typeof profileWriteTest.betweenCacheChecks === 'function') {
             profileWriteTest.betweenCacheChecks(config.dirPath, dirFd)
         }
-        const via = fdPath(dirFd, 'config.yaml') || path.join(config.dirPath, 'config.yaml')
+        const via = fdPath(dirFd, 'config.yaml')
+        if (!via) return false
         let fileFd
         try {
             fileFd = fs.openSync(via, fs.constants.O_RDONLY | NOFOLLOW)

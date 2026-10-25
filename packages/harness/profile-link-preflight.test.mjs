@@ -20,6 +20,7 @@ const {
     specialistWorkspace
 } = await import('./profile.mjs')
 const { installPresetKit } = await import('./presets.mjs')
+const { readFileNoFollow } = await import('./contained-walk.mjs')
 const { bootHarnessGateway, profileTokenKnown } = await import('./gateway.mjs')
 
 const failures = []
@@ -1477,6 +1478,377 @@ function cleanupProfile(name) {
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
+function withPlatform(platform, fn) {
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: platform })
+    try {
+        return fn()
+    } finally {
+        Object.defineProperty(process, 'platform', descriptor)
+    }
+}
+
+function swapTree(slot, replacement) {
+    const held = `${slot}.held`
+    fs.renameSync(slot, held)
+    fs.symlinkSync(replacement, slot)
+    return held
+}
+
+function restoreTree(slot, held) {
+    if (!held) return
+    const current = fs.lstatSync(slot, { throwIfNoEntry: false })
+    if (current?.isSymbolicLink()) fs.unlinkSync(slot)
+    if (!fs.existsSync(slot) && fs.existsSync(held)) fs.renameSync(held, slot)
+}
+
+// Hole: without a directory-descriptor path, the file open uses the absolute path after the parent
+// was checked. An ancestor swapped in that gap is followed.
+{
+    const name = 'plinknfread'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-nf-read-'))
+    const slot = path.join(scratch, 'slot')
+    const outSlot = path.join(scratch, 'outslot')
+    const home = path.join(slot, 'home')
+    fs.mkdirSync(path.join(home, 'profiles', name), { recursive: true })
+    fs.mkdirSync(path.join(outSlot, 'home', 'profiles', name), { recursive: true })
+    const envFile = path.join(home, 'profiles', name, '.env')
+    const outsideEnv = path.join(outSlot, 'home', 'profiles', name, '.env')
+    fs.writeFileSync(envFile, 'API_SERVER_KEY=safe-local\n')
+    fs.writeFileSync(outsideEnv, 'OUTSIDE_ENV_SENTINEL=secret-ancestor-swap\n')
+    const outsideBefore = stamp(outsideEnv)
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let swapped = false
+    let held = ''
+    let readBack = ''
+    let refused = ''
+    profileWriteTest.beforeEnvRead = (file) => {
+        if (swapped || path.resolve(file) !== path.resolve(envFile)) return
+        swapped = true
+        held = swapTree(slot, outSlot)
+    }
+    try {
+        withPlatform('darwin', () => {
+            try {
+                readBack = readProfileEnv(name).OUTSIDE_ENV_SENTINEL || ''
+            } catch (error) {
+                refused = error?.code || ''
+                readBack = ''
+            }
+        })
+    } finally {
+        profileWriteTest.beforeEnvRead = null
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        restoreTree(slot, held)
+    }
+    check(
+        'a non-linux read does not follow an ancestor swapped before the file open',
+        readBack !== 'secret-ancestor-swap' && sameStamp(outsideEnv, outsideBefore),
+        JSON.stringify({ swapped, refused, readBack })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
+// Hole: the same absolute-path fallback truncates a file reached through the swapped ancestor.
+{
+    const name = 'plinknfwrite'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-nf-write-'))
+    const slot = path.join(scratch, 'slot')
+    const outSlot = path.join(scratch, 'outslot')
+    const home = path.join(slot, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const saved = record(name, [])
+    let held = ''
+    let swapped = false
+    let refused = ''
+    let outsideLeak = ''
+    try {
+        compileProfileCached(saved)
+        forgetCompiledProfile(name)
+        const profileDirPath = path.join(home, 'profiles', name)
+        const mirror = path.join(outSlot, 'home', 'profiles', name)
+        fs.mkdirSync(mirror, { recursive: true })
+        fs.writeFileSync(path.join(mirror, 'sentinel'), 'nf-write-sentinel\n')
+        const sentinelBefore = stamp(path.join(mirror, 'sentinel'))
+        profileWriteTest.beforeFinalOpen = () => {
+            if (swapped) return
+            swapped = true
+            held = swapTree(slot, outSlot)
+        }
+        withPlatform('darwin', () => {
+            try {
+                compileProfileCached({ ...saved, chief: { instructions: 'Route somewhere else.', model: model() } })
+            } catch (error) {
+                refused = error?.code || ''
+            }
+        })
+        const names = fs.existsSync(mirror) ? fs.readdirSync(mirror).sort() : []
+        outsideLeak = names.filter((entry) => entry !== 'sentinel').join(',')
+        const sentinelSame = fs.existsSync(path.join(mirror, 'sentinel')) && sameStamp(path.join(mirror, 'sentinel'), sentinelBefore)
+        check(
+            'a non-linux write does not follow an ancestor swapped before the file open',
+            sentinelSame && outsideLeak === '' && !treeHas(mirror, Buffer.from('Route somewhere else.')),
+            JSON.stringify({ swapped, refused, outsideLeak, names, profileExisted: fs.existsSync(profileDirPath) })
+        )
+    } finally {
+        profileWriteTest.beforeFinalOpen = null
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        restoreTree(slot, held)
+        forgetCompiledProfile(name)
+    }
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
+// Hole: contained-walk uses the same absolute path when it has no descriptor path.
+{
+    const name = 'plinknfwalk'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-nf-walk-'))
+    const slot = path.join(scratch, 'slot')
+    const outSlot = path.join(scratch, 'outslot')
+    const home = path.join(slot, 'home')
+    const dir = path.join(home, 'profiles', name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.mkdirSync(path.join(outSlot, 'home', 'profiles', name), { recursive: true })
+    const target = path.join(dir, 'note.txt')
+    const outsideFilePath = path.join(outSlot, 'home', 'profiles', name, 'note.txt')
+    fs.writeFileSync(target, 'safe-note\n')
+    fs.writeFileSync(outsideFilePath, 'OUTSIDE-WALK-SECRET\n')
+    const outsideBefore = stamp(outsideFilePath)
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const origOpen = fs.openSync
+    let swapped = false
+    let held = ''
+    let text = ''
+    try {
+        fs.openSync = (p, ...args) => {
+            if (!swapped && typeof p === 'string' && path.resolve(p) === path.resolve(target)) {
+                swapped = true
+                held = swapTree(slot, outSlot)
+            }
+            return origOpen(p, ...args)
+        }
+        withPlatform('darwin', () => {
+            text = readFileNoFollow(target) || ''
+        })
+    } finally {
+        fs.openSync = origOpen
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        restoreTree(slot, held)
+    }
+    check(
+        'a non-linux contained read does not follow an ancestor swapped before the file open',
+        !text.includes('OUTSIDE-WALK-SECRET') && sameStamp(outsideFilePath, outsideBefore),
+        JSON.stringify({ swapped, text })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
+// Hole: the boot sweep lists a directory after lstat, so a swap in that gap is followed.
+{
+    const name = 'plinklistswap'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-list-'))
+    const home = path.join(scratch, 'home')
+    const root = path.join(home, 'profiles')
+    const dir = path.join(root, name)
+    const books = path.join(dir, 'skills', 'harness-playbooks')
+    fs.mkdirSync(books, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'harness-roster.json'), '{}\n')
+    fs.writeFileSync(path.join(dir, 'config.yaml'), 'old\n')
+    const soulOutside = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-list-soul-'))
+    fs.writeFileSync(path.join(soulOutside, 'soul'), 'soul-target\n')
+    fs.symlinkSync(path.join(soulOutside, 'soul'), path.join(dir, 'SOUL.md'))
+    const outside = outsideDir('list-swap', 'list-swap-sentinel\n')
+    fs.writeFileSync(path.join(outside.dir, 'secret-listing.txt'), 'listed-through-the-link\n')
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let swapped = false
+    let held = ''
+    let guarded = { hits: [], error: null, result: null }
+    try {
+        guarded = guardLink(books, outside.dir, () => {
+            const wrapped = fs.readdirSync
+            fs.readdirSync = (p, ...args) => {
+                if (!swapped && typeof p === 'string' && path.resolve(p) === path.resolve(books)) {
+                    swapped = true
+                    held = `${books}.held`
+                    fs.renameSync(books, held)
+                    fs.symlinkSync(outside.dir, books)
+                }
+                return wrapped(p, ...args)
+            }
+            try {
+                return setAsideOutdatedConfigs()
+            } finally {
+                fs.readdirSync = wrapped
+            }
+        })
+    } finally {
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        const current = fs.lstatSync(books, { throwIfNoEntry: false })
+        if (current?.isSymbolicLink()) fs.unlinkSync(books)
+        if (held && fs.existsSync(held) && !fs.existsSync(books)) fs.renameSync(held, books)
+    }
+    check(
+        'the boot sweep does not list a directory swapped for a link before the listing',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            sameStamp(outside.file, outside.before) &&
+            fs.readFileSync(path.join(outside.dir, 'secret-listing.txt'), 'utf8') === 'listed-through-the-link\n',
+        JSON.stringify({ swapped, hits: guarded.hits, error: guarded.error?.code || guarded.error?.message || '' })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(soulOutside, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Hole: the profiles root is listed the same way, after it was seen as a real directory.
+{
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-root-list-'))
+    const home = path.join(scratch, 'home')
+    const root = path.join(home, 'profiles')
+    fs.mkdirSync(root, { recursive: true })
+    const outside = outsideDir('root-list', 'root-list-sentinel\n')
+    fs.writeFileSync(path.join(outside.dir, 'secret-profile'), 'from-outside\n')
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let swapped = false
+    let held = ''
+    let guarded = { hits: [], error: null, result: null }
+    try {
+        guarded = guardLink(root, outside.dir, () => {
+            const wrapped = fs.readdirSync
+            fs.readdirSync = (p, ...args) => {
+                if (!swapped && typeof p === 'string' && path.resolve(p) === path.resolve(root)) {
+                    swapped = true
+                    held = path.join(home, 'profiles.held')
+                    fs.renameSync(root, held)
+                    fs.symlinkSync(outside.dir, root)
+                }
+                return wrapped(p, ...args)
+            }
+            try {
+                return setAsideOutdatedConfigs()
+            } finally {
+                fs.readdirSync = wrapped
+            }
+        })
+    } finally {
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        const current = fs.lstatSync(root, { throwIfNoEntry: false })
+        if (current?.isSymbolicLink()) fs.unlinkSync(root)
+        if (held && fs.existsSync(held) && !fs.existsSync(root)) fs.renameSync(held, root)
+    }
+    check(
+        'the boot sweep does not list the profiles root swapped for a link before the listing',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            sameStamp(outside.file, outside.before) &&
+            fs.readFileSync(path.join(outside.dir, 'secret-profile'), 'utf8') === 'from-outside\n',
+        JSON.stringify({ swapped, hits: guarded.hits, error: guarded.error?.code || guarded.error?.message || '' })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Hole: a kit file whose no-follow read returns null is still written with the path, which follows a link.
+{
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-kit-link-'))
+    const outside = outsideDir('kit-link', 'kit-link-sentinel\n')
+    const linkedWorkspace = path.join(scratch, 'linked-workspace')
+    fs.symlinkSync(outside.dir, linkedWorkspace)
+    const plain = path.join(scratch, 'plain-workspace')
+    fs.mkdirSync(plain)
+    let error = ''
+    try {
+        installPresetKit({ preset: 'assets' }, linkedWorkspace)
+        installPresetKit({ preset: 'assets' }, plain)
+    } catch (caught) {
+        error = caught?.code || caught?.message || ''
+    }
+    check(
+        'a preset kit is not written through a link',
+        error === '' &&
+            sameStamp(outside.file, outside.before) &&
+            !fs.existsSync(path.join(outside.dir, 'cuttlely_assets.py')) &&
+            fs.existsSync(path.join(plain, 'cuttlely_assets.py')) &&
+            fs.readFileSync(path.join(plain, 'cuttlely_assets.py'), 'utf8').includes('TABLE_THEME'),
+        JSON.stringify({
+            error,
+            outside: fs.existsSync(outside.dir) ? fs.readdirSync(outside.dir).sort() : [],
+            plain: fs.existsSync(plain) ? fs.readdirSync(plain).sort() : []
+        })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Hole: writeIfChanged and writeEnvFile lstat the logical path before the ancestor is opened no-follow.
+{
+    const name = 'plinkstatfirst'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-stat-'))
+    const slot = path.join(scratch, 'slot')
+    const outSlot = path.join(scratch, 'outslot')
+    const home = path.join(slot, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    fs.mkdirSync(outSlot)
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const origLstat = fs.lstatSync
+    let swapped = false
+    let held = ''
+    let followed = false
+    let directStats = 0
+    try {
+        fs.lstatSync = (p, ...args) => {
+            if (typeof p === 'string' && path.resolve(p).startsWith(slot + path.sep)) {
+                const stack = new Error().stack || ''
+                const direct =
+                    (stack.includes('writeIfChanged') || stack.includes('writeEnvFile')) &&
+                    !stack.includes('assertContained') &&
+                    !stack.includes('writeContained')
+                if (direct && !swapped) {
+                    directStats += 1
+                    const rel = path.relative(slot, path.resolve(p))
+                    const dest = path.join(outSlot, rel)
+                    fs.mkdirSync(path.dirname(dest), { recursive: true })
+                    fs.writeFileSync(dest, 'OUTSIDE-SECRET-STAT\n')
+                    const marker = fs.statSync(dest)
+                    held = swapTree(slot, outSlot)
+                    swapped = true
+                    const st = origLstat(p, ...args)
+                    if (st && st.ino === marker.ino && st.dev === marker.dev) followed = true
+                    return st
+                }
+            }
+            return origLstat(p, ...args)
+        }
+        try {
+            compileProfileCached(record(name))
+        } catch {
+            // A refusal after the stat is still a follow if the stat already saw the outside file.
+        }
+    } finally {
+        fs.lstatSync = origLstat
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        restoreTree(slot, held)
+        forgetCompiledProfile(name)
+    }
+    check(
+        'a logical stat of the profile env and soul does not follow a swapped ancestor',
+        !followed,
+        JSON.stringify({ swapped, followed, directStats })
+    )
+    const workspace = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces')
+    for (const entry of [`${name}`, `${name}--alpha`]) {
+        fs.rmSync(path.join(workspace, entry), { recursive: true, force: true })
+    }
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'
@@ -1492,11 +1864,8 @@ function cleanupProfile(name) {
         Object.defineProperty(process, 'platform', descriptor)
     }
     check(
-        'a profile compiles where directory descriptors have no proc path',
-        error === '' &&
-            fs.existsSync(profilePath(name, 'config.yaml')) &&
-            !fs.lstatSync(profilePath(name, 'memory')).isSymbolicLink() &&
-            !fs.lstatSync(profilePath(name, 'sessions')).isSymbolicLink(),
+        'a profile is refused where directory descriptors have no proc path',
+        /profile_link/.test(error) && !fs.existsSync(profilePath(name, 'config.yaml')),
         error
     )
     cleanupProfile(name)

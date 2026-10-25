@@ -78,7 +78,30 @@ export function presetSummary(specialist) {
     return name ? SPECIALIST_PRESETS[name].summary : ''
 }
 
+// A symlink anywhere on the path is not a file we may replace. A missing final name is not a link.
+function pathContainsSymlink(file) {
+    const resolved = path.resolve(file)
+    const root = path.parse(resolved).root
+    const rel = path.relative(root, resolved)
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return true
+    let cursor = root
+    for (const part of rel.split(path.sep)) {
+        if (!part || part === '.' || part === '..') return true
+        cursor = path.join(cursor, part)
+        let st
+        try {
+            st = fs.lstatSync(cursor)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return false
+            return true
+        }
+        if (st.isSymbolicLink()) return true
+    }
+    return false
+}
+
 // Copies the preset's kit files into the specialist's working directory. A file that is already the same is left.
+// A no-follow read returns null for a missing file and also for a link. A link is not written.
 export function installPresetKit(specialist, workspace, writeFile = null) {
     const name = presetName(specialist?.preset)
     if (!name || !workspace) return []
@@ -94,6 +117,7 @@ export function installPresetKit(specialist, workspace, writeFile = null) {
         } catch {
             current = null
         }
+        if (pathContainsSymlink(target)) continue
         if (current !== text) write(target, text)
         written.push(target)
     }

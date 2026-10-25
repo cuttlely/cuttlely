@@ -53,8 +53,10 @@ function closeFds(fds) {
 }
 
 function fdPath(dirFd, name) {
-    if (process.platform === 'linux') return `/proc/self/fd/${dirFd}/${name}`
-    return null
+    // An absolute path opened after the parent was checked still walks every ancestor.
+    // Without a descriptor path, or without O_NOFOLLOW, that walk can follow a link.
+    if (process.platform !== 'linux' || !fs.constants.O_NOFOLLOW) return null
+    return `/proc/self/fd/${dirFd}/${name}`
 }
 
 // Opens dir from the filesystem root. A missing component or a link returns null and the link stays put.
@@ -77,7 +79,11 @@ function openDirQuiet(dir) {
                 closeFds(fds)
                 return null
             }
-            const via = fdPath(dirFd, part) || paths[i]
+            const via = fdPath(dirFd, part)
+            if (!via) {
+                closeFds(fds)
+                return null
+            }
             let next
             try {
                 next = fs.openSync(via, DIR_FLAGS)
@@ -105,8 +111,8 @@ export function listDirNoFollow(dir) {
     const opened = openDirQuiet(dir)
     if (!opened) return null
     try {
-        if (process.platform === 'linux') return fs.readdirSync(`/proc/self/fd/${opened.fd}`)
-        return fs.readdirSync(dir)
+        if (!fdPath(opened.fd, '.')) return null
+        return fs.readdirSync(`/proc/self/fd/${opened.fd}`)
     } finally {
         closeFds(opened.fds)
     }
@@ -120,7 +126,8 @@ export function readFileNoFollow(file) {
     try {
         const base = path.basename(file)
         if (!base || base === '.' || base === '..') return null
-        const via = fdPath(opened.fd, base) || file
+        const via = fdPath(opened.fd, base)
+        if (!via) return null
         let fileFd
         try {
             fileFd = fs.openSync(via, fs.constants.O_RDONLY | NOFOLLOW)
