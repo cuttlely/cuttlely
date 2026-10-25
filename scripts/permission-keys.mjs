@@ -17,6 +17,8 @@ function walk(dir, out) {
         if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'build' || entry.name === 'migrations') continue
         const full = path.join(dir, entry.name)
         if (entry.isDirectory()) {
+            // Parallel checks drop a short-lived double here. It is not server source.
+            if (entry.name === 'harness' && dir.endsWith(`${path.sep}services${path.sep}harnesses`)) continue
             walk(full, out)
             continue
         }
