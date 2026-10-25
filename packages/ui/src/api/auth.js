@@ -8,11 +8,13 @@ const localLogin = (body) => client.post(`/auth/local/login`, body, { headers: {
 // permissions
 const getAllPermissions = (type) => client.get(`/auth/permissions/${type}`)
 const ssoSuccess = (token) => client.get(`/auth/sso-success?token=${token}`)
+const refreshSession = () => client.post(`/auth/refreshToken`)
 
 export default {
     resolveLogin,
     login,
     localLogin,
     getAllPermissions,
-    ssoSuccess
+    ssoSuccess,
+    refreshSession
 }
