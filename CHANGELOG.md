@@ -15,6 +15,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   1.4.3 compiles harness profiles from an older compiler again at startup, before the agent runtime reads them. `GET /api/v1/ping` answers 503 `boot recompile` while that pass is the startup gate, then 200. A profile that cannot be read or set aside is logged once and taken off the path the runtime loads. A link inside the profiles root is moved aside to a sibling `.quarantine` name; the target stays. A path outside that root is refused and left in place, never quarantined. A file already at that name is left unchanged. If every suffix is taken, or the move fails, that path is logged once and the profile stays failed. Warm-up holds the profile lock only while it compiles, then waits for the runtime. The rest of the service still comes up. The start script waits at most 300 seconds.
 -   A lone Harness card on an agent keeps `harness`, so existing flows that call `tool:harness` still run. When two or more Harness cards are on one agent, each gets its own tool name with a unique suffix.
 -   The Current Date Time tool can format the local date and time in an IANA timezone. Set **Timezone** on the node, or `CUTTLELY_DEFAULT_TIMEZONE` when that field is empty. A call can pass `timezone`, and that value wins. With none set, the JSON string is unchanged. An unknown timezone returns `error` and does not crash the call. At `2026-10-24T01:30:00Z`, `America/Chicago` reports `2026-10-23`. [Current date and time](./docs/reference/current-date-time.md).
 -   The assets preset fetch judges an IPv4-mapped IPv6 address by the IPv4 address it contains, so a public address written that way can be fetched. Private, loopback, link-local, carrier-grade NAT, multicast, reserved and unspecified addresses in that form stay refused. 6to4 and NAT64 addresses are judged the same way. The former 6to4 relay prefix and the IPv6 documentation prefix stay refused.
@@ -24,6 +25,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   A flow LangSmith credential with no key does not use the server's LangSmith key. Tracing for that flow stays off. A failed upload log records the credential id and the key length, not the key. [LangSmith tracing: which account gets a flow's traces](./docs/reference/langsmith-tracing.md).
 -   Deleting a harness removes its agent runtime profile, its specialists' profiles and their workspaces after their gateway tokens are revoked. [Delete a harness](./docs/how-to/harnesses.md#delete-a-harness).
 -   The assets preset fetches a file only when every address on the way is public, sends a browser-like user agent on that path, and a tool result that reports an error counts as a failed step. [Make files with the assets preset](./docs/how-to/harnesses.md#make-files-with-the-assets-preset).
+-   Native macOS and Windows source installs cannot save or compile agent profiles. Run Cuttlely with Docker there.
 
 ## [1.4.2] - 2026-10-23
 

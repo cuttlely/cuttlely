@@ -54,3 +54,7 @@ Notes
 
 -   Use absolute paths you control in CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS. Relative paths are strongly discouraged and only work if you explicitly allow-list that exact relative path.
 -   npx -y and similar auto-install/execute flags are blocked by design.
+
+## Can a macOS or Windows source install save agent profiles?
+
+No. Native macOS and Windows source installs cannot save or compile agent profiles. Run Cuttlely with Docker there.
