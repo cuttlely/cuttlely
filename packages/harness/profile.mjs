@@ -891,12 +891,20 @@ function writeContained(file, text, mode = 0o644) {
                     // The parent can move outside the root after it was opened. Do not create a child there.
                     if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(logical)
                     fs.mkdirSync(via)
-                    next = fs.openSync(via, DIR_FLAGS)
-                    // The parent can still move between that check and the mkdir. Remove a directory made outside.
+                    try {
+                        next = fs.openSync(via, DIR_FLAGS)
+                    } catch {
+                        // The name changed right after the mkdir. Nothing is opened or removed through it.
+                        throwLink(logical)
+                    }
+                    // The parent can still move between that check and the mkdir. Remove a directory made outside,
+                    // only while that name still holds the directory just opened.
                     if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(next))) {
+                        const made = fs.fstatSync(next)
                         fs.closeSync(next)
                         try {
-                            fs.rmdirSync(via)
+                            const now = fs.lstatSync(via)
+                            if (now.isDirectory() && now.dev === made.dev && now.ino === made.ino) fs.rmdirSync(via)
                         } catch {
                             // Not empty or already gone: only the empty directory this call made is removed.
                         }
