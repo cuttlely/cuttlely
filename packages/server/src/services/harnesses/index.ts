@@ -784,7 +784,10 @@ export async function syncUnderNameLock<T>(
     return withNameLock(name, () =>
         withProfileLock(async () => {
             await assertNameAvailable(name, workspaceId, { claiming: true, record: roster })
-            return write()
+            const result = await write()
+            // A successful canvas republish clears a latched boot failure so assertHarnessAvailable stops returning 503.
+            clearBootFailure(name)
+            return result
         })
     )
 }

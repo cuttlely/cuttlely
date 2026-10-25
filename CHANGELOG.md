@@ -10,7 +10,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   While the startup profile compile runs, the harness gateway `GET /health` and `GET /api/v1/ping` return 503, and the start script waits for it. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300. [Agent runtime health](./docs/how-to/harnesses.md#agent-runtime-health).
+-   While the startup profile compile runs, the harness gateway `GET /health` and `GET /api/v1/ping` return 503, and the start script waits for it. Once the wait cap passes, ping can return 200 while the compile is still running; chat and prediction stay at 503 until it finishes. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300. [Agent runtime health](./docs/how-to/harnesses.md#agent-runtime-health).
 -   Harness Prime's profile does not start a specialist's bridge. Each specialist profile starts its own.
 
 ### Fixed
