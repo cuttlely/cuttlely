@@ -118,7 +118,7 @@ const AddEditWorkspaceDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                         )
                     }
                 })
-                onConfirm(createResp.data.id)
+                onConfirm(createResp.data.id, false, createResp.data)
             }
         } catch (error) {
             enqueueSnackbar({

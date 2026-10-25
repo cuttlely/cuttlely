@@ -279,7 +279,7 @@ const Workspaces = () => {
     }
 
     // Apply a session only when it still names the team on screen, so a refresh cannot move the user.
-    const refreshSessionKeepingTeam = async () => {
+    const refreshSessionKeepingTeam = async (createdWorkspace) => {
         try {
             const sessionResp = await authApi.refreshSession()
             const next = sessionResp?.data
@@ -287,7 +287,26 @@ const Workspaces = () => {
                 store.dispatch(workspaceSwitchSuccess(next))
             }
         } catch (error) {
-            console.error('Failed to refresh the session:', error)
+            const auth = store.getState().auth
+            const user = auth.user
+            if (createdWorkspace && user?.id === currentUser.id) {
+                const assignedWorkspaces = user.assignedWorkspaces || []
+                if (!assignedWorkspaces.some((workspace) => workspace.id === createdWorkspace.id)) {
+                    store.dispatch(
+                        workspaceSwitchSuccess({
+                            ...user,
+                            permissions: auth.permissions,
+                            features: auth.features,
+                            token: auth.token,
+                            assignedWorkspaces: [...assignedWorkspaces, { id: createdWorkspace.id, name: createdWorkspace.name }]
+                        })
+                    )
+                }
+            }
+            enqueueSnackbar({
+                message: 'Team created, but the session could not be refreshed. Please refresh the page to retry.',
+                options: { variant: 'error' }
+            })
         }
     }
 
@@ -351,11 +370,11 @@ const Workspaces = () => {
         }
     }
 
-    const onConfirm = (specificWorkspaceId, isDeleteWorkspace) => {
+    const onConfirm = (specificWorkspaceId, isDeleteWorkspace, createdWorkspace) => {
         setShowWorkspaceDialog(false)
         getAllWorkspacesApi.request(currentUser.activeOrganizationId)
         // Creating a team stays on the current team. Refresh only when the session still names that team.
-        if (!isDeleteWorkspace && specificWorkspaceId) void refreshSessionKeepingTeam()
+        if (!isDeleteWorkspace && specificWorkspaceId) void refreshSessionKeepingTeam(createdWorkspace)
     }
 
     function filterWorkspaces(data) {

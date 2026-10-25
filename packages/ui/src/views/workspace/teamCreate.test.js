@@ -3,6 +3,7 @@
  */
 const mockNavigate = jest.fn()
 const mockStoreDispatch = jest.fn()
+const mockDispatch = jest.fn()
 const mockUser = {
     id: 'user-1',
     activeOrganizationId: 'org-1',
@@ -25,7 +26,7 @@ const mockState = {
 }
 
 jest.mock('react-redux', () => ({
-    useDispatch: () => jest.fn(),
+    useDispatch: () => mockDispatch,
     useSelector: (selector) => selector(mockState)
 }))
 jest.mock('react-router-dom', () => ({
@@ -74,7 +75,8 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 import authApi from '@/api/auth'
 import workspaceApi from '@/api/workspace'
 import ConfirmContextProvider from '@/store/context/ConfirmContextProvider'
-import { workspaceSwitchSuccess } from '@/store/reducers/authSlice'
+import { enqueueSnackbar } from '@/store/actions'
+import authReducer, { workspaceSwitchSuccess } from '@/store/reducers/authSlice'
 import Workspaces from './index'
 
 const theme = createTheme()
@@ -128,6 +130,7 @@ beforeEach(() => {
     mockUser.activeWorkspace = 'Default Workspace'
     mockNavigate.mockReset()
     mockStoreDispatch.mockReset()
+    mockDispatch.mockReset()
     workspaceApi.getAllWorkspacesByOrganizationId.mockReset()
     workspaceApi.getAllWorkspacesByOrganizationId.mockResolvedValue({ data: teams })
     workspaceApi.switchWorkspace.mockReset()
@@ -140,8 +143,8 @@ beforeEach(() => {
     authApi.refreshSession.mockResolvedValue({
         data: {
             id: 'user-1',
-            activeWorkspaceId: 'team-new',
-            activeWorkspace: 'Field Notes',
+            activeWorkspaceId: 'team-default',
+            activeWorkspace: 'Default Workspace',
             assignedWorkspaces: [
                 { id: 'team-default', name: 'Default Workspace' },
                 { id: 'team-new', name: 'Field Notes' }
@@ -198,8 +201,34 @@ describe('team create', () => {
         expect(workspaceApi.switchWorkspace).not.toHaveBeenCalled()
         expect(mockNavigate).not.toHaveBeenCalled()
         const switched = mockStoreDispatch.mock.calls.map((call) => call[0]).find((action) => action?.type === workspaceSwitchSuccess.type)
-        expect(switched?.payload?.activeWorkspaceId).not.toBe('team-new')
+        expect(switched).toBeDefined()
+        expect(switched.payload.activeWorkspaceId).toBe('team-default')
         expect(mockUser.activeWorkspaceId).toBe('team-default')
+    })
+
+    it('keeps the created team in the session list and shows an error toast when refresh fails', async () => {
+        authApi.refreshSession.mockRejectedValue(new Error('Session unavailable'))
+        const created = { id: 'team-new', name: 'Field Notes', organizationId: 'org-1', userCount: 1 }
+        workspaceApi.createWorkspace.mockResolvedValue({ data: created })
+        await renderTeams()
+        await submitNewTeam('Field Notes')
+        const actions = mockStoreDispatch.mock.calls.map(([action]) => action)
+        const updated = actions.reduce(authReducer, mockState.auth)
+        expect(updated.user.assignedWorkspaces).toEqual(
+            expect.arrayContaining([
+                { id: 'team-default', name: 'Default Workspace' },
+                { id: 'team-field', name: 'Field' },
+                expect.objectContaining({ id: 'team-new', name: 'Field Notes' })
+            ])
+        )
+        expect(updated.user.activeWorkspaceId).toBe('team-default')
+        expect(workspaceApi.switchWorkspace).not.toHaveBeenCalled()
+        expect(mockDispatch.mock.calls.map(([action]) => action)).toContainEqual(
+            expect.objectContaining({
+                type: enqueueSnackbar({}).type,
+                notification: expect.objectContaining({ options: expect.objectContaining({ variant: 'error' }) })
+            })
+        )
     })
 
     it('keeps the current team and lists the new team so the switcher can show it', async () => {
