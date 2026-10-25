@@ -2614,6 +2614,56 @@ function readText(file) {
     fs.rmSync(scratch, { recursive: true, force: true })
 }
 
+// A child such as memory is created from the opened profile directory. That directory can leave the
+// profiles root after it was opened and before the child is created.
+{
+    const name = 'plinkmem'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-mem-'))
+    const home = path.join(scratch, 'home')
+    const dir = path.join(home, 'profiles', name)
+    fs.mkdirSync(path.dirname(dir), { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let movedTo = ''
+    let mkdirAfterMove = false
+    let refused = ''
+    const origOpen = fs.openSync
+    const origMkdir = fs.mkdirSync
+    fs.openSync = (p, ...args) => {
+        if (!movedTo && typeof p === 'string' && p.endsWith('/memory')) {
+            const stack = new Error().stack || ''
+            if (stack.includes('ensureChildDir') && !stack.includes('ensureContainedDir')) {
+                movedTo = path.join(scratch, 'outside-profile')
+                fs.renameSync(dir, movedTo)
+            }
+        }
+        return origOpen(p, ...args)
+    }
+    fs.mkdirSync = (p, ...args) => {
+        if (movedTo) mkdirAfterMove = true
+        return origMkdir(p, ...args)
+    }
+    try {
+        try {
+            compileProfileCached(record(name, []))
+        } catch (error) {
+            refused = error?.code || ''
+        }
+    } finally {
+        fs.openSync = origOpen
+        fs.mkdirSync = origMkdir
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+    }
+    const created = Boolean(movedTo) && fs.existsSync(path.join(movedTo, 'memory'))
+    check(
+        'a profile child is not created once its directory has left the profiles root',
+        refused === 'profile_link' && movedTo !== '' && !created && !mkdirAfterMove,
+        JSON.stringify({ refused, movedTo: Boolean(movedTo), created, mkdirAfterMove })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
 // openedReal is accepted when it still matches the fd, even if that path is already outside the root.
 {
     const name = 'plinkqout'

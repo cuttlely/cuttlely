@@ -1490,26 +1490,26 @@ export function writePlaybooks(dir, playbooks) {
     const fds = opened.fds
     try {
         noteTreeMutation(root)
+        const anchor = realOfFd(opened.fd) || ''
         const skillsStat = lstatChild(opened.fd, dir, 'skills')
         if (skillsStat?.isSymbolicLink()) refuseLink(skillsLogical)
         if (!playbooks.length) {
             if (!skillsStat?.isDirectory()) return
-            const skillsFd = ensureChildDir(opened.fd, dir, 'skills', fds)
+            const skillsFd = ensureChildDir(opened.fd, dir, 'skills', fds, anchor)
             const bookStat = lstatChild(skillsFd, skillsLogical, PLAYBOOK_DIR)
             if (bookStat?.isSymbolicLink()) refuseLink(root)
             if (bookStat) removeChild(skillsFd, skillsLogical, PLAYBOOK_DIR)
             return
         }
-        const skillsFd = ensureChildDir(opened.fd, dir, 'skills', fds)
-        const booksFd = ensureChildDir(skillsFd, skillsLogical, PLAYBOOK_DIR, fds)
-        const anchor = realOfFd(opened.fd)
+        const skillsFd = ensureChildDir(opened.fd, dir, 'skills', fds, anchor)
+        const booksFd = ensureChildDir(skillsFd, skillsLogical, PLAYBOOK_DIR, fds, anchor)
         if (process.platform === 'linux' && anchor && !insideRoot(anchor, realOfFd(booksFd))) throwLink(root)
         const keep = new Set()
         for (const playbook of playbooks) {
             if (!PROFILE_ID_RE.test(playbook.name)) continue
             keep.add(playbook.name)
             const folder = path.join(root, playbook.name)
-            ensureChildDir(booksFd, root, playbook.name, fds)
+            ensureChildDir(booksFd, root, playbook.name, fds, anchor)
             const text = [
                 '---',
                 `name: ${playbook.name}`,
@@ -2063,10 +2063,11 @@ function compileProfileFiles(record, options = {}) {
     noteTreeMutation(dir)
     // Cleared before any specialist compiles: a compile that fails partway leaves the parent outdated for the next boot.
     const held = ensureContainedDir(dir)
+    const anchor = realOfFd(held.fd) || ''
     try {
         removeChild(held.fd, dir, 'harness-compiler')
-        ensureChildDir(held.fd, dir, 'memory', held.fds)
-        ensureChildDir(held.fd, dir, 'sessions', held.fds)
+        ensureChildDir(held.fd, dir, 'memory', held.fds, anchor)
+        ensureChildDir(held.fd, dir, 'sessions', held.fds, anchor)
         // A try is this marker, not a name the store might also use.
         const tryMarker = path.join(dir, 'harness-try')
         if (tryProfile) writeIfChanged(tryMarker, `${profileName}\n`)
@@ -2866,11 +2867,17 @@ function profileDirectoryChainHeld(snapshot) {
 function refuseUnverifiedProfile(compiled, snapshot) {
     const links = new Set(snapshot?.links || [])
     if (!links.size) {
+        let stopped = false
         for (const dir of trustedProfileDirs(compiled)) {
+            if (stopped) break
             const paths = ancestorPaths(dir) || [dir]
             for (const entry of paths) {
                 try {
-                    if (fs.lstatSync(entry).isSymbolicLink()) links.add(entry)
+                    if (fs.lstatSync(entry).isSymbolicLink()) {
+                        links.add(entry)
+                        stopped = true
+                        break
+                    }
                 } catch {
                     // Missing. The refusal still stands.
                 }
