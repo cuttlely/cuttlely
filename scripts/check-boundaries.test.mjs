@@ -6,6 +6,11 @@ import path from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkBoundaries, extractSpecifiers, updateBaseline } from './check-boundaries.mjs'
+import { isolateProcessEnv, withoutGitEnv } from './test-git.mjs'
+
+// A pre-push hook exports GIT_DIR. The checks below build their own repositories, and the file
+// list for a check follows that variable, so drop it before any git command runs.
+isolateProcessEnv()
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const roots = []
@@ -42,7 +47,8 @@ const EMPTY_BASELINE = {
 }
 
 function git(root, args) {
-    execFileSync('git', args, { cwd: root, stdio: 'pipe' })
+    // A pre-push hook exports GIT_DIR. Leave it set and git add rewrites the real index.
+    execFileSync('git', args, { cwd: root, stdio: 'pipe', env: withoutGitEnv() })
 }
 
 function write(root, rel, content) {
