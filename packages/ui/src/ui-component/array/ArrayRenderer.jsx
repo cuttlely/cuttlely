@@ -42,6 +42,12 @@ export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }
         updatedItem[changedParam.name] = newValue
         updatedArrayItems[itemIndex] = updatedItem
 
+        // A new row is added before a tool is chosen, so the id is written here, when Harness is selected.
+        if (inputParam.name === 'agentTools') {
+            const { changed } = ensureAgentToolRowIds(updatedArrayItems)
+            if (changed) dispatch({ type: SET_DIRTY })
+        }
+
         // Update local state and parent data
         setArrayItems(updatedArrayItems)
         data.inputs[inputParam.name] = updatedArrayItems

@@ -24,7 +24,7 @@ class Harness_Harness implements INode {
         this.icon = 'harness.svg'
         this.category = 'Harness'
         this.description =
-            'Attach a named harness as a tool. One Harness card on an agent keeps the tool name harness. Several cards use the card title, or the harness name when the title is still Harness. A chat whose only node is this harness runs that roster for the message.'
+            "Attach a named harness as a tool. One Harness card on an agent keeps the tool name harness. Several cards use the card title, or the harness name when the title is still Harness, followed by that card's id. A chat whose only node is this harness runs that roster for the message."
         this.baseClasses = [this.type, 'Tool']
         this.inputs = [
             {
@@ -33,7 +33,7 @@ class Harness_Harness implements INode {
                 type: 'asyncOptions',
                 loadMethod: 'listHarnesses',
                 description:
-                    'Saved harness name. One Harness card on an agent is the tool harness. Several cards use the card title, or this name when the title is still Harness.'
+                    "Saved harness name. One Harness card on an agent is the tool harness. Several cards use the card title, or this name when the title is still Harness, followed by that card's id."
             },
             {
                 label: 'Return Direct',
@@ -323,6 +323,12 @@ function textOf(value: unknown): string {
     return typeof value === 'string' ? value.trim() : ''
 }
 
+// A stored id may be a number. 0 is a real id, and it must not be treated as missing.
+function cardIdOf(value: unknown): string {
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+    return textOf(value)
+}
+
 // One pass, no anchored expression, so a very long title stays linear.
 function sanitizeHarnessToolToken(value: string): string {
     const lower = value.toLowerCase().slice(0, 1024)
@@ -366,10 +372,6 @@ function baseToolName(card: HarnessToolCard, alone: boolean): string {
     return 'harness'
 }
 
-function withNumericSuffix(base: string, n: number): string {
-    return withLiteralSuffix(base, `_${n}`)
-}
-
 // Fit `base + suffix` into 64 characters. The suffix is kept whole when it is short enough.
 function withLiteralSuffix(base: string, suffix: string): string {
     const room = Math.max(HARNESS_TOOL_NAME_MAX - suffix.length, 1)
@@ -403,10 +405,10 @@ function stableIdToken(id: string): string {
     return `${stem}_${mark}`
 }
 
-// The suffix is this card's id, never a number picked from the other cards. Deleting a neighbor
-// cannot change it. A trailing number alone is not used: a_1 and b_2 would both claim _1 or trade it.
+// `__` cannot appear in a sanitized title or id token, so one card's title cannot spell another's name.
+// The suffix is this card's own id. It does not depend on which other cards are present.
 function withIdSuffix(base: string, id: string): string {
-    return withLiteralSuffix(base, `_${stableIdToken(id)}`)
+    return withLiteralSuffix(base, `__${stableIdToken(id)}`)
 }
 
 // harness_2 before harness_10, and harness_tool_2 before harness_tool_10. Text order would not.
@@ -429,85 +431,34 @@ function compareIds(left: string, right: string): number {
     return 0
 }
 
-function trailingNumber(id: string): number | undefined {
-    const match = /(\d+)$/.exec(id)
-    if (!match) return undefined
-    const value = Number(match[1])
-    return Number.isSafeInteger(value) ? value : undefined
-}
-
 /**
- * One tool name per card. A title the person set is used when it is unique, then the saved harness
- * name. A base only one card wants is kept as it is. When several cards still want the same base, the
- * lowest id (numeric parts compared as numbers) keeps it, and each other card takes `_` plus its own
- * id text. That suffix does not depend on which other cards are present. It wins over another card's
- * title that spells the same text, and it stays reserved while the card that owns the id is still
- * here, even after that card takes the bare name. A title that loses to that reservation takes `_`
- * plus its own id, not the next integer, so removing a neighbor cannot slide it onto a lower number.
- * The bare name moves to the next id only when the card that held it is gone.
+ * One tool name per card. A lone card is harness. Every other name is the sanitized title, or the
+ * saved harness name when the title is still Harness, then `__` and that card's own id. Nothing else
+ * in the list is an input, so deleting another card cannot change it, and a title cannot spell it.
  */
 function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const items = (Array.isArray(cards) ? cards : []).map((card, index) => ({
         card: card || { id: '' },
         index,
-        id: textOf(card?.id) || `harness_${index}`
+        id: cardIdOf(card?.id) || `harness_${index}`
     }))
-    items.sort((a, b) => compareIds(a.id, b.id) || a.index - b.index)
     const alone = items.length === 1
-    const bases = items.map((item) => ({ ...item, base: baseToolName(item.card, alone) }))
-    const counts = new Map<string, number>()
-    for (const item of bases) counts.set(item.base, (counts.get(item.base) || 0) + 1)
-
-    // Own-id suffixes are claimed before titles, so a title spelled like harness_2's suffix cannot take it.
-    const winnerOf = new Map<string, string>()
-    for (const item of bases) {
-        if ((counts.get(item.base) || 0) <= 1) continue
-        if (!winnerOf.has(item.base)) winnerOf.set(item.base, item.id)
-    }
-    const reservedBy = new Map<string, string>()
-    for (const item of bases) {
-        const count = counts.get(item.base) || 0
-        const suffixName = withIdSuffix(item.base, item.id)
-        const winner = winnerOf.get(item.base) === item.id
-        const inCollision = count > 1
-        if (inCollision && !winner) {
-            if (!reservedBy.has(suffixName)) reservedBy.set(suffixName, item.id)
-            continue
-        }
-        // The card that holds the bare name still owns its id suffix, including an id with no trailing
-        // number. Deleting some other card must not hand that suffix to a card whose title spells it.
-        if (reservedBy.has(suffixName)) continue
-        const wanted = bases.some((other) => other.id !== item.id && other.base === suffixName)
-        if (wanted) reservedBy.set(suffixName, item.id)
-    }
-
     const used = new Set<string>()
     const names = new Map<string, string>()
-    for (const item of bases) {
-        const count = counts.get(item.base) || 0
-        const preferred = count > 1 && winnerOf.get(item.base) !== item.id ? withIdSuffix(item.base, item.id) : item.base
-        const candidate = nextFreeName(preferred, item.id, used, reservedBy)
+    for (const item of items) {
+        if (names.has(item.id)) continue
+        if (alone) {
+            names.set(item.id, 'harness')
+            continue
+        }
+        const base = baseToolName(item.card, false)
+        let candidate = withIdSuffix(base, item.id)
+        if (used.has(candidate)) candidate = withLiteralSuffix(candidate, `_${fnv1a32(`${base}\0${item.id}`)}`)
+        if (used.has(candidate)) candidate = withLiteralSuffix(base, `_${fnv1a32(`${item.id}\0${base}\0${item.index}`)}`)
         names.set(item.id, candidate)
         used.add(candidate)
     }
     return names
-}
-
-function nameBlocked(name: string, selfId: string, used: Set<string>, reservedBy: Map<string, string>): boolean {
-    if (used.has(name)) return true
-    const holder = reservedBy.get(name)
-    return holder !== undefined && holder !== selfId
-}
-
-// A name reserved for another card is not available. The replacement is this card's id, not the next
-// integer: a shared counter would slide when a card in the middle of that counter is removed.
-function nextFreeName(preferred: string, selfId: string, used: Set<string>, reservedBy: Map<string, string>): string {
-    if (!nameBlocked(preferred, selfId, used, reservedBy)) return preferred
-    const byId = withIdSuffix(preferred, selfId)
-    if (!nameBlocked(byId, selfId, used, reservedBy)) return byId
-    const marked = withLiteralSuffix(byId, `_${fnv1a32(`${preferred}\0${selfId}`)}`)
-    if (!nameBlocked(marked, selfId, used, reservedBy)) return marked
-    return withLiteralSuffix(preferred, `_${fnv1a32(`${selfId}\0${preferred}`)}`)
 }
 
 const TOOL_REF = /^\{\{([^}]+)\.data\.instance\}\}$/
@@ -593,20 +544,13 @@ function nameFreeOnAgents(name: string, agents: string[], taken: Map<string, Set
     return agents.every((agentId) => !taken.get(agentId)?.has(name))
 }
 
-// The next name that is free on every agent in the list. The bare stem is tried, then _1, _2, and so on.
-function firstFreeOnAgents(stem: string, agents: string[], taken: Map<string, Set<string>>): string {
-    const tail = trailingNumber(stem)
-    let base = stem
-    if (tail !== undefined && stem.endsWith(`_${tail}`)) {
-        const trimmed = stem.slice(0, -(String(tail).length + 1))
-        if (trimmed) base = trimmed
-    }
-    if (nameFreeOnAgents(base, agents, taken)) return base
-    for (let n = 1; n < 10000; n += 1) {
-        const candidate = withNumericSuffix(base, n)
-        if (nameFreeOnAgents(candidate, agents, taken)) return candidate
-    }
-    return withNumericSuffix(base, 10000)
+// A name this card can keep after another card is removed. The suffix is its own id, not _1, _2, …
+function firstFreeOnAgents(stem: string, selfId: string, agents: string[], taken: Map<string, Set<string>>): string {
+    const byId = withIdSuffix(stem || 'harness', selfId)
+    if (nameFreeOnAgents(byId, agents, taken)) return byId
+    const marked = withLiteralSuffix(byId, `_${fnv1a32(`${stem}\0${selfId}`)}`)
+    if (nameFreeOnAgents(marked, agents, taken)) return marked
+    return withLiteralSuffix(stem || 'harness', `_${fnv1a32(`${selfId}\0${stem}`)}`)
 }
 
 function reserveOnAgents(name: string, agents: string[], taken: Map<string, Set<string>>): void {
@@ -671,7 +615,7 @@ function sharedHarnessToolNames(nodes: FlowNodeLike[], edges?: FlowEdgeLike[]): 
             lone && nameFreeOnAgents('harness', agents, taken)
                 ? 'harness'
                 : candidates.find((name) => nameFreeOnAgents(name, agents, taken)) ||
-                  firstFreeOnAgents(candidates[0] || 'harness', agents, taken)
+                  firstFreeOnAgents(candidates[0] || 'harness', id, agents, taken)
         names.set(id, chosen)
         reserveOnAgents(chosen, agents, taken)
     }
@@ -736,7 +680,7 @@ function harnessToolPeersFromFlow(nodeId: string, nodes: FlowNodeLike[], edges?:
 function cardFromNodeData(nodeData: INodeData): HarnessToolCard {
     const harnessName = nodeData?.inputs?.harnessName
     return {
-        id: typeof nodeData?.id === 'string' && nodeData.id ? nodeData.id : 'harness_0',
+        id: cardIdOf(nodeData?.id) || 'harness_0',
         label: nodeData?.label,
         name: typeof harnessName === 'string' ? harnessName : undefined
     }
@@ -749,7 +693,7 @@ function peersForNode(nodeData: INodeData, options: ICommonObject): HarnessToolC
     const cards: HarnessToolCard[] = []
     for (const item of raw) {
         if (!item || typeof item !== 'object') continue
-        const id = textOf((item as { id?: unknown }).id)
+        const id = cardIdOf((item as { id?: unknown }).id)
         if (!id) continue
         cards.push({
             id,
