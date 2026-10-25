@@ -37,6 +37,7 @@ import { StyledTableCell, StyledTableRow } from '@/ui-component/table/TableStyle
 import AddEditWorkspaceDialog from './AddEditWorkspaceDialog'
 
 // API
+import authApi from '@/api/auth'
 import userApi from '@/api/user'
 import workspaceApi from '@/api/workspace'
 
@@ -277,6 +278,19 @@ const Workspaces = () => {
         setShowWorkspaceDialog(true)
     }
 
+    // Apply a session only when it still names the team on screen, so a refresh cannot move the user.
+    const refreshSessionKeepingTeam = async () => {
+        try {
+            const sessionResp = await authApi.refreshSession()
+            const next = sessionResp?.data
+            if (next && next.activeWorkspaceId === currentUser.activeWorkspaceId) {
+                store.dispatch(workspaceSwitchSuccess(next))
+            }
+        } catch (error) {
+            console.error('Failed to refresh the session:', error)
+        }
+    }
+
     const deleteWorkspace = async (workspace) => {
         const confirmPayload = {
             title: `Delete Workspace ${workspace.name}`,
@@ -304,6 +318,14 @@ const Workspaces = () => {
                             )
                         }
                     })
+                    if (currentUser.activeWorkspaceId === deleteWorkspaceId) {
+                        try {
+                            const sessionResp = await authApi.refreshSession()
+                            if (sessionResp?.data) store.dispatch(workspaceSwitchSuccess(sessionResp.data))
+                        } catch (error) {
+                            console.error('Failed to refresh the session:', error)
+                        }
+                    }
                     onConfirm(deleteWorkspaceId, true)
                 }
             } catch (error) {
@@ -332,21 +354,8 @@ const Workspaces = () => {
     const onConfirm = (specificWorkspaceId, isDeleteWorkspace) => {
         setShowWorkspaceDialog(false)
         getAllWorkspacesApi.request(currentUser.activeOrganizationId)
-
-        const assignedWorkspaces = currentUser.assignedWorkspaces
-        if (assignedWorkspaces.length === 0 || workspaces.length === 0) {
-            return
-        }
-
-        // if the deleted workspace is the active workspace, switch to first available workspace
-        if (isDeleteWorkspace && currentUser.activeWorkspaceId === specificWorkspaceId) {
-            setIsSwitching(true)
-            const workspaceId = workspaces[0].id
-            switchWorkspaceApi.request(workspaceId)
-        } else if (!isDeleteWorkspace && specificWorkspaceId) {
-            setIsSwitching(true)
-            switchWorkspaceApi.request(specificWorkspaceId)
-        }
+        // Creating a team stays on the current team. Refresh only when the session still names that team.
+        if (!isDeleteWorkspace && specificWorkspaceId) void refreshSessionKeepingTeam()
     }
 
     function filterWorkspaces(data) {

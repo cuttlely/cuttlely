@@ -994,17 +994,40 @@ export async function updateWorkspace(sql: Sql, actor: DirectoryActor, body: unk
     return getWorkspace(sql, actor, id)
 }
 
-async function chatflowCount(sql: Sql, workspaceId: string): Promise<number> {
+async function workspaceRowCount(sql: Sql, table: string, workspaceId: string): Promise<number> {
     try {
-        const rows = await sql.query(`SELECT COUNT(*) AS count FROM ${q(sql, 'chat_flow')} WHERE ${q(sql, 'workspaceId')} = ?`, [
-            workspaceId
-        ])
+        const rows = await sql.query(`SELECT COUNT(*) AS count FROM ${q(sql, table)} WHERE ${q(sql, 'workspaceId')} = ?`, [workspaceId])
         return num(cell(rows[0] || {}, 'count'))
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         if (/no such table|does not exist|doesn't exist/i.test(message)) return 0
         throw error
     }
+}
+
+async function chatflowCount(sql: Sql, workspaceId: string): Promise<number> {
+    return workspaceRowCount(sql, 'chat_flow', workspaceId)
+}
+
+/** Tables with a workspace foreign key, besides chat_flow, that block deleting the team. */
+const TEAM_OWNED_ROWS: { table: string; label: string }[] = [
+    { table: 'credential', label: 'credentials' },
+    { table: 'variable', label: 'variables' },
+    { table: 'apikey', label: 'API keys' },
+    { table: 'document_store', label: 'document stores' },
+    { table: 'workspace_shared', label: 'shared items' },
+    { table: 'assistant', label: 'assistants' },
+    { table: 'custom_template', label: 'custom templates' },
+    { table: 'dataset', label: 'datasets' },
+    { table: 'evaluation', label: 'evaluations' },
+    { table: 'evaluator', label: 'evaluators' },
+    { table: 'tool', label: 'tools' }
+]
+
+function teamOwnedMessage(labels: string[]): string {
+    if (labels.length === 1) return `Delete this team's ${labels[0]} first`
+    const head = labels.slice(0, -1).join(', ')
+    return `Delete this team's ${head} and ${labels[labels.length - 1]} first`
 }
 
 export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: string): Promise<{ id: string }> {
@@ -1016,6 +1039,11 @@ export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: strin
         const members = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [id])
         if (num(cell(members[0] || {}, 'count')) > 1) throw new DirectoryError(400, 'Remove the other people from this team first')
         if ((await chatflowCount(sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
+        const owned: string[] = []
+        for (const item of TEAM_OWNED_ROWS) {
+            if ((await workspaceRowCount(sql, item.table, id)) > 0) owned.push(item.label)
+        }
+        if (owned.length) throw new DirectoryError(400, teamOwnedMessage(owned))
         const owners = `(${enabledOwnersSql(sql)})`
         const stranded = await query(
             `SELECT owners.userId AS userId FROM ${owners} owners
