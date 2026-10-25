@@ -1297,6 +1297,66 @@ function cleanupProfile(name) {
     fs.rmSync(held, { recursive: true, force: true })
 }
 
+// The quarantine claim must not follow a profile directory that was swapped for a link
+// after the symlink was seen and before the claim.
+{
+    const name = 'plinkqswap'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const dir = profilePath(name)
+    const envFile = path.join(dir, '.env')
+    const payload = outsideFile('qswap', 'OUTSIDE_ENV_SENTINEL=qswap\n')
+    fs.rmSync(envFile, { force: true })
+    fs.symlinkSync(payload.file, envFile)
+    const sentinelInDir = path.join(dir, 'sentinel-qswap.txt')
+    fs.writeFileSync(sentinelInDir, 'qswap-sentinel\n')
+    const sentinelBefore = stamp(sentinelInDir)
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-qswap-moved-'))
+    const moved = path.join(scratch, 'moved')
+    const sentinel = path.join(moved, 'sentinel-qswap.txt')
+    let swapped = false
+    profileWriteTest.beforeQuarantineClaim = (linkPath) => {
+        if (swapped || path.basename(linkPath) !== '.env') return
+        swapped = true
+        fs.renameSync(dir, moved)
+        fs.symlinkSync(moved, dir)
+    }
+    let guarded = { hits: [], error: null, result: null }
+    try {
+        guarded = guardLink(dir, moved, () => compileProfileCached(saved))
+    } finally {
+        profileWriteTest.beforeQuarantineClaim = null
+    }
+    const names = fs.existsSync(moved) ? fs.readdirSync(moved).sort() : []
+    const envStat = fs.lstatSync(path.join(moved, '.env'), { throwIfNoEntry: false })
+    const mutations = guarded.hits.filter((hit) =>
+        /^(linkSync|unlinkSync|writeFileSync|appendFileSync|rmSync|mkdirSync|renameSync|copyFileSync|chmodSync) /.test(hit)
+    )
+    check(
+        'a quarantine does not follow a profile directory swapped for a link',
+        swapped &&
+            guarded.error?.code === 'profile_link' &&
+            mutations.length === 0 &&
+            envStat?.isSymbolicLink() === true &&
+            !names.some((entry) => entry.includes('quarantine')) &&
+            sameStamp(sentinel, sentinelBefore) &&
+            sameStamp(payload.file, payload.before) &&
+            fs.lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink() === true,
+        JSON.stringify({
+            swapped,
+            error: guarded.error?.code || '',
+            mutations,
+            names,
+            stillEnv: envStat?.isSymbolicLink() === true
+        })
+    )
+    if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink()) fs.unlinkSync(dir)
+    fs.rmSync(scratch, { recursive: true, force: true })
+    cleanupProfile(name)
+    fs.rmSync(payload.dir, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'

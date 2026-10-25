@@ -248,89 +248,175 @@ function quarantineSuffixName(base, n) {
     return n === 0 ? `${base}.quarantine` : `${base}.quarantine-${n}`
 }
 
+// The profiles directory as opened, so a later rename of a child is not still "inside" by its old path.
+function profilesRootReal() {
+    if (process.platform !== 'linux') return ''
+    let opened = null
+    try {
+        opened = openDirNoFollow(profilesRoot(), { quiet: true })
+        if (!opened) return ''
+        return realOfFd(opened.fd)
+    } catch {
+        return ''
+    } finally {
+        if (opened) closeFds(opened.fds)
+    }
+}
+
 // Moves the symlink's directory entry to a sibling. link(2) names the symlink itself and fails with
 // EEXIST instead of replacing a file that appears at that name; the next suffix is tried. The
-// target is not opened. After QUARANTINE_SUFFIX_CAP failures the link stays where it is.
-// False when the link is still there.
-function quarantineSymlink(linkPath) {
-    let st
+// target is not opened. The parent directory is the one opened without following. If that directory
+// is moved outside the profiles root before the claim, the link stays where it is.
+// After QUARANTINE_SUFFIX_CAP failures the link stays where it is. False when the link is still there.
+// The parent of a profile file is inside the profiles tree. The parent of the profiles directory
+// itself is not, so that one real directory is opened directly. A link is not opened.
+function openQuarantineParent(dir) {
+    if (ancestorPaths(dir)) return openDirNoFollow(dir, { quiet: true })
+    let fd
     try {
-        st = fs.lstatSync(linkPath)
+        fd = fs.openSync(dir, DIR_FLAGS)
+    } catch {
+        return null
+    }
+    try {
+        if (fs.fstatSync(fd).isSymbolicLink()) {
+            fs.closeSync(fd)
+            return null
+        }
+    } catch {
+        fs.closeSync(fd)
+        return null
+    }
+    return { fd, fds: [fd] }
+}
+
+function quarantineSymlink(linkPath) {
+    const dir = path.dirname(path.resolve(linkPath))
+    const base = path.basename(linkPath)
+    if (!base || base === '.' || base === '..') return false
+    let opened
+    try {
+        opened = openQuarantineParent(dir)
     } catch {
         return false
     }
-    if (!st.isSymbolicLink()) return false
-    const dir = path.dirname(linkPath)
-    const base = path.basename(linkPath)
-    for (let n = 0; n < QUARANTINE_SUFFIX_CAP; n += 1) {
-        const dest = path.join(dir, quarantineSuffixName(base, n))
-        if (typeof profileWriteTest.beforeQuarantineClaim === 'function') {
-            profileWriteTest.beforeQuarantineClaim(linkPath, dest)
-        }
+    if (!opened) return false
+    const rootReal = profilesRootReal()
+    const openedReal = realOfFd(opened.fd)
+    // A rename of this directory out of the profiles tree is not a place we claim a sibling name.
+    const stillInside = () => {
+        if (process.platform !== 'linux') return true
+        const here = realOfFd(opened.fd)
+        if (!here) return false
+        if (openedReal && here === openedReal) return true
+        return Boolean(rootReal && insideRoot(rootReal, here))
+    }
+    const dropClaim = (viaDest, claimed) => {
         try {
-            // Linux link(2) does not follow the symlink, and it does not replace an existing name.
-            fs.linkSync(linkPath, dest)
-        } catch (error) {
-            if (error?.code === 'EEXIST') continue
-            logQuarantineFailure(linkPath)
-            return false
-        }
-        let claimed
-        try {
-            claimed = fs.lstatSync(dest)
-        } catch {
-            logQuarantineFailure(linkPath)
-            return false
-        }
-        if (!claimed.isSymbolicLink() || claimed.dev !== st.dev || claimed.ino !== st.ino) {
-            // The claim did not name the symlink we saw. Drop that extra name only when it is the
-            // same file as the source, so a different file's bytes stay as they were.
-            try {
-                const sourceNow = fs.lstatSync(linkPath)
-                if (sourceNow.dev === claimed.dev && sourceNow.ino === claimed.ino) fs.unlinkSync(dest)
-            } catch {
-                // The source is still on the load path, or the extra name is already gone.
+            const stillClaimed = fs.lstatSync(viaDest)
+            if (stillClaimed.isSymbolicLink() && stillClaimed.dev === claimed.dev && stillClaimed.ino === claimed.ino) {
+                fs.unlinkSync(viaDest)
             }
-            logQuarantineFailure(linkPath)
-            return false
-        }
-        if (typeof profileWriteTest.afterQuarantineLink === 'function') profileWriteTest.afterQuarantineLink(linkPath, dest)
-        // The source name can be replaced after the link. Unlink only when it is still that symlink.
-        let sourceNow = null
-        let destNow = null
-        try {
-            sourceNow = fs.lstatSync(linkPath)
-            destNow = fs.lstatSync(dest)
         } catch {
-            sourceNow = null
-            destNow = null
+            // The extra name is already gone.
         }
-        const sameSymlink = (stat) => stat && stat.isSymbolicLink() && stat.dev === claimed.dev && stat.ino === claimed.ino
-        if (!sameSymlink(sourceNow) || !sameSymlink(destNow)) {
-            try {
-                const stillClaimed = fs.lstatSync(dest)
-                if (stillClaimed.isSymbolicLink() && stillClaimed.dev === claimed.dev && stillClaimed.ino === claimed.ino) {
-                    fs.unlinkSync(dest)
-                }
-            } catch {
-                // The extra name is already gone.
-            }
-            logQuarantineFailure(linkPath)
+    }
+    try {
+        let st
+        try {
+            st = lstatChild(opened.fd, dir, base)
+        } catch {
             return false
         }
-        try {
-            fs.unlinkSync(linkPath)
-        } catch (error) {
-            if (error?.code !== 'ENOENT') {
+        if (!st || !st.isSymbolicLink() || !stillInside()) return false
+        for (let n = 0; n < QUARANTINE_SUFFIX_CAP; n += 1) {
+            const destName = quarantineSuffixName(base, n)
+            const dest = path.join(dir, destName)
+            if (typeof profileWriteTest.beforeQuarantineClaim === 'function') {
+                profileWriteTest.beforeQuarantineClaim(linkPath, dest)
+            }
+            // The hook can move this directory outside the profiles root. Do not claim through that.
+            if (!stillInside()) {
                 logQuarantineFailure(linkPath)
                 return false
             }
+            const viaSrc = childPath(opened.fd, dir, base)
+            const viaDest = childPath(opened.fd, dir, destName)
+            try {
+                // Linux link(2) does not follow the symlink, and it does not replace an existing name.
+                fs.linkSync(viaSrc, viaDest)
+            } catch (error) {
+                if (error?.code === 'EEXIST') continue
+                logQuarantineFailure(linkPath)
+                return false
+            }
+            if (!stillInside()) {
+                try {
+                    const claimed = fs.lstatSync(viaDest)
+                    if (claimed.isSymbolicLink() && claimed.dev === st.dev && claimed.ino === st.ino) fs.unlinkSync(viaDest)
+                } catch {
+                    // The extra name is already gone.
+                }
+                logQuarantineFailure(linkPath)
+                return false
+            }
+            let claimed
+            try {
+                claimed = fs.lstatSync(viaDest)
+            } catch {
+                logQuarantineFailure(linkPath)
+                return false
+            }
+            if (!claimed.isSymbolicLink() || claimed.dev !== st.dev || claimed.ino !== st.ino) {
+                // The claim did not name the symlink we saw. Drop that extra name only when it is the
+                // same file as the source, so a different file's bytes stay as they were.
+                try {
+                    const sourceNow = fs.lstatSync(viaSrc)
+                    if (sourceNow.dev === claimed.dev && sourceNow.ino === claimed.ino) fs.unlinkSync(viaDest)
+                } catch {
+                    // The source is still on the load path, or the extra name is already gone.
+                }
+                logQuarantineFailure(linkPath)
+                return false
+            }
+            if (typeof profileWriteTest.afterQuarantineLink === 'function') profileWriteTest.afterQuarantineLink(linkPath, dest)
+            if (!stillInside()) {
+                dropClaim(viaDest, claimed)
+                logQuarantineFailure(linkPath)
+                return false
+            }
+            // The source name can be replaced after the link. Unlink only when it is still that symlink.
+            let sourceNow = null
+            let destNow = null
+            try {
+                sourceNow = fs.lstatSync(viaSrc)
+                destNow = fs.lstatSync(viaDest)
+            } catch {
+                sourceNow = null
+                destNow = null
+            }
+            const sameSymlink = (stat) => stat && stat.isSymbolicLink() && stat.dev === claimed.dev && stat.ino === claimed.ino
+            if (!sameSymlink(sourceNow) || !sameSymlink(destNow)) {
+                dropClaim(viaDest, claimed)
+                logQuarantineFailure(linkPath)
+                return false
+            }
+            try {
+                fs.unlinkSync(viaSrc)
+            } catch (error) {
+                if (error?.code !== 'ENOENT') {
+                    logQuarantineFailure(linkPath)
+                    return false
+                }
+            }
+            console.warn(`[harness] quarantined profile link ${linkPath} as ${dest}`)
+            return true
         }
-        console.warn(`[harness] quarantined profile link ${linkPath} as ${dest}`)
-        return true
+        logQuarantineFailure(linkPath)
+        return false
+    } finally {
+        closeFds(opened.fds)
     }
-    logQuarantineFailure(linkPath)
-    return false
 }
 
 function rootFor(file) {
@@ -454,27 +540,34 @@ function refuseLink(linkPath) {
 // leaf: false opens every ancestor and stops before dir, so the caller can still handle a link at dir.
 function openDirNoFollow(dir, options = {}) {
     const includeLeaf = options.leaf !== false
+    // quiet returns null when a component is a link, and does not move that link aside.
+    const quiet = options.quiet === true
     const paths = ancestorPaths(dir)
-    if (!paths) throwLink(dir)
+    if (!paths) {
+        if (quiet) return null
+        throwLink(dir)
+    }
     const limit = includeLeaf ? paths.length : paths.length - 1
     if (limit <= 0) return null
     const fds = []
+    const stop = (where) => {
+        closeFds(fds)
+        if (quiet) return null
+        refuseLink(where)
+    }
     try {
         let dirFd
         try {
             dirFd = fs.openSync(paths[0], DIR_FLAGS)
         } catch (error) {
-            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') refuseLink(paths[0])
+            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') return stop(paths[0])
             throw error
         }
         fds.push(dirFd)
         for (let i = 1; i < limit; i += 1) {
             const logical = paths[i]
             const part = path.basename(logical)
-            if (!part || part === '.' || part === '..') {
-                closeFds(fds)
-                throwLink(logical)
-            }
+            if (!part || part === '.' || part === '..') return stop(logical)
             const via = fdPath(dirFd, part) || logical
             let next
             try {
@@ -484,19 +577,13 @@ function openDirNoFollow(dir, options = {}) {
                     closeFds(fds)
                     return null
                 }
-                if (error?.code === 'ELOOP' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') {
-                    closeFds(fds)
-                    refuseLink(logical)
-                }
+                if (error?.code === 'ELOOP' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') return stop(logical)
                 closeFds(fds)
                 throw error
             }
             fds.push(next)
             dirFd = next
-            if (fs.fstatSync(dirFd).isSymbolicLink()) {
-                closeFds(fds)
-                refuseLink(logical)
-            }
+            if (fs.fstatSync(dirFd).isSymbolicLink()) return stop(logical)
         }
         if (!includeLeaf) {
             closeFds(fds)
