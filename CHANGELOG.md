@@ -17,6 +17,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   The Current Date Time tool can format the local date and time in an IANA timezone. Set **Timezone** on the node, or `CUTTLELY_DEFAULT_TIMEZONE` when that field is empty. A call can pass `timezone`, and that value wins. With none set, the JSON string is unchanged. An unknown timezone returns `error` and does not crash the call. At `2026-10-24T01:30:00Z`, `America/Chicago` reports `2026-10-23`. [Current date and time](./docs/reference/current-date-time.md).
+-   The assets preset fetch judges an IPv4-mapped IPv6 address by the IPv4 address it contains, so a public address written that way can be fetched. Private, loopback, link-local, carrier-grade NAT, multicast, reserved and unspecified addresses in that form stay refused. 6to4 and NAT64 addresses are judged the same way. The former 6to4 relay prefix and the IPv6 documentation prefix stay refused.
 -   Text search types `regconfig` and `regdictionary` are allowed in analyst queries. Other object-identifier types, such as `regclass`, are refused only while a table selection is set. [Analyst tools](./docs/reference/analyst-tools.md).
 -   Chat answers keep a slash, backslash or tilde that stands alone between words, including a fraction or a date. Server paths are still hidden. [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 -   A flow LangSmith credential with no key does not use the server's LangSmith key. Tracing for that flow stays off. A failed upload log records the credential id and the key length, not the key. [LangSmith tracing: which account gets a flow's traces](./docs/reference/langsmith-tracing.md).
