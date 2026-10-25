@@ -40,7 +40,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 ### What's new in 1.4.3?
 
--   **Allowed functions** on the PostgreSQL MCP node lists your own SQL helpers, one `schema.fn(argtypes)` or `schema.fn(*)` per line. While a table selection is set, text search types `regconfig` and `regdictionary` are refused unless they are passed directly to the built-in text-search functions, such as `to_tsvector`. Other object-identifier types, such as `regclass`, are refused only while a table selection is set.
+-   **Allowed functions** on the PostgreSQL MCP node lists your own SQL helpers, one `schema.fn(argtypes)` or `schema.fn(*)` per line. While a table selection is set, text search types `regconfig` and `regdictionary` are refused unless they are passed directly as constants to the built-in text-search functions, such as `to_tsvector`. Other object-identifier types, such as `regclass`, are refused only while a table selection is set.
 -   At startup, harness profiles compiled by an older version are compiled again. The harness gateway health check and `GET /api/v1/ping` return 503 during that wait. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300.
 -   Chat answers keep a slash between words, including a fraction or a date, and still hide server paths.
 -   A LangSmith credential with no key does not use the server's key. Tracing for that flow stays off. A failed upload log records the credential id and the key length.
