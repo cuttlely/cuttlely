@@ -1,7 +1,12 @@
 import fs from 'node:fs'
 import http from 'node:http'
+import path from 'node:path'
 import { dataRoot } from './paths.mjs'
 import { writeAnalystMcpStatus } from './runtime/analyst-mcp-status.mjs'
+
+// Same shape profile.mjs accepts for a specialist gateway token (32 bytes, base64url).
+const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/
+const PROFILE_ENV_MAX = 256 * 1024
 
 const analystBridge = process.env.CUTTLELY_ANALYST_BRIDGE === '1'
 
@@ -118,9 +123,13 @@ function recordAnalystStatus(tools) {
     writeAnalystMcpStatus(tools, analystStatusDir())
 }
 
+// Hermes copies this into the bridge env once, when it starts the process. A later profile
+// recompile mints a new token and revokes this one. The replacement is cached here.
+let gatewayToken = process.env.CUTTLELY_HARNESS_GATEWAY_TOKEN || ''
+
 function gatewayTarget(requestPath) {
     const base = process.env.CUTTLELY_HARNESS_GATEWAY_URL || ''
-    const token = process.env.CUTTLELY_HARNESS_GATEWAY_TOKEN || ''
+    const token = gatewayToken
     if (!base || !token) throw new Error('The harness gateway is not configured for this profile.')
     let url
     try {
@@ -133,6 +142,10 @@ function gatewayTarget(requestPath) {
 }
 
 function postGateway(requestPath, body) {
+    return postGatewayAttempt(requestPath, body, false)
+}
+
+function postGatewayAttempt(requestPath, body, refreshed) {
     const { url, token } = gatewayTarget(requestPath)
     const payload = JSON.stringify(body)
     return new Promise((resolve, reject) => {
@@ -160,8 +173,21 @@ function postGateway(requestPath, body) {
                     } catch {
                         parsed = { error: { message: text } }
                     }
-                    if (res.statusCode >= 200 && res.statusCode < 300) resolve(parsed)
-                    else reject(new Error(parsed?.error?.message || `Gateway returned ${res.statusCode}`))
+                    if (res.statusCode >= 200 && res.statusCode < 300) {
+                        resolve(parsed)
+                        return
+                    }
+                    const failure = new Error(parsed?.error?.message || `Gateway returned ${res.statusCode}`)
+                    // One re-read per request. A second 401, or the same token still on disk, stays a failure.
+                    if (res.statusCode === 401 && !refreshed) {
+                        const next = readRotatedToken(token)
+                        if (next) {
+                            gatewayToken = next
+                            postGatewayAttempt(requestPath, body, true).then(resolve, reject)
+                            return
+                        }
+                    }
+                    reject(failure)
                 })
             }
         )
@@ -173,6 +199,48 @@ function postGateway(requestPath, body) {
         req.write(payload)
         req.end()
     })
+}
+
+// profile.mjs puts this specialist's .env path in CUTTLELY_HARNESS_PROFILE_ENV. The live token is OPENAI_API_KEY.
+function readRotatedToken(used) {
+    const file = String(process.env.CUTTLELY_HARNESS_PROFILE_ENV || '').trim()
+    if (!file || !path.isAbsolute(file)) return ''
+    let text = ''
+    try {
+        text = readProfileEnv(file)
+    } catch {
+        return ''
+    }
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const eq = trimmed.indexOf('=')
+        if (eq === -1 || trimmed.slice(0, eq) !== 'OPENAI_API_KEY') continue
+        const value = trimmed.slice(eq + 1).trim()
+        if (TOKEN_RE.test(value) && value !== used) return value
+    }
+    return ''
+}
+
+function readProfileEnv(file) {
+    const st = fs.lstatSync(file)
+    if (st.isSymbolicLink() || !st.isFile() || st.size <= 0 || st.size > PROFILE_ENV_MAX) return ''
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0))
+    try {
+        const again = fs.fstatSync(fd)
+        if (again.isSymbolicLink() || !again.isFile() || again.size <= 0 || again.size > PROFILE_ENV_MAX) return ''
+        const buf = Buffer.alloc(again.size)
+        let off = 0
+        while (off < again.size) {
+            // Position tracks the file offset. A short read must not start over at byte 0.
+            const n = fs.readSync(fd, buf, off, again.size - off, off)
+            if (n <= 0) break
+            off += n
+        }
+        return buf.subarray(0, off).toString('utf8')
+    } finally {
+        fs.closeSync(fd)
+    }
 }
 
 function toolOutcome(value) {
