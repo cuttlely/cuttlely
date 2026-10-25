@@ -705,6 +705,130 @@ function cleanupProfile(name) {
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
+// A compiler marker that is a link is not read to decide the profile is current.
+{
+    const name = 'plinkmarker'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const marker = profilePath(name, 'harness-compiler')
+    const outside = outsideFile('compiler', '2\n')
+    const realCopy = `${marker}.real`
+    fs.renameSync(marker, realCopy)
+    fs.symlinkSync(outside.file, marker)
+    const guarded = guardLink(marker, outside.file, () => recompileOutdatedProfiles([saved]))
+    const skipped = Array.isArray(guarded.result) && guarded.result.length === 0
+    check(
+        'a linked compiler marker is not read during boot',
+        guarded.hits.length === 0 && guarded.error == null && !skipped && sameStamp(outside.file, outside.before),
+        JSON.stringify({ hits: guarded.hits, error: guarded.error?.code || '', skipped, result: guarded.result })
+    )
+    fs.rmSync(realCopy, { force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// A playbook file or directory linked after the compile is not a cache hit.
+{
+    const name = 'plinkbook'
+    const saved = record(name, [
+        {
+            name: 'alpha',
+            instructions: 'Alpha work.',
+            model: model(),
+            modules: [],
+            playbooks: [{ name: 'refund-rules', description: 'When to refund', content: 'Refund the order.' }]
+        }
+    ])
+    const first = compileProfileCached(saved)
+    const again = compileProfileCached(saved)
+    const specialist = profilePath(`${name}--alpha`)
+    const playbookDir = path.join(specialist, 'skills', 'harness-playbooks', 'refund-rules')
+    const skillFile = path.join(playbookDir, 'SKILL.md')
+    const fileOutside = outsideFile('playbook-file', 'outside-playbook-sentinel\n')
+    const realSkill = `${skillFile}.real`
+    fs.renameSync(skillFile, realSkill)
+    fs.symlinkSync(fileOutside.file, skillFile)
+    let fileRefused = ''
+    let fileReturned = null
+    const fileGuarded = guardLink(skillFile, fileOutside.file, () => {
+        try {
+            fileReturned = compileProfileCached(saved)
+        } catch (error) {
+            fileRefused = error?.code || ''
+        }
+    })
+    const fileLink = fs.lstatSync(skillFile, { throwIfNoEntry: false })
+    check(
+        'a cache hit refuses a linked playbook file',
+        again === first &&
+            fileRefused === 'profile_link' &&
+            fileReturned !== first &&
+            fileGuarded.hits.length === 0 &&
+            fileGuarded.error == null &&
+            sameStamp(fileOutside.file, fileOutside.before) &&
+            !fileLink?.isSymbolicLink() &&
+            quarantineNames(playbookDir, 'SKILL.md').length === 1,
+        JSON.stringify({
+            cacheHit: again === first,
+            fileRefused,
+            hits: fileGuarded.hits,
+            stillLink: fileLink?.isSymbolicLink() === true
+        })
+    )
+    fs.rmSync(realSkill, { force: true })
+    fs.rmSync(fileOutside.dir, { recursive: true, force: true })
+    cleanupProfile(name)
+    forgetCompiledProfile(name)
+
+    const savedDir = record(name, [
+        {
+            name: 'alpha',
+            instructions: 'Alpha work.',
+            model: model(),
+            modules: [],
+            playbooks: [{ name: 'refund-rules', description: 'When to refund', content: 'Refund the order.' }]
+        }
+    ])
+    const warmed = compileProfileCached(savedDir)
+    const warmedAgain = compileProfileCached(savedDir)
+    const dirPath = path.join(profilePath(`${name}--alpha`), 'skills', 'harness-playbooks', 'refund-rules')
+    const parent = path.dirname(dirPath)
+    const dirOutside = outsideDir('playbook-dir', 'outside-playbook-dir\n')
+    fs.rmSync(dirPath, { recursive: true, force: true })
+    fs.symlinkSync(dirOutside.dir, dirPath)
+    let dirRefused = ''
+    let dirReturned = null
+    const dirGuarded = guardLink(dirPath, dirOutside.dir, () => {
+        try {
+            dirReturned = compileProfileCached(savedDir)
+        } catch (error) {
+            dirRefused = error?.code || ''
+        }
+    })
+    const dirLink = fs.lstatSync(dirPath, { throwIfNoEntry: false })
+    check(
+        'a cache hit refuses a linked playbook directory',
+        warmedAgain === warmed &&
+            dirRefused === 'profile_link' &&
+            dirReturned !== warmed &&
+            dirGuarded.hits.length === 0 &&
+            dirGuarded.error == null &&
+            sameStamp(dirOutside.file, dirOutside.before) &&
+            fs.readdirSync(dirOutside.dir).join() === 'marker' &&
+            !dirLink?.isSymbolicLink() &&
+            quarantineNames(parent, 'refund-rules').length === 1,
+        JSON.stringify({
+            cacheHit: warmedAgain === warmed,
+            dirRefused,
+            hits: dirGuarded.hits,
+            stillLink: dirLink?.isSymbolicLink() === true
+        })
+    )
+    cleanupProfile(name)
+    fs.rmSync(dirOutside.dir, { recursive: true, force: true })
+}
+
 fs.rmSync(dataDir, { recursive: true, force: true })
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)

@@ -9,7 +9,7 @@ import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
-import { ancestorPaths, readFileNoFollow } from './contained-walk.mjs'
+import { ancestorPaths, listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { dataRoot, harnessStoreDir, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
@@ -1208,9 +1208,30 @@ const PREFLIGHT_RELS = [
     'harness-roster.json'
 ]
 
+// A link anywhere under the playbook tree is refused. The directory itself is checked with the other
+// preflight paths; this covers a playbook folder or a skill file linked after that directory was real.
+function refuseDescendantLinks(dir) {
+    const entries = listDirNoFollow(dir)
+    if (!entries) return
+    for (const entry of entries) {
+        if (!entry || entry === '.' || entry === '..') continue
+        const child = path.join(dir, entry)
+        let st
+        try {
+            st = fs.lstatSync(child)
+        } catch (error) {
+            if (error?.code === 'ENOENT') continue
+            throw error
+        }
+        if (st.isSymbolicLink()) refuseLink(child)
+        if (st.isDirectory()) refuseDescendantLinks(child)
+    }
+}
+
 function preflightTree(dir) {
     assertContained(dir)
     for (const rel of PREFLIGHT_RELS) assertContained(path.join(dir, rel))
+    refuseDescendantLinks(path.join(dir, 'skills', PLAYBOOK_DIR))
 }
 
 function compileSpecialistProfile(record, specialist, profileName, tryProfile, adoptUnstamped = false) {
@@ -1941,7 +1962,12 @@ const compiledProfiles = new Map()
 export const PROFILE_COMPILER_VERSION = '2'
 
 function compilerVersionOf(dir) {
-    return readMarker(path.join(dir, 'harness-compiler'))
+    try {
+        const text = readFileNoFollow(path.join(dir, 'harness-compiler'))
+        return text == null ? '' : text.trim()
+    } catch {
+        return ''
+    }
 }
 
 function onDiskRoster(dir) {
