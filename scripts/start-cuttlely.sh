@@ -246,8 +246,8 @@ wait_for_gateway() {
     started_epoch=$(date +%s)
     GATEWAY_STILL_COMPILING=0
     echo "Waiting for the harness gateway on 127.0.0.1:${port}."
-    # starting_limit is the total cap. The OR form let CUTTLELY_GATEWAY_WAIT_SECONDS run past it.
-    while [[ "$i" -lt "$starting_limit" && ( "$starting" -eq 1 || "$i" -lt "$limit" ) ]]; do
+    # starting_limit is elapsed seconds since the wait began, not loop turns. The OR form let CUTTLELY_GATEWAY_WAIT_SECONDS run past it.
+    while [[ "$(( $(date +%s) - started_epoch ))" -lt "$starting_limit" && ( "$starting" -eq 1 || "$i" -lt "$limit" ) ]]; do
         if [[ -n "${CUTTLELY_PID:-}" ]] && ! kill -0 "$CUTTLELY_PID" 2>/dev/null; then
             echo "Cuttlely exited before the harness gateway answered." >&2
             return 1

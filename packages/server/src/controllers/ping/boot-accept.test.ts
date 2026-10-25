@@ -126,7 +126,7 @@ describe('boot acceptance', () => {
         const script = fs.readFileSync(path.join(ROOT, 'scripts', 'start-cuttlely.sh'), 'utf8')
         const wait = script.match(/wait_for_gateway\(\) \{[\s\S]*?\n\}/)?.[0] || ''
         expect(wait).toContain(`-gt ${BOOT_PASS_CAP_SECONDS}`)
-        expect(wait).toMatch(/while \[\[ "\$i" -lt "\$starting_limit" &&/)
+        expect(wait).toMatch(/while \[\[ "\$\(\( \$\(date \+%s\) - started_epoch \)\)" -lt "\$starting_limit" &&/)
         expect(wait).not.toMatch(/while true/)
         process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '2'
         block = true

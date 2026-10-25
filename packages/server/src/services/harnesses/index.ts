@@ -230,6 +230,8 @@ async function saveUnderName(
     assertNoProfileConflicts(profile, record, name)
     const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
     profile.compileProfileCached(saved)
+    // A successful save clears a latched boot failure so assertHarnessAvailable stops returning 503.
+    clearBootFailure(saved.name)
     warmHarnesses([saved.name])
     return saved
 }
