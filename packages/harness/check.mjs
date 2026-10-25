@@ -7931,10 +7931,26 @@ await expectCase('a compile refuses a symlink on each path it would write', asyn
             code = error?.code || ''
         }
         const written = fs.readdirSync(outside)
+        const workspaceStat = fs.lstatSync(workspace, { throwIfNoEntry: false })
+        const workspaceBase = path.basename(workspace)
+        const workspaceQuarantine = fs
+            .readdirSync(path.dirname(workspace))
+            .some((entry) => entry === `${workspaceBase}.quarantine` || entry.startsWith(`${workspaceBase}.quarantine-`))
         check(
             'a symlinked specialist workspace is not written through',
-            code === 'profile_link' && written.length === 1 && written[0] === 'marker' && !fs.existsSync(workspace),
-            JSON.stringify({ code, written, child, exists: fs.existsSync(workspace) })
+            code === 'profile_link' &&
+                written.length === 1 &&
+                written[0] === 'marker' &&
+                workspaceStat?.isSymbolicLink() === true &&
+                fs.readlinkSync(workspace) === outside &&
+                !workspaceQuarantine,
+            JSON.stringify({
+                code,
+                written,
+                child,
+                stillLink: workspaceStat?.isSymbolicLink() === true,
+                workspaceQuarantine
+            })
         )
         fs.rmSync(outside, { recursive: true, force: true })
         for (const dir of profilesFor(name).map((profile) => profile.name))

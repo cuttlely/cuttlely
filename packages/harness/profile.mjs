@@ -226,7 +226,10 @@ export const profileWriteTest = {
     // Runs after link(2) names the symlink and before the source name is checked again. Production leaves this null.
     afterQuarantineLink: null,
     // Runs after a cached compile has checked a directory and before it checks that directory's config. Production leaves this null.
-    betweenCacheChecks: null
+    betweenCacheChecks: null,
+    // Runs after the directory that holds the profile env is open and before that file is opened.
+    // Production leaves this null.
+    beforeEnvRead: null
 }
 
 const quarantineFailureLogged = new Set()
@@ -338,6 +341,8 @@ function rootFor(file) {
 // Refuse a symlink at the root and at every segment down to the file. realpath of what exists must stay inside the root.
 function assertContained(file) {
     const root = rootFor(file)
+    // The containment root is opened from above it, so a link in an ancestor is not followed.
+    assertDirNoFollow(root)
     let rootStat
     try {
         rootStat = fs.lstatSync(root)
@@ -346,8 +351,7 @@ function assertContained(file) {
         throw error
     }
     if (rootStat.isSymbolicLink()) {
-        quarantineSymlink(root)
-        throwLink(root)
+        refuseLink(root)
     }
     const rel = path.relative(root, path.resolve(file))
     if (rel.startsWith('..') || path.isAbsolute(rel)) throwLink(file)
@@ -364,8 +368,7 @@ function assertContained(file) {
             throw error
         }
         if (st.isSymbolicLink()) {
-            quarantineSymlink(cursor)
-            throwLink(cursor)
+            refuseLink(cursor)
         }
     }
     let realRoot
@@ -419,6 +422,118 @@ function closeFds(fds) {
     }
 }
 
+function insideProfilesRoot(file) {
+    let root
+    try {
+        root = path.resolve(profilesRoot())
+    } catch {
+        return false
+    }
+    const resolved = path.resolve(file)
+    const rel = path.relative(root, resolved)
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+// A link inside the profiles tree is moved off the load path. A link outside that tree is left where it is.
+function quarantineContained(linkPath) {
+    if (!insideProfilesRoot(linkPath)) return false
+    return quarantineSymlink(linkPath)
+}
+
+function refuseLink(linkPath) {
+    quarantineContained(linkPath)
+    throwLink(linkPath)
+}
+
+// Opens dir from the parent of its containment root. Each step uses O_DIRECTORY|O_NOFOLLOW, so a link
+// swapped in for an ancestor is not a path we follow. Null when a component does not exist yet.
+function openDirNoFollow(dir) {
+    const paths = ancestorPaths(dir)
+    if (!paths) throwLink(dir)
+    const fds = []
+    try {
+        let dirFd
+        try {
+            dirFd = fs.openSync(paths[0], DIR_FLAGS)
+        } catch (error) {
+            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') refuseLink(paths[0])
+            throw error
+        }
+        fds.push(dirFd)
+        for (let i = 1; i < paths.length; i += 1) {
+            const logical = paths[i]
+            const part = path.basename(logical)
+            if (!part || part === '.' || part === '..') {
+                closeFds(fds)
+                throwLink(logical)
+            }
+            const via = fdPath(dirFd, part) || logical
+            let next
+            try {
+                next = fs.openSync(via, DIR_FLAGS)
+            } catch (error) {
+                if (error?.code === 'ENOENT') {
+                    closeFds(fds)
+                    return null
+                }
+                if (error?.code === 'ELOOP' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') {
+                    closeFds(fds)
+                    refuseLink(logical)
+                }
+                closeFds(fds)
+                throw error
+            }
+            fds.push(next)
+            dirFd = next
+            if (fs.fstatSync(dirFd).isSymbolicLink()) {
+                closeFds(fds)
+                refuseLink(logical)
+            }
+        }
+        return { fd: dirFd, fds }
+    } catch (error) {
+        closeFds(fds)
+        throw error
+    }
+}
+
+function assertDirNoFollow(dir) {
+    const opened = openDirNoFollow(dir)
+    if (opened) closeFds(opened.fds)
+}
+
+function readTextNoFollow(file, hook = false) {
+    const parent = path.dirname(path.resolve(file))
+    const opened = openDirNoFollow(parent)
+    if (!opened) return null
+    const fds = opened.fds
+    try {
+        if (hook && typeof profileWriteTest.beforeEnvRead === 'function') profileWriteTest.beforeEnvRead(file)
+        const base = path.basename(file)
+        if (!base || base === '.' || base === '..') throwLink(file)
+        const via = fdPath(opened.fd, base) || file
+        let fileFd
+        try {
+            fileFd = fs.openSync(via, fs.constants.O_RDONLY | NOFOLLOW)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return null
+            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') refuseLink(file)
+            throw error
+        }
+        fds.push(fileFd)
+        const st = fs.fstatSync(fileFd)
+        if (!st.isFile()) return null
+        if (process.platform === 'linux') {
+            const dirReal = realOfFd(opened.fd)
+            const fileReal = realOfFd(fileFd)
+            if (dirReal && fileReal && !insideRoot(dirReal, fileReal)) throwLink(file)
+        }
+        return fs.readFileSync(fileFd, 'utf8')
+    } finally {
+        closeFds(fds)
+    }
+}
+
 // Each directory is opened from the one above with O_DIRECTORY|O_NOFOLLOW, then the file is opened
 // from that directory fd. A link swapped in for an intermediate directory is not a path we follow.
 function writeContained(file, text, mode = 0o644) {
@@ -428,20 +543,11 @@ function writeContained(file, text, mode = 0o644) {
     const parts = rel.split(path.sep).filter(Boolean)
     const fileName = parts.pop()
     if (!fileName || fileName === '.' || fileName === '..') throwLink(file)
-    let rootStat
+    const walked = openDirNoFollow(root)
+    if (!walked) throwLink(root)
+    const fds = walked.fds
+    const rootFd = walked.fd
     try {
-        rootStat = fs.lstatSync(root)
-    } catch (error) {
-        throw error
-    }
-    if (rootStat.isSymbolicLink()) {
-        quarantineSymlink(root)
-        throwLink(root)
-    }
-    const fds = []
-    try {
-        const rootFd = fs.openSync(root, DIR_FLAGS)
-        fds.push(rootFd)
         let dirFd = rootFd
         let logical = root
         for (const part of parts) {
@@ -456,8 +562,7 @@ function writeContained(file, text, mode = 0o644) {
                     fs.mkdirSync(via)
                     next = fs.openSync(via, DIR_FLAGS)
                 } else if (error?.code === 'ELOOP' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') {
-                    quarantineSymlink(logical)
-                    throwLink(logical)
+                    refuseLink(logical)
                 } else {
                     throw error
                 }
@@ -469,7 +574,7 @@ function writeContained(file, text, mode = 0o644) {
         if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(file)
         if (typeof profileWriteTest.beforeFinalOpen === 'function') profileWriteTest.beforeFinalOpen(file, dirFd)
         try {
-            if (fs.lstatSync(logical).isSymbolicLink() && !quarantineSymlink(logical)) throwLink(logical)
+            if (fs.lstatSync(logical).isSymbolicLink() && !quarantineContained(logical)) throwLink(logical)
         } catch (error) {
             if (error?.code !== 'ENOENT') throw error
         }
@@ -481,8 +586,7 @@ function writeContained(file, text, mode = 0o644) {
             fileFd = fs.openSync(fileVia, fileFlags, mode)
         } catch (error) {
             if (error?.code === 'ELOOP' || error?.code === 'EEXIST') {
-                quarantineSymlink(path.join(logical, fileName))
-                throwLink(file)
+                refuseLink(path.join(logical, fileName))
             }
             throw error
         }
@@ -510,18 +614,14 @@ function writeIfChanged(file, text) {
     } catch (error) {
         if (error?.code !== 'ENOENT') throw error
     }
-    if (st?.isSymbolicLink()) {
-        quarantineSymlink(file)
-        throwLink(file)
-    }
-    if (st && fs.readFileSync(file, 'utf8') === text) return
+    if (st?.isSymbolicLink()) refuseLink(file)
+    if (st && readTextNoFollow(file) === text) return
     writeContained(file, text)
 }
 
-function readEnvFile(file) {
-    if (!fs.existsSync(file)) return {}
+function parseEnvText(text) {
     const env = {}
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    for (const line of String(text).split('\n')) {
         const trimmed = line.trim()
         if (!trimmed || trimmed.startsWith('#')) continue
         const eq = trimmed.indexOf('=')
@@ -529,6 +629,12 @@ function readEnvFile(file) {
         env[trimmed.slice(0, eq)] = trimmed.slice(eq + 1)
     }
     return env
+}
+
+function readEnvFile(file) {
+    const text = readTextNoFollow(file, true)
+    if (text == null) return {}
+    return parseEnvText(text)
 }
 
 function writeEnvFile(file, env) {
@@ -541,11 +647,8 @@ function writeEnvFile(file, env) {
     } catch (error) {
         if (error?.code !== 'ENOENT') throw error
     }
-    if (st?.isSymbolicLink()) {
-        quarantineSymlink(file)
-        throwLink(file)
-    }
-    if (st && fs.readFileSync(file, 'utf8') === text) return
+    if (st?.isSymbolicLink()) refuseLink(file)
+    if (st && readTextNoFollow(file) === text) return
     writeContained(file, text, 0o600)
 }
 
@@ -1078,22 +1181,22 @@ export function writePlaybooks(dir, playbooks) {
     }
 }
 
+const PREFLIGHT_RELS = [
+    'config.yaml',
+    '.env',
+    'memory',
+    path.join('memory', 'MEMORY.md'),
+    'skills',
+    path.join('skills', PLAYBOOK_DIR),
+    'sessions',
+    'harness-compiler',
+    'SOUL.md',
+    'harness-roster.json'
+]
+
 function preflightTree(dir) {
     assertContained(dir)
-    for (const rel of [
-        'config.yaml',
-        '.env',
-        'memory',
-        path.join('memory', 'MEMORY.md'),
-        'skills',
-        path.join('skills', PLAYBOOK_DIR),
-        'sessions',
-        'harness-compiler',
-        'SOUL.md',
-        'harness-roster.json'
-    ]) {
-        assertContained(path.join(dir, rel))
-    }
+    for (const rel of PREFLIGHT_RELS) assertContained(path.join(dir, rel))
 }
 
 function compileSpecialistProfile(record, specialist, profileName, tryProfile, adoptUnstamped = false) {
@@ -1353,11 +1456,31 @@ export function compileProfile(record, options = {}) {
     }
 }
 
+// Every directory this compile would use, opened with O_NOFOLLOW from above the containment root.
+// This runs before the profile env is read and before any write.
+function sealProfilePaths(record, profileName) {
+    assertDirNoFollow(profilesRoot())
+    assertDirNoFollow(profileDir(profileName))
+    const specialists = Array.isArray(record?.specialists) ? record.specialists : []
+    for (const specialist of specialists) {
+        let child = ''
+        try {
+            child = specialistProfileName(profileName, specialist?.name)
+        } catch {
+            continue
+        }
+        assertDirNoFollow(profileDir(child))
+        assertDirNoFollow(specialistWorkspace(child))
+    }
+}
+
 function compileProfileFiles(record, options = {}) {
     const profileName = options.profileName || record.name
     const tryProfile = Boolean(options.tryProfile)
     // The profiles directory itself, then every segment this compile would write. A link is removed from the
-    // load path so the runtime does not read config.yaml through it.
+    // load path so the runtime does not read config.yaml through it. Ancestors outside that tree are refused
+    // and left in place.
+    sealProfilePaths(record, profileName)
     assertContained(profilesRoot())
     preflightTree(profileDir(profileName))
     // Every caller (boot, warm-up, a chat, a canvas try) stops here. Writing would follow the link.
@@ -2016,6 +2139,8 @@ function profileDirectoryChain(compiled) {
             try {
                 identity = lstatIdentity(entry)
             } catch (error) {
+                // A missing path has no inode to pin. A link created there later is refused when the
+                // cache hit runs preflightTree.
                 if (error?.code === 'ENOENT') continue
                 return null
             }
@@ -2027,8 +2152,30 @@ function profileDirectoryChain(compiled) {
                 unverifiable = true
                 continue
             }
+            // A regular file is not a directory pin. A link was recorded above.
             if (!identity.directory) continue
             dirs.push({ path: entry, dev: identity.dev, ino: identity.ino })
+        }
+    }
+    const rosterForFiles = compiled?.roster || compiled
+    const fileDirs = [compiled?.dir].filter(Boolean)
+    for (const specialist of rosterForFiles?.specialists || []) {
+        if (specialist?.profileName) fileDirs.push(profileDir(specialist.profileName))
+    }
+    for (const dir of fileDirs) {
+        for (const rel of PREFLIGHT_RELS) {
+            const entry = path.resolve(path.join(dir, rel))
+            if (seen.has(entry)) continue
+            seen.add(entry)
+            let identity
+            try {
+                identity = lstatIdentity(entry)
+            } catch (error) {
+                if (error?.code === 'ENOENT') continue
+                return null
+            }
+            if (identity.link) links.push(entry)
+            else if (identity.unverifiable) unverifiable = true
         }
     }
     if (links.length) return { links }
@@ -2146,15 +2293,46 @@ function refuseUnverifiedProfile(compiled, snapshot) {
             }
         }
     }
-    for (const link of links) quarantineSymlink(link)
+    for (const link of links) {
+        if (insideProfilesRoot(link)) quarantineSymlink(link)
+    }
     throw new HarnessError('profile_link', `profile path is a link: ${[...links].join(', ') || compiled?.dir || ''}`)
+}
+
+// The same preflight a compile runs. Pinned directory identity is a separate re-check so an inode of
+// zero compiles again instead of being treated as a hit.
+function recheckCached(compiled) {
+    const roster = compiled?.roster || compiled
+    const dirs = []
+    if (compiled?.dir) dirs.push(compiled.dir)
+    for (const specialist of roster?.specialists || []) {
+        if (specialist?.profileName) dirs.push(profileDir(specialist.profileName))
+    }
+    for (const dir of dirs) {
+        assertDirNoFollow(dir)
+        preflightTree(dir)
+    }
+    for (const specialist of roster?.specialists || []) {
+        if (!specialist?.profileName) continue
+        const workspace = specialistWorkspace(specialist.profileName)
+        assertDirNoFollow(workspace)
+        assertContained(workspace)
+    }
 }
 
 export function compileProfileCached(record) {
     const key = [hermesHome(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
     const cached = compiledProfiles.get(record.name)
-    if (cached?.key === key && profileDirectoryChainHeld(cached.chain)) return cached.compiled
-    if (cached) compiledProfiles.delete(record.name)
+    if (cached?.key === key && cached.compiled) {
+        try {
+            recheckCached(cached.compiled)
+            if (profileDirectoryChainHeld(cached.chain)) return cached.compiled
+        } catch (error) {
+            compiledProfiles.delete(record.name)
+            if (error?.code === 'profile_link') throw error
+        }
+    }
+    if (compiledProfiles.has(record.name)) compiledProfiles.delete(record.name)
     const compiled = compileProfile(record)
     const chain = profileDirectoryChain(compiled)
     if (!chain || chain.links) {
@@ -2165,8 +2343,8 @@ export function compileProfileCached(record) {
 }
 
 export function chiefInstructions(record) {
-    const soul = path.join(profileDir(record.name), 'SOUL.md')
-    if (fs.existsSync(soul)) return fs.readFileSync(soul, 'utf8')
+    const text = readTextNoFollow(path.join(profileDir(record.name), 'SOUL.md'))
+    if (text != null) return text
     return chiefPrompt(record)
 }
 
