@@ -192,7 +192,7 @@ describe('analyst relations: pure helpers', () => {
 
     it('collects type ids, including lists, wrapped lines and enum fields that name no type', () => {
         const tree =
-            '{CONST :consttype 23 :consttypmod -1} {VAR :vartype\n1043} {RTE :coltypes (o 25 1700)} :jointype 0 :row_typeid 2249 x\\ :consttype\\ 9'
+            '{CONST :consttype 23 :consttypmod -1} {VAR :vartype\n1043} {RTE :coltypes (o 25 1700) :jointype 0 :row_typeid 2249 x\\ :consttype\\ 9}'
         assert.deepEqual(
             [...treeObjectIds(tree).types].sort((a, b) => a - b),
             [23, 25, 1043, 1700, 2249]
@@ -200,7 +200,7 @@ describe('analyst relations: pure helpers', () => {
     })
 
     it('reads a tree in linear time, including long runs of whitespace after a list opener', () => {
-        const hostile = `:types\t(o\t${'\t\t'.repeat(100000)}x :coltypes (o 23 ${' '.repeat(100000)}25)`
+        const hostile = `{QUERY :types (o ${'\t\t'.repeat(100000)}25) :coltypes (o 23 ${' '.repeat(100000)}25)}`
         const started = process.hrtime.bigint()
         const ids = treeObjectIds(hostile)
         const ms = Number(process.hrtime.bigint() - started) / 1e6
@@ -209,8 +209,8 @@ describe('analyst relations: pure helpers', () => {
             [...ids.types].sort((a, b) => a - b),
             [23, 25]
         )
-        assert.deepEqual([...treeObjectIds(':coltypes (o) :vartype 1043 :opnos (o 96').types], [1043])
-        assert.deepEqual([...treeObjectIds(':opnos (o 96').operators], [96])
+        assert.deepEqual([...treeObjectIds('{QUERY :coltypes (o) :vartype 1043 :opnos (o 96)}').types], [1043])
+        assert.deepEqual([...treeObjectIds('{QUERY :opnos (o 96)}').operators], [96])
     })
 
     it('fails closed on unknown node tags and accepts Postgres 14 and 16 text-search tags', () => {
@@ -244,6 +244,29 @@ describe('analyst relations: pure helpers', () => {
                 tag
             )
         }
+    })
+
+    it('fails closed on an empty, truncated, or non-node tree', () => {
+        // Requirement (e): treeObjectIds refuses anything that is not a well-formed node tree.
+        // Empty and null are refused here; callers that mean "no tree" must not call it.
+        const refused = /not a complete node tree/
+        for (const bad of [
+            null,
+            undefined,
+            '',
+            '   ',
+            'not a node tree',
+            '{QUERY :commandType 1',
+            '{CONST :consttype 23',
+            '{CONST :consttype 23}}',
+            '{QUERY :opnos (o 96}',
+            '{CONST :consttype 23} trailing'
+        ]) {
+            assert.throws(() => treeObjectIds(bad), refused, `expected refusal for ${JSON.stringify(bad)}`)
+        }
+        const closed = treeObjectIds('{QUERY :commandType 1}')
+        assert.ok(closed.types instanceof Set)
+        assert.deepEqual([...treeObjectIds('{CONST :consttype 23}').types], [23])
     })
 
     it('names the columns of the selected relations a failed statement mentions, only for column errors', () => {
@@ -2217,11 +2240,11 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(shallow.rows[0].v, 1)
         await refusal(
             queryAnalystUrl(url, 'SELECT s.cap_0() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
-            /call graph too deep|found:/i
+            /call graph too deep/i
         )
         await refusal(
             queryAnalystUrl(url, 'SELECT s.cap_both() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
-            /call graph too deep|found:/i
+            /call graph too deep/i
         )
     })
 

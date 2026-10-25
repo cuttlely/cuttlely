@@ -126,10 +126,11 @@ const DENIED_PREFIXES = [
 const DENIED_SUFFIXES = ['_is_visible']
 
 // Object-identifier types turn an id into a name, or a name into an id, for any object.
-// In scoped mode, regconfig and regdictionary are refused too, except when a regconfig/regdictionary Const
-// is passed directly, by oid, to one of a small set of built-in text-search functions (checked on the stored node tree).
-// get_current_ts_config() and every other non-Const use is refused. The same walk reads view, materialized
-// view and policy bodies.
+// regconfig and regdictionary are always refused, except a direct CONST (by oid) passed to one of the
+// 7 built-in text-search functions: to_tsvector, to_tsquery, plainto_tsquery, phraseto_tsquery,
+// websearch_to_tsquery, ts_headline, and ts_lexize. Every other use is refused, including
+// get_current_ts_config(), result columns, variables, nested expressions, and I/O coercions.
+// The same walk reads view, materialized view and policy bodies.
 const DENIED_TYPES = new Set([
     'regclass',
     'regproc',
@@ -760,13 +761,62 @@ async function regTsearchContext(runner) {
     return { regSet, allowedFnIds: new Set(allowedFnRows.map((row) => Number(row.oid))) }
 }
 
+// A stored tree is one node (`{TAG ...}`), a list of nodes (`({TAG ...})`), or several nodes one after
+// another (a policy USING expression and its WITH CHECK, concatenated). Braces and parentheses balance,
+// and a backslash escapes the next character, the way Postgres writes a node string. Anything else —
+// empty, null, truncated, or text that is not a node tree — is refused. Callers that mean "no tree"
+// check for that themselves and do not call this.
+function assertCompleteNodeTree(text) {
+    if (!String(text || '').trim()) {
+        throw new ScopeRefusal('Cuttlely refused this query: the stored query tree is not a complete node tree.')
+    }
+    let brace = 0
+    let paren = 0
+    let sawNode = false
+    const refuse = () => {
+        throw new ScopeRefusal('Cuttlely refused this query: the stored query tree is not a complete node tree.')
+    }
+    for (let i = 0; i < text.length; i += 1) {
+        const ch = text[i]
+        if (ch === '\\') {
+            if (brace === 0 && paren === 0) refuse()
+            if (i + 1 >= text.length) refuse()
+            i += 1
+            continue
+        }
+        if (brace === 0 && paren === 0 && ch !== '{' && ch !== '(' && !/\s/.test(ch)) refuse()
+        if (ch === '{') {
+            if (!/^([A-Z][A-Z0-9_]*)/.test(text.slice(i + 1))) refuse()
+            sawNode = true
+            brace += 1
+            continue
+        }
+        if (ch === '}') {
+            if (brace === 0) refuse()
+            brace -= 1
+            continue
+        }
+        if (ch === '(') {
+            paren += 1
+            continue
+        }
+        if (ch === ')') {
+            if (paren === 0) refuse()
+            paren -= 1
+        }
+    }
+    if (brace !== 0 || paren !== 0 || !sawNode) refuse()
+}
+
 // Object ids from a stored query tree. String values in the tree escape their spaces, so text in the statement
 // (an alias such as "x :relid 1") cannot add an id; constants are stored as bytes. A field name ending in type,
 // typeid or typid holds a type id (consttype, resulttype, vartype, funcresulttype, row_typeid, ...); a list of
 // them ends in types (coltypes). Small enum fields such as jointype match too and name no type.
-// Unknown node tags fail closed, the same way as the text-search walker.
+// Unknown node tags fail closed, the same way as the text-search walker. An empty, truncated, or non-node
+// tree fails closed too.
 export function treeObjectIds(tree) {
     const text = String(tree || '')
+    assertCompleteNodeTree(text)
     rejectUnknownNodeTags(text)
     const relations = new Set()
     const functions = new Set()
