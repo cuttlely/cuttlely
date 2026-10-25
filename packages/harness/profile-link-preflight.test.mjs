@@ -17,6 +17,7 @@ const {
     profileWriteTest,
     readProfileEnv,
     recompileOutdatedProfiles,
+    removeContainedTree,
     setAsideOutdatedConfigs,
     specialistWorkspace,
     tryRuntime
@@ -1123,6 +1124,55 @@ function cleanupProfile(name) {
     if (held) fs.rmSync(held, { recursive: true, force: true })
     cleanupProfile(name)
     fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// A folder that leaves the profiles root while its child directory is still open must not be emptied.
+{
+    const name = 'plinkrmout'
+    const root = profilePath(name)
+    const folderA = path.join(root, 'a')
+    const folderB = path.join(folderA, 'b')
+    fs.mkdirSync(folderB, { recursive: true })
+    fs.writeFileSync(path.join(folderB, 'one.txt'), 'keep-one\n')
+    fs.writeFileSync(path.join(folderB, 'two.txt'), 'keep-two\n')
+    const escaped = path.join(path.dirname(hermesProfiles()), `${name}-a`)
+    let moved = false
+    profileWriteTest.beforeTreeMutation = (logical) => {
+        if (moved) return
+        const resolved = path.resolve(logical)
+        const dirB = path.resolve(folderB)
+        if (resolved === path.resolve(root) || resolved === path.resolve(folderA) || resolved === dirB) return
+        if (!resolved.startsWith(dirB + path.sep)) return
+        moved = true
+        fs.renameSync(folderA, escaped)
+    }
+    let refused = ''
+    try {
+        removeContainedTree(profilePath(name))
+    } catch (error) {
+        refused = error?.code || ''
+    } finally {
+        profileWriteTest.beforeTreeMutation = null
+    }
+    let oneText = ''
+    let twoText = ''
+    try {
+        oneText = fs.readFileSync(path.join(escaped, 'b', 'one.txt'), 'utf8')
+    } catch {
+        oneText = ''
+    }
+    try {
+        twoText = fs.readFileSync(path.join(escaped, 'b', 'two.txt'), 'utf8')
+    } catch {
+        twoText = ''
+    }
+    check(
+        'a folder moved out of the profiles folder during removal is not emptied',
+        moved && refused === 'profile_link' && oneText === 'keep-one\n' && twoText === 'keep-two\n',
+        JSON.stringify({ moved, refused, oneText, twoText })
+    )
+    fs.rmSync(escaped, { recursive: true, force: true })
+    cleanupProfile(name)
 }
 
 // A profile whose compiler marker is current is still checked at boot. An env link is not left for the runtime.
