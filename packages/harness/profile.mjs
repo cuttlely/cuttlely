@@ -9,6 +9,7 @@ import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
+import { ancestorPaths } from './contained-walk.mjs'
 import { dataRoot, harnessStoreDir, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
@@ -1284,6 +1285,8 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
     for (const entry of fs.readdirSync(root)) {
         if (entry === parent || keep.has(entry)) continue
         const dir = path.join(root, entry)
+        // A link is not a directory this pass may read. Ownership comes from the entry name.
+        if (isLink(dir)) continue
         const marker = path.join(dir, 'harness-parent')
         if (!fs.existsSync(marker)) continue
         if (fs.readFileSync(marker, 'utf8').trim() !== parent) continue
@@ -1998,8 +2001,11 @@ function linkedProfileDirs(record, profileName = record?.name) {
             if (isQuarantineName(entry)) continue
             const dir = path.join(root, entry)
             if (!isLink(dir)) continue
-            const parent = readMarker(path.join(dir, 'harness-parent'))
-            if (parent === owner || (home && parent === home)) dirs.add(dir)
+            // The entry name is the owner. Reading harness-parent would follow the link.
+            const named =
+                (home && (entry === home || entry.startsWith(`${home}--`))) ||
+                (owner && (entry === owner || entry.startsWith(`${owner}--`)))
+            if (named) dirs.add(dir)
         }
     } catch {
         // No profiles folder yet.
@@ -2090,30 +2096,6 @@ function trustedProfileDirs(compiled) {
         dirs.push(specialistWorkspace(specialist.profileName))
     }
     return dirs
-}
-
-// From the parent of the containment root (the hermes home, for a profile) down to dir. lstat of each
-// component does not follow that component.
-function ancestorPaths(dir) {
-    let root
-    try {
-        root = path.resolve(rootFor(dir))
-    } catch {
-        return null
-    }
-    const aboveRoot = path.dirname(root)
-    const top = path.dirname(aboveRoot)
-    const start = top === aboveRoot ? aboveRoot : top
-    const rel = path.relative(start, path.resolve(dir))
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
-    const paths = [start]
-    let cursor = start
-    for (const part of rel.split(path.sep)) {
-        if (!part || part === '.' || part === '..') return null
-        cursor = path.join(cursor, part)
-        paths.push(cursor)
-    }
-    return paths
 }
 
 function lstatIdentity(entry) {

@@ -10,6 +10,7 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
 delete process.env.HERMES_API_URL
 
 const { compileProfileCached, forgetCompiledProfile, profileWriteTest, readProfileEnv, specialistWorkspace } = await import('./profile.mjs')
+const { bootHarnessGateway, profileTokenKnown } = await import('./gateway.mjs')
 
 const failures = []
 
@@ -486,6 +487,117 @@ function cleanupProfile(name) {
         JSON.stringify({ cacheHit: again === first, refused, reused: third === first, got: Boolean(third) })
     )
     cleanupProfile(name)
+}
+
+// A link above the parent of the hermes home is still an ancestor. Opening a lower directory follows it.
+{
+    const name = 'plinkhigh'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-high-'))
+    const realTree = path.join(scratch, 'real-tree')
+    const linkTop = path.join(scratch, 'link-top')
+    const realHome = path.join(realTree, 'nested', 'data', 'hermes')
+    fs.mkdirSync(path.join(realHome, 'profiles', name), { recursive: true })
+    fs.writeFileSync(path.join(realTree, 'sentinel'), 'high-sentinel\n')
+    fs.writeFileSync(
+        path.join(realHome, 'profiles', name, '.env'),
+        'API_SERVER_KEY=from-the-target\nOUTSIDE_ENV_SENTINEL=from-the-high-ancestor\n'
+    )
+    const before = stamp(path.join(realTree, 'sentinel'))
+    const envBefore = stamp(path.join(realHome, 'profiles', name, '.env'))
+    const profileListingBefore = fs.readdirSync(path.join(realHome, 'profiles', name)).sort().join()
+    fs.symlinkSync(realTree, linkTop)
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = path.join(linkTop, 'nested', 'data', 'hermes')
+    let refused = ''
+    let hits = []
+    try {
+        const guarded = guardLink(linkTop, realTree, () => compileProfileCached(record(name)))
+        hits = guarded.hits
+        refused = guarded.error?.code || ''
+    } finally {
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+    }
+    const linkStat = fs.lstatSync(linkTop, { throwIfNoEntry: false })
+    const profileListing = fs.readdirSync(path.join(realHome, 'profiles', name)).sort().join()
+    check(
+        'a link above the hermes home is refused before the profile env is read and left in place',
+        refused === 'profile_link' &&
+            hits.length === 0 &&
+            linkStat?.isSymbolicLink() === true &&
+            fs.readlinkSync(linkTop) === realTree &&
+            quarantineNames(scratch, 'link-top').length === 0 &&
+            sameStamp(path.join(realTree, 'sentinel'), before) &&
+            sameStamp(path.join(realHome, 'profiles', name, '.env'), envBefore) &&
+            profileListing === profileListingBefore,
+        JSON.stringify({ refused, hits, stillLink: linkStat?.isSymbolicLink() === true, profileListing })
+    )
+    forgetCompiledProfile(name)
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
+// Finding profiles that belong to a harness must not read through a linked directory.
+{
+    const name = 'plinkboot'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const outside = outsideDir('boot-link', 'boot-sentinel\n')
+    fs.writeFileSync(path.join(outside.dir, 'harness-parent'), `${name}\n`)
+    const linked = profilePath('plinkother')
+    fs.symlinkSync(outside.dir, linked)
+    let hits = []
+    let refused = ''
+    try {
+        const guarded = guardLink(linked, outside.dir, () => compileProfileCached(saved))
+        hits = guarded.hits
+        refused = guarded.error?.code || ''
+    } finally {
+        forgetCompiledProfile(name)
+    }
+    const linkStat = fs.lstatSync(linked, { throwIfNoEntry: false })
+    check(
+        'a linked profile directory is not read while another profile compiles',
+        hits.length === 0 &&
+            refused === '' &&
+            linkStat?.isSymbolicLink() === true &&
+            fs.readlinkSync(linked) === outside.dir &&
+            sameStamp(outside.file, outside.before),
+        JSON.stringify({ hits, refused, stillLink: linkStat?.isSymbolicLink() === true })
+    )
+    fs.rmSync(linked, { force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// The gateway loads profile env files at startup. A linked env file is not a file it may read.
+{
+    const name = 'plinkgate'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const envFile = profilePath(name, '.env')
+    const outside = outsideFile(
+        'gate',
+        'OPENAI_API_KEY=abcdefghijklmnopqrstuvwxyz0123456789ABCDE\nOPENAI_BASE_URL=http://127.0.0.1:9/v1\nCUTTLELY_GATEWAY_HARNESS=plinkgate\nCUTTLELY_GATEWAY_SPECIALIST=alpha\nCUTTLELY_GATEWAY_CREATED=2020-01-01T00:00:00.000Z\n'
+    )
+    const realCopy = `${envFile}.real`
+    fs.renameSync(envFile, realCopy)
+    fs.symlinkSync(outside.file, envFile)
+    const guarded = guardLink(envFile, outside.file, () => bootHarnessGateway())
+    const token = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDE'
+    const linkStat = fs.lstatSync(envFile, { throwIfNoEntry: false })
+    check(
+        'the gateway does not read a linked profile env file',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            profileTokenKnown(token) === false &&
+            sameStamp(outside.file, outside.before) &&
+            !treeHas(profilePath(name), Buffer.from('abcdefghijklmnopqrstuvwxyz0123456789ABCDE')),
+        JSON.stringify({ hits: guarded.hits, error: guarded.error?.code || '', known: profileTokenKnown(token) })
+    )
+    fs.rmSync(realCopy, { force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
 fs.rmSync(dataDir, { recursive: true, force: true })

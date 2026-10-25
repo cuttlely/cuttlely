@@ -10,6 +10,7 @@ import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpe
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
+import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
 import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
@@ -354,9 +355,10 @@ function removeProfileTree(entry) {
 export function sweepAbandonedTryProfiles() {
     const abandoned = new Set()
     const root = path.join(hermesHome(), 'profiles')
-    if (!fs.existsSync(root)) return abandoned
+    const entries = listDirNoFollow(root)
+    if (!entries) return abandoned
     const drop = []
-    for (const entry of fs.readdirSync(root)) {
+    for (const entry of entries) {
         const marker = readParent(path.join(root, entry))
         if (!abandonedTryEntry(entry, marker)) continue
         drop.push(entry)
@@ -374,8 +376,9 @@ export function sweepAbandonedTryProfiles() {
 
 function ingestProfileTokens(abandoned = new Set()) {
     const root = path.join(hermesHome(), 'profiles')
-    if (!fs.existsSync(root)) return
-    for (const entry of fs.readdirSync(root)) {
+    const entries = listDirNoFollow(root)
+    if (!entries) return
+    for (const entry of entries) {
         if (abandoned.has(entry)) continue
         // A link is not a profile the runtime loads, including one that could not be renamed aside.
         if (entry.endsWith('.quarantine') || /\.quarantine-\d+$/.test(entry)) continue
@@ -447,15 +450,15 @@ function loadTokensOnce() {
 }
 
 function readParent(dir) {
-    const file = path.join(dir, 'harness-parent')
-    if (!fs.existsSync(file)) return ''
-    return fs.readFileSync(file, 'utf8').trim()
+    const text = readFileNoFollow(path.join(dir, 'harness-parent'))
+    return text == null ? '' : text.trim()
 }
 
 function readEnvFile(file) {
-    if (!fs.existsSync(file)) return {}
+    const text = readFileNoFollow(file)
+    if (text == null) return {}
     const env = {}
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    for (const line of text.split('\n')) {
         const trimmed = line.trim()
         if (!trimmed || trimmed.startsWith('#')) continue
         const eq = trimmed.indexOf('=')
