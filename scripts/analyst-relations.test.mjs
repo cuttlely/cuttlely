@@ -2275,6 +2275,31 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(listed.rows[0].v, 1)
     })
 
+    it('refuses a BEGIN ATOMIC function that reads a table when no relations are ticked', async (t) => {
+        // The unscoped path must walk prosqlbody even with nothing selected, and refuse any relation it finds.
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE TABLE s.unticked (id int)`)
+        await owner.query(`INSERT INTO s.unticked VALUES (7)`)
+        await owner.query(
+            `CREATE FUNCTION s.read_unticked() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT id FROM s.unticked LIMIT 1; END`
+        )
+        await owner.query(`CREATE FUNCTION s.pure_unticked() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 6; END`)
+        await owner.query(`CREATE FUNCTION s.wrap_unticked() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_unticked(); END`)
+        await owner.query('RESET ROLE')
+        await owner.query(`GRANT SELECT ON s.unticked TO "${reader}"`)
+        const pure = await queryAnalystUrl(url, 'SELECT s.pure_unticked() AS v LIMIT 1', node)
+        assert.equal(Number(pure.rows[0].v), 6)
+        await refusal(queryAnalystUrl(url, 'SELECT s.read_unticked() AS v LIMIT 1', node), /reads a relation/)
+        await refusal(queryAnalystUrl(url, 'SELECT s.wrap_unticked() AS v LIMIT 1', node), /not allowed|reads a relation/)
+        // Listing the reader admits its own body. The wrapper is not listed, so the callee is still refused.
+        const admitted = await queryAnalystUrl(url, 'SELECT s.read_unticked() AS v LIMIT 1', {
+            ...node,
+            allowedFunctions: 's.read_unticked()'
+        })
+        assert.equal(Number(admitted.rows[0].v), 7)
+    })
+
     it('allow-list of a parent function does not bypass checks for its callees or defaults', async (t) => {
         // The parent is listed, so its own owner and volatility gates are skipped. The callee and the
         // default are not listed, and each reaches s.secret, which the selection does not include.

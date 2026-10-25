@@ -1437,43 +1437,49 @@ async function refuseRoutines(
         return result
     }
     async function vetFound(found, depth = 0, { trustRelations = false, bucket = null } = {}) {
-        // Auto-allow refuses every relation the body touches, including one in the selection.
-        // An allow-listed function trusts its own relations; callees and defaults do not.
-        if (!trustRelations && relations?.length) {
+        // Auto-allow refuses every relation the body touches. That includes a relation in the
+        // selection, and it includes a body walked when no table is selected. An allow-listed
+        // function trusts its own relations; callees and defaults do not.
+        if (!trustRelations) {
             const rels = [...(found.relations || [])].map(Number).filter((oid) => oid > 0)
             if (rels.length) {
-                const allowedSet = new Set((relations || []).map((relation) => Number(relation.oid)))
-                const outside = rels.filter((oid) => !allowedSet.has(oid))
-                if (outside.length) {
-                    const nameRows = await runner.all(
-                        "SELECT coalesce(quote_ident(n.nspname) || '.' || quote_ident(c.relname), c.oid::text) AS name FROM pg_class c LEFT JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY 1",
-                        [outside]
-                    )
-                    const names = nameRows.length ? nameRows.map((row) => row.name) : outside.map(String)
-                    throw new ScopeRefusal(
-                        `Cuttlely refused this query: it reads ${refusedList(
-                            names
-                        )}, which this node's table selection does not include. Selected: ${refusedList(
-                            (relations || []).map((relation) => relation.name)
-                        )}.`
-                    )
+                if (relations?.length) {
+                    const allowedSet = new Set((relations || []).map((relation) => Number(relation.oid)))
+                    const outside = rels.filter((oid) => !allowedSet.has(oid))
+                    if (outside.length) {
+                        const nameRows = await runner.all(
+                            "SELECT coalesce(quote_ident(n.nspname) || '.' || quote_ident(c.relname), c.oid::text) AS name FROM pg_class c LEFT JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY 1",
+                            [outside]
+                        )
+                        const names = nameRows.length ? nameRows.map((row) => row.name) : outside.map(String)
+                        throw new ScopeRefusal(
+                            `Cuttlely refused this query: it reads ${refusedList(
+                                names
+                            )}, which this node's table selection does not include. Selected: ${refusedList(
+                                (relations || []).map((relation) => relation.name)
+                            )}.`
+                        )
+                    }
                 }
                 return 'relation'
             }
         }
         // Types: refuse reg* in scoped mode. A regconfig or regdictionary Const passed directly to a
         // built-in text-search function is the same exception as on a statement, view, or policy tree.
-        const bodyTree = String(found.tree || '')
-        let regSet = null
-        if (bodyTree.includes('{') || (found.types && found.types.size)) {
-            const ctx = await regContextOnce()
-            regSet = ctx.regSet
-            if (bodyTree.includes('{')) regUsesAreDirectConsts(bodyTree, ctx.regSet, ctx.allowedFnIds)
+        // With no selection, object-identifier types stay allowed, so this walk does not apply that rule.
+        if (!unscoped) {
+            const bodyTree = String(found.tree || '')
+            let regSet = null
+            if (bodyTree.includes('{') || (found.types && found.types.size)) {
+                const ctx = await regContextOnce()
+                regSet = ctx.regSet
+                if (bodyTree.includes('{')) regUsesAreDirectConsts(bodyTree, ctx.regSet, ctx.allowedFnIds)
+            }
+            // The same closure as the statement check: an array element, a domain base, a composite
+            // column, or a range subtype can be a reg* type when the outer type name is not.
+            const typeIds = [...(found.types || [])].filter((oid) => !regSet || !regSet.has(Number(oid)))
+            if (typeIds.length) await refuseTypes(runner, new Set(typeIds), { scoped: true })
         }
-        // The same closure as the statement check: an array element, a domain base, a composite
-        // column, or a range subtype can be a reg* type when the outer type name is not.
-        const typeIds = [...(found.types || [])].filter((oid) => !regSet || !regSet.has(Number(oid)))
-        if (typeIds.length) await refuseTypes(runner, new Set(typeIds), { scoped: true })
         // Operators: refuse non-built-in operators, and turn op oids into function oids via oprcode.
         const addFns = new Set()
         if (found.operators && found.operators.size) {
@@ -1595,13 +1601,23 @@ async function refuseRoutines(
         const body = String(info.probody || '')
         const allowedSelf = allowed.has(Number(functionOid))
         if (!allowedSelf) {
-            if (info.language !== 'sql') return note('written in non-SQL language')
-            if (!(info.volatility === 'i' || info.volatility === 's')) return note('not STABLE or IMMUTABLE')
-            if (info.definer) return note('SECURITY DEFINER')
-            if (info.config != null) return note('has its own settings')
-            if (info.super_owner !== false) return note('owned by a superuser')
-            // prosqlbody holds a nodeToString form only for SQL-standard BEGIN ATOMIC bodies.
-            if (!body) return note('SQL body is not BEGIN ATOMIC')
+            // With no selection, SQL and PL/pgSQL still pass on metadata. The body walk below
+            // still runs, and any relation it finds is refused.
+            if (unscoped) {
+                if (!autoAllowed(info)) {
+                    memo.set(functionOid, false)
+                    visiting.delete(functionOid)
+                    return false
+                }
+            } else {
+                if (info.language !== 'sql') return note('written in non-SQL language')
+                if (!(info.volatility === 'i' || info.volatility === 's')) return note('not STABLE or IMMUTABLE')
+                if (info.definer) return note('SECURITY DEFINER')
+                if (info.config != null) return note('has its own settings')
+                if (info.super_owner !== false) return note('owned by a superuser')
+                // prosqlbody holds a nodeToString form only for SQL-standard BEGIN ATOMIC bodies.
+                if (!body) return note('SQL body is not BEGIN ATOMIC')
+            }
         }
         const bucket = { height: 0 }
         if (body) {
@@ -1620,7 +1636,10 @@ async function refuseRoutines(
     }
     const trusted = async (row) => {
         if (builtIn(row)) return true
-        if (unscoped) return autoAllowed(row) || allowed.has(Number(row.oid))
+        // Metadata can refuse early. It must not skip the BEGIN ATOMIC body walk: a function
+        // that passes the metadata rule is still refused when its body touches any relation,
+        // including when no table is selected.
+        if (unscoped && !(autoAllowed(row) || allowed.has(Number(row.oid)))) return false
         const result = await strictlyAllowedScoped(Number(row.oid), 0)
         if (result === 'depth') {
             row.refusal = row.refusal || 'call graph too deep'
@@ -1628,7 +1647,8 @@ async function refuseRoutines(
         }
         if (result !== true) return false
         // Allow-list admits this function; defaults were checked above and are checked again here.
-        if (allowed.has(Number(row.oid))) return (await defaultsSafeTree(row)) === true
+        // The unscoped walk already applied that check inside strictlyAllowedScoped.
+        if (!unscoped && allowed.has(Number(row.oid))) return (await defaultsSafeTree(row)) === true
         return true
     }
     const foreignRows = []
