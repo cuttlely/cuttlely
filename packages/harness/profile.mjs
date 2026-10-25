@@ -1458,22 +1458,25 @@ export function setAsideOutdatedConfigs() {
     for (const entry of fs.readdirSync(root)) {
         if (isQuarantineName(entry)) continue
         const dir = path.join(root, entry)
-        let owned
         let linked = false
         try {
             linked = fs.lstatSync(dir).isSymbolicLink()
+        } catch {
+            linked = false
+        }
+        // A link is moved off the load path before any marker under it is checked. The target is not read,
+        // and a file already at the destination is not replaced. A link that cannot be moved stays failed.
+        if (linked) {
+            if (!quarantineSymlink(dir)) loadable.push(dir)
+            continue
+        }
+        let owned
+        try {
             owned = harnessOwnedDir(dir)
         } catch {
             owned = true
         }
         if (!owned) continue
-        // A linked profile folder is moved off the load path. The target is not changed, and a file already
-        // at the destination is not replaced. A link that cannot be moved stays failed: it is returned so
-        // the caller does not treat it as ready to load.
-        if (linked) {
-            if (!quarantineSymlink(dir)) loadable.push(dir)
-            continue
-        }
         if (!setAsideConfig(dir)) loadable.push(dir)
     }
     return loadable

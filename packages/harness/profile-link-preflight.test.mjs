@@ -904,6 +904,37 @@ function cleanupProfile(name) {
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
+// The boot sweep must not stat through a linked profile directory to decide whether it is owned.
+{
+    const name = 'plinksweepdir'
+    const outside = outsideDir('sweep-dir', 'sweep-dir-sentinel\n')
+    fs.writeFileSync(path.join(outside.dir, 'harness-parent'), 'someone\n')
+    fs.writeFileSync(path.join(outside.dir, 'config.yaml'), 'old\n')
+    fs.mkdirSync(hermesProfiles(), { recursive: true })
+    const link = profilePath(name)
+    fs.symlinkSync(outside.dir, link)
+    const guarded = guardLink(link, outside.dir, () => setAsideOutdatedConfigs())
+    const linkStat = fs.lstatSync(link, { throwIfNoEntry: false })
+    const loadable = Array.isArray(guarded.result) ? guarded.result : []
+    check(
+        'the boot sweep does not read through a linked profile directory',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            !loadable.some((dir) => String(dir).endsWith(name)) &&
+            !linkStat &&
+            sameStamp(outside.file, outside.before) &&
+            fs.readFileSync(path.join(outside.dir, 'config.yaml'), 'utf8') === 'old\n',
+        JSON.stringify({
+            hits: guarded.hits,
+            error: guarded.error?.code || '',
+            loadable,
+            stillLink: linkStat?.isSymbolicLink() === true
+        })
+    )
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
 fs.rmSync(dataDir, { recursive: true, force: true })
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
