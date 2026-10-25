@@ -994,9 +994,9 @@ export async function updateWorkspace(sql: Sql, actor: DirectoryActor, body: unk
     return getWorkspace(sql, actor, id)
 }
 
-async function workspaceRowCount(sql: Sql, table: string, workspaceId: string): Promise<number> {
+async function workspaceRowCount(query: QueryFn, sql: Sql, table: string, workspaceId: string): Promise<number> {
     try {
-        const rows = await sql.query(`SELECT COUNT(*) AS count FROM ${q(sql, table)} WHERE ${q(sql, 'workspaceId')} = ?`, [workspaceId])
+        const rows = await query(`SELECT COUNT(*) AS count FROM ${q(sql, table)} WHERE ${q(sql, 'workspaceId')} = ?`, [workspaceId])
         return num(cell(rows[0] || {}, 'count'))
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -1005,8 +1005,8 @@ async function workspaceRowCount(sql: Sql, table: string, workspaceId: string): 
     }
 }
 
-async function chatflowCount(sql: Sql, workspaceId: string): Promise<number> {
-    return workspaceRowCount(sql, 'chat_flow', workspaceId)
+async function chatflowCount(query: QueryFn, sql: Sql, workspaceId: string): Promise<number> {
+    return workspaceRowCount(query, sql, 'chat_flow', workspaceId)
 }
 
 /** Tables with a workspace foreign key, besides chat_flow, that block deleting the team. */
@@ -1039,10 +1039,10 @@ export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: strin
         if (RESERVED_WORKSPACE.has(text(cell(current, 'name')))) throw new DirectoryError(400, 'That team cannot be deleted')
         const members = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [id])
         if (num(cell(members[0] || {}, 'count')) > 1) throw new DirectoryError(400, 'Remove the other people from this team first')
-        if ((await chatflowCount(sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
+        if ((await chatflowCount(query, sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
         const owned: string[] = []
         for (const item of TEAM_OWNED_ROWS) {
-            if ((await workspaceRowCount(sql, item.table, id)) > 0) owned.push(item.label)
+            if ((await workspaceRowCount(query, sql, item.table, id)) > 0) owned.push(item.label)
         }
         if (owned.length) throw new DirectoryError(400, teamOwnedMessage(owned))
         const owners = `(${enabledOwnersSql(sql)})`

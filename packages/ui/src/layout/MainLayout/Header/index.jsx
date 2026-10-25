@@ -90,7 +90,7 @@ const Header = ({ handleLeftDrawerToggle }) => {
     const isAuthenticated = useSelector((state) => state.auth.isAuthenticated)
     const currentUser = useSelector((state) => state.auth.user)
     const teamCount = currentUser?.assignedWorkspaces?.length || 0
-    const showTeamSwitcher = isAuthenticated && (isEnterpriseLicensed || (!isCloud && teamCount > 1))
+    const showTeamSwitcher = isAuthenticated && (isEnterpriseLicensed || teamCount > 1)
 
     useNotifier()
 

@@ -77,10 +77,10 @@ theme.typography.mediumAvatar = { width: '34px', height: '34px', fontSize: '1.2r
 
 let root
 
-async function renderHeader(teams) {
-    mockConfig.isEnterpriseLicensed = false
-    mockConfig.isCloud = false
-    mockConfig.isOpenSource = true
+async function renderHeader(teams, options = {}) {
+    mockConfig.isEnterpriseLicensed = options.isEnterpriseLicensed === true
+    mockConfig.isCloud = options.isCloud === true
+    mockConfig.isOpenSource = options.isOpenSource !== false
     mockUser.assignedWorkspaces = teams.map((team) => ({ id: team.id, name: team.name }))
     mockUser.activeWorkspaceId = teams[0].id
     mockUser.activeWorkspace = teams[0].name
@@ -121,6 +121,28 @@ describe('header team switcher', () => {
         document.body.innerHTML = ''
 
         await renderHeader([{ id: 'team-default', name: 'Default Workspace' }])
+        expect(document.getElementById('workspace-switcher')).toBeNull()
+    })
+
+    it('renders the team switcher on cloud with two teams and no enterprise license', async () => {
+        await renderHeader(
+            [
+                { id: 'team-default', name: 'Default Workspace' },
+                { id: 'team-field', name: 'Field' }
+            ],
+            { isCloud: true, isEnterpriseLicensed: false, isOpenSource: false }
+        )
+        expect(document.getElementById('workspace-switcher')).toBeTruthy()
+        expect(document.getElementById('workspace-switcher').textContent).toContain('Default Workspace')
+        act(() => root.unmount())
+        root = undefined
+        document.body.innerHTML = ''
+
+        await renderHeader([{ id: 'team-default', name: 'Default Workspace' }], {
+            isCloud: true,
+            isEnterpriseLicensed: false,
+            isOpenSource: false
+        })
         expect(document.getElementById('workspace-switcher')).toBeNull()
     })
 })

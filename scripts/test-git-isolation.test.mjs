@@ -78,8 +78,9 @@ test('the release and vendor tests leave the repository named by GIT_DIR untouch
 })
 
 test('the boundary fixture git calls leave the repository named by GIT_DIR untouched', () => {
+    const cases = fs.readFileSync(path.join(HERE, 'check-boundaries.test.mjs'), 'utf8').match(/^\s*it\(/gm).length
     withHookRepo(['check-boundaries.test.mjs'], (res, realRepo, before) => {
-        assertHookRepoUntouched(res, realRepo, before, 1)
+        assertHookRepoUntouched(res, realRepo, before, cases)
     })
 })
 

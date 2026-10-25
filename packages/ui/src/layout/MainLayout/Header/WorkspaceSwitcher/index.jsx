@@ -124,12 +124,13 @@ const WorkspaceSwitcher = () => {
         // Fetch workspaces when component mounts
         if (isAuthenticated && user) {
             const WORKSPACE_FLAG = 'feat:workspaces'
-            const flag =
-                isOpenSource ||
-                (features &&
-                    Object.prototype.hasOwnProperty.call(features, WORKSPACE_FLAG) &&
-                    (features[WORKSPACE_FLAG] === 'true' || features[WORKSPACE_FLAG] === true))
-            if (flag) {
+            const featureOn =
+                features &&
+                Object.prototype.hasOwnProperty.call(features, WORKSPACE_FLAG) &&
+                (features[WORKSPACE_FLAG] === 'true' || features[WORKSPACE_FLAG] === true)
+            // A cloud account has no open-source flag. More than one team is enough to load the list.
+            const severalTeams = (user.assignedWorkspaces?.length || 0) > 1
+            if (isOpenSource || featureOn || severalTeams) {
                 if (isEnterpriseLicensed) {
                     getWorkspacesByOrganizationIdUserIdApi.request(user.activeOrganizationId, user.id)
                 } else {

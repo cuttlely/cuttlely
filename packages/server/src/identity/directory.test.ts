@@ -293,50 +293,49 @@ describe('team create and delete', () => {
         ])
     })
 
-    it('returns 400 and leaves the team intact when it still owns rows', async () => {
+    const ownedTables: { table: string; message: string }[] = [
+        { table: 'chat_flow', message: 'Delete this team chatflows first' },
+        { table: 'credential', message: "Delete this team's credentials first" },
+        { table: 'variable', message: "Delete this team's variables first" },
+        { table: 'apikey', message: "Delete this team's API keys first" },
+        { table: 'document_store', message: "Delete this team's document stores first" },
+        { table: 'workspace_shared', message: "Delete this team's shared items first" },
+        { table: 'assistant', message: "Delete this team's assistants first" },
+        { table: 'custom_template', message: "Delete this team's custom templates first" },
+        { table: 'dataset', message: "Delete this team's datasets first" },
+        { table: 'evaluation', message: "Delete this team's evaluations first" },
+        { table: 'evaluator', message: "Delete this team's evaluators first" },
+        { table: 'tool', message: "Delete this team's tools first" },
+        { table: 'execution', message: "Delete this team's executions first" }
+    ]
+
+    it.each(ownedTables)('returns 400 and leaves the team intact when it still owns a $table row', async ({ table, message }) => {
         const { sql, db } = memorySql()
         db.exec(`
-            INSERT INTO workspace (id, name, "organizationId", "createdBy", "updatedBy")
-                VALUES ('team-owned', 'Field', '${ORG}', '${OWNER}', '${OWNER}');
-            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status, "createdBy", "updatedBy")
-                VALUES ('team-owned', '${OWNER}', '${ROLE}', 'active', '${OWNER}', '${OWNER}');
-            CREATE TABLE credential (id text primary key, "workspaceId" text);
-            INSERT INTO credential (id, "workspaceId") VALUES ('cred-1', 'team-owned');
-        `)
+                INSERT INTO workspace (id, name, "organizationId", "createdBy", "updatedBy")
+                    VALUES ('team-owned', 'Field', '${ORG}', '${OWNER}', '${OWNER}');
+                INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status, "createdBy", "updatedBy")
+                    VALUES ('team-owned', '${OWNER}', '${ROLE}', 'active', '${OWNER}', '${OWNER}');
+            `)
+        if (table !== 'chat_flow') db.exec(`CREATE TABLE "${table}" (id text primary key, "workspaceId" text);`)
+        db.exec(`INSERT INTO "${table}" (id, "workspaceId") VALUES ('row-1', 'team-owned');`)
+        // Counts on the outer connection do not see the open delete transaction.
+        const readOutside = sql.query
+        sql.query = async (statement, params = []) => {
+            if (statement.includes(`"${table}"`)) throw new Error('SQLITE_BUSY: database is locked')
+            return readOutside(statement, params)
+        }
         await expect(deleteWorkspace(sql, actor, 'team-owned')).rejects.toMatchObject({
             status: 400,
-            message: "Delete this team's credentials first"
+            message
         })
         expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all('team-owned')).toEqual([{ id: 'team-owned' }])
-        expect(db.prepare('SELECT id, "workspaceId" AS workspaceId FROM credential').all()).toEqual([
-            { id: 'cred-1', workspaceId: 'team-owned' }
+        expect(db.prepare(`SELECT id, "workspaceId" AS workspaceId FROM "${table}"`).all()).toEqual([
+            { id: 'row-1', workspaceId: 'team-owned' }
         ])
         expect(db.prepare('SELECT "userId" AS userId FROM workspace_user WHERE "workspaceId" = ?').all('team-owned')).toEqual([
             { userId: OWNER }
         ])
         expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all(TEAM)).toEqual([{ id: TEAM }])
-    })
-
-    it('returns 400 and leaves the team intact when it still owns an execution', async () => {
-        const { sql, db } = memorySql()
-        db.exec(`
-            INSERT INTO workspace (id, name, "organizationId", "createdBy", "updatedBy")
-                VALUES ('team-run', 'Field', '${ORG}', '${OWNER}', '${OWNER}');
-            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status, "createdBy", "updatedBy")
-                VALUES ('team-run', '${OWNER}', '${ROLE}', 'active', '${OWNER}', '${OWNER}');
-            CREATE TABLE execution (id text primary key, "workspaceId" text);
-            INSERT INTO execution (id, "workspaceId") VALUES ('run-1', 'team-run');
-        `)
-        await expect(deleteWorkspace(sql, actor, 'team-run')).rejects.toMatchObject({
-            status: 400,
-            message: "Delete this team's executions first"
-        })
-        expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all('team-run')).toEqual([{ id: 'team-run' }])
-        expect(db.prepare('SELECT id, "workspaceId" AS workspaceId FROM execution').all()).toEqual([
-            { id: 'run-1', workspaceId: 'team-run' }
-        ])
-        expect(db.prepare('SELECT "userId" AS userId FROM workspace_user WHERE "workspaceId" = ?').all('team-run')).toEqual([
-            { userId: OWNER }
-        ])
     })
 })

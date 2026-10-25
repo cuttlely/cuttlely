@@ -148,7 +148,26 @@ beforeEach(() => {
             ]
         }
     })
+    mockUser.assignedWorkspaces = [
+        { id: 'team-default', name: 'Default Workspace' },
+        { id: 'team-field', name: 'Field' }
+    ]
 })
+
+async function submitNewTeam(name) {
+    await act(async () => {
+        fireEvent.click(document.getElementById('btn_createTeam'))
+    })
+    const dialog = document.querySelector('[role="dialog"]')
+    const nameInput = dialog.querySelector('input')
+    await act(async () => {
+        fireEvent.change(nameInput, { target: { value: name } })
+    })
+    await act(async () => {
+        fireEvent.click(buttonByText('Add'))
+    })
+    await settle()
+}
 
 afterEach(() => {
     if (root) act(() => root.unmount())
@@ -180,6 +199,32 @@ describe('team create', () => {
         expect(mockNavigate).not.toHaveBeenCalled()
         const switched = mockStoreDispatch.mock.calls.map((call) => call[0]).find((action) => action?.type === workspaceSwitchSuccess.type)
         expect(switched?.payload?.activeWorkspaceId).not.toBe('team-new')
+        expect(mockUser.activeWorkspaceId).toBe('team-default')
+    })
+
+    it('keeps the current team and lists the new team so the switcher can show it', async () => {
+        const session = {
+            id: 'user-1',
+            activeWorkspaceId: 'team-default',
+            activeWorkspace: 'Default Workspace',
+            assignedWorkspaces: [
+                { id: 'team-default', name: 'Default Workspace' },
+                { id: 'team-new', name: 'Field Notes' }
+            ]
+        }
+        authApi.refreshSession.mockResolvedValue({ data: session })
+        workspaceApi.createWorkspace.mockResolvedValue({
+            data: { id: 'team-new', name: 'Field Notes', organizationId: 'org-1', userCount: 1 }
+        })
+        await renderTeams()
+        await submitNewTeam('Field Notes')
+        expect(workspaceApi.createWorkspace).toHaveBeenCalled()
+        expect(workspaceApi.switchWorkspace).not.toHaveBeenCalled()
+        expect(authApi.refreshSession).toHaveBeenCalledTimes(1)
+        const switched = mockStoreDispatch.mock.calls.map((call) => call[0]).find((action) => action?.type === workspaceSwitchSuccess.type)
+        expect(switched?.payload).toEqual(session)
+        expect(switched.payload.activeWorkspaceId).toBe('team-default')
+        expect(switched.payload.assignedWorkspaces).toEqual(session.assignedWorkspaces)
         expect(mockUser.activeWorkspaceId).toBe('team-default')
     })
 })
