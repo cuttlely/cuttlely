@@ -403,29 +403,10 @@ function stableIdToken(id: string): string {
     return `${stem}_${mark}`
 }
 
-// Text before the trailing number. harness_10 and harness_2 share the stem harness_.
-function trailingStem(id: string): string | undefined {
-    const owned = trailingNumber(id)
-    if (owned === undefined) return undefined
-    const digits = String(owned)
-    if (!id.endsWith(digits)) return undefined
-    return id.slice(0, -digits.length)
-}
-
-// A shared trailing number is not enough when the stems differ: b_1 and c_1 both end in 1.
-// The suffix is then the id itself, which does not move when the other card is deleted.
-// Uniform stems (harness_0, harness_2, harness_10) keep the trailing number.
-function suffixBody(id: string, groupIds: string[]): string {
-    const owned = trailingNumber(id)
-    if (owned === undefined) return stableIdToken(id)
-    const stems = groupIds.map(trailingStem).filter((stem): stem is string => stem !== undefined)
-    const uniform = stems.length > 0 && stems.every((stem) => stem === stems[0])
-    if (uniform) return String(owned)
-    return stableIdToken(id)
-}
-
-function withIdSuffix(base: string, id: string, groupIds: string[]): string {
-    return withLiteralSuffix(base, `_${suffixBody(id, groupIds)}`)
+// The suffix is this card's id, never a number picked from the other cards. Deleting a neighbor
+// cannot change it. A trailing number alone is not used: a_1 and b_2 would both claim _1 or trade it.
+function withIdSuffix(base: string, id: string): string {
+    return withLiteralSuffix(base, `_${stableIdToken(id)}`)
 }
 
 // harness_2 before harness_10, and harness_tool_2 before harness_tool_10. Text order would not.
@@ -459,11 +440,10 @@ function trailingNumber(id: string): number | undefined {
  * One tool name per card. A title the person set is used when it is unique, then the saved harness
  * name. A base only one card wants is kept as it is. When several cards still want the same base, the
  * lowest id (numeric parts compared as numbers) keeps it, and each other card takes `_` plus its own
- * id. When every colliding id shares one trailing stem, that is the trailing number, including 0.
- * When the stems differ, or the id has no trailing number, it is the id text. That suffix wins over
- * another card's title that spells the same text, and it stays reserved while the card that owns the
- * id is still here, even after that card takes the bare name. Removing a different card does not move
- * that suffix. The bare name moves to the next id only when the card that held it is gone.
+ * id text. That suffix does not depend on which other cards are present. It wins over another card's
+ * title that spells the same text, and it stays reserved while the card that owns the id is still
+ * here, even after that card takes the bare name. Removing a different card does not move that
+ * suffix. The bare name moves to the next id only when the card that held it is gone.
  */
 function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const items = (Array.isArray(cards) ? cards : []).map((card, index) => ({
@@ -477,13 +457,9 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const counts = new Map<string, number>()
     for (const item of bases) counts.set(item.base, (counts.get(item.base) || 0) + 1)
 
-    // Own-id suffixes are claimed before titles, so a title spelled team_2 cannot take harness_2's name.
+    // Own-id suffixes are claimed before titles, so a title spelled like harness_2's suffix cannot take it.
     const winnerOf = new Map<string, string>()
-    const groups = new Map<string, string[]>()
     for (const item of bases) {
-        const group = groups.get(item.base) || []
-        group.push(item.id)
-        groups.set(item.base, group)
         if ((counts.get(item.base) || 0) <= 1) continue
         if (!winnerOf.has(item.base)) winnerOf.set(item.base, item.id)
     }
@@ -491,7 +467,7 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     for (const item of bases) {
         const count = counts.get(item.base) || 0
         const owned = trailingNumber(item.id)
-        const suffixName = withIdSuffix(item.base, item.id, groups.get(item.base) || [item.id])
+        const suffixName = withIdSuffix(item.base, item.id)
         const winner = winnerOf.get(item.base) === item.id
         const inCollision = count > 1
         if (inCollision && !winner) {
@@ -509,10 +485,7 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const names = new Map<string, string>()
     for (const item of bases) {
         const count = counts.get(item.base) || 0
-        const preferred =
-            count > 1 && winnerOf.get(item.base) !== item.id
-                ? withIdSuffix(item.base, item.id, groups.get(item.base) || [item.id])
-                : item.base
+        const preferred = count > 1 && winnerOf.get(item.base) !== item.id ? withIdSuffix(item.base, item.id) : item.base
         const candidate = nextFreeName(preferred, item.id, used, reservedBy)
         names.set(item.id, candidate)
         used.add(candidate)
