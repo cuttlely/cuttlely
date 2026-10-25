@@ -57,6 +57,31 @@
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/agentflow/Agent/Agent.ts",
+            "reason": "The harness tool-name test reads each agentflow tool's own id, so removing another tool does not move that tool's suffix."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/agents/ReActAgentChat/ReActAgentChat.ts",
+            "reason": "The test builds a ReAct chat agent with a repeated tool name and checks that the build fails before the executor runs."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/agents/ReActAgentLLM/ReActAgentLLM.ts",
+            "reason": "The test builds a ReAct LLM agent with a repeated tool name and checks that the build fails before the executor runs."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/agents/ToolAgent/ToolAgent.ts",
+            "reason": "The acceptance test runs two Harness cards through the Tool Agent with a mocked model, and checks that a repeated tool name fails that build."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/nodes/utilities/CustomFunction/CustomFunction.ts",
+            "reason": "The test calls CustomFunction.init with a repeated tool name and checks that the error says this function."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
             "to": "packages/components/src/agents.ts"
         },
         {
@@ -2080,6 +2105,14 @@
             "reason": "unit tests for the ChatOpenAI and Azure ChatOpenAI reasoning request params sit next to the node"
         },
         {
+            "path": "packages/components/nodes/tools/CurrentDateTime/CurrentDateTime.test.ts",
+            "reason": "The Current Date Time tool test stays with the inherited tool it covers."
+        },
+        {
+            "path": "packages/components/src/agentToolRowId.ts",
+            "reason": "The agentflow tool row id is shared by the server and the canvas, so a row keeps the same suffix after another row is removed."
+        },
+        {
             "path": "packages/components/src/missingModelCredential.test.ts",
             "reason": "The missing-credential tests stay next to getCredentialData and the chat model nodes they exercise."
         },
@@ -3202,6 +3235,10 @@
         {
             "path": "packages/server/src/utils/upsertErrors.ts",
             "reason": "The vector upsert error helper and its test stay next to the inherited upsert path they serve."
+        },
+        {
+            "path": "packages/ui/src/ui-component/array/ArrayRenderer.test.js",
+            "reason": "The array editor test stays next to the inherited tool-row editor it exercises."
         },
         {
             "path": "packages/ui/src/ui-component/artifacts/FileArtifact.jsx",

@@ -10,11 +10,16 @@ import {
     SCOPE_NONE_LEFT,
     SCOPE_ONLY_SELECT,
     ambiguousRelations,
+    checkReadOnlySql,
+    closestRelationNames,
+    missingRelationHint,
+    missingRelationName,
     columnErrorHint,
     columnList,
     deniedFunction,
     describeRefusal,
     resetRiskyDomainCacheForTests,
+    routineCatalogStamp,
     SAMPLE_TIMEOUT_MS,
     findRelation,
     parseRelationSelection,
@@ -28,7 +33,8 @@ import {
     analystUrlToolSpec,
     describeAnalystUrlRelation,
     listAnalystUrlRelations,
-    queryAnalystUrl
+    queryAnalystUrl,
+    setCheckGapHookForTests
 } from '../packages/harness/runtime/analyst-store.mjs'
 
 const { Client } = pg
@@ -186,7 +192,7 @@ describe('analyst relations: pure helpers', () => {
 
     it('collects type ids, including lists, wrapped lines and enum fields that name no type', () => {
         const tree =
-            '{CONST :consttype 23 :consttypmod -1} {VAR :vartype\n1043} {RTE :coltypes (o 25 1700)} :jointype 0 :row_typeid 2249 x\\ :consttype\\ 9'
+            '{CONST :consttype 23 :consttypmod -1} {VAR :vartype\n1043} {RTE :coltypes (o 25 1700) :jointype 0 :row_typeid 2249 x\\ :consttype\\ 9}'
         assert.deepEqual(
             [...treeObjectIds(tree).types].sort((a, b) => a - b),
             [23, 25, 1043, 1700, 2249]
@@ -194,7 +200,7 @@ describe('analyst relations: pure helpers', () => {
     })
 
     it('reads a tree in linear time, including long runs of whitespace after a list opener', () => {
-        const hostile = `:types\t(o\t${'\t\t'.repeat(100000)}x :coltypes (o 23 ${' '.repeat(100000)}25)`
+        const hostile = `{QUERY :types (o ${'\t\t'.repeat(100000)}25) :coltypes (o 23 ${' '.repeat(100000)}25)}`
         const started = process.hrtime.bigint()
         const ids = treeObjectIds(hostile)
         const ms = Number(process.hrtime.bigint() - started) / 1e6
@@ -203,8 +209,64 @@ describe('analyst relations: pure helpers', () => {
             [...ids.types].sort((a, b) => a - b),
             [23, 25]
         )
-        assert.deepEqual([...treeObjectIds(':coltypes (o) :vartype 1043 :opnos (o 96').types], [1043])
-        assert.deepEqual([...treeObjectIds(':opnos (o 96').operators], [96])
+        assert.deepEqual([...treeObjectIds('{QUERY :coltypes (o) :vartype 1043 :opnos (o 96)}').types], [1043])
+        assert.deepEqual([...treeObjectIds('{QUERY :opnos (o 96)}').operators], [96])
+    })
+
+    it('fails closed on unknown node tags and accepts Postgres 14 and 16 text-search tags', () => {
+        // Requirement (e): an unknown tag is refused, including one the old suffix rule would have allowed.
+        assert.throws(() => treeObjectIds('{NOT_A_REAL_NODE :consttype 23}'), /construct not allowed/)
+        assert.throws(() => treeObjectIds('{UNKNOWNEXPR :consttype 23}'), /construct not allowed/)
+        assert.throws(() => treeObjectIds('{TABLEFUNC :funcid 1}'), /construct not allowed/)
+        assert.throws(() => treeObjectIds('{XMLEXPR :funcid 1}'), /construct not allowed/)
+        assert.throws(() => treeObjectIds('{NEXTVALUEEXPR :seqid 1}'), /construct not allowed/)
+        const accepted = [
+            'COALESCE',
+            'ROW',
+            'CASE',
+            'MINMAX',
+            'RTE',
+            'SETOPERATIONSTMT',
+            'COALESCEEXPR',
+            'ROWEXPR',
+            'CASEEXPR',
+            'CASEWHEN',
+            'MINMAXEXPR',
+            'RANGETBLENTRY',
+            'NULLIFEXPR',
+            'BOOLEANTEST'
+        ]
+        for (const tag of accepted) {
+            const ids = treeObjectIds(`{${tag} :consttype 23 :vartype 25}`)
+            assert.deepEqual(
+                [...ids.types].sort((a, b) => a - b),
+                [23, 25],
+                tag
+            )
+        }
+    })
+
+    it('fails closed on an empty, truncated, or non-node tree', () => {
+        // Requirement (e): treeObjectIds refuses anything that is not a well-formed node tree.
+        // Empty and null are refused here; callers that mean "no tree" must not call it.
+        const refused = /not a complete node tree/
+        for (const bad of [
+            null,
+            undefined,
+            '',
+            '   ',
+            'not a node tree',
+            '{QUERY :commandType 1',
+            '{CONST :consttype 23',
+            '{CONST :consttype 23}}',
+            '{QUERY :opnos (o 96}',
+            '{CONST :consttype 23} trailing'
+        ]) {
+            assert.throws(() => treeObjectIds(bad), refused, `expected refusal for ${JSON.stringify(bad)}`)
+        }
+        const closed = treeObjectIds('{QUERY :commandType 1}')
+        assert.ok(closed.types instanceof Set)
+        assert.deepEqual([...treeObjectIds('{CONST :consttype 23}').types], [23])
     })
 
     it('names the columns of the selected relations a failed statement mentions, only for column errors', () => {
@@ -454,7 +516,7 @@ describe('analyst relations: bakery database', () => {
         const options = { relations: SELECTION }
         await refusal(queryAnalystUrl(url, "SELECT query_to_xml('SELECT * FROM payroll_notes', true, true, '')", options), /query_to_xml/)
         await refusal(queryAnalystUrl(url, "SELECT set_config('search_path', 'pg_temp', true), * FROM stores", options), /set_config/)
-        await refusal(queryAnalystUrl(url, 'SELECT public.note_count()', options), /function public\.note_count is not built in/)
+        await refusal(queryAnalystUrl(url, 'SELECT public.note_count()', options), /function public\.note_count\([^)]*\) is not built in/)
         await refusal(queryAnalystUrl(url, 'SELECT * FROM stores WHERE id === 1', options), /operator public\.=== is not built in/)
         await refusal(queryAnalystUrl(url, 'DELETE FROM stores', options), new RegExp(SCOPE_ONLY_SELECT.slice(0, 40)))
         await refusal(queryAnalystUrl(url, 'SHOW search_path', options), /only SELECT/)
@@ -566,6 +628,7 @@ describe('analyst relations: bakery database', () => {
             `SELECT pg_total_relation_size(${oid})`,
             `SELECT pg_table_size(${oid})`,
             `SELECT pg_indexes_size(${oid})`,
+            `SELECT pg_tablespace_location(0)`,
             `SELECT has_table_privilege('payroll_notes', 'SELECT')`,
             `SELECT pg_terminate_backend(pg_backend_pid())`,
             `SELECT pg_cancel_backend(pg_backend_pid())`
@@ -667,7 +730,9 @@ describe('analyst relations: bakery database', () => {
         const refused = JSON.parse(await scoped[0].invoke({ sql: 'SELECT * FROM payroll_notes' }))
         assert.equal(refused.cuttlelyOutcome, 'expected')
         const described = JSON.parse(await scoped[1].invoke({ name: 'stores' }))
-        assert.equal(described.name, 'public.stores')
+        // With citext installed, the node refuses the whole database, describe included.
+        if (citext) assert.match(described.error, /citext/)
+        else assert.equal(described.name, 'public.stores')
 
         const previous = process.env.CUTTLELY_POSTGRES_URL
         process.env.CUTTLELY_POSTGRES_URL = url
@@ -699,8 +764,18 @@ describe('analyst relations: bakery database', () => {
         )
 
         if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
-            t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
-            return
+            try {
+                const { execSync } = await import('node:child_process')
+                execSync('pnpm --filter @cuttlely/components build', { stdio: 'inherit' })
+            } catch {}
+            if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
+                if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1') {
+                    assert.fail('components build is missing or stale; build the components package before running PG-required tests')
+                } else {
+                    t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
+                    return
+                }
+            }
         }
         const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
         const node = new nodeClass()
@@ -712,17 +787,45 @@ describe('analyst relations: bakery database', () => {
                 tools.map((tool) => tool.name),
                 ['query', 'describe']
             )
-            const refused = JSON.parse(await tools[0].invoke({ sql: 'SELECT note FROM public.payroll_notes' }))
+            if (citext) {
+                // citext's input is not built in, so the node refuses every query on this database until it is gone.
+                const blocked = JSON.parse(await tools[0].invoke({ sql: 'SELECT name FROM public.stores LIMIT 5' }))
+                assert.equal(blocked.cuttlelyOutcome, 'expected')
+                assert.match(blocked.error, /types whose input runs code that is not built in.*citext/)
+                await withOwner((client) => client.query('DROP EXTENSION citext'))
+                resetRiskyDomainCacheForTests()
+            }
+            const refused = JSON.parse(await tools[0].invoke({ sql: 'SELECT note FROM public.payroll_notes LIMIT 5' }))
             assert.equal(refused.cuttlelyOutcome, 'expected')
             assert.match(refused.error, /reads public\.payroll_notes/)
+            // The node runs the read-only text check before it connects.
+            const writable = JSON.parse(
+                await tools[0].invoke({ sql: 'WITH d AS (DELETE FROM public.stores RETURNING *) SELECT * FROM d LIMIT 5' })
+            )
+            assert.equal(writable.cuttlelyOutcome, 'expected')
+            assert.match(writable.error, /DELETE inside WITH is a writable CTE/)
+            assert.match(JSON.parse(await tools[0].invoke({ sql: 'SELECT * FROM public.stores' })).error, /add a LIMIT/)
+            assert.match(tools[0].description, /with a LIMIT and no semicolon/)
             const described = JSON.parse(await tools[1].invoke({ name: 'payroll_notes' }))
             assert.equal(described.cuttlelyOutcome, 'expected')
             assert.equal(tools[0].description.includes(rule), false)
         } finally {
             if (previous === undefined) delete process.env.CUTTLELY_POSTGRES_URL
             else process.env.CUTTLELY_POSTGRES_URL = previous
+            if (citext) await withOwner((client) => client.query('CREATE EXTENSION IF NOT EXISTS citext'))
+            resetRiskyDomainCacheForTests()
         }
     })
+
+    async function withOwner(run) {
+        const client = new Client(adminConfig(dbName))
+        await client.connect()
+        try {
+            await run(client)
+        } finally {
+            await client.end().catch(() => {})
+        }
+    }
 })
 
 // A database whose domains could run code while a statement is parsed refuses every scoped query up front.
@@ -812,7 +915,7 @@ describe('analyst relations: risky domain checks', () => {
     `
     )
     const expected =
-        /this database has domains whose CHECK could run other code or change data while a query is checked: public\.builtin_bump, public\.bump_ref, public\.oid_ref, public\.quiet_ref\. Queries are refused while a table selection is set\./
+        /this database has domains whose CHECK could run other code or change data while a query is checked: public\.builtin_bump, public\.bump_ref, public\.oid_ref, public\.quiet_ref\. Queries are refused while a table selection is set, and every PostgreSQL MCP node query is refused\./
 
     it('refuses every query, naming the risky domains and not the safe one', async (t) => {
         if (db.skipped(t)) return
@@ -1033,5 +1136,1953 @@ describe('analyst relations: a built-in volatile domain check alone', () => {
         assert.match(text, /could run other code or change data while a query is checked: public\.next_ref\./)
         assert.equal(await db.refusedText('SELECT name FROM stores'), text)
         assert.equal(await db.sequence('only_seq'), before)
+    })
+})
+
+describe('analyst relations: read-only SQL check for the PostgreSQL MCP node', () => {
+    const refused = (sql, pattern) =>
+        assert.throws(
+            () => checkReadOnlySql(sql),
+            (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+                assert.match(error.message, /^Cuttlely refused this query: /)
+                assert.match(error.message, pattern)
+                return true
+            }
+        )
+
+    it('allows one SELECT or WITH query with a top-level LIMIT', () => {
+        for (const sql of [
+            'SELECT * FROM stores LIMIT 10',
+            'select name from stores order by 1 limit 5 offset 5',
+            'WITH x AS (SELECT * FROM stores) SELECT * FROM x LIMIT 3',
+            'SELECT \'update; delete\' AS note, "limit" FROM t LIMIT 1',
+            '-- set\nSELECT 1 /* commit; */ LIMIT 1',
+            'SELECT $$insert$$ LIMIT 1'
+        ]) {
+            assert.equal(checkReadOnlySql(sql), sql)
+        }
+    })
+
+    it('refuses INSERT, UPDATE and DELETE', () => {
+        refused("INSERT INTO stores VALUES (9, 'Harbour') LIMIT 1", /only one SELECT or WITH/)
+        refused("UPDATE stores SET name = 'x'", /only one SELECT or WITH/)
+        refused('DELETE FROM stores', /only one SELECT or WITH/)
+        refused('SELECT * FROM (DELETE FROM stores RETURNING *) d LIMIT 1', /DELETE is not allowed/)
+        refused('SELECT * FROM stores FOR UPDATE LIMIT 1', /UPDATE is not allowed/)
+    })
+
+    it('refuses writable CTEs by name, nested ones included', () => {
+        refused('WITH d AS (DELETE FROM stores RETURNING *) SELECT * FROM d LIMIT 5', /DELETE inside WITH is a writable CTE/)
+        refused("WITH i AS (INSERT INTO stores VALUES (9, 'x') RETURNING *) SELECT * FROM i LIMIT 5", /INSERT inside WITH/)
+        refused("WITH u AS (UPDATE stores SET name = 'x' RETURNING *) SELECT * FROM u LIMIT 5", /UPDATE inside WITH/)
+        refused(
+            'WITH a AS (SELECT * FROM (WITH d AS (DELETE FROM stores RETURNING *) SELECT * FROM d) x) SELECT * FROM a LIMIT 5',
+            /DELETE inside WITH is a writable CTE/
+        )
+    })
+
+    it('refuses each blocked keyword', () => {
+        for (const keyword of ['SET', 'RESET', 'BEGIN', 'COMMIT', 'COPY', 'DO']) {
+            refused(`${keyword} x`, /only one SELECT or WITH/)
+            refused(`SELECT 1 FROM t WHERE ${keyword} LIMIT 1`, new RegExp(`${keyword} is not allowed`))
+        }
+    })
+
+    it('refuses set_config and pg_sleep, however they are written', () => {
+        refused("SELECT set_config('search_path', 'pg_temp', false) LIMIT 1", /set_config is not allowed/)
+        refused("SELECT pg_catalog.SET_CONFIG('a.b', 'c', false) LIMIT 1", /set_config is not allowed/)
+        refused('SELECT pg_sleep(10) LIMIT 1', /pg_sleep is not allowed/)
+        refused('SELECT "pg_sleep"(1) LIMIT 1', /pg_sleep is not allowed/)
+        refused("SELECT pg_sleep_for('1 second') LIMIT 1", /pg_sleep_for is not allowed/)
+        refused('SELECT U&"pg\\005fsleep"(1) LIMIT 1', /U& escapes/)
+    })
+
+    it('refuses functions that run SQL text, take session locks or reach outside the database', () => {
+        refused("SELECT query_to_xml($$SELECT pg_sleep(1)::text AS slept$$, false, false, '') LIMIT 1", /query_to_xml is not allowed/)
+        refused("SELECT cursor_to_xml('c', 1, false, false, '') LIMIT 1", /cursor_to_xml is not allowed/)
+        refused("SELECT ts_stat('SELECT v FROM t') LIMIT 1", /ts_stat is not allowed/)
+        refused('SELECT pg_advisory_lock(1) LIMIT 1', /pg_advisory_lock is not allowed/)
+        refused('SELECT pg_try_advisory_lock(1) LIMIT 1', /pg_try_advisory_lock is not allowed/)
+        refused("SELECT dblink('x', 'SELECT 1') LIMIT 1", /dblink is not allowed/)
+        refused("SELECT pg_read_file('/etc/hosts') LIMIT 1", /pg_read_file is not allowed/)
+        refused('SELECT lo_import(1) LIMIT 1', /lo_import is not allowed/)
+        refused("SELECT pg_notify('c', 'x') LIMIT 1", /pg_notify is not allowed/)
+        for (const call of [
+            'setseed(0.5)',
+            'pg_stat_reset()',
+            'pg_stat_reset_shared(null)',
+            "pg_create_restore_point('x')",
+            'pg_wal_replay_pause()',
+            'pg_log_backend_memory_contexts(1)',
+            'pg_promote()'
+        ]) {
+            const name = call.slice(0, call.indexOf('('))
+            refused(`SELECT ${call} LIMIT 1`, new RegExp(`${name} is not allowed`))
+            assert.equal(deniedFunction(name), true, name)
+        }
+    })
+
+    it('ends a -- comment at a carriage return and nests block comments, as Postgres does', () => {
+        refused('/* outer /* inner */ x */ SELECT 1 LIMIT 1 --comment\r; COMMIT; INSERT INTO t VALUES (1); COMMIT', /semicolon/)
+        refused('SELECT 1 LIMIT 1 --c\rUNION SELECT pg_sleep(1)', /pg_sleep is not allowed/)
+        assert.equal(checkReadOnlySql('/* a /* b */ c */ SELECT 1 LIMIT 1'), '/* a /* b */ c */ SELECT 1 LIMIT 1')
+        refused('/* a /* b */ SELECT 1 LIMIT 1', /unfinished comment/)
+    })
+
+    it('refuses a backslash in a plain string, whose meaning depends on a session setting', () => {
+        refused("SELECT '\\'' || pg_sleep(0.01)::text --'\nLIMIT 1", /backslash/)
+        refused("SELECT 'a\\b' LIMIT 1", /backslash/)
+        assert.equal(checkReadOnlySql("SELECT E'a\\\\b' LIMIT 1"), "SELECT E'a\\\\b' LIMIT 1")
+    })
+
+    it('counts LIMIT only as the clause, not as a name', () => {
+        refused('SELECT 1 AS limit', /add a LIMIT/)
+        refused('SELECT 1 limit', /add a LIMIT/)
+        refused('SELECT x limit FROM t', /add a LIMIT/)
+        refused('SELECT $é$ x LIMIT 1 y $é$ AS v FROM generate_series(1, 1000000) g', /plain ASCII/)
+        refused('SELECT $aé$ x LIMIT 1 y $aé$ AS v', /plain ASCII/)
+        assert.equal(checkReadOnlySql('SELECT $q$ x $q$ AS v LIMIT 1'), 'SELECT $q$ x $q$ AS v LIMIT 1')
+        refused('SELECT t.limit + 1 FROM (VALUES (1), (2)) AS t("limit")', /add a LIMIT/)
+        assert.equal(checkReadOnlySql('SELECT t.limit FROM t LIMIT 1'), 'SELECT t.limit FROM t LIMIT 1')
+        assert.equal(checkReadOnlySql('SELECT x FROM t LIMIT ALL'), 'SELECT x FROM t LIMIT ALL')
+        assert.equal(checkReadOnlySql('SELECT x FROM t LIMIT (5)'), 'SELECT x FROM t LIMIT (5)')
+        assert.equal(checkReadOnlySql('SELECT 1 LIMIT +5'), 'SELECT 1 LIMIT +5')
+        assert.equal(checkReadOnlySql("SELECT 1 LIMIT '5'"), "SELECT 1 LIMIT '5'")
+    })
+
+    it('refuses semicolons, more than one statement and a missing LIMIT', () => {
+        refused('SELECT 1 LIMIT 1;', /semicolon/)
+        refused('SELECT 1 LIMIT 1; SELECT 2 LIMIT 1', /semicolon/)
+        refused('SELECT * FROM stores', /add a LIMIT/)
+        refused('SELECT * FROM (SELECT * FROM stores LIMIT 5) s', /add a LIMIT/)
+        refused('   ', /empty/)
+        refused('SHOW search_path', /only one SELECT or WITH/)
+        refused("SELECT 'open", /unfinished quote/)
+    })
+
+    it('refuses before it connects', async () => {
+        await assert.rejects(
+            queryAnalystUrl(
+                ['postgresql://', 'nobody', ':', 'nothing', '@127.0.0.1:1/none'].join(''),
+                'WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d LIMIT 1',
+                {
+                    readOnlySql: true
+                }
+            ),
+            (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                assert.match(error.message, /writable CTE/)
+                return true
+            }
+        )
+    })
+
+    it('suggests the closest real table names for a missing one', () => {
+        const names = ['public.stores', 'public.store_hours', 'public.orders', 'sales.monthly_sales', 'public.staff']
+        assert.equal(closestRelationNames('stors', names)[0], 'public.stores')
+        assert.equal(closestRelationNames('public.monthly_sale', names)[0], 'sales.monthly_sales')
+        assert.deepEqual(closestRelationNames('zzzzzzzzzzzz', names), [])
+        assert.equal(missingRelationName({ code: '42P01', message: 'relation "stors" does not exist' }), 'stors')
+        assert.equal(missingRelationName({ code: '42703', message: 'column "x" does not exist' }), '')
+        assert.match(missingRelationHint('stors', names), /^ Closest tables: public\.stores/)
+        assert.equal(missingRelationHint('zzzzzzzzzzzz', names), '')
+    })
+})
+
+describe('analyst relations: writable CTEs on a scratch Postgres', () => {
+    const suffix = randomBytes(4).toString('hex')
+    const dbName = `cte_${suffix}`
+    const writer = `cte_writer_${suffix}`
+    const password = randomBytes(18).toString('base64url')
+    let admin = null
+    let owner = null
+    let url = ''
+
+    before(async () => {
+        const client = new Client(adminConfig())
+        try {
+            await client.connect()
+        } catch (error) {
+            await client.end().catch(() => {})
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1')
+                throw new Error(`CUTTLELY_TEST_PG_REQUIRED is set and Postgres is not reachable: ${error.message}`)
+            return
+        }
+        admin = client
+        await admin.query(`CREATE DATABASE "${dbName}"`)
+        await admin.query(`CREATE ROLE "${writer}" LOGIN PASSWORD '${password}'`)
+        owner = new Client(adminConfig(dbName))
+        await owner.connect()
+        await owner.query(`CREATE TABLE items (id int PRIMARY KEY, name text NOT NULL);
+            INSERT INTO items VALUES (1, 'Rye'), (2, 'Sourdough'), (3, 'Baguette');
+            CREATE MATERIALIZED VIEW item_names AS SELECT name FROM items;
+            CREATE FUNCTION public.pause(seconds float8) RETURNS int LANGUAGE sql AS 'SELECT 1 FROM pg_sleep(seconds)';
+            CREATE FUNCTION public.slow_eq(int, int) RETURNS boolean LANGUAGE sql AS 'SELECT $1 = $2 FROM pg_sleep(0)';
+            CREATE OPERATOR public.=== (LEFTARG = int, RIGHTARG = int, FUNCTION = public.slow_eq);
+            CREATE TYPE public.mood AS ENUM ('calm');
+            CREATE FUNCTION public.int_to_mood(int) RETURNS public.mood LANGUAGE sql AS $f$SELECT 'calm'::public.mood FROM pg_sleep(0)$f$;
+            CREATE CAST (int AS public.mood) WITH FUNCTION public.int_to_mood(int);
+            CREATE VIEW public.pause_view AS SELECT public.pause(0) AS n;
+            CREATE VIEW public.outer_view AS SELECT n FROM public.pause_view;
+            CREATE MATERIALIZED VIEW public.pause_matview AS SELECT public.pause(0) AS n;
+            CREATE VIEW public.swap_view AS SELECT g AS n FROM generate_series(1, 30) g;
+            CREATE FUNCTION public."Pause"(seconds float8) RETURNS int LANGUAGE sql AS 'SELECT 1 FROM pg_sleep(seconds)';
+            CREATE SCHEMA tools;
+            CREATE FUNCTION tools.helper(n int) RETURNS int LANGUAGE sql AS 'SELECT n FROM pg_sleep(0)';
+            CREATE SEQUENCE public.counter;
+            CREATE VIEW public.sleepy_view AS SELECT 1 AS n FROM pg_sleep(0);
+            CREATE VIEW public.inner_names AS SELECT name FROM items;
+            CREATE VIEW public.outer_names AS SELECT name FROM public.inner_names;
+            CREATE TABLE public.guarded (id int);
+            ALTER TABLE public.guarded ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY guarded_read ON public.guarded FOR SELECT USING (public.pause(0) = 1);`)
+        await owner.query(
+            `GRANT SELECT ON pause_view, outer_view, pause_matview, swap_view, guarded, sleepy_view, inner_names, outer_names TO "${writer}"`
+        )
+        await owner.query(`GRANT SELECT ON item_names TO "${writer}"`)
+        // This login could write, so only the read-only checks stand between a query and the table.
+        await owner.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON items TO "${writer}"`)
+        await owner.query(`GRANT USAGE ON SCHEMA tools TO "${writer}"; GRANT USAGE ON SEQUENCE public.counter TO "${writer}"`)
+        await owner.query(`ALTER ROLE "${writer}" IN DATABASE "${dbName}" SET search_path = tools, public`)
+        url = urlFor(writer, password, dbName)
+    })
+
+    after(async () => {
+        if (owner) await owner.end().catch(() => {})
+        if (!admin) return
+        await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
+        await admin.query(`DROP ROLE IF EXISTS "${writer}"`).catch(() => {})
+        await admin.end().catch(() => {})
+    })
+
+    const skipped = (t) => {
+        if (admin) return false
+        t.skip('Postgres is not reachable')
+        return true
+    }
+    const count = async () => (await owner.query('SELECT count(*)::int AS n FROM items')).rows[0].n
+    const nested = 'WITH a AS (SELECT * FROM (WITH d AS (DELETE FROM items RETURNING *) SELECT * FROM d) x) SELECT * FROM a LIMIT 5'
+    const top = 'WITH d AS (DELETE FROM items RETURNING *) SELECT * FROM d LIMIT 5'
+
+    it('refuses a nested writable CTE by name, and Postgres refuses it too', async (t) => {
+        if (skipped(t)) return
+        await refusal(queryAnalystUrl(url, nested, { readOnlySql: true }), /DELETE inside WITH is a writable CTE/)
+        await refusal(queryAnalystUrl(url, nested, { readOnlySql: true, relations: ['public.items'] }), /writable CTE/)
+        // Without the text check, the database still refuses it, with or without a table selection.
+        await assert.rejects(queryAnalystUrl(url, nested), /data-modifying|read-only/)
+        await assert.rejects(queryAnalystUrl(url, nested, { relations: ['public.items'] }), /data-modifying|read-only/)
+        await assert.rejects(queryAnalystUrl(url, top), /data-modifying|read-only/)
+        await assert.rejects(queryAnalystUrl(url, top, { relations: ['public.items'] }), /data-modifying|read-only|only SELECT/)
+        assert.equal(await count(), 3)
+    })
+
+    it('runs a ticked-table query read only after the scope check', async (t) => {
+        if (skipped(t)) return
+        const result = await queryAnalystUrl(url, 'SELECT name FROM items ORDER BY id LIMIT 2', {
+            readOnlySql: true,
+            relations: ['public.items']
+        })
+        assert.deepEqual(
+            result.rows.map((row) => row.name),
+            ['Rye', 'Sourdough']
+        )
+        const mode = await queryAnalystUrl(url, "SELECT current_setting('transaction_read_only') AS ro LIMIT 1", { readOnlySql: true })
+        assert.equal(mode.rows[0].ro, 'on')
+        const scopedMode = await queryAnalystUrl(url, "SELECT current_setting('transaction_read_only') AS ro FROM items LIMIT 1", {
+            readOnlySql: true,
+            relations: ['public.items']
+        })
+        assert.equal(scopedMode.rows[0].ro, 'on')
+        // A materialized view cannot be LOCKed; it is held by a read instead and still runs.
+        const names = await queryAnalystUrl(url, 'SELECT name FROM item_names ORDER BY 1 LIMIT 1', {
+            readOnlySql: true,
+            relations: ['public.item_names']
+        })
+        assert.deepEqual(names.rows, [{ name: 'Baguette' }])
+        // A carriage-return comment cannot carry a second statement past either check.
+        await refusal(queryAnalystUrl(url, 'SELECT 1 LIMIT 1 --c\r; COMMIT; DELETE FROM items; COMMIT', { readOnlySql: true }), /semicolon/)
+        await assert.rejects(queryAnalystUrl(url, 'SELECT 1 --c\r; COMMIT; DELETE FROM items; COMMIT'), /one statement/)
+        assert.equal(await count(), 3)
+    })
+
+    it('reads plain strings as standard SQL even when the login turns standard_conforming_strings off', async (t) => {
+        if (skipped(t)) return
+        await admin.query(`ALTER ROLE "${writer}" SET standard_conforming_strings = off`)
+        try {
+            const result = await queryAnalystUrl(url, "SELECT 'a\\b' AS v LIMIT 1")
+            assert.equal(result.rows[0].v, 'a\\b')
+        } finally {
+            await admin.query(`ALTER ROLE "${writer}" RESET standard_conforming_strings`)
+        }
+    })
+
+    it('without a table selection, refuses functions, operators and casts that are not built in, before the query runs', async (t) => {
+        if (skipped(t)) return
+        const started = Date.now()
+        await refusal(
+            queryAnalystUrl(url, 'SELECT public.pause(3) LIMIT 1', { readOnlySql: true }),
+            /function public\.pause\([^)]*\) is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT pause(3) AS p FROM items LIMIT 1', { readOnlySql: true }),
+            /public\.pause\([^)]*\) is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM items WHERE id OPERATOR(public.===) 1 LIMIT 1', { readOnlySql: true }),
+            /operator public\.=== is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT 1::public.mood AS m LIMIT 1', { readOnlySql: true }),
+            /public\.int_to_mood\([^)]*\) is not built in/
+        )
+        // A denied built-in found only through the catalog, here hidden behind a view-free subquery.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT (SELECT pg_catalog.pg_advisory_lock(1)) AS l LIMIT 1', { readOnlySql: true }),
+            /not allowed/
+        )
+        assert.ok(Date.now() - started < 2500, 'pause never ran')
+        const result = await queryAnalystUrl(
+            url,
+            "SELECT count(*)::int AS n, round(avg(id)::numeric, 1) AS mean, date_trunc('day', timestamp '2026-10-24 01:02') AS day, lower(min(name)) AS first FROM items LIMIT 1",
+            { readOnlySql: true }
+        )
+        assert.equal(result.rows[0].n, 3)
+        assert.equal(String(result.rows[0].mean), '2.0')
+        assert.equal(result.rows[0].first, 'baguette')
+        assert.equal(await count(), 3)
+    })
+
+    it('follows views, materialized views and row-security policies to the functions they call', async (t) => {
+        if (skipped(t)) return
+        await refusal(
+            queryAnalystUrl(url, 'SELECT n FROM pause_view LIMIT 1', { readOnlySql: true }),
+            /public\.pause\([^)]*\) is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT n FROM outer_view LIMIT 1', { readOnlySql: true }),
+            /public\.pause\([^)]*\) is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT n FROM pause_matview LIMIT 1', { readOnlySql: true }),
+            /public\.pause\([^)]*\) is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM guarded LIMIT 1', { readOnlySql: true }),
+            /public\.pause\([^)]*\) is not built in/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT n FROM outer_view LIMIT 1', { readOnlySql: true, relations: ['public.outer_view'] }),
+            /public\.pause\([^)]*\) is not built in/
+        )
+        const plain = await queryAnalystUrl(url, 'SELECT count(*)::int AS c FROM swap_view LIMIT 1', { readOnlySql: true })
+        assert.equal(plain.rows[0].c, 30)
+    })
+
+    it('resolves each call through the catalog however it is named', async (t) => {
+        if (skipped(t)) return
+        const only = { readOnlySql: true }
+        // Schema-qualified, quoted, and found only through the login's search_path.
+        await refusal(queryAnalystUrl(url, 'SELECT public.pause(0) LIMIT 1', only), /function public\.pause\([^)]*\) is not built in/)
+        await refusal(queryAnalystUrl(url, 'SELECT "public"."Pause"(0) LIMIT 1', only), /function public\."Pause"\([^)]*\) is not built in/)
+        await refusal(queryAnalystUrl(url, 'SELECT "Pause"(0) LIMIT 1', only), /function public\."Pause"\([^)]*\) is not built in/)
+        await refusal(queryAnalystUrl(url, 'SELECT helper(1) LIMIT 1', only), /function tools\.helper\([^)]*\) is not built in/)
+        // Behind an operator.
+        await refusal(queryAnalystUrl(url, 'SELECT 1 OPERATOR(public.===) 1 AS v LIMIT 1', only), /operator public\.=== is not built in/)
+        // pg_sleep, by the text check and, hidden in a view, by the catalog.
+        await refusal(queryAnalystUrl(url, 'SELECT "pg_sleep"(0) LIMIT 1', only), /pg_sleep is not allowed/)
+        await refusal(queryAnalystUrl(url, 'SELECT n FROM sleepy_view LIMIT 1', only), /pg_sleep is not allowed/)
+        // A volatile built-in with a side effect is refused; one that only returns a value runs.
+        await refusal(queryAnalystUrl(url, "SELECT nextval('public.counter') LIMIT 1", only), /nextval is not allowed/)
+        const fine = await queryAnalystUrl(url, "SELECT random() < 2 AS ok, lower('A') AS l LIMIT 1", only)
+        assert.deepEqual(fine.rows, [{ ok: true, l: 'a' }])
+        const seq = await owner.query('SELECT last_value::int AS v, is_called FROM public.counter')
+        assert.equal(seq.rows[0].is_called, false)
+    })
+
+    it('refuses a query when a function, operator or cast was created between the check and the query', async (t) => {
+        if (skipped(t)) return
+        setCheckGapHookForTests(() =>
+            owner.query('CREATE FUNCTION public.lower(varchar) RETURNS text LANGUAGE sql AS $f$SELECT $1::text$f$')
+        )
+        try {
+            await refusal(
+                queryAnalystUrl(url, "SELECT lower('A'::varchar) AS l LIMIT 1", { readOnlySql: true }),
+                /changed while it was being checked|public\.lower \(named like a built-in\)/
+            )
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('DROP FUNCTION IF EXISTS public.lower(varchar)')
+        }
+        // Adding a default to an existing two-argument overload changes which function lower(varchar) reaches.
+        await owner.query(`CREATE FUNCTION public.lower(varchar, text) RETURNS text LANGUAGE sql AS 'SELECT pg_sleep(0)::text'`)
+        setCheckGapHookForTests(() =>
+            owner.query(
+                `CREATE OR REPLACE FUNCTION public.lower(varchar, text DEFAULT '') RETURNS text LANGUAGE sql AS 'SELECT pg_sleep(0)::text'`
+            )
+        )
+        try {
+            await refusal(
+                queryAnalystUrl(url, "SELECT lower('A'::varchar) AS v LIMIT 1", { readOnlySql: true }),
+                /changed while it was being checked|public\.lower \(named like a built-in\)/
+            )
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('DROP FUNCTION IF EXISTS public.lower(varchar, text)')
+        }
+        // Moving an existing operator to another schema changes the digest too.
+        setCheckGapHookForTests(() => owner.query('ALTER OPERATOR public.=== (int, int) SET SCHEMA tools'))
+        try {
+            await refusal(queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }), /changed while it was being checked/)
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('ALTER OPERATOR tools.=== (int, int) SET SCHEMA public')
+        }
+        // Renaming a schema can make a function visible under a search path entry, so schema names are in the digest.
+        await owner.query(`CREATE SCHEMA dormant; CREATE FUNCTION dormant.idle(int) RETURNS int LANGUAGE sql AS 'SELECT $1'`)
+        setCheckGapHookForTests(() => owner.query('ALTER SCHEMA dormant RENAME TO awake'))
+        try {
+            await refusal(queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }), /changed while it was being checked/)
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('DROP SCHEMA IF EXISTS dormant CASCADE; DROP SCHEMA IF EXISTS awake CASCADE')
+        }
+    })
+
+    it('refuses every node query while a catalog object can call code the statement does not show', async (t) => {
+        if (skipped(t)) return
+        const cases = [
+            [
+                `CREATE TYPE public.feel AS (v int); CREATE FUNCTION public.feel_json(public.feel) RETURNS json LANGUAGE sql AS 'SELECT to_json(pg_sleep(0))';
+                 CREATE CAST (public.feel AS json) WITH FUNCTION public.feel_json(public.feel)`,
+                /cast from public\.feel to json/,
+                'DROP TYPE public.feel CASCADE; DROP FUNCTION IF EXISTS public.feel_json(public.feel)'
+            ],
+            [
+                `CREATE FUNCTION public.zero() RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT 0'; CREATE INDEX items_zero ON public.items ((id + public.zero()))`,
+                /index public\.items_zero/,
+                'DROP INDEX public.items_zero; DROP FUNCTION public.zero()'
+            ],
+            [
+                `CREATE DOMAIN public.ticked AS int CHECK (VALUE < nextval('public.counter'))`,
+                /domains whose CHECK could run other code.*public\.ticked/,
+                'DROP DOMAIN public.ticked'
+            ],
+            [
+                `CREATE FUNCTION public.quote_ident(name) RETURNS text LANGUAGE sql AS 'SELECT pg_catalog.quote_ident($1::text)'`,
+                /public\.quote_ident \(named like a built-in\)/,
+                'DROP FUNCTION public.quote_ident(name)'
+            ],
+            [
+                `CREATE FUNCTION public.lower(varchar) RETURNS text LANGUAGE sql AS 'SELECT pg_catalog.lower($1::text)'`,
+                /public\.lower \(named like a built-in\)/,
+                'DROP FUNCTION public.lower(varchar)'
+            ],
+            [
+                `CREATE FUNCTION public.on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS 'BEGIN END'; CREATE EVENT TRIGGER watch_ddl ON ddl_command_end EXECUTE FUNCTION public.on_ddl()`,
+                /event trigger (public\.)?watch_ddl/,
+                'DROP EVENT TRIGGER watch_ddl; DROP FUNCTION public.on_ddl()'
+            ]
+        ]
+        for (const [create, expected, drop] of cases) {
+            await owner.query(create)
+            resetRiskyDomainCacheForTests()
+            try {
+                await refusal(queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }), expected)
+            } finally {
+                await owner.query(drop)
+                resetRiskyDomainCacheForTests()
+            }
+        }
+        const ok = await queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true })
+        assert.equal(ok.rows[0].v, 1)
+    })
+
+    it('checks TABLESAMPLE methods and refuses foreign tables', async (t) => {
+        if (skipped(t)) return
+        // A sampling method's handler is checked like any function; the built-in ones are volatile and refused.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM items TABLESAMPLE system(100) LIMIT 1', { readOnlySql: true }),
+            /system is not allowed/
+        )
+        await owner.query('CREATE EXTENSION IF NOT EXISTS tsm_system_rows SCHEMA public')
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT * FROM items TABLESAMPLE public.system_rows(1) LIMIT 1', { readOnlySql: true }),
+                /system_rows\([^)]*\) is not built in/
+            )
+        } finally {
+            await owner.query('DROP EXTENSION tsm_system_rows')
+        }
+        await owner.query(`CREATE EXTENSION IF NOT EXISTS file_fdw; CREATE SERVER files FOREIGN DATA WRAPPER file_fdw;
+            CREATE FOREIGN TABLE public.outside (a text) SERVER files OPTIONS (filename '/dev/null');
+            GRANT SELECT ON public.outside TO PUBLIC`)
+        try {
+            await refusal(queryAnalystUrl(url, 'SELECT a FROM outside LIMIT 1', { readOnlySql: true }), /foreign-data wrapper file_fdw/)
+            // A foreign partition is expanded by the planner, after the check, so the database-wide scan refuses it.
+            await owner.query(`CREATE TABLE public.parted (a text) PARTITION BY LIST (a); GRANT SELECT ON public.parted TO PUBLIC;
+                CREATE FOREIGN TABLE public.fpart PARTITION OF public.parted FOR VALUES IN ('x') SERVER files OPTIONS (filename '/dev/null')`)
+            resetRiskyDomainCacheForTests()
+            await refusal(queryAnalystUrl(url, 'SELECT a FROM parted LIMIT 1', { readOnlySql: true }), /foreign table public\.fpart/)
+        } finally {
+            await owner.query('DROP TABLE IF EXISTS public.parted')
+            resetRiskyDomainCacheForTests()
+            await owner.query('DROP EXTENSION file_fdw CASCADE')
+        }
+        // Text search callbacks are chosen through the catalog, not the statement, so a template outside pg_catalog
+        // refuses the database.
+        await owner.query('CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA public')
+        resetRiskyDomainCacheForTests()
+        try {
+            await refusal(
+                queryAnalystUrl(url, "SELECT to_tsvector('simple', 'a') AS v LIMIT 1", { readOnlySql: true }),
+                /text search template public\.unaccent/
+            )
+        } finally {
+            await owner.query('DROP EXTENSION unaccent')
+            resetRiskyDomainCacheForTests()
+        }
+    })
+
+    it('refuses a ticked view that calls pg_sleep, which the text check cannot see', async (t) => {
+        if (skipped(t)) return
+        await refusal(
+            queryAnalystUrl(url, 'SELECT n FROM sleepy_view LIMIT 1', { readOnlySql: true, relations: ['public.sleepy_view'] }),
+            /pg_sleep is not allowed/
+        )
+        await refusal(queryAnalystUrl(url, 'SELECT n FROM sleepy_view LIMIT 1', { readOnlySql: true }), /pg_sleep is not allowed/)
+    })
+
+    it('on the node, describe samples only through the query checks', async (t) => {
+        if (skipped(t)) return
+        await owner.query(
+            `CREATE VIEW public.talky_view AS SELECT pg_sleep(0)::text || 'x' AS t; GRANT SELECT ON public.talky_view TO "${writer}"`
+        )
+        try {
+            const view = await describeAnalystUrlRelation(url, { name: 'talky_view' }, ['public.talky_view'], { readOnlySql: true })
+            assert.equal(view.name, 'public.talky_view')
+            assert.equal(view.values, undefined)
+        } finally {
+            await owner.query('DROP VIEW public.talky_view')
+        }
+    })
+
+    it('refuses a query when a domain gains a risky CHECK between the check and the query', async (t) => {
+        if (skipped(t)) return
+        await owner.query('CREATE DOMAIN public.later_ref AS int')
+        setCheckGapHookForTests(() =>
+            owner.query(`ALTER DOMAIN public.later_ref ADD CONSTRAINT later_check CHECK (VALUE < nextval('public.counter'))`)
+        )
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }),
+                /domains whose CHECK could run other code.*later_ref/
+            )
+        } finally {
+            setCheckGapHookForTests(null)
+            await owner.query('DROP DOMAIN public.later_ref')
+        }
+    })
+
+    it('refuses a query whose view definition changed between the check and the query', async (t) => {
+        if (skipped(t)) return
+        const replaceInner = (body) => owner.query(`CREATE OR REPLACE VIEW public.inner_names AS ${body}`)
+        for (const relations of [[], ['public.outer_names']]) {
+            setCheckGapHookForTests(() => replaceInner('SELECT name || public.pause(0)::text AS name FROM items'))
+            try {
+                await refusal(
+                    queryAnalystUrl(url, 'SELECT name FROM outer_names ORDER BY 1 LIMIT 1', { readOnlySql: true, relations }),
+                    /a table or view it reads changed while it was being checked/
+                )
+            } finally {
+                setCheckGapHookForTests(null)
+                await replaceInner('SELECT name FROM items')
+            }
+        }
+        const ok = await queryAnalystUrl(url, 'SELECT name FROM outer_names ORDER BY 1 LIMIT 1', { readOnlySql: true })
+        assert.deepEqual(ok.rows, [{ name: 'Baguette' }])
+    })
+
+    it('checks the statement text again when a cursor is replayed by the node', async (t) => {
+        if (skipped(t)) return
+        const first = await queryAnalystUrl(url, 'SELECT n FROM pg_catalog.generate_series(1, 30) AS n', { rowCap: 10 })
+        assert.ok(first.cursor)
+        await refusal(queryAnalystUrl(url, { cursor: first.cursor }, { rowCap: 10, readOnlySql: true }), /LIMIT/)
+    })
+
+    it('checks routines again on every page of an unscoped cursor', async (t) => {
+        if (skipped(t)) return
+        const scope = `cte:${suffix}`
+        const options = { readOnlySql: true, rowCap: 10, scope }
+        const first = await queryAnalystUrl(url, 'SELECT n FROM swap_view ORDER BY n LIMIT 30', options)
+        assert.equal(first.rows.length, 10)
+        assert.ok(first.cursor)
+        const next = await queryAnalystUrl(url, { cursor: first.cursor }, options)
+        assert.equal(next.rows.length, 10)
+        await owner.query('CREATE OR REPLACE VIEW public.swap_view AS SELECT public.pause(0) * g AS n FROM generate_series(1, 30) g')
+        try {
+            await refusal(queryAnalystUrl(url, { cursor: first.cursor }, options), /public\.pause\([^)]*\) is not built in/)
+        } finally {
+            await owner.query('CREATE OR REPLACE VIEW public.swap_view AS SELECT g AS n FROM generate_series(1, 30) g')
+        }
+    })
+
+    it('refuses every node query on a database with a type whose input is not built in', async (t) => {
+        if (skipped(t)) return
+        await owner.query('CREATE EXTENSION IF NOT EXISTS citext')
+        resetRiskyDomainCacheForTests()
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT count(*) FROM items LIMIT 1', { readOnlySql: true }),
+                /types whose input runs code that is not built in.*citext/
+            )
+            await refusal(
+                queryAnalystUrl(url, 'SELECT count(*) FROM items LIMIT 1', { readOnlySql: true, relations: ['public.items'] }),
+                /types whose input runs code that is not built in/
+            )
+        } finally {
+            await owner.query('DROP EXTENSION citext')
+            resetRiskyDomainCacheForTests()
+        }
+        // A range type whose built-in input calls a subtype_diff that is not built in is refused the same way.
+        await owner.query(`CREATE FUNCTION public.f8diff(float8, float8) RETURNS float8 LANGUAGE sql IMMUTABLE AS 'SELECT $1 - $2';
+            CREATE TYPE public.span AS RANGE (subtype = float8, subtype_diff = public.f8diff)`)
+        resetRiskyDomainCacheForTests()
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }),
+                /types whose input runs code that is not built in.*span/
+            )
+        } finally {
+            await owner.query('DROP TYPE public.span; DROP FUNCTION public.f8diff(float8, float8)')
+            resetRiskyDomainCacheForTests()
+        }
+        // So is a range over a built-in subtype whose comparison operator class calls a function that is not built in.
+        await owner.query(`CREATE FUNCTION public.f8cmp(float8, float8) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT btfloat8cmp($1, $2)';
+            CREATE OPERATOR CLASS public.f8ops FOR TYPE float8 USING btree AS
+                OPERATOR 1 <, OPERATOR 2 <=, OPERATOR 3 =, OPERATOR 4 >=, OPERATOR 5 >, FUNCTION 1 public.f8cmp(float8, float8);
+            CREATE TYPE public.cspan AS RANGE (subtype = float8, subtype_opclass = public.f8ops)`)
+        resetRiskyDomainCacheForTests()
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT 1 AS v LIMIT 1', { readOnlySql: true }),
+                /types whose input runs code that is not built in.*cspan.*operator class public\.f8ops|operator class public\.f8ops.*cspan/
+            )
+        } finally {
+            await owner.query(
+                'DROP TYPE public.cspan; DROP OPERATOR FAMILY public.f8ops USING btree; DROP FUNCTION public.f8cmp(float8, float8)'
+            )
+            resetRiskyDomainCacheForTests()
+        }
+        const ok = await queryAnalystUrl(url, 'SELECT count(*)::int AS n FROM items LIMIT 1', { readOnlySql: true })
+        assert.equal(ok.rows[0].n, 3)
+    })
+
+    it('refuses an unscoped query when the login cannot create a temporary view to check it', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`REVOKE TEMPORARY ON DATABASE "${dbName}" FROM PUBLIC`)
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT count(*) FROM items LIMIT 1', { readOnlySql: true }),
+                /cannot create a temporary view/
+            )
+        } finally {
+            await owner.query(`GRANT TEMPORARY ON DATABASE "${dbName}" TO PUBLIC`)
+        }
+    })
+
+    it('suggests the closest table when one is missing', async (t) => {
+        if (skipped(t)) return
+        await assert.rejects(queryAnalystUrl(url, 'SELECT * FROM itemz LIMIT 1', { readOnlySql: true }), (error) => {
+            assert.match(error.message, /relation "itemz" does not exist\. Closest tables: public\.items\./)
+            return true
+        })
+        await assert.rejects(
+            queryAnalystUrl(url, 'SELECT * FROM itms LIMIT 1', { readOnlySql: true, relations: ['public.items'] }),
+            /Closest tables: public\.items\./
+        )
+    })
+})
+
+describe('analyst relations: user functions inside views', () => {
+    const suffix = randomBytes(4).toString('hex')
+    const dbName = `etl_${suffix}`
+    const reader = `etl_reader_${suffix}`
+    const etl = `etl_owner_${suffix}`
+    const password = randomBytes(18).toString('base64url')
+    let admin = null
+    let owner = null
+    let url = ''
+    const node = { readOnlySql: true }
+
+    before(async () => {
+        const client = new Client(adminConfig())
+        try {
+            await client.connect()
+        } catch (error) {
+            await client.end().catch(() => {})
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1')
+                throw new Error(`CUTTLELY_TEST_PG_REQUIRED is set and Postgres is not reachable: ${error.message}`)
+            return
+        }
+        admin = client
+        await admin.query(`CREATE DATABASE "${dbName}"`)
+        await admin.query(`CREATE ROLE "${reader}" LOGIN PASSWORD '${password}'`)
+        await admin.query(`CREATE ROLE "${etl}" NOLOGIN NOSUPERUSER`)
+        owner = new Client(adminConfig(dbName))
+        await owner.connect()
+        await owner.query(`CREATE SCHEMA analytics AUTHORIZATION "${etl}"`)
+        await owner.query(`CREATE TABLE analytics.raw_orders (id int, placed text, qty text, amount text, seen text)`)
+        await owner.query(
+            `INSERT INTO analytics.raw_orders VALUES (1, '2026-10-01', '3', '9.50', '2026-10-01 10:00+00'), (2, 'bad', 'x', 'y', 'z')`
+        )
+        await owner.query(`ALTER TABLE analytics.raw_orders OWNER TO "${etl}"`)
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE FUNCTION analytics._etl_safe_date(v text) RETURNS date LANGUAGE sql IMMUTABLE
+            AS $$ SELECT CASE WHEN v ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN v::date END $$`)
+        await owner.query(`CREATE FUNCTION analytics._etl_safe_integer(v text) RETURNS integer LANGUAGE plpgsql IMMUTABLE
+            AS $$ BEGIN RETURN v::integer; EXCEPTION WHEN others THEN RETURN NULL; END $$`)
+        await owner.query(`CREATE FUNCTION analytics._etl_safe_numeric(v text) RETURNS numeric LANGUAGE sql STABLE
+            AS $$ SELECT CASE WHEN v ~ '^-?\\d+(\\.\\d+)?$' THEN v::numeric END $$`)
+        await owner.query(`CREATE FUNCTION analytics._etl_safe_timestamptz(v text) RETURNS timestamptz LANGUAGE plpgsql STABLE
+            AS $$ BEGIN RETURN v::timestamptz; EXCEPTION WHEN others THEN RETURN NULL; END $$`)
+        await owner.query(`CREATE FUNCTION analytics._etl_safe_bigint(v text) RETURNS bigint LANGUAGE sql STABLE
+            AS $$ SELECT CASE WHEN v ~ '^\\d+$' THEN v::bigint END $$`)
+        await owner.query(`CREATE VIEW analytics.clean_orders AS SELECT id, analytics._etl_safe_date(placed) AS placed,
+            analytics._etl_safe_integer(qty) AS qty, analytics._etl_safe_numeric(amount) AS amount,
+            analytics._etl_safe_timestamptz(seen) AS seen FROM analytics.raw_orders`)
+        await owner.query(`CREATE MATERIALIZED VIEW analytics.clean_orders_mv AS
+            SELECT id,
+                   analytics._etl_safe_bigint(qty)       AS big_qty,
+                   analytics._etl_safe_integer(qty)      AS qty,
+                   analytics._etl_safe_date(placed)      AS placed,
+                   analytics._etl_safe_numeric(amount)    AS amount,
+                   analytics._etl_safe_timestamptz(seen)  AS seen
+            FROM analytics.raw_orders`)
+        await owner.query(`CREATE FUNCTION analytics.touchy(v text) RETURNS text LANGUAGE sql VOLATILE AS 'SELECT v'`)
+        await owner.query(`CREATE FUNCTION analytics.touchy(v integer) RETURNS integer LANGUAGE sql VOLATILE AS 'SELECT v'`)
+        await owner.query(`CREATE FUNCTION analytics.as_owner(v text) RETURNS text LANGUAGE sql STABLE SECURITY DEFINER AS 'SELECT v'`)
+        await owner.query(
+            `CREATE FUNCTION analytics.with_path(v text) RETURNS text LANGUAGE sql STABLE SET search_path = public AS 'SELECT v'`
+        )
+        await owner.query(`CREATE DOMAIN analytics."order-kind" AS text`)
+        await owner.query(`CREATE FUNCTION analytics.kind_of(v analytics."order-kind") RETURNS text LANGUAGE sql VOLATILE AS 'SELECT v'`)
+        await owner.query(`CREATE VIEW analytics.touchy_orders AS SELECT id, analytics.touchy(placed) AS placed FROM analytics.raw_orders`)
+        await owner.query('RESET ROLE')
+        await owner.query(
+            `CREATE FUNCTION analytics.in_c(text) RETURNS text LANGUAGE c IMMUTABLE AS '$libdir/plpgsql', 'plpgsql_validator'`
+        )
+        await owner.query(`ALTER FUNCTION analytics.in_c(text) OWNER TO "${etl}"`)
+        await owner.query(`CREATE FUNCTION analytics.by_super(v text) RETURNS text LANGUAGE sql STABLE AS 'SELECT v'`)
+        await owner.query(`GRANT USAGE ON SCHEMA analytics TO "${reader}"`)
+        await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO "${reader}"`)
+        // Functions for scoped auto-allow tests under schema s.
+        await owner.query(`CREATE SCHEMA s AUTHORIZATION "${etl}"`)
+        await owner.query(`CREATE TABLE s.secret (note text)`)
+        await owner.query(`CREATE TABLE s.other (id int)`)
+        await owner.query(`INSERT INTO s.secret VALUES ('classified')`)
+        await owner.query(`GRANT USAGE ON SCHEMA s TO "${reader}"`)
+        await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA s TO "${reader}"`)
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE FUNCTION s.add_atomic(a int, b int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT a + b; END`)
+        await owner.query(
+            `CREATE FUNCTION s.read_secret() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT note FROM s.secret LIMIT 1; END`
+        )
+        await owner.query(`CREATE VIEW s.leak_view AS SELECT s.read_secret() AS v`)
+        await owner.query(
+            `CREATE FUNCTION s.sleep_wrap() RETURNS int LANGUAGE plpgsql STABLE AS $$ BEGIN PERFORM pg_sleep(0); RETURN 1; END $$`
+        )
+        await owner.query(
+            `CREATE FUNCTION s.upper_plpgsql(text) RETURNS text LANGUAGE plpgsql IMMUTABLE AS $$ BEGIN RETURN upper($1); END $$`
+        )
+        await owner.query(
+            `CREATE FUNCTION s.safe_outer(v int) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.add_atomic($1, 1); END`
+        )
+        await owner.query(`CREATE FUNCTION s.unsafe_outer() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_secret(); END`)
+        await owner.query('RESET ROLE')
+        url = urlFor(reader, password, dbName)
+    })
+
+    after(async () => {
+        if (!admin) return
+        await owner?.end().catch(() => {})
+        await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
+        await admin.query(`DROP ROLE IF EXISTS "${reader}"`).catch(() => {})
+        await admin.query(`DROP ROLE IF EXISTS "${etl}"`).catch(() => {})
+        await admin.end().catch(() => {})
+    })
+
+    const skipped = (t) => {
+        if (admin) return false
+        t.skip('local postgres admin is not reachable')
+        return true
+    }
+
+    it('runs a view over STABLE and IMMUTABLE SQL and PL/pgSQL helpers with no setting', async (t) => {
+        if (skipped(t)) return
+        const sql = 'SELECT id, placed, qty, amount, seen FROM analytics.clean_orders ORDER BY id LIMIT 10'
+        const allowList =
+            'analytics._etl_safe_date(text)\nanalytics._etl_safe_integer(text)\nanalytics._etl_safe_numeric(text)\nanalytics._etl_safe_timestamptz(text)'
+        // No selection: these helpers are string-body SQL and PL/pgSQL, so they are refused until listed.
+        await refusal(queryAnalystUrl(url, sql, node), /cannot be inspected/)
+        const plain = await queryAnalystUrl(url, sql, { ...node, allowedFunctions: allowList })
+        assert.equal(plain.rows.length, 2)
+        assert.equal(plain.rows[0].qty, 3)
+        assert.equal(plain.rows[1].placed, null)
+        const scoped = await queryAnalystUrl(url, sql, {
+            ...node,
+            relations: ['analytics.clean_orders'],
+            allowedFunctions: allowList
+        })
+        assert.equal(scoped.rows.length, 2)
+        const direct = await queryAnalystUrl(url, "SELECT analytics._etl_safe_numeric('1.5') AS n LIMIT 1", {
+            ...node,
+            allowedFunctions: allowList
+        })
+        assert.equal(String(direct.rows[0].n), '1.5')
+    })
+
+    it('refuses analytics helpers in a materialized view without an allow-list, then allows them with text entries', async (t) => {
+        if (skipped(t)) return
+        const scoped = { ...node, relations: ['analytics.clean_orders_mv'] }
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM analytics.clean_orders_mv ORDER BY id LIMIT 5', scoped), /Allowed functions/)
+        const allowList = [
+            'analytics._etl_safe_bigint(text)',
+            'analytics._etl_safe_date(text)',
+            'analytics._etl_safe_integer(text)',
+            'analytics._etl_safe_numeric(text)',
+            'analytics._etl_safe_timestamptz(text)'
+        ].join('\n')
+        const ok = await queryAnalystUrl(url, 'SELECT id, big_qty, qty FROM analytics.clean_orders_mv ORDER BY id LIMIT 5', {
+            ...scoped,
+            allowedFunctions: allowList
+        })
+        assert.equal(ok.rows.length, 2)
+        // Direct calls also allowed with the same text entries.
+        const direct = await queryAnalystUrl(
+            url,
+            "SELECT analytics._etl_safe_bigint('42') AS b, analytics._etl_safe_integer('7') AS q LIMIT 1",
+            { ...node, relations: ['analytics.clean_orders'], allowedFunctions: allowList }
+        )
+        assert.equal(String(direct.rows[0].b), '42')
+        assert.equal(String(direct.rows[0].q), '7')
+    })
+
+    it('refuses user functions that fail the rule, naming the entry to add', async (t) => {
+        if (skipped(t)) return
+        const cases = [
+            [
+                "SELECT analytics.touchy('a') AS v LIMIT 1",
+                /analytics\.touchy\(text\).*VOLATILE.*add analytics\.touchy\(text\) to Allowed functions/
+            ],
+            ['SELECT placed FROM analytics.touchy_orders LIMIT 1', /add analytics\.touchy\(text\) to Allowed functions/],
+            ["SELECT analytics.as_owner('a') AS v LIMIT 1", /SECURITY DEFINER.*add analytics\.as_owner\(text\) to Allowed functions/],
+            ["SELECT analytics.with_path('a') AS v LIMIT 1", /has its own settings.*add analytics\.with_path\(text\) to Allowed functions/],
+            ["SELECT analytics.in_c('a') AS v LIMIT 1", /written in c.*add analytics\.in_c\(text\) to Allowed functions/],
+            ["SELECT analytics.by_super('a') AS v LIMIT 1", /owned by a superuser.*add analytics\.by_super\(text\) to Allowed functions/]
+        ]
+        for (const [sql, expected] of cases) {
+            await assert.rejects(queryAnalystUrl(url, sql, node), (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                assert.match(String(error.message), expected)
+                // Unscoped refusals should not cite scoped-only reasons.
+                assert.doesNotMatch(String(error.message), /BEGIN ATOMIC|written in plpgsql/)
+                return true
+            })
+        }
+    })
+
+    it('lets an Allowed functions entry through, exactly by signature', async (t) => {
+        if (skipped(t)) return
+        const sql = 'SELECT placed FROM analytics.touchy_orders ORDER BY id LIMIT 5'
+        const allowed = await queryAnalystUrl(url, sql, { ...node, allowedFunctions: 'analytics.touchy(text)' })
+        assert.equal(allowed.rows.length, 2)
+        // Another overload of the same name is not covered by that entry.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT analytics.touchy(1) AS v LIMIT 1', { ...node, allowedFunctions: 'analytics.touchy(text)' }),
+            /add analytics\.touchy\(integer\) to Allowed functions/
+        )
+        // A bare name matches nothing; name(*) matches every overload.
+        await refusal(queryAnalystUrl(url, sql, { ...node, allowedFunctions: 'analytics.touchy' }), /analytics\.touchy\(text\)/)
+        const every = await queryAnalystUrl(url, 'SELECT analytics.touchy(1) AS v LIMIT 1', {
+            ...node,
+            allowedFunctions: 'analytics.touchy(*)'
+        })
+        assert.equal(every.rows[0].v, 1)
+        // The deny list still applies with an entry, and the query still runs read only.
+        await refusal(queryAnalystUrl(url, 'SELECT pg_sleep(0) LIMIT 1', { ...node, allowedFunctions: 'analytics.touchy(*)' }), /pg_sleep/)
+    })
+
+    it('takes the exact signature from the refusal, quoted type names too', async (t) => {
+        if (skipped(t)) return
+        const sql = `SELECT analytics.kind_of('a'::analytics."order-kind") AS v LIMIT 1`
+        await refusal(queryAnalystUrl(url, sql, node), /add analytics\.kind_of\(analytics\."order-kind"\) to Allowed functions/)
+        const allowed = await queryAnalystUrl(url, sql, {
+            ...node,
+            allowedFunctions: '# helpers\nanalytics.kind_of(analytics."order-kind")'
+        })
+        assert.equal(allowed.rows[0].v, 'a')
+    })
+
+    it('changes the catalog digest when a function changes owner, SQL-standard body, SECURITY DEFINER, settings or volatility', async (t) => {
+        if (skipped(t)) return
+        const runner = { get: async (sql) => (await owner.query(sql)).rows[0] }
+        await owner.query(`CREATE FUNCTION analytics.std_body(v int) RETURNS int LANGUAGE sql IMMUTABLE RETURN v + 1`)
+        await owner.query(`ALTER FUNCTION analytics.std_body(int) OWNER TO "${etl}"`)
+        try {
+            const first = await routineCatalogStamp(runner)
+            await owner.query(`CREATE OR REPLACE FUNCTION analytics.std_body(v int) RETURNS int LANGUAGE sql IMMUTABLE RETURN v + 2`)
+            const second = await routineCatalogStamp(runner)
+            assert.notEqual(second, first)
+            await owner.query(`ALTER FUNCTION analytics.std_body(int) OWNER TO CURRENT_USER`)
+            let last = await routineCatalogStamp(runner)
+            assert.notEqual(last, second)
+            for (const change of ['SECURITY DEFINER', 'SET search_path = public', 'VOLATILE']) {
+                await owner.query(`ALTER FUNCTION analytics.std_body(int) ${change}`)
+                const next = await routineCatalogStamp(runner)
+                assert.notEqual(next, last, change)
+                last = next
+            }
+        } finally {
+            await owner.query('DROP FUNCTION analytics.std_body(int)')
+        }
+    })
+
+    it('scoped user function rule: refuses leak_note directly and through a view; refuses plpgsql wrapper; allows BEGIN ATOMIC with no relation refs; refuses atomic that reads a table; allows allow-listed plpgsql; handles nested calls', async (t) => {
+        if (skipped(t)) return
+        // Refused through a view while scoped.
+        await assert.rejects(
+            queryAnalystUrl(url, 'SELECT v FROM s.leak_view LIMIT 1', { ...node, relations: ['s.leak_view'] }),
+            (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                return true
+            }
+        )
+        // plpgsql wrapper refused with a scoped-only reason in the message.
+        await assert.rejects(
+            queryAnalystUrl(url, 'SELECT s.sleep_wrap() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            (error) => {
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                assert.match(String(error.message), /add s\.sleep_wrap\(\) to Allowed functions/)
+                assert.match(String(error.message), /written in plpgsql/)
+                return true
+            }
+        )
+        // BEGIN ATOMIC function with no relation refs allowed under a selection.
+        const ok = await queryAnalystUrl(url, 'SELECT s.add_atomic(2,3) AS v LIMIT 1', { ...node, relations: ['analytics.clean_orders'] })
+        assert.equal(ok.rows[0].v, 5)
+        // BEGIN ATOMIC function that reads a table refused.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.read_secret() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /Allowed functions|reads s\.secret/
+        )
+        // Allow-listed plpgsql function allowed.
+        const upper = await queryAnalystUrl(url, "SELECT s.upper_plpgsql('ab') AS v LIMIT 1", {
+            ...node,
+            relations: ['analytics.clean_orders'],
+            allowedFunctions: 's.upper_plpgsql(text)'
+        })
+        assert.equal(upper.rows[0].v, 'AB')
+        // Nested: safe outer ok, unsafe outer refused.
+        const nestedOk = await queryAnalystUrl(url, 'SELECT s.safe_outer(1) AS v LIMIT 1', {
+            ...node,
+            relations: ['analytics.clean_orders']
+        })
+        assert.equal(nestedOk.rows[0].v, 2)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.unsafe_outer() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /Allowed functions|reads s\.secret/
+        )
+    })
+
+    it('refuses a BEGIN ATOMIC body that calls a denied built-in (pg_sleep) under a selection', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE FUNCTION s.pg_sleep_atomic() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT 1 FROM pg_sleep(0); END`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.pg_sleep_atomic() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /pg_sleep is not allowed|pg_sleep/
+        )
+    })
+
+    it('refuses a BEGIN ATOMIC body that casts to regclass for an unticked relation', async (t) => {
+        if (skipped(t)) return
+        await owner.query(
+            `CREATE FUNCTION s.other_regclass() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT 's.other'::regclass::text; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.other_regclass() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /reads .*s\.other|selection/
+        )
+    })
+
+    it('refuses calls that use unsafe default-argument expressions under a selection', async (t) => {
+        if (skipped(t)) return
+        await owner.query(
+            `CREATE FUNCTION s.sleepy() RETURNS int LANGUAGE plpgsql STABLE AS $$ BEGIN PERFORM pg_sleep(0); RETURN 0; END $$`
+        )
+        await owner.query(
+            `CREATE FUNCTION s.fn_dflt_sleep(a int DEFAULT COALESCE(0, s.sleepy())) RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT $1; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.fn_dflt_sleep() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /sleepy|Allowed functions|written in plpgsql/
+        )
+        await owner.query(
+            `CREATE FUNCTION s.fn_dflt_reg(a oid DEFAULT 's.other'::regclass::oid) RETURNS oid LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT $1; END`
+        )
+        await owner.query('RESET ROLE')
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.fn_dflt_reg() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /selection|regclass/
+        )
+    })
+
+    it('refuses through an operator whose underlying function reads a table; diamond callees are not cycles', async (t) => {
+        if (skipped(t)) return
+        await owner.query(
+            `CREATE FUNCTION s.text_eq(a text, b text) RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT EXISTS(SELECT 1 FROM s.secret WHERE note IS NOT NULL); END`
+        )
+        await owner.query(`CREATE OPERATOR s.=== (LEFTARG = text, RIGHTARG = text, PROCEDURE = s.text_eq)`)
+        await owner.query(
+            `CREATE FUNCTION s.op_wrap() RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT 'x' OPERATOR(s.===) 'y'; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.op_wrap() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /calls .*s\.text_eq|reads s\.secret|Allowed functions/
+        )
+        // A plpgsql string-body function as an operator callee is also refused.
+        await owner.query(
+            `CREATE FUNCTION s.pl_text_eq(a text, b text) RETURNS boolean LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN a = b; END $$`
+        )
+        await owner.query(`CREATE OPERATOR s.#=# (LEFTARG = text, RIGHTARG = text, PROCEDURE = s.pl_text_eq)`)
+        await owner.query(
+            `CREATE FUNCTION s.op_wrap_pl() RETURNS boolean LANGUAGE sql STABLE BEGIN ATOMIC SELECT 'x' OPERATOR(s.#=#) 'x'; END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.op_wrap_pl() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /written in plpgsql|Allowed functions/
+        )
+        // Diamond: top -> left -> leaf and top -> right -> leaf should pass without being treated as a cycle.
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE FUNCTION s.leaf() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 1; END`)
+        await owner.query(`CREATE FUNCTION s.lft() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
+        await owner.query(`CREATE FUNCTION s.rgt() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.leaf(); END`)
+        await owner.query(`CREATE FUNCTION s.top() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.lft() + s.rgt(); END`)
+        await owner.query('RESET ROLE')
+        const okTop = await queryAnalystUrl(url, 'SELECT s.top() AS v LIMIT 1', {
+            ...node,
+            relations: ['analytics.clean_orders']
+        })
+        assert.equal(okTop.rows[0].v, 2)
+    })
+
+    it('refuses a cycle and allows a chain of 20 safe functions; names the refused function', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE FUNCTION s.cycle_a() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 1; END`)
+        await owner.query(`CREATE FUNCTION s.cycle_b() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 1; END`)
+        await owner.query(`CREATE OR REPLACE FUNCTION s.cycle_a() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cycle_b(); END`)
+        await owner.query(`CREATE OR REPLACE FUNCTION s.cycle_b() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cycle_a(); END`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.cycle_a() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /add s\.cycle_b\(\) to Allowed functions|Allowed functions|cycle/i
+        )
+        // Chain of 20 safe functions
+        await owner.query(`SET ROLE "${etl}"`)
+        for (let i = 19; i >= 0; i -= 1) {
+            const name = `s.link_${i}`
+            const body = i === 19 ? 'SELECT 1' : `SELECT s.link_${i + 1}()`
+            // eslint-disable-next-line no-await-in-loop
+            await owner.query(`CREATE FUNCTION ${name}() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC ${body}; END`)
+        }
+        await owner.query('RESET ROLE')
+        const ok = await queryAnalystUrl(url, 'SELECT s.link_0() AS v LIMIT 1', { ...node, relations: ['analytics.clean_orders'] })
+        assert.equal(ok.rows[0].v, 1)
+    })
+
+    it('refuses a 40-deep chain and reports a non-empty reason; 20-deep still passes', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        // Build a 40-deep chain
+        for (let i = 39; i >= 0; i -= 1) {
+            const name = `s.deep_${i}`
+            const body = i === 39 ? 'SELECT 1' : `SELECT s.deep_${i + 1}()`
+            // eslint-disable-next-line no-await-in-loop
+            await owner.query(`CREATE OR REPLACE FUNCTION ${name}() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC ${body}; END`)
+        }
+        await owner.query('RESET ROLE')
+        // 20-deep passes (reuse link_0 from earlier test)
+        const ok20 = await queryAnalystUrl(url, 'SELECT s.link_0() AS v LIMIT 1', { ...node, relations: ['analytics.clean_orders'] })
+        assert.equal(ok20.rows[0].v, 1)
+        // 40-deep is refused and includes a non-empty reason
+        const err = await queryAnalystUrl(url, 'SELECT s.deep_0() LIMIT 1', {
+            ...node,
+            relations: ['analytics.clean_orders']
+        }).then(
+            () => null,
+            (e) => e
+        )
+        assert.ok(err, 'expected refusal for 40-deep chain')
+        assert.match(String(err.message), /found:/i)
+        assert.doesNotMatch(String(err.message), /found:\s*\.\s*$/i)
+    })
+
+    it('does not let memoization skip the call-depth cap', async (t) => {
+        // Requirement (c): a function first seen on a short path must still count toward a longer path.
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        for (let i = 39; i >= 0; i -= 1) {
+            const name = `s.cap_${i}`
+            const body = i === 39 ? 'SELECT 1' : `SELECT s.cap_${i + 1}()`
+            // eslint-disable-next-line no-await-in-loop
+            await owner.query(`CREATE FUNCTION ${name}() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC ${body}; END`)
+        }
+        await owner.query(`CREATE FUNCTION s.cap_both() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT s.cap_20() + s.cap_0(); END`)
+        await owner.query('RESET ROLE')
+        const shallow = await queryAnalystUrl(url, 'SELECT s.cap_20() AS v LIMIT 1', {
+            ...node,
+            relations: ['analytics.clean_orders']
+        })
+        assert.equal(shallow.rows[0].v, 1)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.cap_0() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /call graph too deep/i
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.cap_both() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
+            /call graph too deep/i
+        )
+    })
+
+    it('auto-allows a BEGIN ATOMIC function only when it reads no relation', async (t) => {
+        // Requirement (d): a selected relation still blocks automatic allowance.
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE TABLE s.picked (id int)`)
+        await owner.query(`INSERT INTO s.picked VALUES (1)`)
+        await owner.query(
+            `CREATE FUNCTION s.read_picked() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT id FROM s.picked LIMIT 1; END`
+        )
+        await owner.query(`CREATE FUNCTION s.pure_atomic() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 4; END`)
+        await owner.query('RESET ROLE')
+        await owner.query(`GRANT SELECT ON s.picked TO "${reader}"`)
+        const pure = await queryAnalystUrl(url, 'SELECT s.pure_atomic() AS v LIMIT 1', {
+            ...node,
+            relations: ['s.picked']
+        })
+        assert.equal(pure.rows[0].v, 4)
+        await refusal(queryAnalystUrl(url, 'SELECT s.read_picked() AS v LIMIT 1', { ...node, relations: ['s.picked'] }), /reads a relation/)
+        // An allow-listed function's own body is trusted, so the same read can run once it is listed.
+        const listed = await queryAnalystUrl(url, 'SELECT s.read_picked() AS v LIMIT 1', {
+            ...node,
+            relations: ['s.picked'],
+            allowedFunctions: 's.read_picked()'
+        })
+        assert.equal(listed.rows[0].v, 1)
+    })
+
+    it('refuses a BEGIN ATOMIC function that reads a table when no relations are ticked', async (t) => {
+        // The unscoped path must walk prosqlbody even with nothing selected, and refuse any relation it finds.
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE TABLE s.unticked (id int)`)
+        await owner.query(`INSERT INTO s.unticked VALUES (7)`)
+        await owner.query(
+            `CREATE FUNCTION s.read_unticked() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT id FROM s.unticked LIMIT 1; END`
+        )
+        await owner.query(`CREATE FUNCTION s.pure_unticked() RETURNS int LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT 6; END`)
+        await owner.query(`CREATE FUNCTION s.wrap_unticked() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_unticked(); END`)
+        await owner.query('RESET ROLE')
+        await owner.query(`GRANT SELECT ON s.unticked TO "${reader}"`)
+        const pure = await queryAnalystUrl(url, 'SELECT s.pure_unticked() AS v LIMIT 1', node)
+        assert.equal(Number(pure.rows[0].v), 6)
+        await refusal(queryAnalystUrl(url, 'SELECT s.read_unticked() AS v LIMIT 1', node), /reads a relation/)
+        await refusal(queryAnalystUrl(url, 'SELECT s.wrap_unticked() AS v LIMIT 1', node), /not allowed|reads a relation/)
+        // Listing the reader admits its own body. The wrapper is not listed, so the callee is still refused.
+        const admitted = await queryAnalystUrl(url, 'SELECT s.read_unticked() AS v LIMIT 1', {
+            ...node,
+            allowedFunctions: 's.read_unticked()'
+        })
+        assert.equal(Number(admitted.rows[0].v), 7)
+    })
+
+    it('refuses an uninspectable function body that reads a table when no relations are ticked', async (t) => {
+        // A string body has no prosqlbody tree. With nothing selected it must be refused, and an allow-list entry admits it.
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE TABLE s.hidden_text (id int)`)
+        await owner.query(`INSERT INTO s.hidden_text VALUES (3)`)
+        await owner.query(`CREATE FUNCTION s.string_read() RETURNS int LANGUAGE sql STABLE AS $$SELECT id FROM s.hidden_text$$`)
+        await owner.query(
+            `CREATE FUNCTION s.pl_read() RETURNS int LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN (SELECT id FROM s.hidden_text LIMIT 1); END $$`
+        )
+        await owner.query('RESET ROLE')
+        await owner.query(`GRANT SELECT ON s.hidden_text TO "${reader}"`)
+        // (a) string-body LANGUAGE sql function reading a table.
+        await refusal(queryAnalystUrl(url, 'SELECT s.string_read() AS v LIMIT 1', node), /cannot be inspected/)
+        // (b) PL/pgSQL function reading a table.
+        await refusal(queryAnalystUrl(url, 'SELECT s.pl_read() AS v LIMIT 1', node), /cannot be inspected/)
+        // (c) the same function on the explicit Allowed functions list.
+        const admitted = await queryAnalystUrl(url, 'SELECT s.string_read() AS v LIMIT 1', {
+            ...node,
+            allowedFunctions: 's.string_read()'
+        })
+        assert.equal(Number(admitted.rows[0].v), 3)
+        const admittedPl = await queryAnalystUrl(url, 'SELECT s.pl_read() AS v LIMIT 1', {
+            ...node,
+            allowedFunctions: 's.pl_read()'
+        })
+        assert.equal(Number(admittedPl.rows[0].v), 3)
+    })
+
+    it('allow-list of a parent function does not bypass checks for its callees or defaults', async (t) => {
+        // The parent is listed, so its own owner and volatility gates are skipped. The callee and the
+        // default are not listed, and each reaches s.secret, which the selection does not include.
+        if (skipped(t)) return
+        await owner.query(`CREATE FUNCTION s.parent_calls_leak() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_secret(); END`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.parent_calls_leak() LIMIT 1', {
+                ...node,
+                relations: ['analytics.clean_orders'],
+                allowedFunctions: 's.parent_calls_leak()'
+            }),
+            /it reads s\.secret/
+        )
+        await owner.query(
+            `CREATE FUNCTION s.parent_dflt(a text DEFAULT s.read_secret()) RETURNS text LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT coalesce($1,''); END`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.parent_dflt() LIMIT 1', {
+                ...node,
+                relations: ['analytics.clean_orders'],
+                allowedFunctions: 's.parent_dflt(text)'
+            }),
+            /it reads s\.secret/
+        )
+    })
+
+    it('admits an allow-listed function that the automatic rule refuses', async (t) => {
+        // Scoped mode: an allow-list entry admits this function even when it is volatile, SECURITY DEFINER,
+        // has its own settings, or is owned by a superuser. A callee is still checked on its own.
+        if (skipped(t)) return
+        const scoped = { ...node, relations: ['analytics.clean_orders'] }
+        await owner.query(`SET ROLE "${etl}"`)
+        try {
+            await owner.query(`CREATE FUNCTION s.listed_vol() RETURNS int LANGUAGE sql VOLATILE AS 'SELECT 7'`)
+            await owner.query(`CREATE FUNCTION s.listed_definer() RETURNS int LANGUAGE sql STABLE SECURITY DEFINER AS 'SELECT 8'`)
+            await owner.query(`CREATE FUNCTION s.listed_path() RETURNS int LANGUAGE sql STABLE SET search_path = public AS 'SELECT 9'`)
+            await owner.query(
+                `CREATE FUNCTION s.listed_calls_vol() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.listed_vol(); END`
+            )
+        } finally {
+            await owner.query('RESET ROLE')
+        }
+        await owner.query(`CREATE FUNCTION s.listed_super() RETURNS int LANGUAGE sql STABLE AS 'SELECT 10'`)
+        const refused = [
+            ['SELECT s.listed_vol() LIMIT 1', /VOLATILE/],
+            ['SELECT s.listed_definer() LIMIT 1', /SECURITY DEFINER/],
+            ['SELECT s.listed_path() LIMIT 1', /has its own settings/],
+            ['SELECT s.listed_super() LIMIT 1', /owned by a superuser/]
+        ]
+        for (const [sql, pattern] of refused) await refusal(queryAnalystUrl(url, sql, scoped), pattern)
+        const admitted = [
+            ['s.listed_vol()', 'SELECT s.listed_vol() AS v LIMIT 1', 7],
+            ['s.listed_definer()', 'SELECT s.listed_definer() AS v LIMIT 1', 8],
+            ['s.listed_path()', 'SELECT s.listed_path() AS v LIMIT 1', 9],
+            ['s.listed_super()', 'SELECT s.listed_super() AS v LIMIT 1', 10]
+        ]
+        for (const [entry, sql, value] of admitted) {
+            const result = await queryAnalystUrl(url, sql, { ...scoped, allowedFunctions: entry })
+            assert.equal(Number(result.rows[0].v), value, entry)
+        }
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.listed_calls_vol() LIMIT 1', { ...scoped, allowedFunctions: 's.listed_calls_vol()' }),
+            /calls a function that is not allowed/
+        )
+    })
+
+    it('ignores an allow-list sent in the tool input', async (t) => {
+        if (skipped(t)) return
+        const input = {
+            sql: "SELECT analytics.touchy('a') AS v LIMIT 1",
+            allowedFunctions: 'analytics.touchy(*)',
+            analystAllowedFunctions: 'analytics.touchy(*)'
+        }
+        await refusal(queryAnalystUrl(url, input, node), /add analytics\.touchy\(text\) to Allowed functions/)
+        if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1') {
+                assert.fail('components build is missing or stale; build the components package before running PG-required tests')
+            } else {
+                t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
+                return
+            }
+        }
+        const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
+        const [query] = await new nodeClass().urlTools(url, {}, [], '')
+        const refused = JSON.parse(await query.invoke(input))
+        assert.equal(refused.cuttlelyOutcome, 'expected')
+        assert.match(JSON.stringify(refused), /Allowed functions/)
+        const [allowedQuery] = await new nodeClass().urlTools(url, {}, [], 'analytics.touchy(text)')
+        assert.equal(JSON.parse(await allowedQuery.invoke({ sql: input.sql })).rows[0].v, 'a')
+    })
+    it('v1.3 node declares and persists analystAllowedFunctions; scoped helpers pass', async (t) => {
+        if (skipped(t)) return
+        if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
+            try {
+                const { execSync } = await import('node:child_process')
+                execSync('pnpm --filter @cuttlely/components build', { stdio: 'inherit' })
+            } catch {}
+            if (!fs.existsSync(NODE_BUILD) || fs.statSync(NODE_BUILD).mtimeMs < fs.statSync(NODE_SOURCE).mtimeMs) {
+                if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1') {
+                    assert.fail('components build is missing or stale; build the components package before running PG-required tests')
+                } else {
+                    t.diagnostic('the components build is missing or older than PostgreSQLMCP.ts, so the node half did not run')
+                    return
+                }
+            }
+        }
+        const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
+        const inst = new nodeClass()
+        assert.equal(Number(inst.version), 1.3)
+        const source = fs.readFileSync(NODE_SOURCE, 'utf8')
+        assert.match(source, /name: 'analystAllowedFunctions'/)
+        const allowList = [
+            'analytics._etl_safe_bigint(text)',
+            'analytics._etl_safe_date(text)',
+            'analytics._etl_safe_integer(text)',
+            'analytics._etl_safe_numeric(text)',
+            'analytics._etl_safe_timestamptz(text)'
+        ].join('\n')
+        const tools = await new nodeClass().urlTools(url, {}, ['analytics.clean_orders'], allowList)
+        const [query] = tools
+        const ok = JSON.parse(
+            await query.invoke({
+                sql: 'SELECT id, analytics._etl_safe_numeric(amount::text) AS n FROM analytics.clean_orders LIMIT 1'
+            })
+        )
+        assert.equal(Array.isArray(ok.rows), true)
+    })
+
+    it('still refuses the database when a function is named like a built-in, even with the rule and an entry', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE FUNCTION analytics.lower(v varchar) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT v'`)
+        await owner.query('RESET ROLE')
+        try {
+            await refusal(
+                queryAnalystUrl(url, 'SELECT id FROM analytics.clean_orders LIMIT 1', { ...node, allowedFunctions: 'analytics.lower(*)' }),
+                /analytics\.lower \(named like a built-in\)/
+            )
+        } finally {
+            await owner.query('DROP FUNCTION analytics.lower(varchar)')
+        }
+    })
+})
+
+describe('analyst relations: text search configuration types', () => {
+    const suffix = randomBytes(4).toString('hex')
+    const dbName = `tsearch_${suffix}`
+    const reader = `tsearch_reader_${suffix}`
+    const etl = `tsearch_etl_${suffix}`
+    const password = randomBytes(18).toString('base64url')
+    let admin = null
+    let owner = null
+    let url = ''
+
+    before(async () => {
+        const client = new Client(adminConfig())
+        try {
+            await client.connect()
+        } catch (error) {
+            await client.end().catch(() => {})
+            if (process.env.CUTTLELY_TEST_PG_REQUIRED === '1')
+                throw new Error(`CUTTLELY_TEST_PG_REQUIRED is set and Postgres is not reachable: ${error.message}`)
+            return
+        }
+        admin = client
+        await admin.query(`CREATE DATABASE "${dbName}"`)
+        await admin.query(`CREATE ROLE "${reader}" LOGIN PASSWORD '${password}'`)
+        owner = new Client(adminConfig(dbName))
+        await owner.connect()
+        // Made-up data. The util.mv_region_renewal_* views copy only the column shape of a renewal mart.
+        await owner.query(`CREATE SCHEMA s;
+            CREATE TABLE s.tickets (id int PRIMARY KEY, notes text NOT NULL);
+            INSERT INTO s.tickets VALUES (1, 'oven runs hot'), (2, 'mixer is loud');
+            CREATE TABLE s.other (id int);
+            CREATE VIEW s.ts_english AS SELECT id, to_tsvector('english', notes) AS doc, to_tsquery('english', 'oven') AS q FROM s.tickets;
+            CREATE MATERIALIZED VIEW s.mv_english AS SELECT id, 'english'::regconfig AS cfg, to_tsvector('english', notes) AS doc FROM s.tickets
+                WHERE to_tsvector('english', notes) @@ to_tsquery('english', 'oven');
+            CREATE VIEW s.ts_simple AS SELECT id, to_tsvector('simple', notes) AS doc FROM s.tickets;
+            CREATE VIEW s.self_name AS SELECT id, 's.tickets'::regclass AS t FROM s.tickets;
+            CREATE VIEW s.other_name AS SELECT id, 's.other'::regclass AS t FROM s.tickets;
+            CREATE VIEW s.relid_name AS SELECT relid::regclass AS t FROM pg_stat_user_tables;
+            CREATE TYPE s.class_range AS RANGE (SUBTYPE = regclass);
+            CREATE VIEW s.class_range_view AS SELECT NULL::s.class_range AS r;
+            CREATE VIEW s.viewdef AS SELECT pg_get_viewdef('s.ts_english'::regclass, true) AS def;
+            CREATE SCHEMA util;
+            CREATE TABLE util.renewals (region_label text, risk_radar text, account_id int, opportunity_id int,
+                renewal_acv numeric, renewal_ts date, days_to_renewal int, notes text, _data_as_of timestamptz);
+            INSERT INTO util.renewals VALUES ('North', 'Low', 1, 10, 500, DATE '2026-11-15', 22, 'renewal on track', now()),
+                ('South', 'High', 2, 20, 800, DATE '2026-12-01', 38, 'budget review pending', now());
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_outlook AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals;
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_120d_amer AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals WHERE region_label = 'North';
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_120d_emea AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals WHERE region_label = 'South';
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_120d_apj AS SELECT *, to_tsvector('english', notes) AS notes_doc FROM util.renewals WHERE false;
+            CREATE MATERIALIZED VIEW util.mv_region_renewal_window AS SELECT r.*, w.window_days, to_tsvector('english', r.notes) AS notes_doc
+                FROM util.renewals r CROSS JOIN (VALUES (90), (120)) AS w(window_days);`)
+        await owner.query(`GRANT USAGE ON SCHEMA s, util TO "${reader}"; GRANT SELECT ON ALL TABLES IN SCHEMA s, util TO "${reader}"`)
+        // Create a view that selects a NULL of the multirange type corresponding to s.class_range.
+        const m = await owner.query(
+            "SELECT format_type(r.rngmultitypid, NULL) AS mt FROM pg_range r WHERE r.rngtypid = 's.class_range'::regtype"
+        )
+        const mr = String(m.rows[0]?.mt || '')
+        if (mr) await owner.query(`CREATE VIEW s.class_multirange_view AS SELECT NULL::${mr} AS mr`)
+        // Helper functions like the analytics._etl_safe_* ones for this database too.
+        await admin.query(`CREATE ROLE "${etl}" NOLOGIN`)
+        await owner.query(`CREATE SCHEMA analytics AUTHORIZATION "${etl}"; GRANT USAGE ON SCHEMA util TO "${etl}"; GRANT SELECT ON util.renewals TO "${etl}"; SET ROLE "${etl}";
+            CREATE FUNCTION analytics._etl_safe_numeric(text) RETURNS numeric LANGUAGE sql IMMUTABLE
+                AS $$ SELECT CASE WHEN $1 ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN $1::numeric END $$;
+            CREATE FUNCTION analytics._etl_safe_date(text) RETURNS date LANGUAGE plpgsql STABLE
+                AS $$ BEGIN RETURN $1::date; EXCEPTION WHEN others THEN RETURN NULL; END $$;
+            CREATE MATERIALIZED VIEW analytics.mv_safe_renewals AS SELECT account_id, analytics._etl_safe_numeric(renewal_acv::text) AS acv,
+                analytics._etl_safe_date(renewal_ts::text) AS renewal_date, to_tsvector('english', notes) AS notes_doc FROM util.renewals;
+            CREATE VIEW analytics.safe_renewals AS SELECT account_id, analytics._etl_safe_numeric(renewal_acv::text) AS acv FROM util.renewals;
+            RESET ROLE;`)
+        await owner.query(
+            `GRANT USAGE ON SCHEMA s, util, analytics TO "${reader}"; GRANT SELECT ON ALL TABLES IN SCHEMA s, util, analytics TO "${reader}"`
+        )
+        url = urlFor(reader, password, dbName)
+    })
+
+    after(async () => {
+        if (owner) await owner.end().catch(() => {})
+        if (!admin) return
+        await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {})
+        await admin.query(`DROP ROLE IF EXISTS "${reader}"`).catch(() => {})
+        await admin.end().catch(() => {})
+    })
+
+    const skipped = (t) => {
+        if (admin) return false
+        t.skip('Postgres is not reachable')
+        return true
+    }
+    const scoped = (...relations) => ({ readOnlySql: true, relations })
+    const unscoped = { readOnlySql: true }
+    const selection = /is not allowed while a table selection is set/
+
+    it('runs to_tsvector and plainto_tsquery with english, with and without a selection', async (t) => {
+        if (skipped(t)) return
+        const sql = "SELECT id FROM s.tickets WHERE to_tsvector('english', notes) @@ plainto_tsquery('english', 'oven') LIMIT 5"
+        for (const options of [scoped('s.tickets'), unscoped, { relations: ['s.tickets'] }]) {
+            assert.deepEqual((await queryAnalystUrl(url, sql, options)).rows, [{ id: 1 }])
+        }
+    })
+
+    it('runs views and materialized views that store english and simple configurations', async (t) => {
+        if (skipped(t)) return
+        for (const name of ['s.ts_english', 's.ts_simple']) {
+            const sql = `SELECT id FROM ${name} ORDER BY id LIMIT 5`
+            assert.ok((await queryAnalystUrl(url, sql, scoped(name))).rows.length >= 1, name)
+            assert.ok((await queryAnalystUrl(url, sql, unscoped)).rows.length >= 1, name)
+        }
+        // The materialized view stores a regconfig const that is not a text-search argument, so a selection refuses it.
+        assert.ok((await queryAnalystUrl(url, 'SELECT id FROM s.mv_english ORDER BY id LIMIT 5', unscoped)).rows.length >= 1)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /regconfig|not allowed while a table selection is set/
+        )
+    })
+
+    it('refuses stored regconfig uses and still lets a literal Const into built-ins', async (t) => {
+        if (skipped(t)) return
+        await refusal(
+            queryAnalystUrl(url, 'SELECT cfg::text AS cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /not allowed while a table selection is set/
+        )
+        // Selecting a regconfig-typed column directly is refused under a selection.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /not allowed while a table selection is set/
+        )
+        // A Const regconfig cast on its own is refused under a selection.
+        await refusal(
+            queryAnalystUrl(url, "SELECT 'english'::regconfig::text AS cfg LIMIT 1", scoped('s.tickets')),
+            /not allowed while a table selection is set/
+        )
+        // A regconfig Const nested under another expression inside args is refused.
+        await refusal(
+            queryAnalystUrl(
+                url,
+                "SELECT to_tsvector(coalesce('english'::regconfig, 'simple'::regconfig), notes) FROM s.tickets LIMIT 1",
+                scoped('s.tickets')
+            ),
+            /not allowed while a table selection is set/
+        )
+        // Passing a non-Const regconfig (a cast variable) to to_tsvector is refused.
+        await refusal(
+            queryAnalystUrl(
+                url,
+                'SELECT to_tsvector(m.cfg::regconfig, t.notes) FROM s.mv_english m JOIN s.tickets t ON t.id = m.id LIMIT 1',
+                scoped('s.mv_english', 's.tickets')
+            ),
+            selection
+        )
+        // A direct call to regconfigout is refused.
+        await refusal(
+            queryAnalystUrl(url, "SELECT pg_catalog.regconfigout('english'::regconfig) LIMIT 1", scoped('s.tickets')),
+            /not allowed while a table selection is set/
+        )
+        await refusal(queryAnalystUrl(url, 'SELECT id::oid::regclass FROM s.tickets LIMIT 1', scoped('s.tickets')), selection)
+    })
+
+    it('refuses non-const regconfig and regdictionary values, including get_current_ts_config()', async (t) => {
+        // Requirement (a): only a regconfig or regdictionary Const passed straight into a built-in text-search function is allowed.
+        if (skipped(t)) return
+        const queries = [
+            'SELECT get_current_ts_config() AS cfg LIMIT 1',
+            'SELECT get_current_ts_config()::text AS cfg LIMIT 1',
+            'SELECT get_current_ts_config()::regconfig AS cfg LIMIT 1',
+            'SELECT to_tsvector(get_current_ts_config(), notes) FROM s.tickets LIMIT 1',
+            'SELECT to_tsvector((SELECT get_current_ts_config()), notes) FROM s.tickets LIMIT 1',
+            "SELECT to_tsvector(COALESCE(get_current_ts_config(), 'english'::regconfig), notes) FROM s.tickets LIMIT 1",
+            "SELECT to_tsvector(CASE WHEN notes IS NULL THEN 'simple'::regconfig ELSE get_current_ts_config() END, notes) FROM s.tickets LIMIT 1",
+            "SELECT current_setting('default_text_search_config')::regconfig AS cfg LIMIT 1",
+            "SELECT to_tsvector(current_setting('default_text_search_config')::regconfig, notes) FROM s.tickets LIMIT 1",
+            "SELECT ts_lexize((SELECT 'english_stem'::regdictionary), 'ovens') AS l FROM s.tickets LIMIT 1",
+            "SELECT ts_lexize(CASE WHEN true THEN 'english_stem'::regdictionary ELSE 'simple'::regdictionary END, 'ovens') AS l FROM s.tickets LIMIT 1"
+        ]
+        for (const sql of queries) {
+            await refusal(
+                queryAnalystUrl(url, sql, scoped('s.tickets')),
+                /regconfig|regdictionary|not allowed while a table selection is set/
+            )
+        }
+        const kept = await queryAnalystUrl(
+            url,
+            "SELECT to_tsvector('english', notes) AS d, ts_lexize('english_stem'::regdictionary, 'ovens') AS l FROM s.tickets LIMIT 1",
+            scoped('s.tickets')
+        )
+        assert.equal(kept.rows.length, 1)
+        assert.deepEqual(kept.rows[0].l, ['oven'])
+    })
+
+    it('inspects view, materialized view, and policy bodies for regconfig uses', async (t) => {
+        // Requirement (b): a hidden get_current_ts_config() or a bare regconfig const is refused inside each of those bodies.
+        if (skipped(t)) return
+        await owner.query(`CREATE VIEW s.cfg_fn AS SELECT get_current_ts_config()::text AS v`)
+        await owner.query(`CREATE MATERIALIZED VIEW s.mv_cfg_fn AS SELECT get_current_ts_config()::text AS v`)
+        await owner.query(`CREATE TABLE s.guarded (id int)`)
+        await owner.query(`INSERT INTO s.guarded VALUES (1)`)
+        await owner.query(`ALTER TABLE s.guarded ENABLE ROW LEVEL SECURITY`)
+        await owner.query(`CREATE POLICY see_guarded ON s.guarded USING (id > 0)`)
+        await owner.query(`GRANT SELECT ON s.cfg_fn, s.mv_cfg_fn, s.guarded TO "${reader}"`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT v FROM s.cfg_fn LIMIT 1', scoped('s.cfg_fn')),
+            /regconfig|not allowed while a table selection is set/
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT v FROM s.mv_cfg_fn LIMIT 1', scoped('s.mv_cfg_fn')),
+            /regconfig|not allowed while a table selection is set/
+        )
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.guarded LIMIT 5', scoped('s.guarded'))).rows.length, 1)
+        await owner.query(`DROP POLICY see_guarded ON s.guarded`)
+        await owner.query(`CREATE POLICY bad_guarded ON s.guarded USING ((get_current_ts_config()::text) = 'english')`)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM s.guarded LIMIT 5', scoped('s.guarded')),
+            /regconfig|not allowed while a table selection is set/
+        )
+        // A with-check expression is part of the policy body too.
+        await owner.query(`DROP POLICY bad_guarded ON s.guarded`)
+        await owner.query(
+            `CREATE POLICY check_guarded ON s.guarded USING (id > 0) WITH CHECK ((get_current_ts_config()::text) = 'english')`
+        )
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM s.guarded LIMIT 5', scoped('s.guarded')),
+            /regconfig|not allowed while a table selection is set/
+        )
+    })
+
+    it('allows a direct constant in all seven built-in text-search functions', async (t) => {
+        if (skipped(t)) return
+        // Ensure unrelated COERCEVIAIO (jsonb::text) in the same statement does not cause refusal.
+        assert.equal(
+            (
+                await queryAnalystUrl(
+                    url,
+                    "SELECT to_tsvector('english', notes) AS d, '{\"a\":1}'::jsonb::text AS j FROM s.tickets LIMIT 1",
+                    scoped('s.tickets')
+                )
+            ).rows.length,
+            1
+        )
+        // Requirement (a): each built-in accepts a regconfig or regdictionary Const passed directly, by oid.
+        const calls = [
+            ["SELECT to_tsvector('english', notes) AS v FROM s.tickets WHERE id = 1 LIMIT 1", (row) => assert.match(String(row.v), /oven/)],
+            ["SELECT to_tsquery('english', 'oven')::text AS v FROM s.tickets LIMIT 1", (row) => assert.match(row.v, /oven/)],
+            ["SELECT plainto_tsquery('english', 'oven')::text AS v FROM s.tickets LIMIT 1", (row) => assert.match(row.v, /oven/)],
+            ["SELECT phraseto_tsquery('english', 'oven runs')::text AS v FROM s.tickets LIMIT 1", (row) => assert.match(row.v, /oven/)],
+            ["SELECT websearch_to_tsquery('english', 'oven')::text AS v FROM s.tickets LIMIT 1", (row) => assert.match(row.v, /oven/)],
+            [
+                "SELECT ts_headline('english', notes, plainto_tsquery('english', 'oven')) AS v FROM s.tickets WHERE id = 1 LIMIT 1",
+                (row) => assert.match(row.v, /<b>oven<\/b>/)
+            ],
+            [
+                "SELECT ts_lexize('english_stem'::regdictionary, 'ovens') AS v FROM s.tickets LIMIT 1",
+                (row) => assert.deepEqual(row.v, ['oven'])
+            ]
+        ]
+        for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }]) {
+            for (const [sql, check] of calls) {
+                const result = await queryAnalystUrl(url, sql, options)
+                assert.equal(result.rows.length, 1, sql)
+                check(result.rows[0])
+            }
+        }
+    })
+
+    it('refuses regclass and other reg* types inside views, matviews, and policies when readOnlySql is unset', async (t) => {
+        // Requirements (a) and (b) on the selection path that does not set readOnlySql.
+        // relationNodeTexts must keep body type ids: the structural walk only judges regconfig and regdictionary.
+        if (skipped(t)) return
+        const selected = (name) => ({ relations: [name] })
+        // A view whose only reg* use is a direct text-search constant stays allowed.
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.ts_english LIMIT 1', selected('s.ts_english'))).rows.length, 1)
+        // The reg* column is not projected, so the outer statement's types do not name it. The body still does.
+        await owner.query(`
+            CREATE VIEW s.body_regclass AS SELECT 's.tickets'::regclass AS v;
+            CREATE VIEW s.body_regproc AS SELECT 0::oid::regproc AS v;
+            CREATE VIEW s.body_regprocedure AS SELECT 0::oid::regprocedure AS v;
+            CREATE VIEW s.body_regoperator AS SELECT 0::oid::regoperator AS v;
+            CREATE VIEW s.body_regnamespace AS SELECT 0::oid::regnamespace AS v;
+            CREATE VIEW s.body_regrole AS SELECT 0::oid::regrole AS v;
+            CREATE VIEW s.body_nested AS SELECT 1 AS n FROM s.body_regclass;
+            CREATE MATERIALIZED VIEW s.body_mv_regclass AS SELECT 's.tickets'::regclass AS v;
+            CREATE MATERIALIZED VIEW s.body_mv_regoper AS SELECT 0::oid::regoper AS v;
+            CREATE MATERIALIZED VIEW s.body_mv_regcollation AS SELECT 0::oid::regcollation AS v;
+            CREATE MATERIALIZED VIEW s.body_mv_regtype AS SELECT 0::oid::regtype AS v;
+            CREATE TABLE s.body_pol (id int);
+            INSERT INTO s.body_pol VALUES (1);
+            ALTER TABLE s.body_pol ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY body_pol_ok ON s.body_pol USING (id > 0);
+            CREATE TABLE s.body_pol_hidden (id int);
+            INSERT INTO s.body_pol_hidden VALUES (1);
+            ALTER TABLE s.body_pol_hidden ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY body_pol_hidden_regrole ON s.body_pol_hidden USING ((0::oid::regrole)::oid IS NOT NULL);
+            CREATE VIEW s.body_pol_view AS SELECT id FROM s.body_pol_hidden;
+        `)
+        await owner.query(
+            `GRANT SELECT ON s.body_regclass, s.body_regproc, s.body_regprocedure, s.body_regoperator, s.body_regnamespace, s.body_regrole, s.body_nested, s.body_mv_regclass, s.body_mv_regoper, s.body_mv_regcollation, s.body_mv_regtype, s.body_pol, s.body_pol_hidden, s.body_pol_view TO "${reader}"`
+        )
+        const cases = [
+            ['s.self_name', 'SELECT id FROM s.self_name LIMIT 1', /type regclass/],
+            ['s.body_regclass', 'SELECT 1 AS ok FROM s.body_regclass LIMIT 1', /type regclass/],
+            ['s.body_regproc', 'SELECT 1 AS ok FROM s.body_regproc LIMIT 1', /type regproc/],
+            ['s.body_regprocedure', 'SELECT 1 AS ok FROM s.body_regprocedure LIMIT 1', /type regprocedure/],
+            ['s.body_regoperator', 'SELECT 1 AS ok FROM s.body_regoperator LIMIT 1', /type regoperator/],
+            ['s.body_regnamespace', 'SELECT 1 AS ok FROM s.body_regnamespace LIMIT 1', /type regnamespace/],
+            ['s.body_regrole', 'SELECT 1 AS ok FROM s.body_regrole LIMIT 1', /type regrole/],
+            ['s.body_nested', 'SELECT n FROM s.body_nested LIMIT 1', /type regclass/],
+            ['s.body_mv_regclass', 'SELECT 1 AS ok FROM s.body_mv_regclass LIMIT 1', /type regclass/],
+            ['s.body_mv_regoper', 'SELECT 1 AS ok FROM s.body_mv_regoper LIMIT 1', /type regoper/],
+            ['s.body_mv_regcollation', 'SELECT 1 AS ok FROM s.body_mv_regcollation LIMIT 1', /type regcollation/],
+            ['s.body_mv_regtype', 'SELECT 1 AS ok FROM s.body_mv_regtype LIMIT 1', /type regtype/]
+        ]
+        for (const [name, sql, pattern] of cases) {
+            await refusal(queryAnalystUrl(url, sql, selected(name)), pattern)
+        }
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.body_pol LIMIT 1', selected('s.body_pol'))).rows.length, 1)
+        await owner.query('DROP POLICY body_pol_ok ON s.body_pol')
+        await owner.query('CREATE POLICY body_pol_regclass ON s.body_pol USING ((0::oid::regclass)::oid IS NOT NULL)')
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM s.body_pol LIMIT 1', selected('s.body_pol')), /type regclass/)
+        await owner.query('DROP POLICY body_pol_regclass ON s.body_pol')
+        await owner.query('CREATE POLICY body_pol_regtype ON s.body_pol USING (id > 0) WITH CHECK ((0::oid::regtype)::oid IS NOT NULL)')
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM s.body_pol LIMIT 1', selected('s.body_pol')), /type regtype/)
+        await owner.query('DROP POLICY body_pol_regtype ON s.body_pol')
+        await owner.query("CREATE POLICY body_pol_ts ON s.body_pol USING (to_tsvector('english', 'oven') @@ to_tsquery('english', 'oven'))")
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.body_pol LIMIT 1', selected('s.body_pol'))).rows.length, 1)
+        // A policy on a table the selected view reads is part of that body too.
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM s.body_pol_view LIMIT 1', selected('s.body_pol_view')), /type regrole/)
+    })
+
+    it('allows a direct text-search constant inside a relation-free BEGIN ATOMIC function', async (t) => {
+        // Requirement (a) also covers a SQL-standard function body and its default arguments.
+        if (skipped(t)) return
+        await owner.query(`GRANT CREATE ON SCHEMA s TO "${etl}"`)
+        await owner.query(`SET ROLE "${etl}"`)
+        try {
+            await owner.query(`
+                CREATE FUNCTION s.pure_search() RETURNS tsvector LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT to_tsvector('english', 'oven runs'); END;
+                CREATE FUNCTION s.pure_lexize() RETURNS text[] LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT ts_lexize('english_stem'::regdictionary, 'ovens'); END;
+                CREATE FUNCTION s.pure_phrase(q tsquery DEFAULT phraseto_tsquery('english', 'oven runs')) RETURNS tsquery
+                    LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT q; END;
+                CREATE FUNCTION s.bad_cfg() RETURNS text LANGUAGE sql STABLE
+                    BEGIN ATOMIC SELECT get_current_ts_config()::text; END;
+                CREATE FUNCTION s.bad_nested() RETURNS tsvector LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT to_tsvector(get_current_ts_config(), 'oven'); END;
+                CREATE FUNCTION s.bad_bare() RETURNS text LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT 'english'::regconfig::text; END;
+                CREATE FUNCTION s.bad_class() RETURNS text LANGUAGE sql STABLE
+                    BEGIN ATOMIC SELECT 0::oid::regclass::text; END;
+                CREATE FUNCTION s.bad_array() RETURNS text LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT NULL::regclass[]::text; END;
+                CREATE FUNCTION s.bad_array_default(a text DEFAULT NULL::regclass[]::text) RETURNS text
+                    LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT a; END;
+            `)
+        } finally {
+            await owner.query('RESET ROLE')
+        }
+        await owner.query(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA s TO "${reader}"`)
+        for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }]) {
+            const search = await queryAnalystUrl(url, 'SELECT s.pure_search() AS v LIMIT 1', options)
+            assert.match(String(search.rows[0].v), /oven/)
+            const lex = await queryAnalystUrl(url, 'SELECT s.pure_lexize() AS v LIMIT 1', options)
+            assert.deepEqual(lex.rows[0].v, ['oven'])
+            const phrase = await queryAnalystUrl(url, 'SELECT s.pure_phrase()::text AS v LIMIT 1', options)
+            assert.match(phrase.rows[0].v, /oven/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_cfg() AS v LIMIT 1', options), /regconfig/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_nested() AS v LIMIT 1', options), /regconfig/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_bare() AS v LIMIT 1', options), /regconfig/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_class() AS v LIMIT 1', options), /regclass/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_array() AS v LIMIT 1', options), /regclass/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_array_default() AS v LIMIT 1', options), /regclass/)
+        }
+    })
+
+    it('does not write debug files during checks', async (t) => {
+        if (skipped(t)) return
+        const fs = await import('node:fs')
+        const tmpFiles = [
+            '/tmp/cfg-present.json',
+            '/tmp/cfg-coerce.txt',
+            '/tmp/cuttlely-node-tree.txt',
+            '/tmp/cuttlely-node-tree-cfg.txt',
+            '/tmp/cfg-debug.json'
+        ]
+        // Clean up any leftovers from a prior run
+        for (const f of tmpFiles) {
+            try {
+                if (fs.existsSync(f)) fs.unlinkSync(f)
+            } catch {}
+        }
+        // Run a representative query that previously triggered debug writes.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT cfg::text AS cfg FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /not allowed while a table selection is set/
+        )
+        for (const f of tmpFiles) {
+            t.diagnostic(`checking ${f}`)
+            assert.equal(fs.existsSync(f), false, `no file should be written: ${f}`)
+        }
+    })
+
+    it('runs a regclass view with no selection, and never names the selection on unscoped queries', async (t) => {
+        if (skipped(t)) return
+        assert.equal((await queryAnalystUrl(url, 'SELECT t::text AS t FROM s.self_name LIMIT 1', unscoped)).rows[0].t, 's.tickets')
+        assert.equal((await queryAnalystUrl(url, 'SELECT 1::regtype::text AS t LIMIT 1', unscoped)).rows.length, 1)
+        // An unscoped refusal (denied built-in) never mentions 'selection'.
+        try {
+            await queryAnalystUrl(url, "SELECT pg_get_viewdef('s.ts_english'::regclass, true) LIMIT 1", unscoped)
+            assert.fail('expected refusal')
+        } catch (error) {
+            assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+            assert.match(error.message, /is not allowed\./)
+            assert.doesNotMatch(error.message, /selection/i)
+        }
+    })
+
+    it('still refuses object-identifier types with a selection', async (t) => {
+        if (skipped(t)) return
+        await refusal(
+            queryAnalystUrl(url, 'SELECT t FROM s.other_name LIMIT 1', scoped('s.other_name')),
+            /s\.other|type regclass|selection/
+        )
+        await refusal(queryAnalystUrl(url, 'SELECT t FROM s.relid_name LIMIT 1', scoped('s.relid_name')), /type regclass|selection/)
+        for (const sql of [
+            'SELECT id::oid::regtype FROM s.tickets LIMIT 1',
+            "SELECT 'int4in'::regproc FROM s.tickets LIMIT 1",
+            "SELECT to_regclass('s.other') FROM s.tickets LIMIT 1",
+            "SELECT to_regtype('int4') FROM s.tickets LIMIT 1",
+            'SELECT id::oid::regnamespace FROM s.tickets LIMIT 1',
+            'SELECT id::oid::regrole FROM s.tickets LIMIT 1'
+        ]) {
+            for (const options of [scoped('s.tickets'), { relations: ['s.tickets'] }])
+                await refusal(queryAnalystUrl(url, sql, options), selection)
+        }
+    })
+
+    it('refuses a regclass range and multirange, directly and through a view, with a selection', async (t) => {
+        if (skipped(t)) return
+        const sel = scoped('s.tickets')
+        // Direct multirange cast should be refused under a selection (when the multirange exists).
+        const m = await owner.query(
+            "SELECT format_type(r.rngmultitypid, NULL) AS mt FROM pg_range r WHERE r.rngtypid = 's.class_range'::regtype"
+        )
+        const mr = String(m.rows[0]?.mt || '')
+        if (mr) {
+            await refusal(queryAnalystUrl(url, `SELECT NULL::${mr} LIMIT 1`, sel), selection)
+            await refusal(
+                queryAnalystUrl(url, 'SELECT mr FROM s.class_multirange_view LIMIT 1', scoped('s.class_multirange_view')),
+                selection
+            )
+        } else {
+            t.skip('multirange type name not found')
+        }
+        // The underlying regclass range is still refused under a selection.
+        await refusal(queryAnalystUrl(url, 'SELECT r FROM s.class_range_view LIMIT 1', scoped('s.class_range_view')), selection)
+    })
+
+    it('refuses pg_get_viewdef directly and through a view, with and without a selection', async (t) => {
+        if (skipped(t)) return
+        // Scoped: denied with the selection-specific message.
+        await refusal(queryAnalystUrl(url, "SELECT pg_get_viewdef('s.ts_english'::regclass, true) LIMIT 1", scoped('s.tickets')), selection)
+        await refusal(queryAnalystUrl(url, 'SELECT def FROM s.viewdef LIMIT 1', scoped('s.viewdef')), selection)
+        // Unscoped: denied without mentioning the selection.
+        try {
+            await queryAnalystUrl(url, "SELECT pg_get_viewdef('s.ts_english'::regclass, true) LIMIT 1", unscoped)
+            assert.fail('expected refusal')
+        } catch (error) {
+            assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+            assert.match(error.message, /is not allowed\./)
+            assert.doesNotMatch(error.message, /selection/i)
+        }
+        try {
+            await queryAnalystUrl(url, 'SELECT def FROM s.viewdef LIMIT 1', unscoped)
+            assert.fail('expected refusal')
+        } catch (error) {
+            assert.equal(error.cuttlelyOutcome, 'expected', error.message)
+            assert.match(error.message, /is not allowed\./)
+            assert.doesNotMatch(error.message, /selection/i)
+        }
+    })
+
+    it('runs the renewal mart query shapes on materialized views with a text search column', async (t) => {
+        if (skipped(t)) return
+        const branch = (name) =>
+            `SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.${name} WHERE renewal_ts >= DATE '2026-10-24' AND renewal_ts < DATE '2027-01-23'`
+        const shapes = [
+            [
+                `SELECT COALESCE(r.region_label, 'N/A') AS region, COALESCE(r.risk_radar, 'N/A') AS risk_radar, COUNT(DISTINCT r.opportunity_id) AS renewal_opportunities, COUNT(DISTINCT r.account_id) AS accounts, SUM(COALESCE(r.renewal_acv, 0)) AS renewal_acv_due, MAX(r._data_as_of) AS data_as_of FROM util.mv_region_renewal_outlook AS r WHERE r.days_to_renewal BETWEEN 0 AND 90 GROUP BY COALESCE(r.region_label, 'N/A'), COALESCE(r.risk_radar, 'N/A') ORDER BY SUM(COALESCE(r.renewal_acv, 0)) DESC NULLS LAST, region, risk_radar LIMIT 100`,
+                ['util.mv_region_renewal_outlook']
+            ],
+            [
+                `SELECT COALESCE(NULLIF(BTRIM(r.region_label), ''), 'N/A') AS region, COALESCE(NULLIF(BTRIM(r.risk_radar), ''), 'N/A') AS risk_radar, COUNT(DISTINCT r.opportunity_id) AS renewal_opportunities, COUNT(DISTINCT r.account_id) AS accounts, SUM(COALESCE(r.renewal_acv, 0)) AS renewal_acv_due, MAX(r._data_as_of) AS data_as_of FROM util.mv_region_renewal_outlook r WHERE r.renewal_ts >= DATE '2026-10-24' AND r.renewal_ts < DATE '2027-01-23' GROUP BY 1, 2 ORDER BY renewal_acv_due DESC NULLS LAST, region, risk_radar LIMIT 100`,
+                ['util.mv_region_renewal_outlook']
+            ],
+            [
+                `WITH w AS (${branch('mv_region_renewal_120d_amer')} UNION ALL ${branch('mv_region_renewal_120d_emea')} UNION ALL ${branch(
+                    'mv_region_renewal_120d_apj'
+                )}) SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM w GROUP BY region_label, risk_radar ORDER BY renewal_acv_due DESC NULLS LAST LIMIT 100`,
+                ['util.mv_region_renewal_120d_amer', 'util.mv_region_renewal_120d_emea', 'util.mv_region_renewal_120d_apj']
+            ],
+            [
+                `SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM util.mv_region_renewal_window WHERE window_days = 90 GROUP BY region_label, risk_radar ORDER BY SUM(renewal_acv) DESC NULLS LAST, region_label, risk_radar LIMIT 100`,
+                ['util.mv_region_renewal_window']
+            ]
+        ]
+        for (const [sql, relations] of shapes) {
+            for (const options of [scoped(...relations), unscoped]) assert.equal((await queryAnalystUrl(url, sql, options)).rows.length, 2)
+        }
+    })
+
+    it('PG14: renewal mart shapes on MVs with tsearch column under a selection', async (t) => {
+        if (skipped(t)) return
+        const ver = Number((await owner.query('SHOW server_version_num')).rows[0].server_version_num || 0)
+        if (Math.floor(ver / 10000) !== 14) {
+            t.skip('not running on PG14')
+            return
+        }
+        const sql =
+            'WITH w AS (SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_amer UNION ALL SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_emea UNION ALL SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_apj) SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM w GROUP BY region_label, risk_radar ORDER BY renewal_acv_due DESC NULLS LAST LIMIT 100'
+        const result = await queryAnalystUrl(
+            url,
+            sql,
+            scoped('util.mv_region_renewal_120d_amer', 'util.mv_region_renewal_120d_emea', 'util.mv_region_renewal_120d_apj')
+        )
+        assert.equal(result.rows.length, 2)
+        assert.deepEqual(result.rows.map((row) => row.region).sort(), ['North', 'South'])
+    })
+
+    it('runs views over analytics._etl_safe_* helper functions next to a text search column', async (t) => {
+        if (skipped(t)) return
+        for (const name of ['analytics.mv_safe_renewals', 'analytics.safe_renewals']) {
+            const sql = `SELECT account_id, acv FROM ${name} ORDER BY account_id LIMIT 5`
+            const allowList = ['analytics._etl_safe_numeric(text)', 'analytics._etl_safe_date(text)'].join('\n')
+            // Unscoped: a string body cannot be inspected, so the helpers are refused until listed.
+            await refusal(queryAnalystUrl(url, sql, unscoped), /cannot be inspected/)
+            const rowsUnscoped = (await queryAnalystUrl(url, sql, { ...unscoped, allowedFunctions: allowList })).rows
+            assert.deepEqual(
+                rowsUnscoped.map((row) => Number(row.acv)),
+                [500, 800],
+                `${name} unscoped with allow-list`
+            )
+            // Scoped: refused without allow-list, then allowed with text entries for helpers.
+            await refusal(queryAnalystUrl(url, sql, scoped(name)), /Allowed functions/)
+            const rowsScoped = (await queryAnalystUrl(url, sql, { ...scoped(name), allowedFunctions: allowList })).rows
+            assert.deepEqual(
+                rowsScoped.map((row) => Number(row.acv)),
+                [500, 800],
+                `${name} scoped with allow-list`
+            )
+        }
+    })
+
+    it('runs a renewal view whose pg_get_viewdef stores a regconfig cast, and keeps pg_get_viewdef itself refused', async (t) => {
+        if (skipped(t)) return
+        // QA read the definitions with pg_get_viewdef as the owner: to_tsvector('english', ...) is stored as 'english'::regconfig.
+        const definition = await owner.query("SELECT pg_get_viewdef('util.mv_region_renewal_outlook'::regclass) AS d")
+        assert.match(definition.rows[0].d, /'english'::regconfig/)
+        const sql = 'SELECT account_id, notes_doc FROM util.mv_region_renewal_outlook ORDER BY 1 LIMIT 5'
+        for (const options of [scoped('util.mv_region_renewal_outlook'), unscoped])
+            assert.equal((await queryAnalystUrl(url, sql, options)).rows.length, 2)
+        const viewdef = "SELECT pg_get_viewdef('util.mv_region_renewal_outlook'::regclass) AS d LIMIT 1"
+        await refusal(queryAnalystUrl(url, viewdef, scoped('util.mv_region_renewal_outlook')), /pg_get_viewdef/)
+        const error = await queryAnalystUrl(url, viewdef, unscoped).then(
+            () => null,
+            (caught) => caught
+        )
+        assert.match(String(error?.message), /pg_get_viewdef is not allowed/)
+        assert.doesNotMatch(String(error?.message), /table selection/)
+    })
+
+    it('refuses an object-identifier type inside a selected view definition, and a bare regconfig const there too', async (t) => {
+        if (skipped(t)) return
+        await refusal(queryAnalystUrl(url, 'SELECT id FROM s.self_name LIMIT 1', scoped('s.self_name')), selection)
+        // s.mv_english stores 'english'::regconfig as its own column, which is not a text-search argument.
+        await refusal(
+            queryAnalystUrl(url, 'SELECT id FROM s.mv_english LIMIT 1', scoped('s.mv_english')),
+            /regconfig|not allowed while a table selection is set/
+        )
+        assert.equal((await queryAnalystUrl(url, 'SELECT id FROM s.ts_english LIMIT 1', scoped('s.ts_english'))).rows.length, 1)
+        for (const type of ['regprocedure', 'regoper', 'regoperator', 'regcollation']) {
+            await refusal(queryAnalystUrl(url, `SELECT id::oid::${type} FROM s.tickets LIMIT 1`, scoped('s.tickets')), selection)
+            const unscopedError = await queryAnalystUrl(url, `SELECT 0::oid::${type} AS v LIMIT 1`, unscoped).catch((error) => error)
+            assert.doesNotMatch(String(unscopedError?.message || ''), /table selection/, type)
+        }
+    })
+
+    it('still refuses a type whose input is not built in, and a function named like a built-in, with or without a selection', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE FUNCTION public.to_tsvector(text, text, int) RETURNS tsvector LANGUAGE sql AS 'SELECT to_tsvector($2)'`)
+        try {
+            for (const options of [scoped('s.tickets'), unscoped])
+                await refusal(queryAnalystUrl(url, 'SELECT id FROM s.tickets LIMIT 1', options), /named like a built-in/)
+        } finally {
+            await owner.query('DROP FUNCTION public.to_tsvector(text, text, int)')
+        }
+        try {
+            await owner.query('CREATE EXTENSION IF NOT EXISTS citext')
+        } catch {
+            t.skip('the citext extension is not available on this server')
+            return
+        }
+        try {
+            for (const options of [scoped('s.tickets'), unscoped])
+                await refusal(queryAnalystUrl(url, "SELECT 'a'::citext FROM s.tickets LIMIT 1", options), /citext/)
+        } finally {
+            await owner.query('DROP EXTENSION citext')
+        }
     })
 })

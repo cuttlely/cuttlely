@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { Request, Response, NextFunction } from 'express'
 import { getDatabaseHealth } from '../../startup/databaseHealth'
+import { BOOT_RETRY_AFTER_SECONDS, bootPassBlocksPing, PROFILES_COMPILING } from '../../services/harnesses/bootGate'
 
 function analystHeader(dataDir: string | undefined): string {
     if (!dataDir) return 'unknown'
@@ -29,11 +30,28 @@ export function pingForDataDir(dataDir: string | undefined): { code: number; bod
     return { code: 200, body: 'pong', header: 'unknown', analyst }
 }
 
+// Render's health check. 503 until the boot profile compile finishes (or if that pass did not finish), then the
+// usual answer: 200 once the compile is done, including when it continues in the background past the startup cap.
+export function composePing(dataDir: string | undefined): {
+    code: number
+    body: string
+    header: string
+    analyst: string
+    retryAfter?: number
+} {
+    if (bootPassBlocksPing()) {
+        return { code: 503, body: PROFILES_COMPILING, header: 'compiling', analyst: 'unknown', retryAfter: BOOT_RETRY_AFTER_SECONDS }
+    }
+    return pingForDataDir(dataDir)
+}
+
 const getPing = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const health = pingForDataDir(process.env.CUTTLELY_DATA_DIR)
+        const health = composePing(process.env.CUTTLELY_DATA_DIR)
         res.setHeader('X-Cuttlely-Hermes', health.header)
         res.setHeader('X-Cuttlely-Analyst', health.analyst)
+        if (health.retryAfter) res.setHeader('Retry-After', String(health.retryAfter))
+        if (bootPassBlocksPing()) return res.status(health.code).send(health.body)
         // The database comes first: without it nothing works, so Docker and Render must see the server as unhealthy.
         const database = getDatabaseHealth()
         const db = database ? await database.check() : null

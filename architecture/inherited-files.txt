@@ -532,6 +532,7 @@ packages/components/nodes/tools/ChainTool/chaintool.svg
 packages/components/nodes/tools/ChainTool/core.ts
 packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts
 packages/components/nodes/tools/ChatflowTool/chatflowTool.svg
+packages/components/nodes/tools/CurrentDateTime/CurrentDateTime.test.ts
 packages/components/nodes/tools/CurrentDateTime/CurrentDateTime.ts
 packages/components/nodes/tools/CurrentDateTime/currentDateTime.svg
 packages/components/nodes/tools/CustomTool/CustomTool.ts
@@ -583,6 +584,8 @@ packages/components/package.json
 packages/components/src/Interface.Evaluation.ts
 packages/components/src/Interface.ts
 packages/components/src/MetricsLogger.ts
+packages/components/src/agentToolRowId.test.ts
+packages/components/src/agentToolRowId.ts
 packages/components/src/agentflowv2Generator.ts
 packages/components/src/agents.ts
 packages/components/src/anthropicUtils.ts
@@ -1006,6 +1009,7 @@ packages/server/src/controllers/nvidia-nim/index.ts
 packages/server/src/controllers/openai-assistants-vector-store/index.ts
 packages/server/src/controllers/openai-assistants/index.ts
 packages/server/src/controllers/openai-realtime/index.ts
+packages/server/src/controllers/ping/boot-accept.test.ts
 packages/server/src/controllers/ping/index.ts
 packages/server/src/controllers/predictions/index.ts
 packages/server/src/controllers/prompts-lists/index.ts
@@ -1624,6 +1628,7 @@ packages/ui/src/layout/MainLayout/Header/ProfileSection/index.css
 packages/ui/src/layout/MainLayout/Header/ProfileSection/index.jsx
 packages/ui/src/layout/MainLayout/Header/WorkspaceSwitcher/index.jsx
 packages/ui/src/layout/MainLayout/Header/index.jsx
+packages/ui/src/layout/MainLayout/Header/teamSwitcher.test.js
 packages/ui/src/layout/MainLayout/LogoSection/index.jsx
 packages/ui/src/layout/MainLayout/Sidebar/CloudMenuList.jsx
 packages/ui/src/layout/MainLayout/Sidebar/MenuList/NavCollapse/index.jsx
@@ -1670,6 +1675,7 @@ packages/ui/src/themes/index.js
 packages/ui/src/themes/palette.js
 packages/ui/src/themes/typography.js
 packages/ui/src/ui-component/array/ArrayRenderer.jsx
+packages/ui/src/ui-component/array/ArrayRenderer.test.js
 packages/ui/src/ui-component/artifacts/FileArtifact.jsx
 packages/ui/src/ui-component/artifacts/FileArtifact.test.js
 packages/ui/src/ui-component/artifacts/ImageDownloadButton.jsx
@@ -1982,6 +1988,7 @@ packages/ui/src/views/workspace/AddEditWorkspaceDialog.jsx
 packages/ui/src/views/workspace/EditWorkspaceUserRoleDialog.jsx
 packages/ui/src/views/workspace/WorkspaceUsers.jsx
 packages/ui/src/views/workspace/index.jsx
+packages/ui/src/views/workspace/teamCreate.test.js
 packages/ui/vite.config.js
 pnpm-lock.yaml
 pnpm-workspace.yaml

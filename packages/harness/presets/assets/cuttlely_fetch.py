@@ -9,8 +9,9 @@
 
 Only http and https. Every hop is checked: the host name is resolved, every address it resolves to must be a
 public address (no private, loopback, link-local, metadata, multicast or reserved ranges, IPv4 or IPv6), and the
-connection goes to the address that was checked. Redirects are followed here, one hop at a time, and each new
-location is checked the same way. The body is capped (max_bytes) and the whole fetch has one deadline
+connection goes to the address that was checked. An IPv4-mapped IPv6 address is judged by the IPv4 address it
+contains, and so are the 6to4, NAT64 and IPv4-compatible forms this module already reads. Redirects are followed
+here, one hop at a time, and each new location is checked the same way. The body is capped (max_bytes) and the whole fetch has one deadline
 (timeout_ms). Sites such as Wikimedia refuse Python's default user agent, so this fetch, and only this fetch,
 sends a browser-like user agent. Standard library only.
 """
@@ -49,7 +50,10 @@ _BLOCKED_NETWORKS = [
         "127.0.0.0/8",
         "169.254.0.0/16",
         "172.16.0.0/12",
+        # 192.0.0.9, 192.0.0.10 and 2001:1::3 are globally reachable anycasts. They are refused on purpose.
         "192.0.0.0/24",
+        "2001:1::3/128",
+        "192.88.99.0/24",  # terminated 6to4 relay anycast (RFC 7526)
         "192.168.0.0/16",
         "198.18.0.0/15",
         "224.0.0.0/4",
@@ -62,8 +66,12 @@ _BLOCKED_NETWORKS = [
         "ff00::/8",
         "fd00:ec2::254/128",
         "64:ff9b:1::/48",  # local-use NAT64 (RFC 8215); Python 3.11 and 3.12 count it as global
+        "3fff::/20",  # IPv6 documentation (RFC 9637); Python 3.12.3 counts it as global
     )
 ]
+
+# Well-known NAT64 (RFC 6052). The last 32 bits are an IPv4 address. Not the local-use prefix above.
+_WELL_KNOWN_NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 
 _MIME = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}")
@@ -100,21 +108,42 @@ def shown_url(url):
     return f"{parts.scheme}://{netloc}{parts.path}" + ("?(query hidden)" if parts.query else "") if parts.scheme or netloc else "(URL hidden)"
 
 
-def blocked_address(address):
-    """True when an IP address (str or ipaddress object) must not be fetched from."""
-    ip = ipaddress.ip_address(address) if isinstance(address, str) else address
+def _embedded_ipv4(ip):
+    """The IPv4 address inside an IPv6 wrapper this module already understands, or None.
+
+    IPv4-mapped (::ffff:a.b.c.d), 6to4 (2002:aabb:ccdd::), well-known NAT64 (64:ff9b::a.b.c.d)
+    and IPv4-compatible (::a.b.c.d). :: and ::1 stay plain: they are unspecified and loopback.
+    """
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+    if ip in _WELL_KNOWN_NAT64:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    if int(ip) >> 32 == 0 and int(ip) > 1:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
+
+
+def _address_blocked(ip):
+    """True when an ipaddress object must not be fetched from."""
     if isinstance(ip, ipaddress.IPv6Address):
-        # IPv4-mapped, IPv4-compatible, 6to4 and NAT64 forms carry an IPv4 address; check that address too.
-        mapped = ip.ipv4_mapped or ip.sixtofour
-        if mapped is None and ip in ipaddress.ip_network("64:ff9b::/96"):
-            mapped = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
-        if mapped is None and int(ip) >> 32 == 0 and int(ip) > 1:
-            mapped = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
-        if mapped is not None and blocked_address(mapped):
-            return True
+        embedded = _embedded_ipv4(ip)
+        if embedded is not None:
+            return _address_blocked(embedded)
     if any(ip in net for net in _BLOCKED_NETWORKS if net.version == ip.version):
         return True
     return not ip.is_global or ip.is_multicast or ip.is_reserved or ip.is_link_local or ip.is_loopback
+
+
+def blocked_address(address):
+    """True when an IP address (str or ipaddress object) must not be fetched from.
+
+    An IPv6 address that carries an IPv4 address is judged only by that IPv4 address. On Python 3.12,
+    ::ffff:0:0/96 is reserved IPv6, so the wrapper's own flags refuse a public address such as ::ffff:8.8.8.8.
+    """
+    ip = ipaddress.ip_address(address) if isinstance(address, str) else address
+    return _address_blocked(ip)
 
 
 def _resolve(host, port):

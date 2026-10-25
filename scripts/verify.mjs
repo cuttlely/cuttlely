@@ -82,7 +82,6 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'usage-storage.test.cjs'),
             path.join(ROOT, 'scripts', 'model-prices.test.cjs'),
             path.join(ROOT, 'scripts', 'harness-callback-usage.test.mjs'),
-            path.join(ROOT, 'scripts', 'harness-draft-usage.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-postgres.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-store.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-relations.test.mjs'),
@@ -137,9 +136,9 @@ const STEPS = [
         args: [path.join(ROOT, 'scripts', 'eval-routes.test.cjs')]
     },
     {
-        // Own step. This script and harness-draft-usage both stub packages/server/src/services/harnesses/harness,
+        // Own step. harness-queue-trace and harness-draft-usage both stub packages/server/src/services/harnesses/harness,
         // and node --test runs the files of one list together. The schedule tick test needs the real harness
-        // modules, so the two files here run one after the other.
+        // modules, so the files here run one after the other.
         name: 'harness-queue-trace',
         fast: true,
         command: process.execPath,
@@ -147,6 +146,7 @@ const STEPS = [
             '--test',
             '--test-concurrency=1',
             path.join(ROOT, 'scripts', 'harness-queue-trace.test.mjs'),
+            path.join(ROOT, 'scripts', 'harness-draft-usage.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-schedule-tick.test.mjs')
         ]
     },

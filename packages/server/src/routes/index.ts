@@ -54,6 +54,7 @@ import settingsRouter from './settings'
 import serverSettingsRouter from './server-settings'
 import serverSetupRouter from './server-setup'
 import { trackRuns } from '../settings/runs'
+import { refuseRunsWhileBootPass } from '../services/harnesses/bootGate'
 import modelPricesRouter from './model-prices'
 import statsRouter from './stats'
 import textToSpeechRouter from './text-to-speech'
@@ -97,6 +98,9 @@ const router = express.Router()
 const loadedNodeCount = () => Object.keys(getRunningExpressApp().nodesPool.componentNodes).length
 const loadedCredentialCount = () => Object.keys(getRunningExpressApp().nodesPool.componentCredentials).length
 
+// Chat and prediction answer 503 while the boot profile compile has not finished. The health check is not one of
+// those routes; it has its own 503 in the ping handler.
+router.use(refuseRunsWhileBootPass)
 // Runs in progress are counted so Restart can let them finish (settings/runs.ts).
 router.use(trackRuns)
 

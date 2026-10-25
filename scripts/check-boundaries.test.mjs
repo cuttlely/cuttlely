@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkBoundaries, extractSpecifiers, updateBaseline } from './check-boundaries.mjs'
+import { isolateProcessEnv, testGit, withoutGitEnv } from './test-git.mjs'
+
+// The pre-push hook exports GIT_DIR. Drop it before any git call so fixture repos stay separate
+// and the real-tree check still discovers this worktree from its own directory.
+isolateProcessEnv()
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const roots = []
@@ -42,7 +47,9 @@ const EMPTY_BASELINE = {
 }
 
 function git(root, args) {
-    execFileSync('git', args, { cwd: root, stdio: 'pipe' })
+    // A pre-push hook exports GIT_DIR. testGit drops those variables so this fixture stays in its temp folder.
+    const res = testGit(root, args, { tmpRoot: root })
+    if (res.status !== 0) throw new Error(`git ${args.join(' ')}: ${res.stderr}`)
 }
 
 function write(root, rel, content) {
@@ -274,3 +281,46 @@ describe('this repo', () => {
         assert.ok(elapsed < 10000, `boundary check took ${elapsed}ms`)
     })
 })
+
+// A pre-push hook exports GIT_DIR. Fixture commands and the checker must use the fixture tree.
+if (process.env.BOUNDARIES_GIT_DIR_PROBE === '1') {
+    it('fixture git stays off GIT_DIR', () => {
+        const root = make({})
+        assert.equal(fs.existsSync(path.join(root, '.git')), true)
+        const text = checkBoundaries(root)
+            .violations.map((violation) => violation.message)
+            .join('\n')
+        assert.doesNotMatch(text, /packages\/server\/README\.md/)
+        const tracked = execFileSync('git', ['ls-files'], { cwd: root, env: withoutGitEnv(), encoding: 'utf8' })
+        assert.match(tracked, /packages\/server\/src\/utils\/logger\.ts/)
+        assert.doesNotMatch(tracked, /packages\/chat-widget\/package\.json/)
+    })
+} else {
+    it('keeps fixture git commands off the repository named by GIT_DIR', () => {
+        const clean = withoutGitEnv()
+        const gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], {
+            cwd: ROOT,
+            env: clean,
+            encoding: 'utf8'
+        }).trim()
+        const before = execFileSync('git', ['ls-files', '--', 'packages/chat-widget/package.json'], {
+            cwd: ROOT,
+            env: clean,
+            encoding: 'utf8'
+        })
+        const env = { ...clean, GIT_DIR: gitDir, BOUNDARIES_GIT_DIR_PROBE: '1' }
+        delete env.NODE_TEST_CONTEXT
+        const child = spawnSync(
+            process.execPath,
+            ['--test', '--test-name-pattern', 'fixture git stays off GIT_DIR', fileURLToPath(import.meta.url)],
+            { cwd: ROOT, env, encoding: 'utf8' }
+        )
+        assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`)
+        const after = execFileSync('git', ['ls-files', '--', 'packages/chat-widget/package.json'], {
+            cwd: ROOT,
+            env: clean,
+            encoding: 'utf8'
+        })
+        assert.equal(after, before)
+    })
+}

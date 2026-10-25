@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readFileNoFollow } from './contained-walk.mjs'
 
 // Preset specialists: a Harness Specialist with Preset set to a name here gets that preset's tools, routing summary
 // and instructions, plus any kit files in its working directory. Its own Instructions are added after the preset's.
@@ -77,21 +78,47 @@ export function presetSummary(specialist) {
     return name ? SPECIALIST_PRESETS[name].summary : ''
 }
 
+// A symlink anywhere on the path is not a file we may replace. A missing final name is not a link.
+function pathContainsSymlink(file) {
+    const resolved = path.resolve(file)
+    const root = path.parse(resolved).root
+    const rel = path.relative(root, resolved)
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return true
+    let cursor = root
+    for (const part of rel.split(path.sep)) {
+        if (!part || part === '.' || part === '..') return true
+        cursor = path.join(cursor, part)
+        let st
+        try {
+            st = fs.lstatSync(cursor)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return false
+            return true
+        }
+        if (st.isSymbolicLink()) return true
+    }
+    return false
+}
+
 // Copies the preset's kit files into the specialist's working directory. A file that is already the same is left.
-export function installPresetKit(specialist, workspace) {
+// A no-follow read returns null for a missing file and also for a link. A link is not written.
+export function installPresetKit(specialist, workspace, writeFile = null) {
     const name = presetName(specialist?.preset)
     if (!name || !workspace) return []
+    const write = writeFile || ((file, text) => fs.writeFileSync(file, text))
     const written = []
     for (const source of SPECIALIST_PRESETS[name].kit || []) {
         const target = path.join(workspace, path.basename(source))
         const text = fs.readFileSync(source, 'utf8')
         let current = null
         try {
-            current = fs.readFileSync(target, 'utf8')
+            // One open, without following. A link swapped in for this file is not read.
+            current = readFileNoFollow(target)
         } catch {
-            // not there yet
+            current = null
         }
-        if (current !== text) fs.writeFileSync(target, text)
+        if (pathContainsSymlink(target)) continue
+        if (current !== text) write(target, text)
         written.push(target)
     }
     return written

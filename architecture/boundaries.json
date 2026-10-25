@@ -433,6 +433,7 @@
                 "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts"
             ],
             "entryPoints": [
+                "packages/components/nodes/harness/Harness/Harness.ts",
                 "packages/server/src/utils/apiKeyAccess.ts",
                 "packages/server/src/utils/flowHarnessCaller.ts",
                 "packages/harness/trace.mjs",
@@ -443,6 +444,7 @@
                 "packages/server/src/database/migrations/sqlite/1781000000000-AddHarnessPayloadToChatMessage.ts",
                 "packages/server/src/routes/harnesses/index.ts",
                 "packages/server/src/services/harnesses/apiAccess.ts",
+                "packages/server/src/services/harnesses/bootGate.ts",
                 "packages/server/src/services/harnesses/index.ts",
                 "packages/server/src/services/harnesses/schedules.ts",
                 "packages/ui/src/api/harnesses.js",

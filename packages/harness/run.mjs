@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { readClientSignal } from './abort.mjs'
 import { turnBudgetMs } from './budget.mjs'
@@ -77,6 +78,9 @@ import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
+
+const require = createRequire(import.meta.url)
+const { guardHarnessRun, setHarnessAvailabilityCheck: setAvailabilityCheck } = require('./availability.cjs')
 
 let runtimeContextFor = null
 
@@ -184,7 +188,7 @@ export function harnessForTurn(name, record) {
     return harness
 }
 
-export async function runHarness(args = {}) {
+async function runHarnessBody(args = {}) {
     const started = Date.now()
     // A wrong team must not open a run row. Inline and off both reach this function.
     assertHarnessWorkspace(args.name, args.flowOptions, args.record)
@@ -310,9 +314,22 @@ async function runHarnessTurn({
     }
 }
 
-export async function runQueuedHarness(args) {
+async function runQueuedHarnessBody(args) {
     const queue = await import('./queue.mjs')
     return queue.runQueuedHarness(args)
+}
+
+// The server registers the boot-compile refusal. This package does not import the server.
+export function setHarnessAvailabilityCheck(check) {
+    setAvailabilityCheck(check)
+}
+
+export async function runHarness(args = {}) {
+    return guardHarnessRun(args?.name, () => runHarnessBody(args))
+}
+
+export async function runQueuedHarness(args) {
+    return guardHarnessRun(args?.name, () => runQueuedHarnessBody(args))
 }
 
 async function runTurn(
@@ -2703,13 +2720,21 @@ const HEALTH_POLL_MS = 2000
 
 // Hermes loads a profile's tools and builds its prompt on the profile's first run.
 // One short run per agent-loop specialist pays that cost before a chat does.
-export async function warmHarnessProfiles({ names, baseUrl = hermesBaseUrl(), fetchImpl = fetch, healthWaitMs = 1200000 } = {}) {
+export async function warmHarnessProfiles({
+    names,
+    baseUrl = hermesBaseUrl(),
+    fetchImpl = fetch,
+    healthWaitMs = 1200000,
+    lock = (fn) => fn()
+} = {}) {
     const records = names ? names.map((name) => getHarness(name)).filter(Boolean) : listHarnesses()
     const targets = []
     for (const record of records) {
         let roster
         try {
-            roster = compileProfileCached(record).roster || record
+            // The lock covers the compile only. The health wait below can run for minutes and must not hold it.
+            const compiled = await lock(() => compileProfileCached(record))
+            roster = compiled.roster || record
         } catch (error) {
             console.warn(`[harness] ${record.name} warm-up skipped: ${error.message}`)
             continue
@@ -2764,7 +2789,9 @@ async function hermesHealthy(baseUrl, fetchImpl, waitMs) {
         } catch {
             // Hermes is still starting.
         }
-        await new Promise((resolve) => setTimeout(resolve, HEALTH_POLL_MS))
+        const pause = Math.min(HEALTH_POLL_MS, deadline - Date.now())
+        if (pause <= 0) break
+        await new Promise((resolve) => setTimeout(resolve, pause))
     }
     console.warn(`[harness] Hermes warm-up skipped: ${baseUrl}/health did not answer`)
     return false

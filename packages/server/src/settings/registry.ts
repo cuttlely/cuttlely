@@ -1924,6 +1924,8 @@ export const KEPT_OUT: KeptOutGroup[] = [
             'CUTTLELY_PRELOAD_HERMES',
             'CUTTLELY_HERMES_RESTART_DELAY',
             'CUTTLELY_GATEWAY_WAIT_SECONDS',
+            'CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS',
+            'CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT',
             'CUTTLELY_SUPERVISED',
             'CUTTLELY_START_INNER',
             'CUTTLELY_SETTINGS_*',
@@ -1955,6 +1957,11 @@ export const KEPT_OUT: KeptOutGroup[] = [
         group: 'LangSmith host secrets',
         keys: ['LANGSMITH_API_KEY', 'LANGSMITH_TRACING', 'LANGSMITH_TRACING_V2'],
         why: 'The API key and the tracing switches stay on the host. Project name and endpoint are ordinary settings.'
+    },
+    {
+        group: 'Current date tool',
+        keys: ['CUTTLELY_DEFAULT_TIMEZONE'],
+        why: 'The Current Date Time tool reads this from the host when the node Timezone field is empty. A per-call timezone still wins.'
     }
 ]
 

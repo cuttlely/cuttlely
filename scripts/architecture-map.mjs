@@ -96,8 +96,20 @@ export function winningSubsystem(file, subsystems) {
     return { tie: false, name: scored[0].name }
 }
 
+// A hook exports GIT_DIR. Listing files must follow `root`, not that repository.
+function gitEnv() {
+    const env = {}
+    for (const [key, value] of Object.entries(process.env)) if (!/^GIT_/.test(key)) env[key] = value
+    return env
+}
+
 export function trackedFiles(root = ROOT) {
-    const out = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    const out = execFileSync('git', ['ls-files', '-z'], {
+        cwd: root,
+        env: gitEnv(),
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024
+    })
     return out.split('\0').filter(Boolean)
 }
 
