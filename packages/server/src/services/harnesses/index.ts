@@ -344,10 +344,12 @@ export async function invokeHarnessForBoot(name: string, run: () => Promise<{ te
 /** The boot compile did not finish. Callers must not treat that as a successful start. */
 export class BootPassIncomplete extends Error {
     readonly code = 'boot_incomplete'
+    readonly linkLeft: boolean
 
-    constructor(message: string) {
+    constructor(message: string, linkLeft = false) {
         super(message)
         this.name = 'BootPassIncomplete'
+        this.linkLeft = linkLeft
     }
 }
 
@@ -371,9 +373,9 @@ export async function recompileBeforeHermes(gateway: {
         gateway.finishGatewayBoot?.()
         finishBootPass()
     }
-    const unfinished = (message: string): never => {
+    const unfinished = (message: string, linkLeft = false): never => {
         markBootIncomplete()
-        throw new BootPassIncomplete(message)
+        throw new BootPassIncomplete(message, linkLeft)
     }
     // A gateway that does not start keeps the hold: profiles were not checked, so the runtime must not start on them.
     await gateway.startGateway()
@@ -386,13 +388,15 @@ export async function recompileBeforeHermes(gateway: {
         }
         // One folder that cannot be read, or one older config that cannot be moved, is named and skipped
         // when that path is not a link. The rest of the pass still finishes, so ping and the runtime are
-        // not held for that profile. A profile directory that is still a link, and a failure of the sweep
-        // itself, are unfinished: the runtime must not start while that link is on the load path.
+        // not held for that profile. A link left on a load path, and a link above the profiles directory
+        // that this sweep refuses, stay unfinished: the runtime must not start while that link is there.
         let loadable: string[] = []
         try {
             const profile = await loadHarness('profile.mjs')
             loadable = await withProfileLock(async () => profile.setAsideOutdatedConfigs())
         } catch (error) {
+            const linkFailure = Boolean(error && typeof error === 'object' && (error as { code?: string }).code === 'profile_link')
+            if (linkFailure) unfinished(`profile link still on the load path: ${getErrorMessage(error)}`, true)
             unfinished(`profiles could not be checked for an older compiler: ${getErrorMessage(error)}`)
         }
         const stillLinked: string[] = []
@@ -412,7 +416,7 @@ export async function recompileBeforeHermes(gateway: {
             )
         }
         // A link left on the load path is not a skipped config. The runtime must not start while it is there.
-        if (stillLinked.length) unfinished(`profile link still on the load path: ${stillLinked.join(', ')}`)
+        if (stillLinked.length) unfinished(`profile link still on the load path: ${stillLinked.join(', ')}`, true)
         release()
     })()
 
@@ -447,7 +451,7 @@ export async function recompileBeforeHermes(gateway: {
             // runtime does not start. Any other unfinished pass releases that hold so the runtime is not left down.
             logger.error(`[harness] profile compile at start did not finish: ${getErrorMessage(error)}`)
             markBootIncomplete()
-            if (error instanceof BootPassIncomplete && error.message.includes('profile link still on the load path')) return
+            if (error instanceof BootPassIncomplete && error.linkLeft) return
             release()
         })
         return
@@ -456,7 +460,7 @@ export async function recompileBeforeHermes(gateway: {
         markBootIncomplete()
         logger.error(`[harness] profile compile at start did not finish: ${winner.message}`)
         const left = Math.max(0, capMs - (Date.now() - startedAt))
-        const linkLeft = winner instanceof BootPassIncomplete && winner.message.includes('profile link still on the load path')
+        const linkLeft = winner instanceof BootPassIncomplete && winner.linkLeft
         const flip = setTimeout(() => {
             // Ping opens at the cap. A link that is still there keeps gateway health held.
             if (linkLeft) {

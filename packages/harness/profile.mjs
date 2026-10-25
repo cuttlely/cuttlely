@@ -651,6 +651,22 @@ function removeChild(dirFd, logicalDir, name) {
     else fs.unlinkSync(via)
 }
 
+// Removes absDir only through real directories. A symlink at absDir is unlinked and its target stays.
+// A symlink in an ancestor is refused and left in place. A missing directory stays missing.
+function removeContainedTree(absDir) {
+    const resolved = path.resolve(absDir)
+    const parent = path.dirname(resolved)
+    const name = path.basename(resolved)
+    if (!name || name === '.' || name === '..') throwLink(absDir)
+    const opened = openDirNoFollow(parent)
+    if (!opened) return
+    try {
+        removeChild(opened.fd, parent, name)
+    } finally {
+        closeFds(opened.fds)
+    }
+}
+
 function noteTreeMutation(logical) {
     if (typeof profileWriteTest.beforeTreeMutation === 'function') profileWriteTest.beforeTreeMutation(logical)
 }
@@ -1495,7 +1511,7 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
         const retired = readEnvFile(path.join(dir, '.env'))
         forgetProfileToken(retired.OPENAI_API_KEY)
         fs.rmSync(dir, { recursive: true, force: true })
-        fs.rmSync(specialistWorkspace(entry), { recursive: true, force: true })
+        removeContainedTree(specialistWorkspace(entry))
     }
 }
 

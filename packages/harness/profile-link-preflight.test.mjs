@@ -1236,6 +1236,67 @@ function cleanupProfile(name) {
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
+// Retiring a specialist removes its workspace. A link at the workspaces directory must not
+// let that removal delete the directory the link names.
+{
+    const name = 'plinkretire'
+    const withChild = record(name, [{ name: 'alpha', instructions: 'Alpha work.', model: model(), modules: [], codeExecution: true }])
+    compileProfileCached(withChild)
+    forgetCompiledProfile(name)
+    const child = `${name}--alpha`
+    const workspaces = path.dirname(specialistWorkspace(child))
+    const outside = outsideDir('retire-ws', 'retire-ws-sentinel\n')
+    const kept = path.join(outside.dir, child, 'keep.txt')
+    fs.mkdirSync(path.dirname(kept), { recursive: true })
+    fs.writeFileSync(kept, 'keep-workspace\n')
+    const held = `${workspaces}.held`
+    fs.renameSync(workspaces, held)
+    fs.symlinkSync(outside.dir, workspaces)
+    const bare = record(name, [])
+    let guarded = { hits: [], error: null, result: null }
+    let linkStat = null
+    let readlink = ''
+    let keepText = ''
+    let quarantined = []
+    try {
+        guarded = guardLink(workspaces, outside.dir, () => compileProfileCached(bare))
+        linkStat = fs.lstatSync(workspaces, { throwIfNoEntry: false })
+        readlink = linkStat?.isSymbolicLink() ? fs.readlinkSync(workspaces) : ''
+        quarantined = quarantineNames(path.dirname(workspaces), path.basename(workspaces))
+        try {
+            keepText = fs.readFileSync(kept, 'utf8')
+        } catch {
+            keepText = ''
+        }
+    } finally {
+        const current = fs.lstatSync(workspaces, { throwIfNoEntry: false })
+        if (current?.isSymbolicLink()) fs.unlinkSync(workspaces)
+        else if (current) fs.rmSync(workspaces, { recursive: true, force: true })
+        if (fs.existsSync(held) && !fs.existsSync(workspaces)) fs.renameSync(held, workspaces)
+    }
+    check(
+        'a retired specialist workspace is not removed through a workspaces link',
+        guarded.hits.length === 0 &&
+            guarded.error?.code === 'profile_link' &&
+            linkStat?.isSymbolicLink() === true &&
+            readlink === outside.dir &&
+            quarantined.length === 0 &&
+            sameStamp(outside.file, outside.before) &&
+            keepText === 'keep-workspace\n',
+        JSON.stringify({
+            hits: guarded.hits,
+            error: guarded.error?.code || '',
+            stillLink: linkStat?.isSymbolicLink() === true,
+            readlink,
+            quarantined,
+            keepText
+        })
+    )
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+    fs.rmSync(held, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'

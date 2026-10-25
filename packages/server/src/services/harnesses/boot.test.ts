@@ -96,6 +96,11 @@ describe('harness runtime start', () => {
                     setAsideOutdatedConfigs: () => {
                         order.push(`set aside holds ${holds}`)
                         if (sweep === 'throw') throw new Error('EACCES')
+                        if (sweep === 'ancestor') {
+                            const error = new Error('profile path is a link: /hermes')
+                            ;(error as { code?: string }).code = 'profile_link'
+                            throw error
+                        }
                         if (sweep === 'link') return sweepPaths
                         return sweep === 'stuck' ? ['/p/ops'] : []
                     },
@@ -313,6 +318,42 @@ describe('harness runtime start', () => {
             expect(bootPassPhase()).toBe('background')
             expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
             expect(fs.readFileSync(path.join(target, 'marker'), 'utf8')).toBe('boot-link-sentinel\n')
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    test('an ancestor link keeps the runtime from starting', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'boot-ancestor-'))
+        const target = path.join(dir, 'target')
+        const link = path.join(dir, 'home')
+        fs.mkdirSync(target)
+        fs.writeFileSync(path.join(target, 'marker'), 'ancestor-boot-sentinel\n')
+        fs.symlinkSync(target, link)
+        sweep = 'ancestor'
+        process.env.CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS = '1'
+        let released = false
+        let booted = false
+        try {
+            await expect(
+                recompileBeforeHermes({
+                    holdGatewayHealth: () => () => (released = true),
+                    finishGatewayBoot: () => (booted = true),
+                    startGateway: async () => undefined
+                })
+            ).rejects.toBeInstanceOf(BootPassIncomplete)
+            expect(released).toBe(false)
+            expect(booted).toBe(false)
+            expect(bootPassPhase()).toBe('incomplete')
+            expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+            expect(fs.readFileSync(path.join(target, 'marker'), 'utf8')).toBe('ancestor-boot-sentinel\n')
+            for (let i = 0; i < 40 && bootPassBlocksPing(); i += 1) await new Promise((resolve) => setTimeout(resolve, 50))
+            expect(released).toBe(false)
+            expect(booted).toBe(false)
+            expect(bootPassBlocksPing()).toBe(false)
+            expect(bootPassPhase()).toBe('background')
+            expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+            expect(fs.readFileSync(path.join(target, 'marker'), 'utf8')).toBe('ancestor-boot-sentinel\n')
         } finally {
             fs.rmSync(dir, { recursive: true, force: true })
         }
