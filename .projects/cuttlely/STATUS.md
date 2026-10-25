@@ -127,3 +127,4 @@ Cuttlely 1.3.2. The product version is the root `package.json`, `packages/server
 -   Docs 1.4.3 (#296): the harness guide gives the ping 503 body as `boot recompile`, as the server sends it.
 -   Canvas republish (follow-up to #291): a successful `syncUnderNameLock` clears a latched boot failure, as a harness save does, so a fixed harness republished from the canvas stops getting 503 (`bootSync.test.ts`).
 -   Harness docs (#296): harnesses.md says a JSON answer is returned unchanged, so a path inside it is not hidden.
+-   Harness docs (#296): only a short JSON answer comes back unchanged; in a longer one the path is replaced and the JSON can break.
