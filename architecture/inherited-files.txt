@@ -583,6 +583,7 @@ packages/components/package.json
 packages/components/src/Interface.Evaluation.ts
 packages/components/src/Interface.ts
 packages/components/src/MetricsLogger.ts
+packages/components/src/agentToolRowId.ts
 packages/components/src/agentflowv2Generator.ts
 packages/components/src/agents.ts
 packages/components/src/anthropicUtils.ts

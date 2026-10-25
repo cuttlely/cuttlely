@@ -930,6 +930,32 @@ describe('stable harness tool names', () => {
         expect(after.get('harness_1')).toBe('team')
     })
 
+    it('gives harness_0 the suffix _0 and does not take harness_2', () => {
+        const names = assignHarnessToolNames([
+            { id: 'aaa', label: 'Team', name: 'team' },
+            { id: 'harness_0', label: 'Team', name: 'team' },
+            { id: 'harness_2', label: 'Team', name: 'team' }
+        ])
+        expect(names.get('aaa')).toBe('team')
+        expect(names.get('harness_0')).toBe('team_0')
+        expect(names.get('harness_2')).toBe('team_2')
+    })
+
+    it('does not hand a suffix to a titled card when the bare-name card is deleted', () => {
+        const cards = [
+            { id: 'harness_0', label: 'team_2', name: 'a' },
+            { id: 'harness_1', label: 'Team', name: 'b' },
+            { id: 'harness_2', label: 'Team', name: 'c' }
+        ]
+        const before = assignHarnessToolNames(cards)
+        const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'harness_1'))
+        expect(before.get('harness_0')).toBe('team_3')
+        expect(before.get('harness_1')).toBe('team')
+        expect(before.get('harness_2')).toBe('team_2')
+        expect(after.get('harness_2')).toBe('team')
+        expect(after.get('harness_0')).toBe(before.get('harness_0'))
+    })
+
     it('gives a replacement card that reuses a freed id the name that id had', () => {
         const cards = [team('harness_0'), team('harness_1'), team('harness_2')]
         const before = assignHarnessToolNames(cards)
@@ -978,6 +1004,62 @@ describe('stable harness tool names', () => {
         expect(byNode.map((card: { id: string }) => card.id)).toEqual(['tool_node_4'])
     })
 
+    it('keeps identical agentflow rows stable when an earlier row is removed', () => {
+        const { harnessCardsOnAgent } = require('../../agentflow/Agent/Agent')
+        const row = (returnDirect: boolean) => ({
+            agentSelectedTool: 'harness',
+            agentSelectedToolConfig: { label: 'Team', harnessName: 'team', returnDirect }
+        })
+        const tools = [row(true), row(true), row(true)]
+        const beforeCards = harnessCardsOnAgent(tools)
+        expect(beforeCards.map((card: { id: string }) => card.id)).toEqual(['harness_tool_0', 'harness_tool_1', 'harness_tool_2'])
+        const before = assignHarnessToolNames(beforeCards)
+        expect(before.get('harness_tool_0')).toBe('team')
+        expect(before.get('harness_tool_1')).toBe('team_1')
+        expect(before.get('harness_tool_2')).toBe('team_2')
+
+        tools[1].agentSelectedToolConfig.returnDirect = false
+        expect(harnessCardsOnAgent(tools).map((card: { id: string }) => card.id)).toEqual([
+            'harness_tool_0',
+            'harness_tool_1',
+            'harness_tool_2'
+        ])
+
+        const rest = tools.slice(1)
+        const afterCards = harnessCardsOnAgent(rest)
+        expect(afterCards.map((card: { id: string }) => card.id)).toEqual(['harness_tool_1', 'harness_tool_2'])
+        const after = assignHarnessToolNames(afterCards)
+        expect(after.get('harness_tool_1')).toBe('team')
+        expect(after.get('harness_tool_2')).toBe('team_2')
+    })
+
+    it('keeps a node id and a config id, and a lone row named harness', () => {
+        const { harnessCardsOnAgent } = require('../../agentflow/Agent/Agent')
+        const tools = [
+            {
+                nodeId: 'node_10',
+                agentSelectedTool: 'harness',
+                agentSelectedToolConfig: { label: 'Team', harnessName: 'team', returnDirect: true }
+            },
+            {
+                agentSelectedTool: 'harness',
+                agentSelectedToolConfig: { id: 'cfg_2', label: 'Team', harnessName: 'team', returnDirect: false }
+            }
+        ]
+        expect(harnessCardsOnAgent(tools).map((card: { id: string }) => card.id)).toEqual(['node_10', 'cfg_2'])
+        tools[0].agentSelectedToolConfig.returnDirect = false
+        expect(harnessCardsOnAgent(tools).map((card: { id: string }) => card.id)).toEqual(['node_10', 'cfg_2'])
+
+        const lone = [
+            {
+                agentSelectedTool: 'harness',
+                agentSelectedToolConfig: { label: 'Harness', harnessName: 'payroll', returnDirect: true }
+            }
+        ]
+        const loneCards = harnessCardsOnAgent(lone)
+        expect(assignHarnessToolNames(loneCards).get(loneCards[0].id)).toBe('harness')
+    })
+
     it('does not suffix a card on an agent that has no local collision', () => {
         const nodes = [
             harnessCard('harness_0', 'Payroll', 'a'),
@@ -1009,6 +1091,41 @@ describe('stable harness tool names', () => {
         ]
         expect(harnessToolNameFromFlow('harness_0', nodes)).toBe('payroll')
         expect(harnessToolNameFromFlow('harness_5', nodes)).toBe('payroll_5')
+    })
+
+    it('gives shared cards names that stay unique on every agent they share', () => {
+        const card = (id: string, label: string) => harnessCard(id, label, 'team')
+        const agent = (id: string, tools: string[]) => ({
+            id,
+            data: { name: 'toolAgent', inputs: { tools: tools.map((toolId) => `{{${toolId}.data.instance}}`) } }
+        })
+        const nodes = [
+            card('w_0', 'Team'),
+            card('x_1', 'Team'),
+            card('y_2', 'Team'),
+            card('ax_0', 'team_1'),
+            card('by_0', 'team_2'),
+            agent('agent_g', ['w_0', 'x_1', 'y_2']),
+            agent('agent_a', ['x_1', 'ax_0']),
+            agent('agent_b', ['y_2', 'by_0'])
+        ]
+        const names = ['w_0', 'x_1', 'y_2', 'ax_0', 'by_0'].map((id) => [id, harnessToolNameFromFlow(id, nodes)] as const)
+        const byId = new Map(names)
+        expect(Object.fromEntries(byId)).toEqual({
+            w_0: 'team',
+            x_1: 'team_1',
+            y_2: 'team_2',
+            ax_0: 'team_2',
+            by_0: 'team_3'
+        })
+        const onAgent = (ids: string[]) => ids.map((id) => byId.get(id))
+        for (const group of [
+            ['w_0', 'x_1', 'y_2'],
+            ['x_1', 'ax_0'],
+            ['y_2', 'by_0']
+        ]) {
+            expect(new Set(onAgent(group)).size).toBe(group.length)
+        }
     })
 })
 

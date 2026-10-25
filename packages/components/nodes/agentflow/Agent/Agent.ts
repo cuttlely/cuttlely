@@ -22,7 +22,8 @@ import { flatten } from 'lodash'
 import { toolSchemaToJsonSchema, type ToolJsonSchema } from '../../../src/utils'
 import { getErrorMessage } from '../../../src/error'
 import { DataSource } from 'typeorm'
-import { createHash, randomBytes } from 'crypto'
+import { randomBytes } from 'crypto'
+import { ensureAgentToolRowIds } from '../../../src/agentToolRowId'
 import {
     addImageArtifactsToMessages,
     extractArtifactsFromResponse,
@@ -99,44 +100,16 @@ const sanitizeToolName = (name: string): string => {
     return sanitized.slice(0, 64)
 }
 
-function textId(value: unknown): string {
-    return typeof value === 'string' ? value.trim() : ''
-}
-
-// The suffix on a repeated tool name is the number at the end of this id.
-// It is the tool's own id, or its node id, never its place in the list: removing another tool must not move it.
-function harnessToolCardId(tool: ITool, used: Set<string>): string {
-    const config = tool?.agentSelectedToolConfig || {}
-    const explicit = textId(tool?.id) || textId(tool?.nodeId) || textId(config.id) || textId(config.nodeId)
-    let id = explicit
-    if (!id) {
-        let body = String(tool?.agentSelectedTool || '')
-        try {
-            body = JSON.stringify({ tool: tool?.agentSelectedTool, config })
-        } catch {
-            // A config that cannot be serialized still needs a stable id. The short body is that id's source.
-        }
-        const hash = createHash('sha256').update(body).digest()
-        const n = hash.readUInt32BE(0) % 1_000_000_000 || 1
-        id = `harness_tool_${n}`
-    }
-    if (!used.has(id)) return id
-    let n = 2
-    while (used.has(`${id}_${n}`)) n += 1
-    return `${id}_${n}`
-}
-
-// Each Harness tool on this agent. Tool names compare the number at the end of the id as a number
-// (harness_tool_2 before harness_tool_10), the same way canvas card ids are ordered.
+// Each Harness tool on this agent. The id is the row's own id, or its node id, never its place in the list
+// and never a hash of the config. Tool names compare the number at the end of that id as a number.
 function harnessCardsOnAgent(tools: ITool[] | undefined): Array<{ id: string; label?: string; name?: string }> {
     const list = Array.isArray(tools) ? tools : []
+    const { ids } = ensureAgentToolRowIds(list)
     const cards: Array<{ id: string; label?: string; name?: string }> = []
-    const used = new Set<string>()
-    for (const tool of list) {
-        if (tool?.agentSelectedTool !== 'harness') continue
-        const config = tool.agentSelectedToolConfig || {}
-        const id = harnessToolCardId(tool, used)
-        used.add(id)
+    for (let index = 0; index < list.length; index += 1) {
+        const id = ids[index]
+        if (!id) continue
+        const config = list[index]?.agentSelectedToolConfig || {}
         cards.push({
             id,
             label: typeof config.label === 'string' ? config.label : undefined,

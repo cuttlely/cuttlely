@@ -2105,6 +2105,10 @@
             "reason": "unit tests for the ChatOpenAI and Azure ChatOpenAI reasoning request params sit next to the node"
         },
         {
+            "path": "packages/components/src/agentToolRowId.ts",
+            "reason": "The agentflow tool row id is shared by the server and the canvas, so a row keeps the same suffix after another row is removed."
+        },
+        {
             "path": "packages/components/src/missingModelCredential.test.ts",
             "reason": "The missing-credential tests stay next to getCredentialData and the chat model nodes they exercise."
         },
