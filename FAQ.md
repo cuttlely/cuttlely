@@ -43,8 +43,8 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 -   **Allowed functions** on the PostgreSQL MCP node lists your own SQL helpers, one `schema.fn(argtypes)` or `schema.fn(*)` per line. While a table selection is set, text search types `regconfig` and `regdictionary` are refused unless they are passed directly as constants to the built-in text-search functions, such as `to_tsvector`. Other object-identifier types, such as `regclass`, are refused only while a table selection is set.
 -   At startup, harness profiles compiled by an older version are compiled again. The harness gateway health check and `GET /api/v1/ping` return 503 during that wait. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300.
 -   Chat answers keep a slash between words, including a fraction or a date, and still hide server paths.
--   A lone Harness card on an agent keeps `harness`. When two or more Harness cards are on one agent, each gets its own tool name with a unique suffix.
--   The Current Date Time tool can format the date and time in an IANA timezone. Set **Timezone** on the node, or `CUTTLELY_DEFAULT_TIMEZONE` when that field is empty.
+-   A lone Harness card on an agent keeps `harness`, so existing flows that call `tool:harness` still run. When two or more Harness cards are on one agent, each gets its own tool name with a unique suffix.
+-   The Current Date Time tool formats the local date and time in an IANA timezone. Set **Timezone** on the node, or `CUTTLELY_DEFAULT_TIMEZONE` when that field is empty; a call can pass `timezone`, which wins.
 -   A LangSmith credential with no key does not use the server's key. Tracing for that flow stays off. A failed upload log records the credential id and the key length.
 -   Deleting a harness removes its agent runtime profile and its specialists' profiles after their gateway tokens are revoked.
 -   The assets preset downloads a file only from public addresses, with a browser-like user agent, and a failed tool call shows as failed.
