@@ -2276,6 +2276,8 @@ describe('analyst relations: user functions inside views', () => {
     })
 
     it('allow-list of a parent function does not bypass checks for its callees or defaults', async (t) => {
+        // The parent is listed, so its own owner and volatility gates are skipped. The callee and the
+        // default are not listed, and each reaches s.secret, which the selection does not include.
         if (skipped(t)) return
         await owner.query(`CREATE FUNCTION s.parent_calls_leak() RETURNS text LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.read_secret(); END`)
         await refusal(
@@ -2284,7 +2286,7 @@ describe('analyst relations: user functions inside views', () => {
                 relations: ['analytics.clean_orders'],
                 allowedFunctions: 's.parent_calls_leak()'
             }),
-            /Allowed functions|add s\.read_secret\(\) to Allowed functions/
+            /it reads s\.secret/
         )
         await owner.query(
             `CREATE FUNCTION s.parent_dflt(a text DEFAULT s.read_secret()) RETURNS text LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT coalesce($1,''); END`
@@ -2295,9 +2297,50 @@ describe('analyst relations: user functions inside views', () => {
                 relations: ['analytics.clean_orders'],
                 allowedFunctions: 's.parent_dflt(text)'
             }),
-            /default: .*read_secret|Allowed functions/
+            /it reads s\.secret/
         )
     })
+
+    it('admits an allow-listed function that the automatic rule refuses', async (t) => {
+        // Scoped mode: an allow-list entry admits this function even when it is volatile, SECURITY DEFINER,
+        // has its own settings, or is owned by a superuser. A callee is still checked on its own.
+        if (skipped(t)) return
+        const scoped = { ...node, relations: ['analytics.clean_orders'] }
+        await owner.query(`SET ROLE "${etl}"`)
+        try {
+            await owner.query(`CREATE FUNCTION s.listed_vol() RETURNS int LANGUAGE sql VOLATILE AS 'SELECT 7'`)
+            await owner.query(`CREATE FUNCTION s.listed_definer() RETURNS int LANGUAGE sql STABLE SECURITY DEFINER AS 'SELECT 8'`)
+            await owner.query(`CREATE FUNCTION s.listed_path() RETURNS int LANGUAGE sql STABLE SET search_path = public AS 'SELECT 9'`)
+            await owner.query(
+                `CREATE FUNCTION s.listed_calls_vol() RETURNS int LANGUAGE sql STABLE BEGIN ATOMIC SELECT s.listed_vol(); END`
+            )
+        } finally {
+            await owner.query('RESET ROLE')
+        }
+        await owner.query(`CREATE FUNCTION s.listed_super() RETURNS int LANGUAGE sql STABLE AS 'SELECT 10'`)
+        const refused = [
+            ['SELECT s.listed_vol() LIMIT 1', /VOLATILE/],
+            ['SELECT s.listed_definer() LIMIT 1', /SECURITY DEFINER/],
+            ['SELECT s.listed_path() LIMIT 1', /has its own settings/],
+            ['SELECT s.listed_super() LIMIT 1', /owned by a superuser/]
+        ]
+        for (const [sql, pattern] of refused) await refusal(queryAnalystUrl(url, sql, scoped), pattern)
+        const admitted = [
+            ['s.listed_vol()', 'SELECT s.listed_vol() AS v LIMIT 1', 7],
+            ['s.listed_definer()', 'SELECT s.listed_definer() AS v LIMIT 1', 8],
+            ['s.listed_path()', 'SELECT s.listed_path() AS v LIMIT 1', 9],
+            ['s.listed_super()', 'SELECT s.listed_super() AS v LIMIT 1', 10]
+        ]
+        for (const [entry, sql, value] of admitted) {
+            const result = await queryAnalystUrl(url, sql, { ...scoped, allowedFunctions: entry })
+            assert.equal(Number(result.rows[0].v), value, entry)
+        }
+        await refusal(
+            queryAnalystUrl(url, 'SELECT s.listed_calls_vol() LIMIT 1', { ...scoped, allowedFunctions: 's.listed_calls_vol()' }),
+            /calls a function that is not allowed/
+        )
+    })
+
     it('ignores an allow-list sent in the tool input', async (t) => {
         if (skipped(t)) return
         const input = {

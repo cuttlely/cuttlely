@@ -1589,16 +1589,20 @@ async function refuseRoutines(
             }
             return remember(height)
         }
-        if (info.language !== 'sql' && !allowed.has(Number(functionOid))) return note('written in non-SQL language')
-        if (!(info.volatility === 'i' || info.volatility === 's')) return note('not STABLE or IMMUTABLE')
-        if (info.definer) return note('SECURITY DEFINER')
-        if (info.config != null) return note('has its own settings')
-        if (info.super_owner !== false) return note('owned by a superuser')
-        // Allow-list exempts only this function's own relations; its defaults and callees are still vetted.
+        // An allow-list entry admits this function. Volatility, SECURITY DEFINER, settings, owner,
+        // language, and a body that is not BEGIN ATOMIC do not block it. Its defaults and the
+        // functions it calls are still vetted, and only this function's own relations are trusted.
         const body = String(info.probody || '')
         const allowedSelf = allowed.has(Number(functionOid))
-        // prosqlbody holds a nodeToString form only for SQL-standard BEGIN ATOMIC bodies.
-        if (!allowedSelf && !body) return note('SQL body is not BEGIN ATOMIC')
+        if (!allowedSelf) {
+            if (info.language !== 'sql') return note('written in non-SQL language')
+            if (!(info.volatility === 'i' || info.volatility === 's')) return note('not STABLE or IMMUTABLE')
+            if (info.definer) return note('SECURITY DEFINER')
+            if (info.config != null) return note('has its own settings')
+            if (info.super_owner !== false) return note('owned by a superuser')
+            // prosqlbody holds a nodeToString form only for SQL-standard BEGIN ATOMIC bodies.
+            if (!body) return note('SQL body is not BEGIN ATOMIC')
+        }
         const bucket = { height: 0 }
         if (body) {
             const found = treeObjectIds(body)
