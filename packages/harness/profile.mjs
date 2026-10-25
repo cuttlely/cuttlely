@@ -1656,28 +1656,79 @@ function harnessOwnedDir(dir) {
 // the next compile (boot, or a chat, which compiles when config.yaml is missing) writes it again. Returns false when
 // a config is still there.
 function setAsideConfig(dir) {
-    const config = path.join(dir, 'config.yaml')
+    const configName = 'config.yaml'
+    const config = path.join(dir, configName)
     try {
         if (fs.lstatSync(dir).isSymbolicLink()) return quarantineSymlink(dir)
     } catch (error) {
         if (error?.code !== 'ENOENT') return false
     }
+    let opened
     try {
-        if (fs.lstatSync(config).isSymbolicLink()) return quarantineSymlink(config)
-    } catch (error) {
-        if (error?.code !== 'ENOENT') return false
-    }
-    try {
-        if (!present(config) || compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) return true
-        fs.rmSync(config + '.outdated', { recursive: true, force: true })
-        fs.renameSync(config, config + '.outdated')
-        return true
+        opened = openDirNoFollow(dir, { quiet: true })
     } catch {
+        return false
+    }
+    if (!opened) {
         try {
-            return !present(config)
+            if (fs.lstatSync(dir).isSymbolicLink()) return quarantineSymlink(dir)
         } catch {
             return false
         }
+        return false
+    }
+    try {
+        const rootReal = profilesRootReal()
+        const openedReal = realOfFd(opened.fd)
+        // The directory can be swapped for a link after it was opened. A claim then stays on the
+        // opened directory, and a directory that has left the profiles tree is left untouched.
+        const stillInside = () => {
+            if (process.platform !== 'linux') return true
+            const here = realOfFd(opened.fd)
+            if (!here) return false
+            if (openedReal && here === openedReal) return true
+            return Boolean(rootReal && insideRoot(rootReal, here))
+        }
+        if (!stillInside()) return false
+        let configStat
+        try {
+            configStat = lstatChild(opened.fd, dir, configName)
+        } catch {
+            return false
+        }
+        if (configStat?.isSymbolicLink()) return quarantineSymlink(config)
+        if (!configStat) return true
+        // stat of the logical path still decides a folder this process cannot read. That failure leaves the
+        // config where it is. The move itself uses the directory descriptor opened above.
+        try {
+            if (!present(config)) return true
+        } catch {
+            try {
+                return !present(config)
+            } catch {
+                return false
+            }
+        }
+        if (compilerVersionOf(dir) === PROFILE_COMPILER_VERSION) return true
+        noteTreeMutation(dir)
+        if (!stillInside()) return false
+        const outdatedName = `${configName}.outdated`
+        try {
+            removeChild(opened.fd, dir, outdatedName)
+        } catch {
+            return false
+        }
+        if (!stillInside()) return false
+        fs.renameSync(childPath(opened.fd, dir, configName), childPath(opened.fd, dir, outdatedName))
+        return true
+    } catch {
+        try {
+            return !lstatChild(opened.fd, dir, configName)
+        } catch {
+            return false
+        }
+    } finally {
+        closeFds(opened.fds)
     }
 }
 

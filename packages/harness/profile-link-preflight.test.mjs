@@ -1357,6 +1357,65 @@ function cleanupProfile(name) {
     fs.rmSync(payload.dir, { recursive: true, force: true })
 }
 
+// The boot sweep moves an older config aside. A directory swapped for a link after that
+// check must not let the move rename the link's target.
+{
+    const name = 'plinksetaside'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const dir = profilePath(name)
+    fs.writeFileSync(path.join(dir, 'harness-compiler'), '0\n')
+    const outside = outsideDir('setaside', 'setaside-sentinel\n')
+    const outsideConfig = path.join(outside.dir, 'config.yaml')
+    fs.writeFileSync(outsideConfig, 'outside-config\n')
+    const configBefore = stamp(outsideConfig)
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-setaside-held-'))
+    const held = path.join(scratch, 'held')
+    let swapped = false
+    profileWriteTest.beforeTreeMutation = (logical) => {
+        if (swapped || path.resolve(logical) !== path.resolve(dir)) return
+        swapped = true
+        fs.renameSync(dir, held)
+        fs.symlinkSync(outside.dir, dir)
+    }
+    let guarded = { hits: [], error: null, result: null }
+    try {
+        guarded = guardLink(dir, outside.dir, () => setAsideOutdatedConfigs())
+    } finally {
+        profileWriteTest.beforeTreeMutation = null
+    }
+    let outsideNames = []
+    let outsideText = ''
+    try {
+        outsideNames = fs.readdirSync(outside.dir).sort()
+        outsideText = fs.readFileSync(outsideConfig, 'utf8')
+    } catch {
+        outsideText = ''
+    }
+    check(
+        'the boot sweep does not rename a config through a directory swapped for a link',
+        swapped &&
+            guarded.error == null &&
+            outsideText === 'outside-config\n' &&
+            sameStamp(outsideConfig, configBefore) &&
+            sameStamp(outside.file, outside.before) &&
+            !outsideNames.includes('config.yaml.outdated') &&
+            fs.lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink() === true,
+        JSON.stringify({
+            swapped,
+            error: guarded.error?.code || guarded.error?.message || '',
+            outsideNames,
+            outsideText,
+            hits: guarded.hits
+        })
+    )
+    if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink()) fs.unlinkSync(dir)
+    fs.rmSync(scratch, { recursive: true, force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'
