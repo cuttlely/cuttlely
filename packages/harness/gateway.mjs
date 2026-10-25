@@ -589,7 +589,10 @@ async function onRequest(req, res) {
     } catch (error) {
         if (res.writableEnded || res.destroyed) return
         if (error instanceof RevokedDuringRequest) {
-            sendJson(res, 401, { error: { message: 'Unauthorized', type: 'authentication_error' } })
+            // The tool may already have run. The bridge must not treat this 401 as a stale token and call again.
+            sendJson(res, 401, {
+                error: { message: 'Unauthorized', type: 'authentication_error', code: 'revoked_during_request' }
+            })
             return
         }
         if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
