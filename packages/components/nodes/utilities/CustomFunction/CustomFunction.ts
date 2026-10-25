@@ -1,8 +1,8 @@
-import { flatten } from 'lodash'
 import { type StructuredTool } from '@langchain/core/tools'
 import { DataSource } from 'typeorm'
 import { getVars, handleEscapeCharacters, executeJavaScriptCode, createCodeExecutionSandbox } from '../../../src/utils'
 import { assertUniqueToolNames } from '../../../src/agents'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import { ICommonObject, IDatabaseEntity, INode, INodeData, INodeOutputsValue, INodeParams } from '../../../src/Interface'
 
 class CustomFunction_Utilities implements INode {
@@ -82,7 +82,7 @@ class CustomFunction_Utilities implements INode {
         const appDataSource = options.appDataSource as DataSource
         const databaseEntities = options.databaseEntities as IDatabaseEntity
         // A repeated name would keep only the last tool. Fail here, the same way an agent build does.
-        const flatTools = (flatten(nodeData.inputs?.tools) as StructuredTool[]) ?? []
+        const flatTools = (prepareAgentTools(nodeData.inputs?.tools) as StructuredTool[]) ?? []
         assertUniqueToolNames(flatTools, 'function', 'exact')
         const tools = Object.fromEntries(flatTools.map((tool) => [tool.name, tool]))
 

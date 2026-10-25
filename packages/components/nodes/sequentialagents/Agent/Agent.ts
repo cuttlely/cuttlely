@@ -1,4 +1,5 @@
-import { flatten, uniq } from 'lodash'
+import { uniq } from 'lodash'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import { DataSource } from 'typeorm'
 import { RunnableSequence, RunnablePassthrough, RunnableConfig } from '@langchain/core/runnables'
 import { ChatPromptTemplate, MessagesPlaceholder, HumanMessagePromptTemplate, BaseMessagePromptTemplateLike } from '@langchain/core/prompts'
@@ -463,7 +464,7 @@ class Agent_SeqAgents implements INode {
 
     async init(nodeData: INodeData, input: string, options: ICommonObject): Promise<any> {
         let tools = nodeData.inputs?.tools
-        tools = flatten(tools)
+        tools = prepareAgentTools(tools)
         let agentSystemPrompt = nodeData.inputs?.systemMessagePrompt as string
         agentSystemPrompt = transformBracesWithColon(agentSystemPrompt)
         let agentHumanPrompt = nodeData.inputs?.humanMessagePrompt as string

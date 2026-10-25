@@ -663,7 +663,7 @@ export const buildFlow = async ({
             } else {
                 logger.debug(`[server]: [${orgId}]: Initializing ${reactFlowNode.data.label} (${reactFlowNode.data.id})`)
                 const finalQuestion = uploadedFilesContent ? `${uploadedFilesContent}\n\n${question}` : question
-                // Names are decided per agent. A card on two agents gets one name that is free on both.
+                // A default name for this card. Each agent applies the name for its own tool list when it binds.
                 const harnessToolName =
                     reactFlowNode.data.name === 'harness' && typeof nodeModule.harnessToolNameFromFlow === 'function'
                         ? nodeModule.harnessToolNameFromFlow(reactFlowNode.data.id, flowNodes, reactFlowEdges)

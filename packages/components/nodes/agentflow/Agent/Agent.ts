@@ -24,6 +24,7 @@ import { getErrorMessage } from '../../../src/error'
 import { DataSource } from 'typeorm'
 import { randomBytes } from 'crypto'
 import { ensureAgentToolRowIds } from '../../../src/agentToolRowId'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import {
     addImageArtifactsToMessages,
     extractArtifactsFromResponse,
@@ -1097,6 +1098,8 @@ class Agent_Agentflow implements INode {
             }
 
             if (llmNodeInstance && toolsInstance.length > 0) {
+                const namedTools = prepareAgentTools(toolsInstance)
+                toolsInstance.splice(0, toolsInstance.length, ...namedTools)
                 assertUniqueToolNames(toolsInstance, 'agent', 'exact')
                 if (llmNodeInstance.bindTools === undefined) {
                     throw new Error(`Agent needs to have a function calling capable models.`)

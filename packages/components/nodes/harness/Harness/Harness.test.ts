@@ -36,8 +36,10 @@ jest.mock('../../../src/storageUtils', () => ({
 const {
     nodeClass: HarnessNode,
     assignHarnessToolNames,
+    assignFlowHarnessToolNames,
     harnessToolPeersFromFlow,
     harnessToolNameFromFlow,
+    prepareAgentTools,
     harnessOnEvent,
     storeHarnessImages,
     harnessToolOutput,
@@ -1154,8 +1156,8 @@ describe('stable harness tool names', () => {
         const byId = new Map(names)
         expect(Object.fromEntries(byId)).toEqual({
             w_0: 'team',
-            x_1: 'team_1',
-            y_2: 'team_2',
+            x_1: 'team_x_1',
+            y_2: 'team_y_2',
             ax_0: 'team_2',
             by_0: 'team_3'
         })
@@ -1198,6 +1200,68 @@ describe('stable harness tool names', () => {
         expect(after.get('a')).toBe('team')
         expect(after.get('c')).toBe('team_c')
         expect(after.get('d')).toBe('other')
+    })
+
+    it('names both singleton agents harness when each shares a different card', () => {
+        const card = (id: string) => harnessCard(id, 'Team', 'team')
+        const agent = (id: string, tools: string[]) => ({
+            id,
+            data: { name: 'toolAgent', inputs: { tools: tools.map((toolId) => `{{${toolId}.data.instance}}`) } }
+        })
+        const nodes = [card('h_0'), card('h_1'), agent('a_0', ['h_0', 'h_1']), agent('a_1', ['h_0']), agent('a_2', ['h_1'])]
+        const byAgent = assignFlowHarnessToolNames(nodes)
+        expect(byAgent.get('a_1')).toEqual({ h_0: 'harness' })
+        expect(byAgent.get('a_2')).toEqual({ h_1: 'harness' })
+        const shared = byAgent.get('a_0') || {}
+        expect(shared.h_0).toBe('team')
+        expect(shared.h_1).toBe('team_1')
+        expect(new Set(Object.values(shared)).size).toBe(2)
+        expect(harnessToolNameFromFlow('h_0', nodes, undefined, 'a_1')).toBe('harness')
+        expect(harnessToolNameFromFlow('h_1', nodes, undefined, 'a_2')).toBe('harness')
+    })
+
+    it('keeps a full id suffix when another card with the same trailing number is deleted', () => {
+        const cards = [
+            { id: 'a_0', label: 'Team' },
+            { id: 'b_1', label: 'Team' },
+            { id: 'c_1', label: 'Team' },
+            { id: 'd', label: 'Other' }
+        ]
+        const before = assignHarnessToolNames(cards)
+        expect(before.get('a_0')).toBe('team')
+        expect(before.get('b_1')).toBe('team_b_1')
+        expect(before.get('c_1')).toBe('team_c_1')
+        expect(before.get('d')).toBe('other')
+        const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'b_1'))
+        expect(after.get('a_0')).toBe('team')
+        expect(after.get('c_1')).toBe(before.get('c_1'))
+        expect(after.get('d')).toBe('other')
+    })
+
+    it('gives each agent its own copy of a shared harness tool', () => {
+        let streamed = false
+        const sharedLone = { name: 'team_1', description: 'old', returnDirect: true }
+        Object.defineProperty(sharedLone, 'cuttlelyStreamedAnswer', { get: () => streamed })
+        Object.defineProperty(sharedLone, 'harnessCard', {
+            value: { id: 'h_0', label: 'Team', name: 'team' },
+            enumerable: false
+        })
+        const sharedOther = { name: 'harness', description: 'old', harnessCard: { id: 'h_1', label: 'Team', name: 'team' } }
+        const together = prepareAgentTools([sharedLone, sharedOther])
+        expect(together.map((tool: { name: string }) => tool.name)).toEqual(['team', 'team_1'])
+        expect(sharedLone.name).toBe('team_1')
+        expect(sharedOther.name).toBe('harness')
+        expect(together[0]).not.toBe(sharedLone)
+        expect(together[0].description).toContain('named team')
+        const [lone] = prepareAgentTools([sharedLone])
+        expect(lone.name).toBe('harness')
+        expect(sharedLone.name).toBe('team_1')
+        streamed = true
+        expect(lone.cuttlelyStreamedAnswer).toBe(true)
+        expect(lone.returnDirect).toBe(true)
+        const [already] = prepareAgentTools([sharedOther])
+        expect(already.name).toBe('harness')
+        expect(already).toBe(sharedOther)
     })
 
     it('keeps numeric id 0 on an agentflow harness row', () => {
