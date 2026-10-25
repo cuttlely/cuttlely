@@ -1849,6 +1849,53 @@ function restoreTree(slot, held) {
     fs.rmSync(scratch, { recursive: true, force: true })
 }
 
+// Hole: the file is opened with truncation before the opened descriptor is checked.
+// A directory that moves outside in that gap is truncated, then refused.
+{
+    const name = 'plinktrunc'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-trunc-'))
+    const home = path.join(scratch, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const saved = record(name, [])
+    const sentinel = 'KEEP-THIS-BYTES\n'
+    let movedTo = ''
+    let refused = ''
+    let after = ''
+    try {
+        compileProfileCached(saved)
+        forgetCompiledProfile(name)
+        const roster = profilePath(name, 'harness-roster.json')
+        fs.writeFileSync(roster, sentinel)
+        profileWriteTest.beforeContainedOpen = (file) => {
+            if (movedTo || !String(file).endsWith(`${path.sep}harness-roster.json`)) return
+            movedTo = path.join(scratch, 'outside-held')
+            fs.renameSync(path.dirname(file), movedTo)
+        }
+        try {
+            compileProfileCached({ ...saved, chief: { instructions: 'Route somewhere else.', model: model() } })
+        } catch (error) {
+            refused = error?.code || ''
+        }
+        try {
+            after = fs.readFileSync(path.join(movedTo, 'harness-roster.json'), 'utf8')
+        } catch (error) {
+            after = error?.code || String(error)
+        }
+    } finally {
+        profileWriteTest.beforeContainedOpen = null
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+    }
+    check(
+        'a profile file moved outside before it is opened is not truncated',
+        refused === 'profile_link' && after === sentinel,
+        JSON.stringify({ refused, movedTo, after })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'

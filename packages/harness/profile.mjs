@@ -233,7 +233,10 @@ export const profileWriteTest = {
     beforeEnvRead: null,
     // Runs after a profile tree has been checked and before it is created or removed.
     // Production leaves this null.
-    beforeTreeMutation: null
+    beforeTreeMutation: null,
+    // Runs after the opened directory is checked and before this file is opened for writing.
+    // Production leaves this null.
+    beforeContainedOpen: null
 }
 
 const quarantineFailureLogged = new Set()
@@ -844,26 +847,40 @@ function writeContained(file, text, mode = 0o644) {
         if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(file)
         const fileVia = fdPath(dirFd, fileName)
         if (!fileVia) refuseLink(path.join(logical, fileName))
-        const fileFlags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | NOFOLLOW
+        if (typeof profileWriteTest.beforeContainedOpen === 'function') profileWriteTest.beforeContainedOpen(file, dirFd)
+        // Open without truncating. The directory can move outside the root after the check above.
+        // An existing file stays intact until the opened descriptor is still inside that root.
+        const createFlags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | NOFOLLOW
+        const writeFlags = fs.constants.O_WRONLY | NOFOLLOW
+        const target = path.join(logical, fileName)
         let fileFd
+        let created = false
         try {
-            fileFd = fs.openSync(fileVia, fileFlags, mode)
+            fileFd = fs.openSync(fileVia, createFlags, mode)
+            created = true
         } catch (error) {
-            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') {
-                refuseLink(path.join(logical, fileName))
+            if (error?.code === 'ELOOP') refuseLink(target)
+            if (error?.code !== 'EEXIST') throw error
+            try {
+                fileFd = fs.openSync(fileVia, writeFlags)
+            } catch (again) {
+                if (again?.code === 'ELOOP' || again?.code === 'EEXIST') refuseLink(target)
+                throw again
             }
-            throw error
         }
         fds.push(fileFd)
         const written = realOfFd(fileFd)
         if (process.platform === 'linux' && !insideRoot(rootReal, written)) {
-            try {
-                fs.unlinkSync(`/proc/self/fd/${fileFd}`)
-            } catch {
-                // Closed below. Nothing was written.
+            if (created) {
+                try {
+                    fs.unlinkSync(`/proc/self/fd/${fileFd}`)
+                } catch {
+                    // Closed below. Only the file this open created is removed.
+                }
             }
             throwLink(file)
         }
+        fs.ftruncateSync(fileFd, 0)
         fs.writeFileSync(fileFd, text)
     } finally {
         closeFds(fds)
