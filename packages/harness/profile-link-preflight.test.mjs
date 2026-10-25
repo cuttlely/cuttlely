@@ -935,6 +935,167 @@ function cleanupProfile(name) {
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
+// A skills directory swapped for a link after the playbook check must not receive new playbook files.
+{
+    const name = 'plinkswapbook'
+    const specialists = [
+        {
+            name: 'alpha',
+            instructions: 'Alpha work.',
+            model: model(),
+            modules: [],
+            playbooks: [{ name: 'refund-rules', description: 'When to refund', content: 'Refund the order.' }]
+        }
+    ]
+    const saved = record(name, specialists)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const skills = path.join(profilePath(`${name}--alpha`), 'skills')
+    const root = path.join(skills, 'harness-playbooks')
+    const outside = outsideDir('swap-book', 'swap-book-sentinel\n')
+    let swapped = false
+    let held = ''
+    profileWriteTest.beforeTreeMutation = (logical) => {
+        if (swapped || path.resolve(logical) !== path.resolve(root)) return
+        swapped = true
+        held = `${skills}.held`
+        fs.renameSync(skills, held)
+        fs.symlinkSync(outside.dir, skills)
+    }
+    let hits = []
+    let refused = ''
+    try {
+        const guarded = guardLink(skills, outside.dir, () => compileProfileCached(saved))
+        hits = guarded.hits
+        refused = guarded.error?.code || ''
+    } finally {
+        profileWriteTest.beforeTreeMutation = null
+    }
+    const listing = fs.readdirSync(outside.dir).sort().join()
+    check(
+        'a playbook directory is not created through a skills link swapped after the check',
+        swapped &&
+            refused === 'profile_link' &&
+            !hits.some((hit) => hit.includes(outside.dir)) &&
+            sameStamp(outside.file, outside.before) &&
+            listing === 'marker',
+        JSON.stringify({ swapped, refused, hits, listing })
+    )
+    if (held) fs.rmSync(held, { recursive: true, force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Removing playbooks must not delete a tree reached through a skills link swapped after the check.
+{
+    const name = 'plinkswaprm'
+    compileProfileCached(
+        record(name, [
+            {
+                name: 'alpha',
+                instructions: 'Alpha work.',
+                model: model(),
+                modules: [],
+                codeExecution: true,
+                playbooks: [{ name: 'refund-rules', description: 'When to refund', content: 'Refund the order.' }]
+            }
+        ])
+    )
+    forgetCompiledProfile(name)
+    const skills = path.join(profilePath(`${name}--alpha`), 'skills')
+    const root = path.join(skills, 'harness-playbooks')
+    const outside = outsideDir('swap-rm', 'swap-rm-sentinel\n')
+    const keep = path.join(outside.dir, 'harness-playbooks', 'keep.txt')
+    fs.mkdirSync(path.dirname(keep), { recursive: true })
+    fs.writeFileSync(keep, 'keep-playbook\n')
+    const keepBefore = stamp(keep)
+    const saved = record(name, [{ name: 'alpha', instructions: 'Alpha work.', model: model(), modules: [], codeExecution: true }])
+    let swapped = false
+    let held = ''
+    profileWriteTest.beforeTreeMutation = (logical) => {
+        if (swapped || path.resolve(logical) !== path.resolve(root)) return
+        swapped = true
+        held = `${skills}.held`
+        fs.renameSync(skills, held)
+        fs.symlinkSync(outside.dir, skills)
+    }
+    let hits = []
+    let refused = ''
+    try {
+        const guarded = guardLink(skills, outside.dir, () => compileProfileCached(saved))
+        hits = guarded.hits
+        refused = guarded.error?.code || ''
+    } finally {
+        profileWriteTest.beforeTreeMutation = null
+    }
+    let keepText = ''
+    try {
+        keepText = fs.readFileSync(keep, 'utf8')
+    } catch {
+        keepText = ''
+    }
+    check(
+        'a playbook tree is not removed through a skills link swapped after the check',
+        swapped &&
+            refused === 'profile_link' &&
+            !hits.some((hit) => hit.includes(outside.dir)) &&
+            sameStamp(outside.file, outside.before) &&
+            keepText === 'keep-playbook\n' &&
+            fs.existsSync(keep) &&
+            sameStamp(keep, keepBefore),
+        JSON.stringify({ swapped, refused, hits, keepText, listing: fs.readdirSync(outside.dir) })
+    )
+    if (held) fs.rmSync(held, { recursive: true, force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Creating memory must not follow a profile directory swapped for a link after the check.
+{
+    const name = 'plinkswapmem'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const dir = profilePath(name)
+    const outside = outsideDir('swap-mem', 'swap-mem-sentinel\n')
+    const compiler = path.join(outside.dir, 'harness-compiler')
+    fs.writeFileSync(compiler, 'keep-compiler\n')
+    const compilerBefore = stamp(compiler)
+    let swapped = false
+    let held = ''
+    profileWriteTest.beforeTreeMutation = (logical) => {
+        if (swapped || path.resolve(logical) !== path.resolve(dir)) return
+        swapped = true
+        held = `${dir}.held`
+        fs.renameSync(dir, held)
+        fs.symlinkSync(outside.dir, dir)
+    }
+    let hits = []
+    let refused = ''
+    try {
+        const guarded = guardLink(dir, outside.dir, () => compileProfileCached(saved))
+        hits = guarded.hits
+        refused = guarded.error?.code || ''
+    } finally {
+        profileWriteTest.beforeTreeMutation = null
+    }
+    const listing = fs.readdirSync(outside.dir).sort().join()
+    check(
+        'memory is not created through a profile directory swapped after the check',
+        swapped &&
+            refused === 'profile_link' &&
+            !hits.some((hit) => hit.includes(outside.dir)) &&
+            sameStamp(outside.file, outside.before) &&
+            fs.existsSync(compiler) &&
+            sameStamp(compiler, compilerBefore) &&
+            listing === 'harness-compiler,marker',
+        JSON.stringify({ swapped, refused, hits, listing })
+    )
+    if (held) fs.rmSync(held, { recursive: true, force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
 fs.rmSync(dataDir, { recursive: true, force: true })
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)

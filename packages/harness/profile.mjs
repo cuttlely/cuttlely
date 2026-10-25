@@ -230,7 +230,10 @@ export const profileWriteTest = {
     betweenCacheChecks: null,
     // Runs after the directory that holds the profile env is open and before that file is opened.
     // Production leaves this null.
-    beforeEnvRead: null
+    beforeEnvRead: null,
+    // Runs after a profile tree has been checked and before it is created or removed.
+    // Production leaves this null.
+    beforeTreeMutation: null
 }
 
 const quarantineFailureLogged = new Set()
@@ -514,6 +517,137 @@ function refuseAncestorsOf(dir) {
 function assertDirNoFollow(dir) {
     const opened = openDirNoFollow(dir)
     if (opened) closeFds(opened.fds)
+}
+
+function childPath(dirFd, name) {
+    const via = fdPath(dirFd, name)
+    if (!via) throw new HarnessError('profile_link', 'profile directory descriptors are required')
+    return via
+}
+
+function lstatChild(dirFd, name) {
+    try {
+        return fs.lstatSync(childPath(dirFd, name))
+    } catch (error) {
+        if (error?.code === 'ENOENT') return null
+        throw error
+    }
+}
+
+// Creates or opens one child of an already-open directory. A link at that name is refused.
+function ensureChildDir(dirFd, logicalDir, name, fds, anchor = '') {
+    const logical = path.join(logicalDir, name)
+    const via = childPath(dirFd, name)
+    const openDir = () => {
+        try {
+            return fs.openSync(via, DIR_FLAGS)
+        } catch (error) {
+            if (error?.code === 'ENOENT') return null
+            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') refuseLink(logical)
+            if (error?.code === 'ENOTDIR') {
+                if (lstatChild(dirFd, name)?.isSymbolicLink()) refuseLink(logical)
+                throw error
+            }
+            throw error
+        }
+    }
+    let fd = openDir()
+    if (fd == null) {
+        try {
+            fs.mkdirSync(via)
+        } catch (error) {
+            if (error?.code !== 'EEXIST') throw error
+        }
+        fd = openDir()
+        if (fd == null) throwLink(logical)
+    }
+    fds.push(fd)
+    if (anchor && process.platform === 'linux') {
+        const here = realOfFd(fd)
+        if (here && !insideRoot(anchor, here)) throwLink(logical)
+    }
+    return fd
+}
+
+// Opens absDir from the filesystem root, creating missing directories from the parent descriptor.
+// A link swapped in for any component is not followed.
+function ensureContainedDir(absDir) {
+    const paths = ancestorPaths(absDir)
+    if (!paths) throwLink(absDir)
+    const root = rootFor(absDir)
+    const fds = []
+    try {
+        let dirFd
+        try {
+            dirFd = fs.openSync(paths[0], DIR_FLAGS)
+        } catch (error) {
+            if (error?.code === 'ELOOP' || error?.code === 'EEXIST') refuseLink(paths[0])
+            throw error
+        }
+        fds.push(dirFd)
+        let anchor = ''
+        for (let i = 1; i < paths.length; i += 1) {
+            const logical = paths[i]
+            const name = path.basename(logical)
+            if (!name || name === '.' || name === '..') throwLink(logical)
+            const check = anchor && path.resolve(logical) !== path.resolve(root) ? anchor : ''
+            dirFd = ensureChildDir(dirFd, path.dirname(logical), name, fds, check)
+            if (path.resolve(logical) === path.resolve(root)) anchor = realOfFd(dirFd) || anchor
+        }
+        return { fd: dirFd, fds }
+    } catch (error) {
+        closeFds(fds)
+        throw error
+    }
+}
+
+// Removes one child of an open directory. A symlink is unlinked and its target is left in place.
+function removeChild(dirFd, logicalDir, name) {
+    const logical = path.join(logicalDir, name)
+    const st = lstatChild(dirFd, name)
+    if (!st) return
+    const via = childPath(dirFd, name)
+    if (st.isSymbolicLink()) {
+        fs.unlinkSync(via)
+        return
+    }
+    if (!st.isDirectory()) {
+        fs.unlinkSync(via)
+        return
+    }
+    let fd
+    try {
+        fd = fs.openSync(via, DIR_FLAGS)
+    } catch (error) {
+        if (error?.code === 'ELOOP' || error?.code === 'ENOTDIR' || error?.code === 'EEXIST') {
+            if (lstatChild(dirFd, name)?.isSymbolicLink()) {
+                fs.unlinkSync(via)
+                return
+            }
+            throw error
+        }
+        throw error
+    }
+    try {
+        for (const entry of fs.readdirSync(`/proc/self/fd/${fd}`)) {
+            if (!entry || entry === '.' || entry === '..') continue
+            removeChild(fd, logical, entry)
+        }
+    } finally {
+        fs.closeSync(fd)
+    }
+    const now = lstatChild(dirFd, name)
+    if (!now) return
+    if (now.isSymbolicLink()) {
+        fs.unlinkSync(via)
+        return
+    }
+    if (now.isDirectory()) fs.rmdirSync(via)
+    else fs.unlinkSync(via)
+}
+
+function noteTreeMutation(logical) {
+    if (typeof profileWriteTest.beforeTreeMutation === 'function') profileWriteTest.beforeTreeMutation(logical)
 }
 
 function readTextNoFollow(file, hook = false) {
@@ -1166,32 +1300,51 @@ export function specialistSoul(specialist, env = process.env) {
 // Each playbook is a Hermes skill: skills/harness-playbooks/<name>/SKILL.md. Folders for playbooks that were
 // removed are deleted; nothing outside harness-playbooks is touched.
 export function writePlaybooks(dir, playbooks) {
-    const root = path.join(dir, 'skills', PLAYBOOK_DIR)
+    const skillsLogical = path.join(dir, 'skills')
+    const root = path.join(skillsLogical, PLAYBOOK_DIR)
     assertContained(root)
-    if (!playbooks.length) {
-        fs.rmSync(root, { recursive: true, force: true })
-        return
-    }
-    fs.mkdirSync(root, { recursive: true })
-    const keep = new Set()
-    for (const playbook of playbooks) {
-        if (!PROFILE_ID_RE.test(playbook.name)) continue
-        keep.add(playbook.name)
-        const folder = path.join(root, playbook.name)
-        fs.mkdirSync(folder, { recursive: true })
-        const text = [
-            '---',
-            `name: ${playbook.name}`,
-            `description: ${yamlQuote(playbook.description)}`,
-            '---',
-            '',
-            playbook.content,
-            ''
-        ].join('\n')
-        writeIfChanged(path.join(folder, 'SKILL.md'), text)
-    }
-    for (const entry of fs.readdirSync(root)) {
-        if (!keep.has(entry)) fs.rmSync(path.join(root, entry), { recursive: true, force: true })
+    const opened = openDirNoFollow(dir)
+    if (!opened) throwLink(dir)
+    const fds = opened.fds
+    try {
+        noteTreeMutation(root)
+        const skillsStat = lstatChild(opened.fd, 'skills')
+        if (skillsStat?.isSymbolicLink()) refuseLink(skillsLogical)
+        if (!playbooks.length) {
+            if (!skillsStat?.isDirectory()) return
+            const skillsFd = ensureChildDir(opened.fd, dir, 'skills', fds)
+            const bookStat = lstatChild(skillsFd, PLAYBOOK_DIR)
+            if (bookStat?.isSymbolicLink()) refuseLink(root)
+            if (bookStat) removeChild(skillsFd, skillsLogical, PLAYBOOK_DIR)
+            return
+        }
+        const skillsFd = ensureChildDir(opened.fd, dir, 'skills', fds)
+        const booksFd = ensureChildDir(skillsFd, skillsLogical, PLAYBOOK_DIR, fds)
+        const anchor = realOfFd(opened.fd)
+        if (process.platform === 'linux' && anchor && !insideRoot(anchor, realOfFd(booksFd))) throwLink(root)
+        const keep = new Set()
+        for (const playbook of playbooks) {
+            if (!PROFILE_ID_RE.test(playbook.name)) continue
+            keep.add(playbook.name)
+            const folder = path.join(root, playbook.name)
+            ensureChildDir(booksFd, root, playbook.name, fds)
+            const text = [
+                '---',
+                `name: ${playbook.name}`,
+                `description: ${yamlQuote(playbook.description)}`,
+                '---',
+                '',
+                playbook.content,
+                ''
+            ].join('\n')
+            writeIfChanged(path.join(folder, 'SKILL.md'), text)
+        }
+        for (const entry of fs.readdirSync(`/proc/self/fd/${booksFd}`)) {
+            if (!entry || entry === '.' || entry === '..') continue
+            if (!keep.has(entry)) removeChild(booksFd, root, entry)
+        }
+    } finally {
+        closeFds(fds)
     }
 }
 
@@ -1239,13 +1392,22 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
     preflightTree(dir)
     const workspace = specialistWorkspace(specialist.profileName)
     assertContained(workspace)
-    fs.mkdirSync(dir, { recursive: true })
-    fs.mkdirSync(workspace, { recursive: true })
-    installPresetKit(specialist, workspace, (file, text) => writeContained(file, text))
-    // Read before harness-parent is written: an unstamped token is adopted only from a profile this harness already owned.
-    const ownedBefore = readMarker(path.join(dir, 'harness-parent')) === String(profileName)
-    // The version file says the compile finished: it goes first and comes back after the last write.
-    fs.rmSync(path.join(dir, 'harness-compiler'), { force: true })
+    noteTreeMutation(dir)
+    const dirHeld = ensureContainedDir(dir)
+    let workHeld = null
+    let ownedBefore = false
+    try {
+        noteTreeMutation(workspace)
+        workHeld = ensureContainedDir(workspace)
+        installPresetKit(specialist, workspace, (file, text) => writeContained(file, text))
+        // Read before harness-parent is written: an unstamped token is adopted only from a profile this harness already owned.
+        ownedBefore = readMarker(path.join(dir, 'harness-parent')) === String(profileName)
+        // The version file says the compile finished: it goes first and comes back after the last write.
+        removeChild(dirHeld.fd, dir, 'harness-compiler')
+    } finally {
+        closeFds(dirHeld.fds)
+        if (workHeld) closeFds(workHeld.fds)
+    }
     writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
@@ -1547,14 +1709,20 @@ function compileProfileFiles(record, options = {}) {
         }
     }
     const dir = profileDir(profileName)
+    noteTreeMutation(dir)
     // Cleared before any specialist compiles: a compile that fails partway leaves the parent outdated for the next boot.
-    fs.rmSync(path.join(dir, 'harness-compiler'), { force: true })
-    fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
-    fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
-    // A try is this marker, not a name the store might also use.
-    const tryMarker = path.join(dir, 'harness-try')
-    if (tryProfile) writeIfChanged(tryMarker, `${profileName}\n`)
-    else if (fs.existsSync(tryMarker)) fs.rmSync(tryMarker)
+    const held = ensureContainedDir(dir)
+    try {
+        removeChild(held.fd, dir, 'harness-compiler')
+        ensureChildDir(held.fd, dir, 'memory', held.fds)
+        ensureChildDir(held.fd, dir, 'sessions', held.fds)
+        // A try is this marker, not a name the store might also use.
+        const tryMarker = path.join(dir, 'harness-try')
+        if (tryProfile) writeIfChanged(tryMarker, `${profileName}\n`)
+        else removeChild(held.fd, dir, 'harness-try')
+    } finally {
+        closeFds(held.fds)
+    }
 
     const resolved = resolveRoster(record, profileName)
     const keep = new Set()

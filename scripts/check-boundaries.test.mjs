@@ -6,6 +6,7 @@ import path from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkBoundaries, extractSpecifiers, updateBaseline } from './check-boundaries.mjs'
+import { withoutGitEnv } from './test-git.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const roots = []
@@ -41,8 +42,9 @@ const EMPTY_BASELINE = {
     r6Additions: []
 }
 
+// A pre-push hook exports GIT_DIR. Strip it so init and add stay in the temp fixture.
 function git(root, args) {
-    execFileSync('git', args, { cwd: root, stdio: 'pipe' })
+    execFileSync('git', args, { cwd: root, stdio: 'pipe', env: withoutGitEnv() })
 }
 
 function write(root, rel, content) {
