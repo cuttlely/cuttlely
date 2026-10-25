@@ -362,7 +362,7 @@ Sample chatflows that run a harness by name are in `samples/chatflows/`. The har
 
 ## Delete a harness
 
-Deleting a harness, from its card or by deleting its canvas, also removes its agent runtime profile, the profiles of its specialists and their workspaces. Their gateway tokens are revoked first. If that fails, nothing is deleted and the delete asks you to try again. Only profiles that belong to that exact harness name are removed: deleting `navi` leaves `navi-harness` and `Navi` alone.
+Deleting a harness, from its card or by deleting its canvas, also removes its agent runtime profile, the profiles of its specialists and their workspaces. Their gateway tokens are revoked first. If that fails, nothing is deleted and the delete asks you to try again. Only profiles that belong to that exact harness name are removed: deleting `bakery` leaves `bakery-harness` and `Bakery` alone.
 
 At startup Cuttlely looks for profiles whose harness no longer exists, for example ones left by a delete made before this cleanup existed. By default it only logs them (`orphan profile sweep (dry run): would remove profiles/<name> of harness "<id>"`). Set `CUTTLELY_HARNESS_ORPHAN_SWEEP=delete` to remove them at the next start. The sweep never removes a profile of a saved harness (in any letter case), a canvas try, or anything changed in the last 10 minutes, and it never follows a symbolic link or leaves the profiles directory.
 
