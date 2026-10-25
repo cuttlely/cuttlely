@@ -2105,6 +2105,10 @@
             "reason": "unit tests for the ChatOpenAI and Azure ChatOpenAI reasoning request params sit next to the node"
         },
         {
+            "path": "packages/components/nodes/tools/CurrentDateTime/CurrentDateTime.test.ts",
+            "reason": "The Current Date Time tool test stays with the inherited tool it covers."
+        },
+        {
             "path": "packages/components/src/agentToolRowId.ts",
             "reason": "The agentflow tool row id is shared by the server and the canvas, so a row keeps the same suffix after another row is removed."
         },
