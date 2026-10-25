@@ -8,6 +8,7 @@ import { Tool } from '@langchain/core/tools'
 import { ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts'
 import { formatLogToMessage } from '@langchain/classic/agents/format_scratchpad/log_to_message'
 import { getBaseClasses, transformBracesWithColon } from '../../../src/utils'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import {
     FlowiseMemory,
     ICommonObject,
@@ -164,7 +165,7 @@ class XMLAgent_Agents implements INode {
             // If the tool is set to returnDirect, stream the output to the client
             if (res.usedTools && res.usedTools.length) {
                 let inputTools = nodeData.inputs?.tools
-                inputTools = flatten(inputTools)
+                inputTools = prepareAgentTools(inputTools)
                 for (const tool of res.usedTools) {
                     const inputTool = inputTools.find((inputTool: Tool) => inputTool.name === tool.tool)
                     if (inputTool && inputTool.returnDirect) {
@@ -225,7 +226,7 @@ const prepareAgent = async (
     const memory = nodeData.inputs?.memory as FlowiseMemory
     let systemMessage = nodeData.inputs?.systemMessage as string
     let tools = nodeData.inputs?.tools
-    tools = flatten(tools)
+    tools = prepareAgentTools(tools)
     const inputKey = memory.inputKey ? memory.inputKey : 'input'
     const memoryKey = memory.memoryKey ? memory.memoryKey : 'chat_history'
     const prependMessages = options?.prependMessages

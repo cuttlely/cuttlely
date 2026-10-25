@@ -11,6 +11,8 @@ module.exports = {
     },
     transform: {
         '^.+\\.jsx?$': 'babel-jest',
+        // ArrayRenderer imports the row-id helper, which is TypeScript. Strip types only.
+        '^.+\\.tsx?$': ['babel-jest', { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-typescript'] }],
         // HarnessRunTrace imports the harness trace module, which is ESM. The UI babel preset leaves import syntax alone.
         '^.+\\.mjs$': ['babel-jest', { presets: [['@babel/preset-env', { targets: { node: 'current' } }]] }]
     },

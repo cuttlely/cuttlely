@@ -4,7 +4,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
-## [1.4.3] - 2026-10-24
+## [1.4.3] - Unreleased
 
 ### Added
 
@@ -16,9 +16,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A lone Harness card on an agent keeps `harness`, so existing flows that call `tool:harness` still run. When two or more Harness cards are on one agent, each gets its own tool name from its card title or saved harness name. The name uses lowercase letters, digits and underscores, at most 64 characters. A repeated name keeps the lowest card id unsuffixed and gives each other card `_` plus its own id number, so removing a different card does not move that suffix. On an agentflow that id is stored on the tool row, or taken from its node id, and a change to Return Direct does not move it. A card shared by several agents keeps one name that is free on each of them. An id ending in 0 keeps `_0`. A title that starts with a digit is prefixed with `h_`. An agent whose tools share a name fails to build and the error names that tool. That check ignores letter case for an AgentExecutor and keeps it for an agentflow. A ReAct agent fails the same way, and a Custom JS Function says that the function has more than one tool with that name. [#298](https://github.com/cuttlely/cuttlely/issues/298).
 -   The Current Date Time tool can format the local date and time in an IANA timezone. Set **Timezone** on the node, or `CUTTLELY_DEFAULT_TIMEZONE` when that field is empty. A call can pass `timezone`, and that value wins. With none set, the JSON string is unchanged. An unknown timezone returns `error` and does not crash the call. At `2026-10-24T01:30:00Z`, `America/Chicago` reports `2026-10-23`. [Current date and time](./docs/reference/current-date-time.md).
 -   The assets preset fetch judges an IPv4-mapped IPv6 address by the IPv4 address it contains, so a public address written that way can be fetched. Private, loopback, link-local, carrier-grade NAT, multicast, reserved and unspecified addresses in that form stay refused. 6to4 and NAT64 addresses are judged the same way. The former 6to4 relay prefix and the IPv6 documentation prefix stay refused.
--   Text search types `regconfig` and `regdictionary` are allowed in analyst queries. Other object-identifier types, such as `regclass`, are refused only while a table selection is set. [Analyst tools](./docs/reference/analyst-tools.md).
+-   Analyst (scoped): `regconfig` and `regdictionary` are refused by default (in `DENIED_TYPES`) with a structural exception — a direct constant argument, by oid, to built-in text-search functions (`to_tsvector`, `to_tsquery`, `plainto_tsquery`, `phraseto_tsquery`, `websearch_to_tsquery`, `ts_headline`, `ts_lexize`). All other occurrences are refused, including `get_current_ts_config()`, result columns, variables, nested expressions, and I/O coercions. The same rule reads view, materialized view and policy bodies. Unknown parse-node tags are refused on PostgreSQL 14 and 16.
+-   Analyst (scoped): The user-function rule is recursive with a depth cap that memoization cannot skip, and it vets stored BEGIN ATOMIC SQL bodies and default arguments. A BEGIN ATOMIC function is allowed on its own only when it touches no relation, including a selected one and including when no table is selected. The walker fails closed on unknown node tags and vets aggregate helpers and a selected sort operator. A 40-deep chain is refused; a 20-deep chain passes. Allow-listed function bodies are trusted by design; the entry admits that function, while its defaults and callees are still vetted.
 -   Chat answers keep a slash, backslash or tilde that stands alone between words, including a fraction or a date. Server paths are still hidden. [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 -   A flow LangSmith credential with no key does not use the server's LangSmith key. Tracing for that flow stays off. A failed upload log records the credential id and the key length, not the key. [LangSmith tracing: which account gets a flow's traces](./docs/reference/langsmith-tracing.md).
 -   Deleting a harness removes its agent runtime profile, its specialists' profiles and their workspaces after their gateway tokens are revoked. [Delete a harness](./docs/how-to/harnesses.md#delete-a-harness).
@@ -503,8 +505,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.3...HEAD
-[1.4.3]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...v1.4.3
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...HEAD
 [1.4.2]: https://github.com/cuttlely/cuttlely/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/cuttlely/cuttlely/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/cuttlely/cuttlely/compare/v1.3.2...v1.4.0
