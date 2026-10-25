@@ -663,6 +663,11 @@ export const buildFlow = async ({
             } else {
                 logger.debug(`[server]: [${orgId}]: Initializing ${reactFlowNode.data.label} (${reactFlowNode.data.id})`)
                 const finalQuestion = uploadedFilesContent ? `${uploadedFilesContent}\n\n${question}` : question
+                // A default name for this card. Each agent applies the name for its own tool list when it binds.
+                const harnessToolName =
+                    reactFlowNode.data.name === 'harness' && typeof nodeModule.harnessToolNameFromFlow === 'function'
+                        ? nodeModule.harnessToolNameFromFlow(reactFlowNode.data.id, flowNodes, reactFlowEdges)
+                        : undefined
                 const initNode = () =>
                     newNodeInstance.init(reactFlowNodeData, finalQuestion, {
                         orgId,
@@ -688,7 +693,8 @@ export const buildFlow = async ({
                         recordTokenUsage: recordCompletedRun,
                         ...harnessNodeOptions(harnessCaller),
                         ...(harnessToolPayloads ? { harnessToolPayloads } : {}),
-                        ...(cuttlelyReplay ? { cuttlelyReplay: true } : {})
+                        ...(cuttlelyReplay ? { cuttlelyReplay: true } : {}),
+                        ...(typeof harnessToolName === 'string' && harnessToolName ? { harnessToolName } : {})
                     })
                 let outputResult = isUpsert
                     ? await initNode()
