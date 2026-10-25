@@ -1321,9 +1321,8 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
         const dir = path.join(root, entry)
         // A link is not a directory this pass may read. Ownership comes from the entry name.
         if (isLink(dir)) continue
-        const marker = path.join(dir, 'harness-parent')
-        if (!fs.existsSync(marker)) continue
-        if (fs.readFileSync(marker, 'utf8').trim() !== parent) continue
+        // A linked marker is not read. The directory stays until a later pass can see a real marker.
+        if (readMarker(path.join(dir, 'harness-parent')) !== parent) continue
         // A folder that is a harness home, or is named after a saved harness, is not a retired specialist.
         if (fs.existsSync(path.join(dir, 'harness-roster.json')) || fs.existsSync(path.join(harnessStoreDir(), `${entry}.json`))) continue
         const retired = readEnvFile(path.join(dir, '.env'))
@@ -1334,11 +1333,7 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
 }
 
 function markerText(file) {
-    try {
-        return fs.readFileSync(file, 'utf8').trim()
-    } catch {
-        return ''
-    }
+    return readMarker(file)
 }
 
 // Profile directories this harness would compile into that another harness already has: its home holding another
@@ -1659,8 +1654,12 @@ function tryProfileNames(scope) {
 }
 
 function readMarker(file) {
-    if (!fs.existsSync(file)) return ''
-    return fs.readFileSync(file, 'utf8').trim()
+    try {
+        const text = readFileNoFollow(file)
+        return text == null ? '' : text.trim()
+    } catch {
+        return ''
+    }
 }
 
 function tryScopeEntries(scope) {

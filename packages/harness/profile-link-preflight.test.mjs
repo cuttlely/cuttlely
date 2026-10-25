@@ -12,12 +12,14 @@ delete process.env.HERMES_API_URL
 const {
     compileProfileCached,
     forgetCompiledProfile,
+    profileDestinationConflicts,
     profileWriteTest,
     readProfileEnv,
     recompileOutdatedProfiles,
     setAsideOutdatedConfigs,
     specialistWorkspace
 } = await import('./profile.mjs')
+const { installPresetKit } = await import('./presets.mjs')
 const { bootHarnessGateway, profileTokenKnown } = await import('./gateway.mjs')
 
 const failures = []
@@ -827,6 +829,79 @@ function cleanupProfile(name) {
     )
     cleanupProfile(name)
     fs.rmSync(dirOutside.dir, { recursive: true, force: true })
+}
+
+// An ownership marker that is a link is not read when a save checks who owns a profile.
+{
+    const name = 'plinkowner'
+    const saved = record(name, [{ name: 'alpha', instructions: 'Alpha work.', model: model(), modules: [], codeExecution: true }])
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const marker = profilePath(`${name}--alpha`, 'harness-parent')
+    const outside = outsideFile('owner', `${name}\n`)
+    const realCopy = `${marker}.real`
+    fs.renameSync(marker, realCopy)
+    fs.symlinkSync(outside.file, marker)
+    const guarded = guardLink(marker, outside.file, () => profileDestinationConflicts(saved))
+    const linkStat = fs.lstatSync(marker, { throwIfNoEntry: false })
+    check(
+        'a linked ownership marker is not read',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            sameStamp(outside.file, outside.before) &&
+            linkStat?.isSymbolicLink() === true,
+        JSON.stringify({ hits: guarded.hits, error: guarded.error?.code || '', stillLink: linkStat?.isSymbolicLink() === true })
+    )
+    fs.rmSync(realCopy, { force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// A kit file swapped for a link between the check and the read is not followed.
+{
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-kit-'))
+    const target = path.join(workspace, 'cuttlely_assets.py')
+    fs.writeFileSync(target, 'local-kit\n')
+    const outside = outsideFile('kit', 'outside-kit-sentinel\n')
+    const realCopy = `${target}.real`
+    let swapped = false
+    const origLstat = fs.lstatSync
+    const origRead = fs.readFileSync
+    let hits = 0
+    const note = (file) => {
+        if (typeof file !== 'string') return
+        const resolved = path.resolve(file)
+        if (resolved === path.resolve(target) || resolved === path.resolve(outside.file)) hits += 1
+    }
+    fs.lstatSync = (file, ...args) => {
+        const stat = origLstat(file, ...args)
+        if (!swapped && typeof file === 'string' && path.resolve(file) === path.resolve(target)) {
+            swapped = true
+            fs.renameSync(target, realCopy)
+            fs.symlinkSync(outside.file, target)
+        }
+        return stat
+    }
+    fs.readFileSync = (file, ...args) => {
+        note(file)
+        return origRead(file, ...args)
+    }
+    let error = ''
+    try {
+        installPresetKit({ preset: 'assets' }, workspace, () => {})
+    } catch (caught) {
+        error = caught?.code || ''
+    } finally {
+        fs.lstatSync = origLstat
+        fs.readFileSync = origRead
+    }
+    check(
+        'a preset kit file swapped for a link is not read',
+        hits === 0 && error === '' && sameStamp(outside.file, outside.before),
+        JSON.stringify({ hits, error, swapped })
+    )
+    fs.rmSync(workspace, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
 fs.rmSync(dataDir, { recursive: true, force: true })

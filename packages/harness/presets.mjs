@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readFileNoFollow } from './contained-walk.mjs'
 
 // Preset specialists: a Harness Specialist with Preset set to a name here gets that preset's tools, routing summary
 // and instructions, plus any kit files in its working directory. Its own Instructions are added after the preset's.
@@ -88,10 +89,10 @@ export function installPresetKit(specialist, workspace, writeFile = null) {
         const text = fs.readFileSync(source, 'utf8')
         let current = null
         try {
-            if (fs.lstatSync(target).isSymbolicLink()) current = null
-            else current = fs.readFileSync(target, 'utf8')
+            // One open, without following. A link swapped in for this file is not read.
+            current = readFileNoFollow(target)
         } catch {
-            // not there yet
+            current = null
         }
         if (current !== text) write(target, text)
         written.push(target)
