@@ -179,7 +179,8 @@ function postGatewayAttempt(requestPath, body, refreshed) {
                     }
                     const failure = new Error(parsed?.error?.message || `Gateway returned ${res.statusCode}`)
                     // One re-read per request. A second 401, or the same token still on disk, stays a failure.
-                    if (res.statusCode === 401 && !refreshed) {
+                    // A token revoked after the tool already ran is not a stale credential: retrying would run the tool again.
+                    if (res.statusCode === 401 && !refreshed && parsed?.error?.code !== 'revoked_during_request') {
                         const next = readRotatedToken(token)
                         if (next) {
                             gatewayToken = next

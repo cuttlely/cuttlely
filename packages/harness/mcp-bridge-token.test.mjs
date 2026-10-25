@@ -338,3 +338,64 @@ serial('a revoked token with no replacement still fails unauthorized', async () 
         }
     })
 })
+
+serial('a token retired while the tool executes is not retried', async () => {
+    const first = mint()
+    const next = mint()
+    const envFile = path.join(dataDir, 'bridge-env', 'tokduring.env')
+    let runs = 0
+    await withHarness('tokduring', async ({ url, workspace }) => {
+        saveHarness(harnessRecord('tokduring'), { overwrite: true })
+        writeEnvKey(envFile, first)
+        registerProfileToken({
+            token: first,
+            harnessName: 'tokduring',
+            specialistName: 'worker',
+            modelKey: 'k',
+            profileName: 'tokduring--worker'
+        })
+        // Retiring the live token inside run, and leaving a new one on disk, is the rotation a plain 401 would follow.
+        // The tool has already started, so a retry would execute it a second time.
+        setGatewayContext(async () => ({
+            flowOptions: { appDataSource: { ready: true } },
+            loadNode: async (nodeName) => {
+                if (nodeName !== 'echoNode') throw new Error('unexpected node')
+                return class {
+                    async run() {
+                        runs += 1
+                        writeEnvKey(envFile, next)
+                        registerProfileToken({
+                            token: next,
+                            harnessName: 'tokduring',
+                            specialistName: 'worker',
+                            modelKey: 'k',
+                            profileName: 'tokduring--worker'
+                        })
+                        return 'tool-ok'
+                    }
+                }
+            }
+        }))
+        const bridge = openBridge(
+            'tokduring',
+            'worker',
+            {
+                CUTTLELY_HARNESS_GATEWAY_URL: url,
+                CUTTLELY_HARNESS_GATEWAY_TOKEN: first,
+                CUTTLELY_HARNESS_PROFILE_ENV: envFile
+            },
+            workspace
+        )
+        try {
+            const retired = await bridge.rpc('tools/call', { name: 'echoNode', arguments: { input: 'ping' } })
+            assert.equal(runs, 1)
+            assert.equal(retired.result?.isError, true)
+            assert.equal(retired.result?.content?.[0]?.text, 'Unauthorized')
+            assertNoToken(bridge.stderr(), [first, next])
+        } finally {
+            forgetProfileToken(first)
+            forgetProfileToken(next)
+            await bridge.close()
+        }
+    })
+})
