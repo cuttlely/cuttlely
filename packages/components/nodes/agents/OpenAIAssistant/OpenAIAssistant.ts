@@ -12,7 +12,8 @@ import OpenAI from 'openai'
 import { DataSource } from 'typeorm'
 import { getCredentialData, getCredentialParam } from '../../../src/utils'
 import fetch from 'node-fetch'
-import { flatten, uniqWith, isEqual } from 'lodash'
+import { uniqWith, isEqual } from 'lodash'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import { toolSchemaToJsonSchema } from '../../../src/utils'
 import { AnalyticHandler } from '../../../src/handler'
 import { Moderation, checkInputs, streamResponse } from '../../moderation/Moderation'
@@ -224,7 +225,7 @@ class OpenAIAssistant_Agents implements INode {
         }
 
         let tools = nodeData.inputs?.tools
-        tools = flatten(tools)
+        tools = prepareAgentTools(tools)
         const formattedTools = tools?.map((tool: any) => formatToOpenAIAssistantTool(tool)) ?? []
 
         const usedTools: IUsedTool[] = []

@@ -1,4 +1,3 @@
-import { flatten } from 'lodash'
 import { AgentExecutor } from '@langchain/classic/agents'
 import { pull } from 'langchain/hub'
 import { Tool } from '@langchain/core/tools'
@@ -7,7 +6,8 @@ import { BaseLanguageModel } from '@langchain/core/language_models/base'
 import { additionalCallbacks } from '../../../src/handler'
 import { getBaseClasses } from '../../../src/utils'
 import { ICommonObject, INode, INodeData, INodeParams } from '../../../src/Interface'
-import { createReactAgent } from '../../../src/agents'
+import { assertUniqueToolNames, createReactAgent } from '../../../src/agents'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import { checkInputs, Moderation } from '../../moderation/Moderation'
 import { formatResponse } from '../../outputparsers/OutputParserHelpers'
 
@@ -89,7 +89,9 @@ class ReActAgentLLM_Agents implements INode {
             }
         }
 
-        tools = flatten(tools)
+        tools = prepareAgentTools(tools)
+        // The classic executor does not reject a repeated tool name. Fail before the hub prompt is loaded.
+        assertUniqueToolNames(tools)
 
         const prompt = await pull<PromptTemplate>('hwchase17/react')
 
