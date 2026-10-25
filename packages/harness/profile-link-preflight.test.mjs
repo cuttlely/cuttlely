@@ -2869,6 +2869,39 @@ function readText(file) {
     cleanupProfile(name)
 }
 
+// The env file is read from the opened profile directory. That directory can leave the profiles root
+// after it was opened and before the read.
+{
+    const name = 'plinkenvmove'
+    compileProfileCached(record(name))
+    forgetCompiledProfile(name)
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-envmove-'))
+    const movedTo = path.join(scratch, 'outside-profile')
+    let moved = false
+    profileWriteTest.beforeEnvRead = (file) => {
+        if (moved || path.resolve(file) !== path.resolve(profilePath(name, '.env'))) return
+        moved = true
+        fs.renameSync(profilePath(name), movedTo)
+        fs.writeFileSync(path.join(movedTo, '.env'), 'OUTSIDE_ENV_SENTINEL=moved-before-read\n')
+    }
+    let refused = ''
+    let env = null
+    try {
+        env = readProfileEnv(name)
+    } catch (error) {
+        refused = error?.code || ''
+    } finally {
+        profileWriteTest.beforeEnvRead = null
+    }
+    check(
+        'an env file is not read once its profile directory has left the profiles root',
+        moved && refused === 'profile_link' && !env?.OUTSIDE_ENV_SENTINEL,
+        JSON.stringify({ moved, refused, read: Boolean(env?.OUTSIDE_ENV_SENTINEL) })
+    )
+    cleanupProfile(name)
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
 fs.rmSync(dataDir, { recursive: true, force: true })
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)

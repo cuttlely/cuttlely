@@ -398,6 +398,12 @@ function quarantineSymlink(linkPath) {
                 logQuarantineFailure(linkPath)
                 return false
             }
+            // Check once more right before the unlink, so a rename of this directory leaves the source alone.
+            if (!stillInside()) {
+                dropClaim(viaDest, claimed)
+                logQuarantineFailure(linkPath)
+                return false
+            }
             try {
                 fs.unlinkSync(viaSrc)
             } catch (error) {
@@ -532,6 +538,19 @@ function assertOpenedInside(rootFd, dirFd, file) {
         return
     }
     if (rootReal && here && !insideRoot(rootReal, here)) throwLink(file)
+}
+
+// Real path of the profiles or workspaces root that holds file, or '' when that root cannot be opened.
+function containingRootReal(file) {
+    let opened = null
+    try {
+        opened = openDirNoFollow(rootFor(file), { quiet: true })
+        return opened ? realOfFd(opened.fd) : ''
+    } catch {
+        return ''
+    } finally {
+        if (opened) closeFds(opened.fds)
+    }
 }
 
 function closeFds(fds) {
@@ -824,6 +843,9 @@ function readTextNoFollow(file, hook = false) {
             const dirReal = realOfFd(opened.fd)
             const fileReal = realOfFd(fileFd)
             if (dirReal && fileReal && !insideRoot(dirReal, fileReal)) throwLink(file)
+            // The parent can move outside its root after it was opened. Do not read a file from there.
+            const rootReal = containingRootReal(file)
+            if (rootReal && !insideRoot(rootReal, fileReal)) throwLink(file)
         }
         return fs.readFileSync(fileFd, 'utf8')
     } finally {
@@ -844,6 +866,7 @@ function writeContained(file, text, mode = 0o644) {
     if (!walked) throwLink(root)
     const fds = walked.fds
     const rootFd = walked.fd
+    const rootReal = realOfFd(rootFd)
     try {
         let dirFd = rootFd
         let logical = root
@@ -857,6 +880,8 @@ function writeContained(file, text, mode = 0o644) {
                 next = fs.openSync(via, DIR_FLAGS)
             } catch (error) {
                 if (error?.code === 'ENOENT') {
+                    // The parent can move outside the root after it was opened. Do not create a child there.
+                    if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(logical)
                     fs.mkdirSync(via)
                     next = fs.openSync(via, DIR_FLAGS)
                 } else if (error?.code === 'ELOOP' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') {
@@ -868,14 +893,11 @@ function writeContained(file, text, mode = 0o644) {
             fds.push(next)
             dirFd = next
         }
-        const rootReal = realOfFd(rootFd)
         if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(file)
         if (typeof profileWriteTest.beforeFinalOpen === 'function') profileWriteTest.beforeFinalOpen(file, dirFd)
-        try {
-            if (fs.lstatSync(logical).isSymbolicLink() && !quarantineContained(logical)) throwLink(logical)
-        } catch (error) {
-            if (error?.code !== 'ENOENT') throw error
-        }
+        // Stat the directory entry through its opened parent. An absolute lstat would walk ancestors again.
+        const dirEntry = fds.length > 1 ? lstatChild(fds[fds.length - 2], path.dirname(logical), path.basename(logical)) : null
+        if (dirEntry?.isSymbolicLink() && !quarantineContained(logical)) throwLink(logical)
         if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(file)
         const fileVia = fdPath(dirFd, fileName)
         if (!fileVia) refuseLink(path.join(logical, fileName))
