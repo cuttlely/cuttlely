@@ -11,7 +11,7 @@ With no timezone set, the JSON string is the same as before. `date` and `iso8601
 Set a default IANA timezone in either place:
 
 -   **Timezone** on the CurrentDateTime node.
--   `CUTTLELY_DEFAULT_TIMEZONE`, read when the tool runs. The node value wins when it is not blank.
+-   `CUTTLELY_DEFAULT_TIMEZONE`, read from the host when the tool runs. The node value wins when it is not blank. Server settings does not edit this variable.
 
 A call can pass `timezone`, an IANA name such as `America/Chicago`. That value wins over the node and the environment variable. Blank text is the same as leaving it out.
 
