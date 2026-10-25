@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.4.2가 나왔습니다.** 플로우 실행의 LangSmith 트레이스가 플로우에 설정한 LangSmith 프로젝트와 자격 증명으로 전송되고, 하네스 도구 실행 중 프로세스 내에서 이루어지는 모델 호출이 그 실행의 하위 런으로 표시됩니다. [변경 기록](./CHANGELOG.md#142---2026-10-23)
+**1.4.3가 나왔습니다.** PostgreSQL MCP 노드의 애널리스트 질의를 더 안전하게 했습니다. 직접 쓴 SQL 헬퍼용 **Allowed functions**, 시작 때 다시 컴파일되는 하네스 프로필, 서버 경로는 숨기고 일반 슬래시는 남기는 채팅 답변입니다. 올리기 전에 [업그레이드 노트](./CHANGELOG.md#143---2026-10-25)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#143---2026-10-25)
 
 ## 목차
 
