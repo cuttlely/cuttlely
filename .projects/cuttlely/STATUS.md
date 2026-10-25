@@ -122,3 +122,4 @@ Cuttlely 1.3.2. The product version is the root `package.json`, `packages/server
 -   The hermes patch set and `hermes/CUTTLELY_VENDOR.lock` fingerprint are saved again with `pnpm hermes:vendor --save-patches` after the Pillow and certifi pins from #248, so `pnpm hermes:vendor --check` and `pnpm verify` pass on `main`.
 -   Harness boot recompile (#291): a successful save clears a latched boot failure so runs stop getting 503, and the start script gateway wait cap is measured in elapsed seconds.
 -   Harness boot recompile (#291): a boot-failed harness is refused with 503 on engine.runHarness and engine.runQueuedHarness too, so chatflow runs match the runs API; profile save and compile off Linux names the platform and points to Docker, and the README and FAQ say so.
+-   CHANGELOG 1.4.3 (#297): the Changed line covers only the startup and gateway wait; the compile line stays under Fixed for the boot-accept test.
