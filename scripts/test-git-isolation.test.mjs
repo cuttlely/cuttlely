@@ -76,3 +76,37 @@ test('the guard refuses a folder that resolves to the real repository', () => {
     assert.throws(() => assertIsolated(ROOT), /real repository/)
     assert.throws(() => assertIsolated(ROOT, os.tmpdir()), /outside the test temp folder|real repository/)
 })
+
+test('the boundary fixture tests leave the repository named by GIT_DIR untouched', () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-git-isolation-')))
+    try {
+        const realRepo = path.join(dir, 'real')
+        fs.mkdirSync(realRepo)
+        git(realRepo, 'init', '-q', '-b', 'main')
+        fs.writeFileSync(path.join(realRepo, 'keep.txt'), 'keep\n')
+        git(realRepo, 'add', '.')
+        git(realRepo, '-c', 'user.name=x', '-c', 'user.email=x@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'real')
+        const before = snapshot(realRepo)
+
+        const res = spawnSync(process.execPath, ['--test', path.join(HERE, 'check-boundaries.test.mjs')], {
+            cwd: ROOT,
+            encoding: 'utf8',
+            env: {
+                ...cleanEnv(),
+                GIT_DIR: path.join(realRepo, '.git'),
+                GIT_WORK_TREE: realRepo,
+                GIT_INDEX_FILE: path.join(realRepo, '.git', 'index'),
+                GIT_OBJECT_DIRECTORY: path.join(realRepo, '.git', 'objects'),
+                GIT_PREFIX: ''
+            },
+            maxBuffer: 16 * 1024 * 1024
+        })
+        assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`)
+        const passed = Number((/(?:ℹ|#) pass (\d+)/.exec(res.stdout) || [])[1] || 0)
+        assert.ok(passed >= 10, `the nested boundary tests did not run:\n${res.stdout}`)
+        assert.deepEqual(snapshot(realRepo), before)
+        assert.equal(fs.readFileSync(path.join(realRepo, 'keep.txt'), 'utf8'), 'keep\n')
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})

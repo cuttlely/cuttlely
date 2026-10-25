@@ -663,6 +663,11 @@ export const buildFlow = async ({
             } else {
                 logger.debug(`[server]: [${orgId}]: Initializing ${reactFlowNode.data.label} (${reactFlowNode.data.id})`)
                 const finalQuestion = uploadedFilesContent ? `${uploadedFilesContent}\n\n${question}` : question
+                // A default name for this card. Each agent applies the name for its own tool list when it binds.
+                const harnessToolName =
+                    reactFlowNode.data.name === 'harness' && typeof nodeModule.harnessToolNameFromFlow === 'function'
+                        ? nodeModule.harnessToolNameFromFlow(reactFlowNode.data.id, flowNodes, reactFlowEdges)
+                        : undefined
                 const initNode = () =>
                     newNodeInstance.init(reactFlowNodeData, finalQuestion, {
                         orgId,
@@ -688,7 +693,8 @@ export const buildFlow = async ({
                         recordTokenUsage: recordCompletedRun,
                         ...harnessNodeOptions(harnessCaller),
                         ...(harnessToolPayloads ? { harnessToolPayloads } : {}),
-                        ...(cuttlelyReplay ? { cuttlelyReplay: true } : {})
+                        ...(cuttlelyReplay ? { cuttlelyReplay: true } : {}),
+                        ...(typeof harnessToolName === 'string' && harnessToolName ? { harnessToolName } : {})
                     })
                 let outputResult = isUpsert
                     ? await initNode()
@@ -1041,6 +1047,9 @@ export const getVariableValue = async (
  *   node's code inputs they are inserted as escaped text, never as code
  * @returns {INodeData}
  */
+/** Node inputs that are never filled from variables, request values or other nodes' output (PostgreSQL MCP Allowed functions). */
+export const UNRESOLVED_INPUT_NAMES: ReadonlySet<string> = new Set(['analystAllowedFunctions'])
+
 export const resolveVariables = async (
     reactFlowNodeData: INodeData,
     reactFlowNodes: IReactFlowNode[],
@@ -1056,6 +1065,8 @@ export const resolveVariables = async (
 
     const getParamValues = async (paramsObj: ICommonObject) => {
         for (const key in paramsObj) {
+            // Inputs that grant permissions keep exactly what the flow author saved: no {{...}} or $vars substitution.
+            if (UNRESOLVED_INPUT_NAMES.has(key)) continue
             const paramValue: string = paramsObj[key]
             const codeRequestVars = codeInputs.has(key) ? requestVarNames : undefined
             if (Array.isArray(paramValue)) {
