@@ -31,7 +31,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.4.3 を公開しました。** PostgreSQL MCP ノードのアナリスト問い合わせをより安全にしました。独自の SQL ヘルパー用の **Allowed functions**、起動時に再コンパイルされるハーネスプロファイル、サーバーのパスは隠したまま普通のスラッシュは残すチャット回答です。アップグレード前に[アップグレード注記](./CHANGELOG.md#143---unreleased)を読んでください。[変更履歴](./CHANGELOG.md#143---unreleased)
+**1.4.3 を公開しました。** PostgreSQL MCP ノードのアナリスト問い合わせをより安全にしました。独自の SQL ヘルパー用の **Allowed functions**、起動時に再コンパイルされるハーネスプロファイル、サーバーのパスは隠したまま普通のスラッシュは残すチャット回答です。アップグレード前に[アップグレード注記](./CHANGELOG.md#143---2026-10-25)を読んでください。[変更履歴](./CHANGELOG.md#143---2026-10-25)
 
 ## 目次
 
