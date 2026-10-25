@@ -348,7 +348,8 @@ Views often call small helper functions, such as `analytics._etl_safe_date(text)
 -   its SQL-standard body touches no relation, including a relation that is in the table selection; and
 -   every function it calls is an allowed built-in, or itself passes this same rule (checked recursively with a depth cap; a cycle is refused). Memoization records how deep each function's own calls go, so a function first seen on a short path still counts toward the cap on a longer path.
 
-With no table selected, a function outside `pg_catalog` still runs when it is `STABLE` or `IMMUTABLE`, not `SECURITY DEFINER`, has no settings of its own, is written in SQL or PL/pgSQL, and is not owned by a superuser. A SQL-standard `BEGIN ATOMIC` body is walked in that case too, and the function is refused when that body touches any relation.
+With no table selected, a function outside `pg_catalog` still runs when it is `STABLE` or `IMMUTABLE`, not `SECURITY DEFINER`, has no settings of its own, is written as a SQL-standard `BEGIN ATOMIC` body, and is not owned by a superuser. That body is walked, and the function is refused when it touches any relation.
+Functions whose body cannot be inspected (string-body SQL, PL/pgSQL, other procedural languages) are refused unless allow-listed.
 
 In scoped mode, every other user function — including every PL/pgSQL function and every string-body SQL function — is refused unless it is on the node’s saved Allowed functions list. Each call is matched by the function Postgres resolves it to (its oid), under the pinned search path. A refused function is reported with its exact signature and the hint to add it to Allowed functions, for example `function analytics.touchy(text) is not built in. ... found: VOLATILE. To allow it, the flow author can add analytics.touchy(text) to Allowed functions on the PostgreSQL MCP node.`
 

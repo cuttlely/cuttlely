@@ -1921,18 +1921,24 @@ describe('analyst relations: user functions inside views', () => {
     it('runs a view over STABLE and IMMUTABLE SQL and PL/pgSQL helpers with no setting', async (t) => {
         if (skipped(t)) return
         const sql = 'SELECT id, placed, qty, amount, seen FROM analytics.clean_orders ORDER BY id LIMIT 10'
-        const plain = await queryAnalystUrl(url, sql, node)
+        const allowList =
+            'analytics._etl_safe_date(text)\nanalytics._etl_safe_integer(text)\nanalytics._etl_safe_numeric(text)\nanalytics._etl_safe_timestamptz(text)'
+        // No selection: these helpers are string-body SQL and PL/pgSQL, so they are refused until listed.
+        await refusal(queryAnalystUrl(url, sql, node), /cannot be inspected/)
+        const plain = await queryAnalystUrl(url, sql, { ...node, allowedFunctions: allowList })
         assert.equal(plain.rows.length, 2)
         assert.equal(plain.rows[0].qty, 3)
         assert.equal(plain.rows[1].placed, null)
         const scoped = await queryAnalystUrl(url, sql, {
             ...node,
             relations: ['analytics.clean_orders'],
-            allowedFunctions:
-                'analytics._etl_safe_date(text)\nanalytics._etl_safe_integer(text)\nanalytics._etl_safe_numeric(text)\nanalytics._etl_safe_timestamptz(text)'
+            allowedFunctions: allowList
         })
         assert.equal(scoped.rows.length, 2)
-        const direct = await queryAnalystUrl(url, "SELECT analytics._etl_safe_numeric('1.5') AS n LIMIT 1", node)
+        const direct = await queryAnalystUrl(url, "SELECT analytics._etl_safe_numeric('1.5') AS n LIMIT 1", {
+            ...node,
+            allowedFunctions: allowList
+        })
         assert.equal(String(direct.rows[0].n), '1.5')
     })
 
@@ -2298,6 +2304,35 @@ describe('analyst relations: user functions inside views', () => {
             allowedFunctions: 's.read_unticked()'
         })
         assert.equal(Number(admitted.rows[0].v), 7)
+    })
+
+    it('refuses an uninspectable function body that reads a table when no relations are ticked', async (t) => {
+        // A string body has no prosqlbody tree. With nothing selected it must be refused, and an allow-list entry admits it.
+        if (skipped(t)) return
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE TABLE s.hidden_text (id int)`)
+        await owner.query(`INSERT INTO s.hidden_text VALUES (3)`)
+        await owner.query(`CREATE FUNCTION s.string_read() RETURNS int LANGUAGE sql STABLE AS $$SELECT id FROM s.hidden_text$$`)
+        await owner.query(
+            `CREATE FUNCTION s.pl_read() RETURNS int LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN (SELECT id FROM s.hidden_text LIMIT 1); END $$`
+        )
+        await owner.query('RESET ROLE')
+        await owner.query(`GRANT SELECT ON s.hidden_text TO "${reader}"`)
+        // (a) string-body LANGUAGE sql function reading a table.
+        await refusal(queryAnalystUrl(url, 'SELECT s.string_read() AS v LIMIT 1', node), /cannot be inspected/)
+        // (b) PL/pgSQL function reading a table.
+        await refusal(queryAnalystUrl(url, 'SELECT s.pl_read() AS v LIMIT 1', node), /cannot be inspected/)
+        // (c) the same function on the explicit Allowed functions list.
+        const admitted = await queryAnalystUrl(url, 'SELECT s.string_read() AS v LIMIT 1', {
+            ...node,
+            allowedFunctions: 's.string_read()'
+        })
+        assert.equal(Number(admitted.rows[0].v), 3)
+        const admittedPl = await queryAnalystUrl(url, 'SELECT s.pl_read() AS v LIMIT 1', {
+            ...node,
+            allowedFunctions: 's.pl_read()'
+        })
+        assert.equal(Number(admittedPl.rows[0].v), 3)
     })
 
     it('allow-list of a parent function does not bypass checks for its callees or defaults', async (t) => {
@@ -2974,16 +3009,17 @@ describe('analyst relations: text search configuration types', () => {
         if (skipped(t)) return
         for (const name of ['analytics.mv_safe_renewals', 'analytics.safe_renewals']) {
             const sql = `SELECT account_id, acv FROM ${name} ORDER BY account_id LIMIT 5`
-            // Unscoped: allowed.
-            const rowsUnscoped = (await queryAnalystUrl(url, sql, unscoped)).rows
+            const allowList = ['analytics._etl_safe_numeric(text)', 'analytics._etl_safe_date(text)'].join('\n')
+            // Unscoped: a string body cannot be inspected, so the helpers are refused until listed.
+            await refusal(queryAnalystUrl(url, sql, unscoped), /cannot be inspected/)
+            const rowsUnscoped = (await queryAnalystUrl(url, sql, { ...unscoped, allowedFunctions: allowList })).rows
             assert.deepEqual(
                 rowsUnscoped.map((row) => Number(row.acv)),
                 [500, 800],
-                `${name} unscoped`
+                `${name} unscoped with allow-list`
             )
             // Scoped: refused without allow-list, then allowed with text entries for helpers.
             await refusal(queryAnalystUrl(url, sql, scoped(name)), /Allowed functions/)
-            const allowList = ['analytics._etl_safe_numeric(text)', 'analytics._etl_safe_date(text)'].join('\n')
             const rowsScoped = (await queryAnalystUrl(url, sql, { ...scoped(name), allowedFunctions: allowList })).rows
             assert.deepEqual(
                 rowsScoped.map((row) => Number(row.acv)),

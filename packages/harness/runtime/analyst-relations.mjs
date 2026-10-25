@@ -1274,8 +1274,9 @@ const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${
 
 // Allowed functions: set by the flow author on the PostgreSQL MCP node (stored with the flow, never read from tool
 // input). One entry per line, schema-qualified with its argument types, such as analytics._etl_safe_date(text), or
-// name(*) for every overload. A bare name matches nothing. An entry is only needed for a function the automatic rule
-// (autoAllowed) refuses. Entries resolve to function ids under the pinned pg_catalog search path each time a query is checked.
+// name(*) for every overload. A bare name matches nothing. An entry is needed when the automatic rule refuses the
+// function, including a body that cannot be inspected. Entries resolve to function ids under the pinned pg_catalog
+// search path each time a query is checked.
 // Allow-listed function bodies are trusted by design: listing a function admits that function.
 // Argument defaults and the functions it calls are still checked.
 const ALLOWED_IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)`
@@ -1402,9 +1403,10 @@ async function refuseRoutines(
     // An id the catalog does not return is refused too.
     const missing = [...functionIds].filter((id) => !rows.some((row) => Number(row.oid) === id))
     if (missing.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(missing.map(String))} ${NOT_BUILT_IN}`)
-    // A user function runs without any setting when it can only read and runs as the caller: STABLE or IMMUTABLE,
-    // not SECURITY DEFINER, no settings of its own, written in SQL or PL/pgSQL, and not owned by a superuser. Anything
-    // else needs an entry in the node's Allowed functions.
+    // A user function runs without an allow-list entry only when its SQL-standard body can be inspected and it
+    // is STABLE or IMMUTABLE, not SECURITY DEFINER, has no settings of its own, and is not owned by a superuser.
+    // A string body or another language has no node tree and is refused. With a selection the body must also
+    // touch no relation. Anything else needs an entry in the node's Allowed functions.
     const allowed = runner.allowedFunctions?.length ? await resolveAllowedFunctions(runner) : new Set()
     // Shared recursion context
     const memo = new Map()
@@ -1601,8 +1603,11 @@ async function refuseRoutines(
         const body = String(info.probody || '')
         const allowedSelf = allowed.has(Number(functionOid))
         if (!allowedSelf) {
-            // With no selection, SQL and PL/pgSQL still pass on metadata. The body walk below
-            // still runs, and any relation it finds is refused.
+            // prosqlbody is empty for string-body SQL, PL/pgSQL and other languages, so there is
+            // no node tree to walk. Refuse those unless the function is allow-listed.
+            if (!body.trim()) return note('function body cannot be inspected')
+            // A SQL-standard body still has to pass the metadata rule with no selection. The
+            // walk below refuses any relation it finds.
             if (unscoped) {
                 if (!autoAllowed(info)) {
                     memo.set(functionOid, false)
