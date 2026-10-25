@@ -2580,6 +2580,27 @@ describe('analyst relations: text search configuration types', () => {
         }
     })
 
+    it('PG14: renewal mart shapes on MVs with tsearch column under a selection', async (t) => {
+        if (skipped(t)) return
+        const ver = Number((await owner.query('SHOW server_version_num')).rows[0].server_version_num || 0)
+        if (Math.floor(ver / 10000) !== 14) {
+            t.skip('not running on PG14')
+            return
+        }
+        const sql =
+            'WITH w AS (SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_amer UNION ALL SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_emea UNION ALL SELECT region_label, risk_radar, account_id, opportunity_id, renewal_acv, renewal_ts, _data_as_of FROM util.mv_region_renewal_120d_apj) SELECT region_label AS region, risk_radar, COUNT(DISTINCT opportunity_id) AS renewal_opportunities, COUNT(DISTINCT account_id) AS accounts, SUM(renewal_acv) AS renewal_acv_due, MAX(_data_as_of) AS data_as_of FROM w GROUP BY region_label, risk_radar ORDER BY renewal_acv_due DESC NULLS LAST LIMIT 100'
+        assert.equal(
+            (
+                await queryAnalystUrl(
+                    url,
+                    sql,
+                    scoped('util.mv_region_renewal_120d_amer', 'util.mv_region_renewal_120d_emea', 'util.mv_region_renewal_120d_apj')
+                )
+            ).rows.length >= 0,
+            true
+        )
+    })
+
     it('runs views over analytics._etl_safe_* helper functions next to a text search column', async (t) => {
         if (skipped(t)) return
         for (const name of ['analytics.mv_safe_renewals', 'analytics.safe_renewals']) {

@@ -560,7 +560,16 @@ export function treeObjectIds(tree) {
     const types = new Set()
     // Fail closed on constructs we do not vet under a selection.
     const BANNED_NODE_KINDS = new Set(['TABLEFUNC', 'XMLEXPR', 'NEXTVALUEEXPR'])
-    // Tag validation is handled by downstream walkers. Keep explicit bans here.
+    // Ban explicit constructs; unknown tags are handled by structural walkers
+    for (let i = 0; i < text.length; i += 1) {
+        if (text[i] === '{') {
+            const m = /^([A-Z_]+)/.exec(text.slice(i + 1))
+            const name = m ? m[1] : ''
+            if (name && BANNED_NODE_KINDS.has(name)) {
+                throw new ScopeRefusal('Cuttlely refused this query: it uses a construct not allowed while a table selection is set.')
+            }
+        }
+    }
     const add = (set, value) => {
         const n = Number(value)
         if (Number.isInteger(n) && n > 0) set.add(n)
@@ -695,6 +704,7 @@ export async function checkStatementScope(
             'CONST',
             'FUNCEXPR',
             'OPEXPR',
+            'SETOP',
             'COERCEVIAIO',
             'RELABELTYPE',
             'SCALARARRAYOPEXPR',
