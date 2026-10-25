@@ -283,6 +283,160 @@ wait_for_gateway
         }
     })
 
+    for (const mode of ['answers 503', 'is too busy to answer']) {
+        it(`a gateway that ${mode} while it compiles profiles is waited for past the usual limit`, async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-gateway-starting-'))
+            const ready = path.join(dir, 'gateway-ready')
+            const mark = path.join(dir, 'hermes-started')
+            const source = fs.readFileSync(path.join(ROOT, 'scripts/start-cuttlely.sh'), 'utf8')
+            const gatewayAnswers = source.match(/gateway_answers\(\) \{[\s\S]*?\n\}/)[0]
+            const waitForGateway = source.match(/wait_for_gateway\(\) \{[\s\S]*?\n\}/)[0]
+            let open = false
+            const server = http.createServer((req, res) => {
+                // Busy: the connection is accepted but nothing is written until the probe gives up.
+                if (!open && mode !== 'answers 503') return
+                res.writeHead(open ? 200 : 503, { 'content-type': 'application/json' })
+                res.end(open ? '{"ok":true}' : '{"ok":false,"starting":true}')
+            })
+            await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+            const port = server.address().port
+            // Past CUTTLELY_GATEWAY_WAIT_SECONDS=2: only the longer wait for a compiling gateway reaches it.
+            const opener = setTimeout(() => {
+                open = true
+                fs.writeFileSync(ready, String(Date.now()))
+            }, 3500)
+            const script = `
+set -euo pipefail
+export CUTTLELY_HARNESS_GATEWAY_PORT=${port}
+export CUTTLELY_GATEWAY_WAIT_SECONDS=2
+export CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=10
+NODE_BIN=${JSON.stringify(process.execPath)}
+${gatewayAnswers}
+${waitForGateway}
+wait_for_gateway
+"$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], String(Date.now()))' ${JSON.stringify(mark)}
+`
+            try {
+                const child = spawn('bash', ['-lc', script], { stdio: ['ignore', 'pipe', 'pipe'] })
+                let output = ''
+                child.stdout.on('data', (chunk) => (output += chunk))
+                const code = await new Promise((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        child.kill('SIGTERM')
+                        reject(new Error('gateway wait did not finish'))
+                    }, 15000)
+                    child.on('exit', (status) => {
+                        clearTimeout(timer)
+                        resolve(status)
+                    })
+                })
+                assert.equal(code, 0, output)
+                assert.match(output, /compiling agent profiles/)
+                const gatewayAt = Number(fs.readFileSync(ready, 'utf8'))
+                const hermesAt = Number(fs.readFileSync(mark, 'utf8'))
+                assert.ok(hermesAt >= gatewayAt)
+            } finally {
+                clearTimeout(opener)
+                server.closeAllConnections()
+                await new Promise((resolve) => server.close(resolve))
+                fs.rmSync(dir, { recursive: true, force: true })
+            }
+        })
+    }
+
+    it('a gateway that stays compiling stops at the cap and says so', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-gateway-cap-'))
+        const source = fs.readFileSync(path.join(ROOT, 'scripts/start-cuttlely.sh'), 'utf8')
+        const gatewayAnswers = source.match(/gateway_answers\(\) \{[\s\S]*?\n\}/)[0]
+        const waitForGateway = source.match(/wait_for_gateway\(\) \{[\s\S]*?\n\}/)[0]
+        const server = http.createServer((_req, res) => {
+            res.writeHead(503, { 'content-type': 'application/json' })
+            res.end('{"ok":false,"starting":true}')
+        })
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const port = server.address().port
+        const script = `
+set -euo pipefail
+export CUTTLELY_HARNESS_GATEWAY_PORT=${port}
+export CUTTLELY_GATEWAY_WAIT_SECONDS=1
+export CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=2
+NODE_BIN=${JSON.stringify(process.execPath)}
+${gatewayAnswers}
+${waitForGateway}
+wait_for_gateway
+`
+        const started = Date.now()
+        try {
+            const child = spawn('bash', ['-lc', script], { stdio: ['ignore', 'pipe', 'pipe'] })
+            let output = ''
+            child.stdout.on('data', (chunk) => (output += chunk))
+            child.stderr.on('data', (chunk) => (output += chunk))
+            const code = await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    child.kill('SIGTERM')
+                    reject(new Error(`gateway cap wait did not finish\n${output}`))
+                }, 10000)
+                child.on('exit', (status) => {
+                    clearTimeout(timer)
+                    resolve(status)
+                })
+            })
+            assert.notEqual(code, 0, output)
+            assert.match(output, /still compiling agent profiles after \d+s \(cap 2s\)/)
+            assert.ok(Date.now() - started < 8000, output)
+        } finally {
+            server.closeAllConnections?.()
+            await new Promise((resolve) => server.close(resolve))
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('a longer gateway wait is still bounded by the compiling cap', async () => {
+        const source = fs.readFileSync(path.join(ROOT, 'scripts/start-cuttlely.sh'), 'utf8')
+        const gatewayAnswers = source.match(/gateway_answers\(\) \{[\s\S]*?\n\}/)[0]
+        const waitForGateway = source.match(/wait_for_gateway\(\) \{[\s\S]*?\n\}/)[0]
+        const server = http.createServer((_req, res) => {
+            res.writeHead(503, { 'content-type': 'application/json' })
+            res.end('{"ok":false,"starting":true}')
+        })
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const port = server.address().port
+        const script = `
+set -euo pipefail
+export CUTTLELY_HARNESS_GATEWAY_PORT=${port}
+export CUTTLELY_GATEWAY_WAIT_SECONDS=30
+export CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS=2
+NODE_BIN=${JSON.stringify(process.execPath)}
+${gatewayAnswers}
+${waitForGateway}
+wait_for_gateway
+`
+        const started = Date.now()
+        try {
+            const child = spawn('bash', ['-lc', script], { stdio: ['ignore', 'pipe', 'pipe'] })
+            let output = ''
+            child.stdout.on('data', (chunk) => (output += chunk))
+            child.stderr.on('data', (chunk) => (output += chunk))
+            const code = await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    child.kill('SIGTERM')
+                    reject(new Error(`gateway cap wait did not finish\n${output}`))
+                }, 10000)
+                child.on('exit', (status) => {
+                    clearTimeout(timer)
+                    resolve(status)
+                })
+            })
+            const elapsed = Date.now() - started
+            assert.notEqual(code, 0, output)
+            assert.match(output, /still compiling agent profiles after \d+s \(cap 2s\)/)
+            assert.ok(elapsed < 8000, `${elapsed}\n${output}`)
+        } finally {
+            server.closeAllConnections?.()
+            await new Promise((resolve) => server.close(resolve))
+        }
+    })
+
     it('misses during the warm-up grace do not restart Hermes', async () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-hermes-grace-'))
         const child = spawnSupervisor(dir, {

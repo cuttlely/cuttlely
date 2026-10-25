@@ -10,6 +10,8 @@ import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpe
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
+import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
+import { removeContainedTree } from './profile.mjs'
 import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
@@ -51,6 +53,28 @@ function notedCallerWorkspace(name) {
     const stack = callerWorkspaces.get(name)
     if (!stack?.length) return undefined
     return stack[stack.length - 1]
+}
+
+let healthHolds = 0
+// Set by start-cuttlely.sh for the server it launches: /health answers 503 from the first request until the boot
+// recompile ends (finishGatewayBoot), even when a save binds the listener before the boot pass takes its hold.
+let bootFinished = false
+const bootPending = () => !bootFinished && process.env.CUTTLELY_GATEWAY_HOLD_UNTIL_BOOT === '1'
+
+export function finishGatewayBoot() {
+    bootFinished = true
+}
+
+// Compiling a profile binds the listener (gatewayUrl), so /health is held until the boot recompile ends.
+// The returned function releases this hold once.
+export function holdGatewayHealth() {
+    healthHolds += 1
+    let released = false
+    return () => {
+        if (released) return
+        released = true
+        healthHolds -= 1
+    }
 }
 
 export function gatewayListenPort() {
@@ -134,7 +158,26 @@ export function startGateway(options = {}) {
     if (host !== '127.0.0.1') return Promise.reject(new Error('The harness gateway listens on 127.0.0.1 only.'))
     const port = options.port == null ? gatewayListenPort() : Number(options.port)
     if (!Number.isInteger(port) || port < 0 || port > 65535) return Promise.reject(new Error('The harness gateway port is invalid.'))
-    if (port !== 0) return Promise.resolve(ensureListening(port).handle)
+    if (port !== 0) {
+        // Resolves once the port is bound, so a port another process holds fails the start instead of passing.
+        const item = ensureListening(port)
+        if (item.server.listening) return Promise.resolve(item.handle)
+        return new Promise((resolve, reject) => {
+            const done = () => {
+                item.server.off('listening', done)
+                item.server.off('error', fail)
+            }
+            const fail = (error) => {
+                done()
+                reject(error)
+            }
+            item.server.once('listening', () => {
+                done()
+                resolve(item.handle)
+            })
+            item.server.once('error', fail)
+        })
+    }
     loadTokensOnce()
     return new Promise((resolve, reject) => {
         const server = http.createServer(onRequest)
@@ -296,12 +339,12 @@ function removeProfileTree(entry) {
         // This entry can still be deleted. The others are a separate call.
     }
     try {
-        fs.rmSync(dir, { recursive: true, force: true })
+        removeContainedTree(dir)
     } catch {
         // EBUSY on this directory does not stop the rest of the sweep.
     }
     try {
-        fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+        removeContainedTree(path.join(dataRoot(), 'workspaces', entry))
     } catch {
         // The profile removal above already finished or failed on its own.
     }
@@ -313,9 +356,10 @@ function removeProfileTree(entry) {
 export function sweepAbandonedTryProfiles() {
     const abandoned = new Set()
     const root = path.join(hermesHome(), 'profiles')
-    if (!fs.existsSync(root)) return abandoned
+    const entries = listDirNoFollow(root)
+    if (!entries) return abandoned
     const drop = []
-    for (const entry of fs.readdirSync(root)) {
+    for (const entry of entries) {
         const marker = readParent(path.join(root, entry))
         if (!abandonedTryEntry(entry, marker)) continue
         drop.push(entry)
@@ -333,10 +377,18 @@ export function sweepAbandonedTryProfiles() {
 
 function ingestProfileTokens(abandoned = new Set()) {
     const root = path.join(hermesHome(), 'profiles')
-    if (!fs.existsSync(root)) return
-    for (const entry of fs.readdirSync(root)) {
+    const entries = listDirNoFollow(root)
+    if (!entries) return
+    for (const entry of entries) {
         if (abandoned.has(entry)) continue
+        // A link is not a profile the runtime loads, including one that could not be renamed aside.
+        if (entry.endsWith('.quarantine') || /\.quarantine-\d+$/.test(entry)) continue
         const dir = path.join(root, entry)
+        try {
+            if (fs.lstatSync(dir).isSymbolicLink()) continue
+        } catch {
+            continue
+        }
         const env = readEnvFile(path.join(dir, '.env'))
         const token = env.OPENAI_API_KEY || ''
         const base = String(env.OPENAI_BASE_URL || '')
@@ -399,15 +451,15 @@ function loadTokensOnce() {
 }
 
 function readParent(dir) {
-    const file = path.join(dir, 'harness-parent')
-    if (!fs.existsSync(file)) return ''
-    return fs.readFileSync(file, 'utf8').trim()
+    const text = readFileNoFollow(path.join(dir, 'harness-parent'))
+    return text == null ? '' : text.trim()
 }
 
 function readEnvFile(file) {
-    if (!fs.existsSync(file)) return {}
+    const text = readFileNoFollow(file)
+    if (text == null) return {}
     const env = {}
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    for (const line of text.split('\n')) {
         const trimmed = line.trim()
         if (!trimmed || trimmed.startsWith('#')) continue
         const eq = trimmed.indexOf('=')
@@ -496,8 +548,10 @@ async function onRequest(req, res) {
     }
     const pathName = pathnameOf(req)
     // The start script waits for this before it launches Hermes. No token: the process just has to be up.
+    // While the server compiles profiles from an older compiler, /health answers 503, so Hermes waits for them.
     if (req.method === 'GET' && pathName === '/health') {
-        sendJson(res, 200, { ok: true })
+        if (healthHolds > 0 || bootPending()) sendJson(res, 503, { ok: false, starting: true })
+        else sendJson(res, 200, { ok: true })
         return
     }
     const token = bearer(req)

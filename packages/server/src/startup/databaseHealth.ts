@@ -2,8 +2,8 @@
  * Whether the server can reach its own database, for the health check (/api/v1/ping) and the boot log.
  *
  * Docker's HEALTHCHECK, the Compose files and Render's healthCheckPath all use /api/v1/ping. It answers 503 while the
- * database cannot be reached, at startup or later, so a container shows unhealthy and Render keeps a new deploy from
- * going live and restarts an instance that lost its database. A start that never opened the database can only recover
+ * boot profile compile is still the startup gate, and while the database cannot be reached, at startup or later, so a
+ * container shows unhealthy and Render keeps a new deploy from going live and restarts an instance that lost its database. A start that never opened the database can only recover
  * by starting again, so a restart is the right answer there; a later outage clears by itself once the database
  * answers, because the connection pool reconnects. The check is one SELECT 1, cached for a few seconds.
  *

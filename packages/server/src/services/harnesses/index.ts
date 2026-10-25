@@ -11,6 +11,8 @@ import { requireWorkspaceId } from '../../identity/workspaceScope'
 import { databaseEntities } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
+
+export { logger }
 import { orgIdForWorkspace } from '../etl'
 import flowDraftsService from '../flow-drafts'
 import { openHarnessRunTrace } from '../../metrics/tracing'
@@ -20,6 +22,7 @@ import { safeHarnessName } from './apiAccess'
 import { harnessCanvasDelete } from './canvasDelete'
 import type { IHarnessCaller } from '../../Interface'
 import { harnessNodeOptions } from '../../utils/apiKeyAccess'
+import { beginBootPass, bootPassCapMs, finishBootPass, markBootIncomplete, openBootAfterCap } from './bootGate'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -131,7 +134,9 @@ const listHarnesses = async (workspaceId?: string | null) => {
         if (!inWorkspace(owner, ws)) continue
         const shown = !row.workspaceId && owner ? store.claimWorkspace(row.name, owner) || { ...row, workspaceId: owner } : row
         // An orphan stays on the list, marked, so it can be deleted from its card.
-        visible.push((await isOrphan(shown)) ? { ...shown, orphaned: true } : shown)
+        const marked = (await isOrphan(shown)) ? { ...shown, orphaned: true } : shown
+        const failed = bootFailures.get(marked.name)
+        visible.push(failed ? { ...marked, status: 'failed', error: failed } : marked)
     }
     return visible
 }
@@ -225,6 +230,8 @@ async function saveUnderName(
     assertNoProfileConflicts(profile, record, name)
     const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
     profile.compileProfileCached(saved)
+    // A successful save clears a latched boot failure so assertHarnessAvailable stops returning 503.
+    clearBootFailure(saved.name)
     warmHarnesses([saved.name])
     return saved
 }
@@ -309,14 +316,235 @@ async function contextFor(record: { chatflowId?: string; workspaceId?: string | 
 
 let runtimeConfigured: Promise<void> | undefined
 
+/** Boot compile failures, by harness name. The list API and run route read this. */
+const bootFailures = new Map<string, string>()
+/** The harness whose compile is in progress, so a cap can mark that one failed. */
+let bootActive: string | null = null
+
+function markBootFailed(name: string, error: string) {
+    if (!name || bootFailures.has(name)) return
+    bootFailures.set(name, error)
+    logger.error(`[harness] ${name} harness unavailable: ${error}`)
+}
+
+function clearBootFailure(name: string) {
+    bootFailures.delete(name)
+}
+
+/** A failed boot compile refuses a run with 503, not 500. */
+export function assertHarnessAvailable(name: string) {
+    const error = bootFailures.get(name)
+    if (!error) return
+    throw new AppError(StatusCodes.SERVICE_UNAVAILABLE, `harness unavailable: ${error}`)
+}
+
+/** Puts that refusal on the shared run path, so a chatflow calling engine.runHarness gets the same 503. */
+export function bindHarnessAvailability(engine?: { setHarnessAvailabilityCheck?: (check: ((name: string) => void) | null) => void }) {
+    if (typeof engine?.setHarnessAvailabilityCheck === 'function') engine.setHarnessAvailabilityCheck(assertHarnessAvailable)
+}
+
+export async function invokeHarnessForBoot(name: string, run: () => Promise<{ text: string }>) {
+    assertHarnessAvailable(name)
+    return run()
+}
+
+/** The boot compile did not finish. Callers must not treat that as a successful start. */
+export class BootPassIncomplete extends Error {
+    readonly code = 'boot_incomplete'
+    readonly linkLeft: boolean
+
+    constructor(message: string, linkLeft = false) {
+        super(message)
+        this.name = 'BootPassIncomplete'
+        this.linkLeft = linkLeft
+    }
+}
+
+// /health and /api/v1/ping answer 503 while outdated profiles are compiled, so the runtime never loads a profile
+// mid-write or from an older compiler. The listener starts first, with health held. The start script reads that 503
+// as "up and compiling" and waits up to CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS (180 by default, never more than 300).
+// A compile that is still running at that cap continues in the background: ping may answer 200, and chat and
+// prediction answer 503 with Retry-After until the pass finishes.
+export async function recompileBeforeHermes(gateway: {
+    holdGatewayHealth: () => () => void
+    startGateway: () => Promise<unknown>
+    finishGatewayBoot?: () => void
+}): Promise<void> {
+    beginBootPass()
+    const hold = gateway.holdGatewayHealth()
+    let released = false
+    const release = () => {
+        if (released) return
+        released = true
+        hold()
+        gateway.finishGatewayBoot?.()
+        finishBootPass()
+    }
+    const unfinished = (message: string, linkLeft = false): never => {
+        markBootIncomplete()
+        throw new BootPassIncomplete(message, linkLeft)
+    }
+    // A gateway that does not start keeps the hold: profiles were not checked, so the runtime must not start on them.
+    await gateway.startGateway()
+    const startedAt = Date.now()
+    const pass = (async () => {
+        try {
+            await recompileOutdatedHarnessProfiles()
+        } catch (error) {
+            logger.error(`[harness] profile recompile at start failed: ${getErrorMessage(error)}`)
+        }
+        // One folder that cannot be read, or one older config that cannot be moved, is named and skipped
+        // when that path is not a link. The rest of the pass still finishes, so ping and the runtime are
+        // not held for that profile. A link left on a load path, and a link above the profiles directory
+        // that this sweep refuses, stay unfinished: the runtime must not start while that link is there.
+        let loadable: string[] = []
+        try {
+            const profile = await loadHarness('profile.mjs')
+            loadable = await withProfileLock(async () => profile.setAsideOutdatedConfigs())
+        } catch (error) {
+            const linkFailure = Boolean(error && typeof error === 'object' && (error as { code?: string }).code === 'profile_link')
+            if (linkFailure) unfinished(`profile link still on the load path: ${getErrorMessage(error)}`, true)
+            unfinished(`profiles could not be checked for an older compiler: ${getErrorMessage(error)}`)
+        }
+        const stillLinked: string[] = []
+        for (const dir of loadable) {
+            let linked = false
+            try {
+                linked = fs.lstatSync(dir).isSymbolicLink()
+            } catch {
+                linked = false
+            }
+            if (linked) {
+                stillLinked.push(dir)
+                continue
+            }
+            logger.error(
+                `[harness] skipped profile ${dir}: config.yaml from an older compiler could not be set aside. The other profiles still start.`
+            )
+        }
+        // A link left on the load path is not a skipped config. The runtime must not start while it is there.
+        if (stillLinked.length) unfinished(`profile link still on the load path: ${stillLinked.join(', ')}`, true)
+        release()
+    })()
+
+    const capMs = bootPassCapMs()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const capped = new Promise<'cap'>((resolve) => {
+        timer = setTimeout(() => resolve('cap'), capMs)
+        timer.unref?.()
+    })
+    let winner: 'cap' | 'done' | Error
+    try {
+        winner = await Promise.race([
+            pass.then(
+                () => 'done' as const,
+                (error: unknown) => (error instanceof Error ? error : new Error(String(error)))
+            ),
+            capped
+        ])
+    } finally {
+        if (timer) clearTimeout(timer)
+    }
+    if (winner === 'cap') {
+        const seconds = Math.round(capMs / 1000)
+        logger.warn(
+            `[harness] profile recompile is still running after ${seconds}s (cap ${seconds}s). ` +
+                'It continues in the background. Chat and prediction answer 503 until it finishes.'
+        )
+        if (bootActive) markBootFailed(bootActive, 'boot recompile stopped at the cap')
+        openBootAfterCap()
+        void pass.catch((error) => {
+            // The cap already opened ping. A link still on the load path keeps gateway health held, so the
+            // runtime does not start. Any other unfinished pass releases that hold so the runtime is not left down.
+            logger.error(`[harness] profile compile at start did not finish: ${getErrorMessage(error)}`)
+            markBootIncomplete()
+            if (error instanceof BootPassIncomplete && error.linkLeft) return
+            release()
+        })
+        return
+    }
+    if (winner instanceof Error) {
+        markBootIncomplete()
+        logger.error(`[harness] profile compile at start did not finish: ${winner.message}`)
+        const left = Math.max(0, capMs - (Date.now() - startedAt))
+        const linkLeft = winner instanceof BootPassIncomplete && winner.linkLeft
+        const flip = setTimeout(() => {
+            // Ping opens at the cap. A link that is still there keeps gateway health held.
+            if (linkLeft) {
+                openBootAfterCap()
+                return
+            }
+            release()
+        }, left)
+        flip.unref?.()
+        throw winner
+    }
+}
+
+// Each record is read again and compiled under its name lock and the profile lock (the order saves use), so a save,
+// sync or delete that ran while this waited is what gets compiled, or the deleted record is skipped. One failure
+// is logged and the rest still run.
+/** Tests start a fresh runtime after another test in this process already configured one. */
+export function resetHarnessRuntimeForTests() {
+    runtimeConfigured = undefined
+    bootFailures.clear()
+    bootActive = null
+}
+
+export async function recompileOutdatedHarnessProfiles(): Promise<Array<{ name: string; status: string; error?: string }>> {
+    const [profile, store] = await Promise.all([loadHarness('profile.mjs'), loadHarness('store.mjs')])
+    let names: string[]
+    try {
+        names = store.listHarnessNames()
+    } catch (error) {
+        logger.warn(`[harness] profiles were not checked for an older compiler: ${getErrorMessage(error)}`)
+        return []
+    }
+    const results: Array<{ name: string; status: string; error?: string }> = []
+    for (const name of names) {
+        // Compiling is synchronous file work: a turn of the event loop between records lets /health answer its 503.
+        // A timer, not setImmediate: the loop then passes the poll phase, where a waiting HTTP request is read.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        bootActive = name
+        let done: Array<{ name: string; status: string; error?: string }> = []
+        try {
+            done = await withNameLock(name, () =>
+                withProfileLock(async () => {
+                    let record
+                    try {
+                        record = store.getHarness(name)
+                    } catch (error) {
+                        // One unreadable record is reported once, by markBootFailed. The others still run.
+                        return [{ name, status: 'failed', error: getErrorMessage(error) }]
+                    }
+                    return record ? profile.recompileOutdatedProfiles([record], { log: logger }) : []
+                })
+            )
+        } catch (error) {
+            done = [{ name, status: 'failed', error: getErrorMessage(error) }]
+        } finally {
+            if (bootActive === name) bootActive = null
+        }
+        for (const row of done) {
+            if (row.status === 'failed') markBootFailed(row.name, row.error || 'compile failed')
+            else if (row.status === 'recompiled') clearBootFailure(row.name)
+        }
+        results.push(...done)
+    }
+    return results
+}
+
 // Registers once. contextFor itself runs only when a server-initiated harness run asks for options.
 function configureRuntime(): Promise<void> {
     if (!runtimeConfigured) {
         runtimeConfigured = loadHarness('run.mjs')
             .then(async (engine) => {
+                bindHarnessAvailability(engine)
                 engine.configureHarnessRuntime({ contextFor })
+                // Before the gateway answers: the start script launches Hermes only once /health answers, and Hermes
+                // reads each profile's config.yaml from disk. A compile binds the listener, so /health is held meanwhile.
                 const gateway = await loadHarness('gateway.mjs')
-                await gateway.startGateway()
+                await recompileBeforeHermes(gateway)
                 // Logs (or, with CUTTLELY_HARNESS_ORPHAN_SWEEP=delete, removes) profiles whose harness was deleted.
                 const cleanup = await loadHarness('cleanup.mjs')
                 await cleanup.sweepOrphanHarnessProfiles().catch((error: unknown) => {
@@ -333,15 +561,29 @@ function configureRuntime(): Promise<void> {
 
 // The server calls this once it listens. Importing this module starts nothing: CLI commands such as `pnpm user` load it
 // too (oclif reads every command), and the running server already holds the gateway port.
-const startHarnessRuntime = () =>
-    void configureRuntime().catch((error) => logger.warn(`[harness] runtime context was not configured: ${getErrorMessage(error)}`))
+const startHarnessRuntime = () => {
+    // Ping stays 503 from this moment, including while the harness modules load, until the compile finishes
+    // or the startup cap opens it. A module that fails to load must not leave ping at 503 past that cap.
+    beginBootPass()
+    const flip = setTimeout(() => openBootAfterCap(), bootPassCapMs())
+    flip.unref?.()
+    void configureRuntime().catch((error) => {
+        logger.warn(`[harness] runtime context was not configured: ${getErrorMessage(error)}`)
+        markBootIncomplete()
+    })
+}
 
 // Runs in the background: a failed warm-up only means the next chat pays the cold start.
 const warmHarnesses = (names?: string[]) => {
     if (process.env.CUTTLELY_WARM_HERMES === 'false') return
     configureRuntime()
         .then(() => loadHarness('run.mjs'))
-        .then((engine) => engine.warmHarnessProfiles({ names }))
+        .then((engine) =>
+            engine.warmHarnessProfiles({
+                names,
+                lock: (compile: () => unknown) => withProfileLock(() => Promise.resolve(compile()))
+            })
+        )
         .catch((error) => logger.warn(`[harness] Hermes warm-up failed: ${getErrorMessage(error)}`))
 }
 
@@ -994,6 +1236,7 @@ const startRun = async (
         caller: IHarnessCaller
     }
 ) => {
+    assertHarnessAvailable(name)
     const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
     const apiKeyId = callerKeyId(opts.caller)
     await configureRuntime()
@@ -1364,6 +1607,8 @@ export default {
     removeHarnessesForCanvas,
     withNameLock,
     withProfileLock,
+    recompileOutdatedHarnessProfiles,
+    recompileBeforeHermes,
     syncUnderNameLock,
     assertNameAvailable,
     listHarnesses,

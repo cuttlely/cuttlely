@@ -183,6 +183,17 @@ export function listHarnesses() {
         .sort((a, b) => a.name.localeCompare(b.name))
 }
 
+// Names from the file names alone, so one unreadable record does not hide the others.
+export function listHarnessNames() {
+    const dir = harnessStoreDir()
+    if (!fs.existsSync(dir)) return []
+    return fs
+        .readdirSync(dir)
+        .filter((entry) => entry.endsWith('.json'))
+        .map((entry) => entry.slice(0, -'.json'.length))
+        .sort((a, b) => a.localeCompare(b))
+}
+
 export function getHarness(name) {
     assertHarnessName(name)
     const file = fileFor(name)
