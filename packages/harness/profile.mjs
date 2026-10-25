@@ -404,6 +404,8 @@ function quarantineSymlink(linkPath) {
                 logQuarantineFailure(linkPath)
                 return false
             }
+            // Node has no unlinkat with a dev/ino guard, so this check and the unlink stay two calls. The name
+            // removed is the symlink checked above unless it is swapped in that gap; no target is followed.
             try {
                 fs.unlinkSync(viaSrc)
             } catch (error) {
@@ -847,7 +849,13 @@ function readTextNoFollow(file, hook = false) {
             const rootReal = containingRootReal(file)
             if (!rootReal || !insideRoot(rootReal, fileReal)) throwLink(file)
         }
-        return fs.readFileSync(fileFd, 'utf8')
+        const text = fs.readFileSync(fileFd, 'utf8')
+        // Check again after the read, so text from a file that left the root meanwhile is not returned.
+        if (process.platform === 'linux') {
+            const rootReal = containingRootReal(file)
+            if (!rootReal || !insideRoot(rootReal, realOfFd(fileFd))) throwLink(file)
+        }
+        return text
     } finally {
         closeFds(fds)
     }
@@ -884,6 +892,16 @@ function writeContained(file, text, mode = 0o644) {
                     if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(dirFd))) throwLink(logical)
                     fs.mkdirSync(via)
                     next = fs.openSync(via, DIR_FLAGS)
+                    // The parent can still move between that check and the mkdir. Remove a directory made outside.
+                    if (process.platform === 'linux' && !insideRoot(rootReal, realOfFd(next))) {
+                        fs.closeSync(next)
+                        try {
+                            fs.rmdirSync(via)
+                        } catch {
+                            // Not empty or already gone: only the empty directory this call made is removed.
+                        }
+                        throwLink(logical)
+                    }
                 } else if (error?.code === 'ELOOP' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') {
                     refuseLink(logical)
                 } else {
