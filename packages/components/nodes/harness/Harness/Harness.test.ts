@@ -1168,6 +1168,44 @@ describe('stable harness tool names', () => {
             expect(new Set(onAgent(group)).size).toBe(group.length)
         }
     })
+
+    it('names a shared card harness when it is the only harness on one agent', () => {
+        const card = (id: string) => harnessCard(id, 'Team', 'team')
+        const agent = (id: string, tools: string[]) => ({
+            id,
+            data: { name: 'toolAgent', inputs: { tools: tools.map((toolId) => `{{${toolId}.data.instance}}`) } }
+        })
+        const nodes = [card('h_0'), card('h_1'), agent('a_0', ['h_0', 'h_1']), agent('a_1', ['h_1'])]
+        expect(harnessToolNameFromFlow('h_0', nodes)).toBe('team')
+        expect(harnessToolNameFromFlow('h_1', nodes)).toBe('harness')
+        const onShared = ['h_0', 'h_1'].map((id) => harnessToolNameFromFlow(id, nodes))
+        expect(new Set(onShared).size).toBe(onShared.length)
+    })
+
+    it('keeps an unnumbered id suffix when another card with the same title is deleted', () => {
+        const cards = [
+            { id: 'a', label: 'Team', name: 'team' },
+            { id: 'b', label: 'Team', name: 'team' },
+            { id: 'c', label: 'Team', name: 'team' },
+            { id: 'd', label: 'Other', name: 'other' }
+        ]
+        const before = assignHarnessToolNames(cards)
+        expect(before.get('a')).toBe('team')
+        expect(before.get('b')).toBe('team_b')
+        expect(before.get('c')).toBe('team_c')
+        expect(before.get('d')).toBe('other')
+        const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'b'))
+        expect(after.get('a')).toBe('team')
+        expect(after.get('c')).toBe('team_c')
+        expect(after.get('d')).toBe('other')
+    })
+
+    it('keeps numeric id 0 on an agentflow harness row', () => {
+        const { harnessCardsOnAgent } = require('../../agentflow/Agent/Agent')
+        const tools = [{ id: 0, agentSelectedTool: 'harness', agentSelectedToolConfig: { label: 'Team', harnessName: 'team' } }]
+        expect(harnessCardsOnAgent(tools).map((card: { id: string }) => card.id)).toEqual(['0'])
+        expect(tools[0].id).toBe(0)
+    })
 })
 
 describe('duplicate tool names on one agent', () => {

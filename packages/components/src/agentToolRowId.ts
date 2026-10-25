@@ -12,6 +12,8 @@ type AgentToolRow = {
 }
 
 function textId(value: unknown): string {
+    // A stored id may be a number. 0 is a real id, and it must not be treated as missing.
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
     return typeof value === 'string' ? value.trim() : ''
 }
 

@@ -359,12 +359,25 @@ function baseToolName(card: HarnessToolCard, alone: boolean): string {
 }
 
 function withNumericSuffix(base: string, n: number): string {
-    const suffix = `_${n}`
+    return withLiteralSuffix(base, `_${n}`)
+}
+
+// Fit `base + suffix` into 64 characters. The suffix is kept whole when it is short enough.
+function withLiteralSuffix(base: string, suffix: string): string {
     const room = Math.max(HARNESS_TOOL_NAME_MAX - suffix.length, 1)
     let stem = (base || 'harness').slice(0, room)
     while (stem.endsWith('_')) stem = stem.slice(0, -1)
     if (!stem) stem = 'h'
     return `${stem.slice(0, HARNESS_TOOL_NAME_MAX - suffix.length)}${suffix}`
+}
+
+// The suffix belongs to this card. A trailing number on the id, including 0, is that suffix.
+// An id with no trailing number uses the id text, so deleting a neighbor cannot move it.
+function withIdSuffix(base: string, id: string): string {
+    const owned = trailingNumber(id)
+    if (owned !== undefined) return withNumericSuffix(base, owned)
+    const token = (sanitizeHarnessToolToken(id) || 'id').slice(0, 32)
+    return withLiteralSuffix(base, `_${token}`)
 }
 
 // harness_2 before harness_10, and harness_tool_2 before harness_tool_10. Text order would not.
@@ -394,20 +407,14 @@ function trailingNumber(id: string): number | undefined {
     return Number.isSafeInteger(value) ? value : undefined
 }
 
-function suffixNumber(id: string): number {
-    const owned = trailingNumber(id)
-    // 0 is a real id number. Only a missing number falls back to 2.
-    return owned !== undefined ? owned : 2
-}
-
 /**
  * One tool name per card. A title the person set is used when it is unique, then the saved harness
  * name. A base only one card wants is kept as it is. When several cards still want the same base, the
  * lowest id (numeric parts compared as numbers) keeps it, and each other card takes `_` plus its own
- * id number, including 0. That id suffix wins over another card's title that spells the same text, and
- * it stays reserved while the card that owns the id is still here, even after that card takes the bare
- * name. Removing a different card does not move that suffix. The bare name moves to the next id only
- * when the card that held it is gone.
+ * id: the trailing number, including 0, or the id text when there is no trailing number. That suffix
+ * wins over another card's title that spells the same text, and it stays reserved while the card that
+ * owns the id is still here, even after that card takes the bare name. Removing a different card does
+ * not move that suffix. The bare name moves to the next id only when the card that held it is gone.
  */
 function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const items = (Array.isArray(cards) ? cards : []).map((card, index) => ({
@@ -431,7 +438,7 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     for (const item of bases) {
         const count = counts.get(item.base) || 0
         const owned = trailingNumber(item.id)
-        const suffixName = withNumericSuffix(item.base, suffixNumber(item.id))
+        const suffixName = withIdSuffix(item.base, item.id)
         const winner = winnerOf.get(item.base) === item.id
         const inCollision = count > 1
         if (inCollision && !winner) {
@@ -449,7 +456,7 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const names = new Map<string, string>()
     for (const item of bases) {
         const count = counts.get(item.base) || 0
-        const preferred = count > 1 && winnerOf.get(item.base) !== item.id ? withNumericSuffix(item.base, suffixNumber(item.id)) : item.base
+        const preferred = count > 1 && winnerOf.get(item.base) !== item.id ? withIdSuffix(item.base, item.id) : item.base
         const candidate = nextFreeName(preferred, item.id, used, reservedBy)
         names.set(item.id, candidate)
         used.add(candidate)
@@ -583,11 +590,18 @@ function reserveOnAgents(name: string, agents: string[], taken: Map<string, Set<
     }
 }
 
+// True when this card is the only Harness on at least one agent. That agent must call it harness.
+function loneOnAnyAgent(id: string, agentsOf: Map<string, string[]>, byId: Map<string, FlowNodeLike>, edges?: FlowEdgeLike[]): boolean {
+    const agents = agentsOf.get(id) || []
+    return agents.some((agentId) => harnessIdsOnAgent(agentId, byId, edges).length === 1)
+}
+
 /**
- * One tool name for every Harness card in the flow. Cards are named in id order. A chosen name is
- * reserved on every agent that card is attached to, so two cards that share an agent cannot both
- * take it, including when each of them is also attached to a different agent. A card on one agent
- * keeps the name that agent would give it on its own when that name is still free.
+ * One tool name for every Harness card in the flow. A card that is the only Harness on any agent is
+ * named harness, and that claim is settled before other cards, so a second agent that also uses the
+ * card cannot replace it with a suffixed title. Every other card is named in id order. A chosen name
+ * is reserved on every agent that card is attached to, so two cards that share an agent cannot both
+ * take it.
  */
 function assignFlowHarnessToolNames(nodes: FlowNodeLike[], edges?: FlowEdgeLike[]): Map<string, string> {
     const byId = flowIndex(Array.isArray(nodes) ? nodes : [])
@@ -605,9 +619,16 @@ function assignFlowHarnessToolNames(nodes: FlowNodeLike[], edges?: FlowEdgeLike[
         local.set(agentId, assignHarnessToolNames(cardsOnAgent(agentId, byId, edges)))
     }
 
+    const ordered = [...harnessIds].sort((left, right) => {
+        const leftLone = loneOnAnyAgent(left, agentsOf, byId, edges) ? 0 : 1
+        const rightLone = loneOnAnyAgent(right, agentsOf, byId, edges) ? 0 : 1
+        if (leftLone !== rightLone) return leftLone - rightLone
+        return compareIds(left, right)
+    })
+
     const taken = new Map<string, Set<string>>()
     const names = new Map<string, string>()
-    for (const id of harnessIds) {
+    for (const id of ordered) {
         const agents = agentsOf.get(id) || []
         if (!agents.length) {
             const alone = assignHarnessToolNames([cardFromFlowNode(id, byId.get(id))]).get(id) || 'harness'
@@ -619,8 +640,12 @@ function assignFlowHarnessToolNames(nodes: FlowNodeLike[], edges?: FlowEdgeLike[
             const name = local.get(agentId)?.get(id)
             if (name && !candidates.includes(name)) candidates.push(name)
         }
+        const lone = loneOnAnyAgent(id, agentsOf, byId, edges)
         const chosen =
-            candidates.find((name) => nameFreeOnAgents(name, agents, taken)) || firstFreeOnAgents(candidates[0] || 'harness', agents, taken)
+            lone && nameFreeOnAgents('harness', agents, taken)
+                ? 'harness'
+                : candidates.find((name) => nameFreeOnAgents(name, agents, taken)) ||
+                  firstFreeOnAgents(candidates[0] || 'harness', agents, taken)
         names.set(id, chosen)
         reserveOnAgents(chosen, agents, taken)
     }
@@ -629,9 +654,9 @@ function assignFlowHarnessToolNames(nodes: FlowNodeLike[], edges?: FlowEdgeLike[
 
 /**
  * Tool name for one Harness card. Collisions are counted per agent, only among the harnesses bound
- * to that agent. A card on two agents has one tool name that is free on every agent it is attached to.
- * Shared cards are resolved in id order, and each name is reserved on all of those agents. An agent
- * with no local collision keeps the unsuffixed name even when another agent had to suffix the same title.
+ * to that agent. A card that is the only Harness on an agent is named harness, including when another
+ * agent uses that same card next to a second one. A card on two agents has one tool name that is free
+ * on every agent it is attached to.
  */
 function harnessToolNameFromFlow(nodeId: string, nodes: FlowNodeLike[], edges?: FlowEdgeLike[]): string {
     const list = Array.isArray(nodes) ? nodes : []
