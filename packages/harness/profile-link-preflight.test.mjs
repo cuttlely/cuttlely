@@ -1142,6 +1142,78 @@ function cleanupProfile(name) {
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
+// Quarantine can fail (the profile directory is not writable). The env link stays, the target is not
+// read, and the sweep reports that path so startup can see it is still a link.
+{
+    const name = 'plinkbootstuck'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const envFile = profilePath(name, '.env')
+    const outside = outsideFile('boot-stuck', 'OUTSIDE_ENV_SENTINEL=boot-stuck\n')
+    const realCopy = `${envFile}.real`
+    fs.renameSync(envFile, realCopy)
+    fs.symlinkSync(outside.file, envFile)
+    fs.chmodSync(profilePath(name), 0o555)
+    let guarded = { hits: [], error: null, result: null }
+    try {
+        guarded = guardLink(envFile, outside.file, () => {
+            const recompiled = recompileOutdatedProfiles([saved], { log: {} })
+            const loadable = setAsideOutdatedConfigs()
+            return { recompiled, loadable }
+        })
+    } finally {
+        fs.chmodSync(profilePath(name), 0o755)
+    }
+    const reported = guarded.result || { recompiled: [], loadable: [] }
+    const loadable = reported.loadable || []
+    const linkStat = fs.lstatSync(envFile, { throwIfNoEntry: false })
+    check(
+        'a current profile env link that cannot be moved aside is reported and not read',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            sameStamp(outside.file, outside.before) &&
+            linkStat?.isSymbolicLink() === true &&
+            loadable.includes(envFile) &&
+            !treeHas(profilePath(name), Buffer.from('boot-stuck')),
+        JSON.stringify({
+            hits: guarded.hits,
+            error: guarded.error?.code || '',
+            loadable,
+            recompiled: reported.recompiled,
+            stillLink: linkStat?.isSymbolicLink() === true
+        })
+    )
+    fs.rmSync(realCopy, { force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
+{
+    const name = 'plinkotheros'
+    const saved = record(name)
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    let error = ''
+    try {
+        compileProfileCached(saved)
+    } catch (caught) {
+        error = `${caught?.code || ''} ${caught?.message || caught}`
+    } finally {
+        Object.defineProperty(process, 'platform', descriptor)
+    }
+    check(
+        'a profile compiles where directory descriptors have no proc path',
+        error === '' &&
+            fs.existsSync(profilePath(name, 'config.yaml')) &&
+            !fs.lstatSync(profilePath(name, 'memory')).isSymbolicLink() &&
+            !fs.lstatSync(profilePath(name, 'sessions')).isSymbolicLink(),
+        error
+    )
+    cleanupProfile(name)
+}
+
 fs.rmSync(dataDir, { recursive: true, force: true })
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)

@@ -519,15 +519,20 @@ function assertDirNoFollow(dir) {
     if (opened) closeFds(opened.fds)
 }
 
-function childPath(dirFd, name) {
-    const via = fdPath(dirFd, name)
-    if (!via) throw new HarnessError('profile_link', 'profile directory descriptors are required')
-    return via
+// Linux names the child through the directory descriptor. Other platforms use the path of that
+// directory, which was opened with O_NOFOLLOW, and open the child the same way.
+function childPath(dirFd, logicalDir, name) {
+    return fdPath(dirFd, name) || path.join(logicalDir, name)
 }
 
-function lstatChild(dirFd, name) {
+function namesIn(fd, logicalDir) {
+    if (process.platform === 'linux') return fs.readdirSync(`/proc/self/fd/${fd}`)
+    return fs.readdirSync(logicalDir)
+}
+
+function lstatChild(dirFd, logicalDir, name) {
     try {
-        return fs.lstatSync(childPath(dirFd, name))
+        return fs.lstatSync(childPath(dirFd, logicalDir, name))
     } catch (error) {
         if (error?.code === 'ENOENT') return null
         throw error
@@ -537,7 +542,7 @@ function lstatChild(dirFd, name) {
 // Creates or opens one child of an already-open directory. A link at that name is refused.
 function ensureChildDir(dirFd, logicalDir, name, fds, anchor = '') {
     const logical = path.join(logicalDir, name)
-    const via = childPath(dirFd, name)
+    const via = childPath(dirFd, logicalDir, name)
     const openDir = () => {
         try {
             return fs.openSync(via, DIR_FLAGS)
@@ -545,7 +550,7 @@ function ensureChildDir(dirFd, logicalDir, name, fds, anchor = '') {
             if (error?.code === 'ENOENT') return null
             if (error?.code === 'ELOOP' || error?.code === 'EEXIST') refuseLink(logical)
             if (error?.code === 'ENOTDIR') {
-                if (lstatChild(dirFd, name)?.isSymbolicLink()) refuseLink(logical)
+                if (lstatChild(dirFd, logicalDir, name)?.isSymbolicLink()) refuseLink(logical)
                 throw error
             }
             throw error
@@ -604,9 +609,9 @@ function ensureContainedDir(absDir) {
 // Removes one child of an open directory. A symlink is unlinked and its target is left in place.
 function removeChild(dirFd, logicalDir, name) {
     const logical = path.join(logicalDir, name)
-    const st = lstatChild(dirFd, name)
+    const st = lstatChild(dirFd, logicalDir, name)
     if (!st) return
-    const via = childPath(dirFd, name)
+    const via = childPath(dirFd, logicalDir, name)
     if (st.isSymbolicLink()) {
         fs.unlinkSync(via)
         return
@@ -620,7 +625,7 @@ function removeChild(dirFd, logicalDir, name) {
         fd = fs.openSync(via, DIR_FLAGS)
     } catch (error) {
         if (error?.code === 'ELOOP' || error?.code === 'ENOTDIR' || error?.code === 'EEXIST') {
-            if (lstatChild(dirFd, name)?.isSymbolicLink()) {
+            if (lstatChild(dirFd, logicalDir, name)?.isSymbolicLink()) {
                 fs.unlinkSync(via)
                 return
             }
@@ -629,14 +634,14 @@ function removeChild(dirFd, logicalDir, name) {
         throw error
     }
     try {
-        for (const entry of fs.readdirSync(`/proc/self/fd/${fd}`)) {
+        for (const entry of namesIn(fd, logical)) {
             if (!entry || entry === '.' || entry === '..') continue
             removeChild(fd, logical, entry)
         }
     } finally {
         fs.closeSync(fd)
     }
-    const now = lstatChild(dirFd, name)
+    const now = lstatChild(dirFd, logicalDir, name)
     if (!now) return
     if (now.isSymbolicLink()) {
         fs.unlinkSync(via)
@@ -1308,12 +1313,12 @@ export function writePlaybooks(dir, playbooks) {
     const fds = opened.fds
     try {
         noteTreeMutation(root)
-        const skillsStat = lstatChild(opened.fd, 'skills')
+        const skillsStat = lstatChild(opened.fd, dir, 'skills')
         if (skillsStat?.isSymbolicLink()) refuseLink(skillsLogical)
         if (!playbooks.length) {
             if (!skillsStat?.isDirectory()) return
             const skillsFd = ensureChildDir(opened.fd, dir, 'skills', fds)
-            const bookStat = lstatChild(skillsFd, PLAYBOOK_DIR)
+            const bookStat = lstatChild(skillsFd, skillsLogical, PLAYBOOK_DIR)
             if (bookStat?.isSymbolicLink()) refuseLink(root)
             if (bookStat) removeChild(skillsFd, skillsLogical, PLAYBOOK_DIR)
             return
@@ -1339,7 +1344,7 @@ export function writePlaybooks(dir, playbooks) {
             ].join('\n')
             writeIfChanged(path.join(folder, 'SKILL.md'), text)
         }
-        for (const entry of fs.readdirSync(`/proc/self/fd/${booksFd}`)) {
+        for (const entry of namesIn(booksFd, root)) {
             if (!entry || entry === '.' || entry === '..') continue
             if (!keep.has(entry)) removeChild(booksFd, root, entry)
         }
@@ -1597,10 +1602,54 @@ function setAsideUnfinishedConfigs(profileName) {
     }
 }
 
+// A link preflight refused that is still on the load path. Moving it aside leaves nothing to report.
+function linksLeftAfterPreflight(dir) {
+    try {
+        preflightTree(dir)
+        return []
+    } catch (error) {
+        if (error?.code !== 'profile_link') throw error
+    }
+    const found = []
+    const seen = new Set()
+    const consider = (file) => {
+        const key = path.resolve(file)
+        let st
+        try {
+            st = fs.lstatSync(file)
+        } catch {
+            return null
+        }
+        if (st.isSymbolicLink() && !seen.has(key)) found.push(file)
+        seen.add(key)
+        return st
+    }
+    consider(dir)
+    for (const rel of PREFLIGHT_RELS) consider(path.join(dir, rel))
+    const books = path.join(dir, 'skills', PLAYBOOK_DIR)
+    const walk = (current) => {
+        const st = consider(current)
+        if (!st || !st.isDirectory()) return
+        let names = []
+        try {
+            names = fs.readdirSync(current)
+        } catch {
+            return
+        }
+        for (const name of names) {
+            if (!name || name === '.' || name === '..') continue
+            walk(path.join(current, name))
+        }
+    }
+    if (consider(books)?.isDirectory()) walk(books)
+    return found
+}
+
 // The last step of the boot pass, under the profile lock: every harness profile directory whose config.yaml is not
 // from the current compiler, whatever failed (a record that would not read, a name another harness holds, a store
-// that would not list), has that config set aside. Returns the directories where a config could not be moved or
-// checked; the caller keeps Hermes waiting while there are any. Throws when the profiles folder cannot be read.
+// that would not list), has that config set aside. Returns paths that are still links, and directories where a
+// config could not be moved or checked. The caller keeps the runtime from starting while a link remains.
+// Throws when the profiles folder cannot be read.
 export function setAsideOutdatedConfigs() {
     const root = path.join(hermesHome(), 'profiles')
     try {
@@ -1639,6 +1688,14 @@ export function setAsideOutdatedConfigs() {
             owned = true
         }
         if (!owned) continue
+        let stuck = []
+        try {
+            stuck = linksLeftAfterPreflight(dir)
+        } catch {
+            loadable.push(dir)
+            continue
+        }
+        for (const link of stuck) loadable.push(link)
         if (!setAsideConfig(dir)) loadable.push(dir)
     }
     return loadable
