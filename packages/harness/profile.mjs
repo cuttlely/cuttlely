@@ -1719,7 +1719,9 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
         block.env = {
             ...(block.env || {}),
             CUTTLELY_HARNESS_GATEWAY_URL: gatewayOrigin(),
-            CUTTLELY_HARNESS_GATEWAY_TOKEN: issued.token
+            CUTTLELY_HARNESS_GATEWAY_TOKEN: issued.token,
+            // Absolute path of this profile's .env. A running bridge re-reads OPENAI_API_KEY from it after a 401.
+            CUTTLELY_HARNESS_PROFILE_ENV: path.resolve(profileEnvPath(specialist.profileName))
         }
     }
     const yaml = []

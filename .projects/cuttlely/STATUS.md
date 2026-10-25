@@ -1,6 +1,7 @@
 # Status
 
 Handoff 2026-10-24: image pin comments in `docker-compose.yml` and `.env.example` use 1.4.3. The profile compile wait in the guides is `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS`, default 180 seconds, capped at 300. Pull requests 289, 293 and 305 are merged. Pull requests 291 and 306 are pending for 1.4.3.
+Handoff 2026-10-25: branch `fix/harness-token-refresh`: harness tool calls recover after a profile recompile refreshes the gateway token. The compiled bridge env carries `CUTTLELY_HARNESS_PROFILE_ENV` (that specialist's `.env`); on a 401 `packages/harness/mcp-bridge.mjs` re-reads `OPENAI_API_KEY` there and retries that request once, and a second 401 stays `Unauthorized`. Tests: `packages/harness/mcp-bridge-token.test.mjs` (refresh, model change and recompile with no restart, retired token with no replacement), run by `pnpm harness:check`.
 
 Handoff 2026-10-25: aimed at 1.4.3 (branch `fix/draft-usage-serial`): `scripts/harness-draft-usage.test.mjs` runs in the `harness-queue-trace` verify step with `--test-concurrency=1`, before `harness-queue-trace.test.mjs` and `harness-schedule-tick.test.mjs` (Node sorts the file paths), instead of in the shared verify-test list (`scripts/verify.mjs`), because both stub the server harness module.
 
@@ -128,3 +129,4 @@ Cuttlely 1.3.2. The product version is the root `package.json`, `packages/server
 -   Canvas republish (follow-up to #291): a successful `syncUnderNameLock` clears a latched boot failure, as a harness save does, so a fixed harness republished from the canvas stops getting 503 (`bootSync.test.ts`).
 -   Harness docs (#296): harnesses.md says a JSON answer is returned unchanged, so a path inside it is not hidden.
 -   Harness docs (#296): only a short JSON answer comes back unchanged; in a longer one the path is replaced and the JSON can break.
+-   README 1.4.3 note (#295): the upgrade-notes and changelog links in all three READMEs point at the dated 1.4.3 heading (`#143---2026-10-25`).
