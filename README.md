@@ -31,7 +31,7 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.4.3 is out.** Safer analyst queries on the PostgreSQL MCP node, with an **Allowed functions** list for your own SQL helpers, harness profiles that recompile cleanly at startup, and chat answers that keep ordinary slashes while still hiding server paths. Upgrading? Read the [upgrade notes](./CHANGELOG.md#143---2026-10-24) first. [Changelog](./CHANGELOG.md#143---2026-10-24)
+**1.4.3 is out.** Safer analyst queries on the PostgreSQL MCP node, with an **Allowed functions** list for your own SQL helpers, harness profiles that recompile cleanly at startup, and chat answers that keep ordinary slashes while still hiding server paths. Upgrading? Read the [upgrade notes](./CHANGELOG.md#143---unreleased) first. [Changelog](./CHANGELOG.md#143---unreleased)
 
 ## Contents
 
