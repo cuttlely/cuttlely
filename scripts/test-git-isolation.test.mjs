@@ -63,24 +63,35 @@ function withHookRepo(files, check) {
     }
 }
 
-function assertHookRepoUntouched(res, realRepo, before, minPass) {
+function assertHookRepoUntouched(res, realRepo, before) {
     assert.equal(res.status, 0, `${res.stdout}${res.stderr}`)
-    const passed = Number((/(?:ℹ|#) pass (\d+)/.exec(res.stdout) || [])[1] || 0)
-    assert.ok(passed >= minPass, `the nested tests did not run:\n${res.stdout}`)
+    const summary = Object.fromEntries(
+        [...res.stdout.matchAll(/^(?:ℹ|#) (tests|pass|fail|skipped|cancelled|todo) (\d+)\s*$/gm)].map(([, key, value]) => [
+            key,
+            Number(value)
+        ])
+    )
+    assert.ok(
+        summary.tests > 0 &&
+            summary.fail === 0 &&
+            summary.cancelled === 0 &&
+            summary.pass + summary.skipped === summary.tests &&
+            summary.pass > 0,
+        `the nested tests did not run:\n${res.stdout}`
+    )
     assert.deepEqual(snapshot(realRepo), before)
     assert.equal(fs.readFileSync(path.join(realRepo, 'keep.txt'), 'utf8'), 'keep\n')
 }
 
 test('the release and vendor tests leave the repository named by GIT_DIR untouched', () => {
     withHookRepo(['release.test.mjs', 'vendor-hermes.test.mjs'], (res, realRepo, before) => {
-        assertHookRepoUntouched(res, realRepo, before, 10)
+        assertHookRepoUntouched(res, realRepo, before)
     })
 })
 
 test('the boundary fixture git calls leave the repository named by GIT_DIR untouched', () => {
-    const cases = fs.readFileSync(path.join(HERE, 'check-boundaries.test.mjs'), 'utf8').match(/^\s*it\(/gm).length
     withHookRepo(['check-boundaries.test.mjs'], (res, realRepo, before) => {
-        assertHookRepoUntouched(res, realRepo, before, cases)
+        assertHookRepoUntouched(res, realRepo, before)
     })
 })
 
