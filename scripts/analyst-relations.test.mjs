@@ -2700,6 +2700,10 @@ describe('analyst relations: text search configuration types', () => {
                     BEGIN ATOMIC SELECT 'english'::regconfig::text; END;
                 CREATE FUNCTION s.bad_class() RETURNS text LANGUAGE sql STABLE
                     BEGIN ATOMIC SELECT 0::oid::regclass::text; END;
+                CREATE FUNCTION s.bad_array() RETURNS text LANGUAGE sql IMMUTABLE
+                    BEGIN ATOMIC SELECT NULL::regclass[]::text; END;
+                CREATE FUNCTION s.bad_array_default(a text DEFAULT NULL::regclass[]::text) RETURNS text
+                    LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT a; END;
             `)
         } finally {
             await owner.query('RESET ROLE')
@@ -2716,6 +2720,8 @@ describe('analyst relations: text search configuration types', () => {
             await refusal(queryAnalystUrl(url, 'SELECT s.bad_nested() AS v LIMIT 1', options), /regconfig/)
             await refusal(queryAnalystUrl(url, 'SELECT s.bad_bare() AS v LIMIT 1', options), /regconfig/)
             await refusal(queryAnalystUrl(url, 'SELECT s.bad_class() AS v LIMIT 1', options), /regclass/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_array() AS v LIMIT 1', options), /regclass/)
+            await refusal(queryAnalystUrl(url, 'SELECT s.bad_array_default() AS v LIMIT 1', options), /regclass/)
         }
     })
 

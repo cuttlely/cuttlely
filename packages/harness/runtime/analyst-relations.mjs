@@ -1420,23 +1420,10 @@ async function refuseRoutines(
             regSet = ctx.regSet
             if (bodyTree.includes('{')) regUsesAreDirectConsts(bodyTree, ctx.regSet, ctx.allowedFnIds)
         }
+        // The same closure as the statement check: an array element, a domain base, a composite
+        // column, or a range subtype can be a reg* type when the outer type name is not.
         const typeIds = [...(found.types || [])].filter((oid) => !regSet || !regSet.has(Number(oid)))
-        if (typeIds.length) {
-            const typeRows = await runner.all(
-                'SELECT ty.oid::int8 AS oid, ty.typname AS typname, n.nspname AS schema FROM pg_type ty JOIN pg_namespace n ON n.oid = ty.typnamespace WHERE ty.oid = ANY(?::oid[])',
-                [typeIds]
-            )
-            const bad = typeRows
-                .filter((type) => type.schema === 'pg_catalog' && DENIED_TYPES.has(String(type.typname)))
-                .map((type) => type.typname)
-            if (bad.length) {
-                throw new ScopeRefusal(
-                    `Cuttlely refused this query: type ${refusedList([
-                        ...new Set(bad)
-                    ])} is not allowed while a table selection is set. It turns object ids into names for objects outside the selection.`
-                )
-            }
-        }
+        if (typeIds.length) await refuseTypes(runner, new Set(typeIds), { scoped: true })
         // Operators: refuse non-built-in operators, and turn op oids into function oids via oprcode.
         const addFns = new Set()
         if (found.operators && found.operators.size) {
