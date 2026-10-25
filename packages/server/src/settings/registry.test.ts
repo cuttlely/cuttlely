@@ -91,6 +91,11 @@ describe('server settings registry', () => {
         expect(isReadOnly('LANGSMITH_SOMETHING_ELSE')).toBe(false)
     })
 
+    it('keeps the Current Date Time default timezone on the host', () => {
+        expect(settingFor('CUTTLELY_DEFAULT_TIMEZONE')).toBeUndefined()
+        expect(isKeptOut('CUTTLELY_DEFAULT_TIMEZONE')).toBe(true)
+    })
+
     it('keeps encryption keys, paths and code-execution switches out of the panel', () => {
         for (const key of [
             'FLOWISE_SECRETKEY_OVERWRITE',

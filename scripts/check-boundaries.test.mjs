@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { after, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkBoundaries, extractSpecifiers, updateBaseline } from './check-boundaries.mjs'
-import { isolateProcessEnv, withoutGitEnv } from './test-git.mjs'
+import { isolateProcessEnv, testGit } from './test-git.mjs'
 
-// check-boundaries lists files with git. A hook's GIT_DIR would make that the real repository.
+// The pre-push hook exports GIT_DIR. Drop it before any git call so fixture repos stay separate
+// and the real-tree check still discovers this worktree from its own directory.
 isolateProcessEnv()
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -45,9 +45,10 @@ const EMPTY_BASELINE = {
     r6Additions: []
 }
 
-// A pre-push hook exports GIT_DIR. Strip it so init and add stay in the temp fixture.
 function git(root, args) {
-    execFileSync('git', args, { cwd: root, stdio: 'pipe', env: withoutGitEnv() })
+    // A pre-push hook exports GIT_DIR. testGit drops those variables so this fixture stays in its temp folder.
+    const res = testGit(root, args, { tmpRoot: root })
+    if (res.status !== 0) throw new Error(`git ${args.join(' ')}: ${res.stderr}`)
 }
 
 function write(root, rel, content) {
