@@ -1624,6 +1624,7 @@ packages/ui/src/layout/MainLayout/Header/ProfileSection/index.css
 packages/ui/src/layout/MainLayout/Header/ProfileSection/index.jsx
 packages/ui/src/layout/MainLayout/Header/WorkspaceSwitcher/index.jsx
 packages/ui/src/layout/MainLayout/Header/index.jsx
+packages/ui/src/layout/MainLayout/Header/teamSwitcher.test.js
 packages/ui/src/layout/MainLayout/LogoSection/index.jsx
 packages/ui/src/layout/MainLayout/Sidebar/CloudMenuList.jsx
 packages/ui/src/layout/MainLayout/Sidebar/MenuList/NavCollapse/index.jsx
@@ -1982,6 +1983,7 @@ packages/ui/src/views/workspace/AddEditWorkspaceDialog.jsx
 packages/ui/src/views/workspace/EditWorkspaceUserRoleDialog.jsx
 packages/ui/src/views/workspace/WorkspaceUsers.jsx
 packages/ui/src/views/workspace/index.jsx
+packages/ui/src/views/workspace/teamCreate.test.js
 packages/ui/vite.config.js
 pnpm-lock.yaml
 pnpm-workspace.yaml
