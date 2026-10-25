@@ -9,7 +9,15 @@ process.env.CUTTLELY_DATA_DIR = dataDir
 process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
 delete process.env.HERMES_API_URL
 
-const { compileProfileCached, forgetCompiledProfile, profileWriteTest, readProfileEnv, specialistWorkspace } = await import('./profile.mjs')
+const {
+    compileProfileCached,
+    forgetCompiledProfile,
+    profileWriteTest,
+    readProfileEnv,
+    recompileOutdatedProfiles,
+    setAsideOutdatedConfigs,
+    specialistWorkspace
+} = await import('./profile.mjs')
 const { bootHarnessGateway, profileTokenKnown } = await import('./gateway.mjs')
 
 const failures = []
@@ -596,6 +604,103 @@ function cleanupProfile(name) {
         JSON.stringify({ hits: guarded.hits, error: guarded.error?.code || '', known: profileTokenKnown(token) })
     )
     fs.rmSync(realCopy, { force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// The boot sweep must not rename files through a link above the hermes home.
+{
+    const name = 'plinksweep'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-sweep-'))
+    const realTree = path.join(scratch, 'real-tree')
+    const linkTop = path.join(scratch, 'link-top')
+    const realHome = path.join(realTree, 'nested', 'data', 'hermes')
+    const profileDirPath = path.join(realHome, 'profiles', name)
+    fs.mkdirSync(profileDirPath, { recursive: true })
+    fs.writeFileSync(path.join(realTree, 'sentinel'), 'sweep-sentinel\n')
+    fs.writeFileSync(path.join(profileDirPath, 'config.yaml'), 'old-config\n')
+    fs.writeFileSync(path.join(profileDirPath, 'harness-roster.json'), '{}\n')
+    const configBefore = stamp(path.join(profileDirPath, 'config.yaml'))
+    fs.symlinkSync(realTree, linkTop)
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = path.join(linkTop, 'nested', 'data', 'hermes')
+    let refused = ''
+    let hits = []
+    try {
+        const guarded = guardLink(linkTop, realTree, () => setAsideOutdatedConfigs())
+        hits = guarded.hits
+        refused = guarded.error?.code || ''
+    } finally {
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+    }
+    const linkStat = fs.lstatSync(linkTop, { throwIfNoEntry: false })
+    check(
+        'the boot sweep does not write through a link above the hermes home',
+        refused === 'profile_link' &&
+            hits.length === 0 &&
+            linkStat?.isSymbolicLink() === true &&
+            quarantineNames(scratch, 'link-top').length === 0 &&
+            sameStamp(path.join(profileDirPath, 'config.yaml'), configBefore) &&
+            !fs.existsSync(path.join(profileDirPath, 'config.yaml.outdated')),
+        JSON.stringify({ refused, hits, stillLink: linkStat?.isSymbolicLink() === true })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
+// A roster file that is a link is not read while boot decides what to compile.
+{
+    const name = 'plinkroster'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const roster = profilePath(name, 'harness-roster.json')
+    const outside = outsideFile('roster', `{"name":"${name}","specialists":[{"profileName":"nope"}]}\n`)
+    const realCopy = `${roster}.real`
+    fs.renameSync(roster, realCopy)
+    fs.symlinkSync(outside.file, roster)
+    const guarded = guardLink(roster, outside.file, () => recompileOutdatedProfiles([saved]))
+    const linkStat = fs.lstatSync(roster, { throwIfNoEntry: false })
+    check(
+        'a linked roster file is not read during boot',
+        guarded.hits.length === 0 &&
+            guarded.error == null &&
+            sameStamp(outside.file, outside.before) &&
+            linkStat?.isSymbolicLink() === true,
+        JSON.stringify({ hits: guarded.hits, error: guarded.error?.code || '', stillLink: linkStat?.isSymbolicLink() === true })
+    )
+    fs.rmSync(realCopy, { force: true })
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// A profile name in the on-disk roster must not move a link that lives outside the profiles tree.
+{
+    const name = 'plinkout'
+    const saved = record(name)
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const outside = outsideDir('out-link', 'out-sentinel\n')
+    const escaped = path.resolve(path.join(hermesProfiles(), '..', '..', 'plink-escaped'))
+    fs.symlinkSync(outside.dir, escaped)
+    const roster = JSON.parse(fs.readFileSync(profilePath(name, 'harness-roster.json'), 'utf8'))
+    roster.specialists = [{ name: 'alpha', profileName: '../../plink-escaped' }]
+    fs.writeFileSync(profilePath(name, 'harness-roster.json'), JSON.stringify(roster))
+    let error = ''
+    try {
+        recompileOutdatedProfiles([saved])
+    } catch (caught) {
+        error = caught?.code || ''
+    }
+    const linkStat = fs.lstatSync(escaped, { throwIfNoEntry: false })
+    check(
+        'a roster path outside the profiles root is not moved',
+        linkStat?.isSymbolicLink() === true &&
+            fs.readlinkSync(escaped) === outside.dir &&
+            quarantineNames(path.dirname(escaped), 'plink-escaped').length === 0 &&
+            sameStamp(outside.file, outside.before),
+        JSON.stringify({ error, stillLink: linkStat?.isSymbolicLink() === true })
+    )
+    fs.rmSync(escaped, { force: true })
     cleanupProfile(name)
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }

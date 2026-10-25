@@ -9,7 +9,7 @@ import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
 import { endLiveTry, noteLiveTry } from './try-live.mjs'
-import { ancestorPaths } from './contained-walk.mjs'
+import { ancestorPaths, readFileNoFollow } from './contained-walk.mjs'
 import { dataRoot, harnessStoreDir, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
@@ -446,11 +446,15 @@ function refuseLink(linkPath) {
     throwLink(linkPath)
 }
 
-// Opens dir from the parent of its containment root. Each step uses O_DIRECTORY|O_NOFOLLOW, so a link
-// swapped in for an ancestor is not a path we follow. Null when a component does not exist yet.
-function openDirNoFollow(dir) {
+// Opens dir from the filesystem root. Each step uses O_DIRECTORY|O_NOFOLLOW, so a link swapped in
+// for an ancestor is not a path we follow. Null when a component does not exist yet.
+// leaf: false opens every ancestor and stops before dir, so the caller can still handle a link at dir.
+function openDirNoFollow(dir, options = {}) {
+    const includeLeaf = options.leaf !== false
     const paths = ancestorPaths(dir)
     if (!paths) throwLink(dir)
+    const limit = includeLeaf ? paths.length : paths.length - 1
+    if (limit <= 0) return null
     const fds = []
     try {
         let dirFd
@@ -461,7 +465,7 @@ function openDirNoFollow(dir) {
             throw error
         }
         fds.push(dirFd)
-        for (let i = 1; i < paths.length; i += 1) {
+        for (let i = 1; i < limit; i += 1) {
             const logical = paths[i]
             const part = path.basename(logical)
             if (!part || part === '.' || part === '..') {
@@ -491,11 +495,20 @@ function openDirNoFollow(dir) {
                 refuseLink(logical)
             }
         }
+        if (!includeLeaf) {
+            closeFds(fds)
+            return null
+        }
         return { fd: dirFd, fds }
     } catch (error) {
         closeFds(fds)
         throw error
     }
+}
+
+// A link above dir is refused before dir is used. A link at dir itself is left for the caller.
+function refuseAncestorsOf(dir) {
+    openDirNoFollow(dir, { leaf: false })
 }
 
 function assertDirNoFollow(dir) {
@@ -1413,6 +1426,9 @@ function setAsideUnfinishedConfigs(profileName) {
 export function setAsideOutdatedConfigs() {
     const root = path.join(hermesHome(), 'profiles')
     try {
+        // Ancestors first. A link above this directory is refused and left in place. A link at this
+        // directory is still moved off the load path below, and the sweep then returns nothing to load.
+        refuseAncestorsOf(root)
         if (fs.lstatSync(root).isSymbolicLink()) {
             if (quarantineSymlink(root)) return []
             throw new HarnessError('profile_link', `profile path is a link: ${root}`)
@@ -1489,7 +1505,7 @@ function compileProfileFiles(record, options = {}) {
     // Every caller (boot, warm-up, a chat, a canvas try) stops here. Writing would follow the link.
     const linked = linkedProfileDirs(record, profileName)
     if (linked.length) {
-        const stuck = linked.filter((dir) => !quarantineSymlink(dir))
+        const stuck = linked.filter((dir) => !quarantineContained(dir))
         const where = stuck.length ? stuck : linked
         throw new HarnessError(
             'profile_link',
@@ -1930,7 +1946,9 @@ function compilerVersionOf(dir) {
 
 function onDiskRoster(dir) {
     try {
-        return JSON.parse(fs.readFileSync(path.join(dir, 'harness-roster.json'), 'utf8'))
+        const text = readFileNoFollow(path.join(dir, 'harness-roster.json'))
+        if (text == null) return null
+        return JSON.parse(text)
     } catch {
         return null
     }
@@ -1959,8 +1977,10 @@ export function profileOutdated(record) {
     if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION) return true
     const roster = onDiskRoster(dir)
     for (const specialist of roster?.specialists || []) {
-        if (!specialist?.profileName) continue
-        const child = profileDir(specialist.profileName)
+        const childName = String(specialist?.profileName || '')
+        // A name that leaves the profiles tree is not a profile directory. Leave that path where it is.
+        if (!PROFILE_ID_RE.test(childName)) continue
+        const child = profileDir(childName)
         if (fs.existsSync(child) && compilerVersionOf(child) !== PROFILE_COMPILER_VERSION) return true
     }
     return false
@@ -1977,6 +1997,11 @@ function isLink(dir) {
 // Profile folders this compile would write that are links. Compiling through one would write into the link's target.
 // profileName is the directory being compiled (a try uses its own name, not the saved harness name).
 function linkedProfileDirs(record, profileName = record?.name) {
+    const root = path.join(hermesHome(), 'profiles')
+    // A link above the profiles directory is refused before the roster or the directory list is read.
+    refuseAncestorsOf(root)
+    // Listing a linked profiles directory would read its target. The caller moves that one link aside.
+    if (isLink(root)) return [root]
     const home = String(profileName || record?.name || '')
     const owner = String(record?.name || home)
     const dirs = new Set()
@@ -1985,7 +2010,9 @@ function linkedProfileDirs(record, profileName = record?.name) {
     // A linked home is enough. Don't read the target looking for more folders.
     if (homeDir && !isLink(homeDir)) {
         for (const specialist of onDiskRoster(homeDir)?.specialists || []) {
-            if (specialist?.profileName) dirs.add(profileDir(specialist.profileName))
+            const child = String(specialist?.profileName || '')
+            if (!PROFILE_ID_RE.test(child)) continue
+            dirs.add(profileDir(child))
         }
     }
     for (const specialist of Array.isArray(record?.specialists) ? record.specialists : []) {
@@ -1995,7 +2022,6 @@ function linkedProfileDirs(record, profileName = record?.name) {
             // A name that cannot get its own profile; the compile reports it.
         }
     }
-    const root = path.join(hermesHome(), 'profiles')
     try {
         for (const entry of fs.readdirSync(root)) {
             if (isQuarantineName(entry)) continue
@@ -2022,7 +2048,7 @@ export function recompileOutdatedProfiles(records, { log = console } = {}) {
         if (!record?.name) continue
         const linked = linkedProfileDirs(record)
         if (linked.length) {
-            const stuck = linked.filter((dir) => !quarantineSymlink(dir))
+            const stuck = linked.filter((dir) => !quarantineContained(dir))
             const where = stuck.length ? stuck : linked
             results.push({
                 name: record.name,
