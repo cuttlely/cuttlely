@@ -338,6 +338,11 @@ export function assertHarnessAvailable(name: string) {
     throw new AppError(StatusCodes.SERVICE_UNAVAILABLE, `harness unavailable: ${error}`)
 }
 
+/** Puts that refusal on the shared run path, so a chatflow calling engine.runHarness gets the same 503. */
+export function bindHarnessAvailability(engine?: { setHarnessAvailabilityCheck?: (check: ((name: string) => void) | null) => void }) {
+    if (typeof engine?.setHarnessAvailabilityCheck === 'function') engine.setHarnessAvailabilityCheck(assertHarnessAvailable)
+}
+
 export async function invokeHarnessForBoot(name: string, run: () => Promise<{ text: string }>) {
     assertHarnessAvailable(name)
     return run()
@@ -534,6 +539,7 @@ function configureRuntime(): Promise<void> {
     if (!runtimeConfigured) {
         runtimeConfigured = loadHarness('run.mjs')
             .then(async (engine) => {
+                bindHarnessAvailability(engine)
                 engine.configureHarnessRuntime({ contextFor })
                 // Before the gateway answers: the start script launches Hermes only once /health answers, and Hermes
                 // reads each profile's config.yaml from disk. A compile binds the listener, so /health is held meanwhile.

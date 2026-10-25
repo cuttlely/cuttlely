@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { readClientSignal } from './abort.mjs'
 import { turnBudgetMs } from './budget.mjs'
@@ -77,6 +78,9 @@ import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
+
+const require = createRequire(import.meta.url)
+const { guardHarnessRun, setHarnessAvailabilityCheck: setAvailabilityCheck } = require('./availability.cjs')
 
 let runtimeContextFor = null
 
@@ -184,7 +188,7 @@ export function harnessForTurn(name, record) {
     return harness
 }
 
-export async function runHarness(args = {}) {
+async function runHarnessBody(args = {}) {
     const started = Date.now()
     // A wrong team must not open a run row. Inline and off both reach this function.
     assertHarnessWorkspace(args.name, args.flowOptions, args.record)
@@ -310,9 +314,22 @@ async function runHarnessTurn({
     }
 }
 
-export async function runQueuedHarness(args) {
+async function runQueuedHarnessBody(args) {
     const queue = await import('./queue.mjs')
     return queue.runQueuedHarness(args)
+}
+
+// The server registers the boot-compile refusal. This package does not import the server.
+export function setHarnessAvailabilityCheck(check) {
+    setAvailabilityCheck(check)
+}
+
+export async function runHarness(args = {}) {
+    return guardHarnessRun(args?.name, () => runHarnessBody(args))
+}
+
+export async function runQueuedHarness(args) {
+    return guardHarnessRun(args?.name, () => runQueuedHarnessBody(args))
 }
 
 async function runTurn(

@@ -488,10 +488,19 @@ function assertContained(file) {
 const NOFOLLOW = fs.constants.O_NOFOLLOW || 0
 const DIR_FLAGS = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | NOFOLLOW
 
+function refuseUnsupportedProfilePlatform() {
+    throw new HarnessError(
+        'profile_platform',
+        `Agent profiles are saved and compiled only on Linux (${process.platform}). Use the Docker image.`
+    )
+}
+
 function fdPath(dirFd, name) {
     // An absolute path opened after the parent was checked still walks every ancestor.
     // Without a descriptor path, or without O_NOFOLLOW, that walk can follow a link.
-    if (process.platform !== 'linux' || !fs.constants.O_NOFOLLOW) return null
+    // The descriptor path is Linux. Other platforms stay refused, with no other path.
+    if (process.platform !== 'linux') refuseUnsupportedProfilePlatform()
+    if (!fs.constants.O_NOFOLLOW) return null
     return `/proc/self/fd/${dirFd}/${name}`
 }
 
@@ -2048,7 +2057,7 @@ export function compileProfile(record, options = {}) {
         return compileProfileFiles(record, options)
     } catch (error) {
         // A name taken by another harness, or a folder that is a link, is refused before anything is written.
-        if (!options.tryProfile && error?.code !== 'name_taken' && error?.code !== 'profile_link') {
+        if (!options.tryProfile && error?.code !== 'name_taken' && error?.code !== 'profile_link' && error?.code !== 'profile_platform') {
             setAsideUnfinishedConfigs(options.profileName || record.name)
         }
         throw error
@@ -2973,7 +2982,7 @@ export function compileProfileCached(record) {
             }
         } catch (error) {
             compiledProfiles.delete(record.name)
-            if (error?.code === 'profile_link') throw error
+            if (error?.code === 'profile_link' || error?.code === 'profile_platform') throw error
         }
     }
     if (compiledProfiles.has(record.name)) compiledProfiles.delete(record.name)

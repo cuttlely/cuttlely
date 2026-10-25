@@ -1557,7 +1557,7 @@ function readText(file) {
             try {
                 readBack = readProfileEnv(name).OUTSIDE_ENV_SENTINEL || ''
             } catch (error) {
-                refused = error?.code || ''
+                refused = error?.message || ''
                 readBack = ''
             }
         })
@@ -1568,7 +1568,9 @@ function readText(file) {
     }
     check(
         'a non-linux read does not follow an ancestor swapped before the file open',
-        readBack !== 'secret-ancestor-swap' && sameStamp(outsideEnv, outsideBefore),
+        readBack !== 'secret-ancestor-swap' &&
+            sameStamp(outsideEnv, outsideBefore) &&
+            refused === 'Agent profiles are saved and compiled only on Linux (darwin). Use the Docker image.',
         JSON.stringify({ swapped, refused, readBack })
     )
     fs.rmSync(scratch, { recursive: true, force: true })
@@ -2863,7 +2865,8 @@ function readText(file) {
     }
     check(
         'a profile is refused where directory descriptors have no proc path',
-        /profile_link/.test(error) && !fs.existsSync(profilePath(name, 'config.yaml')),
+        error.includes('Agent profiles are saved and compiled only on Linux (darwin). Use the Docker image.') &&
+            !fs.existsSync(profilePath(name, 'config.yaml')),
         error
     )
     cleanupProfile(name)
