@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext } from 'react'
-import { useSelector } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import PropTypes from 'prop-types'
 import { Chip, Box, Button, IconButton } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
@@ -9,11 +9,14 @@ import DocStoreInputHandler from '@/views/docstore/DocStoreInputHandler'
 import { showHideInputs } from '@/utils/genericHelper'
 import { cloneDeep } from 'lodash'
 import { flowContext } from '@/store/context/ReactFlowContext'
+import { SET_DIRTY } from '@/store/actions'
+import { ensureAgentToolRowIds } from '../../../../components/src/agentToolRowId'
 
 export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }) => {
     const [arrayItems, setArrayItems] = useState([]) // these are the actual values. Ex: [{name: 'John', age: 30}, {name: 'Jane', age: 25}]
     const [itemParameters, setItemParameters] = useState([]) // these are the input parameters for each array item. Ex: [{label: 'Name', type: 'string', display: true}, {label: 'age', type: 'number', display: false}]
     const theme = useTheme()
+    const dispatch = useDispatch()
     const customization = useSelector((state) => state.customization)
     const flowContextValue = useContext(flowContext)
     const { reactFlowInstance } = flowContextValue || {}
@@ -39,6 +42,12 @@ export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }
         updatedItem[changedParam.name] = newValue
         updatedArrayItems[itemIndex] = updatedItem
 
+        // A new row is added before a tool is chosen, so the id is written here, when Harness is selected.
+        if (inputParam.name === 'agentTools') {
+            const { changed } = ensureAgentToolRowIds(updatedArrayItems)
+            if (changed) dispatch({ type: SET_DIRTY })
+        }
+
         // Update local state and parent data
         setArrayItems(updatedArrayItems)
         data.inputs[inputParam.name] = updatedArrayItems
@@ -56,12 +65,17 @@ export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }
 
     // Initialize array items and parameters when component mounts or data changes
     useEffect(() => {
-        const initialArrayItems = data.inputs[inputParam.name] || []
-        setArrayItems(initialArrayItems)
+        const storedItems = data.inputs[inputParam.name] || []
+        if (inputParam.name === 'agentTools' && Array.isArray(data.inputs?.[inputParam.name])) {
+            // Same ids the server computes. Writing them marks the flow dirty so a save keeps them.
+            const { changed } = ensureAgentToolRowIds(storedItems)
+            if (changed) dispatch({ type: SET_DIRTY })
+        }
+        setArrayItems(storedItems)
 
         // Calculate initial display parameters for each array item
         const initialItemParameters = []
-        for (let i = 0; i < initialArrayItems.length; i += 1) {
+        for (let i = 0; i < storedItems.length; i += 1) {
             const itemParams = showHideInputs(data, 'inputParams', cloneDeep(inputParam.array), i)
             if (itemParams.length) {
                 initialItemParameters.push(itemParams)
@@ -69,7 +83,7 @@ export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }
         }
 
         setItemParameters(initialItemParameters)
-    }, [data, inputParam])
+    }, [data, inputParam, dispatch])
 
     const updateOutputAnchors = (items, type, indexToDelete) => {
         // Skip output anchor updates for DocStore context
@@ -144,6 +158,10 @@ export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }
 
         // Update array items
         const updatedArrayItems = [...arrayItems, newItem]
+        if (inputParam.name === 'agentTools') {
+            ensureAgentToolRowIds(updatedArrayItems)
+            dispatch({ type: SET_DIRTY })
+        }
         setArrayItems(updatedArrayItems)
         data.inputs[inputParam.name] = updatedArrayItems
 
@@ -165,6 +183,7 @@ export const ArrayRenderer = ({ inputParam, data, disabled, isDocStore = false }
         const updatedArrayItems = arrayItems.filter((_, i) => i !== indexToDelete)
         setArrayItems(updatedArrayItems)
         data.inputs[inputParam.name] = updatedArrayItems
+        if (inputParam.name === 'agentTools') dispatch({ type: SET_DIRTY })
 
         const updatedItemParameters = itemParameters.filter((_, i) => i !== indexToDelete)
         setItemParameters(updatedItemParameters)

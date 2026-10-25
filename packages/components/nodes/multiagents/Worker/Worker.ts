@@ -1,5 +1,5 @@
-import { flatten } from 'lodash'
 import { RunnableSequence, RunnablePassthrough, RunnableConfig } from '@langchain/core/runnables'
+import { prepareAgentTools } from '../../harness/Harness/Harness'
 import { ChatPromptTemplate, MessagesPlaceholder, HumanMessagePromptTemplate } from '@langchain/core/prompts'
 import { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { HumanMessage } from '@langchain/core/messages'
@@ -85,7 +85,7 @@ class Worker_MultiAgents implements INode {
 
     async init(nodeData: INodeData, input: string, options: ICommonObject): Promise<any> {
         let tools = nodeData.inputs?.tools
-        tools = flatten(tools)
+        tools = prepareAgentTools(tools)
         let workerPrompt = nodeData.inputs?.workerPrompt as string
         const workerLabel = nodeData.inputs?.workerName as string
         const supervisor = nodeData.inputs?.supervisor as IMultiAgentNode
