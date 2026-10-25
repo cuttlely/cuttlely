@@ -5,6 +5,7 @@
 
 import contextlib
 import io
+import ipaddress
 import re
 import shutil
 import socket
@@ -238,14 +239,111 @@ class FetchTest(unittest.TestCase):
             "169.254.169.254", "127.0.0.1", "127.8.9.10", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1",
             "100.64.0.1", "0.0.0.0", "224.0.0.1", "255.255.255.255", "198.18.0.1",
             "::", "::1", "fe80::1", "fc00::1", "fd12:3456::1", "ff02::1", "fd00:ec2::254",
-            "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:10.0.0.1", "::127.0.0.1",
+            "::ffff:127.0.0.1", "::ffff:169.254.169.254", "::ffff:10.0.0.1", "::ffff:100.64.0.1",
+            "::ffff:224.0.0.1", "::ffff:240.0.0.1", "::ffff:0.0.0.0", "::127.0.0.1",
             "64:ff9b::a9fe:a9fe", "2002:7f00:1::1", "2002:a9fe:a9fe::1",
             "64:ff9b:1:a9fe:a9:fe00::", "64:ff9b:1::1",  # local-use NAT64, global on Python 3.11 and 3.12
+            "64:ff9b:1::808:808",  # local-use NAT64 of a public IPv4 stays refused
+            "::ffff:0:8.8.8.8",  # IPv4-translated form is not ipv4_mapped; the wrapper stays refused
         ]
         for address in blocked:
             self.assertTrue(self._blocked(address), address)
-        for address in ["93.184.216.34", "8.8.8.8", "1.1.1.1", "2606:4700:4700::1111", "::ffff:8.8.8.8"]:
+        for address in [
+            "93.184.216.34", "8.8.8.8", "1.1.1.1", "2606:4700:4700::1111",
+            "::ffff:8.8.8.8", "::ffff:808:808", "2002:808:808::", "64:ff9b::808:808", "::8.8.8.8",
+        ]:
             self.assertFalse(self._blocked(address), address)
+
+    def test_embedded_ipv4_forms_follow_the_ipv4_address(self):
+        """An address with ipv4_mapped set is judged by that IPv4. 6to4, NAT64 and IPv4-compatible too."""
+        cases = (
+            ("public", "8.8.8.8", False),
+            ("public", "1.1.1.1", False),
+            ("loopback", "127.0.0.1", True),
+            ("private", "10.0.0.1", True),
+            ("private", "172.16.0.1", True),
+            ("private", "192.168.1.1", True),
+            ("link-local", "169.254.169.254", True),
+            ("cgnat", "100.64.0.1", True),
+            ("multicast", "224.0.0.1", True),
+            ("reserved", "240.0.0.1", True),
+            ("reserved", "255.255.255.255", True),
+            ("unspecified", "0.0.0.0", True),
+        )
+        for label, dotted, blocked in cases:
+            ipv4 = ipaddress.IPv4Address(dotted)
+            forms = [
+                ("mapped", ipaddress.IPv6Address(f"::ffff:{dotted}")),
+                ("6to4", ipaddress.IPv6Address((0x2002 << 112) | (int(ipv4) << 80))),
+                ("nat64", ipaddress.IPv6Address((0x0064FF9B << 96) | int(ipv4))),
+            ]
+            # IPv4-compatible (::a.b.c.d). :: and ::1 are not wrappers.
+            if int(ipv4) > 1:
+                forms.append(("compatible", ipaddress.IPv6Address(int(ipv4))))
+            for kind, wrapped in forms:
+                with self.subTest(label=label, kind=kind, address=str(wrapped)):
+                    if kind == "mapped":
+                        self.assertIsNotNone(wrapped.ipv4_mapped)
+                        self.assertEqual(wrapped.ipv4_mapped, ipv4)
+                        self.assertEqual(self._blocked(wrapped), self._blocked(wrapped.ipv4_mapped))
+                    elif kind == "6to4":
+                        self.assertEqual(wrapped.sixtofour, ipv4)
+                    self.assertEqual(self._blocked(dotted), blocked, dotted)
+                    self.assertEqual(self._blocked(wrapped), blocked, str(wrapped))
+                    self.assertEqual(self._blocked(str(wrapped)), blocked, str(wrapped))
+                    self.assertEqual(self._blocked(wrapped), self._blocked(ipv4), str(wrapped))
+
+    def test_terminated_6to4_relay_and_documentation_prefixes_are_refused(self):
+        relay = ipaddress.IPv4Address("192.88.99.1")
+        wrappers = {
+            "bare": relay,
+            "mapped": ipaddress.IPv6Address("::ffff:192.88.99.1"),
+            "compatible": ipaddress.IPv6Address(int(relay)),
+            "6to4": ipaddress.IPv6Address((0x2002 << 112) | (int(relay) << 80)),
+            "nat64": ipaddress.IPv6Address((0x0064FF9B << 96) | int(relay)),
+        }
+        self.assertEqual(wrappers["mapped"].ipv4_mapped, relay)
+        self.assertIsNone(wrappers["compatible"].ipv4_mapped)
+        self.assertEqual(wrappers["6to4"].sixtofour, relay)
+        for kind, address in wrappers.items():
+            with self.subTest(kind=kind, address=str(address)):
+                self.assertTrue(self._blocked(address), f"{kind} {address}")
+                self.assertTrue(self._blocked(str(address)), f"{kind} {address}")
+        self.assertTrue(self._blocked("3fff::1"), "3fff::1")
+        # Globally reachable anycasts stay refused on purpose.
+        for address in ("192.0.0.9", "192.0.0.10", "2001:1::3"):
+            self.assertTrue(self._blocked(address), address)
+
+    def test_public_embedded_literals_pass_the_address_check(self):
+        # Python 3.12 prints an IPv4-mapped address as ::ffff:808:808; 3.10, 3.11 and 3.13 keep the dotted form.
+        for host in ("::ffff:8.8.8.8", "2002:808:808::", "64:ff9b::808:808", "::8.8.8.8"):
+            self.assertEqual(net._checked_address(host, 80, f"http://[{host}]/"), str(ipaddress.ip_address(host)), host)
+        for host in (
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "::ffff:169.254.169.254",
+            "::ffff:100.64.0.1",
+            "::ffff:224.0.0.1",
+            "::ffff:240.0.0.1",
+            "::ffff:0.0.0.0",
+            "2002:7f00:1::",
+            "2002:a00:1::",
+            "2002:a9fe:a9fe::",
+            "2002:6440:1::",
+            "2002:e000:1::",
+            "2002:f000:1::",
+            "2002::",
+            "64:ff9b::7f00:1",
+            "64:ff9b::a00:1",
+            "64:ff9b::a9fe:a9fe",
+            "64:ff9b::6440:1",
+            "64:ff9b::e000:1",
+            "64:ff9b::f000:1",
+            "64:ff9b::",
+        ):
+            with self.subTest(host=host):
+                with self.assertRaisesRegex(net.FetchError, "private or reserved"):
+                    net._checked_address(host, 80, f"http://[{host}]/")
 
     def test_metadata_and_private_hosts_are_refused_before_any_connection(self):
         def no_connect(*args, **kwargs):

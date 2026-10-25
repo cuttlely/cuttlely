@@ -51,6 +51,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Startup options](./reference/startup-options.md). Every option the settings API exposes, with the default, the range, where it can be set, and whether a restart is needed. Secret values are not shown.
 -   [LangSmith tracing](./reference/langsmith-tracing.md). A flow credential with no API key turns that flow's LangSmith tracing off; it never falls back to the server's LangSmith key or profile.
 -   [Analyst tools](./reference/analyst-tools.md). The PostgreSQL MCP node fields, the `query` and `describe` tools, the one-line relation summary, and the refusals a table selection returns.
+-   [Current date and time](./reference/current-date-time.md). The CurrentDateTime tool's IANA timezone: the node field, `CUTTLELY_DEFAULT_TIMEZONE`, and the per-call `timezone` that wins.
 -   [FAQ](./faq.md). Common questions, including enabling local (stdio) MCP servers safely.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.
