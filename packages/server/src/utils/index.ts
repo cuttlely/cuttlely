@@ -1047,6 +1047,9 @@ export const getVariableValue = async (
  *   node's code inputs they are inserted as escaped text, never as code
  * @returns {INodeData}
  */
+/** Node inputs that are never filled from variables, request values or other nodes' output (PostgreSQL MCP Allowed functions). */
+export const UNRESOLVED_INPUT_NAMES: ReadonlySet<string> = new Set(['analystAllowedFunctions'])
+
 export const resolveVariables = async (
     reactFlowNodeData: INodeData,
     reactFlowNodes: IReactFlowNode[],
@@ -1062,6 +1065,8 @@ export const resolveVariables = async (
 
     const getParamValues = async (paramsObj: ICommonObject) => {
         for (const key in paramsObj) {
+            // Inputs that grant permissions keep exactly what the flow author saved: no {{...}} or $vars substitution.
+            if (UNRESOLVED_INPUT_NAMES.has(key)) continue
             const paramValue: string = paramsObj[key]
             const codeRequestVars = codeInputs.has(key) ? requestVarNames : undefined
             if (Array.isArray(paramValue)) {
