@@ -845,7 +845,7 @@ function readTextNoFollow(file, hook = false) {
             if (dirReal && fileReal && !insideRoot(dirReal, fileReal)) throwLink(file)
             // The parent can move outside its root after it was opened. Do not read a file from there.
             const rootReal = containingRootReal(file)
-            if (rootReal && !insideRoot(rootReal, fileReal)) throwLink(file)
+            if (!rootReal || !insideRoot(rootReal, fileReal)) throwLink(file)
         }
         return fs.readFileSync(fileFd, 'utf8')
     } finally {
