@@ -11,13 +11,15 @@ delete process.env.HERMES_API_URL
 
 const {
     compileProfileCached,
+    discardTryProfile,
     forgetCompiledProfile,
     profileDestinationConflicts,
     profileWriteTest,
     readProfileEnv,
     recompileOutdatedProfiles,
     setAsideOutdatedConfigs,
-    specialistWorkspace
+    specialistWorkspace,
+    tryRuntime
 } = await import('./profile.mjs')
 const { installPresetKit } = await import('./presets.mjs')
 const { readFileNoFollow } = await import('./contained-walk.mjs')
@@ -1502,6 +1504,28 @@ function restoreTree(slot, held) {
     if (!fs.existsSync(slot) && fs.existsSync(held)) fs.renameSync(held, slot)
 }
 
+// True when targetPath is dir, or a directory descriptor currently naming dir.
+function pathNamesDir(targetPath, dir) {
+    if (typeof targetPath !== 'string') return false
+    const want = path.resolve(dir)
+    if (path.resolve(targetPath) === want) return true
+    const proc = path.resolve(targetPath).match(/^\/proc\/self\/fd\/(\d+)$/)
+    if (!proc) return false
+    try {
+        return path.resolve(fs.readlinkSync(`/proc/self/fd/${proc[1]}`)) === want
+    } catch {
+        return false
+    }
+}
+
+function readText(file) {
+    try {
+        return fs.readFileSync(file, 'utf8')
+    } catch {
+        return ''
+    }
+}
+
 // Hole: without a directory-descriptor path, the file open uses the absolute path after the parent
 // was checked. An ancestor swapped in that gap is followed.
 {
@@ -2022,6 +2046,670 @@ function restoreTree(slot, held) {
     )
     fs.rmSync(scratch, { recursive: true, force: true })
     fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Contained deletion: absolute removal follows a profiles directory swapped for a link.
+{
+    const name = 'plinkretdel'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-ret-del-'))
+    const home = path.join(scratch, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const saved = record(name, [{ name: 'alpha', instructions: 'Alpha work.', model: model(), modules: [], codeExecution: true }])
+    const retired = `${name}--alpha`
+    const outside = outsideDir('ret-del', 'ret-del-sentinel\n')
+    const precious = path.join(outside.dir, retired, 'precious')
+    fs.mkdirSync(path.dirname(precious))
+    fs.writeFileSync(precious, 'keep-retired\n')
+    let swapped = false
+    let held = ''
+    let error = ''
+    const origRead = fs.readFileSync
+    try {
+        compileProfileCached(saved)
+        forgetCompiledProfile(name)
+        fs.readFileSync = (p, ...args) => {
+            const result = origRead(p, ...args)
+            // The env read is the last step before the directory is removed. Swap only then,
+            // so an earlier marker read does not refuse the walk before the removal.
+            if (!swapped && typeof p === 'number' && (new Error().stack || '').includes('forgetRetiredSpecialistProfiles')) {
+                let named = ''
+                try {
+                    named = fs.readlinkSync(`/proc/self/fd/${p}`)
+                } catch {
+                    named = ''
+                }
+                if (named.endsWith(`${path.sep}.env`)) {
+                    swapped = true
+                    held = swapTree(hermesProfiles(), outside.dir)
+                }
+            }
+            return result
+        }
+        try {
+            compileProfileCached(record(name, []))
+        } catch (caught) {
+            // A refusal still fails the check when the outside tree was removed.
+            error = caught?.code || caught?.message || ''
+        }
+    } finally {
+        fs.readFileSync = origRead
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+        restoreTree(path.join(home, 'profiles'), held)
+    }
+    check(
+        'a retired specialist is not deleted through a profiles directory swapped for a link',
+        swapped && readText(precious) === 'keep-retired\n',
+        JSON.stringify({ swapped, precious: readText(precious), error, held: Boolean(held) })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// The gateway sweep removes an abandoned try. That removal must not follow a swapped profiles
+// directory or a workspace directory that is already a link.
+{
+    const entry = 'tryabcdef01'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-gw-del-'))
+    const home = path.join(scratch, 'home')
+    const profileDirPath = path.join(home, 'profiles', entry)
+    fs.mkdirSync(profileDirPath, { recursive: true })
+    fs.writeFileSync(path.join(profileDirPath, 'harness-try'), `${entry}\n`)
+    fs.writeFileSync(path.join(profileDirPath, '.env'), 'A=b\n')
+    const outsideProfiles = outsideDir('gw-prof', 'gw-prof-sentinel\n')
+    const profilePrecious = path.join(outsideProfiles.dir, entry, 'precious')
+    fs.mkdirSync(path.dirname(profilePrecious))
+    fs.writeFileSync(profilePrecious, 'keep-profile\n')
+    const outsideWork = outsideDir('gw-work', 'gw-work-sentinel\n')
+    const workPrecious = path.join(outsideWork.dir, entry, 'precious')
+    fs.mkdirSync(path.dirname(workPrecious))
+    fs.writeFileSync(workPrecious, 'keep-workspace\n')
+    const workRoot = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces')
+    if (!fs.existsSync(workRoot)) fs.mkdirSync(workRoot, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let swapped = false
+    let heldProfiles = ''
+    let heldWork = ''
+    const origRead = fs.readFileSync
+    try {
+        heldWork = swapTree(workRoot, outsideWork.dir)
+        fs.readFileSync = (p, ...args) => {
+            const result = origRead(p, ...args)
+            if (!swapped && typeof p === 'number' && (new Error().stack || '').includes('removeProfileTree')) {
+                swapped = true
+                heldProfiles = swapTree(path.join(home, 'profiles'), outsideProfiles.dir)
+            }
+            return result
+        }
+        try {
+            bootHarnessGateway()
+        } catch {
+            // A refusal still fails the check when an outside tree was removed.
+        }
+    } finally {
+        fs.readFileSync = origRead
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        restoreTree(path.join(home, 'profiles'), heldProfiles)
+        restoreTree(workRoot, heldWork)
+    }
+    const profileKept = readText(profilePrecious) === 'keep-profile\n'
+    const workKept = readText(workPrecious) === 'keep-workspace\n'
+    check(
+        'an abandoned try is not deleted through a swapped profiles directory or a linked workspace',
+        swapped && profileKept && workKept,
+        JSON.stringify({ swapped, profileKept, workKept })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outsideProfiles.dir, { recursive: true, force: true })
+    fs.rmSync(outsideWork.dir, { recursive: true, force: true })
+}
+
+// Try removal deletes by absolute path. A profiles directory swapped after its stat, or a workspaces
+// root that is already a link, is not a tree that removal may empty.
+{
+    const id = 'abcdef01'
+    const scope = `try${id}`
+    const profilesRoot = hermesProfiles()
+    fs.mkdirSync(path.join(profilesRoot, scope), { recursive: true })
+    const outsideProfiles = outsideDir('try-prof', 'try-prof-sentinel\n')
+    const profilePrecious = path.join(outsideProfiles.dir, scope, 'precious')
+    fs.mkdirSync(path.dirname(profilePrecious))
+    fs.writeFileSync(profilePrecious, 'keep-try-profile\n')
+    const outsideWork = outsideDir('try-work', 'try-work-sentinel\n')
+    const workPrecious = path.join(outsideWork.dir, scope, 'precious')
+    fs.mkdirSync(path.dirname(workPrecious))
+    fs.writeFileSync(workPrecious, 'keep-try-workspace\n')
+    const workRoot = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces')
+    if (!fs.existsSync(workRoot)) fs.mkdirSync(workRoot, { recursive: true })
+    const heldWork = swapTree(workRoot, outsideWork.dir)
+    let heldProfiles = ''
+    const origRm = fs.rmSync
+    fs.rmSync = (p, ...args) => {
+        if (!heldProfiles && typeof p === 'string' && path.resolve(p) === path.join(profilesRoot, scope)) {
+            const stack = new Error().stack || ''
+            if (stack.includes('removeOneTryDir')) heldProfiles = swapTree(profilesRoot, outsideProfiles.dir)
+        }
+        return origRm(p, ...args)
+    }
+    const previousClose = tryRuntime.closeProfiles
+    tryRuntime.closeProfiles = async () => {}
+    try {
+        await discardTryProfile(id)
+    } finally {
+        fs.rmSync = origRm
+        tryRuntime.closeProfiles = previousClose
+        restoreTree(profilesRoot, heldProfiles)
+        restoreTree(workRoot, heldWork)
+        fs.rmSync(path.join(profilesRoot, scope), { recursive: true, force: true })
+    }
+    const profileKept = readText(profilePrecious) === 'keep-try-profile\n'
+    const workKept = readText(workPrecious) === 'keep-try-workspace\n'
+    check(
+        'a try directory is not deleted through a linked profiles or workspaces root',
+        profileKept && workKept,
+        JSON.stringify({ profileKept, workKept, heldProfiles: Boolean(heldProfiles) })
+    )
+    fs.rmSync(outsideProfiles.dir, { recursive: true, force: true })
+    fs.rmSync(outsideWork.dir, { recursive: true, force: true })
+}
+
+// Containment preflight falls back to an absolute stat, which follows an ancestor swapped underneath it.
+{
+    const name = 'plinkcont'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-cont-'))
+    const home = path.join(scratch, 'home')
+    const profilesRoot = path.join(home, 'profiles')
+    fs.mkdirSync(profilesRoot, { recursive: true })
+    const outside = outsideDir('cont', 'cont-sentinel\n')
+    fs.mkdirSync(path.join(outside.dir, name))
+    const marker = fs.statSync(path.join(outside.dir, name))
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const origLstat = fs.lstatSync
+    let absoluteStats = 0
+    let followed = false
+    let swapped = false
+    let held = ''
+    try {
+        fs.lstatSync = (p, ...args) => {
+            const stack = new Error().stack || ''
+            const resolved = typeof p === 'string' ? path.resolve(p) : ''
+            const absolute =
+                typeof p === 'string' &&
+                !resolved.startsWith('/proc/') &&
+                stack.includes('assertContained') &&
+                (resolved === profilesRoot || resolved.startsWith(profilesRoot + path.sep))
+            if (absolute) absoluteStats += 1
+            if (absolute && !swapped && resolved === path.join(profilesRoot, name)) {
+                swapped = true
+                held = swapTree(profilesRoot, outside.dir)
+            }
+            const st = origLstat(p, ...args)
+            if (swapped && resolved === path.join(profilesRoot, name) && st && st.ino === marker.ino && st.dev === marker.dev) {
+                followed = true
+            }
+            return st
+        }
+        try {
+            compileProfileCached(record(name, []))
+        } catch {
+            // A later refusal does not undo a stat that already followed.
+        }
+    } finally {
+        fs.lstatSync = origLstat
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+        restoreTree(profilesRoot, held)
+    }
+    check(
+        'containment preflight does not stat a profile through a swapped ancestor',
+        absoluteStats === 0 && !followed,
+        JSON.stringify({ absoluteStats, followed, swapped })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Descendant preflight lists through a directory fd, then stats each child by its absolute path.
+{
+    const name = 'plinkdesc'
+    const saved = record(name, [
+        {
+            name: 'alpha',
+            instructions: 'Alpha work.',
+            model: model(),
+            modules: [],
+            playbooks: [{ name: 'refund-rules', description: 'When to refund', content: 'Refund the order.' }]
+        }
+    ])
+    compileProfileCached(saved)
+    forgetCompiledProfile(name)
+    const playbookDir = path.join(profilePath(`${name}--alpha`), 'skills', 'harness-playbooks')
+    const child = path.join(playbookDir, 'refund-rules')
+    const outside = outsideDir('desc', 'desc-sentinel\n')
+    fs.mkdirSync(path.join(outside.dir, 'refund-rules'))
+    const marker = fs.statSync(path.join(outside.dir, 'refund-rules'))
+    const origLstat = fs.lstatSync
+    let absoluteStats = 0
+    let followed = false
+    let swapped = false
+    let held = ''
+    try {
+        fs.lstatSync = (p, ...args) => {
+            const stack = new Error().stack || ''
+            const resolved = typeof p === 'string' ? path.resolve(p) : ''
+            const absolute =
+                typeof p === 'string' &&
+                !resolved.startsWith('/proc/') &&
+                stack.includes('refuseDescendantLinks') &&
+                resolved.startsWith(playbookDir + path.sep)
+            if (absolute) absoluteStats += 1
+            if (absolute && !swapped && resolved === child) {
+                swapped = true
+                held = swapTree(playbookDir, outside.dir)
+            }
+            const st = origLstat(p, ...args)
+            if (swapped && resolved === child && st && st.ino === marker.ino && st.dev === marker.dev) followed = true
+            return st
+        }
+        try {
+            compileProfileCached(saved)
+        } catch {
+            // Refusal after the stat is still a follow.
+        }
+    } finally {
+        fs.lstatSync = origLstat
+        forgetCompiledProfile(name)
+        restoreTree(playbookDir, held)
+    }
+    check(
+        'playbook preflight does not stat a child through a swapped directory',
+        absoluteStats === 0 && !followed,
+        JSON.stringify({ absoluteStats, followed, swapped })
+    )
+    cleanupProfile(name)
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// The cache snapshot keeps walking after the first ancestor link, so the next stat follows it.
+{
+    const name = 'plinksnap'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-snap-'))
+    const home = path.join(scratch, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const saved = record(name, [])
+    const outside = outsideDir('snap', 'snap-sentinel\n')
+    const origLstat = fs.lstatSync
+    let followed = false
+    let swapped = false
+    let held = ''
+    const profileDirPath = path.join(home, 'profiles', name)
+    try {
+        fs.lstatSync = (p, ...args) => {
+            const stack = new Error().stack || ''
+            const resolved = typeof p === 'string' ? path.resolve(p) : ''
+            if (!swapped && stack.includes('profileDirectoryChain') && resolved === profileDirPath) {
+                swapped = true
+                held = swapTree(profileDirPath, outside.dir)
+            }
+            if (swapped && resolved.startsWith(profileDirPath + path.sep) && stack.includes('profileDirectoryChain')) followed = true
+            return origLstat(p, ...args)
+        }
+        try {
+            compileProfileCached(saved)
+        } catch {
+            // The snapshot refuses the link. The failure is stating a path under it.
+        }
+    } finally {
+        fs.lstatSync = origLstat
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+        restoreTree(profileDirPath, held)
+    }
+    check(
+        'the cache snapshot stops at the first ancestor link',
+        swapped && !followed && sameStamp(outside.file, outside.before),
+        JSON.stringify({ swapped, followed })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// Listing a profiles directory by its absolute path follows a swap in front of that call.
+{
+    const name = 'plinkretlist'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-ret-list-'))
+    const home = path.join(scratch, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const outside = outsideDir('ret-list', 'ret-list-sentinel\n')
+    fs.writeFileSync(path.join(outside.dir, 'secret-retired'), 'listed\n')
+    let followed = false
+    let held = ''
+    const origReadDir = fs.readdirSync
+    try {
+        compileProfileCached(record(name))
+        forgetCompiledProfile(name)
+        fs.readdirSync = (p, ...args) => {
+            if (!held && pathNamesDir(p, hermesProfiles()) && (new Error().stack || '').includes('forgetRetiredSpecialistProfiles')) {
+                held = swapTree(hermesProfiles(), outside.dir)
+            }
+            const names = origReadDir(p, ...args)
+            if (names.includes('secret-retired')) followed = true
+            return names
+        }
+        try {
+            compileProfileCached(record(name, []))
+        } catch {
+            // A refusal is fine. Listing the outside directory is not.
+        }
+    } finally {
+        fs.readdirSync = origReadDir
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+        restoreTree(path.join(home, 'profiles'), held)
+    }
+    check(
+        'a retired-profile sweep does not list a profiles directory swapped for a link',
+        held !== '' && !followed && sameStamp(outside.file, outside.before),
+        JSON.stringify({ held: Boolean(held), followed })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+{
+    const name = 'plinkunfin'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-unfin-'))
+    const home = path.join(scratch, 'home')
+    const profilesRoot = path.join(home, 'profiles')
+    fs.mkdirSync(profilesRoot, { recursive: true })
+    const outside = outsideDir('unfin', 'unfin-sentinel\n')
+    fs.writeFileSync(path.join(outside.dir, 'secret-unfinished'), 'listed\n')
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let followed = false
+    let held = ''
+    const origReadDir = fs.readdirSync
+    fs.readdirSync = (p, ...args) => {
+        if (!held && pathNamesDir(p, profilesRoot) && (new Error().stack || '').includes('setAsideUnfinishedConfigs')) {
+            held = swapTree(profilesRoot, outside.dir)
+        }
+        const names = origReadDir(p, ...args)
+        if (names.includes('secret-unfinished')) followed = true
+        return names
+    }
+    profileWriteTest.beforeTreeMutation = () => {
+        throw new Error('boom')
+    }
+    try {
+        try {
+            compileProfileCached(record(name, []))
+        } catch {
+            // The injected failure is what reaches the unfinished sweep.
+        }
+    } finally {
+        fs.readdirSync = origReadDir
+        profileWriteTest.beforeTreeMutation = null
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+        restoreTree(profilesRoot, held)
+    }
+    check(
+        'an unfinished compile does not list a profiles directory swapped for a link',
+        held !== '' && !followed && sameStamp(outside.file, outside.before),
+        JSON.stringify({ held: Boolean(held), followed })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+{
+    const id = 'abcdef02'
+    const scope = `try${id}`
+    const outsideProfiles = outsideDir('try-list-prof', 'try-list-prof\n')
+    fs.writeFileSync(path.join(outsideProfiles.dir, 'secret-try-profiles'), 'listed\n')
+    const outsideWork = outsideDir('try-list-work', 'try-list-work\n')
+    fs.writeFileSync(path.join(outsideWork.dir, 'secret-try-workspaces'), 'listed\n')
+    const profilesRoot = hermesProfiles()
+    if (!fs.existsSync(profilesRoot)) fs.mkdirSync(profilesRoot, { recursive: true })
+    const workRoot = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces')
+    if (!fs.existsSync(workRoot)) fs.mkdirSync(workRoot, { recursive: true })
+    let profilesFollowed = false
+    let workFollowed = false
+    let heldProfiles = ''
+    let heldWork = ''
+    const origReadDir = fs.readdirSync
+    fs.readdirSync = (p, ...args) => {
+        const stack = new Error().stack || ''
+        if (!heldProfiles && pathNamesDir(p, profilesRoot) && (stack.includes('tryProfileNames') || stack.includes('tryScopeEntries'))) {
+            heldProfiles = swapTree(profilesRoot, outsideProfiles.dir)
+        }
+        if (!heldWork && pathNamesDir(p, workRoot) && stack.includes('tryScopeEntries')) {
+            heldWork = swapTree(workRoot, outsideWork.dir)
+        }
+        const names = origReadDir(p, ...args)
+        if (names.includes('secret-try-profiles')) profilesFollowed = true
+        if (names.includes('secret-try-workspaces')) workFollowed = true
+        return names
+    }
+    const previousClose = tryRuntime.closeProfiles
+    tryRuntime.closeProfiles = async () => {}
+    try {
+        await discardTryProfile(id)
+    } finally {
+        fs.readdirSync = origReadDir
+        tryRuntime.closeProfiles = previousClose
+        restoreTree(profilesRoot, heldProfiles)
+        restoreTree(workRoot, heldWork)
+    }
+    check(
+        'try cleanup does not list profiles or workspaces swapped for a link',
+        heldProfiles !== '' &&
+            heldWork !== '' &&
+            !profilesFollowed &&
+            !workFollowed &&
+            sameStamp(outsideProfiles.file, outsideProfiles.before) &&
+            sameStamp(outsideWork.file, outsideWork.before),
+        JSON.stringify({ heldProfiles: Boolean(heldProfiles), heldWork: Boolean(heldWork), profilesFollowed, workFollowed })
+    )
+    fs.rmSync(outsideProfiles.dir, { recursive: true, force: true })
+    fs.rmSync(outsideWork.dir, { recursive: true, force: true })
+}
+
+{
+    const name = 'plinkoldlist'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-old-list-'))
+    const home = path.join(scratch, 'home')
+    const profilesRoot = path.join(home, 'profiles')
+    fs.mkdirSync(profilesRoot, { recursive: true })
+    const outside = outsideDir('old-list', 'old-list-sentinel\n')
+    fs.writeFileSync(path.join(outside.dir, 'secret-outdated'), 'listed\n')
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let followed = false
+    let held = ''
+    const origReadDir = fs.readdirSync
+    fs.readdirSync = (p, ...args) => {
+        if (!held && pathNamesDir(p, profilesRoot) && (new Error().stack || '').includes('profileOutdated')) {
+            held = swapTree(profilesRoot, outside.dir)
+        }
+        const names = origReadDir(p, ...args)
+        if (names.includes('secret-outdated')) followed = true
+        return names
+    }
+    try {
+        try {
+            recompileOutdatedProfiles([record(name, [])], { log: {} })
+        } catch {
+            // Listing the outside directory is the failure, not the refusal.
+        }
+    } finally {
+        fs.readdirSync = origReadDir
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+        restoreTree(profilesRoot, held)
+    }
+    check(
+        'an outdated check does not list a profiles directory swapped for a link',
+        held !== '' && !followed && sameStamp(outside.file, outside.before),
+        JSON.stringify({ held: Boolean(held), followed })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+// The anchor is checked only after mkdir, so a parent that has left the root still gets a child.
+{
+    const name = 'plinkanchor'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-anchor-'))
+    const home = path.join(scratch, 'home')
+    const profilesRoot = path.join(home, 'profiles')
+    fs.mkdirSync(profilesRoot, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let movedTo = ''
+    let mkdirAfterMove = false
+    let refused = ''
+    const origOpen = fs.openSync
+    const origMkdir = fs.mkdirSync
+    fs.openSync = (p, ...args) => {
+        if (!movedTo && typeof p === 'string' && p.endsWith(`/${name}`)) {
+            const stack = new Error().stack || ''
+            if (stack.includes('ensureChildDir') && stack.includes('ensureContainedDir')) {
+                movedTo = path.join(scratch, 'outside-profiles')
+                fs.renameSync(profilesRoot, movedTo)
+            }
+        }
+        return origOpen(p, ...args)
+    }
+    fs.mkdirSync = (p, ...args) => {
+        if (movedTo) mkdirAfterMove = true
+        return origMkdir(p, ...args)
+    }
+    try {
+        try {
+            compileProfileCached(record(name, []))
+        } catch (error) {
+            refused = error?.code || ''
+        }
+    } finally {
+        fs.openSync = origOpen
+        fs.mkdirSync = origMkdir
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+    }
+    const created = Boolean(movedTo) && fs.existsSync(path.join(movedTo, name))
+    check(
+        'a profile directory is not created once its parent has left the profiles root',
+        refused === 'profile_link' && movedTo !== '' && !created && !mkdirAfterMove,
+        JSON.stringify({ refused, movedTo: Boolean(movedTo), created, mkdirAfterMove })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+}
+
+// openedReal is accepted when it still matches the fd, even if that path is already outside the root.
+{
+    const name = 'plinkqout'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-qout-'))
+    const home = path.join(scratch, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const saved = record(name, [])
+    const outside = outsideFile('qout', 'qout-sentinel\n')
+    let movedTo = ''
+    const origRealpath = fs.realpathSync
+    try {
+        compileProfileCached(saved)
+        forgetCompiledProfile(name)
+        const soul = profilePath(name, 'SOUL.md')
+        fs.renameSync(soul, `${soul}.real`)
+        fs.symlinkSync(outside.file, soul)
+        fs.realpathSync = (p, options) => {
+            if (!movedTo && typeof p === 'string' && /^\/proc\/self\/fd\/\d+$/.test(p)) {
+                const stack = new Error().stack || ''
+                if (stack.includes('quarantineSymlink') && !stack.includes('profilesRootReal')) {
+                    movedTo = path.join(scratch, 'outside-profile')
+                    fs.renameSync(profilePath(name), movedTo)
+                }
+            }
+            return origRealpath(p, options)
+        }
+        try {
+            compileProfileCached(saved)
+        } catch {
+            // The refusal is expected. Claiming the name outside the root is not.
+        }
+    } finally {
+        fs.realpathSync = origRealpath
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+    }
+    const soulStat = movedTo ? fs.lstatSync(path.join(movedTo, 'SOUL.md'), { throwIfNoEntry: false }) : null
+    const claimed = movedTo
+        ? fs.readdirSync(movedTo).some((entry) => entry === 'SOUL.md.quarantine' || entry.startsWith('SOUL.md.quarantine-'))
+        : false
+    check(
+        'quarantine does not claim a name once the opened directory is outside the profiles root',
+        movedTo !== '' && soulStat?.isSymbolicLink() === true && !claimed && sameStamp(outside.file, outside.before),
+        JSON.stringify({ movedTo: Boolean(movedTo), stillLink: soulStat?.isSymbolicLink() === true, claimed })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
+{
+    const name = 'plinkaside'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-aside-'))
+    const home = path.join(scratch, 'home')
+    const dir = path.join(home, 'profiles', name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'config.yaml'), 'old-config\n')
+    fs.writeFileSync(path.join(dir, 'harness-roster.json'), '{}\n')
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    let movedTo = ''
+    const origRealpath = fs.realpathSync
+    fs.realpathSync = (p, options) => {
+        if (!movedTo && typeof p === 'string' && /^\/proc\/self\/fd\/\d+$/.test(p)) {
+            const stack = new Error().stack || ''
+            if (stack.includes('setAsideConfig') && !stack.includes('profilesRootReal')) {
+                movedTo = path.join(scratch, 'outside-profile')
+                fs.renameSync(dir, movedTo)
+                // The logical path has to exist or the set-aside stops before the opened directory is renamed.
+                fs.mkdirSync(dir, { recursive: true })
+                fs.writeFileSync(path.join(dir, 'config.yaml'), 'decoy\n')
+                fs.writeFileSync(path.join(dir, 'harness-roster.json'), '{}\n')
+            }
+        }
+        return origRealpath(p, options)
+    }
+    try {
+        try {
+            setAsideOutdatedConfigs()
+        } catch {
+            // A refusal leaves the config where it was opened.
+        }
+    } finally {
+        fs.realpathSync = origRealpath
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+    }
+    const configText =
+        movedTo && fs.existsSync(path.join(movedTo, 'config.yaml')) ? fs.readFileSync(path.join(movedTo, 'config.yaml'), 'utf8') : ''
+    const outdated = Boolean(movedTo) && fs.existsSync(path.join(movedTo, 'config.yaml.outdated'))
+    check(
+        'config set-aside does not rename a file once the opened directory is outside the profiles root',
+        movedTo !== '' && configText === 'old-config\n' && !outdated,
+        JSON.stringify({ movedTo: Boolean(movedTo), configText, outdated })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
 }
 
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.

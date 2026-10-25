@@ -16807,15 +16807,38 @@ await (async () => {
     const savedToken = 'S'.repeat(43)
     const savedEnv = path.join(profiles, `${savedName}--clerk`, '.env')
     const realRm = fs.rmSync
+    const realUnlink = fs.unlinkSync
+    const realRmdir = fs.rmdirSync
     let armed = true
-    fs.rmSync = function rmSync(target, options) {
+    const busyDirs = [parentWork, childDir, fittedDir]
+    const hitsBusy = (target) => {
         const text = String(target)
-        if (armed && (text === parentWork || text === childDir || text === fittedDir)) {
-            const error = new Error('EBUSY')
-            error.code = 'EBUSY'
-            throw error
+        if (busyDirs.includes(text)) return true
+        if (!text.startsWith('/proc/self/fd/')) return false
+        try {
+            const real = fs.realpathSync(text)
+            return busyDirs.some((dir) => real === dir || real.startsWith(dir + path.sep))
+        } catch {
+            return false
         }
+    }
+    const throwBusy = (target) => {
+        if (!armed || !hitsBusy(target)) return
+        const error = new Error('EBUSY')
+        error.code = 'EBUSY'
+        throw error
+    }
+    fs.rmSync = function rmSync(target, options) {
+        throwBusy(target)
         return realRm.call(fs, target, options)
+    }
+    fs.unlinkSync = function unlinkSync(target) {
+        throwBusy(target)
+        return realUnlink.call(fs, target)
+    }
+    fs.rmdirSync = function rmdirSync(target) {
+        throwBusy(target)
+        return realRmdir.call(fs, target)
     }
     let failed = null
     try {
@@ -16873,6 +16896,8 @@ await (async () => {
         )
     } finally {
         fs.rmSync = realRm
+        fs.unlinkSync = realUnlink
+        fs.rmdirSync = realRmdir
     }
 })()
 
@@ -17334,20 +17359,48 @@ await (async () => {
         closed.push(...names)
     }
     const realRm = fs.rmSync
+    const realUnlink = fs.unlinkSync
+    const realRmdir = fs.rmdirSync
     const failedFirst = new Set()
-    fs.rmSync = function rmSync(target, options) {
+    const busyProfile = (target) => {
         const text = String(target)
-        const ownProfile =
-            text.includes(`${path.sep}profiles${path.sep}`) &&
-            (text.endsWith(`${path.sep}${scope}`) || text.endsWith(`${path.sep}${child}`))
-        if (ownProfile && closed.length === 0) removedBeforeClose = true
-        if (ownProfile && !failedFirst.has(text)) {
-            failedFirst.add(text)
+        const match = (real) => {
+            if (!real.includes(`${path.sep}profiles${path.sep}`)) return ''
+            if (real === path.join(profiles, scope) || real.startsWith(path.join(profiles, scope) + path.sep)) return scope
+            if (real === path.join(profiles, child) || real.startsWith(path.join(profiles, child) + path.sep)) return child
+            return ''
+        }
+        const direct = match(text)
+        if (direct) return direct
+        if (!text.startsWith('/proc/self/fd/')) return ''
+        try {
+            return match(fs.realpathSync(text))
+        } catch {
+            return ''
+        }
+    }
+    const throwBusyOnce = (target) => {
+        const profile = busyProfile(target)
+        if (!profile) return
+        if (closed.length === 0) removedBeforeClose = true
+        if (!failedFirst.has(profile)) {
+            failedFirst.add(profile)
             const error = new Error('EBUSY')
             error.code = 'EBUSY'
             throw error
         }
+    }
+    fs.rmSync = function rmSync(target, options) {
+        throwBusyOnce(target)
         return realRm.call(fs, target, options)
+    }
+    fs.unlinkSync = function unlinkSync(target) {
+        throwBusyOnce(target)
+        return realUnlink.call(fs, target)
+    }
+    fs.rmdirSync = function rmdirSync(target) {
+        throwBusyOnce(target)
+        return realRmdir.call(fs, target)
     }
     const warnings = []
     const realWarn = console.warn
@@ -17359,6 +17412,8 @@ await (async () => {
         failed = error
     } finally {
         fs.rmSync = realRm
+        fs.unlinkSync = realUnlink
+        fs.rmdirSync = realRmdir
         console.warn = realWarn
         tryRuntime.closeProfiles = null
         tryRuntime.afterFirstRemoval = null
@@ -17408,14 +17463,40 @@ await (async () => {
         closed.push(...names)
     }
     const realRm = fs.rmSync
-    fs.rmSync = function rmSync(target, options) {
+    const realUnlink = fs.unlinkSync
+    const realRmdir = fs.rmdirSync
+    const staysBusy = (target) => {
         const text = String(target)
-        if (text.includes(`${path.sep}profiles${path.sep}${scope}`)) {
-            const error = new Error('EBUSY')
-            error.code = 'EBUSY'
-            throw error
+        const match = (real) =>
+            real === path.join(profiles, scope) ||
+            real.startsWith(path.join(profiles, scope) + path.sep) ||
+            real === path.join(profiles, child) ||
+            real.startsWith(path.join(profiles, child) + path.sep)
+        if (match(text)) return true
+        if (!text.startsWith('/proc/self/fd/')) return false
+        try {
+            return match(fs.realpathSync(text))
+        } catch {
+            return false
         }
+    }
+    const throwBusy = (target) => {
+        if (!staysBusy(target)) return
+        const error = new Error('EBUSY')
+        error.code = 'EBUSY'
+        throw error
+    }
+    fs.rmSync = function rmSync(target, options) {
+        throwBusy(target)
         return realRm.call(fs, target, options)
+    }
+    fs.unlinkSync = function unlinkSync(target) {
+        throwBusy(target)
+        return realUnlink.call(fs, target)
+    }
+    fs.rmdirSync = function rmdirSync(target) {
+        throwBusy(target)
+        return realRmdir.call(fs, target)
     }
     const warnings = []
     const realWarn = console.warn
@@ -17427,6 +17508,8 @@ await (async () => {
         failed = error
     } finally {
         fs.rmSync = realRm
+        fs.unlinkSync = realUnlink
+        fs.rmdirSync = realRmdir
         console.warn = realWarn
         tryRuntime.closeProfiles = null
     }

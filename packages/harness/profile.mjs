@@ -307,13 +307,7 @@ function quarantineSymlink(linkPath) {
     const rootReal = profilesRootReal()
     const openedReal = realOfFd(opened.fd)
     // A rename of this directory out of the profiles tree is not a place we claim a sibling name.
-    const stillInside = () => {
-        if (process.platform !== 'linux') return true
-        const here = realOfFd(opened.fd)
-        if (!here) return false
-        if (openedReal && here === openedReal) return true
-        return Boolean(rootReal && insideRoot(rootReal, here))
-    }
+    const stillInside = () => openedStillInside(opened.fd, openedReal, rootReal)
     const dropClaim = (viaDest, claimed) => {
         try {
             const stillClaimed = fs.lstatSync(viaDest)
@@ -431,59 +425,56 @@ function rootFor(file) {
     throwLink(file)
 }
 
-// Refuse a symlink at the root and at every segment down to the file. realpath of what exists must stay inside the root.
+// Refuse a symlink at the root and at every segment down to the file.
+// Stats go through the directory opened above that segment. An absolute lstat follows an ancestor
+// swapped after the open.
 function assertContained(file) {
     const root = rootFor(file)
-    // The containment root is opened from above it, so a link in an ancestor is not followed.
-    assertDirNoFollow(root)
-    let rootStat
-    try {
-        rootStat = fs.lstatSync(root)
-    } catch (error) {
-        if (error?.code === 'ENOENT') return
-        throw error
-    }
-    if (rootStat.isSymbolicLink()) {
-        refuseLink(root)
-    }
     const rel = path.relative(root, path.resolve(file))
     if (rel.startsWith('..') || path.isAbsolute(rel)) throwLink(file)
-    if (!rel) return
-    let cursor = root
-    for (const part of rel.split(path.sep)) {
-        if (!part) continue
-        cursor = path.join(cursor, part)
-        let st
-        try {
-            st = fs.lstatSync(cursor)
-        } catch (error) {
-            if (error?.code === 'ENOENT') return
-            throw error
-        }
-        if (st.isSymbolicLink()) {
-            refuseLink(cursor)
-        }
-    }
-    let realRoot
+    const opened = openDirNoFollow(root)
+    if (!opened) return
+    const fds = opened.fds
     try {
-        realRoot = fs.realpathSync(root)
-    } catch {
-        return
+        if (!rel) return
+        const parts = rel.split(path.sep).filter(Boolean)
+        let dirFd = opened.fd
+        let logical = root
+        for (let i = 0; i < parts.length; i += 1) {
+            const part = parts[i]
+            if (!part || part === '.' || part === '..') throwLink(file)
+            const nextLogical = path.join(logical, part)
+            const st = lstatChild(dirFd, logical, part)
+            if (!st) return
+            if (st.isSymbolicLink()) refuseLink(nextLogical)
+            const last = i === parts.length - 1
+            if (!st.isDirectory()) {
+                if (!last) {
+                    throw Object.assign(new Error(`ENOTDIR: not a directory, lstat '${nextLogical}'`), {
+                        code: 'ENOTDIR',
+                        path: nextLogical
+                    })
+                }
+                assertOpenedInside(opened.fd, dirFd, file)
+                return
+            }
+            const via = childPath(dirFd, logical, part)
+            let next
+            try {
+                next = fs.openSync(via, DIR_FLAGS)
+            } catch (error) {
+                if (error?.code === 'ELOOP' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') refuseLink(nextLogical)
+                throw error
+            }
+            fds.push(next)
+            dirFd = next
+            if (fs.fstatSync(dirFd).isSymbolicLink()) refuseLink(nextLogical)
+            assertOpenedInside(opened.fd, dirFd, file)
+            logical = nextLogical
+        }
+    } finally {
+        closeFds(fds)
     }
-    let existing = path.resolve(file)
-    while (!fs.existsSync(existing)) {
-        const parent = path.dirname(existing)
-        if (parent === existing) return
-        existing = parent
-    }
-    let realExisting
-    try {
-        realExisting = fs.realpathSync(existing)
-    } catch {
-        return
-    }
-    const within = path.relative(realRoot, realExisting)
-    if (within.startsWith('..') || path.isAbsolute(within)) throwLink(file)
 }
 
 const NOFOLLOW = fs.constants.O_NOFOLLOW || 0
@@ -505,6 +496,42 @@ function insideRoot(rootReal, candidate) {
     if (!rootReal || !candidate) return false
     const rel = path.relative(rootReal, candidate)
     return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+// The path captured when the directory was opened can already sit outside the profiles root.
+// Matching that path is not enough to accept it. The parent of the profiles directory is the one
+// exception: that directory is outside the tree, and it is where the profiles entry itself is moved aside.
+function openedStillInside(fd, openedReal, rootReal) {
+    if (process.platform !== 'linux') return true
+    const here = realOfFd(fd)
+    if (!here) return false
+    if (openedReal && here === openedReal) {
+        if (rootReal && insideRoot(rootReal, openedReal)) return true
+        return stableProfilesParent(openedReal)
+    }
+    return Boolean(rootReal && insideRoot(rootReal, here))
+}
+
+function stableProfilesParent(openedReal) {
+    try {
+        const parentReal = fs.realpathSync(path.dirname(profilesRoot()))
+        return path.resolve(openedReal) === path.resolve(parentReal)
+    } catch {
+        return false
+    }
+}
+
+function assertOpenedInside(rootFd, dirFd, file) {
+    if (process.platform !== 'linux') return
+    let rootReal = ''
+    let here = ''
+    try {
+        rootReal = realOfFd(rootFd)
+        here = realOfFd(dirFd)
+    } catch {
+        return
+    }
+    if (rootReal && here && !insideRoot(rootReal, here)) throwLink(file)
 }
 
 function closeFds(fds) {
@@ -653,6 +680,11 @@ function ensureChildDir(dirFd, logicalDir, name, fds, anchor = '') {
     }
     let fd = openDir()
     if (fd == null) {
+        // The parent can move outside the root after it was opened. Do not create a child there.
+        if (anchor && process.platform === 'linux') {
+            const parentHere = realOfFd(dirFd)
+            if (parentHere && !insideRoot(anchor, parentHere)) throwLink(logical)
+        }
         try {
             fs.mkdirSync(via)
         } catch (error) {
@@ -748,7 +780,7 @@ function removeChild(dirFd, logicalDir, name) {
 
 // Removes absDir only through real directories. A symlink at absDir is unlinked and its target stays.
 // A symlink in an ancestor is refused and left in place. A missing directory stays missing.
-function removeContainedTree(absDir) {
+export function removeContainedTree(absDir) {
     const resolved = path.resolve(absDir)
     const parent = path.dirname(resolved)
     const name = path.basename(resolved)
@@ -1513,21 +1545,42 @@ const PREFLIGHT_RELS = [
 
 // A link anywhere under the playbook tree is refused. The directory itself is checked with the other
 // preflight paths; this covers a playbook folder or a skill file linked after that directory was real.
-function refuseDescendantLinks(dir) {
-    const entries = listDirNoFollow(dir)
-    if (!entries) return
-    for (const entry of entries) {
+function refuseDescendantLinksFrom(dirFd, logicalDir) {
+    for (const entry of namesIn(dirFd, logicalDir)) {
         if (!entry || entry === '.' || entry === '..') continue
-        const child = path.join(dir, entry)
-        let st
+        const child = path.join(logicalDir, entry)
+        const st = lstatChild(dirFd, logicalDir, entry)
+        if (!st) continue
+        if (st.isSymbolicLink()) refuseLink(child)
+        if (!st.isDirectory()) continue
+        const via = childPath(dirFd, logicalDir, entry)
+        let childFd
         try {
-            st = fs.lstatSync(child)
+            childFd = fs.openSync(via, DIR_FLAGS)
         } catch (error) {
-            if (error?.code === 'ENOENT') continue
+            if (error?.code === 'ELOOP' || error?.code === 'ENOTDIR' || error?.code === 'EEXIST') {
+                if (lstatChild(dirFd, logicalDir, entry)?.isSymbolicLink()) refuseLink(child)
+                continue
+            }
             throw error
         }
-        if (st.isSymbolicLink()) refuseLink(child)
-        if (st.isDirectory()) refuseDescendantLinks(child)
+        try {
+            if (fs.fstatSync(childFd).isSymbolicLink()) refuseLink(child)
+            refuseDescendantLinksFrom(childFd, child)
+        } finally {
+            fs.closeSync(childFd)
+        }
+    }
+}
+
+function refuseDescendantLinks(dir) {
+    const opened = openDirNoFollow(dir, { quiet: true })
+    if (!opened) return
+    try {
+        if (!fdPath(opened.fd, '.')) return
+        refuseDescendantLinksFrom(opened.fd, dir)
+    } finally {
+        closeFds(opened.fds)
     }
 }
 
@@ -1626,21 +1679,30 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile, a
 
 function forgetRetiredSpecialistProfiles(harnessName, keep) {
     const root = path.join(hermesHome(), 'profiles')
-    if (!fs.existsSync(root)) return
+    // A linked or missing profiles directory is not listed. Listing the absolute path would follow it.
+    const opened = openDirNoFollow(root, { quiet: true })
+    if (!opened) return
     const parent = String(harnessName)
-    for (const entry of fs.readdirSync(root)) {
-        if (entry === parent || keep.has(entry)) continue
-        const dir = path.join(root, entry)
-        // A link is not a directory this pass may read. Ownership comes from the entry name.
-        if (isLink(dir)) continue
-        // A linked marker is not read. The directory stays until a later pass can see a real marker.
-        if (readMarker(path.join(dir, 'harness-parent')) !== parent) continue
-        // A folder that is a harness home, or is named after a saved harness, is not a retired specialist.
-        if (fs.existsSync(path.join(dir, 'harness-roster.json')) || fs.existsSync(path.join(harnessStoreDir(), `${entry}.json`))) continue
-        const retired = readEnvFile(path.join(dir, '.env'))
-        forgetProfileToken(retired.OPENAI_API_KEY)
-        fs.rmSync(dir, { recursive: true, force: true })
-        removeContainedTree(specialistWorkspace(entry))
+    try {
+        for (const entry of namesIn(opened.fd, root)) {
+            if (!entry || entry === '.' || entry === '..') continue
+            if (entry === parent || keep.has(entry)) continue
+            const dir = path.join(root, entry)
+            // A link is not a directory this pass may read. Ownership comes from the entry name.
+            const st = lstatChild(opened.fd, root, entry)
+            if (!st || st.isSymbolicLink()) continue
+            // A linked marker is not read. The directory stays until a later pass can see a real marker.
+            if (readMarker(path.join(dir, 'harness-parent')) !== parent) continue
+            // A folder that is a harness home, or is named after a saved harness, is not a retired specialist.
+            if (fs.existsSync(path.join(dir, 'harness-roster.json')) || fs.existsSync(path.join(harnessStoreDir(), `${entry}.json`)))
+                continue
+            const retired = readEnvFile(path.join(dir, '.env'))
+            forgetProfileToken(retired.OPENAI_API_KEY)
+            removeContainedTree(dir)
+            removeContainedTree(specialistWorkspace(entry))
+        }
+    } finally {
+        closeFds(opened.fds)
     }
 }
 
@@ -1735,13 +1797,7 @@ function setAsideConfig(dir) {
         const openedReal = realOfFd(opened.fd)
         // The directory can be swapped for a link after it was opened. A claim then stays on the
         // opened directory, and a directory that has left the profiles tree is left untouched.
-        const stillInside = () => {
-            if (process.platform !== 'linux') return true
-            const here = realOfFd(opened.fd)
-            if (!here) return false
-            if (openedReal && here === openedReal) return true
-            return Boolean(rootReal && insideRoot(rootReal, here))
-        }
+        const stillInside = () => openedStillInside(opened.fd, openedReal, rootReal)
         if (!stillInside()) return false
         let configStat
         try {
@@ -1792,20 +1848,23 @@ function setAsideUnfinishedConfigs(profileName) {
     const parent = profileDir(profileName)
     if (!isLink(parent)) setAsideConfig(parent)
     const root = path.join(hermesHome(), 'profiles')
-    let entries = []
+    // Quiet: a link at the profiles directory is left for the caller. An absolute listing would follow it.
+    const opened = openDirNoFollow(root, { quiet: true })
+    if (!opened) return
     try {
-        entries = fs.existsSync(root) ? fs.readdirSync(root) : []
-    } catch {
-        return
-    }
-    for (const entry of entries) {
-        const dir = path.join(root, entry)
-        try {
-            if (fs.lstatSync(dir).isSymbolicLink()) continue
-            if (readMarker(path.join(dir, 'harness-parent')) === String(profileName)) setAsideConfig(dir)
-        } catch {
-            // The boot sweep checks every directory again.
+        for (const entry of namesIn(opened.fd, root)) {
+            if (!entry || entry === '.' || entry === '..') continue
+            const dir = path.join(root, entry)
+            try {
+                const st = lstatChild(opened.fd, root, entry)
+                if (!st || st.isSymbolicLink()) continue
+                if (readMarker(path.join(dir, 'harness-parent')) === String(profileName)) setAsideConfig(dir)
+            } catch {
+                // The boot sweep checks every directory again.
+            }
         }
+    } finally {
+        closeFds(opened.fds)
     }
 }
 
@@ -2111,9 +2170,12 @@ function tryOwnedEntry(scope, entry, parentMarker) {
 
 function tryProfileNames(scope) {
     const root = path.join(hermesHome(), 'profiles')
-    if (!fs.existsSync(root)) return []
+    // Null is a missing directory or a link. Do not list the target.
+    const entries = listDirNoFollow(root)
+    if (!entries) return []
     const names = []
-    for (const entry of fs.readdirSync(root)) {
+    for (const entry of entries) {
+        if (!entry || entry === '.' || entry === '..') continue
         const marker = readMarker(path.join(root, entry, 'harness-parent'))
         if (tryOwnedEntry(scope, entry, marker)) names.push(entry)
     }
@@ -2132,14 +2194,18 @@ function readMarker(file) {
 function tryScopeEntries(scope) {
     const names = new Set(tryProfileNames(scope))
     const root = path.join(hermesHome(), 'profiles')
-    if (fs.existsSync(root)) {
-        for (const entry of fs.readdirSync(root)) {
+    const entries = listDirNoFollow(root)
+    if (entries) {
+        for (const entry of entries) {
+            if (!entry || entry === '.' || entry === '..') continue
             if (entry === scope || entry.startsWith(`${scope}--`)) names.add(entry)
         }
     }
     const workRoot = path.join(dataRoot(), 'workspaces')
-    if (fs.existsSync(workRoot)) {
-        for (const entry of fs.readdirSync(workRoot)) {
+    const workEntries = listDirNoFollow(workRoot)
+    if (workEntries) {
+        for (const entry of workEntries) {
+            if (!entry || entry === '.' || entry === '..') continue
             if (entry === scope || entry.startsWith(`${scope}--`) || names.has(entry)) names.add(entry)
         }
     }
@@ -2162,12 +2228,14 @@ function forgetTryTokens(scope) {
 function removeOneTryDir(entry) {
     const dir = path.join(hermesHome(), 'profiles', entry)
     try {
-        if (fs.lstatSync(dir).isDirectory()) fs.rmSync(dir, { recursive: true, force: true })
+        // A file standing in for the directory is a tombstone. Leave it. A link is not followed.
+        const st = lstatNoFollow(dir)
+        if (st?.isDirectory()) removeContainedTree(dir)
     } catch {
         // The runtime can still hold logs/errors.log or logs/gateway.log. The caller retries, then logs once.
     }
     try {
-        fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+        removeContainedTree(path.join(dataRoot(), 'workspaces', entry))
     } catch {
         // The profile directory above already moved on, and so does the next entry.
     }
@@ -2465,8 +2533,11 @@ export function profileOutdated(record) {
     if (!fs.existsSync(dir)) {
         // No parent folder: never compiled, unless specialist folders of this harness survived it.
         const root = path.join(hermesHome(), 'profiles')
-        if (!fs.existsSync(root)) return false
-        return fs.readdirSync(root).some((entry) => {
+        // Null means the profiles directory is missing or a link. Do not scan its target.
+        const entries = listDirNoFollow(root)
+        if (!entries) return false
+        return entries.some((entry) => {
+            if (!entry || entry === '.' || entry === '..') return false
             try {
                 const child = path.join(root, entry)
                 if (readMarker(path.join(child, 'harness-parent')) !== String(record.name)) return false
@@ -2662,10 +2733,8 @@ function profileDirectoryChain(compiled) {
                 if (error?.code === 'ENOENT') continue
                 return null
             }
-            if (identity.link) {
-                links.push(entry)
-                continue
-            }
+            // A later path is reached through this link. Stop before a stat follows it.
+            if (identity.link) return { links: [entry] }
             if (identity.unverifiable) {
                 unverifiable = true
                 continue

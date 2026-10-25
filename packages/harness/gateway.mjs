@@ -11,6 +11,7 @@ import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { listDirNoFollow, readFileNoFollow } from './contained-walk.mjs'
+import { removeContainedTree } from './profile.mjs'
 import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
@@ -338,12 +339,12 @@ function removeProfileTree(entry) {
         // This entry can still be deleted. The others are a separate call.
     }
     try {
-        fs.rmSync(dir, { recursive: true, force: true })
+        removeContainedTree(dir)
     } catch {
         // EBUSY on this directory does not stop the rest of the sweep.
     }
     try {
-        fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+        removeContainedTree(path.join(dataRoot(), 'workspaces', entry))
     } catch {
         // The profile removal above already finished or failed on its own.
     }
