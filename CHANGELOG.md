@@ -2,7 +2,9 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [1.4.3] - Unreleased
+## [Unreleased]
+
+## [1.4.3] - 2026-10-25
 
 ### Added
 
@@ -11,7 +13,6 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Changed
 
 -   While the startup profile compile runs, the harness gateway `GET /health` and `GET /api/v1/ping` return 503, and the start script waits for it. Once the wait cap passes, ping can return 200 while the compile is still running; chat and prediction stay at 503 until it finishes. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300. [Agent runtime health](./docs/how-to/harnesses.md#agent-runtime-health).
--   Harness Prime's profile does not start a specialist's bridge. Each specialist profile starts its own.
 
 ### Fixed
 
@@ -21,11 +22,16 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The assets preset fetch judges an IPv4-mapped IPv6 address by the IPv4 address it contains, so a public address written that way can be fetched. Private, loopback, link-local, carrier-grade NAT, multicast, reserved and unspecified addresses in that form stay refused. 6to4 and NAT64 addresses are judged the same way. The former 6to4 relay prefix and the IPv6 documentation prefix stay refused.
 -   Analyst (scoped): `regconfig` and `regdictionary` are refused while a table selection is set, unless passed directly as constants to the built-in text-search functions (`to_tsvector`, `to_tsquery`, `plainto_tsquery`, `phraseto_tsquery`, `websearch_to_tsquery`, `ts_headline`, `ts_lexize`). All other occurrences are refused, including `get_current_ts_config()`, result columns, variables, nested expressions, and I/O coercions. The same rule reads view, materialized view and policy bodies. Unknown parse-node tags are refused on PostgreSQL 14 and 16.
 -   Analyst (scoped): The user-function rule is recursive with a depth cap that memoization cannot skip, and it vets stored BEGIN ATOMIC SQL bodies and default arguments. A BEGIN ATOMIC function is allowed on its own only when it touches no relation, including a selected one and including when no table is selected. The walker fails closed on unknown node tags and vets aggregate helpers and a selected sort operator. A 40-deep chain is refused; a 20-deep chain passes. Allow-listed function bodies are trusted by design; the entry admits that function, while its defaults and callees are still vetted.
--   Chat answers keep a slash, backslash or tilde that stands alone between words, including a fraction or a date. Server paths are still hidden. [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
--   A flow LangSmith credential with no key does not use the server's LangSmith key. Tracing for that flow stays off. A failed upload log records the credential id and the key length, not the key. [LangSmith tracing: which account gets a flow's traces](./docs/reference/langsmith-tracing.md).
--   Deleting a harness removes its agent runtime profile, its specialists' profiles and their workspaces after their gateway tokens are revoked. [Delete a harness](./docs/how-to/harnesses.md#delete-a-harness).
--   The assets preset fetches a file only when every address on the way is public, sends a browser-like user agent on that path, and a tool result that reports an error counts as a failed step. [Make files with the assets preset](./docs/how-to/harnesses.md#make-files-with-the-assets-preset).
+-   PostgreSQL MCP node: **QUERY** now checks the functions a query calls with or without a table selection. Before upgrading, check two things. The node's database login needs `TEMP` on the database (granted to every login by default; if it was revoked, run `GRANT TEMPORARY ON DATABASE <database> TO <role>`), and a read replica cannot run these checks, so every node query there is refused: point the credential at the primary. A user function that is not read-only by the [user function rule](./docs/how-to/analyst.md#user-functions) is refused until it is listed in the node's new **Allowed functions** field.
 -   Native macOS and Windows source installs cannot save or compile agent profiles. Run Cuttlely with Docker there.
+-   A harness fixed and republished from the canvas after a failed startup compile answers again without a restart, instead of staying at 503 `harness unavailable`. A failed republish keeps the 503.
+-   Removing a harness profile stays inside the profiles or workspaces folder: if a folder is moved out of it while the removal runs, the removal stops and the moved files are left alone. [#306](https://github.com/cuttlely/cuttlely/issues/306).
+-   Deleting a harness also removes its agent runtime profile, its specialist profiles and workspaces, and revokes its gateway tokens. Startup logs leftover profiles of deleted harnesses.
+-   The Harness Prime profile no longer starts specialist bridges, so startup no longer logs `The harness gateway is not configured for this profile` for it. Each specialist still starts its own bridge.
+-   The harness assets specialist downloads logos and images through one checked fetch helper with a browser-like user agent; every redirect must resolve to a public address, and size and time are capped. A tool call whose result reports an error shows as failed in the trace, and a failed tool preview keeps its end.
+-   Chat answers keep a plain `/` between words or numbers (for example `2,499 consumed / 6,672 entitled`) instead of replacing it with `a server path`. Real server paths are still hidden.
+-   Creating a team keeps you on your current team, and the team switcher is shown to anyone in more than one team. Deleting a team that still owns credentials, variables, API keys, document stores or other records returns 400 and names them; nothing is removed.
+-   The LangSmith upload-failure log records the credential id and key length only, never part of the key. Masked connection-string passwords are detected more reliably, so editing a credential cannot save a masked value.
 
 ## [1.4.2] - 2026-10-23
 
@@ -506,7 +512,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.3...HEAD
 [1.4.3]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/cuttlely/cuttlely/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/cuttlely/cuttlely/compare/v1.4.0...v1.4.1
