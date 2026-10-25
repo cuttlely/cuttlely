@@ -1184,6 +1184,24 @@ describe('stable harness tool names', () => {
         expect(new Set(onShared).size).toBe(onShared.length)
     })
 
+    it('keeps a bumped title when the bare-name card is deleted and the id has no trailing number', () => {
+        const cards = [
+            { id: 'a', label: 'Team' },
+            { id: 'b', label: 'Team' },
+            { id: 'c', label: 'Team_b' },
+            { id: 'd', label: 'Other' }
+        ]
+        const before = assignHarnessToolNames(cards)
+        expect(before.get('a')).toBe('team')
+        expect(before.get('b')).toBe('team_b')
+        expect(before.get('c')).toBe('team_b_2')
+        expect(before.get('d')).toBe('other')
+        const after = assignHarnessToolNames(cards.filter((card) => card.id !== 'a'))
+        expect(after.get('b')).toBe('team')
+        expect(after.get('c')).toBe(before.get('c'))
+        expect(after.get('d')).toBe('other')
+    })
+
     it('keeps an unnumbered id suffix when another card with the same title is deleted', () => {
         const cards = [
             { id: 'a', label: 'Team', name: 'team' },

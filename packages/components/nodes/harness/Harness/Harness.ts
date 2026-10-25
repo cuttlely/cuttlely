@@ -466,7 +466,6 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
     const reservedBy = new Map<string, string>()
     for (const item of bases) {
         const count = counts.get(item.base) || 0
-        const owned = trailingNumber(item.id)
         const suffixName = withIdSuffix(item.base, item.id)
         const winner = winnerOf.get(item.base) === item.id
         const inCollision = count > 1
@@ -474,9 +473,9 @@ function assignHarnessToolNames(cards: HarnessToolCard[]): Map<string, string> {
             if (!reservedBy.has(suffixName)) reservedBy.set(suffixName, item.id)
             continue
         }
-        // The card that holds the bare name still owns its id suffix. Deleting some other card must not
-        // hand that suffix to a card whose title is spelled the same way.
-        if (owned === undefined || reservedBy.has(suffixName)) continue
+        // The card that holds the bare name still owns its id suffix, including an id with no trailing
+        // number. Deleting some other card must not hand that suffix to a card whose title spells it.
+        if (reservedBy.has(suffixName)) continue
         const wanted = bases.some((other) => other.id !== item.id && other.base === suffixName)
         if (wanted) reservedBy.set(suffixName, item.id)
     }
