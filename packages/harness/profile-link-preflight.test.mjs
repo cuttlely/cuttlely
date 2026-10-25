@@ -1968,6 +1968,62 @@ function restoreTree(slot, held) {
     fs.rmSync(outside.dir, { recursive: true, force: true })
 }
 
+// Hole: linkedProfileDirs lists the profiles root after lstat, so a swap in that gap is followed.
+{
+    const name = 'plinkcomplist'
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'plink-comp-list-'))
+    const home = path.join(scratch, 'home')
+    fs.mkdirSync(home, { recursive: true })
+    const previousHome = process.env.CUTTLELY_HERMES_HOME
+    process.env.CUTTLELY_HERMES_HOME = home
+    const saved = record(name, [])
+    const outside = outsideDir('comp-list', 'comp-list-sentinel\n')
+    fs.writeFileSync(path.join(outside.dir, 'secret-profile'), 'from-outside\n')
+    let hits = 0
+    let swapped = false
+    let held = ''
+    let error = ''
+    try {
+        compileProfileCached(saved)
+        forgetCompiledProfile(name)
+        const profilesRoot = path.join(home, 'profiles')
+        const wrapped = fs.readdirSync
+        fs.readdirSync = (p, ...args) => {
+            if (typeof p === 'string' && path.resolve(p) === path.resolve(profilesRoot)) {
+                if (!swapped) {
+                    swapped = true
+                    held = path.join(home, 'profiles.held')
+                    fs.renameSync(profilesRoot, held)
+                    fs.symlinkSync(outside.dir, profilesRoot)
+                }
+                hits += 1
+            }
+            return wrapped(p, ...args)
+        }
+        try {
+            recompileOutdatedProfiles([saved], { log: {} })
+        } catch (caught) {
+            error = caught?.code || String(caught)
+        } finally {
+            fs.readdirSync = wrapped
+        }
+    } finally {
+        process.env.CUTTLELY_HERMES_HOME = previousHome
+        forgetCompiledProfile(name)
+        const profilesRoot = path.join(home, 'profiles')
+        const current = fs.lstatSync(profilesRoot, { throwIfNoEntry: false })
+        if (current?.isSymbolicLink()) fs.unlinkSync(profilesRoot)
+        if (held && fs.existsSync(held) && !fs.existsSync(profilesRoot)) fs.renameSync(held, profilesRoot)
+    }
+    check(
+        'a compile does not list the profiles root through a link swapped before the listing',
+        hits === 0 && error === '' && sameStamp(outside.file, outside.before),
+        JSON.stringify({ hits, swapped, error, outside: fs.readdirSync(outside.dir).sort() })
+    )
+    fs.rmSync(scratch, { recursive: true, force: true })
+    fs.rmSync(outside.dir, { recursive: true, force: true })
+}
+
 // Directory creation uses /proc/self/fd on Linux. Elsewhere the same compile uses the open directory's path.
 {
     const name = 'plinkotheros'

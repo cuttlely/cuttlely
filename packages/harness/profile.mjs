@@ -2527,15 +2527,21 @@ function linkedProfileDirs(record, profileName = record?.name) {
         }
     }
     try {
-        for (const entry of fs.readdirSync(root)) {
-            if (isQuarantineName(entry)) continue
-            const dir = path.join(root, entry)
-            if (!isLink(dir)) continue
-            // The entry name is the owner. Reading harness-parent would follow the link.
-            const named =
-                (home && (entry === home || entry.startsWith(`${home}--`))) ||
-                (owner && (entry === owner || entry.startsWith(`${owner}--`)))
-            if (named) dirs.add(dir)
+        // List through the opened directory. A logical listing follows a link swapped in after the check above.
+        const entries = listDirNoFollow(root)
+        if (!entries) {
+            if (isLink(root)) return [root]
+        } else {
+            for (const entry of entries) {
+                if (isQuarantineName(entry)) continue
+                const dir = path.join(root, entry)
+                if (!isLink(dir)) continue
+                // The entry name is the owner. Reading harness-parent would follow the link.
+                const named =
+                    (home && (entry === home || entry.startsWith(`${home}--`))) ||
+                    (owner && (entry === owner || entry.startsWith(`${owner}--`)))
+                if (named) dirs.add(dir)
+            }
         }
     } catch {
         // No profiles folder yet.
