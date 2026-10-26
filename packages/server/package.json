@@ -1,6 +1,6 @@
 {
     "name": "@cuttlely/server",
-    "version": "1.4.3",
+    "version": "1.4.4",
     "private": true,
     "description": "Cuttlely server",
     "main": "dist/index",
