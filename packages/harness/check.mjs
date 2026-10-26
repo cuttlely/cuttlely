@@ -3465,7 +3465,9 @@ check(
 const sourcedHandoffUser = String(sourcedHandoff?.messages.at(-1).content || '')
 check(
     'the chief sees each source file name next to its passage',
-    sourcedHandoffUser.includes('Sources:\n- [brindlewick.md] Calloway directs Brindlewick.\n- [mirror.md] The mirror is 4.7 m.'),
+    sourcedHandoffUser.includes(
+        'Sources:\n- [brindlewick.md] Calloway directs Brindlewick.\n- [mirror.md - https://example.com/a/b] The mirror is 4.7 m.'
+    ),
     sourcedHandoffUser.slice(0, 600)
 )
 const sourcedDirect = await runHarness({

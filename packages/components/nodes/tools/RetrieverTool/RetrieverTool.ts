@@ -116,6 +116,76 @@ class DynamicStructuredTool<T extends z.ZodObject<any, any, any, any> = z.ZodObj
     }
 }
 
+type RetrievedDocument = {
+    pageContent?: string
+    metadata?: Record<string, any>
+}
+
+function stringValue(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : ''
+}
+
+function isHttpUrl(value: string): boolean {
+    return /^https?:\/\//i.test(value)
+}
+
+function isFileUrl(value: string): boolean {
+    return /^file:\/\//i.test(value)
+}
+
+// Unix absolute, Windows drive, or UNC. file:// is handled separately.
+function isAbsolutePath(value: string): boolean {
+    return /^\/[^/]/.test(value) || /^[A-Za-z]:[\\/]/.test(value) || /^\\\\[^\\]/.test(value)
+}
+
+function fileBaseName(value: string): string {
+    const normalized = value.replace(/^file:\/\//i, '').replace(/\\/g, '/')
+    const parts = normalized.split('/')
+    return parts[parts.length - 1] || ''
+}
+
+function collapseNewlines(value: string): string {
+    return value.replace(/[\r\n]+/g, ' ').trim()
+}
+
+function retrievedUrl(doc: RetrievedDocument): string {
+    const metadata = doc?.metadata || {}
+    for (const key of ['url', 'source', 'link', 'href']) {
+        const value = stringValue(metadata[key])
+        if (value && isHttpUrl(value)) return value
+    }
+    return ''
+}
+
+function retrievedTitle(doc: RetrievedDocument): string {
+    const metadata = doc?.metadata || {}
+    const title = stringValue(metadata.title)
+    if (title) return collapseNewlines(title)
+    for (const key of ['source', 'file', 'filename']) {
+        const value = stringValue(metadata[key])
+        if (!value || isHttpUrl(value)) continue
+        const named = isFileUrl(value) || isAbsolutePath(value) ? fileBaseName(value) : value
+        const collapsed = collapseNewlines(named)
+        if (collapsed) return collapsed
+    }
+    return ''
+}
+
+function citationHeader(index: number, doc: RetrievedDocument): string {
+    const title = retrievedTitle(doc)
+    const url = retrievedUrl(doc)
+    if (title && url) return `[${index}] ${title} - ${url}`
+    if (title) return `[${index}] ${title}`
+    if (url) return `[${index}] ${url}`
+    return `[${index}]`
+}
+
+// Model-visible text when source documents are returned: a header line, then the chunk.
+// An absolute path or file:// value contributes only its file name, never the server path.
+function formatRetrievedDocuments(docs: RetrievedDocument[]): string {
+    return (docs || []).map((doc, index) => `${citationHeader(index + 1, doc || {})}\n${doc?.pageContent ?? ''}`).join('\n\n')
+}
+
 class Retriever_Tools implements INode {
     label: string
     name: string
@@ -207,7 +277,7 @@ class Retriever_Tools implements INode {
                 }
             }
             const docs = await retriever.invoke(input)
-            const content = docs.map((doc) => doc.pageContent).join('\n\n')
+            const content = returnSourceDocuments ? formatRetrievedDocuments(docs) : docs.map((doc) => doc.pageContent).join('\n\n')
             const sourceDocuments = JSON.stringify(docs)
             return returnSourceDocuments ? content + SOURCE_DOCUMENTS_PREFIX + sourceDocuments : content
         }
@@ -222,4 +292,4 @@ class Retriever_Tools implements INode {
     }
 }
 
-module.exports = { nodeClass: Retriever_Tools }
+module.exports = { nodeClass: Retriever_Tools, formatRetrievedDocuments }
