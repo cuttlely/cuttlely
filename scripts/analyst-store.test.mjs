@@ -44,6 +44,7 @@ import {
     pgPlaceholders,
     analystUrlToolSpec,
     withAnalystScope,
+    finishAnalystCallTimings,
     resetAnalystStoreForTests,
     rowPageSummary,
     analystResultJson,
@@ -1793,6 +1794,36 @@ describe('analyst postgres role', () => {
             assert.match(JSON.stringify(held.rows), /15s|15000/)
             const heldPath = await queryAnalyst('SHOW search_path', { env })
             assert.equal(heldPath.rows[0].search_path, 'analyst')
+
+            // Auto storage on Postgres times its queries too, with its own connection and with a run's reused
+            // session, and the parts add up to the total.
+            await queryAnalyst('CREATE TABLE timed (n integer)', { env })
+            await queryAnalyst('INSERT INTO timed SELECT generate_series(1, 5)', { env })
+            for (const scope of ['', `demo:timed-${suffix}`]) {
+                for (let call = 0; call < 2; call += 1) {
+                    const timings = []
+                    const timed = await withAnalystScope(scope, () => queryAnalyst('SELECT n FROM timed ORDER BY n LIMIT 10', { env }), {
+                        timings
+                    })
+                    assert.deepEqual(
+                        timed.rows.map((row) => row.n),
+                        [1, 2, 3, 4, 5]
+                    )
+                    assert.equal(timings.length, 1, scope)
+                    const [timing] = timings
+                    assert.equal(timing.statementRuns, 1)
+                    assert.equal(timing.roundTrips > 0, true)
+                    assert.equal(timing.dbMs > 0, true, JSON.stringify(timing))
+                    const tenths = (ms) => Math.round(ms * 10)
+                    assert.equal(
+                        tenths(timing.connectMs) + tenths(timing.dbMs) + tenths(timing.cuttlelyMs),
+                        tenths(timing.totalMs),
+                        JSON.stringify(timing)
+                    )
+                }
+            }
+            await endAnalystRun(`demo:timed-${suffix}`)
+            await queryAnalyst('DROP TABLE timed', { env })
             await assert.rejects(
                 queryAnalyst("SELECT set_config('statement_timeout', '0', false), pg_sleep(2)", { env, statementTimeoutMs: 500 }),
                 (error) => {
@@ -2573,6 +2604,7 @@ describe('analyst URL path', () => {
             const cfg = adminConfig()
             const url = postgresUrl({ user: role, password, host: cfg.host, port: cfg.port, database: dbName })
             const owner = new Client({ connectionString: url })
+            owner.on('error', () => {})
             await owner.connect()
             await owner.query('CREATE TABLE orders (id integer PRIMARY KEY)')
             Client.prototype.query = function (text, ...rest) {
@@ -2593,6 +2625,29 @@ describe('analyst URL path', () => {
             const fresh = await analystUrlRelations(url, names)
             assert.equal(sent.length > looked, true)
             assert.equal(fresh[0].columns, 2)
+            // A tool call that looks the selection up and then queries: the lookup's connection and round trips
+            // count as connect and database time, not as Cuttlely's, and the parts still add up.
+            sent.length = 0
+            const timings = []
+            const callStarted = performance.now()
+            await withAnalystScope(
+                'demo:chat-summary',
+                async () => {
+                    await analystUrlRelations(url, names)
+                    return queryAnalystUrl(url, { sql: 'SELECT id FROM orders LIMIT 10' }, { readOnlySql: true, relations: names })
+                },
+                { timings }
+            )
+            const queryOnly = { ...timings[0] }
+            finishAnalystCallTimings(timings, performance.now() - callStarted)
+            const [call] = timings
+            assert.equal(call.roundTrips, sent.length)
+            assert.equal(call.roundTrips > queryOnly.roundTrips, true)
+            assert.equal(call.dbMs > queryOnly.dbMs, true)
+            assert.equal(call.connectMs > queryOnly.connectMs, true)
+            assert.equal(call.bridgeMs >= 0, true)
+            const tenths = (ms) => Math.round(ms * 10)
+            assert.equal(tenths(call.connectMs) + tenths(call.dbMs) + tenths(call.cuttlelyMs), tenths(call.totalMs), JSON.stringify(call))
             await owner.end()
         } finally {
             Client.prototype.query = query

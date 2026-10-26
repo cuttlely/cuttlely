@@ -5,7 +5,7 @@ import path from 'node:path'
 import { noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.mjs'
 import { isAnalystQueryTool } from './context.mjs'
 import { SQL_TOOL_REFUSED, enforcesTables, runsSql } from './sql-tools.mjs'
-import { addCuttlelyMs, analystScopeKey, withAnalystScope } from './runtime/analyst-store.mjs'
+import { analystScopeKey, finishAnalystCallTimings, withAnalystScope } from './runtime/analyst-store.mjs'
 import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpecs, specialistToolBindings } from './bridge.mjs'
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
@@ -983,8 +983,7 @@ async function callTool(req, res, meta) {
             }),
         { workspace: record.workspaceId, timings }
     )
-    // The bridge is the tool call's time outside the one query it ran: binding the tool, the node's own work.
-    if (timings.length === 1) addCuttlelyMs(timings[0], 'bridgeMs', performance.now() - callStarted - timings[0].totalMs)
+    finishAnalystCallTimings(timings, performance.now() - callStarted)
     assertStillValid(meta)
     rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId, timings.at(-1))
     sendJson(res, 200, { result })

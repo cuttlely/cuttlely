@@ -262,6 +262,53 @@ function recordQueryTimings(timer) {
     if (sink) sink.push(timerRecord(timer))
 }
 
+// client.query, counted and timed: every query sent is one round trip, and its time to settle is database time.
+function meteredQuery(client, timer) {
+    const send = client.query.bind(client)
+    return (...args) => {
+        timer.roundTrips += 1
+        const started = performance.now()
+        const pending = send(...args)
+        const settle = () => {
+            timer.dbMs += performance.now() - started
+        }
+        if (typeof pending?.then === 'function') pending.then(settle, settle)
+        return pending
+    }
+}
+
+// Postgres work a tool call does outside its query, such as the PostgreSQL MCP node's table selection lookup,
+// keyed by the call's timings array. finishAnalystCallTimings moves it into the query's record.
+const callSideTimes = new WeakMap()
+
+function sideTimer() {
+    const sink = analystCall.getStore()?.timings
+    if (!sink) return null
+    let side = callSideTimes.get(sink)
+    if (!side) {
+        side = { connectMs: 0, dbMs: 0, roundTrips: 0 }
+        callSideTimes.set(sink, side)
+    }
+    return side
+}
+
+// The gateway calls this when a tool call that ran one query ends. The call's other Postgres work joins connectMs
+// and dbMs, and the rest of the call's time (binding the tool, the node's own work) is bridgeMs, Cuttlely's share.
+export function finishAnalystCallTimings(timings, callMs) {
+    if (!Array.isArray(timings) || timings.length !== 1) return
+    const record = timings[0]
+    const side = callSideTimes.get(timings)
+    if (side) {
+        const connect = tenths(side.connectMs)
+        const db = tenths(side.dbMs)
+        record.connectMs = (tenths(record.connectMs) + connect) / 10
+        record.dbMs = (tenths(record.dbMs) + db) / 10
+        record.totalMs = (tenths(record.totalMs) + connect + db) / 10
+        record.roundTrips += side.roundTrips
+    }
+    addCuttlelyMs(record, 'bridgeMs', callMs - record.totalMs)
+}
+
 // A step counted as a statement run reads the statement's rows: the count, the page, the type probe, the length pass.
 async function timeStep(runner, name, fn, { run = false } = {}) {
     const timer = runner?.timer
@@ -1524,16 +1571,21 @@ export async function queryPostgres(store, statement, replay, timeoutMs = ANALYS
     const scope = replay?.paging?.scope || ''
     if (scope) return queryPostgresRun(scope, store, statement, replay, ms)
     const client = analystPgClient(store, ms)
+    const timer = queryTimer()
+    const metered = { query: meteredQuery(client, timer) }
+    const runner = postgresRunner(metered)
+    runner.timer = timer
     try {
-        await client.connect()
+        await timeStep(runner, 'connect', () => client.connect())
         if (!isAnalystAreaRole(store.user)) throw new Error(ISOLATION_ERROR)
-        if (replay?.plan) return await readSelectPage(postgresRunner(client), replay.plan, replay.paging)
-        return await runPostgresStatement(client, statement, replay?.paging)
+        if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
+        return await runPostgresStatement(metered, statement, replay?.paging, runner)
     } catch (error) {
         const outcome = analystErrorOutcome(error)
         throw new AnalystToolError(scrub(error, [store.password]).message, outcome)
     } finally {
         await client.end().catch(() => {})
+        recordQueryTimings(timer)
     }
 }
 
@@ -1573,14 +1625,19 @@ function queryPostgresRun(scope, store, statement, replay, ms) {
     const session = pgRunSession(scope, store, ms)
     const run = session.queue.then(async () => {
         clearTimeout(session.idle)
-        const { client } = session
+        const timer = queryTimer()
+        // The session's client is shared by the run's calls, so only this call's queries go through the meter.
+        const client = { query: meteredQuery(session.client, timer) }
+        const runner = postgresRunner(client)
+        runner.timer = timer
         try {
-            await session.connected
+            // A reused session is already connected, so its connect step is about 0.
+            await timeStep(runner, 'connect', () => session.connected)
             // The analyst's own SET from an earlier call does not carry over.
             await client.query(`SET statement_timeout = ${ms}`)
             await client.query(`SET search_path TO ${quoteIdent(store.schema || ANALYST_SCHEMA)}`)
-            if (replay?.plan) return await readSelectPage(postgresRunner(client), replay.plan, replay.paging)
-            return await runPostgresStatement(client, statement, replay?.paging)
+            if (replay?.plan) return await readSelectPage(runner, replay.plan, replay.paging)
+            return await runPostgresStatement(client, statement, replay?.paging, runner)
         } catch (error) {
             const outcome = analystErrorOutcome(error)
             if (outcome === 'transport' && pgRunSessions.get(scope) === session) closePgRunSession(scope)
@@ -1592,6 +1649,7 @@ function queryPostgresRun(scope, store, statement, replay, ms) {
                 session.idle = setTimeout(() => closePgRunSession(scope), ANALYST_RUN_IDLE_MS)
                 session.idle.unref?.()
             }
+            recordQueryTimings(timer)
         }
     })
     session.queue = run.catch(() => {})
@@ -1882,8 +1940,12 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
     // A backend that ends mid-call (pg_terminate_backend, a restart) emits 'error' on the client. Unhandled, that
     // event would take down the server; the pending query already rejects with the same error.
     client.on('error', () => {})
+    const side = sideTimer()
+    if (side) client.query = meteredQuery(client, side)
     try {
+        const connecting = performance.now()
         await client.connect()
+        if (side) side.connectMs += performance.now() - connecting
         // One round trip. A multi-statement simple query stops at the first error, as separate calls would.
         await client.query(`${readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN'}; SET LOCAL statement_timeout = ${ms}`)
         return await fn(client, postgresRunner(client, { transaction: true }))
@@ -1922,18 +1984,7 @@ async function queryUrlPostgres(
     })
     client.on('error', () => {})
     const timer = queryTimer()
-    const send = client.query.bind(client)
-    // Every query this client sends is one round trip, and its time to settle is database time.
-    client.query = (...args) => {
-        timer.roundTrips += 1
-        const started = performance.now()
-        const pending = send(...args)
-        const settle = () => {
-            timer.dbMs += performance.now() - started
-        }
-        if (typeof pending?.then === 'function') pending.then(settle, settle)
-        return pending
-    }
+    client.query = meteredQuery(client, timer)
     const runner = postgresRunner(client, { transaction: true })
     runner.timer = timer
     // Only the node's own setting, passed by the node from the saved flow; never the tool input.
