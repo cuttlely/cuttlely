@@ -12,7 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   README, FAQ and docs updated for 1.4.3: the upgrade-notes and changelog links point at the dated 1.4.3 heading, the image pin comments use 1.4.3, the guides name `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` (default 180 seconds, capped at 300), and the harness guide gives the ping 503 body as `boot recompile`. The home page release line names 1.4.3. [#295](https://github.com/cuttlely/cuttlely/pull/295), [#296](https://github.com/cuttlely/cuttlely/pull/296), [#297](https://github.com/cuttlely/cuttlely/pull/297).
+-   Docs, READMEs and home page match what shipped in 1.4.3. [#295](https://github.com/cuttlely/cuttlely/pull/295), [#296](https://github.com/cuttlely/cuttlely/pull/296), [#297](https://github.com/cuttlely/cuttlely/pull/297).
 
 ## [1.4.3] - 2026-10-25
 
