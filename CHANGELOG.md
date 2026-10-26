@@ -4,10 +4,12 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-10-26
+
 ### Fixed
 
--   Start a new session (formerly Clear chat history) now clears the chat on screen and starts a new session; past messages are kept.
--   With **Return Source Documents** on, the Retriever Tool now shows the model each chunk under a `[n] title - url` line, so a harness specialist can cite the page it read. An absolute file path in the metadata shows as the file name only. Harness Prime's `Sources:` list also shows each source's http(s) URL next to its name. With the option off, the tool's output is unchanged.
+-   With **Return Source Documents** on, the Retriever Tool now puts a numbered `[n]` line before each chunk it shows the model, with the chunk's title and its http(s) URL when the metadata has them (`[n] title - url`), so a harness specialist can cite the page it read. An absolute file path in the metadata shows as the file name only. Harness Prime's `Sources:` list also adds a source's http(s) URL next to its name when the name is not already that URL. With the option off, the tool's output is unchanged. [#317](https://github.com/cuttlely/cuttlely/pull/317).
+-   Start a new session (formerly Clear chat history) now clears the chat on screen and starts a new session; past messages are kept. [#318](https://github.com/cuttlely/cuttlely/pull/318).
 
 ## [1.4.5] - 2026-10-26
 
@@ -533,7 +535,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.5...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.6...HEAD
+[1.4.6]: https://github.com/cuttlely/cuttlely/compare/v1.4.5...v1.4.6
 [1.4.5]: https://github.com/cuttlely/cuttlely/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/cuttlely/cuttlely/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...v1.4.3

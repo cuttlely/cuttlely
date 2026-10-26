@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.4.5)
+# Cuttlely FAQ (1.4.6)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,14 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.4.6?
+
+-   If you're on 1.4.5, upgrade: with **Return Source Documents** on, the Retriever Tool now puts a numbered `[n]` line before each chunk it shows the model, with the chunk's title and its http(s) URL when the metadata has them (`[n] title - url`), so a harness specialist can cite the page it read. An absolute file path in the metadata shows as the file name only. Harness Prime's `Sources:` list also adds a source's http(s) URL next to its name when the name is not already that URL. With the option off, the tool's output is unchanged.
+-   **Start a new session** (formerly Clear chat history) now clears the chat on screen and starts a new session; past messages are kept.
+-   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.4.6`, or run `npm i cuttlely@1.4.6`.
+
+Full notes: [v1.4.6 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.6).
 
 ### What's new in 1.4.5?
 

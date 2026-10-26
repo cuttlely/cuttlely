@@ -1,6 +1,6 @@
 {
     "name": "@cuttlely/chat",
-    "version": "1.4.5",
+    "version": "1.4.6",
     "description": "Embeddable Cuttlely chat widget for applications",
     "license": "Apache-2.0",
     "type": "module",
