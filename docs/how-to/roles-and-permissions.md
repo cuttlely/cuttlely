@@ -57,10 +57,12 @@ The dialog loads its checkboxes from `GET /api/v1/auth/permissions/ROLE`. A key 
 Open **Admin**, then **Users**, or go to `/users`. You need `users:manage`.
 
 1. Select **Add User**.
-2. Enter a name and an email, then choose a team and a role. Super User appears in the role list for an organization owner. Personal Workspace is not in the team list.
-3. Select **Create User**.
+2. Enter a name and an email, then choose a team and a role. To add someone who already has an account, pick them under **Existing user**, or enter their email (the name can stay blank). Super User appears in the role list for an organization owner. Personal Workspace is not in the team list.
+3. Select **Create User**, or **Add to Team** for an existing user.
 
-Cuttlely stores the person as a pending invite (`invited`) and does not set a password. With WorkOS on, the dialog then shows a one-time invite link once, and Cuttlely also emails it when mail is set. The person joins only by opening that link and signing in with that email: a WorkOS sign-in with a matching email alone shows `You have a pending invite. Open the invite link from your email to join.` The link is single use, expires, and stops working when a newer one replaces it or the person is disabled or removed. They have no access to any team until they accept. See [Invite people](./sign-in.md#invite-people).
+An existing user is added to that team with the chosen role. No second account is created and their other teams are kept. Someone already on the team gets `This user is already a member of this team`, and nothing changes.
+
+For a new user, Cuttlely stores the person as a pending invite (`invited`) and does not set a password. An existing active account gets access to the team right away and keeps its sign-in. With WorkOS on, the dialog then shows a one-time invite link once, and Cuttlely also emails it when mail is set. The person joins only by opening that link and signing in with that email: a WorkOS sign-in with a matching email alone shows `You have a pending invite. Open the invite link from your email to join.` The link is single use, expires, and stops working when a newer one replaces it or the person is disabled or removed. They have no access to any team until they accept. See [Invite people](./sign-in.md#invite-people).
 
 ![Add User. Name is Avery Chen. Email is avery.chen@example.com. The note says they join from a one-time invite link and sign in with WorkOS, and no password is stored here. Team is Default Workspace. Role is Reader. Cancel and Create User are at the bottom.](../images/roles/add-user.png)
 
@@ -68,7 +70,7 @@ Cuttlely stores the person as a pending invite (`invited`) and does not set a pa
 
 The eye on a row lists each team and the role on that team. The trash icon removes the person. You cannot delete the organization owner or your own row. The assigned-role count and the last login include every team in the organization for an organization owner, except Personal Workspace. Anyone else sees only the teams they belong to.
 
-To change the role on a team, open **Teams**, open the team, and pick another role. That uses `workspace:update`. `workspace:add-user` creates a new user on a team. An email that already has an account is refused. Removing someone from a team uses `workspace:unlink-user`.
+To change the role on a team, open **Teams**, open the team, and pick another role. That uses `workspace:update`. `workspace:add-user` creates a new user on a team, or adds someone who already has an account in the organization to a team. Someone who is not the organization owner can do either only on their active team. Removing someone from a team uses `workspace:unlink-user`.
 
 ## How a check works
 

@@ -1501,7 +1501,38 @@ check(
             specialistHandoffChars(99999) === 20000 &&
             specialistHandoffChars('2500.7') === 2500 &&
             specialistHandoffChars('') === 0 &&
-            specialistHandoffChars('lots') === 0
+            specialistHandoffChars('lots') === 0 &&
+            specialistHandoffChars(-1) === -1 &&
+            specialistHandoffChars('-1') === -1 &&
+            specialistHandoffChars(-5) === 0 &&
+            specialistHandoffChars(0) === 0
+    )
+    const longKnowledge = `LONG_HEAD ${'The demo bakery opens at seven and bakes rye first. '.repeat(500)}LONG_TAIL`
+    const noLimit = fitHandoff({
+        system: 'Combine.',
+        request: 'When does the demo bakery open?',
+        results: [
+            { name: 'librarian', status: 'completed', task: 'Opening hours', text: longKnowledge, tools: ['search'], handoffChars: -1 }
+        ],
+        chiefBudget: 0
+    })
+    check(
+        'a Handoff limit of -1 reads the whole answer, past 20,000 characters',
+        longKnowledge.length > 20000 && noLimit.messages.at(-1).content.includes('LONG_TAIL') && !noLimit.truncated?.length,
+        JSON.stringify(noLimit.truncated)
+    )
+    const noLimitFull = fitHandoff({
+        system: 'Combine.',
+        request: 'When does the demo bakery open?',
+        results: [
+            { name: 'librarian', status: 'completed', task: 'Opening hours', text: longKnowledge, tools: ['search'], handoffChars: -1 }
+        ],
+        chiefBudget: 2000
+    })
+    check(
+        'a Handoff limit of -1 still shrinks when the context is full',
+        !noLimitFull.messages.at(-1).content.includes('LONG_TAIL') && noLimitFull.truncated.includes('specialist:librarian.toolResult'),
+        JSON.stringify(noLimitFull.truncated)
     )
     const limitCanvas = readJson('samples/harnesses/research.canvas.json')
     const limitFlow = JSON.parse(limitCanvas.flowData)
@@ -1512,6 +1543,21 @@ check(
         chatflowId: 'canvas-handoff',
         flowData: JSON.stringify(limitFlow)
     })
+    const noLimitNode = limitFlow.nodes.find((node) => node.data?.name === 'harnessSpecialist')
+    noLimitNode.data.inputs = { ...noLimitNode.data.inputs, handoffChars: '-1' }
+    const syncedNoLimit = await syncHarnessFromFlow({
+        name: 'handoff-canvas-nolimit',
+        chatflowId: 'canvas-handoff-nolimit',
+        flowData: JSON.stringify(limitFlow)
+    })
+    const savedNoLimit = saveHarness(syncedNoLimit, { overwrite: true })
+    check(
+        'a canvas Handoff limit of -1 reaches the roster and survives a save',
+        syncedNoLimit.specialists.some((specialist) => specialist.handoffChars === -1) &&
+            savedNoLimit.specialists.some((specialist) => specialist.handoffChars === -1),
+        JSON.stringify(savedNoLimit.specialists.map((specialist) => specialist.handoffChars))
+    )
+    noLimitNode.data.inputs = { ...noLimitNode.data.inputs, handoffChars: '9000' }
     const savedLimit = saveHarness(
         { ...syncedLimit, specialists: syncedLimit.specialists.map((specialist) => ({ ...specialist, handoffChars: 'nope' })) },
         { overwrite: true }
