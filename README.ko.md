@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.4.5가 나왔습니다.** 1.4.4를 쓰고 있다면 업그레이드하세요. PostgreSQL MCP 읽기 전용 검사가 이제 문자열 본문(`AS $$ ... $$`) SQL 또는 PL/pgSQL로 작성된 읽기 전용 도우미 함수(뷰에서 쓰는 날짜·숫자·타임스탬프 파싱 도우미 등)를 **Allowed functions**에 추가하지 않아도 받아들입니다. 쓰기를 하는 함수는 여전히 거부됩니다. [사용자 함수 규칙](./docs/how-to/analyst.md#user-functions)의 모든 조건을 통과하는 도우미만 해당됩니다. 예를 들어 `VOLATILE` 도우미나 테이블 또는 뷰를 읽는 도우미는 여전히 항목이 필요합니다. 이미지 `1.4.5`를 pull하거나 `npm i cuttlely@1.4.5`를 실행하세요. 1.4.4에서는 모델을 바꾸면 재시작할 때까지 MCP 호출이 Unauthorized로 실패하던 문제가 고쳐졌습니다. 1.4.3에서는 PostgreSQL MCP 읽기 전용 쿼리 검사가 돌아왔고, 그 밖의 사용자 함수는 새 **Allowed functions** 필드에서 허용할 수 있습니다. 1.4.2 이하에서 올린다면 [1.4.3 업그레이드 노트](./CHANGELOG.md#143---2026-10-25)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#145---2026-10-26)
+**1.4.5가 나왔습니다.** 1.4.4를 쓰고 있다면 업그레이드하세요. PostgreSQL MCP 읽기 전용 검사가 이제 문자열 본문(`AS $$ ... $$`) SQL 또는 PL/pgSQL로 작성된 읽기 전용 도우미 함수(뷰에서 쓰는 날짜·숫자·타임스탬프 파싱 도우미 등)를 **Allowed functions**에 추가하지 않아도 받아들입니다. 쓰기를 하는 함수는 여전히 거부됩니다. [사용자 함수 규칙](./docs/how-to/analyst.md#user-functions)의 모든 조건을 통과하는 도우미만 해당됩니다. 예를 들어 `VOLATILE` 도우미나 테이블 또는 뷰를 읽는 도우미는 여전히 항목이 필요합니다. Allowed functions에 추가한 함수는 이전처럼 이 검사 없이 실행됩니다. 이미지 `1.4.5`를 pull하거나 `npm i cuttlely@1.4.5`를 실행하세요. 1.4.4에서는 모델을 바꾸면 재시작할 때까지 MCP 호출이 Unauthorized로 실패하던 문제가 고쳐졌습니다. 1.4.3에서는 PostgreSQL MCP 읽기 전용 쿼리 검사가 돌아왔고, 그 밖의 사용자 함수는 새 **Allowed functions** 필드에서 허용할 수 있습니다. 1.4.2 이하에서 올린다면 [1.4.3 업그레이드 노트](./CHANGELOG.md#143---2026-10-25)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#145---2026-10-26)
 
 ## 목차
 
