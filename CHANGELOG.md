@@ -8,7 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   The PostgreSQL MCP node's read-only check now accepts read-only helper functions written as string-body SQL or PL/pgSQL (for example date, number and timestamp parsing helpers used in views) without adding them to Allowed functions; functions that write are still refused. [#315](https://github.com/cuttlely/cuttlely/pull/315), [How the selection is enforced](./docs/how-to/analyst.md#how-the-selection-is-enforced).
+-   The PostgreSQL MCP node's read-only check now accepts read-only helper functions written as string-body SQL or PL/pgSQL (for example date, number and timestamp parsing helpers used in views) without adding them to Allowed functions; functions that write are still refused. A helper qualifies only when it passes the user function rule: `STABLE` or `IMMUTABLE`, not `SECURITY DEFINER`, no settings of its own, not owned by a superuser, reads no table, and calls only functions that pass the same rule. [#315](https://github.com/cuttlely/cuttlely/pull/315), [How the selection is enforced](./docs/how-to/analyst.md#how-the-selection-is-enforced).
 
 ## [1.4.4] - 2026-10-25
 
