@@ -41,6 +41,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 ### What's new in 1.4.7?
 
 -   If you're on 1.4.6, upgrade: Add User now lets you pick an existing user, or enter their email, and adds that account to the team with the chosen role instead of failing with "A user with this email already exists". Their other teams are kept and no second account is created. Adding someone who is already on the team says so, and new users are still created as before.
+-   The Harness Specialist **Handoff limit** accepts `-1` for no limit: Harness Prime reads the specialist's whole answer, and a full context still shortens it.
 -   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.4.7`, or run `npm i cuttlely@1.4.7`.
 
 Full notes: [v1.4.7 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.7).

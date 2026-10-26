@@ -7,10 +7,13 @@ export const CHIEF_TOOL_CHARS = 480
 // shrinks every limit in steps before anything else is cut.
 export const SPECIALIST_HANDOFF_CHARS = 4000
 export const HANDOFF_CHARS_LIMITS = { min: 160, max: 20000 }
+// -1 means no limit: Harness Prime reads the whole answer. A full context still shrinks it like any other limit.
+export const HANDOFF_NO_LIMIT = -1
 const HANDOFF_SHRINK_STEPS = [1600, CHIEF_TOOL_CHARS, 160, 40, 0]
 
 export function specialistHandoffChars(value) {
     const n = Math.floor(Number(value))
+    if (n === HANDOFF_NO_LIMIT) return HANDOFF_NO_LIMIT
     if (!Number.isFinite(n) || n <= 0) return 0
     return Math.min(HANDOFF_CHARS_LIMITS.max, Math.max(HANDOFF_CHARS_LIMITS.min, n))
 }
@@ -18,7 +21,8 @@ export function specialistHandoffChars(value) {
 // Only an analyst result with rows gets the wider row limit; every other answer keeps its own limit. A full context
 // lowers cap for every other answer, and rowCap for row results.
 function handoffLimit(result, { cap, rowCap }) {
-    const own = specialistHandoffChars(result?.handoffChars) || SPECIALIST_HANDOFF_CHARS
+    const set = specialistHandoffChars(result?.handoffChars)
+    const own = set === HANDOFF_NO_LIMIT ? Infinity : set || SPECIALIST_HANDOFF_CHARS
     return analystRowResult(result) ? Math.min(Math.max(ANALYST_ROW_HANDOFF_CHARS, own), rowCap) : Math.min(own, cap)
 }
 export const SOURCE_SNIPPET_CHARS = 200

@@ -6,6 +6,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [1.4.7] - 2026-10-26
 
+### Added
+
+-   The Harness Specialist **Handoff limit** accepts `-1` for no limit: Harness Prime reads the specialist's whole answer, and a full context still shortens it.
+
 ### Fixed
 
 -   Adding a person who already has an account to another team no longer fails with "A user with this email already exists". Add User now lets you pick an existing user (or enter their email), and that account is added to the team with the chosen role; their other team memberships are kept and no second account is created. Adding someone who is already on the team says so. New users are still created as before. [#320](https://github.com/cuttlely/cuttlely/pull/320).
