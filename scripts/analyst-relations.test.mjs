@@ -90,7 +90,7 @@ describe('analyst relations: pure helpers', () => {
         const scan = ok('BEGIN RETURN extract(year FROM v) + length(substring(v FROM 1)); EXCEPTION WHEN others THEN RETURN NULL; END')
         assert.deepEqual(scan.calls.map((call) => call.name).sort(), ['extract', 'length', 'substring'])
         ok("SELECT CASE WHEN v ~ '^\\d+$' THEN x.f(v) END", 'sql')
-        assert.deepEqual(ok('SELECT x.f(v) IS DISTINCT FROM 1', 'sql').calls, [{ schema: 'x', name: 'f' }])
+        assert.deepEqual(ok('SELECT x.f(v) IS DISTINCT FROM 1', 'sql').calls, [{ schema: 'x', name: 'f', args: 1 }])
         ok("BEGIN RETURN 'DELETE FROM t'; END -- UPDATE t")
         no('BEGIN INSERT INTO t VALUES (1); RETURN 1; END', /INSERT/)
         no("BEGIN EXECUTE 'SELECT 1'; RETURN 1; END", /EXECUTE/)
@@ -99,6 +99,20 @@ describe('analyst relations: pure helpers', () => {
         no('SELECT a.x FROM a JOIN b ON true', /reads a relation/, 'sql')
         no('BEGIN; SELECT 1', /BEGIN/, 'sql')
         assert.ok(ok('SELECT a OPERATOR(x.===) b', 'sql').operators.has('==='))
+        // A parameter or variable named like a command is a name; the command where a statement starts is refused.
+        ok('SELECT btrim(comment)', 'sql')
+        ok('DECLARE comment text := v; BEGIN RETURN btrim(comment); END')
+        no("BEGIN SET search_path = 'x'; RETURN 1; END", /SET/)
+        no('BEGIN IF v THEN NOTIFY x; END IF; RETURN 1; END', /NOTIFY/)
+        no('WITH w AS (DELETE FROM t RETURNING 1) SELECT 1', /DELETE/, 'sql')
+        assert.deepEqual(
+            ok('SELECT x.f(), x.g(a, b(c, d), e)', 'sql').calls.map((call) => [call.name, call.args]),
+            [
+                ['f', 0],
+                ['g', 3],
+                ['b', 2]
+            ]
+        )
     })
 
     it('puts a capped Rules box right after Tables and views on the node, with the cap the harness save enforces', async () => {
@@ -2397,6 +2411,20 @@ describe('analyst relations: user functions inside views', () => {
                 })
             }
         }
+        // An overload the call cannot reach does not block it; a helper that names regclass is refused with a selection.
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE FUNCTION hv.parse(v text) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT btrim(v)'`)
+        await owner.query(
+            `CREATE FUNCTION hv.parse(v text, w text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$ BEGIN INSERT INTO hv.audit VALUES (v); RETURN w; END $$`
+        )
+        await owner.query(`CREATE FUNCTION hv.wrap(comment text) RETURNS text LANGUAGE sql STABLE AS 'SELECT hv.parse(comment)'`)
+        await owner.query(`CREATE FUNCTION hv.wrap2(v text) RETURNS text LANGUAGE sql STABLE AS 'SELECT hv.parse(v, v)'`)
+        await owner.query(`CREATE FUNCTION hv.rel_name(v oid) RETURNS text LANGUAGE sql STABLE AS 'SELECT v::regclass::text'`)
+        await owner.query('RESET ROLE')
+        const wrapped = await queryAnalystUrl(url, "SELECT hv.wrap(' a ') AS v LIMIT 1", { ...node, relations: ['hv.clean'] })
+        assert.equal(wrapped.rows[0].v, 'a')
+        await refusal(queryAnalystUrl(url, "SELECT hv.wrap2('a') AS v LIMIT 1", node), /hv\.wrap2\(text\)/)
+        await refusal(queryAnalystUrl(url, 'SELECT hv.rel_name(1259) AS v LIMIT 1', { ...node, relations: ['hv.clean'] }), /uses regclass/)
         const audit = await owner.query('SELECT count(*)::int AS n FROM hv.audit')
         assert.equal(audit.rows[0].n, 0)
     })

@@ -1355,19 +1355,16 @@ const allowHint = (signatures) =>
 // cursor, or reads a relation (FROM in a query, JOIN, TABLE) refuses the body. What is left can only compute values
 // from its arguments, and every function, operator and cast it may call is then resolved through the catalog and
 // checked like a call in the statement.
-const BODY_WRITE_WORDS = new Set([
-    'insert',
-    'update',
-    'delete',
-    'merge',
-    'truncate',
+// Refused anywhere: a data-changing statement can sit inside a WITH query, and EXECUTE runs SQL given as text.
+const BODY_WRITE_WORDS = new Set(['insert', 'update', 'delete', 'merge', 'truncate', 'execute', 'copy'])
+// Refused where a statement starts (after ';', a PL/pgSQL THEN, ELSE, LOOP or BEGIN, or at the start), so a
+// parameter or variable named comment, set or load still reads as a name.
+const BODY_COMMAND_WORDS = new Set([
     'create',
     'alter',
     'drop',
     'grant',
     'revoke',
-    'copy',
-    'execute',
     'call',
     'do',
     'lock',
@@ -1396,10 +1393,15 @@ const BODY_WRITE_WORDS = new Set([
     'security',
     'open',
     'fetch',
-    'move'
+    'move',
+    'start',
+    'abort',
+    'end',
+    'begin'
 ])
-// A LANGUAGE sql string body has no block structure, so BEGIN starts a transaction and INTO creates a table there.
-const SQL_BODY_WRITE_WORDS = new Set(['begin', 'into', 'end'])
+const BODY_STATEMENT_AFTER = new Set(['then', 'else', 'loop', 'begin'])
+// A LANGUAGE sql string body: SELECT ... INTO creates a table.
+const SQL_BODY_WRITE_WORDS = new Set(['into'])
 const BODY_RELATION_WORDS = new Set(['join', 'table'])
 const BODY_OPERATOR_CHARS = new Set(['+', '-', '*', '/', '<', '>', '=', '~', '!', '@', '#', '%', '^', '&', '|', '`', '?'])
 
@@ -1418,16 +1420,24 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
     for (let index = 0; index < tokens.length; index += 1) {
         const token = tokens[index]
         const prev = tokens[index - 1]
+        const top = frames[frames.length - 1]
+        if (top.entry && top.empty && !(token.type === 'symbol' && token.value === ')')) {
+            top.empty = false
+            top.entry.args = 1
+        }
         if (token.type === 'word') {
             words.add(token.value)
             if (token.quoted) continue
             const word = token.value
             if (BODY_WRITE_WORDS.has(word)) return { refusal: `function body uses ${word.toUpperCase()}` }
-            if (language === 'sql' && SQL_BODY_WRITE_WORDS.has(word)) {
-                // END closes a CASE expression in SQL; only a bare END as a command is a transaction end.
-                if (word !== 'end' || !prev || (prev.type === 'symbol' && prev.value === ';'))
-                    return { refusal: `function body uses ${word.toUpperCase()}` }
-            }
+            if (language === 'sql' && SQL_BODY_WRITE_WORDS.has(word)) return { refusal: `function body uses ${word.toUpperCase()}` }
+            const statementStart =
+                !prev ||
+                (prev.type === 'symbol' && prev.value === ';') ||
+                (language === 'plpgsql' && prev.type === 'word' && !prev.quoted && BODY_STATEMENT_AFTER.has(prev.value))
+            // PL/pgSQL blocks use BEGIN and END; only a statement such as BEGIN; or END; in SQL is a transaction command.
+            const blockWord = language === 'plpgsql' && (word === 'begin' || word === 'end')
+            if (statementStart && !blockWord && BODY_COMMAND_WORDS.has(word)) return { refusal: `function body uses ${word.toUpperCase()}` }
             if (BODY_RELATION_WORDS.has(word)) return { refusal: 'reads a relation' }
             if (word === 'select' || word === 'with' || word === 'values') frames[frames.length - 1].query = true
             if (word === 'from') {
@@ -1445,13 +1455,19 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
             if (isCall) {
                 const dot = tokens[index - 2]
                 const schema = tokens[index - 3]
-                if (dot?.type === 'symbol' && dot.value === '.' && schema?.type === 'word')
-                    calls.push({ schema: schema.value, name: prev.value })
-                else calls.push({ schema: null, name: prev.value })
+                const call =
+                    dot?.type === 'symbol' && dot.value === '.' && schema?.type === 'word'
+                        ? { schema: schema.value, name: prev.value, args: 0 }
+                        : { schema: null, name: prev.value, args: 0 }
+                calls.push(call)
+                frames.push({ call: true, query: false, entry: call, empty: true })
+                continue
             }
-            frames.push({ call: isCall, query: false })
+            frames.push({ call: false, query: false })
             continue
         }
+        const frame = frames[frames.length - 1]
+        if (token.value === ',' && frame.entry) frame.entry.args += 1
         if (token.value === ')') {
             if (frames.length > 1) frames.pop()
             continue
@@ -1631,18 +1647,33 @@ async function refuseRoutines(
         }
         const scan = scanFunctionBody(info.prosrc, info.language, { backslashLiteral })
         if (scan.refusal) return scan.refusal
+        // With a selection, object-identifier types turn names into ids for any object, as on a SQL-standard body.
+        if (!unscoped) {
+            const named = [...scan.words].filter((word) => DENIED_TYPES.has(word))
+            if (named.length) return `uses ${named[0]}`
+        }
         const targets = new Set()
         const names = [...new Set(scan.calls.map((call) => call.name))]
         if (names.length) {
             const procRows = await runner.all(
-                `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility
+                `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility,
+                        p.pronargs AS nargs, p.pronargdefaults AS ndefaults, p.provariadic <> 0 AS variadic
                  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
                  WHERE p.proname = ANY(?::text[])`,
                 [names]
             )
             for (const call of scan.calls) {
                 // An unqualified name can resolve to any schema on the caller's search path, so every match counts.
-                const matches = procRows.filter((row) => row.name === call.name && (call.schema == null || row.schema === call.schema))
+                // An overload whose argument count cannot fit the call is never chosen for it.
+                const fits = (row) => {
+                    const most = Number(row.nargs)
+                    const least = most - Number(row.ndefaults || 0)
+                    if (row.variadic) return call.args >= Math.min(least, most - 1)
+                    return call.args >= least && call.args <= most
+                }
+                const matches = procRows.filter(
+                    (row) => row.name === call.name && (call.schema == null || row.schema === call.schema) && fits(row)
+                )
                 for (const row of matches) {
                     if (row.schema === 'pg_catalog') {
                         if (isDenied(row.name) || readOnlySqlDeniedFunction(row.name)) return `calls ${row.name}`
