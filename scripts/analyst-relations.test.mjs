@@ -20,6 +20,7 @@ import {
     describeRefusal,
     resetRiskyDomainCacheForTests,
     routineCatalogStamp,
+    scanFunctionBody,
     SAMPLE_TIMEOUT_MS,
     findRelation,
     parseRelationSelection,
@@ -78,6 +79,52 @@ const wide = {
 const tokens = (text) => Math.ceil(String(text).length / 4)
 
 describe('analyst relations: pure helpers', () => {
+    it('reads a string function body: computes values, or refuses writes, dynamic SQL and table reads', () => {
+        const ok = (src, lang = 'plpgsql') => {
+            const scan = scanFunctionBody(src, lang, { backslashLiteral: true })
+            assert.equal(scan.refusal, undefined, `${src}: ${scan.refusal}`)
+            return scan
+        }
+        const no = (src, why, lang = 'plpgsql') =>
+            assert.match(String(scanFunctionBody(src, lang, { backslashLiteral: true }).refusal), why, src)
+        const scan = ok('BEGIN RETURN extract(year FROM v) + length(substring(v FROM 1)); EXCEPTION WHEN others THEN RETURN NULL; END')
+        assert.deepEqual(scan.calls.map((call) => call.name).sort(), ['extract', 'length', 'substring'])
+        ok("SELECT CASE WHEN v ~ '^\\d+$' THEN x.f(v) END", 'sql')
+        assert.deepEqual(ok('SELECT x.f(v) IS DISTINCT FROM 1', 'sql').calls, [{ schema: 'x', name: 'f', args: 1 }])
+        ok("BEGIN RETURN 'DELETE FROM t'; END -- UPDATE t")
+        no('BEGIN INSERT INTO t VALUES (1); RETURN 1; END', /INSERT/)
+        no("BEGIN EXECUTE 'SELECT 1'; RETURN 1; END", /EXECUTE/)
+        no('BEGIN RETURN (SELECT id FROM t); END', /reads a relation/)
+        no('SELECT exists(SELECT 1 FROM t)', /reads a relation/, 'sql')
+        no('SELECT a.x FROM a JOIN b ON true', /reads a relation/, 'sql')
+        no('BEGIN; SELECT 1', /BEGIN/, 'sql')
+        assert.ok(ok('SELECT a OPERATOR(x.===) b', 'sql').operators.has('==='))
+        // A parameter or variable named like a command is a name; the command where a statement starts is refused.
+        ok('SELECT btrim(comment)', 'sql')
+        ok('DECLARE comment text := v; BEGIN RETURN btrim(comment); END')
+        no("BEGIN SET search_path = 'x'; RETURN 1; END", /SET/)
+        no('BEGIN IF v THEN NOTIFY x; END IF; RETURN 1; END', /NOTIFY/)
+        no('WITH w AS (DELETE FROM t RETURNING 1) SELECT 1', /DELETE/, 'sql')
+        assert.deepEqual(
+            ok("SELECT x.f(), x.g(a, b(c, d), e), x.h(ARRAY[v, 'w'])", 'sql').calls.map((call) => [call.name, call.args]),
+            [
+                ['f', 0],
+                ['g', 3],
+                ['b', 2],
+                ['h', 1]
+            ]
+        )
+        // Assignments to a variable named like a command, and FROM over a function call or subquery, compute values.
+        ok('DECLARE comment text; BEGIN comment := btrim(v); RETURN comment; END')
+        ok("SELECT string_agg(x, ',') FROM unnest(v) AS x", 'sql')
+        ok('SELECT sum(a) FROM (SELECT g AS a FROM generate_series(1, 3) g) s, LATERAL x.f(a) y', 'sql')
+        no('SELECT count(*) FROM unnest(v) x, t', /reads a relation/, 'sql')
+        no('SELECT 1 FROM (SELECT 1 FROM t) s', /reads a relation/, 'sql')
+        no('WITH w AS (SELECT 1) SELECT * FROM w', /reads a relation/, 'sql')
+        no('SELECT count(*) FROM ONLY (x.t)', /reads a relation/, 'sql')
+        assert.equal(ok('SELECT 1 FROM x.f(1) a, g(2) b', 'sql').calls.filter((call) => call.fromItem).length, 2)
+    })
+
     it('puts a capped Rules box right after Tables and views on the node, with the cap the harness save enforces', async () => {
         const { ANALYST_RULES_MAX_CHARS } = await import('../packages/harness/store.mjs')
         const source = fs.readFileSync(NODE_SOURCE, 'utf8')
@@ -1923,8 +1970,13 @@ describe('analyst relations: user functions inside views', () => {
         const sql = 'SELECT id, placed, qty, amount, seen FROM analytics.clean_orders ORDER BY id LIMIT 10'
         const allowList =
             'analytics._etl_safe_date(text)\nanalytics._etl_safe_integer(text)\nanalytics._etl_safe_numeric(text)\nanalytics._etl_safe_timestamptz(text)'
-        // No selection: these helpers are string-body SQL and PL/pgSQL, so they are refused until listed.
-        await refusal(queryAnalystUrl(url, sql, node), /cannot be inspected/)
+        // String-body SQL and PL/pgSQL helpers that only compute values run with no Allowed functions entry.
+        const bare = await queryAnalystUrl(url, sql, node)
+        assert.equal(bare.rows.length, 2)
+        assert.equal(bare.rows[0].qty, 3)
+        assert.equal(bare.rows[1].placed, null)
+        const bareScoped = await queryAnalystUrl(url, sql, { ...node, relations: ['analytics.clean_orders'] })
+        assert.equal(bareScoped.rows.length, 2)
         const plain = await queryAnalystUrl(url, sql, { ...node, allowedFunctions: allowList })
         assert.equal(plain.rows.length, 2)
         assert.equal(plain.rows[0].qty, 3)
@@ -1942,10 +1994,11 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(String(direct.rows[0].n), '1.5')
     })
 
-    it('refuses analytics helpers in a materialized view without an allow-list, then allows them with text entries', async (t) => {
+    it('runs analytics helpers in a materialized view without an allow-list, and with text entries', async (t) => {
         if (skipped(t)) return
         const scoped = { ...node, relations: ['analytics.clean_orders_mv'] }
-        await refusal(queryAnalystUrl(url, 'SELECT id FROM analytics.clean_orders_mv ORDER BY id LIMIT 5', scoped), /Allowed functions/)
+        const bare = await queryAnalystUrl(url, 'SELECT id FROM analytics.clean_orders_mv ORDER BY id LIMIT 5', scoped)
+        assert.equal(bare.rows.length, 2)
         const allowList = [
             'analytics._etl_safe_bigint(text)',
             'analytics._etl_safe_date(text)',
@@ -2058,13 +2111,13 @@ describe('analyst relations: user functions inside views', () => {
                 return true
             }
         )
-        // plpgsql wrapper refused with a scoped-only reason in the message.
+        // A plpgsql wrapper that calls pg_sleep is refused, naming the call.
         await assert.rejects(
             queryAnalystUrl(url, 'SELECT s.sleep_wrap() LIMIT 1', { ...node, relations: ['analytics.clean_orders'] }),
             (error) => {
                 assert.equal(error.cuttlelyOutcome, 'expected')
                 assert.match(String(error.message), /add s\.sleep_wrap\(\) to Allowed functions/)
-                assert.match(String(error.message), /written in plpgsql/)
+                assert.match(String(error.message), /calls pg_sleep/)
                 return true
             }
         )
@@ -2306,6 +2359,93 @@ describe('analyst relations: user functions inside views', () => {
         assert.equal(Number(admitted.rows[0].v), 7)
     })
 
+    it('runs a view over read-only helpers with no Allowed functions entry, and refuses a view over writing helpers', async (t) => {
+        if (skipped(t)) return
+        await owner.query(`CREATE SCHEMA hv AUTHORIZATION "${etl}"`)
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE TABLE hv.raw (id int, d text, n text)`)
+        await owner.query(`INSERT INTO hv.raw VALUES (1, '2026-01-02', '4.5'), (2, 'nope', 'x')`)
+        await owner.query(`CREATE TABLE hv.audit (note text)`)
+        await owner.query(`CREATE SEQUENCE hv.seq`)
+        // Read-only helpers: a classic PL/pgSQL body, a string-body SQL function, and SQL-standard RETURN and
+        // BEGIN ATOMIC bodies, using FROM inside extract and substring, IS DISTINCT FROM and a backslash regex.
+        await owner.query(`CREATE FUNCTION hv.to_day(v text) RETURNS date LANGUAGE plpgsql STABLE AS $$
+            DECLARE out_day date;
+            BEGIN
+                IF v IS NOT DISTINCT FROM NULL OR v !~ '^\\d{4}-\\d{2}-\\d{2}$' THEN RETURN NULL; END IF;
+                out_day := v::date; -- a comment that says DELETE FROM hv.audit
+                RETURN out_day;
+            EXCEPTION WHEN others THEN RETURN NULL;
+            END $$`)
+        await owner.query(`CREATE FUNCTION hv.to_num(v text) RETURNS numeric LANGUAGE sql IMMUTABLE
+            AS 'SELECT CASE WHEN v ~ ''^-?[0-9]+(\\.[0-9]+)?$'' THEN v::numeric END'`)
+        await owner.query(`CREATE FUNCTION hv.year_of(v date) RETURNS int LANGUAGE sql IMMUTABLE
+            RETURN extract(year FROM v)::int + 0 * length(substring('abc' FROM 1 FOR 1))`)
+        await owner.query(`CREATE FUNCTION hv.twice(v numeric) RETURNS numeric LANGUAGE sql IMMUTABLE BEGIN ATOMIC SELECT v * 2; END`)
+        await owner.query(`CREATE VIEW hv.clean AS SELECT id, hv.to_day(d) AS d, hv.year_of(hv.to_day(d)) AS y,
+            hv.twice(hv.to_num(n)) AS n2 FROM hv.raw`)
+        // Writing or unsafe helpers, each used by its own view.
+        const unsafe = {
+            pl_insert: `LANGUAGE plpgsql STABLE AS $$ BEGIN INSERT INTO hv.audit VALUES (v); RETURN v; END $$`,
+            pl_execute: `LANGUAGE plpgsql STABLE AS $$ BEGIN EXECUTE 'SELECT 1'; RETURN v; END $$`,
+            pl_volatile: `LANGUAGE plpgsql VOLATILE AS $$ BEGIN INSERT INTO hv.audit VALUES (v); RETURN v; END $$`,
+            pl_definer: `LANGUAGE plpgsql STABLE SECURITY DEFINER AS $$ BEGIN RETURN v; END $$`,
+            sql_nextval: `LANGUAGE sql STABLE AS $$ SELECT v || nextval('hv.seq')::text $$`,
+            sql_reads: `LANGUAGE sql STABLE AS $$ SELECT v || (SELECT count(*) FROM hv.audit)::text $$`,
+            sql_only: `LANGUAGE sql STABLE AS $$ SELECT v || (SELECT count(*) FROM ONLY (hv.audit))::text $$`,
+            pl_calls_writer: `LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN hv.pl_volatile(v); END $$`
+        }
+        for (const [name, rest] of Object.entries(unsafe)) {
+            await owner.query(`CREATE FUNCTION hv.${name}(v text) RETURNS text ${rest}`)
+            await owner.query(`CREATE VIEW hv.v_${name} AS SELECT id, hv.${name}(d) AS d FROM hv.raw`)
+        }
+        await owner.query('RESET ROLE')
+        await owner.query(`GRANT USAGE ON SCHEMA hv TO "${reader}"`)
+        await owner.query(`GRANT SELECT ON ALL TABLES IN SCHEMA hv TO "${reader}"`)
+        await owner.query(`GRANT USAGE ON SEQUENCE hv.seq TO "${reader}"`)
+        const sql = 'SELECT id, d, y, n2 FROM hv.clean ORDER BY id LIMIT 5'
+        for (const options of [node, { ...node, relations: ['hv.clean'] }]) {
+            const { rows } = await queryAnalystUrl(url, sql, options)
+            assert.equal(rows.length, 2)
+            assert.equal(rows[0].y, 2026)
+            assert.equal(String(rows[0].n2), '9.0')
+            assert.equal(rows[1].d, null)
+            assert.equal(rows[1].n2, null)
+        }
+        for (const name of Object.keys(unsafe)) {
+            const viewSql = `SELECT id, d FROM hv.v_${name} ORDER BY id LIMIT 5`
+            for (const options of [node, { ...node, relations: [`hv.v_${name}`] }]) {
+                await assert.rejects(queryAnalystUrl(url, viewSql, options), (error) => {
+                    assert.equal(error.cuttlelyOutcome, 'expected', `${name}: ${error.message}`)
+                    assert.match(String(error.message), new RegExp(`hv\\.${name}\\(text\\)`), name)
+                    return true
+                })
+            }
+        }
+        // An overload the call cannot reach does not block it; a helper that names regclass is refused with a selection.
+        await owner.query(`SET ROLE "${etl}"`)
+        await owner.query(`CREATE FUNCTION hv.parse(v text) RETURNS text LANGUAGE sql IMMUTABLE AS 'SELECT btrim(v)'`)
+        await owner.query(
+            `CREATE FUNCTION hv.parse(v text, w text) RETURNS text LANGUAGE plpgsql VOLATILE AS $$ BEGIN INSERT INTO hv.audit VALUES (v); RETURN w; END $$`
+        )
+        await owner.query(`CREATE FUNCTION hv.wrap(comment text) RETURNS text LANGUAGE sql STABLE AS 'SELECT hv.parse(comment)'`)
+        await owner.query(`CREATE FUNCTION hv.wrap2(v text) RETURNS text LANGUAGE sql STABLE AS 'SELECT hv.parse(v, v)'`)
+        await owner.query(`CREATE FUNCTION hv.rel_name(v oid) RETURNS text LANGUAGE sql STABLE AS 'SELECT v::regclass::text'`)
+        await owner.query('CREATE DOMAIN hv.obj_name AS regclass')
+        await owner.query(`CREATE FUNCTION hv.rel_name2(v oid) RETURNS text LANGUAGE sql STABLE AS 'SELECT v::hv.obj_name::text'`)
+        await owner.query('RESET ROLE')
+        const wrapped = await queryAnalystUrl(url, "SELECT hv.wrap(' a ') AS v LIMIT 1", { ...node, relations: ['hv.clean'] })
+        assert.equal(wrapped.rows[0].v, 'a')
+        await refusal(queryAnalystUrl(url, "SELECT hv.wrap2('a') AS v LIMIT 1", node), /hv\.wrap2\(text\)/)
+        await refusal(queryAnalystUrl(url, 'SELECT hv.rel_name(1259) AS v LIMIT 1', { ...node, relations: ['hv.clean'] }), /uses regclass/)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT hv.rel_name2(1259) AS v LIMIT 1', { ...node, relations: ['hv.clean'] }),
+            /hv\.rel_name2\(oid\)/
+        )
+        const audit = await owner.query('SELECT count(*)::int AS n FROM hv.audit')
+        assert.equal(audit.rows[0].n, 0)
+    })
+
     it('refuses an uninspectable function body that reads a table when no relations are ticked', async (t) => {
         // A string body has no prosqlbody tree. With nothing selected it must be refused, and an allow-list entry admits it.
         if (skipped(t)) return
@@ -2319,9 +2459,9 @@ describe('analyst relations: user functions inside views', () => {
         await owner.query('RESET ROLE')
         await owner.query(`GRANT SELECT ON s.hidden_text TO "${reader}"`)
         // (a) string-body LANGUAGE sql function reading a table.
-        await refusal(queryAnalystUrl(url, 'SELECT s.string_read() AS v LIMIT 1', node), /cannot be inspected/)
+        await refusal(queryAnalystUrl(url, 'SELECT s.string_read() AS v LIMIT 1', node), /reads a relation/)
         // (b) PL/pgSQL function reading a table.
-        await refusal(queryAnalystUrl(url, 'SELECT s.pl_read() AS v LIMIT 1', node), /cannot be inspected/)
+        await refusal(queryAnalystUrl(url, 'SELECT s.pl_read() AS v LIMIT 1', node), /reads a relation/)
         // (c) the same function on the explicit Allowed functions list.
         const admitted = await queryAnalystUrl(url, 'SELECT s.string_read() AS v LIMIT 1', {
             ...node,
@@ -3010,16 +3150,24 @@ describe('analyst relations: text search configuration types', () => {
         for (const name of ['analytics.mv_safe_renewals', 'analytics.safe_renewals']) {
             const sql = `SELECT account_id, acv FROM ${name} ORDER BY account_id LIMIT 5`
             const allowList = ['analytics._etl_safe_numeric(text)', 'analytics._etl_safe_date(text)'].join('\n')
-            // Unscoped: a string body cannot be inspected, so the helpers are refused until listed.
-            await refusal(queryAnalystUrl(url, sql, unscoped), /cannot be inspected/)
+            // Unscoped: string-body helpers that only compute values run without an entry.
+            assert.deepEqual(
+                (await queryAnalystUrl(url, sql, unscoped)).rows.map((row) => Number(row.acv)),
+                [500, 800],
+                `${name} unscoped without allow-list`
+            )
             const rowsUnscoped = (await queryAnalystUrl(url, sql, { ...unscoped, allowedFunctions: allowList })).rows
             assert.deepEqual(
                 rowsUnscoped.map((row) => Number(row.acv)),
                 [500, 800],
                 `${name} unscoped with allow-list`
             )
-            // Scoped: refused without allow-list, then allowed with text entries for helpers.
-            await refusal(queryAnalystUrl(url, sql, scoped(name)), /Allowed functions/)
+            // Scoped: allowed without an entry, and with text entries for helpers.
+            assert.deepEqual(
+                (await queryAnalystUrl(url, sql, scoped(name))).rows.map((row) => Number(row.acv)),
+                [500, 800],
+                `${name} scoped without allow-list`
+            )
             const rowsScoped = (await queryAnalystUrl(url, sql, { ...scoped(name), allowedFunctions: allowList })).rows
             assert.deepEqual(
                 rowsScoped.map((row) => Number(row.acv)),

@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   PostgreSQL MCP node and analyst: views that call your own read-only SQL or PL/pgSQL helper functions (STABLE or IMMUTABLE, not SECURITY DEFINER, written with an ordinary `AS $$ ... $$` body) run again without an Allowed functions entry. Such a body is read as text and must not write, run `EXECUTE`, use a cursor or read a table, and every function it calls must pass the same rule; helpers that write are still refused. [How the selection is enforced](./docs/how-to/analyst.md#how-the-selection-is-enforced).
+
 ## [1.4.4] - 2026-10-25
 
 ### Fixed

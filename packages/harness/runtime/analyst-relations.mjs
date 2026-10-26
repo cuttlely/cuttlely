@@ -1275,10 +1275,10 @@ const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${
 // Allowed functions: set by the flow author on the PostgreSQL MCP node (stored with the flow, never read from tool
 // input). One entry per line, schema-qualified with its argument types, such as analytics._etl_safe_date(text), or
 // name(*) for every overload. A bare name matches nothing. An entry is needed when the automatic rule refuses the
-// function, including a body that cannot be inspected. Entries resolve to function ids under the pinned pg_catalog
+// function, such as a VOLATILE or SECURITY DEFINER function, or a body that writes or reads a table. Entries resolve to function ids under the pinned pg_catalog
 // search path each time a query is checked.
 // Allow-listed function bodies are trusted by design: listing a function admits that function.
-// Argument defaults and the functions it calls are still checked.
+// Argument defaults, and the functions a SQL-standard body calls, are still checked. A listed string body is not read.
 const ALLOWED_IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)`
 const ALLOWED_ENTRY = new RegExp(String.raw`^(${ALLOWED_IDENT}\.${ALLOWED_IDENT})\s*\((.*)\)$`, 'u')
 export const ALLOWED_FUNCTIONS_MAX = 200
@@ -1330,32 +1330,225 @@ const autoAllowed = (row) =>
     (row.language === 'sql' || row.language === 'plpgsql') &&
     row.super_owner === false
 
-const refusedWhy = (rows, { scoped = false } = {}) => {
+const refusedWhy = (rows) => {
     const reasons = new Set()
     for (const row of rows) {
         if (row.volatility === 'v') reasons.add('VOLATILE')
         if (row.definer) reasons.add('SECURITY DEFINER')
         if (row.config != null) reasons.add('has its own settings')
         if (row.language !== 'sql' && row.language !== 'plpgsql') reasons.add(`written in ${row.language}`)
-        if (scoped) {
-            if (row.language === 'plpgsql') reasons.add('written in plpgsql')
-        }
         if (row.super_owner !== false) reasons.add('owned by a superuser')
         if (row.refusal) reasons.add(String(row.refusal))
     }
-    return scoped
-        ? `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written as a SQL-standard BEGIN ATOMIC body, and not owned by a superuser; found: ${[
-              ...reasons
-          ].join(', ')}.`
-        : `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written in SQL or PL/pgSQL and not owned by a superuser; found: ${[
-              ...reasons
-          ].join(', ')}.`
+    return `User functions run only when STABLE or IMMUTABLE, not SECURITY DEFINER, without their own settings, written in SQL or PL/pgSQL with a body that only computes values (no writes, dynamic SQL or table reads), and not owned by a superuser; found: ${[
+        ...reasons
+    ].join(', ')}.`
 }
 
 const allowHint = (signatures) =>
     ` To allow ${signatures.length > 1 ? 'them' : 'it'}, the flow author can add ${signatures.join(
         ', '
     )} to Allowed functions on the PostgreSQL MCP node.`
+
+// A string body (LANGUAGE sql with AS '...', or PL/pgSQL) has no stored node tree, so its text is read instead. The
+// read is strict: any word that writes, changes settings or the session, runs SQL given as text (EXECUTE), uses a
+// cursor, or reads a relation (FROM in a query, JOIN, TABLE) refuses the body. What is left can only compute values
+// from its arguments, and every function, operator and cast it may call is then resolved through the catalog and
+// checked like a call in the statement.
+// Refused anywhere: a data-changing statement can sit inside a WITH query, and EXECUTE runs SQL given as text.
+const BODY_WRITE_WORDS = new Set(['insert', 'update', 'delete', 'merge', 'truncate', 'execute', 'copy'])
+// Refused where a statement starts (after ';', a PL/pgSQL THEN, ELSE, LOOP or BEGIN, or at the start), so a
+// parameter or variable named comment, set or load still reads as a name.
+const BODY_COMMAND_WORDS = new Set([
+    'create',
+    'alter',
+    'drop',
+    'grant',
+    'revoke',
+    'call',
+    'do',
+    'lock',
+    'listen',
+    'unlisten',
+    'notify',
+    'vacuum',
+    'analyze',
+    'analyse',
+    'cluster',
+    'reindex',
+    'refresh',
+    'comment',
+    'set',
+    'reset',
+    'prepare',
+    'deallocate',
+    'discard',
+    'import',
+    'load',
+    'commit',
+    'rollback',
+    'savepoint',
+    'release',
+    'checkpoint',
+    'security',
+    'open',
+    'fetch',
+    'move',
+    'start',
+    'abort',
+    'end',
+    'begin'
+])
+const BODY_STATEMENT_AFTER = new Set(['then', 'else', 'loop', 'begin'])
+// A LANGUAGE sql string body: SELECT ... INTO creates a table.
+const SQL_BODY_WRITE_WORDS = new Set(['into'])
+const BODY_RELATION_WORDS = new Set(['join', 'table'])
+const BODY_OPERATOR_CHARS = new Set(['+', '-', '*', '/', '<', '>', '=', '~', '!', '@', '#', '%', '^', '&', '|', '`', '?'])
+
+// Words that end a FROM list at the same level.
+const FROM_LIST_END = new Set([
+    'where',
+    'group',
+    'having',
+    'order',
+    'limit',
+    'offset',
+    'window',
+    'union',
+    'intersect',
+    'except',
+    'fetch',
+    'for',
+    'into',
+    'returning',
+    'then',
+    'loop',
+    'end'
+])
+
+export function scanFunctionBody(source, language, { backslashLiteral = false } = {}) {
+    let tokens
+    try {
+        tokens = sqlTokens(source, { backslashLiteral })
+    } catch {
+        return { refusal: 'function body cannot be read' }
+    }
+    const calls = []
+    const operators = new Set()
+    const words = new Set()
+    const isSymbol = (token, value) => token?.type === 'symbol' && token.value === value
+    // A FROM item is allowed only when it computes rows: a function call (unnest(v), generate_series(...)), which is
+    // checked like any other call, or a parenthesized subquery, whose own FROM is read the same way. A name alone
+    // is a table, view or other relation.
+    const fromItemOk = (at) => {
+        let i = at
+        if (tokens[i]?.type === 'word' && !tokens[i].quoted && tokens[i].value === 'lateral') i += 1
+        // FROM ONLY (name) reads a table even though it looks like a call.
+        if (tokens[i]?.type === 'word' && !tokens[i].quoted && tokens[i].value === 'only') return false
+        if (isSymbol(tokens[i], '(')) return true
+        if (tokens[i]?.type !== 'word') return false
+        if (isSymbol(tokens[i + 1], '(')) return true
+        return isSymbol(tokens[i + 1], '.') && tokens[i + 2]?.type === 'word' && isSymbol(tokens[i + 3], '(')
+    }
+    // One frame per open parenthesis or bracket: whether it opened a call's argument list, whether a query started
+    // in it, and whether its FROM list is open.
+    const frames = [{ call: false, query: false }]
+    for (let index = 0; index < tokens.length; index += 1) {
+        const token = tokens[index]
+        const prev = tokens[index - 1]
+        const next = tokens[index + 1]
+        const top = frames[frames.length - 1]
+        if (top.entry && top.empty && !isSymbol(token, ')')) {
+            top.empty = false
+            top.entry.args = 1
+        }
+        if (token.type === 'word') {
+            words.add(token.value)
+            if (token.quoted) continue
+            const word = token.value
+            if (BODY_WRITE_WORDS.has(word)) return { refusal: `function body uses ${word.toUpperCase()}` }
+            if (language === 'sql' && SQL_BODY_WRITE_WORDS.has(word)) return { refusal: `function body uses ${word.toUpperCase()}` }
+            const statementStart =
+                !prev ||
+                isSymbol(prev, ';') ||
+                (language === 'plpgsql' && prev.type === 'word' && !prev.quoted && BODY_STATEMENT_AFTER.has(prev.value))
+            // A PL/pgSQL assignment (name := value, name = value) or a field or element of a variable is a name.
+            const assigned =
+                language === 'plpgsql' && (isSymbol(next, ':') || isSymbol(next, '=') || isSymbol(next, '.') || isSymbol(next, '['))
+            // PL/pgSQL blocks use BEGIN and END; only a statement such as BEGIN; or END; in SQL is a transaction command.
+            const blockWord = language === 'plpgsql' && (word === 'begin' || word === 'end')
+            if (statementStart && !assigned && !blockWord && BODY_COMMAND_WORDS.has(word))
+                return { refusal: `function body uses ${word.toUpperCase()}` }
+            if (BODY_RELATION_WORDS.has(word)) return { refusal: 'reads a relation' }
+            if (word === 'select' || word === 'with' || word === 'values') top.query = true
+            if (FROM_LIST_END.has(word)) top.fromList = false
+            if (word === 'from') {
+                // IS [NOT] DISTINCT FROM compares values.
+                if (prev?.type === 'word' && !prev.quoted && prev.value === 'distinct') continue
+                // FROM inside a call such as extract(... FROM ...) or substring(... FROM ...) is argument syntax.
+                if (top.call && !top.query) continue
+                if (!fromItemOk(index + 1)) return { refusal: 'reads a relation' }
+                top.fromList = true
+            }
+            continue
+        }
+        if (token.type !== 'symbol') continue
+        if (token.value === '(') {
+            const isCall = prev?.type === 'word'
+            if (isCall) {
+                const dot = tokens[index - 2]
+                const schema = tokens[index - 3]
+                const call =
+                    isSymbol(dot, '.') && schema?.type === 'word'
+                        ? { schema: schema.value, name: prev.value, args: 0 }
+                        : { schema: null, name: prev.value, args: 0 }
+                // A call that is a FROM item must resolve to a function.
+                const before = isSymbol(dot, '.') ? tokens[index - 4] : dot
+                const beforeWord = before?.type === 'word' && !before.quoted ? before.value : null
+                if (beforeWord === 'lateral' || (top.fromList && (beforeWord === 'from' || isSymbol(before, ',')))) call.fromItem = true
+                calls.push(call)
+                frames.push({ call: true, query: false, entry: call, empty: true })
+                continue
+            }
+            frames.push({ call: false, query: false })
+            continue
+        }
+        if (token.value === '[') {
+            frames.push({ call: false, query: false, bracket: true })
+            continue
+        }
+        if (token.value === ',') {
+            if (top.entry) top.entry.args += 1
+            // Each item of a FROM list is read the same way.
+            if (top.fromList && !fromItemOk(index + 1)) return { refusal: 'reads a relation' }
+            continue
+        }
+        if (token.value === ';') {
+            top.fromList = false
+            top.query = false
+            continue
+        }
+        if (token.value === ')' || token.value === ']') {
+            if (frames.length > 1) frames.pop()
+            continue
+        }
+        if (BODY_OPERATOR_CHARS.has(token.value)) {
+            let name = token.value
+            let end = token.start
+            while (
+                tokens[index + 1]?.type === 'symbol' &&
+                tokens[index + 1].start === end + 1 &&
+                BODY_OPERATOR_CHARS.has(tokens[index + 1].value)
+            ) {
+                index += 1
+                end = tokens[index].start
+                name += tokens[index].value
+            }
+            operators.add(name)
+        }
+    }
+    return { calls, operators, words }
+}
 
 const NOT_BUILT_IN = 'is not built in. Only built-in functions, operators and types run.'
 
@@ -1391,7 +1584,7 @@ async function refuseRoutines(
         `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility, p.prosecdef AS definer,
                 p.proconfig AS config, l.lanname AS language, coalesce(r.rolsuper, true) AS super_owner,
                 p.prokind AS prokind,
-                (pg_catalog.to_jsonb(p) ->> 'prosqlbody') AS probody,
+                (pg_catalog.to_jsonb(p) ->> 'prosqlbody') AS probody, p.prosrc AS prosrc,
                 p.pronargdefaults AS nargs_default,
                 CASE WHEN p.pronargdefaults > 0 THEN p.proargdefaults::text ELSE NULL END AS argdefaults_tree,
                 pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(p.proname) || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature
@@ -1403,10 +1596,10 @@ async function refuseRoutines(
     // An id the catalog does not return is refused too.
     const missing = [...functionIds].filter((id) => !rows.some((row) => Number(row.oid) === id))
     if (missing.length) throw new ScopeRefusal(`Cuttlely refused this query: function ${refusedList(missing.map(String))} ${NOT_BUILT_IN}`)
-    // A user function runs without an allow-list entry only when its SQL-standard body can be inspected and it
-    // is STABLE or IMMUTABLE, not SECURITY DEFINER, has no settings of its own, and is not owned by a superuser.
-    // A string body or another language has no node tree and is refused. With a selection the body must also
-    // touch no relation. Anything else needs an entry in the node's Allowed functions.
+    // A user function runs without an allow-list entry only when it is STABLE or IMMUTABLE, not SECURITY DEFINER,
+    // has no settings of its own, is written in SQL or PL/pgSQL, is not owned by a superuser, and its body reads no
+    // relation and calls only functions that pass the same rule. A SQL-standard body is walked as a node tree; a
+    // string body is read as text (scanFunctionBody). Anything else needs an entry in the node's Allowed functions.
     const allowed = runner.allowedFunctions?.length ? await resolveAllowedFunctions(runner) : new Set()
     // Shared recursion context
     const memo = new Map()
@@ -1505,6 +1698,97 @@ async function refuseRoutines(
         if (bucket) bucket.height = Math.max(bucket.height || 0, height)
         return true
     }
+    let backslashLiteral = null
+    // Returns true, 'depth', or the reason the string body is refused.
+    async function vetStringBody(info, depth, bucket) {
+        if (backslashLiteral === null) {
+            const row = await runner.get("SELECT pg_catalog.current_setting('standard_conforming_strings') AS v")
+            backslashLiteral = String(row?.v) === 'on'
+        }
+        const scan = scanFunctionBody(info.prosrc, info.language, { backslashLiteral })
+        if (scan.refusal) return scan.refusal
+        // With a selection, object-identifier types turn names into ids for any object, as on a SQL-standard body.
+        if (!unscoped) {
+            const named = [...scan.words].filter((word) => DENIED_TYPES.has(word))
+            if (named.length) return `uses ${named[0]}`
+            // A user type named in the body (a domain over regclass, an array of one) goes through the same closure.
+            const typeRows = await runner.all(
+                `SELECT t.oid::int8 AS oid FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+                 WHERE t.typname = ANY(?::text[]) AND n.nspname NOT IN ('pg_catalog', 'information_schema')`,
+                [[...scan.words]]
+            )
+            if (typeRows.length) {
+                try {
+                    await refuseTypes(runner, new Set(typeRows.map((row) => Number(row.oid))), { scoped: true })
+                } catch (error) {
+                    if (error instanceof ScopeRefusal) return 'uses a type that turns object ids into names or is not built in'
+                    throw error
+                }
+            }
+        }
+        const targets = new Set()
+        const names = [...new Set(scan.calls.map((call) => call.name))]
+        if (names.length) {
+            const procRows = await runner.all(
+                `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility,
+                        p.pronargs AS nargs, p.pronargdefaults AS ndefaults, p.provariadic <> 0 AS variadic
+                 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+                 WHERE p.proname = ANY(?::text[])`,
+                [names]
+            )
+            for (const call of scan.calls) {
+                // An unqualified name can resolve to any schema on the caller's search path, so every match counts.
+                // An overload whose argument count cannot fit the call is never chosen for it.
+                const fits = (row) => {
+                    const most = Number(row.nargs)
+                    const least = most - Number(row.ndefaults || 0)
+                    if (row.variadic) return call.args >= Math.min(least, most - 1)
+                    return call.args >= least && call.args <= most
+                }
+                const named = procRows.filter((row) => row.name === call.name && (call.schema == null || row.schema === call.schema))
+                // When no overload fits the count read from the text, every overload of that name counts.
+                const fitting = named.filter(fits)
+                const matches = fitting.length ? fitting : named
+                if (call.fromItem && !matches.length) return `reads ${call.name} as a relation`
+                for (const row of matches) {
+                    if (row.schema === 'pg_catalog') {
+                        if (isDenied(row.name) || readOnlySqlDeniedFunction(row.name)) return `calls ${row.name}`
+                        if (row.volatility === 'v' && !SAFE_VOLATILE.has(row.name)) return `calls ${row.name}`
+                    }
+                    targets.add(Number(row.oid))
+                }
+            }
+        }
+        if (scan.operators.size) {
+            const opRows = await runner.all(
+                `SELECT o.oprcode::oid::int8 AS code FROM pg_catalog.pg_operator o JOIN pg_catalog.pg_namespace n ON n.oid = o.oprnamespace
+                 WHERE o.oprname = ANY(?::text[]) AND n.nspname <> 'pg_catalog'`,
+                [[...scan.operators]]
+            )
+            for (const row of opRows) if (Number(row.code) > 0) targets.add(Number(row.code))
+        }
+        // A cast whose function is not built in, from or to a type the body names or the function takes or returns.
+        const castRows = await runner.all(
+            `SELECT DISTINCT c.castfunc::int8 AS code FROM pg_catalog.pg_cast c
+             JOIN pg_catalog.pg_proc f ON f.oid = c.castfunc JOIN pg_catalog.pg_namespace fn ON fn.oid = f.pronamespace
+             JOIN pg_catalog.pg_type s ON s.oid = c.castsource JOIN pg_catalog.pg_type t ON t.oid = c.casttarget
+             JOIN pg_catalog.pg_proc p ON p.oid = ?::oid
+             WHERE fn.nspname <> 'pg_catalog' AND (s.typname = ANY(?::text[]) OR t.typname = ANY(?::text[])
+                OR c.castsource = p.prorettype OR c.casttarget = p.prorettype
+                OR c.castsource = ANY(p.proargtypes::oid[]) OR c.casttarget = ANY(p.proargtypes::oid[]))`,
+            [Number(info.oid), [...scan.words], [...scan.words]]
+        )
+        for (const row of castRows) if (Number(row.code) > 0) targets.add(Number(row.code))
+        let height = 0
+        for (const fn of targets) {
+            const child = await strictlyAllowedScoped(fn, depth + 1)
+            if (child === 'depth') return 'depth'
+            if (child !== true) return 'calls a function that is not allowed'
+            height = Math.max(height, 1 + (heightOf.get(fn) || 0))
+        }
+        bucket.height = Math.max(bucket.height || 0, height)
+        return true
+    }
     async function strictlyAllowedScoped(functionOid, depth = 0) {
         // Depth is checked before the memo. A hit stores the subtree height, so a short path cannot hide a longer one.
         if (depth > MAX_CALL_DEPTH) return 'depth'
@@ -1524,7 +1808,7 @@ async function refuseRoutines(
             (await runner.get(
                 `SELECT p.oid::int8 AS oid, p.proname AS name, n.nspname AS schema, p.provolatile AS volatility, p.prosecdef AS definer,
                         p.proconfig AS config, l.lanname AS language, coalesce(r.rolsuper, true) AS super_owner, p.prokind AS prokind,
-                        (pg_catalog.to_jsonb(p) ->> 'prosqlbody') AS probody,
+                        (pg_catalog.to_jsonb(p) ->> 'prosqlbody') AS probody, p.prosrc AS prosrc,
                         p.pronargdefaults AS nargs_default,
                         CASE WHEN p.pronargdefaults > 0 THEN p.proargdefaults::text ELSE NULL END AS argdefaults_tree
                  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
@@ -1598,33 +1882,35 @@ async function refuseRoutines(
             return remember(height)
         }
         // An allow-list entry admits this function. Volatility, SECURITY DEFINER, settings, owner,
-        // language, and a body that is not BEGIN ATOMIC do not block it. Its defaults and the
-        // functions it calls are still vetted, and only this function's own relations are trusted.
+        // language, and how the body is written do not block it. Its defaults and the functions its
+        // SQL-standard body calls are still vetted, and only this function's own relations are trusted.
         const body = String(info.probody || '')
         const allowedSelf = allowed.has(Number(functionOid))
+        const bucket = { height: 0 }
         if (!allowedSelf) {
-            // prosqlbody is empty for string-body SQL, PL/pgSQL and other languages, so there is
-            // no node tree to walk. Refuse those unless the function is allow-listed.
-            if (!body.trim()) return note('function body cannot be inspected')
-            // A SQL-standard body still has to pass the metadata rule with no selection. The
-            // walk below refuses any relation it finds.
-            if (unscoped) {
-                if (!autoAllowed(info)) {
+            // Without an entry, a user function runs only when it is STABLE or IMMUTABLE, not SECURITY DEFINER,
+            // has no settings of its own, is written in SQL or PL/pgSQL, and is not owned by a superuser.
+            if (!autoAllowed(info)) {
+                if (unscoped) {
                     memo.set(functionOid, false)
                     visiting.delete(functionOid)
                     return false
                 }
-            } else {
-                if (info.language !== 'sql') return note('written in non-SQL language')
                 if (!(info.volatility === 'i' || info.volatility === 's')) return note('not STABLE or IMMUTABLE')
                 if (info.definer) return note('SECURITY DEFINER')
                 if (info.config != null) return note('has its own settings')
                 if (info.super_owner !== false) return note('owned by a superuser')
-                // prosqlbody holds a nodeToString form only for SQL-standard BEGIN ATOMIC bodies.
-                if (!body) return note('SQL body is not BEGIN ATOMIC')
+                return note(`written in ${info.language}`)
+            }
+            // prosqlbody holds a node tree only for SQL-standard (BEGIN ATOMIC or RETURN) bodies. A string body
+            // in SQL or PL/pgSQL is read as text instead, and refused when it writes, runs dynamic SQL or reads
+            // a relation.
+            if (!body.trim()) {
+                const ok = await vetStringBody(info, depth, bucket)
+                if (ok === 'depth') return tooDeep()
+                if (ok !== true) return note(ok || 'calls a function that is not allowed')
             }
         }
-        const bucket = { height: 0 }
         if (body) {
             const found = treeObjectIds(body)
             found.tree = body
@@ -1664,9 +1950,9 @@ async function refuseRoutines(
     if (foreignRows.length) {
         const signatures = [...new Set(foreignRows.map((row) => row.signature))]
         throw new ScopeRefusal(
-            `Cuttlely refused this query: function ${refusedList(signatures)} is not built in. ${refusedWhy(foreignRows, {
-                scoped: !unscoped
-            })}${allowHint(signatures)}`
+            `Cuttlely refused this query: function ${refusedList(signatures)} is not built in. ${refusedWhy(foreignRows)}${allowHint(
+                signatures
+            )}`
         )
     }
     const denied = rows
@@ -1857,7 +2143,7 @@ export function readOnlySqlDeniedFunction(name) {
 }
 
 // Words and symbols outside comments and string literals. A quoted identifier is a word with quoted: true.
-export function sqlTokens(sql) {
+export function sqlTokens(sql, { backslashLiteral = false } = {}) {
     const text = String(sql ?? '')
     const tokens = []
     let i = 0
@@ -1900,7 +2186,12 @@ export function sqlTokens(sql) {
             while (i < text.length) {
                 if (text[i] === '\\') {
                     // How Postgres reads a backslash in '...' depends on standard_conforming_strings, so refuse the
-                    // ambiguity instead of guessing. E'...' always treats it as an escape.
+                    // ambiguity instead of guessing. E'...' always treats it as an escape. A function body read
+                    // while standard_conforming_strings is on (backslashLiteral) takes it as a plain character.
+                    if (!escapes && backslashLiteral) {
+                        i += 1
+                        continue
+                    }
                     if (!escapes) {
                         throw new ScopeRefusal("Cuttlely refused this query: write a backslash in text as E'...' with \\\\, not in '...'.")
                     }
@@ -1971,7 +2262,7 @@ export function sqlTokens(sql) {
             i += number[0].length
             continue
         }
-        tokens.push({ type: 'symbol', value: ch })
+        tokens.push({ type: 'symbol', value: ch, start: i })
         i += 1
     }
     return tokens
