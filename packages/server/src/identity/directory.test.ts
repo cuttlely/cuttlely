@@ -14,6 +14,7 @@ import { join } from 'path'
 import {
     DirectoryError,
     Sql,
+    addWorkspaceUser,
     createEmailUser,
     createRole,
     createWorkspace,
@@ -114,6 +115,70 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
 }
 
 const actor = { id: OWNER, organizationId: ORG, workspaceId: TEAM }
+
+describe('add an existing user to another team', () => {
+    function withSecondTeam() {
+        const made = memorySql()
+        made.db.exec(
+            `INSERT INTO workspace (id, name, "organizationId", "createdBy", "updatedBy") VALUES ('team-zz2', 'ZZ-TEST-Second', '${ORG}', '${OWNER}', '${OWNER}')`
+        )
+        return made
+    }
+    const invite = (email: string, team = TEAM) => ({ user: { name: 'ZZ-TEST-User', email }, workspace: { id: team }, role: { id: ROLE } })
+
+    it('links the same account to a second team with a role and keeps the first membership', async () => {
+        const { sql, db } = withSecondTeam()
+        const created = await createEmailUser(sql, actor, invite('zz-test-one@example.com'))
+        const before = db.prepare('SELECT COUNT(*) AS n FROM "user"').all()[0].n
+        await expect(createEmailUser(sql, actor, invite('zz-test-one@example.com', 'team-zz2'))).rejects.toMatchObject({ status: 409 })
+        const result = await addWorkspaceUser(sql, actor, { email: 'ZZ-TEST-one@example.com', workspaceId: 'team-zz2', roleId: ROLE })
+        expect(result).toEqual({ id: created.id, added: true })
+        expect(db.prepare('SELECT COUNT(*) AS n FROM "user"').all()[0].n).toBe(before)
+        const teams = db
+            .prepare('SELECT "workspaceId" AS w, "roleId" AS r FROM workspace_user WHERE "userId" = ? ORDER BY "workspaceId"')
+            .all(created.id)
+        expect(teams).toEqual([
+            { w: TEAM, r: ROLE },
+            { w: 'team-zz2', r: ROLE }
+        ])
+    })
+
+    it('accepts a user id from the picker', async () => {
+        const { sql, db } = withSecondTeam()
+        const created = await createEmailUser(sql, actor, invite('zz-test-two@example.com'))
+        await addWorkspaceUser(sql, actor, { userId: created.id, workspaceId: 'team-zz2', roleId: ROLE })
+        expect(db.prepare('SELECT COUNT(*) AS n FROM workspace_user WHERE "userId" = ?').all(created.id)[0].n).toBe(2)
+    })
+
+    it('still creates a brand-new user', async () => {
+        const { sql, db } = withSecondTeam()
+        const created = await createEmailUser(sql, actor, invite('zz-test-new@example.com', 'team-zz2'))
+        expect(db.prepare('SELECT email FROM "user" WHERE id = ?').all(created.id)).toEqual([{ email: 'zz-test-new@example.com' }])
+    })
+
+    it('returns a clear 409 for someone already on the team and changes nothing', async () => {
+        const { sql, db } = withSecondTeam()
+        const created = await createEmailUser(sql, actor, invite('zz-test-dup@example.com'))
+        await expect(addWorkspaceUser(sql, actor, { userId: created.id, workspaceId: TEAM, roleId: ROLE })).rejects.toMatchObject({
+            status: 409,
+            message: 'This user is already a member of this team'
+        })
+        expect(db.prepare('SELECT COUNT(*) AS n FROM workspace_user WHERE "userId" = ?').all(created.id)[0].n).toBe(1)
+    })
+
+    it('refuses an account outside the organization and a non-owner adding to another team', async () => {
+        const { sql, db } = withSecondTeam()
+        db.exec(`INSERT INTO "user" (id, name, email, status) VALUES ('zz-outsider', 'ZZ-TEST-Out', 'zz-test-out@example.com', 'active')`)
+        await expect(
+            addWorkspaceUser(sql, actor, { email: 'zz-test-out@example.com', workspaceId: 'team-zz2', roleId: ROLE })
+        ).rejects.toMatchObject({ status: 404 })
+        const created = await createEmailUser(sql, actor, invite('zz-test-member@example.com'))
+        const member = { id: created.id, organizationId: ORG, workspaceId: TEAM, permissions: ['workspace:add-user'] }
+        await expect(addWorkspaceUser(sql, member, { userId: OWNER, workspaceId: 'team-zz2', roleId: ROLE })).rejects.toMatchObject({
+            status: 404
+        })
+    })
+})
 
 describe('directory users', () => {
     it('creates a pending email-only user and does not store a password', async () => {

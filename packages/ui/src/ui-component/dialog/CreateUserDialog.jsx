@@ -51,6 +51,8 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
     const [roles, setRoles] = useState([])
     const [teamId, setTeamId] = useState(workspace?.id || '')
     const [roleId, setRoleId] = useState('')
+    const [people, setPeople] = useState([])
+    const [existingId, setExistingId] = useState('')
     const [loadingChoices, setLoadingChoices] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [formError, setFormError] = useState('')
@@ -71,13 +73,21 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
         setFormError('')
         setTeamId(workspace?.id || '')
         setRoleId('')
+        setExistingId('')
         setLoadingChoices(true)
         Promise.all([
             workspaceApi.getAllWorkspacesByOrganizationId(currentUser.activeOrganizationId),
-            roleApi.getAllRolesByOrganizationId(currentUser.activeOrganizationId)
+            roleApi.getAllRolesByOrganizationId(currentUser.activeOrganizationId),
+            // Best effort: a caller without users:manage can still add someone by email.
+            accountApi.listOrganizationUsers(currentUser.activeOrganizationId).catch(() => ({ data: [] }))
         ])
-            .then(([workspaceResponse, roleResponse]) => {
+            .then(([workspaceResponse, roleResponse, peopleResponse]) => {
                 if (cancelled) return
+                setPeople(
+                    (Array.isArray(peopleResponse.data) ? peopleResponse.data : [])
+                        .filter((item) => item.user && item.status?.toLowerCase() !== 'deleted')
+                        .map((item) => item.user)
+                )
                 const nextTeams = (workspaceResponse.data || []).filter((item) => item.name !== 'Personal Workspace')
                 const nextRoles = (roleResponse.data || []).filter((item) => currentUser?.isOrganizationAdmin || !isBuiltInOwnerRole(item))
                 setTeams(nextTeams)
@@ -98,17 +108,15 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
     }, [show, workspace?.id, currentUser.activeOrganizationId, currentUser?.isOrganizationAdmin])
 
     const canSubmit =
-        !isSaving &&
-        !loadingChoices &&
-        name.trim().length > 0 &&
-        name.trim().length <= 100 &&
-        EMAIL_PATTERN.test(email.trim()) &&
-        teamId &&
-        roleId
+        !isSaving && !loadingChoices && (existingId || (name.trim().length <= 100 && EMAIL_PATTERN.test(email.trim()))) && teamId && roleId
 
     const saveUser = async () => {
-        const problem = !name.trim()
-            ? 'Name is required.'
+        const problem = existingId
+            ? !teamId
+                ? 'Choose a team.'
+                : !roleId
+                ? 'Choose a role.'
+                : ''
             : !EMAIL_PATTERN.test(email.trim())
             ? 'Enter a valid email.'
             : !teamId
@@ -123,17 +131,42 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
         setFormError('')
         setIsSaving(true)
         try {
-            const response = await accountApi.inviteAccount({
-                user: {
-                    name: name.trim(),
-                    email: email.trim(),
-                    createdBy: currentUser.id
-                },
-                workspace: { id: teamId },
-                role: { id: roleId }
-            })
+            const typed = email.trim().toLowerCase()
+            const known = existingId ? { id: existingId } : people.find((person) => (person.email || '').toLowerCase() === typed)
+            let response
+            let added = false
+            if (known) {
+                response = await accountApi.addWorkspaceUser({ userId: known.id, workspaceId: teamId, roleId })
+                added = true
+            } else if (!name.trim()) {
+                // No name: this email should belong to an account that already exists.
+                try {
+                    response = await accountApi.addWorkspaceUser({ email: email.trim(), workspaceId: teamId, roleId })
+                    added = true
+                } catch (error) {
+                    if (error.response?.status !== 404) throw error
+                    throw new Error('No account uses this email. Enter a name to create a new user.')
+                }
+            } else {
+                try {
+                    response = await accountApi.inviteAccount({
+                        user: {
+                            name: name.trim(),
+                            email: email.trim(),
+                            createdBy: currentUser.id
+                        },
+                        workspace: { id: teamId },
+                        role: { id: roleId }
+                    })
+                } catch (error) {
+                    // The account exists but was not in the list this caller can see: add it to the team instead.
+                    if (error.response?.status !== 409) throw error
+                    response = await accountApi.addWorkspaceUser({ email: email.trim(), workspaceId: teamId, roleId })
+                    added = true
+                }
+            }
             enqueueSnackbar({
-                message: 'User created',
+                message: added ? 'User added to team' : 'User created',
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'success',
@@ -144,7 +177,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                     )
                 }
             })
-            if (response.data?.link) setInviteLink(response.data.link)
+            if (!added && response.data?.link) setInviteLink(response.data.link)
             else onConfirm()
         } catch (error) {
             const message = error.response?.data?.message || error.message || 'Could not create the user'
@@ -234,38 +267,63 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                                 {formError}
                             </Alert>
                         )}
-                        <Box sx={{ p: 1 }}>
-                            <Typography>
-                                Name<span style={{ color: 'red' }}>&nbsp;*</span>
-                            </Typography>
-                            <OutlinedInput
-                                id='user-name'
-                                size='small'
-                                sx={{ mt: 1 }}
-                                fullWidth
-                                value={name}
-                                onChange={(event) => setName(event.target.value)}
-                            />
-                        </Box>
-                        <Box sx={{ p: 1 }}>
-                            <Typography>
-                                Email<span style={{ color: 'red' }}>&nbsp;*</span>
-                            </Typography>
-                            <OutlinedInput
-                                id='user-email'
-                                size='small'
-                                sx={{ mt: 1 }}
-                                type='email'
-                                fullWidth
-                                value={email}
-                                onChange={(event) => setEmail(event.target.value)}
-                            />
-                        </Box>
-                        <Box sx={{ p: 1 }}>
-                            <Typography variant='caption' color='text.secondary'>
-                                They join from a one-time invite link and sign in with WorkOS. No password is stored here.
-                            </Typography>
-                        </Box>
+                        {people.length > 0 && (
+                            <Box sx={{ p: 1 }}>
+                                <Typography>Existing user</Typography>
+                                <Select
+                                    id='user-existing'
+                                    size='small'
+                                    sx={{ mt: 1 }}
+                                    fullWidth
+                                    value={existingId}
+                                    displayEmpty
+                                    onChange={(event) => setExistingId(event.target.value)}
+                                    input={<OutlinedInput />}
+                                >
+                                    <MenuItem value=''>New user</MenuItem>
+                                    {people.map((person) => (
+                                        <MenuItem key={person.id} value={person.id}>
+                                            {person.name ? `${person.name} (${person.email})` : person.email}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </Box>
+                        )}
+                        {!existingId && (
+                            <>
+                                <Box sx={{ p: 1 }}>
+                                    <Typography>Name (for a new user)</Typography>
+                                    <OutlinedInput
+                                        id='user-name'
+                                        size='small'
+                                        sx={{ mt: 1 }}
+                                        fullWidth
+                                        value={name}
+                                        onChange={(event) => setName(event.target.value)}
+                                    />
+                                </Box>
+                                <Box sx={{ p: 1 }}>
+                                    <Typography>
+                                        Email<span style={{ color: 'red' }}>&nbsp;*</span>
+                                    </Typography>
+                                    <OutlinedInput
+                                        id='user-email'
+                                        size='small'
+                                        sx={{ mt: 1 }}
+                                        type='email'
+                                        fullWidth
+                                        value={email}
+                                        onChange={(event) => setEmail(event.target.value)}
+                                    />
+                                </Box>
+                                <Box sx={{ p: 1 }}>
+                                    <Typography variant='caption' color='text.secondary'>
+                                        They join from a one-time invite link and sign in with WorkOS. No password is stored here. If the
+                                        email already has an account, that person is added to the team instead.
+                                    </Typography>
+                                </Box>
+                            </>
+                        )}
                         <Box sx={{ p: 1 }}>
                             <Typography>
                                 Team<span style={{ color: 'red' }}>&nbsp;*</span>
@@ -319,7 +377,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                     <DialogActions>
                         <Button onClick={onCancel}>Cancel</Button>
                         <StyledButton id='btn_submit_user' disabled={!canSubmit} variant='contained' onClick={saveUser}>
-                            {isSaving ? 'Creating...' : 'Create User'}
+                            {isSaving ? 'Saving...' : existingId ? 'Add to Team' : 'Create User'}
                         </StyledButton>
                     </DialogActions>
                 </>

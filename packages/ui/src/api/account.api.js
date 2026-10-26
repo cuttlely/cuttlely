@@ -1,6 +1,9 @@
 import client from '@/api/client'
 
 const inviteAccount = (body) => client.post(`/account/invite`, body)
+// Team membership for an account that already exists: list the organization's people and add one to a team.
+const listOrganizationUsers = (organizationId) => client.get(`/organizationuser?organizationId=${organizationId}`)
+const addWorkspaceUser = (body) => client.post(`/workspaceuser`, body)
 const registerAccount = (body) => client.post(`/account/register`, body)
 const verifyAccountEmail = (body) => client.post('/account/verify', body)
 const confirmEmailChange = (body) => client.post('/account/confirm-email-change', body)
@@ -12,6 +15,8 @@ const logout = () => client.post('/account/logout')
 const deleteAccount = (body) => client.delete('/account/delete', { data: body })
 
 export default {
+    addWorkspaceUser,
+    listOrganizationUsers,
     getBillingData,
     inviteAccount,
     registerAccount,
