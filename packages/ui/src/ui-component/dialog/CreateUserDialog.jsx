@@ -108,11 +108,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
     }, [show, workspace?.id, currentUser.activeOrganizationId, currentUser?.isOrganizationAdmin])
 
     const canSubmit =
-        !isSaving &&
-        !loadingChoices &&
-        (existingId || (name.trim().length > 0 && name.trim().length <= 100 && EMAIL_PATTERN.test(email.trim()))) &&
-        teamId &&
-        roleId
+        !isSaving && !loadingChoices && (existingId || (name.trim().length <= 100 && EMAIL_PATTERN.test(email.trim()))) && teamId && roleId
 
     const saveUser = async () => {
         const problem = existingId
@@ -121,8 +117,6 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                 : !roleId
                 ? 'Choose a role.'
                 : ''
-            : !name.trim()
-            ? 'Name is required.'
             : !EMAIL_PATTERN.test(email.trim())
             ? 'Enter a valid email.'
             : !teamId
@@ -144,6 +138,15 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
             if (known) {
                 response = await accountApi.addWorkspaceUser({ userId: known.id, workspaceId: teamId, roleId })
                 added = true
+            } else if (!name.trim()) {
+                // No name: this email should belong to an account that already exists.
+                try {
+                    response = await accountApi.addWorkspaceUser({ email: email.trim(), workspaceId: teamId, roleId })
+                    added = true
+                } catch (error) {
+                    if (error.response?.status !== 404) throw error
+                    throw new Error('No account uses this email. Enter a name to create a new user.')
+                }
             } else {
                 try {
                     response = await accountApi.inviteAccount({
@@ -289,9 +292,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                         {!existingId && (
                             <>
                                 <Box sx={{ p: 1 }}>
-                                    <Typography>
-                                        Name<span style={{ color: 'red' }}>&nbsp;*</span>
-                                    </Typography>
+                                    <Typography>Name (for a new user)</Typography>
                                     <OutlinedInput
                                         id='user-name'
                                         size='small'
