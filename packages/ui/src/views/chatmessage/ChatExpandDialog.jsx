@@ -5,7 +5,7 @@ import { useSelector } from 'react-redux'
 import { Dialog, DialogContent, DialogTitle, Button } from '@mui/material'
 import ChatMessage from './ChatMessage'
 import { StyledButton } from '@/ui-component/button/StyledButton'
-import { IconEraser } from '@tabler/icons-react'
+import { IconMessagePlus } from '@tabler/icons-react'
 
 const ChatExpandDialog = ({ show, dialogProps, isAgentCanvas, onClear, onCancel, previews, setPreviews, harnessBlock, harnessName }) => {
     const portalElement = document.getElementById('portal')
@@ -28,16 +28,22 @@ const ChatExpandDialog = ({ show, dialogProps, isAgentCanvas, onClear, onCancel,
                     {customization.isDarkMode && (
                         <StyledButton
                             variant='outlined'
-                            color='error'
+                            color='primary'
                             title='Start a new session'
                             onClick={onClear}
-                            startIcon={<IconEraser />}
+                            startIcon={<IconMessagePlus />}
                         >
                             Start a new session
                         </StyledButton>
                     )}
                     {!customization.isDarkMode && (
-                        <Button variant='outlined' color='error' title='Start a new session' onClick={onClear} startIcon={<IconEraser />}>
+                        <Button
+                            variant='outlined'
+                            color='primary'
+                            title='Start a new session'
+                            onClick={onClear}
+                            startIcon={<IconMessagePlus />}
+                        >
                             Start a new session
                         </Button>
                     )}

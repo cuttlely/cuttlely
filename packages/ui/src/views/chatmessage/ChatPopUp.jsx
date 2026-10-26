@@ -4,7 +4,7 @@ import PropTypes from 'prop-types'
 
 import { ClickAwayListener, Paper, Popper, Button } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
-import { IconMessage, IconX, IconEraser, IconArrowsMaximize } from '@tabler/icons-react'
+import { IconMessage, IconX, IconMessagePlus, IconArrowsMaximize } from '@tabler/icons-react'
 
 // project import
 import { StyledFab } from '@/ui-component/button/StyledFab'
@@ -148,11 +148,11 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
                     sx={{ position: 'absolute', right: 80, top: 20 }}
                     onClick={clearChat}
                     size='small'
-                    color='error'
+                    color='primary'
                     aria-label='clear'
                     title='Start a new session'
                 >
-                    <IconEraser />
+                    <IconMessagePlus />
                 </StyledFab>
             )}
             {open && (
