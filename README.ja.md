@@ -31,7 +31,7 @@ Node 20+ と Docker
 
 [10 分で始める](https://cuttlely.com/quickstart/) · [GitHub でスターを付ける](https://github.com/cuttlely/cuttlely) · [フローをお持ちですか？持ち込めます](https://cuttlely.com/flowise/)
 
-**1.4.5 を公開しました。** 1.4.4 をお使いならアップグレードしてください。PostgreSQL MCP の読み取り専用チェックが、文字列本体（`AS $$ ... $$`）の SQL または PL/pgSQL で書かれた読み取り専用のヘルパー関数（ビューで使う日付・数値・タイムスタンプの解析ヘルパーなど）を **Allowed functions** に追加しなくても受け付けるようになりました。書き込みを行う関数は引き続き拒否されます。対象は[ユーザー関数のルール](./docs/how-to/analyst.md#user-functions)のすべての条件を満たすヘルパーだけです。たとえば `VOLATILE` のヘルパーや、テーブルやビューを読むヘルパーは引き続き登録が必要です。Allowed functions に追加した関数は、これまでどおりこのチェックなしで実行されます。イメージ `1.4.5` を pull するか、`npm i cuttlely@1.4.5` を実行してください。1.4.4 では、モデルを変更すると再起動するまで MCP 呼び出しが Unauthorized で失敗する問題が直りました。1.4.3 では PostgreSQL MCP の読み取り専用クエリチェックが戻り、それ以外のユーザー関数は新しい **Allowed functions** 欄で許可できます。1.4.2 以前から上げる場合は、先に [1.4.3 のアップグレード注記](./CHANGELOG.md#143---2026-10-25)を読んでください。[変更履歴](./CHANGELOG.md#145---2026-10-26)
+**1.4.6 を公開しました。** 1.4.5 をお使いならアップグレードしてください。**Return Source Documents** をオンにすると、Retriever Tool は各チャンクの前に `[n] タイトル - URL` の行をモデルに示すようになり、ハーネスのスペシャリストが読んだページを引用できます。絶対ファイルパスはファイル名だけが表示されます。Harness Prime の `Sources:` 一覧にも、各ソースの名前の横に http(s) URL が表示されます。オプションがオフの場合、ツールの出力は変わりません。イメージ `1.4.6` を pull するか、`npm i cuttlely@1.4.6` を実行してください。1.4.5 では、PostgreSQL MCP の読み取り専用チェックが、[ユーザー関数のルール](./docs/how-to/analyst.md#user-functions)を満たす文字列本体の SQL・PL/pgSQL の読み取り専用ヘルパーを **Allowed functions** なしで受け付けるようになりました。1.4.4 では、モデルを変更すると再起動するまで MCP 呼び出しが Unauthorized で失敗する問題が直りました。1.4.2 以前から上げる場合は、先に [1.4.3 のアップグレード注記](./CHANGELOG.md#143---2026-10-25)を読んでください。[変更履歴](./CHANGELOG.md#146---2026-10-26)
 
 ## 目次
 
