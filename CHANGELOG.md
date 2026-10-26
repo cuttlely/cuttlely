@@ -4,9 +4,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-10-26
+
 ### Fixed
 
--   PostgreSQL MCP node and analyst: views that call your own read-only SQL or PL/pgSQL helper functions (STABLE or IMMUTABLE, not SECURITY DEFINER, written with an ordinary `AS $$ ... $$` body) run again without an Allowed functions entry. Such a body is read as text and must not write, run `EXECUTE`, use a cursor or read a table, and every function it calls must pass the same rule; helpers that write are still refused. [How the selection is enforced](./docs/how-to/analyst.md#how-the-selection-is-enforced).
+-   The PostgreSQL MCP node's read-only check now accepts read-only helper functions written as string-body SQL or PL/pgSQL (for example date, number and timestamp parsing helpers used in views) without adding them to Allowed functions; functions that write are still refused. Only helpers that pass every condition of the [user function rule](./docs/how-to/analyst.md#user-functions) qualify; for example a `VOLATILE` helper, or one that reads a table or view, still needs an entry, and a function you add to Allowed functions runs without this check, as before. [#315](https://github.com/cuttlely/cuttlely/pull/315), [How the selection is enforced](./docs/how-to/analyst.md#how-the-selection-is-enforced).
 
 ## [1.4.4] - 2026-10-25
 
@@ -526,7 +528,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.4...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.5...HEAD
+[1.4.5]: https://github.com/cuttlely/cuttlely/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/cuttlely/cuttlely/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/cuttlely/cuttlely/compare/v1.4.1...v1.4.2

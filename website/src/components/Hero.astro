@@ -43,7 +43,7 @@ const tagline = hero.tagline ?? ''
             <a class="cl-link-arrow" href="/flowise/">Already have flows? Bring them over <Icon name="right-arrow" /></a>
         </p>
         <p class="cl-hero-from">
-            1.4.4 is out. If you're on 1.4.3, upgrade: changing a model could make MCP calls fail with Unauthorized until a restart. <a href="/changelog/">What's new</a> · <a href="https://github.com/cuttlely/cuttlely/security/advisories">Security advisories</a>
+            1.4.5 is out. If you're on 1.4.4, upgrade: the PostgreSQL MCP read-only check now accepts read-only helper functions written as string-body SQL or PL/pgSQL, such as the date and number parsing helpers views call, without an Allowed functions entry when they pass the <a href="/docs/how-to/analyst/#user-functions">user function rule</a>. Other helpers, including ones that write or read a table or view, still need an entry. <a href="/changelog/">What's new</a> · <a href="https://github.com/cuttlely/cuttlely/security/advisories">Security advisories</a>
         </p>
     </div>
     <div class="cl-hero-art" aria-hidden="true">
