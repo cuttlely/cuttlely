@@ -116,7 +116,7 @@ function sourceBlock(sources, snippetChars) {
     let cut = false
     let named = 0
     for (const doc of sources || []) {
-        const name = sourceName(doc)
+        const name = sourceName(doc) || sourceUrl(doc)
         if (!name) continue
         named += 1
         if (lines.length >= SOURCE_LIMIT) {
