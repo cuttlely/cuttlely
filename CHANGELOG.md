@@ -8,7 +8,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   With **Return Source Documents** on, the Retriever Tool now shows the model each chunk under a `[n] title - url` line, so a harness specialist can cite the page it read. An absolute file path in the metadata shows as the file name only. Harness Prime's `Sources:` list also shows each source's http(s) URL next to its name. With the option off, the tool's output is unchanged. [#317](https://github.com/cuttlely/cuttlely/pull/317).
+-   With **Return Source Documents** on, the Retriever Tool now puts a numbered `[n]` line before each chunk it shows the model, with the chunk's title and its http(s) URL when the metadata has them (`[n] title - url`), so a harness specialist can cite the page it read. An absolute file path in the metadata shows as the file name only. Harness Prime's `Sources:` list also adds a source's http(s) URL next to its name when the name is not already that URL. With the option off, the tool's output is unchanged. [#317](https://github.com/cuttlely/cuttlely/pull/317).
 -   Start a new session (formerly Clear chat history) now clears the chat on screen and starts a new session; past messages are kept. [#318](https://github.com/cuttlely/cuttlely/pull/318).
 
 ## [1.4.5] - 2026-10-26
