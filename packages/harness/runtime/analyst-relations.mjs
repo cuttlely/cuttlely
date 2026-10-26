@@ -1278,7 +1278,7 @@ const builtIn = (row) => row.schema === 'pg_catalog' || ALLOWED_ROUTINES.has(`${
 // function, such as a VOLATILE or SECURITY DEFINER function, or a body that writes or reads a table. Entries resolve to function ids under the pinned pg_catalog
 // search path each time a query is checked.
 // Allow-listed function bodies are trusted by design: listing a function admits that function.
-// Argument defaults and the functions it calls are still checked.
+// Argument defaults, and the functions a SQL-standard body calls, are still checked. A listed string body is not read.
 const ALLOWED_IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)`
 const ALLOWED_ENTRY = new RegExp(String.raw`^(${ALLOWED_IDENT}\.${ALLOWED_IDENT})\s*\((.*)\)$`, 'u')
 export const ALLOWED_FUNCTIONS_MAX = 200
@@ -1405,6 +1405,27 @@ const SQL_BODY_WRITE_WORDS = new Set(['into'])
 const BODY_RELATION_WORDS = new Set(['join', 'table'])
 const BODY_OPERATOR_CHARS = new Set(['+', '-', '*', '/', '<', '>', '=', '~', '!', '@', '#', '%', '^', '&', '|', '`', '?'])
 
+// Words that end a FROM list at the same level.
+const FROM_LIST_END = new Set([
+    'where',
+    'group',
+    'having',
+    'order',
+    'limit',
+    'offset',
+    'window',
+    'union',
+    'intersect',
+    'except',
+    'fetch',
+    'for',
+    'into',
+    'returning',
+    'then',
+    'loop',
+    'end'
+])
+
 export function scanFunctionBody(source, language, { backslashLiteral = false } = {}) {
     let tokens
     try {
@@ -1415,13 +1436,27 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
     const calls = []
     const operators = new Set()
     const words = new Set()
-    // One frame per open parenthesis: whether it opened a call's argument list, and whether a query started in it.
+    const isSymbol = (token, value) => token?.type === 'symbol' && token.value === value
+    // A FROM item is allowed only when it computes rows: a function call (unnest(v), generate_series(...)), which is
+    // checked like any other call, or a parenthesized subquery, whose own FROM is read the same way. A name alone
+    // is a table, view or other relation.
+    const fromItemOk = (at) => {
+        let i = at
+        if (tokens[i]?.type === 'word' && !tokens[i].quoted && tokens[i].value === 'lateral') i += 1
+        if (isSymbol(tokens[i], '(')) return true
+        if (tokens[i]?.type !== 'word') return false
+        if (isSymbol(tokens[i + 1], '(')) return true
+        return isSymbol(tokens[i + 1], '.') && tokens[i + 2]?.type === 'word' && isSymbol(tokens[i + 3], '(')
+    }
+    // One frame per open parenthesis or bracket: whether it opened a call's argument list, whether a query started
+    // in it, and whether its FROM list is open.
     const frames = [{ call: false, query: false }]
     for (let index = 0; index < tokens.length; index += 1) {
         const token = tokens[index]
         const prev = tokens[index - 1]
+        const next = tokens[index + 1]
         const top = frames[frames.length - 1]
-        if (top.entry && top.empty && !(token.type === 'symbol' && token.value === ')')) {
+        if (top.entry && top.empty && !isSymbol(token, ')')) {
             top.empty = false
             top.entry.args = 1
         }
@@ -1433,19 +1468,25 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
             if (language === 'sql' && SQL_BODY_WRITE_WORDS.has(word)) return { refusal: `function body uses ${word.toUpperCase()}` }
             const statementStart =
                 !prev ||
-                (prev.type === 'symbol' && prev.value === ';') ||
+                isSymbol(prev, ';') ||
                 (language === 'plpgsql' && prev.type === 'word' && !prev.quoted && BODY_STATEMENT_AFTER.has(prev.value))
+            // A PL/pgSQL assignment (name := value, name = value) or a field or element of a variable is a name.
+            const assigned =
+                language === 'plpgsql' && (isSymbol(next, ':') || isSymbol(next, '=') || isSymbol(next, '.') || isSymbol(next, '['))
             // PL/pgSQL blocks use BEGIN and END; only a statement such as BEGIN; or END; in SQL is a transaction command.
             const blockWord = language === 'plpgsql' && (word === 'begin' || word === 'end')
-            if (statementStart && !blockWord && BODY_COMMAND_WORDS.has(word)) return { refusal: `function body uses ${word.toUpperCase()}` }
+            if (statementStart && !assigned && !blockWord && BODY_COMMAND_WORDS.has(word))
+                return { refusal: `function body uses ${word.toUpperCase()}` }
             if (BODY_RELATION_WORDS.has(word)) return { refusal: 'reads a relation' }
-            if (word === 'select' || word === 'with' || word === 'values') frames[frames.length - 1].query = true
+            if (word === 'select' || word === 'with' || word === 'values') top.query = true
+            if (FROM_LIST_END.has(word)) top.fromList = false
             if (word === 'from') {
                 // IS [NOT] DISTINCT FROM compares values.
                 if (prev?.type === 'word' && !prev.quoted && prev.value === 'distinct') continue
                 // FROM inside a call such as extract(... FROM ...) or substring(... FROM ...) is argument syntax.
-                const frame = frames[frames.length - 1]
-                if (!frame.call || frame.query) return { refusal: 'reads a relation' }
+                if (top.call && !top.query) continue
+                if (!fromItemOk(index + 1)) return { refusal: 'reads a relation' }
+                top.fromList = true
             }
             continue
         }
@@ -1456,7 +1497,7 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
                 const dot = tokens[index - 2]
                 const schema = tokens[index - 3]
                 const call =
-                    dot?.type === 'symbol' && dot.value === '.' && schema?.type === 'word'
+                    isSymbol(dot, '.') && schema?.type === 'word'
                         ? { schema: schema.value, name: prev.value, args: 0 }
                         : { schema: null, name: prev.value, args: 0 }
                 calls.push(call)
@@ -1466,9 +1507,22 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
             frames.push({ call: false, query: false })
             continue
         }
-        const frame = frames[frames.length - 1]
-        if (token.value === ',' && frame.entry) frame.entry.args += 1
-        if (token.value === ')') {
+        if (token.value === '[') {
+            frames.push({ call: false, query: false, bracket: true })
+            continue
+        }
+        if (token.value === ',') {
+            if (top.entry) top.entry.args += 1
+            // Each item of a FROM list is read the same way.
+            if (top.fromList && !fromItemOk(index + 1)) return { refusal: 'reads a relation' }
+            continue
+        }
+        if (token.value === ';') {
+            top.fromList = false
+            top.query = false
+            continue
+        }
+        if (token.value === ')' || token.value === ']') {
             if (frames.length > 1) frames.pop()
             continue
         }
@@ -1671,9 +1725,10 @@ async function refuseRoutines(
                     if (row.variadic) return call.args >= Math.min(least, most - 1)
                     return call.args >= least && call.args <= most
                 }
-                const matches = procRows.filter(
-                    (row) => row.name === call.name && (call.schema == null || row.schema === call.schema) && fits(row)
-                )
+                const named = procRows.filter((row) => row.name === call.name && (call.schema == null || row.schema === call.schema))
+                // When no overload fits the count read from the text, every overload of that name counts.
+                const fitting = named.filter(fits)
+                const matches = fitting.length ? fitting : named
                 for (const row of matches) {
                     if (row.schema === 'pg_catalog') {
                         if (isDenied(row.name) || readOnlySqlDeniedFunction(row.name)) return `calls ${row.name}`

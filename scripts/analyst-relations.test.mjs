@@ -106,13 +106,21 @@ describe('analyst relations: pure helpers', () => {
         no('BEGIN IF v THEN NOTIFY x; END IF; RETURN 1; END', /NOTIFY/)
         no('WITH w AS (DELETE FROM t RETURNING 1) SELECT 1', /DELETE/, 'sql')
         assert.deepEqual(
-            ok('SELECT x.f(), x.g(a, b(c, d), e)', 'sql').calls.map((call) => [call.name, call.args]),
+            ok("SELECT x.f(), x.g(a, b(c, d), e), x.h(ARRAY[v, 'w'])", 'sql').calls.map((call) => [call.name, call.args]),
             [
                 ['f', 0],
                 ['g', 3],
-                ['b', 2]
+                ['b', 2],
+                ['h', 1]
             ]
         )
+        // Assignments to a variable named like a command, and FROM over a function call or subquery, compute values.
+        ok('DECLARE comment text; BEGIN comment := btrim(v); RETURN comment; END')
+        ok("SELECT string_agg(x, ',') FROM unnest(v) AS x", 'sql')
+        ok('SELECT sum(a) FROM (SELECT g AS a FROM generate_series(1, 3) g) s, LATERAL x.f(a) y', 'sql')
+        no('SELECT count(*) FROM unnest(v) x, t', /reads a relation/, 'sql')
+        no('SELECT 1 FROM (SELECT 1 FROM t) s', /reads a relation/, 'sql')
+        no('WITH w AS (SELECT 1) SELECT * FROM w', /reads a relation/, 'sql')
     })
 
     it('puts a capped Rules box right after Tables and views on the node, with the cap the harness save enforces', async () => {
