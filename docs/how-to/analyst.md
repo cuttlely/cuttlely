@@ -497,7 +497,7 @@ Connect the PostgreSQL MCP node, `CUTTLELY_POSTGRES_URL` and Postgres URL creden
 -   Grant it `CONNECT` on the database, `USAGE` on the schemas it reads, `SELECT` on the tables and views it needs, and `TEMP` (the node's checks need it). Grant nothing else, and do not make it a superuser or a member of a role that can write.
 -   Use a database where no untrusted role can `CREATE` in any schema on that login's `search_path`. Check with `SHOW search_path` as the login, then run `REVOKE CREATE ON SCHEMA <schema> FROM PUBLIC` (and from any other untrusted role) for each schema listed. On PostgreSQL 14 and earlier, `public` grants `CREATE` to `PUBLIC` by default.
 
-The node's checks refuse functions, operators and types that are not built in, but they can only judge what is in the catalog when they run. A role that can create objects in a schema the login searches can change what a name means between queries. Keeping those schemas closed to untrusted roles, and the login read-only, is what keeps every node query a plain read. The [1.4.3 known issues](../../CHANGELOG.md#known-issues) carry the same note.
+The node's checks refuse functions, operators and types that are not built in, but they can only judge what is in the catalog when they run. A role that can create objects in a schema the login searches can change what a name means between queries. Keeping those schemas closed to untrusted roles, and the login read-only, is what keeps every node query a plain read. The [user function rule](#user-functions) gives the same advice for allow-listed functions.
 
 ### Row cap and query timeout
 

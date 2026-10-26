@@ -94,6 +94,22 @@ jobs:
                     echo "code=false" >> "$GITHUB_OUTPUT"
                   fi
 
+    # Website build and link check (website/scripts/check-site.mjs, run by npm run build, the same
+    # command as website/render.yaml). Runs on every PR and the daily run: the site reads docs/ and root
+    # markdown, so a broken link or anchor there fails the PR instead of the live site build.
+    check-site:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+            - name: Use Node.js 24.15.0
+              uses: actions/setup-node@v7
+              with:
+                  node-version: 24.15.0
+                  cache: 'npm'
+                  cache-dependency-path: website/package-lock.json
+            - name: Build the website and check links
+              run: cd website && npm ci && npm run build
+
     # Build and unit tests (required): ready (non-draft) PRs and the daily run only.
     # The fixed name keeps the check name "build (ubuntu-latest, 24.15.0)" whether the job runs or is skipped
     # (a skipped matrix job would report as plain "build").
