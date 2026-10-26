@@ -40,7 +40,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 
 ### What's new in 1.4.5?
 
--   If you're on 1.4.4, upgrade: the PostgreSQL MCP node's read-only check now accepts read-only helper functions written as string-body SQL or PL/pgSQL (for example date, number and timestamp parsing helpers used in views) without adding them to **Allowed functions**; functions that write are still refused. A helper qualifies only when it passes the [user function rule](./docs/how-to/analyst.md#user-functions): `STABLE` or `IMMUTABLE`, not `SECURITY DEFINER`, no settings of its own, not owned by a superuser, reads no table, and calls only functions that pass the same rule. Other helpers still need an entry.
+-   If you're on 1.4.4, upgrade: the PostgreSQL MCP node's read-only check now accepts read-only helper functions written as string-body SQL or PL/pgSQL (for example date, number and timestamp parsing helpers used in views) without adding them to **Allowed functions**; functions that write are still refused. Only helpers that pass every condition of the [user function rule](./docs/how-to/analyst.md#user-functions) qualify; for example a `VOLATILE` helper, or one that reads a table or view, still needs an entry.
 -   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.4.5`, or run `npm i cuttlely@1.4.5`.
 
 Full notes: [v1.4.5 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.5).
