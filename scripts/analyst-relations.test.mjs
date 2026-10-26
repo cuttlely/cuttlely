@@ -121,6 +121,8 @@ describe('analyst relations: pure helpers', () => {
         no('SELECT count(*) FROM unnest(v) x, t', /reads a relation/, 'sql')
         no('SELECT 1 FROM (SELECT 1 FROM t) s', /reads a relation/, 'sql')
         no('WITH w AS (SELECT 1) SELECT * FROM w', /reads a relation/, 'sql')
+        no('SELECT count(*) FROM ONLY (x.t)', /reads a relation/, 'sql')
+        assert.equal(ok('SELECT 1 FROM x.f(1) a, g(2) b', 'sql').calls.filter((call) => call.fromItem).length, 2)
     })
 
     it('puts a capped Rules box right after Tables and views on the node, with the cap the harness save enforces', async () => {
@@ -2390,6 +2392,7 @@ describe('analyst relations: user functions inside views', () => {
             pl_definer: `LANGUAGE plpgsql STABLE SECURITY DEFINER AS $$ BEGIN RETURN v; END $$`,
             sql_nextval: `LANGUAGE sql STABLE AS $$ SELECT v || nextval('hv.seq')::text $$`,
             sql_reads: `LANGUAGE sql STABLE AS $$ SELECT v || (SELECT count(*) FROM hv.audit)::text $$`,
+            sql_only: `LANGUAGE sql STABLE AS $$ SELECT v || (SELECT count(*) FROM ONLY (hv.audit))::text $$`,
             pl_calls_writer: `LANGUAGE plpgsql STABLE AS $$ BEGIN RETURN hv.pl_volatile(v); END $$`
         }
         for (const [name, rest] of Object.entries(unsafe)) {

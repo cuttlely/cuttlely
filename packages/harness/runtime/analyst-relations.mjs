@@ -1443,6 +1443,8 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
     const fromItemOk = (at) => {
         let i = at
         if (tokens[i]?.type === 'word' && !tokens[i].quoted && tokens[i].value === 'lateral') i += 1
+        // FROM ONLY (name) reads a table even though it looks like a call.
+        if (tokens[i]?.type === 'word' && !tokens[i].quoted && tokens[i].value === 'only') return false
         if (isSymbol(tokens[i], '(')) return true
         if (tokens[i]?.type !== 'word') return false
         if (isSymbol(tokens[i + 1], '(')) return true
@@ -1500,6 +1502,10 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
                     isSymbol(dot, '.') && schema?.type === 'word'
                         ? { schema: schema.value, name: prev.value, args: 0 }
                         : { schema: null, name: prev.value, args: 0 }
+                // A call that is a FROM item must resolve to a function.
+                const before = isSymbol(dot, '.') ? tokens[index - 4] : dot
+                const beforeWord = before?.type === 'word' && !before.quoted ? before.value : null
+                if (beforeWord === 'lateral' || (top.fromList && (beforeWord === 'from' || isSymbol(before, ',')))) call.fromItem = true
                 calls.push(call)
                 frames.push({ call: true, query: false, entry: call, empty: true })
                 continue
@@ -1729,6 +1735,7 @@ async function refuseRoutines(
                 // When no overload fits the count read from the text, every overload of that name counts.
                 const fitting = named.filter(fits)
                 const matches = fitting.length ? fitting : named
+                if (call.fromItem && !matches.length) return `reads ${call.name} as a relation`
                 for (const row of matches) {
                     if (row.schema === 'pg_catalog') {
                         if (isDenied(row.name) || readOnlySqlDeniedFunction(row.name)) return `calls ${row.name}`
