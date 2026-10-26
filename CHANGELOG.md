@@ -4,9 +4,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-10-26
+
 ### Fixed
 
--   Adding a person who already has an account to another team no longer fails with "A user with this email already exists". Add User now lets you pick an existing user (or enter their email), and that account is added to the team with the chosen role; their other team memberships are kept and no second account is created. Adding someone who is already on the team says so. New users are still created as before.
+-   Adding a person who already has an account to another team no longer fails with "A user with this email already exists". Add User now lets you pick an existing user (or enter their email), and that account is added to the team with the chosen role; their other team memberships are kept and no second account is created. Adding someone who is already on the team says so. New users are still created as before. [#320](https://github.com/cuttlely/cuttlely/pull/320).
 
 ## [1.4.6] - 2026-10-26
 
@@ -539,7 +541,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.6...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.7...HEAD
+[1.4.7]: https://github.com/cuttlely/cuttlely/compare/v1.4.6...v1.4.7
 [1.4.6]: https://github.com/cuttlely/cuttlely/compare/v1.4.5...v1.4.6
 [1.4.5]: https://github.com/cuttlely/cuttlely/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/cuttlely/cuttlely/compare/v1.4.3...v1.4.4

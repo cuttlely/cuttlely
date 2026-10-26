@@ -172,8 +172,11 @@ These routes are the team API. They are not limited to local users mode, because
 | Delete a team       | `DELETE /api/v1/workspace/:id`  | `workspace:delete`                        |
 | Switch team         | `POST /api/v1/workspace/switch` | signed in                                 |
 | List members        | `GET /api/v1/workspaceuser`     | `workspace:view`, or `users:manage`       |
+| Add a member        | `POST /api/v1/workspaceuser`    | `users:manage` or `workspace:add-user`    |
 | Change a member     | `PUT /api/v1/workspaceuser`     | `workspace:update`                        |
 | Remove a member     | `DELETE /api/v1/workspaceuser`  | `workspace:unlink-user` or `users:manage` |
+
+`POST /api/v1/workspaceuser` adds someone who already has an account in the organization to a team. Send `workspaceId`, `roleId`, and either `userId` or `email`. It creates no user and keeps their other teams. It follows the same team and role rules as invite: a caller who is not the owner can add only to their active team and cannot grant a role with a key they do not hold. An unknown or outside-the-organization user is 404 `User not found`. Someone already on the team is 409 `This user is already a member of this team`.
 
 `PUT /api/v1/workspaceuser` follows the same assignment rules as `PUT /api/v1/users/:id/role`, including the last-owner guard and session end.
 

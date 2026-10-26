@@ -11,7 +11,7 @@
 #   INCLUDE_BROWSER=0 docker compose up -d --build   same build, without Chromium
 #   INCLUDE_NODE_PACKS=0 docker compose up -d --build   same build, without optional node packs
 #   CUTTLELY_OMIT_GEOIP=true docker compose up -d --build   same build, without the geolocation database
-#   CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.4.6    in .env: pin a release (see .env.example)
+#   CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.4.7    in .env: pin a release (see .env.example)
 #   docker compose pull && docker compose up -d      upgrade to the newest published image
 
 name: cuttlely
