@@ -140,3 +140,4 @@ Cuttlely 1.3.2. The product version is the root `package.json`, `packages/server
 -   Homepage (#297): FAQ.md and the hero line say a short JSON answer keeps its server paths.
 -   2026-10-25 fix/pg-helper-functions: helper body reader counts array arguments, allows FROM over function calls and subqueries, PL/pgSQL assignments; docs note listed string bodies are not read. Next: review scores, CI.
 -   2026-10-25 fix/pg-helper-functions: FROM ONLY and FROM items that resolve to no function are refused in helper bodies. Next: review scores, CI.
+-   2026-10-25 fix/pg-helper-functions: user types named in helper bodies go through the type closure with a selection. Next: CI, threads.

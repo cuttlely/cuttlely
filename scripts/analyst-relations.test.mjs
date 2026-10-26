@@ -2431,11 +2431,17 @@ describe('analyst relations: user functions inside views', () => {
         await owner.query(`CREATE FUNCTION hv.wrap(comment text) RETURNS text LANGUAGE sql STABLE AS 'SELECT hv.parse(comment)'`)
         await owner.query(`CREATE FUNCTION hv.wrap2(v text) RETURNS text LANGUAGE sql STABLE AS 'SELECT hv.parse(v, v)'`)
         await owner.query(`CREATE FUNCTION hv.rel_name(v oid) RETURNS text LANGUAGE sql STABLE AS 'SELECT v::regclass::text'`)
+        await owner.query('CREATE DOMAIN hv.obj_name AS regclass')
+        await owner.query(`CREATE FUNCTION hv.rel_name2(v oid) RETURNS text LANGUAGE sql STABLE AS 'SELECT v::hv.obj_name::text'`)
         await owner.query('RESET ROLE')
         const wrapped = await queryAnalystUrl(url, "SELECT hv.wrap(' a ') AS v LIMIT 1", { ...node, relations: ['hv.clean'] })
         assert.equal(wrapped.rows[0].v, 'a')
         await refusal(queryAnalystUrl(url, "SELECT hv.wrap2('a') AS v LIMIT 1", node), /hv\.wrap2\(text\)/)
         await refusal(queryAnalystUrl(url, 'SELECT hv.rel_name(1259) AS v LIMIT 1', { ...node, relations: ['hv.clean'] }), /uses regclass/)
+        await refusal(
+            queryAnalystUrl(url, 'SELECT hv.rel_name2(1259) AS v LIMIT 1', { ...node, relations: ['hv.clean'] }),
+            /hv\.rel_name2\(oid\)/
+        )
         const audit = await owner.query('SELECT count(*)::int AS n FROM hv.audit')
         assert.equal(audit.rows[0].n, 0)
     })

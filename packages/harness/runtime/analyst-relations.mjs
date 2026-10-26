@@ -1711,6 +1711,20 @@ async function refuseRoutines(
         if (!unscoped) {
             const named = [...scan.words].filter((word) => DENIED_TYPES.has(word))
             if (named.length) return `uses ${named[0]}`
+            // A user type named in the body (a domain over regclass, an array of one) goes through the same closure.
+            const typeRows = await runner.all(
+                `SELECT t.oid::int8 AS oid FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+                 WHERE t.typname = ANY(?::text[]) AND n.nspname NOT IN ('pg_catalog', 'information_schema')`,
+                [[...scan.words]]
+            )
+            if (typeRows.length) {
+                try {
+                    await refuseTypes(runner, new Set(typeRows.map((row) => Number(row.oid))), { scoped: true })
+                } catch (error) {
+                    if (error instanceof ScopeRefusal) return 'uses a type that turns object ids into names or is not built in'
+                    throw error
+                }
+            }
         }
         const targets = new Set()
         const names = [...new Set(scan.calls.map((call) => call.name))]
