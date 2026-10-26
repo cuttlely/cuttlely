@@ -389,11 +389,12 @@ export function analystStepView(tool) {
     }
 }
 
-// The public query step keeps the row count and, when previews are on, the short preview.
-// The full page stays out of the trace. A create or a failure keeps its short detail.
 // The step timings of one analyst query: finite, non-negative numbers under known names, nothing else.
 const QUERY_TIMING_FIELDS = [
     'connectMs',
+    'dbMs',
+    'cuttlelyMs',
+    'bridgeMs',
     'guardMs',
     'planMs',
     'countMs',
@@ -414,6 +415,9 @@ export function queryStepTimings(value) {
     }
     return Object.keys(out).length ? out : null
 }
+
+// The public query step keeps the row count and, when previews are on, the short preview.
+// The full page stays out of the trace. A create or a failure keeps its short detail.
 
 export function publicToolStep(tool, env) {
     const timings = isAnalystQueryChip(tool?.name) ? queryStepTimings(tool?.timings) : null

@@ -12859,7 +12859,7 @@ recordAnalystResult({
     chatId: 'chat-t',
     callId: '1:timed',
     result: { rows: [{ id: 1 }], truncated: false },
-    timings: { pageMs: 4.2, statementRuns: 1 },
+    timings: { pageMs: 4.2, dbMs: 3.1, cuttlelyMs: 1.4, bridgeMs: 0.3, statementRuns: 1 },
     at: 4
 })
 const takenTimed = takeAnalystResults({ harness: 'capture-timed', specialist: 'analyst', chatId: 'chat-t', since: 0 })
@@ -12880,13 +12880,33 @@ const untimedStep = publicToolStep({ name: 'search', status: 'done', timings: { 
 check(
     'a query step keeps its step timings as numbers only, and other tools get none',
     takenTimed.length === 1 &&
-        JSON.stringify(timedStep?.timings) === JSON.stringify({ pageMs: 4.2, statementRuns: 1 }) &&
+        JSON.stringify(timedStep?.timings) ===
+            JSON.stringify({ dbMs: 3.1, cuttlelyMs: 1.4, bridgeMs: 0.3, pageMs: 4.2, statementRuns: 1 }) &&
         timedStep?.rowCount === 1 &&
         !('timings' in untimedStep) &&
         takenA.every((row) => !('timings' in row)),
     JSON.stringify({ takenTimed, timedStep, untimedStep })
 )
 dropAnalystCapture({ harness: 'capture-timed', chatId: 'chat-t' })
+{
+    // Time after the store finished goes to Cuttlely's share and the total, so the parts still add up, once per field.
+    const { addCuttlelyMs } = await import('./runtime/analyst-store.mjs')
+    const record = { connectMs: 5.2, dbMs: 12.3, cuttlelyMs: 2.5, totalMs: 20 }
+    addCuttlelyMs(record, 'serializeMs', 0.26)
+    addCuttlelyMs(record, 'bridgeMs', 1.04)
+    addCuttlelyMs(record, 'bridgeMs', 50)
+    addCuttlelyMs(record, 'serializeMs', -3)
+    const tenths = (ms) => Math.round(ms * 10)
+    check(
+        "a query's connect, database and Cuttlely times add up to its total after serialize and bridge time",
+        record.serializeMs === 0.3 &&
+            record.bridgeMs === 1 &&
+            record.cuttlelyMs === 3.8 &&
+            record.totalMs === 21.3 &&
+            tenths(record.connectMs) + tenths(record.dbMs) + tenths(record.cuttlelyMs) === tenths(record.totalMs),
+        JSON.stringify(record)
+    )
+}
 saveHarness(
     {
         name: 'analyst-direct',

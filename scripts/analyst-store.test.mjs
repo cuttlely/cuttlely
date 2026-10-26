@@ -2447,6 +2447,20 @@ describe('analyst URL path', () => {
     // A first page that holds every row has no page line, page count or cursor, so the count, the type probe and the
     // length pass are skipped and the statement runs once. A query that pages still gets all of them, and its
     // pages, page line and cursor are the same as before.
+    // The database's share is every round trip to Postgres. The connect is apart from it, and Cuttlely's share is
+    // the rest, so the three add up to the total (exactly, in tenths of a millisecond), and the database does work.
+    const assertTimingsAddUp = (timing) => {
+        const tenths = (ms) => Math.round(ms * 10)
+        assert.equal(
+            tenths(timing.connectMs) + tenths(timing.dbMs) + tenths(timing.cuttlelyMs),
+            tenths(timing.totalMs),
+            JSON.stringify(timing)
+        )
+        assert.equal(timing.dbMs > 0, true, JSON.stringify(timing))
+        // The page step is the statement's own round trips plus a little shaping, so it is mostly database time.
+        assert.equal(timing.dbMs + 1 >= timing.pageMs, true, JSON.stringify(timing))
+    }
+
     it('runs a LIMIT query that fits one page once, and pages a longer one exactly as before', async (t) => {
         const admin = await postgresAdmin()
         if (!admin) {
@@ -2512,15 +2526,17 @@ describe('analyst URL path', () => {
                     assert.equal(once.timing.countMs, 0)
                     assert.equal(once.timing.probeMs, 0)
                     assert.equal(once.timing.roundTrips, once.roundTrips)
-                    for (const field of ['connectMs', 'guardMs', 'pageMs', 'serializeMs', 'totalMs']) {
+                    for (const field of ['connectMs', 'guardMs', 'pageMs', 'serializeMs', 'totalMs', 'dbMs', 'cuttlelyMs']) {
                         assert.equal(Number.isFinite(once.timing[field]) && once.timing[field] >= 0, true, field)
                     }
+                    assertTimingsAddUp(once.timing)
                 }
                 // A full page counts its rows and measures every page, so it names the page count, and a page
                 // number from its cursor opens the page that number names.
                 const first = await run({ sql: 'SELECT id, region FROM orders ORDER BY id LIMIT 250' }, relations)
                 assert.equal(first.runs, 4)
                 assert.equal(first.timing.statementRuns, 4)
+                assertTimingsAddUp(first.timing)
                 const { cursor } = first.value
                 assert.equal(typeof cursor, 'string')
                 const page = (from, to, summary) => JSON.stringify({ rows: orderRows(from, to), truncated: to < 250, summary, cursor })

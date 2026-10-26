@@ -200,6 +200,10 @@ export function withAnalystScope(scope, fn, { workspace, timings } = {}) {
 
 // Milliseconds for each step of one URL query, for the run trace only. A record holds numbers and nothing else,
 // and it never reaches the tool result the model reads. Steps that did not run are 0.
+// The steps are wall time. dbMs splits the same total another way: the summed round trip of every query the client
+// sends Postgres (the statement, its count and probes, the transaction and SET LOCAL lines, the scope and definition
+// checks, savepoints, the rollback). cuttlelyMs is the rest after dbMs and connectMs: the guard logic, parsing, page
+// shaping, and, once they are added, serialization and the gateway bridge. connectMs + dbMs + cuttlelyMs = totalMs.
 const QUERY_STEPS = ['connect', 'plan', 'count', 'page', 'probe']
 
 function queryTimer() {
@@ -209,6 +213,7 @@ function queryTimer() {
         steps,
         statementRuns: 0,
         roundTrips: 0,
+        dbMs: 0,
         add(name, ms) {
             steps[name] += ms
         }
@@ -219,6 +224,20 @@ function roundMs(ms) {
     return Math.round(Math.max(0, ms) * 10) / 10
 }
 
+function tenths(ms) {
+    return Math.round(Math.max(0, Number(ms) || 0) * 10)
+}
+
+// Adds time spent in Cuttlely after the store finished (serialization, the gateway bridge) to a record, keeping
+// connectMs + dbMs + cuttlelyMs = totalMs exact in tenths of a millisecond.
+export function addCuttlelyMs(record, field, ms) {
+    if (!record || typeof record !== 'object' || record[field] != null) return
+    const extra = tenths(ms)
+    record[field] = extra / 10
+    record.cuttlelyMs = (tenths(record.cuttlelyMs) + extra) / 10
+    record.totalMs = (tenths(record.totalMs) + extra) / 10
+}
+
 // The guard is everything else: the read-only transactions, the scope and definition checks and their re-checks.
 function timerRecord(timer) {
     const totalMs = performance.now() - timer.started
@@ -226,7 +245,13 @@ function timerRecord(timer) {
     const record = {}
     for (const name of QUERY_STEPS) record[`${name}Ms`] = roundMs(timer.steps[name])
     record.guardMs = roundMs(totalMs - measured)
-    record.totalMs = roundMs(totalMs)
+    // In tenths, so the three parts add up to the total exactly.
+    const connect = tenths(timer.steps.connect)
+    const db = tenths(timer.dbMs)
+    const total = Math.max(tenths(totalMs), connect + db)
+    record.dbMs = db / 10
+    record.cuttlelyMs = (total - connect - db) / 10
+    record.totalMs = total / 10
     record.statementRuns = timer.statementRuns
     record.roundTrips = timer.roundTrips
     return record
@@ -255,8 +280,7 @@ async function timeStep(runner, name, fn, { run = false } = {}) {
 export function analystResultJson(result) {
     const started = performance.now()
     const text = JSON.stringify(result)
-    const last = analystCall.getStore()?.timings?.at(-1)
-    if (last && last.serializeMs == null) last.serializeMs = roundMs(performance.now() - started)
+    addCuttlelyMs(analystCall.getStore()?.timings?.at(-1), 'serializeMs', performance.now() - started)
     return text
 }
 
@@ -1899,9 +1923,16 @@ async function queryUrlPostgres(
     client.on('error', () => {})
     const timer = queryTimer()
     const send = client.query.bind(client)
+    // Every query this client sends is one round trip, and its time to settle is database time.
     client.query = (...args) => {
         timer.roundTrips += 1
-        return send(...args)
+        const started = performance.now()
+        const pending = send(...args)
+        const settle = () => {
+            timer.dbMs += performance.now() - started
+        }
+        if (typeof pending?.then === 'function') pending.then(settle, settle)
+        return pending
     }
     const runner = postgresRunner(client, { transaction: true })
     runner.timer = timer
