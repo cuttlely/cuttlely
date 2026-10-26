@@ -1,5 +1,6 @@
 # Status
 
+Handoff 2026-10-24: the home page release line, the public FAQ and `CHANGELOG.md` name 1.4.3. Allowed functions (#293), ordinary slashes in chat answers (#289) and staying on the current team after creating one (#305) are merged. Profile recompile (#291) and #306 are pending for 1.4.3. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300.
 Handoff 2026-10-24: image pin comments in `docker-compose.yml` and `.env.example` use 1.4.3. The profile compile wait in the guides is `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS`, default 180 seconds, capped at 300. Pull requests 289, 293 and 305 are merged. Pull requests 291 and 306 are pending for 1.4.3.
 Handoff 2026-10-25: branch `fix/harness-token-refresh`: harness tool calls recover after a profile recompile refreshes the gateway token. The compiled bridge env carries `CUTTLELY_HARNESS_PROFILE_ENV` (that specialist's `.env`); on a 401 `packages/harness/mcp-bridge.mjs` re-reads `OPENAI_API_KEY` there and retries that request once, and a second 401 stays `Unauthorized`. Tests: `packages/harness/mcp-bridge-token.test.mjs` (refresh, model change and recompile with no restart, retired token with no replacement), run by `pnpm harness:check`.
 
@@ -125,8 +126,10 @@ Cuttlely 1.3.2. The product version is the root `package.json`, `packages/server
 -   The hermes patch set and `hermes/CUTTLELY_VENDOR.lock` fingerprint are saved again with `pnpm hermes:vendor --save-patches` after the Pillow and certifi pins from #248, so `pnpm hermes:vendor --check` and `pnpm verify` pass on `main`.
 -   Harness boot recompile (#291): a successful save clears a latched boot failure so runs stop getting 503, and the start script gateway wait cap is measured in elapsed seconds.
 -   Harness boot recompile (#291): a boot-failed harness is refused with 503 on engine.runHarness and engine.runQueuedHarness too, so chatflow runs match the runs API; profile save and compile off Linux names the platform and points to Docker, and the README and FAQ say so.
+-   CHANGELOG 1.4.3 (#297): the Changed line covers only the startup and gateway wait; the compile line stays under Fixed for the boot-accept test.
 -   Docs 1.4.3 (#296): the harness guide gives the ping 503 body as `boot recompile`, as the server sends it.
 -   Canvas republish (follow-up to #291): a successful `syncUnderNameLock` clears a latched boot failure, as a harness save does, so a fixed harness republished from the canvas stops getting 503 (`bootSync.test.ts`).
 -   Harness docs (#296): harnesses.md says a JSON answer is returned unchanged, so a path inside it is not hidden.
 -   Harness docs (#296): only a short JSON answer comes back unchanged; in a longer one the path is replaced and the JSON can break.
 -   README 1.4.3 note (#295): the upgrade-notes and changelog links in all three READMEs point at the dated 1.4.3 heading (`#143---2026-10-25`).
+-   Homepage (#297): FAQ.md and the hero line say a short JSON answer keeps its server paths.
