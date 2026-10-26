@@ -51,7 +51,7 @@ With `CUTTLELY_OTEL_TRACES` unset or set to anything other than `true`, the serv
 
 Turning traces on does not claim the process-wide tracer. A span another library starts with the global tracer, including a prompt a flow analytics callback records, is not sent to this collector.
 
-LangSmith tracing set in a flow's Analytics settings (Chatflow Configuration > Analytics) is separate from these spans. Since 1.4.2, those traces use the LangSmith credential and project set there. Model calls a harness makes in process during a harness tool run appear as child runs of that tool run. Agent-loop specialist calls through the harness gateway and jobs run by another worker are not attached. A failed LangSmith upload is logged with its status, path and flow id.
+LangSmith tracing set in a flow's Analytics settings (Chatflow Configuration > Analytics) is separate from these spans. Since 1.4.2, those traces use the LangSmith credential and project set there. Model calls a harness makes in process during a harness tool run appear as child runs of that tool run. Agent-loop specialist calls through the harness gateway and jobs run by another worker are not attached. A failed LangSmith upload is logged with its status, path and flow id. From 1.4.3, a flow credential with no key does not use the server's LangSmith key: tracing for that flow stays off, and the log records the credential id and the key length, not the key. [Which account gets a flow's traces](../reference/langsmith-tracing.md).
 
 ## What stays off the span
 
