@@ -1374,6 +1374,34 @@ check(
     )
 }
 {
+    // A source whose only http(s) URL is in link or href still reaches Harness Prime's Sources list.
+    const linkOnly = fitHandoff({
+        system: 'Combine.',
+        request: 'Answer',
+        results: [
+            {
+                name: 'research',
+                status: 'completed',
+                task: 'Look up',
+                text: 'Found evidence.',
+                tools: ['search'],
+                sources: [
+                    { pageContent: 'Linked evidence', metadata: { link: 'https://example.com/linked' } },
+                    { pageContent: 'Titled evidence', metadata: { title: 'Page', href: 'https://example.com/page' } }
+                ]
+            }
+        ],
+        chiefBudget: 0
+    })
+    check(
+        'Harness Prime sees link and href source URLs',
+        linkOnly.messages
+            .at(-1)
+            .content.includes(
+                'Sources:\n- [https://example.com/linked] Linked evidence\n- [Page - https://example.com/page] Titled evidence'
+            ),
+        linkOnly.messages.at(-1).content.slice(-300)
+    )
     // Harness Prime reads up to 4,000 characters of each answer by default; a specialist can set its own limit.
     const { SPECIALIST_HANDOFF_CHARS, specialistHandoffChars, estimateTokens } = await import('./context.mjs')
     const knowledge = `KNOW_HEAD ${'The demo bakery opens at seven and bakes rye first. '.repeat(55)}KNOW_TAIL`
@@ -3465,7 +3493,9 @@ check(
 const sourcedHandoffUser = String(sourcedHandoff?.messages.at(-1).content || '')
 check(
     'the chief sees each source file name next to its passage',
-    sourcedHandoffUser.includes('Sources:\n- [brindlewick.md] Calloway directs Brindlewick.\n- [mirror.md] The mirror is 4.7 m.'),
+    sourcedHandoffUser.includes(
+        'Sources:\n- [brindlewick.md] Calloway directs Brindlewick.\n- [mirror.md - https://example.com/a/b] The mirror is 4.7 m.'
+    ),
     sourcedHandoffUser.slice(0, 600)
 )
 const sourcedDirect = await runHarness({

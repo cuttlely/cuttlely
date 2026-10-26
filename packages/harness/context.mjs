@@ -99,12 +99,24 @@ function clipBody(raw, limit) {
     return { text: `${value.slice(0, end)}${MARK}`, cut: true }
 }
 
+// The first of url/source/link/href that is an http(s) URL.
+export function sourceUrl(doc) {
+    const meta = doc?.metadata || {}
+    for (const key of ['url', 'source', 'link', 'href']) {
+        const value = meta[key]
+        if (typeof value !== 'string') continue
+        const trimmed = value.trim()
+        if (/^https?:\/\//i.test(trimmed)) return trimmed
+    }
+    return ''
+}
+
 function sourceBlock(sources, snippetChars) {
     const lines = []
     let cut = false
     let named = 0
     for (const doc of sources || []) {
-        const name = sourceName(doc)
+        const name = sourceName(doc) || sourceUrl(doc)
         if (!name) continue
         named += 1
         if (lines.length >= SOURCE_LIMIT) {
@@ -116,7 +128,9 @@ function sourceBlock(sources, snippetChars) {
             .trim()
         const limit = Math.max(0, snippetChars)
         if (raw.length > limit) cut = true
-        lines.push(`- [${name}] ${raw.slice(0, limit)}`)
+        const url = sourceUrl(doc)
+        const label = url && url !== name ? `${name} - ${url}` : name
+        lines.push(`- [${label}] ${raw.slice(0, limit)}`)
     }
     if (named > SOURCE_LIMIT) cut = true
     return { text: lines.length ? `Sources:\n${lines.join('\n')}` : '', cut }

@@ -564,6 +564,7 @@ packages/components/nodes/tools/RequestsPost/post.png
 packages/components/nodes/tools/RequestsPut/RequestsPut.ts
 packages/components/nodes/tools/RequestsPut/core.ts
 packages/components/nodes/tools/RequestsPut/put.png
+packages/components/nodes/tools/RetrieverTool/RetrieverTool.test.ts
 packages/components/nodes/tools/RetrieverTool/RetrieverTool.ts
 packages/components/nodes/tools/RetrieverTool/retrievertool.svg
 packages/components/nodes/tools/WebBrowser/WebBrowser.ts
