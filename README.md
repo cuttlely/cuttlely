@@ -31,7 +31,7 @@ Drag-and-drop agents with real governance and lean context. Open source, Apache-
 
 [Get started in 10 minutes](https://cuttlely.com/quickstart/) · [Star on GitHub](https://github.com/cuttlely/cuttlely) · [Already have flows? Bring them over](https://cuttlely.com/flowise/)
 
-**1.4.4 is out.** If you're on 1.4.3, upgrade: changing a model could make MCP calls fail with Unauthorized until a restart. 1.4.3 added safer analyst queries on the PostgreSQL MCP node, with an **Allowed functions** list for your own SQL helpers. Upgrading from 1.4.2 or earlier? Read the [1.4.3 upgrade notes](./CHANGELOG.md#143---2026-10-25) first. [Changelog](./CHANGELOG.md#144---2026-10-25)
+**1.4.4 is out.** If you're on 1.4.3, upgrade: changing a model could make MCP calls fail with Unauthorized until a restart. In 1.4.3, PostgreSQL MCP read-only query checks are back, and other user functions can be allowed in the new **Allowed functions** field. Upgrading from 1.4.2 or earlier? Read the [1.4.3 upgrade notes](./CHANGELOG.md#143---2026-10-25) first. [Changelog](./CHANGELOG.md#144---2026-10-25)
 
 ## Contents
 

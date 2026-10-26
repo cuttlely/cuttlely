@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.4.4가 나왔습니다.** 1.4.3을 쓰고 있다면 업그레이드하세요. 모델을 바꾸면 재시작할 때까지 MCP 호출이 Unauthorized로 실패할 수 있었습니다. 1.4.3에서는 PostgreSQL MCP 노드의 애널리스트 질의를 더 안전하게 하고 직접 쓴 SQL 헬퍼용 **Allowed functions**를 추가했습니다. 1.4.2 이하에서 올린다면 [1.4.3 업그레이드 노트](./CHANGELOG.md#143---2026-10-25)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#144---2026-10-25)
+**1.4.4가 나왔습니다.** 1.4.3을 쓰고 있다면 업그레이드하세요. 모델을 바꾸면 재시작할 때까지 MCP 호출이 Unauthorized로 실패할 수 있었습니다. 1.4.3에서는 PostgreSQL MCP 읽기 전용 쿼리 검사가 돌아왔고, 그 밖의 사용자 함수는 새 **Allowed functions** 필드에서 허용할 수 있습니다. 1.4.2 이하에서 올린다면 [1.4.3 업그레이드 노트](./CHANGELOG.md#143---2026-10-25)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#144---2026-10-25)
 
 ## 목차
 
