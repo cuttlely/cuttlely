@@ -25,7 +25,6 @@ import { IconX, IconUserPlus } from '@tabler/icons-react'
 import accountApi from '@/api/account.api'
 import { isBuiltInOwnerRole, roleLabel } from '@/utils/roleLabel'
 import roleApi from '@/api/role'
-import userApi from '@/api/user'
 import workspaceApi from '@/api/workspace'
 import useNotifier from '@/utils/useNotifier'
 import {
@@ -80,7 +79,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
             workspaceApi.getAllWorkspacesByOrganizationId(currentUser.activeOrganizationId),
             roleApi.getAllRolesByOrganizationId(currentUser.activeOrganizationId),
             // Best effort: a caller without users:manage can still add someone by email.
-            userApi.getAllUsersByOrganizationId(currentUser.activeOrganizationId).catch(() => ({ data: [] }))
+            accountApi.listOrganizationUsers(currentUser.activeOrganizationId).catch(() => ({ data: [] }))
         ])
             .then(([workspaceResponse, roleResponse, peopleResponse]) => {
                 if (cancelled) return
@@ -143,7 +142,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
             let response
             let added = false
             if (known) {
-                response = await userApi.addWorkspaceUser({ userId: known.id, workspaceId: teamId, roleId })
+                response = await accountApi.addWorkspaceUser({ userId: known.id, workspaceId: teamId, roleId })
                 added = true
             } else {
                 try {
@@ -159,7 +158,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
                 } catch (error) {
                     // The account exists but was not in the list this caller can see: add it to the team instead.
                     if (error.response?.status !== 409) throw error
-                    response = await userApi.addWorkspaceUser({ email: email.trim(), workspaceId: teamId, roleId })
+                    response = await accountApi.addWorkspaceUser({ email: email.trim(), workspaceId: teamId, roleId })
                     added = true
                 }
             }

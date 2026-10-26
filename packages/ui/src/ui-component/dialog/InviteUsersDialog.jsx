@@ -340,7 +340,7 @@ const InviteUsersDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                     // An existing account is linked to the team. Only a new email gets an invite.
                     const response = item.isNewUser
                         ? await accountApi.inviteAccount(saveObj)
-                        : await userApi.addWorkspaceUser({
+                        : await accountApi.addWorkspaceUser({
                               userId: item.user.id,
                               workspaceId: selectedWorkspace.id,
                               roleId: selectedRole.id
