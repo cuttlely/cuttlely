@@ -404,7 +404,7 @@ async function dismissDialogs(page) {
         const dialog = page.locator('.MuiDialog-root [role="dialog"]')
         if (!(await dialog.count())) return
         const text = (await dialog.first().innerText()).replace(/\s+/g, ' ').slice(0, 160)
-        if (/How can I help|Type your question|Clear Chat/.test(text)) return
+        if (/How can I help|Type your question|Start a new session/.test(text)) return
         log(`closing a dialog: ${text}`)
         const close = dialog.getByRole('button', { name: /^(close|cancel|got it|ok|done)$/i })
         if (await close.count()) await close.first().click()
