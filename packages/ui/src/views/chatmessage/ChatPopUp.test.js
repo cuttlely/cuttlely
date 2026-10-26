@@ -79,7 +79,7 @@ test('Start a new session clears the popup chat, drops the saved chatId and dele
     const firstChatId = container.querySelector('[data-chat-id]').getAttribute('data-chat-id')
 
     await act(async () => {
-        container.querySelector('[aria-label="clear"]').click()
+        container.querySelector('[aria-label="Start a new session"]').click()
     })
     await act(async () => {
         jest.runAllTimers()

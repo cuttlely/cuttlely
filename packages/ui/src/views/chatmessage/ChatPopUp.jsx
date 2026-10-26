@@ -102,6 +102,7 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
 
         // Forget the saved chatId so the next message opens a new session. Stored messages are not deleted.
         removeLocalStorageChatHistory(chatflowid)
+        setPreviews([])
         // Remount the popup chat so its on-screen messages clear.
         setChatResetKey((key) => key + 1)
         resetChatDialog()
@@ -149,7 +150,7 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
                     onClick={clearChat}
                     size='small'
                     color='primary'
-                    aria-label='clear'
+                    aria-label='Start a new session'
                     title='Start a new session'
                 >
                     <IconMessagePlus />
