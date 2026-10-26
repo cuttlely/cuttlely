@@ -521,10 +521,10 @@ async function stepChats(page) {
     await ensureCanvas()
     await askCanvas(page, 'What does the sample note say the researcher reads, and how were its vectors built?')
     await shot(page, path.join(OUT_H, 'canvas-chat-researcher.png'), 1440, 960)
-    // A stream event that lands after Clear Chat empties the list throws in the chat panel.
+    // A stream event that lands after Start a new session empties the list throws in the chat panel.
     await sleep(2000)
-    await page.getByTitle('Clear Chat History').click()
-    await page.getByRole('button', { name: 'Clear', exact: true }).click()
+    await page.getByTitle('Start a new session').click()
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
     await sleep(600)
     await page.goto(state.canvas, { waitUntil: 'networkidle' })
     await askCanvas(
@@ -1251,8 +1251,8 @@ async function stepRetakeChats(page) {
     await ensureCanvas()
     await page.goto(state.canvas, { waitUntil: 'networkidle' })
     await page.getByRole('button', { name: 'chat', exact: true }).click()
-    await page.getByTitle('Clear Chat History').click()
-    await page.getByRole('button', { name: 'Clear', exact: true }).click()
+    await page.getByTitle('Start a new session').click()
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
     await sleep(400)
     await askCanvas(
         page,
@@ -1261,8 +1261,8 @@ async function stepRetakeChats(page) {
     )
     await shot(page, path.join(OUT_H, 'canvas-chat-analyst.png'), 1440, 960)
     await sleep(2000)
-    await page.getByTitle('Clear Chat History').click()
-    await page.getByRole('button', { name: 'Clear', exact: true }).click()
+    await page.getByTitle('Start a new session').click()
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
     await sleep(400)
     await page.goto(state.canvas, { waitUntil: 'networkidle' })
     await askCanvas(
