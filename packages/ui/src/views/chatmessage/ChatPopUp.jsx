@@ -215,6 +215,7 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
                 )}
             </Popper>
             <ChatExpandDialog
+                key={chatResetKey}
                 show={showExpandDialog}
                 dialogProps={expandDialogProps}
                 isAgentCanvas={isAgentCanvas}

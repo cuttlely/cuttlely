@@ -20,7 +20,23 @@ jest.mock('./ChatMessage', () => {
         )
     }
 })
-jest.mock('./ChatExpandDialog', () => () => null)
+// The expanded dialog renders the same ChatMessage, so a reset must give it a new session too.
+jest.mock('./ChatExpandDialog', () => {
+    const { createElement } = require('react')
+    const ChatMessage = require('./ChatMessage')
+    const PropTypes = require('prop-types')
+    function ChatExpandDialogStub(props) {
+        if (!props.show) return null
+        return createElement(
+            'div',
+            { 'data-testid': 'zz-expanded' },
+            createElement('button', { 'aria-label': 'expanded-clear', onClick: props.onClear }),
+            createElement(ChatMessage)
+        )
+    }
+    ChatExpandDialogStub.propTypes = { show: PropTypes.bool, onClear: PropTypes.func }
+    return ChatExpandDialogStub
+})
 jest.mock('@/api/chatmessage', () => ({
     __esModule: true,
     default: { deleteChatmessage: jest.fn(() => Promise.resolve({})) }
@@ -72,6 +88,24 @@ test('Start a new session clears the popup chat, drops the saved chatId and dele
     expect(container.querySelectorAll('[data-testid="zz-msg"]')).toHaveLength(0)
     expect(container.querySelector('[data-chat-id]').getAttribute('data-chat-id')).not.toBe(firstChatId)
     expect(JSON.parse(globalThis.localStorage.getItem(`${FLOW}_INTERNAL`) || '{}').chatId).toBeUndefined()
+    expect(chatmessageApi.deleteChatmessage).not.toHaveBeenCalled()
+
+    // The expanded dialog starts a new session as well.
+    globalThis.localStorage.setItem(`${FLOW}_INTERNAL`, JSON.stringify({ chatId: 'ZZ-TEST-chat-2' }))
+    await act(async () => {
+        container.querySelector('[aria-label="expand"]').click()
+    })
+    const expanded = () => container.querySelector('[data-testid="zz-expanded"] [data-chat-id]')
+    const expandedChatId = expanded().getAttribute('data-chat-id')
+    expect(container.querySelectorAll('[data-testid="zz-expanded"] [data-testid="zz-msg"]')).toHaveLength(1)
+    await act(async () => {
+        container.querySelector('[aria-label="expanded-clear"]').click()
+    })
+    await act(async () => {
+        jest.runAllTimers()
+    })
+    expect(expanded().getAttribute('data-chat-id')).not.toBe(expandedChatId)
+    expect(container.querySelectorAll('[data-testid="zz-expanded"] [data-testid="zz-msg"]')).toHaveLength(0)
     expect(chatmessageApi.deleteChatmessage).not.toHaveBeenCalled()
 
     act(() => root.unmount())
