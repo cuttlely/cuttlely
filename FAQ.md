@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.4.3)
+# Cuttlely FAQ (1.4.4)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -37,6 +37,12 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 ### Does it send telemetry?
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
+
+### What's new in 1.4.4?
+
+-   If you're on 1.4.3, upgrade: changing a model could make MCP calls fail with Unauthorized until a restart. Harness tool calls now pick up the refreshed gateway token after a profile recompile.
+
+Full notes: [v1.4.4 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.4).
 
 ### What's new in 1.4.3?
 
