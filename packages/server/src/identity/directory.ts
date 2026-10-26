@@ -393,6 +393,84 @@ async function workspaceInOrg(query: QueryFn, sql: Sql, workspaceId: string, org
     return row
 }
 
+/** The role row when the caller may hand it out on a team. Shared by create and add-existing. */
+async function grantableRole(query: QueryFn, sql: Sql, actor: DirectoryActor, roleId: string): Promise<Record<string, unknown>> {
+    const grant = await actorGrant(query, sql, actor)
+    const role = await roleRow(query, sql, roleId)
+    if (!role) throw new DirectoryError(400, 'Choose a role')
+    if (text(cell(role, 'name')).toLowerCase() === OWNER_ROLE && !grant.owner) {
+        throw new DirectoryError(403, 'Only an owner can assign the owner role')
+    }
+    if (!assignable(role, actor.organizationId, grant.owner)) throw new DirectoryError(400, 'Choose a role')
+    if (!grant.owner && actor.permissions) {
+        const held = new Set(actor.permissions)
+        if (permissionsOn(role).some((permission) => !held.has(permission))) {
+            throw new DirectoryError(403, 'You cannot grant this role')
+        }
+    } else {
+        assertCovers(grant, permissionsOn(role))
+    }
+    return role
+}
+
+/**
+ * Add a person who already has an account in this organization to another team with a role.
+ * No user row is created and their other team memberships are kept. Pass `userId` or `email`.
+ * A person already on the team gets 409 with a clear message and nothing changes.
+ */
+export async function addWorkspaceUser(sql: Sql, actor: DirectoryActor, body: unknown): Promise<{ id: string; added: true }> {
+    const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+    const userId = text(record.userId).trim()
+    const email = text(record.email).trim()
+    const workspaceId = text(record.workspaceId).trim()
+    const roleId = text(record.roleId).trim()
+    if (!userId && !email) throw new DirectoryError(400, 'Choose a user')
+    if (!workspaceId) throw new DirectoryError(400, 'Choose a team')
+    if (!roleId) throw new DirectoryError(400, 'Choose a role')
+    return sql.transaction(async (query) => {
+        await assertSameWorkspace(query, sql, actor, workspaceId)
+        const workspace = await workspaceInOrg(query, sql, workspaceId, actor.organizationId)
+        if (text(cell(workspace, 'name')) === PERSONAL_WORKSPACE) throw new DirectoryError(400, 'Choose a team')
+        const role = await grantableRole(query, sql, actor, roleId)
+        const people = await query(
+            `SELECT u.${q(sql, 'id')} AS id, u.${q(sql, 'status')} AS status FROM ${q(sql, 'user')} u
+             INNER JOIN ${q(sql, 'organization_user')} ou ON ou.${q(sql, 'userId')} = u.${q(sql, 'id')}
+             WHERE ou.${q(sql, 'organizationId')} = ? AND ${userId ? `u.${q(sql, 'id')} = ?` : `LOWER(u.${q(sql, 'email')}) = LOWER(?)`}`,
+            [actor.organizationId, userId || email]
+        )
+        const person = people[0]
+        if (!person || text(cell(person, 'status')).toLowerCase() === 'deleted') throw new DirectoryError(404, 'User not found')
+        const id = text(cell(person, 'id'))
+        const member = await query(
+            `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ? AND ${q(
+                sql,
+                'userId'
+            )} = ?`,
+            [workspaceId, id]
+        )
+        if (member.length) throw new DirectoryError(409, 'This user is already a member of this team')
+        if (text(cell(role, 'name')).toLowerCase() === OWNER_ROLE) {
+            await query(
+                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                [text(cell(role, 'id')), actor.organizationId, id]
+            )
+        }
+        try {
+            await query(
+                `INSERT INTO ${q(sql, 'workspace_user')} (${q(sql, 'workspaceId')}, ${q(sql, 'userId')}, ${q(sql, 'roleId')},
+                    ${q(sql, 'status')}, ${q(sql, 'createdBy')}, ${q(sql, 'updatedBy')})
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [workspaceId, id, text(cell(role, 'id')), 'active', actor.id, actor.id]
+            )
+        } catch (error) {
+            if (isUnique(error)) throw new DirectoryError(409, 'This user is already a member of this team')
+            throw error
+        }
+        return { id, added: true as const }
+    })
+}
+
 /**
  * Create a pending (`invited`) user with no local password. Only that person's invite link makes the user active.
  * A repeated email is refused and the stored credential is left alone.
@@ -408,22 +486,8 @@ export async function createEmailUser(
         await assertSameWorkspace(query, sql, actor, invite.workspaceId)
         const workspace = await workspaceInOrg(query, sql, invite.workspaceId, actor.organizationId)
         if (text(cell(workspace, 'name')) === PERSONAL_WORKSPACE) throw new DirectoryError(400, 'Choose a team')
-        const grant = await actorGrant(query, sql, actor)
-        const role = await roleRow(query, sql, invite.roleId)
-        if (!role) throw new DirectoryError(400, 'Choose a role')
+        const role = await grantableRole(query, sql, actor, invite.roleId)
         const invitedName = text(cell(role, 'name')).toLowerCase()
-        if (invitedName === OWNER_ROLE && !grant.owner) {
-            throw new DirectoryError(403, 'Only an owner can assign the owner role')
-        }
-        if (!assignable(role, actor.organizationId, grant.owner)) throw new DirectoryError(400, 'Choose a role')
-        if (!grant.owner && actor.permissions) {
-            const held = new Set(actor.permissions)
-            if (permissionsOn(role).some((permission) => !held.has(permission))) {
-                throw new DirectoryError(403, 'You cannot grant this role')
-            }
-        } else {
-            assertCovers(grant, permissionsOn(role))
-        }
         const orgRoleId = invitedName === OWNER_ROLE ? text(cell(role, 'id')) : await plainMemberRoleId(query, sql)
         const existing = await query(`SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'user')} WHERE LOWER(${q(sql, 'email')}) = LOWER(?)`, [
             invite.email

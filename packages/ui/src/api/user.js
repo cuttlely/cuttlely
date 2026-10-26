@@ -33,6 +33,7 @@ const getUserByUserIdWorkspaceId = (userId, workspaceId) => client.get(`/workspa
 const getWorkspacesByUserId = (userId) => client.get(`/workspaceuser?userId=${userId}`)
 const getWorkspacesByOrganizationIdUserId = (organizationId, userId) =>
     client.get(`/workspaceuser?organizationId=${organizationId}&userId=${userId}`)
+const addWorkspaceUser = (body) => client.post(`/workspaceuser`, body)
 const deleteWorkspaceUser = (workspaceId, userId) => client.delete(`/workspaceuser?workspaceId=${workspaceId}&userId=${userId}`)
 const listSessions = (userId) => client.get(`/users/${userId}/sessions`)
 const endSession = (userId, sessionId) => client.delete(`/users/${userId}/sessions/${sessionId}`)
@@ -52,6 +53,7 @@ export default {
     getWorkspacesByUserId,
     getWorkspacesByOrganizationIdUserId,
     updateOrganizationUser,
+    addWorkspaceUser,
     deleteWorkspaceUser,
     getAdditionalSeatsQuantity,
     getCustomerDefaultSource,

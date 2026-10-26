@@ -15,6 +15,7 @@ import { getDataSource } from '../DataSource'
 import { localUsersMode } from './constants'
 import { requireAnyPermission, requirePermission } from './rbac'
 import {
+    addWorkspaceUser,
     DirectoryActor,
     DirectoryError,
     Page,
@@ -146,6 +147,11 @@ identityWorkspaceUserRouter.get(
         }
         return listWorkspaceMemberships(sql(), actor, filter)
     })
+)
+identityWorkspaceUserRouter.post(
+    '/',
+    manageUsers,
+    send(async (req) => addWorkspaceUser(sql(), await actorWithAccess(req), req.body))
 )
 identityWorkspaceUserRouter.put(
     '/',

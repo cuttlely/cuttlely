@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+-   Adding a person who already has an account to another team no longer fails with "A user with this email already exists". Add User now lets you pick an existing user (or enter their email), and that account is added to the team with the chosen role; their other team memberships are kept and no second account is created. Adding someone who is already on the team says so. New users are still created as before.
+
 ## [1.4.6] - 2026-10-26
 
 ### Fixed
