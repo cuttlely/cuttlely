@@ -4,6 +4,16 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-10-25
+
+### Fixed
+
+-   Harness tool calls recover after a profile recompile refreshes the gateway token, so changing a model no longer makes MCP calls fail with `Unauthorized` until a restart. On a 401 the bridge reads the current token from its profile and retries that request once; a second 401 still fails. [#311](https://github.com/cuttlely/cuttlely/pull/311).
+
+### Changed
+
+-   Docs, READMEs and home page match what shipped in 1.4.3. [#295](https://github.com/cuttlely/cuttlely/pull/295), [#296](https://github.com/cuttlely/cuttlely/pull/296), [#297](https://github.com/cuttlely/cuttlely/pull/297).
+
 ## [1.4.3] - 2026-10-25
 
 ### Added
@@ -512,7 +522,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.4.4...HEAD
+[1.4.4]: https://github.com/cuttlely/cuttlely/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/cuttlely/cuttlely/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/cuttlely/cuttlely/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/cuttlely/cuttlely/compare/v1.4.0...v1.4.1

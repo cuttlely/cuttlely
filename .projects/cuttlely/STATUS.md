@@ -30,6 +30,8 @@ Handoff 2026-10-23: branch `fix/chief-specialist-bridges`: the Harness Prime (ro
 
 Aimed at 1.4.3 (branch `fix/harness-asset-fetch-142`): the assets preset kit gets `cuttlely_fetch.py`, one `fetch(url, max_bytes, timeout_ms, accept)` that checks every hop (redirects included) resolves only to public addresses and connects to the checked address, caps body (10 MB default, 50 MB max) and time (20 s default, 60 s max), and sends a browser-like user agent on this path only; `fetch_asset(url, path)` checks the content type and prints the byte count. `use_dir` and an `asset_kit.py` alias keep older imports working. A tool result whose body reports an error is a failed step. Hermes patch 0009 keeps a failed tool preview's tail. Python web search for the sandbox is left to 1.5.0 (egress broker design).
 
+Handoff 2026-10-25: 1.4.4 release PR (branch release-1.4.4): versions 1.4.4, CHANGELOG dated 2026-10-25 covering #311, #295, #296, #297, install pins at 1.4.4; tag v1.4.4, GitHub release, npm and ghcr follow its merge.
+
 Handoff 2026-10-25: 1.4.3 release PR (branch release-1.4.3): versions 1.4.3, CHANGELOG dated 2026-10-25 covering #281, #283, #284, #285, #289, #291, #293, #299, #300, #303, #305, #308, #309, install pins at 1.4.3; tag v1.4.3, GitHub release, npm and ghcr follow its merge.
 
 Handoff 2026-10-23: 1.4.2 release PR (branch release-1.4.2): versions 1.4.2, CHANGELOG dated 2026-10-23 covering #279, install pins at 1.4.2; tag v1.4.2, GitHub release, npm and ghcr follow its merge.
