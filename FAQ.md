@@ -1,4 +1,4 @@
-# Cuttlely FAQ (1.4.2)
+# Cuttlely FAQ (1.4.3)
 
 **The visual agent builder, ready for production.** Drag-and-drop agents with real governance and lean context. Open source, Apache-2.0.
 
@@ -38,6 +38,19 @@ Cuttlely is open source under Apache-2.0. The bundled agent runtime is Hermes (M
 
 Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_PUBLIC_API_KEY`, usage events go to your PostHog project, and `DISABLE_CUTTLELY_TELEMETRY=true` turns that off.
 
+### What's new in 1.4.3?
+
+-   **Allowed functions** on the PostgreSQL MCP node lists your own SQL helpers, one `schema.fn(argtypes)` or `schema.fn(*)` per line. While a table selection is set, text search types `regconfig` and `regdictionary` are refused unless they are passed directly as constants to the built-in text-search functions, such as `to_tsvector`. Other object-identifier types, such as `regclass`, are refused only while a table selection is set.
+-   At startup, harness profiles compiled by an older version are compiled again. The harness gateway health check and `GET /api/v1/ping` return 503 during that wait. Once the wait cap passes, ping can return 200 while the compile is still running; chat and prediction stay at 503 until it finishes. `CUTTLELY_GATEWAY_STARTING_WAIT_SECONDS` defaults to 180 seconds and is capped at 300.
+-   Chat answers keep a slash between words, including a fraction or a date, and still hide server paths, except in a short JSON answer, which is returned unchanged.
+-   A lone Harness card on an agent keeps `harness`, so existing flows that call `tool:harness` still run. When two or more Harness cards are on one agent, each gets its own tool name with a unique suffix.
+-   The Current Date Time tool formats the local date and time in an IANA timezone. Set **Timezone** on the node, or `CUTTLELY_DEFAULT_TIMEZONE` when that field is empty; a call can pass `timezone`, which wins.
+-   A LangSmith credential with no key does not use the server's key. Tracing for that flow stays off. A failed upload log records the credential id and the key length.
+-   Deleting a harness removes its agent runtime profile and its specialists' profiles after their gateway tokens are revoked.
+-   The assets preset downloads a file only from public addresses, with a browser-like user agent, and a failed tool call shows as failed.
+
+Full notes: [v1.4.3 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.3).
+
 ### What's new in 1.4.2?
 
 -   LangSmith traces from flow runs upload with the LangSmith credential and project set in the flow's Analytics settings, instead of no credential and the `default` project.
@@ -67,7 +80,7 @@ Full notes: [v1.4.0 release](https://github.com/cuttlely/cuttlely/releases/tag/v
 ### What's new in 1.3.1?
 
 -   Every flow an MCP server: turn on **MCP Server** for a flow and other agents call its Live version over MCP. The flow's Rate Limit applies, and request bodies over 1 MB are refused.
--   Published chatflows answer IBM watsonx Orchestrate native agents. The flow needs a bound API key.
+-   Published chatflows answer watsonx Orchestrate native agents. The flow needs a bound API key.
 -   A new install opens one `/setup` page. The server log prints the link and a setup code that lasts 60 minutes and works once.
 -   `npx cuttlely start` on Node 20 waits until the health check answers.
 -   Two security fixes for versions up to and including 1.3.0: [GHSA-2v98-33pc-jj6f](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-2v98-33pc-jj6f) (setup code) and [GHSA-4p9j-8j59-gwr7](https://github.com/cuttlely/cuttlely/security/advisories/GHSA-4p9j-8j59-gwr7) (public config endpoints).
