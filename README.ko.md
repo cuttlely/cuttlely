@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.4.7이 나왔습니다.** 1.4.6을 쓰고 있다면 업그레이드하세요. 이제 Add User에서 기존 사용자를 고르거나 그 이메일을 입력하면 "A user with this email already exists"로 실패하지 않고 그 계정이 선택한 역할로 팀에 추가됩니다. 다른 팀 소속은 그대로 유지되고 두 번째 계정은 만들어지지 않습니다. 이미 팀에 있는 사람을 추가하면 그렇다고 알려 주며, 새 사용자는 이전처럼 만들 수 있습니다.
+**1.4.7이 나왔습니다.** 1.4.6을 쓰고 있다면 업그레이드하세요. 이제 Add User에서 기존 사용자를 고르거나 그 이메일을 입력하면 "A user with this email already exists"로 실패하지 않고 그 계정이 선택한 역할로 팀에 추가됩니다. 다른 팀 소속은 그대로 유지되고 두 번째 계정은 만들어지지 않습니다. 이미 팀에 있는 사람을 추가하면 그렇다고 알려 주며, 새 사용자는 이전처럼 만들 수 있습니다. 1.4.6에서는 **Return Source Documents**를 켜면 Retriever Tool이 모델에 보여 주는 각 청크 앞에 번호가 붙은 `[n]` 줄을 두고, 메타데이터에 있으면 제목과 http(s) URL을 함께 표시하므로(`[n] 제목 - URL`) 하네스 스페셜리스트가 읽은 페이지를 인용할 수 있습니다. 절대 파일 경로는 파일 이름만 표시됩니다. Harness Prime의 `Sources:` 목록에서도 이름이 그 URL 자체가 아니면 이름 옆에 소스의 http(s) URL이 표시됩니다. 옵션이 꺼져 있으면 도구 출력은 바뀌지 않습니다. **Start a new session**(이전 Clear chat history)은 이제 화면의 채팅을 지우고 새 세션을 시작합니다. 지난 메시지는 보관됩니다. 이미지 `1.4.6`을 pull하거나 `npm i cuttlely@1.4.6`을 실행하세요. 1.4.5에서는 PostgreSQL MCP 읽기 전용 검사가 [사용자 함수 규칙](./docs/how-to/analyst.md#user-functions)을 통과하는 문자열 본문 SQL·PL/pgSQL 읽기 전용 도우미를 **Allowed functions** 항목 없이 받아들이게 되었습니다. 1.4.4에서는 모델을 바꾸면 재시작할 때까지 MCP 호출이 Unauthorized로 실패하던 문제가 고쳐졌습니다. 1.4.2 이하에서 올린다면 [1.4.3 업그레이드 노트](./CHANGELOG.md#143---2026-10-25)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#147---2026-10-26)
 
 ## 목차
 

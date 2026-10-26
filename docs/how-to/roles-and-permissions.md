@@ -70,7 +70,7 @@ Cuttlely stores the person as a pending invite (`invited`) and does not set a pa
 
 The eye on a row lists each team and the role on that team. The trash icon removes the person. You cannot delete the organization owner or your own row. The assigned-role count and the last login include every team in the organization for an organization owner, except Personal Workspace. Anyone else sees only the teams they belong to.
 
-To change the role on a team, open **Teams**, open the team, and pick another role. That uses `workspace:update`. `workspace:add-user` creates a new user on the caller's active team, or adds someone who already has an account in the organization to it. Removing someone from a team uses `workspace:unlink-user`.
+To change the role on a team, open **Teams**, open the team, and pick another role. That uses `workspace:update`. `workspace:add-user` creates a new user on a team, or adds someone who already has an account in the organization to a team. Someone who is not the organization owner can do either only on their active team. Removing someone from a team uses `workspace:unlink-user`.
 
 ## How a check works
 
