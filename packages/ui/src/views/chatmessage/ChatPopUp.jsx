@@ -4,7 +4,7 @@ import PropTypes from 'prop-types'
 
 import { ClickAwayListener, Paper, Popper, Button } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
-import { IconMessage, IconX, IconEraser, IconArrowsMaximize } from '@tabler/icons-react'
+import { IconMessage, IconX, IconMessagePlus, IconArrowsMaximize } from '@tabler/icons-react'
 
 // project import
 import { StyledFab } from '@/ui-component/button/StyledFab'
@@ -12,9 +12,6 @@ import MainCard from '@/ui-component/cards/MainCard'
 import Transitions from '@/ui-component/extended/Transitions'
 import ChatMessage from './ChatMessage'
 import ChatExpandDialog from './ChatExpandDialog'
-
-// api
-import chatmessageApi from '@/api/chatmessage'
 
 // Hooks
 import useConfirm from '@/hooks/useConfirm'
@@ -25,7 +22,7 @@ import { flowContext } from '@/store/context/ReactFlowContext'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
 
 // Utils
-import { getLocalStorageChatflow, removeLocalStorageChatHistory } from '@/utils/genericHelper'
+import { removeLocalStorageChatHistory } from '@/utils/genericHelper'
 
 const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harnessName, openOnLoad }) => {
     const theme = useTheme()
@@ -41,6 +38,7 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
     const [showExpandDialog, setShowExpandDialog] = useState(false)
     const [expandDialogProps, setExpandDialogProps] = useState({})
     const [previews, setPreviews] = useState([])
+    const [chatResetKey, setChatResetKey] = useState(0)
 
     const anchorRef = useRef(null)
     const prevOpen = useRef(open)
@@ -94,48 +92,32 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
 
     const clearChat = async () => {
         const confirmPayload = {
-            title: `Clear Chat History`,
-            description: `Are you sure you want to clear all chat history?`,
-            confirmButtonName: 'Clear',
+            title: `Start a new session`,
+            description: `Start a new session? The chat on screen clears and your next message starts a new session. Past messages are kept.`,
+            confirmButtonName: 'Start',
             cancelButtonName: 'Cancel'
         }
         const isConfirmed = await confirm(confirmPayload)
+        if (!isConfirmed) return
 
-        if (isConfirmed) {
-            try {
-                const objChatDetails = getLocalStorageChatflow(chatflowid)
-                if (!objChatDetails.chatId) return
-                await chatmessageApi.deleteChatmessage(chatflowid, { chatId: objChatDetails.chatId, chatType: 'INTERNAL' })
-                removeLocalStorageChatHistory(chatflowid)
-                resetChatDialog()
-                enqueueSnackbar({
-                    message: 'Successfully cleared all chat history',
-                    options: {
-                        key: new Date().getTime() + Math.random(),
-                        variant: 'success',
-                        action: (key) => (
-                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                                <IconX />
-                            </Button>
-                        )
-                    }
-                })
-            } catch (error) {
-                enqueueSnackbar({
-                    message: typeof error.response.data === 'object' ? error.response.data.message : error.response.data,
-                    options: {
-                        key: new Date().getTime() + Math.random(),
-                        variant: 'error',
-                        persist: true,
-                        action: (key) => (
-                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                                <IconX />
-                            </Button>
-                        )
-                    }
-                })
+        // Forget the saved chatId so the next message opens a new session. Stored messages are not deleted.
+        removeLocalStorageChatHistory(chatflowid)
+        setPreviews([])
+        // Remount the popup chat so its on-screen messages clear.
+        setChatResetKey((key) => key + 1)
+        resetChatDialog()
+        enqueueSnackbar({
+            message: 'Started a new session',
+            options: {
+                key: new Date().getTime() + Math.random(),
+                variant: 'success',
+                action: (key) => (
+                    <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                        <IconX />
+                    </Button>
+                )
             }
-        }
+        })
     }
 
     useEffect(() => {
@@ -167,11 +149,11 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
                     sx={{ position: 'absolute', right: 80, top: 20 }}
                     onClick={clearChat}
                     size='small'
-                    color='error'
-                    aria-label='clear'
-                    title='Clear Chat History'
+                    color='primary'
+                    aria-label='Start a new session'
+                    title='Start a new session'
                 >
-                    <IconEraser />
+                    <IconMessagePlus />
                 </StyledFab>
             )}
             {open && (
@@ -218,6 +200,7 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
                                     shadow={theme.shadows[16]}
                                 >
                                     <ChatMessage
+                                        key={chatResetKey}
                                         isAgentCanvas={isAgentCanvas}
                                         chatflowid={chatflowid}
                                         open={open}
@@ -233,6 +216,7 @@ const ChatPopUp = ({ chatflowid, isAgentCanvas, onOpenChange, harnessBlock, harn
                 )}
             </Popper>
             <ChatExpandDialog
+                key={chatResetKey}
                 show={showExpandDialog}
                 dialogProps={expandDialogProps}
                 isAgentCanvas={isAgentCanvas}

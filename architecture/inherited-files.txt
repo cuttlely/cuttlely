@@ -1897,6 +1897,7 @@ packages/ui/src/views/chatmessage/ChatInputHistory.js
 packages/ui/src/views/chatmessage/ChatMessage.css
 packages/ui/src/views/chatmessage/ChatMessage.jsx
 packages/ui/src/views/chatmessage/ChatPopUp.jsx
+packages/ui/src/views/chatmessage/ChatPopUp.test.js
 packages/ui/src/views/chatmessage/ThinkingCard.jsx
 packages/ui/src/views/chatmessage/ValidationPopUp.jsx
 packages/ui/src/views/chatmessage/audio-recording.css

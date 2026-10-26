@@ -1651,7 +1651,8 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                         setFormDescription(startNode.data.inputs?.formDescription)
                     }
 
-                    getAllExecutionsApi.request({ agentflowId: chatflowid })
+                    const savedSessionId = getLocalStorageChatflow(chatflowid)?.chatId
+                    if (savedSessionId) getAllExecutionsApi.request({ agentflowId: chatflowid, sessionId: savedSessionId })
                 }
             }
 
@@ -1760,7 +1761,9 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
             setIsConfigLoading(false)
         } else if (open && chatflowid) {
             // API request
-            getChatmessageApi.request(chatflowid)
+            // Load only the current session; Start a new session forgets the saved chatId.
+            const savedChatId = getLocalStorageChatflow(chatflowid)?.chatId
+            if (savedChatId) getChatmessageApi.request(chatflowid, { chatId: savedChatId })
             getIsChatflowStreamingApi.request(chatflowid)
             getAllowChatFlowUploads.request(chatflowid)
             getChatflowConfig.request(chatflowid)

@@ -3301,6 +3301,10 @@
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
         },
         {
+            "path": "packages/ui/src/views/chatmessage/ChatPopUp.test.js",
+            "reason": "regression test for the inherited chat popup's Start a new session"
+        },
+        {
             "path": "packages/ui/src/views/datasets/datasetRowLabel.js",
             "reason": "Dataset row rating migrations and the dialog that adds rated answers to a dataset."
         },
