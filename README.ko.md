@@ -31,7 +31,7 @@ Node 20+ 및 Docker
 
 [10분 만에 시작하기](https://cuttlely.com/quickstart/) · [GitHub에서 스타 주기](https://github.com/cuttlely/cuttlely) · [이미 플로우가 있나요? 가져오세요](https://cuttlely.com/flowise/)
 
-**1.4.6이 나왔습니다.** 1.4.5를 쓰고 있다면 업그레이드하세요. **Return Source Documents**를 켜면 Retriever Tool이 각 청크 앞에 `[n] 제목 - URL` 줄을 모델에 보여 주므로 하네스 스페셜리스트가 읽은 페이지를 인용할 수 있습니다. 절대 파일 경로는 파일 이름만 표시됩니다. Harness Prime의 `Sources:` 목록에도 각 소스 이름 옆에 http(s) URL이 표시됩니다. 옵션이 꺼져 있으면 도구 출력은 바뀌지 않습니다. 이미지 `1.4.6`을 pull하거나 `npm i cuttlely@1.4.6`을 실행하세요. 1.4.5에서는 PostgreSQL MCP 읽기 전용 검사가 [사용자 함수 규칙](./docs/how-to/analyst.md#user-functions)을 통과하는 문자열 본문 SQL·PL/pgSQL 읽기 전용 도우미를 **Allowed functions** 항목 없이 받아들이게 되었습니다. 1.4.4에서는 모델을 바꾸면 재시작할 때까지 MCP 호출이 Unauthorized로 실패하던 문제가 고쳐졌습니다. 1.4.2 이하에서 올린다면 [1.4.3 업그레이드 노트](./CHANGELOG.md#143---2026-10-25)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#146---2026-10-26)
+**1.4.6이 나왔습니다.** 1.4.5를 쓰고 있다면 업그레이드하세요. **Return Source Documents**를 켜면 Retriever Tool이 각 청크 앞에 `[n] 제목 - URL` 줄을 모델에 보여 주므로 하네스 스페셜리스트가 읽은 페이지를 인용할 수 있습니다. 절대 파일 경로는 파일 이름만 표시됩니다. Harness Prime의 `Sources:` 목록에도 각 소스 이름 옆에 http(s) URL이 표시됩니다. 옵션이 꺼져 있으면 도구 출력은 바뀌지 않습니다. **Start a new session**(이전 Clear chat history)은 이제 화면의 채팅을 지우고 새 세션을 시작합니다. 지난 메시지는 보관됩니다. 이미지 `1.4.6`을 pull하거나 `npm i cuttlely@1.4.6`을 실행하세요. 1.4.5에서는 PostgreSQL MCP 읽기 전용 검사가 [사용자 함수 규칙](./docs/how-to/analyst.md#user-functions)을 통과하는 문자열 본문 SQL·PL/pgSQL 읽기 전용 도우미를 **Allowed functions** 항목 없이 받아들이게 되었습니다. 1.4.4에서는 모델을 바꾸면 재시작할 때까지 MCP 호출이 Unauthorized로 실패하던 문제가 고쳐졌습니다. 1.4.2 이하에서 올린다면 [1.4.3 업그레이드 노트](./CHANGELOG.md#143---2026-10-25)를 먼저 읽으세요. [변경 기록](./CHANGELOG.md#146---2026-10-26)
 
 ## 목차
 

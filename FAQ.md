@@ -41,6 +41,7 @@ Nothing by default, and no key ships in the repo. If you set your own `POSTHOG_P
 ### What's new in 1.4.6?
 
 -   If you're on 1.4.5, upgrade: with **Return Source Documents** on, the Retriever Tool now shows the model a `[n] title - url` line before each chunk, so a harness specialist can cite the page it read. An absolute file path in the metadata shows as the file name only. Harness Prime's `Sources:` list also shows each source's http(s) URL next to its name. With the option off, the tool's output is unchanged.
+-   **Start a new session** (formerly Clear chat history) now clears the chat on screen and starts a new session; past messages are kept.
 -   To upgrade, pull image `ghcr.io/cuttlely/cuttlely:1.4.6`, or run `npm i cuttlely@1.4.6`.
 
 Full notes: [v1.4.6 release](https://github.com/cuttlely/cuttlely/releases/tag/v1.4.6).
