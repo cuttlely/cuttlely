@@ -391,8 +391,33 @@ export function analystStepView(tool) {
 
 // The public query step keeps the row count and, when previews are on, the short preview.
 // The full page stays out of the trace. A create or a failure keeps its short detail.
+// The step timings of one analyst query: finite, non-negative numbers under known names, nothing else.
+const QUERY_TIMING_FIELDS = [
+    'connectMs',
+    'guardMs',
+    'planMs',
+    'countMs',
+    'pageMs',
+    'probeMs',
+    'serializeMs',
+    'totalMs',
+    'statementRuns',
+    'roundTrips'
+]
+
+export function queryStepTimings(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const out = {}
+    for (const field of QUERY_TIMING_FIELDS) {
+        const n = value[field]
+        if (typeof n === 'number' && Number.isFinite(n) && n >= 0) out[field] = n
+    }
+    return Object.keys(out).length ? out : null
+}
+
 export function publicToolStep(tool, env) {
-    const base = { name: tool?.name, status: tool?.status }
+    const timings = isAnalystQueryChip(tool?.name) ? queryStepTimings(tool?.timings) : null
+    const base = { name: tool?.name, status: tool?.status, ...(timings ? { timings } : {}) }
     if (!tool?.detail || !isAnalystQueryChip(tool.name)) {
         return tool?.detail ? { ...base, detail: String(tool.detail) } : base
     }
@@ -456,7 +481,8 @@ export function snapshotSpecialist({ calls, tools, name, configuredModel, failed
                     {
                         name: tool.name,
                         status: tool.status === 'running' && failed ? 'failed' : tool.status,
-                        ...(tool.detail ? { detail: tool.detail } : {})
+                        ...(tool.detail ? { detail: tool.detail } : {}),
+                        ...(tool.timings ? { timings: tool.timings } : {})
                     },
                     env
                 )

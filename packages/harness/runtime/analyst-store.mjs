@@ -193,8 +193,71 @@ export function analystScopeKey(harness, chatId) {
 }
 
 // A harness run passes its chat scope and its workspace. Each workspace has its own analyst area.
-export function withAnalystScope(scope, fn, { workspace } = {}) {
-    return analystCall.run({ scope: clean(scope), workspace: clean(workspace) }, fn)
+// A caller that passes a timings array gets one step-timing record per URL query run inside fn.
+export function withAnalystScope(scope, fn, { workspace, timings } = {}) {
+    return analystCall.run({ scope: clean(scope), workspace: clean(workspace), timings: Array.isArray(timings) ? timings : null }, fn)
+}
+
+// Milliseconds for each step of one URL query, for the run trace only. A record holds numbers and nothing else,
+// and it never reaches the tool result the model reads. Steps that did not run are 0.
+const QUERY_STEPS = ['connect', 'plan', 'count', 'page', 'probe']
+
+function queryTimer() {
+    const steps = Object.fromEntries(QUERY_STEPS.map((name) => [name, 0]))
+    return {
+        started: performance.now(),
+        steps,
+        statementRuns: 0,
+        roundTrips: 0,
+        add(name, ms) {
+            steps[name] += ms
+        }
+    }
+}
+
+function roundMs(ms) {
+    return Math.round(Math.max(0, ms) * 10) / 10
+}
+
+// The guard is everything else: the read-only transactions, the scope and definition checks and their re-checks.
+function timerRecord(timer) {
+    const totalMs = performance.now() - timer.started
+    const measured = QUERY_STEPS.reduce((sum, name) => sum + timer.steps[name], 0)
+    const record = {}
+    for (const name of QUERY_STEPS) record[`${name}Ms`] = roundMs(timer.steps[name])
+    record.guardMs = roundMs(totalMs - measured)
+    record.totalMs = roundMs(totalMs)
+    record.statementRuns = timer.statementRuns
+    record.roundTrips = timer.roundTrips
+    return record
+}
+
+function recordQueryTimings(timer) {
+    const sink = analystCall.getStore()?.timings
+    if (sink) sink.push(timerRecord(timer))
+}
+
+// A step counted as a statement run reads the statement's rows: the count, the page, the type probe, the length pass.
+async function timeStep(runner, name, fn, { run = false } = {}) {
+    const timer = runner?.timer
+    if (!timer) return fn()
+    if (run) timer.statementRuns += 1
+    const started = performance.now()
+    try {
+        return await fn()
+    } finally {
+        timer.add(name, performance.now() - started)
+    }
+}
+
+// The PostgreSQL MCP node serializes a result with this, so the run trace also gets the serialize time.
+// The text is exactly JSON.stringify(result).
+export function analystResultJson(result) {
+    const started = performance.now()
+    const text = JSON.stringify(result)
+    const last = analystCall.getStore()?.timings?.at(-1)
+    if (last && last.serializeMs == null) last.serializeMs = roundMs(performance.now() - started)
+    return text
 }
 
 function callScope(options) {
@@ -978,6 +1041,7 @@ function storeKey(env, workspace = '') {
 export function resetAnalystStoreForTests() {
     ready.clear()
     pageCursors.clear()
+    relationSummaries.clear()
     stopAnalystSqliteWorker()
     for (const scope of [...pgRunSessions.keys()]) closePgRunSession(scope)
     pgClientFactory = (config) => new Client(config)
@@ -1151,8 +1215,9 @@ async function countResult(runner, statement) {
 // A keyset plan is one row per base-table row, so the filtered table count is
 // the result count. Anything else is counted from the statement itself.
 async function countPlan(runner, plan) {
-    if (plan?.simple) return countSimple(runner, plan.simple)
-    return countResult(runner, plan?.statement)
+    return timeStep(runner, 'count', () => (plan?.simple ? countSimple(runner, plan.simple) : countResult(runner, plan?.statement)), {
+        run: true
+    })
 }
 
 function pageStartOffset(paging, pageSize) {
@@ -1231,7 +1296,17 @@ function finishPage(rawRows, paging, plan) {
     return shaped
 }
 
-async function readSelectPage(runner, plan, paging) {
+// The test finishPage makes for `more`: a row past this page, or a row the handoff budget does not show.
+function pageContinues(rawRows, pageSize) {
+    if (rawRows.length > pageSize) return true
+    const stripped = rawRows.map((row) => stripPageColumns(row))
+    return analystShownRows(stripped).length < stripped.length
+}
+
+// countIfPaged: a new query counts its rows only after its first page. The count and the length pass only shape a
+// page line, a page count and a cursor, and a first page that holds every row has none of those, so that query
+// reads its statement once. A page that continues gets the same count and length pass as before.
+async function readSelectPage(runner, plan, paging, { countIfPaged = false } = {}) {
     const pageSize = pageSizeOf(paging)
     const limit = pageSize + 1
     const offset = pageStartOffset(paging, pageSize)
@@ -1263,18 +1338,23 @@ async function readSelectPage(runner, plan, paging) {
     } else {
         query = offsetSql(plan.statement, limit, offset)
     }
-    const raw = await runner.all(query.sql, query.params)
+    const raw = await timeStep(runner, 'page', () => runner.all(query.sql, query.params), { run: true })
     if (!raw.length && paging.page > 1) throw cursorError(ANALYST_CURSOR_ERRORS.past)
+    let total = paging.total
+    if (countIfPaged) {
+        if (paging.page <= 1 && !pageContinues(raw, pageSize)) return finishPage(raw, { ...paging, total: null, walked: null }, plan)
+        total = await countPlan(runner, plan)
+    }
     let walked = Number.isInteger(paging.walked) ? paging.walked : null
     if (walked == null && raw.length) {
         const names = Object.keys(stripPageColumns(raw[0]))
-        const lengths = await measureResultWalk(runner, plan, names, paging.total)
+        const lengths = await measureResultWalk(runner, plan, names, total)
         // The length pass is a lower bound. Before a page count is named, compare it with the
         // handoff line for the rows already in hand. If any bound is shorter than that line,
         // the count would be a lie, so name none.
         if (lengths && boundsCoverRows(lengths, raw, offset)) walked = analystPagesFromLineLengths(lengths, pageSize)
     }
-    return finishPage(raw, { ...paging, walked }, plan)
+    return finishPage(raw, { ...paging, total, walked }, plan)
 }
 
 function boundsCoverRows(lengths, rawRows, offset) {
@@ -1309,10 +1389,13 @@ async function measureResultWalk(runner, plan, columnNames, total) {
     const engine = plan.engine === 'postgres' ? 'postgres' : plan.engine === 'sqlite' ? 'sqlite' : null
     if (!engine) return null
     try {
-        const columnTypes = engine === 'postgres' ? await postgresColumnTypes(runner, inner, columnNames) : null
+        const columnTypes =
+            engine === 'postgres'
+                ? await timeStep(runner, 'probe', () => postgresColumnTypes(runner, inner, columnNames), { run: true })
+                : null
         const sql = resultLengthSql(inner, columnNames, engine, columnTypes)
         if (!sql) return null
-        const rows = await runner.all(sql, [])
+        const rows = await timeStep(runner, 'probe', () => runner.all(sql, []), { run: true })
         const lengths = []
         for (const row of rows) {
             if (row?.analyst_line_len == null) return null
@@ -1389,9 +1472,8 @@ function postgresRunner(client, { transaction = false } = {}) {
 async function runPostgresStatement(client, statement, paging, runner = postgresRunner(client)) {
     // SHOW, EXPLAIN and RETURNING rows over the cap are kept for show more, like the SQLite store does.
     if (!isRowQuery(statement)) return shapeResult(await client.query(statement), paging)
-    const plan = await planSelect(runner, 'postgres', statement)
-    const total = await countPlan(runner, plan)
-    return readSelectPage(runner, plan, { ...paging, total, page: 1, previousOffset: 0, lastKey: null })
+    const plan = await timeStep(runner, 'plan', () => planSelect(runner, 'postgres', statement))
+    return readSelectPage(runner, plan, { ...paging, page: 1, previousOffset: 0, lastKey: null }, { countIfPaged: true })
 }
 
 function analystPgClient(store, ms, queryTimeout = ms + 5000) {
@@ -1778,8 +1860,8 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
     client.on('error', () => {})
     try {
         await client.connect()
-        await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')
-        await client.query(`SET LOCAL statement_timeout = ${ms}`)
+        // One round trip. A multi-statement simple query stops at the first error, as separate calls would.
+        await client.query(`${readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN'}; SET LOCAL statement_timeout = ${ms}`)
         return await fn(client, postgresRunner(client, { transaction: true }))
     } catch (error) {
         const outcome = analystErrorOutcome(error)
@@ -1815,7 +1897,14 @@ async function queryUrlPostgres(
         connectionTimeoutMillis: 10000
     })
     client.on('error', () => {})
+    const timer = queryTimer()
+    const send = client.query.bind(client)
+    client.query = (...args) => {
+        timer.roundTrips += 1
+        return send(...args)
+    }
     const runner = postgresRunner(client, { transaction: true })
+    runner.timer = timer
     // Only the node's own setting, passed by the node from the saved flow; never the tool input.
     if (readOnlySql) runner.allowedFunctions = parseAllowedFunctions(allowedFunctions)
     let selected = []
@@ -1827,15 +1916,17 @@ async function queryUrlPostgres(
         if (runner.statementSearchPath) await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
     }
     const begin = async (readOnly) => {
-        await client.query(readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN')
-        await client.query(`SET LOCAL statement_timeout = ${ms}`)
+        const settings = [readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN', `SET LOCAL statement_timeout = ${ms}`]
         // Every analyst statement check reads '...' as standard SQL strings (where one statement ends depends on
         // it), so Postgres must too, for every caller.
-        await client.query('SET LOCAL standard_conforming_strings = on')
+        settings.push('SET LOCAL standard_conforming_strings = on')
         // The node's own catalog queries run with only pg_catalog on the search path (pg_temp is never searched
         // for functions or operators), so a same-named function elsewhere cannot answer them. The statement itself
         // is parsed and run with pg_catalog in front of the login's path (runner.statementSearchPath).
-        if (readOnlySql) await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+        if (readOnlySql) settings.push("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+        // One round trip. These are fixed strings and an integer, never the tool input. A multi-statement simple
+        // query stops at the first error, as separate calls would, and the transaction stays open after it.
+        await client.query(settings.join('; '))
     }
     const hinted = async (error) => {
         const missing = missingRelationName(error)
@@ -1863,7 +1954,7 @@ async function queryUrlPostgres(
     let checkedBackend = ''
     let checked = null
     try {
-        await client.connect()
+        await timeStep(runner, 'connect', () => client.connect())
         if (readOnlySql) {
             const path = (await client.query("SELECT pg_catalog.current_setting('search_path') AS p")).rows?.[0]?.p || ''
             runner.statementSearchPath = path.trim() ? `pg_catalog, ${path}` : 'pg_catalog'
@@ -1940,6 +2031,7 @@ async function queryUrlPostgres(
     } finally {
         await client.query('ROLLBACK').catch(() => {})
         await client.end().catch(() => {})
+        recordQueryTimings(timer)
     }
 }
 
@@ -2058,9 +2150,31 @@ export async function listAnalystUrlRelations(postgresUrl, options = {}) {
     return withUrlClient(postgresUrl, (_client, runner) => listRelations(runner), options)
 }
 
+// The node builds its tool description from analystUrlRelations on every call. With cacheMs, a lookup from the last
+// cacheMs is reused instead of opening another connection. The summary only describes the selection: every query
+// still runs the scope check, and describe reads the catalog fresh. The key is the URL, kept in memory only, like
+// cursor state.
+const relationSummaries = new Map()
+const RELATION_SUMMARY_LIMIT = 50
+
+function copyRelations(list) {
+    return list.map((relation) => ({ ...relation }))
+}
+
 // The selected relations that still exist, with kind, column count and comment.
 export async function analystUrlRelations(postgresUrl, names, options = {}) {
-    return withUrlClient(postgresUrl, (_client, runner) => resolveRelations(runner, names), options)
+    const cacheMs = positiveInt(options.cacheMs)
+    const key = cacheMs ? [urlStoreKey(postgresUrl), ...(names || []).map(String)].join('\0') : ''
+    const now = Date.now()
+    const cached = key ? relationSummaries.get(key) : null
+    if (cached && now - cached.at < cacheMs) return copyRelations(cached.relations)
+    const relations = await withUrlClient(postgresUrl, (_client, runner) => resolveRelations(runner, names), options)
+    if (key) {
+        relationSummaries.delete(key)
+        relationSummaries.set(key, { at: now, relations: copyRelations(relations) })
+        while (relationSummaries.size > RELATION_SUMMARY_LIMIT) relationSummaries.delete(relationSummaries.keys().next().value)
+    }
+    return relations
 }
 
 export async function describeAnalystUrlRelation(postgresUrl, input, names, options = {}) {

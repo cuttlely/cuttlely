@@ -2124,6 +2124,7 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         if (slotIndex < 0) continue
         used.add(slotIndex)
         slots[slotIndex].detail = maskWorkspacePaths(JSON.stringify({ result: JSON.stringify(item.result) }))
+        if (item.timings) slots[slotIndex].timings = item.timings
     }
 }
 

@@ -12852,6 +12852,41 @@ check(
 )
 dropAnalystCapture({ harness: 'capture-split', chatId: 'chat-a' })
 dropAnalystCapture({ harness: 'capture-split', chatId: 'chat-b' })
+// The store's step timings ride with the captured result onto the query step of the run trace, as numbers only.
+recordAnalystResult({
+    harness: 'capture-timed',
+    specialist: 'analyst',
+    chatId: 'chat-t',
+    callId: '1:timed',
+    result: { rows: [{ id: 1 }], truncated: false },
+    timings: { pageMs: 4.2, statementRuns: 1 },
+    at: 4
+})
+const takenTimed = takeAnalystResults({ harness: 'capture-timed', specialist: 'analyst', chatId: 'chat-t', since: 0 })
+const timedStep = snapshotSpecialist({
+    calls: [],
+    name: 'analyst',
+    tools: [
+        {
+            specialist: 'analyst',
+            name: 'mcp__analyst__query',
+            status: 'done',
+            detail: JSON.stringify({ result: JSON.stringify(takenTimed[0]?.result) }),
+            timings: { ...takenTimed[0]?.timings, note: 'not a number', guardMs: -1, countMs: Number.NaN }
+        }
+    ]
+}).tools[0]
+const untimedStep = publicToolStep({ name: 'search', status: 'done', timings: { pageMs: 1 } }, {})
+check(
+    'a query step keeps its step timings as numbers only, and other tools get none',
+    takenTimed.length === 1 &&
+        JSON.stringify(timedStep?.timings) === JSON.stringify({ pageMs: 4.2, statementRuns: 1 }) &&
+        timedStep?.rowCount === 1 &&
+        !('timings' in untimedStep) &&
+        takenA.every((row) => !('timings' in row)),
+    JSON.stringify({ takenTimed, timedStep, untimedStep })
+)
+dropAnalystCapture({ harness: 'capture-timed', chatId: 'chat-t' })
 saveHarness(
     {
         name: 'analyst-direct',

@@ -964,6 +964,8 @@ async function callTool(req, res, meta) {
     }
     // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
     assertStillValid(meta)
+    // Step timings for the run trace. The tool result itself is unchanged.
+    const timings = []
     const result = await withAnalystScope(
         scope,
         () =>
@@ -978,10 +980,10 @@ async function callTool(req, res, meta) {
                 beforeCall: () => readyToRun(meta),
                 assertCall: () => assertStillValid(meta)
             }),
-        { workspace: record.workspaceId }
+        { workspace: record.workspaceId, timings }
     )
     assertStillValid(meta)
-    rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId)
+    rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId, timings.at(-1))
     sendJson(res, 200, { result })
 }
 
@@ -1017,7 +1019,7 @@ function analystStatement(args) {
     return { sql, cursor }
 }
 
-function rememberAnalystResult(savedName, specialistName, result, scope, toolName, args, callId) {
+function rememberAnalystResult(savedName, specialistName, result, scope, toolName, args, callId, timings) {
     const prefix = `${savedName}:`
     const chatId = typeof scope === 'string' && scope.startsWith(prefix) ? scope.slice(prefix.length) : ''
     const statement = analystStatement(args)
@@ -1042,7 +1044,7 @@ function rememberAnalystResult(savedName, specialistName, result, scope, toolNam
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
     if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor) return
-    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed })
+    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed, timings })
 }
 
 async function parseJson(req) {
