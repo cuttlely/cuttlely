@@ -308,7 +308,7 @@ export function applyDraftMerge(plan, choices = {}) {
         .filter(Boolean)
     const present = new Set(nodes.map((node) => node.id))
     const ends = new Set()
-    const edges = []
+    let edges = []
     for (const entry of plan.items.filter((item) => item.kind === 'edge')) {
         const edge = resolvedItem(entry, pick(entry))
         if (!edge || !present.has(edge.source) || !present.has(edge.target)) continue
@@ -317,6 +317,8 @@ export function applyDraftMerge(plan, choices = {}) {
         ends.add(key)
         edges.push(edge)
     }
+    const fromMine = new Set(plan.items.filter((item) => item.kind === 'edge' && item.mine).map((item) => item.id))
+    edges = oneFeedPerInput(nodes, edges, fromMine)
     // The editor's own delete cleanup: a card or connection that is gone after the merge leaves no input
     // pointing at it, the same as deleting it on the canvas.
     const goneNodes = []
@@ -355,6 +357,35 @@ const mentions = (value, ref) =>
     Array.isArray(value)
         ? value.some((item) => typeof item === 'string' && item.includes(ref))
         : typeof value === 'string' && value.includes(ref)
+
+// The canvas takes one connection on an input that is not a list. When each draft connected that input to a
+// different card, keep the one the kept card reads from, so the pick for that card decides; failing that, mine.
+function oneFeedPerInput(nodes, edges, fromMine) {
+    const byId = new Map(nodes.map((node) => [node.id, node]))
+    const groups = new Map()
+    for (const edge of edges) {
+        const field = edgeField(edge)
+        const node = byId.get(edge.target)
+        if (!field || !node?.data) continue
+        const slot =
+            (node.data.inputAnchors || []).find((item) => item?.id === edge.targetHandle || item?.name === field) ||
+            (node.data.inputParams || []).find((item) => item?.id === edge.targetHandle || item?.name === field)
+        if (!slot || slot.list) continue
+        const key = `${edge.target}\u0000${field}`
+        groups.set(key, [...(groups.get(key) || []), edge])
+    }
+    const drop = new Set()
+    for (const [key, group] of groups) {
+        if (group.length < 2) continue
+        const value = byId.get(group[0].target)?.data?.inputs?.[key.split('\u0000')[1]]
+        const winner =
+            group.find((edge) => mentions(value, `{{${edge.source}.data.instance}}`)) ||
+            group.find((edge) => fromMine.has(edge.id)) ||
+            group[0]
+        for (const edge of group) if (edge !== winner) drop.add(edge)
+    }
+    return drop.size ? edges.filter((edge) => !drop.has(edge)) : edges
+}
 
 // The canvas's own connect step for every kept connection: a connection one side drew can sit next to the
 // other side's version of the card it feeds, and that card must still read from it. Fills the input the same

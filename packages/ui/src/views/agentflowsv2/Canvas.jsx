@@ -751,6 +751,9 @@ const AgentflowCanvas = () => {
             return
         }
         dispatch({ type: REMOVE_DIRTY })
+        // Discard, Publish and rollback replace the canvas with a saved one, and set the new draft status first.
+        // The next save and the review screen build on that canvas, not on the draft that was open before.
+        draftSave.record(draftStatusRef.current, text)
     }
 
     // Get specific chatflow successful

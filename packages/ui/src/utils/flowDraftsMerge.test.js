@@ -248,4 +248,26 @@ describe('ZZ-TEST-draft merge', () => {
         const picked = parse(applyDraftMerge(plan, { 'node:agent': 'mine' }))
         expect(byId(picked.nodes, 'agent').data.inputs.tools).toEqual(['{{t1.data.instance}}', 'x', '{{t2.data.instance}}'])
     })
+    test('when both drafts connected the same model input to different models, the pick for the card decides which stays', () => {
+        const chain = (inputs) =>
+            node('chain', inputs, { data: { inputAnchors: [{ name: 'model', type: 'BaseChatModel' }], inputParams: [] } })
+        const link = (id, source) => ({
+            id,
+            source,
+            target: 'chain',
+            sourceHandle: `${source}-output-${source}-BaseChatModel`,
+            targetHandle: 'chain-input-model-BaseChatModel',
+            type: 'buttonedge'
+        })
+        const base = canvas([node('m1'), node('m2'), node('m3'), chain({ model: '{{m1.data.instance}}' })], [link('l1', 'm1')])
+        const mine = canvas([node('m1'), node('m2'), node('m3'), chain({ model: '{{m3.data.instance}}' })], [link('l3', 'm3')])
+        const theirs = canvas([node('m1'), node('m2'), node('m3'), chain({ model: '{{m2.data.instance}}' })], [link('l2', 'm2')])
+        const plan = draftMergePlan(base, mine, theirs)
+        const keepMine = parse(applyDraftMerge(plan, { 'node:chain': 'mine' }))
+        expect(keepMine.edges.map((item) => item.id)).toEqual(['l3'])
+        expect(byId(keepMine.nodes, 'chain').data.inputs.model).toBe('{{m3.data.instance}}')
+        const keepTheirs = parse(applyDraftMerge(plan, { 'node:chain': 'theirs' }))
+        expect(keepTheirs.edges.map((item) => item.id)).toEqual(['l2'])
+        expect(byId(keepTheirs.nodes, 'chain').data.inputs.model).toBe('{{m2.data.instance}}')
+    })
 })

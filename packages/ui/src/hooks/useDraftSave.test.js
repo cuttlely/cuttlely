@@ -129,6 +129,19 @@ describe('ZZ-TEST-useDraftSave sends the recorded draft version', () => {
         expect(document.body.textContent).toContain('conflict')
     })
 
+    test('ZZ-TEST-after a discard records Live, the next save sends no hash and a 409 reviews against Live', async () => {
+        const DISCARDED = '{"nodes":[{"id":"zz-test-old"}],"edges":[]}'
+        const LIVE = '{"nodes":[{"id":"zz-test-live"}],"edges":[]}'
+        flowDraftsApi.saveDraft.mockRejectedValueOnce(conflictError())
+        flowDraftsApi.getStatus.mockResolvedValueOnce({ data: { draft: { hash: 'h-theirs', flowData: FLOW } } })
+        await mount()
+        apiRef.current.record({ draft: { hash: 'h1', flowData: DISCARDED } })
+        apiRef.current.record({ draft: null }, LIVE)
+        await save('zz-test-flow', FLOW)
+        expect(flowDraftsApi.saveDraft).toHaveBeenLastCalledWith('zz-test-flow', FLOW, { expectedDraftHash: null })
+        expect(apiRef.current.conflict.base).toBe(LIVE)
+    })
+
     test('ZZ-TEST-after the merge is applied, the next save and publish send their draft hash', async () => {
         flowDraftsApi.saveDraft.mockResolvedValue({ data: { draft: { hash: 'h-saved' } } })
         await mount()
