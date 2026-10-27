@@ -120,7 +120,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             assert.ok(!Object.hasOwn(free, 'pinned'))
         })
         await t.test('pinned call without readOnlySql is refused', async () => {
-            for (const extra of [{ pinned: pin }, { binds: ['EU'] }, { binds: [] }, { checkText: compiled.checkText }]) {
+            for (const extra of [{ pinned: pin }, { binds: ['EU'] }, { checkText: compiled.checkText }]) {
                 await assert.rejects(queryAnalystUrl(url, compiled.runText, extra), /readOnlySql/)
                 await assert.rejects(queryUrlPostgres(url, compiled.runText, null, undefined, process.env, [], extra), /readOnlySql/)
             }
@@ -301,6 +301,11 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             }
             try {
                 const input = 'SELECT id FROM demo_sales WHERE id=1 LIMIT 1'
+                const stable = (calls) =>
+                    JSON.stringify(calls.map((args) => (typeof args[0] === 'string' ? args[0] : args[0].text))).replace(
+                        /cuttlely_scope_check_\d+/g,
+                        'cuttlely_scope_check_SEQ'
+                    )
                 const first = await queryAnalystUrl(url, input, { ...options, env: {} }),
                     before = sent
                 sent = []
@@ -311,12 +316,30 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 const third = await queryAnalystUrl(url, input, { ...options, env: {}, binds: [], checkText: null })
                 assert.equal(JSON.stringify(third), JSON.stringify(first))
                 const emptyBinds = sent
+                // Without readOnlySql too: binds: [] keeps the plain free-SQL call, on both exported stores.
+                const { readOnlySql: _readOnly, ...plain } = options
+                // Without readOnlySql the scope check is cached per store; warm it so both measured calls start alike.
+                sent = []
+                await queryAnalystUrl(url, input, { ...plain, env: {} })
+                sent = []
+                const plainFirst = await queryAnalystUrl(url, input, { ...plain, env: {} }),
+                    plainSent = sent
+                sent = []
+                assert.equal(
+                    JSON.stringify(await queryAnalystUrl(url, input, { ...plain, env: {}, binds: [] })),
+                    JSON.stringify(plainFirst)
+                )
+                assert.equal(stable(sent), stable(plainSent))
+                sent = []
+                const direct = await queryUrlPostgres(url, input, null, undefined, {}, plain.relations, {}),
+                    directSent = sent
+                sent = []
+                assert.equal(
+                    JSON.stringify(await queryUrlPostgres(url, input, null, undefined, {}, plain.relations, { binds: [] })),
+                    JSON.stringify(direct)
+                )
+                assert.equal(stable(sent), stable(directSent))
                 sent = afterFlag
-                const stable = (calls) =>
-                    JSON.stringify(calls.map((args) => (typeof args[0] === 'string' ? args[0] : args[0].text))).replace(
-                        /cuttlely_scope_check_\d+/g,
-                        'cuttlely_scope_check_SEQ'
-                    )
                 assert.equal(stable(sent), stable(before))
                 assert.equal(stable(emptyBinds), stable(before))
             } finally {
