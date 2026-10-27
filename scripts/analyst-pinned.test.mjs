@@ -5,7 +5,7 @@ import pg from 'pg'
 import fs from 'node:fs'
 import { createHash, randomBytes } from 'node:crypto'
 import { checkPinnedEquivalence } from '../packages/harness/runtime/pinned-query-equivalence.mjs'
-import { compilePinned, validateArgs } from '../packages/harness/runtime/pinned-query.mjs'
+import { compilePinned } from '../packages/harness/runtime/pinned-query.mjs'
 import {
     queryAnalystUrl,
     withAnalystScope,
@@ -67,7 +67,13 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         target.username = c.user
         target.password = c.password
         const url = target.href
-        const options = { readOnlySql: true, relations: ['public.demo_sales'], rowCap: 100, scope: 'ZZ-TEST-runtime' }
+        const options = {
+            readOnlySql: true,
+            relations: ['public.demo_sales'],
+            rowCap: 100,
+            scope: 'ZZ-TEST-runtime',
+            env: { ...process.env, CUTTLELY_PINNED_QUERIES: '1' }
+        }
         const entry = {
             id: 'ZZ-TEST-pin',
             name: 'pq_sales',
@@ -77,14 +83,49 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         }
         const compiled = compilePinned(entry)
         const pin = { id: entry.id, version: 1, statementHash: compiled.statementHash, tool: entry.name }
-        const bound = { ...options, binds: validateArgs(entry, { r: 'EU' }), checkText: compiled.checkText, pinned: pin }
+        const bound = { ...options, pinned: { entry, args: { r: 'EU' }, tool: entry.name } }
+        await t.test('exported PostgreSQL store compiles the entry internally', async () => {
+            const result = await queryUrlPostgres(
+                url,
+                'SELECT * FROM other_table LIMIT 1',
+                null,
+                undefined,
+                options.env,
+                options.relations,
+                bound
+            )
+            assert.equal(result.rows.length, 100)
+            assert.equal(result.rows[0].region, 'EU')
+        })
+        await t.test("possiblyTruncated compares the statement's own LIMIT", async () => {
+            for (const limit of [300, 100]) {
+                const e = { ...entry, sql: `SELECT id FROM demo_sales WHERE region=:r AND id <= 200 ORDER BY id LIMIT ${limit}` }
+                const pinned = { entry: e, args: { r: 'EU' }, tool: e.name }
+                const first = await queryAnalystUrl(url, null, { ...options, pinned })
+                const expectedPin = { id: e.id, version: e.version, statementHash: compilePinned(e).statementHash, tool: e.name }
+                assert.equal(first.rows.length, 100)
+                assert.equal(first.possiblyTruncated, limit === 100)
+                assert.deepEqual(first.pinned, expectedPin)
+                assert.equal(first.truncated, limit === 300)
+                if (limit === 300) {
+                    assert.ok(first.cursor)
+                    const second = await queryAnalystUrl(url, { cursor: first.cursor }, { ...options, pinned })
+                    assert.equal(second.rows[0].id, '101')
+                    assert.equal(second.possiblyTruncated, false)
+                    assert.deepEqual(second.pinned, expectedPin)
+                }
+            }
+            const free = await queryAnalystUrl(url, 'SELECT id FROM demo_sales LIMIT 100', options)
+            assert.ok(!Object.hasOwn(free, 'possiblyTruncated'))
+            assert.ok(!Object.hasOwn(free, 'pinned'))
+        })
         await t.test('pinned call without readOnlySql is refused', async () => {
             for (const extra of [{ pinned: pin }, { binds: ['EU'] }, { binds: [] }, { checkText: compiled.checkText }]) {
                 await assert.rejects(queryAnalystUrl(url, compiled.runText, extra), /readOnlySql/)
                 await assert.rejects(queryUrlPostgres(url, compiled.runText, null, undefined, process.env, [], extra), /readOnlySql/)
             }
         })
-        await t.test('bound replay without checkText is refused', async () => {
+        await t.test('caller binds on replay are refused', async () => {
             await assert.rejects(
                 queryUrlPostgres(
                     url,
@@ -95,7 +136,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                     [],
                     { readOnlySql: true, binds: ['EU'] }
                 ),
-                /requires checkText/
+                /Caller-supplied/
             )
         })
         await t.test('check copy and bound run are separate on first call and replay; binds never reach begin()', async () => {
@@ -163,7 +204,10 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             assert.match(second.summary, /of 300.*page 2 of 3/)
         })
         await t.test('check-copy parse error is refused', async () => {
-            await assert.rejects(queryAnalystUrl(url, compiled.runText, { ...bound, checkText: 'SELECT FROM WHERE' }))
+            await assert.rejects(
+                queryAnalystUrl(url, null, { ...options, pinned: { entry: { sql: 'SELECT FROM WHERE LIMIT 1' } } }),
+                /syntax error/
+            )
         })
         await t.test('CASE branch reading an unticked relation is refused', async () => {
             const e = {
@@ -181,7 +225,10 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 "CREATE FUNCTION public.zz_test_eq(text,bigint) RETURNS bool LANGUAGE sql IMMUTABLE AS 'SELECT true'; CREATE OPERATOR public.= (LEFTARG=text,RIGHTARG=bigint,FUNCTION=public.zz_test_eq)"
             )
             try {
-                await assert.rejects(queryAnalystUrl(url, null, { ...options, pinned: { entry: e, args: { n: '1' }, tool: 'pq_op' } }))
+                await assert.rejects(
+                    queryAnalystUrl(url, null, { ...options, pinned: { entry: e, args: { n: '1' }, tool: 'pq_op' } }),
+                    /operator public\.= \(named like a built-in\)/
+                )
             } finally {
                 await setup.query('DROP OPERATOR public.= (text,bigint); DROP FUNCTION public.zz_test_eq(text,bigint)')
             }
@@ -232,7 +279,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 return createHash('sha256').update(normalized).digest('hex')
             }
             try {
-                const opts = { ...options, binds: [], checkText: null }
+                const opts = options
                 await queryAnalystUrl(url, 'SELECT id FROM demo_sales WHERE id=1 LIMIT 1', opts)
                 assert.equal(digest(), golden.small)
                 sent = []
@@ -254,10 +301,10 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             }
             try {
                 const input = 'SELECT id FROM demo_sales WHERE id=1 LIMIT 1'
-                const first = await queryAnalystUrl(url, input, options),
+                const first = await queryAnalystUrl(url, input, { ...options, env: {} }),
                     before = sent
                 sent = []
-                const second = await queryAnalystUrl(url, input, { ...options, binds: [], checkText: undefined })
+                const second = await queryAnalystUrl(url, input, { ...options, env: { ...process.env, CUTTLELY_PINNED_QUERIES: 'true' } })
                 assert.equal(JSON.stringify(first), JSON.stringify(second))
                 const stable = (calls) =>
                     JSON.stringify(calls.map((args) => (typeof args[0] === 'string' ? args[0] : args[0].text))).replace(
@@ -271,14 +318,19 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         })
         await t.test('cursor from another pq_ tool is refused', async () => {
             const first = await queryAnalystUrl(url, compiled.runText, bound)
-            for (const pinned of [{ ...pin, version: 2 }, { ...pin, statementHash: 'changed' }, { ...pin, tool: 'pq_other' }, undefined]) {
+            for (const pinned of [
+                { ...bound.pinned, entry: { ...entry, version: 2 } },
+                { ...bound.pinned, entry: { ...entry, sql: entry.sql.replace('300', '299') } },
+                { ...bound.pinned, tool: 'pq_other' },
+                undefined
+            ]) {
                 await assert.rejects(queryAnalystUrl(url, { cursor: first.cursor }, { ...bound, pinned }), /changed|another tool/)
             }
         })
         await t.test('text injection remains a value and tables stay intact', async () => {
             const result = await queryAnalystUrl(url, compiled.runText, {
                 ...bound,
-                binds: validateArgs(entry, { r: "'; DROP TABLE demo_sales; --" })
+                pinned: { ...bound.pinned, args: { r: "'; DROP TABLE demo_sales; --" } }
             })
             assert.deepEqual(result.rows, [])
             assert.equal((await setup.query('SELECT count(*) FROM demo_sales')).rows[0].count, '300')
@@ -292,8 +344,8 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 const e = { sql, params: [{ name: 'n', type: 'int8' }] }
                 await assert.rejects(
                     async () => {
-                        const q = compilePinned(e)
-                        await queryAnalystUrl(url, q.runText, { ...options, binds: ['1'], checkText: q.checkText })
+                        compilePinned(e)
+                        await queryAnalystUrl(url, null, { ...options, pinned: { entry: e, args: { n: '1' } } })
                     },
                     undefined,
                     sql
@@ -321,21 +373,18 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                     { name: 'b', type: 'bool' }
                 ]
             }
-            const q = compilePinned(e)
-            const result = await queryAnalystUrl(url, q.runText, {
+            const result = await queryAnalystUrl(url, null, {
                 ...options,
-                checkText: q.checkText,
-                suggestTypesSql: 'SELECT id FROM demo_sales WHERE region=$1 AND amount>$2 AND month>$3 AND active=$4 LIMIT 1'
+                pinned: { entry: e },
+                suggestTypesSql: 'SELECT id FROM demo_sales WHERE region=($1) AND amount>($2) AND month>($3) AND active=($4) LIMIT 1'
             })
             assert.deepEqual(result.paramTypes, ['text', 'numeric', 'date', 'bool'])
-            const a = compilePinned({
-                sql: 'SELECT id FROM demo_sales WHERE :r IS NULL OR region=:r LIMIT 1',
-                params: [{ name: 'r', type: 'text' }]
-            })
-            const ambiguous = await queryAnalystUrl(url, a.runText, {
+            const ambiguous = await queryAnalystUrl(url, null, {
                 ...options,
-                checkText: a.checkText,
-                suggestTypesSql: 'SELECT id FROM demo_sales WHERE $1 IS NULL OR region=$1 LIMIT 1'
+                pinned: {
+                    entry: { sql: 'SELECT id FROM demo_sales WHERE :r IS NULL OR region=:r LIMIT 1', params: [{ name: 'r', type: 'text' }] }
+                },
+                suggestTypesSql: 'SELECT id FROM demo_sales WHERE ($1) IS NULL OR region=($1) LIMIT 1'
             })
             assert.equal(ambiguous.paramTypes, null)
             await assert.rejects(
@@ -354,7 +403,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             deniedUrl.username = deniedRole
             deniedUrl.password = deniedSecret
             await assert.rejects(
-                queryAnalystUrl(deniedUrl.toString(), compiled.runText, { ...bound, suggestTypesSql: entry.sql.replaceAll(':r', '$1') }),
+                queryAnalystUrl(deniedUrl.toString(), compiled.runText, { ...bound, suggestTypesSql: entry.sql.replaceAll(':r', '($1)') }),
                 /selected|read|permission|no longer/i
             )
         })
@@ -393,14 +442,12 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 if (sql.includes(':n')) params.push({ name: 'n', type: 'int8' })
                 await assert.rejects(
                     async () => {
-                        const q = compilePinned({ sql, params })
-                        await queryAnalystUrl(url, q.runText, {
+                        await queryAnalystUrl(url, null, {
                             ...options,
-                            checkText: q.checkText,
-                            binds: validateArgs(
-                                { sql, params },
-                                { ...Object.fromEntries(params.map((p) => [p.name, p.type === 'text' ? 'EU' : '1'])) }
-                            )
+                            pinned: {
+                                entry: { sql, params },
+                                args: Object.fromEntries(params.map((p) => [p.name, p.type === 'text' ? 'EU' : '1']))
+                            }
                         })
                     },
                     undefined,
@@ -416,12 +463,12 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 "SELECT ':r' AS a, $$:r$$ AS b, $q$ :r $q$ AS c LIMIT 1"
             ]) {
                 const q = compilePinned({ sql })
-                assert.equal((await queryAnalystUrl(url, q.runText, { ...options, checkText: q.checkText })).rows.length, 1)
+                assert.equal((await queryAnalystUrl(url, q.runText, { ...options, pinned: { entry: { sql } } })).rows.length, 1)
             }
         })
         await t.test('NUL text becomes an expected error', async () => {
             await assert.rejects(
-                queryAnalystUrl(url, compiled.runText, { ...bound, binds: ['a\u0000b'] }),
+                queryAnalystUrl(url, compiled.runText, { ...bound, pinned: { ...bound.pinned, args: { r: 'a\u0000b' } } }),
                 (e) => e.cuttlelyOutcome === 'expected'
             )
         })
@@ -432,8 +479,7 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 queryAnalystUrl(url, q.runText, {
                     ...options,
                     relations: [],
-                    binds: ['100000000'],
-                    checkText: q.checkText,
+                    pinned: { entry: e, args: { n: '100000000' } },
                     statementTimeoutMs: 1000
                 }),
                 /timeout/
@@ -446,4 +492,44 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         if (madeRole) await admin.query(`DROP ROLE "${deniedRole}"`)
         await admin.end()
     }
+})
+
+test('ZZ-TEST- exported stores refuse caller pairs before any query executes', async () => {
+    const original = pg.Client.prototype.query
+    let calls = 0
+    pg.Client.prototype.query = function () {
+        calls++
+        throw new Error('unexpected query')
+    }
+    try {
+        const options = { readOnlySql: true, binds: [], checkText: 'SELECT 1 LIMIT 1' }
+        await assert.rejects(queryAnalystUrl('unused', 'SELECT * FROM other_table LIMIT 1', options), /Caller-supplied/)
+        await assert.rejects(
+            queryUrlPostgres('unused', 'SELECT * FROM other_table LIMIT 1', null, undefined, process.env, [], options),
+            /Caller-supplied/
+        )
+        await assert.rejects(
+            queryUrlPostgres(
+                'unused',
+                'SELECT 1 LIMIT 1',
+                { plan: { statement: 'SELECT * FROM other_table LIMIT 1', checkText: 'SELECT 1 LIMIT 1' } },
+                undefined,
+                process.env,
+                [],
+                { readOnlySql: true }
+            ),
+            /server-held cursor/
+        )
+        assert.equal(calls, 0)
+    } finally {
+        pg.Client.prototype.query = original
+    }
+})
+test('ZZ-TEST- flag off refuses pins and suggestions before connecting', async () => {
+    for (const value of [undefined, '0', 'TRUE', 'false', ' true '])
+        for (const extra of [{ pinned: { entry: { sql: 'SELECT 1 LIMIT 1' } } }, { suggestTypesSql: 'SELECT $1 LIMIT 1' }])
+            await assert.rejects(
+                queryAnalystUrl('unused', null, { readOnlySql: true, env: { CUTTLELY_PINNED_QUERIES: value }, ...extra }),
+                /Pinned queries are turned off on this server\./
+            )
 })

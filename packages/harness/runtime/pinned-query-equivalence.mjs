@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { compilePinned, validateArgs } from './pinned-query.mjs'
+import { compilePinned } from './pinned-query.mjs'
 
 // Constructs from the pinned-query equivalence spike, exercised on the CI PG matrix.
 const CASES = [
@@ -282,7 +282,9 @@ export async function provePair(client, compiled, types, binds) {
                 [types.map((t) => 'pg_catalog.' + t).join(',')]
             )
         ).rows[0].tree
-        assert.deepEqual(oracleIds(fn), oracleIds(view), 'T3 stored tree OIDs and types')
+        const viewOid = (await client.query("SELECT 'pg_temp.zz_test_equivalence'::regclass::oid AS oid")).rows[0].oid
+        const viewIds = oracleIds(view).filter((id) => id !== `relid:${viewOid}`)
+        assert.deepEqual(oracleIds(fn), viewIds, 'T3 stored tree OIDs and types')
     } finally {
         await client.query('ROLLBACK')
         if (prepared) await client.query('DEALLOCATE zz_test_pair')
