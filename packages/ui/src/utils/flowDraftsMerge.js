@@ -401,8 +401,9 @@ export function draftMergePlan(baseText, mineText, theirsText, normalize) {
         const any = entry.mine || entry.theirs || entry.base
         if (edgeField(any) && contentConflict.has(any.target)) entry.follows = any.target
     }
+    pairRivalFeeds(edges, [mine, theirs, base], names)
     const items = [...nodes, ...edges, ...settings]
-    const listed = items.filter((item) => !item.follows)
+    const listed = items.filter((item) => !item.follows && !item.rivalOf)
     return {
         mine,
         items,
@@ -457,12 +458,16 @@ export function applyDraftMerge(plan, choices = {}) {
     }
     const ends = new Set()
     let edges = []
+    const edgeEntries = new Map(plan.items.filter((item) => item.kind === 'edge').map((item) => [item.id, item]))
     for (const entry of plan.items.filter((item) => item.kind === 'edge')) {
         const any = entry.mine || entry.theirs || entry.base
-        const side = edgeField(any) ? owner.get(any.target) : undefined
+        const rival = entry.rivalOf ? edgeEntries.get(entry.rivalOf) : null
+        const side = rival ? (pick(rival) === 'theirs' ? 'none' : 'mine') : edgeField(any) ? owner.get(any.target) : undefined
         const edge =
-            (side ? (side === 'theirs' ? entry.theirs : entry.mine) || null : resolvedItem(entry, pick(entry))) ||
-            restoredEdge(entry, nodeEntries, present)
+            side === 'none'
+                ? null
+                : (side ? (side === 'theirs' ? entry.theirs : entry.mine) || null : resolvedItem(entry, pick(entry))) ||
+                  restoredEdge(entry, nodeEntries, present)
         if (!edge || !present.has(edge.source) || !present.has(edge.target)) continue
         const key = edgeEnds(edge)
         if (ends.has(key)) continue
@@ -532,6 +537,53 @@ const mentions = (value, ref) =>
 
 // The canvas takes one connection on an input that is not a list. When each draft connected that input to a
 // different card, keep the one the kept card reads from, so the pick for that card decides; failing that, mine.
+// The input slot a connection fills, when it takes only one connection.
+function singleSlot(edge, node) {
+    const field = edgeField(edge)
+    if (!field || !node?.data) return null
+    const slot =
+        (node.data.inputAnchors || []).find((item) => item?.id === edge.targetHandle || item?.name === field) ||
+        (node.data.inputParams || []).find((item) => item?.id === edge.targetHandle || item?.name === field)
+    return slot && !slot.list ? field : null
+}
+
+// Each side connected a different card to the same single input, and neither connection is decided by a card
+// conflict: their connection becomes the conflict, and mine goes with its pick.
+function pairRivalFeeds(edges, canvases, names) {
+    const cards = new Map()
+    for (const canvas of canvases) for (const node of canvas.nodes) if (node?.id && !cards.has(node.id)) cards.set(node.id, node)
+    const slots = new Map()
+    for (const entry of edges) {
+        if (entry.follows || entry.conflict) continue
+        const edge = entry.take === 'theirs' ? entry.theirs : entry.mine
+        if (!edge) continue
+        const field = singleSlot(edge, cards.get(edge.target))
+        if (!field) continue
+        const key = `${edge.target}\u0000${field}`
+        const slot = slots.get(key) || { mine: null, theirs: null, field, target: edge.target }
+        if (entry.take === 'theirs' && entry.theirChange === 'added') slot.theirs = entry
+        else if (entry.take === 'mine' && entry.mineChange === 'added') slot.mine = entry
+        slots.set(key, slot)
+    }
+    for (const slot of slots.values()) {
+        if (!slot.mine || !slot.theirs || slot.mine.mine.source === slot.theirs.theirs.source) continue
+        const entry = slot.theirs
+        delete entry.take
+        entry.conflict = true
+        entry.rivalFeed = true
+        entry.label = `${names.get(slot.target) || slot.target}: ${fieldLabel(`inputs.${slot.field}`) || slot.field}`
+        entry.fields = [
+            {
+                field: 'connection',
+                label: 'Connected from',
+                mine: names.get(slot.mine.mine.source) || slot.mine.mine.source,
+                theirs: names.get(entry.theirs.source) || entry.theirs.source
+            }
+        ]
+        slot.mine.rivalOf = entry.id
+    }
+}
+
 function oneFeedPerInput(nodes, edges, fromMine) {
     const byId = new Map(nodes.map((node) => [node.id, node]))
     const groups = new Map()
@@ -614,6 +666,7 @@ export const mergeLine = (entry, side) => {
 // "Both changed it", "You changed it, they removed it", for a conflict's heading.
 export const conflictSummary = (entry) => {
     if (entry.moveConflict && entry.take !== undefined) return 'You both moved it'
+    if (entry.rivalFeed) return 'You both connected a card to it'
     if (entry.insideChanged === 'mine') return 'You changed cards inside it, they removed it with its cards'
     if (entry.insideChanged === 'theirs') return 'You removed it with its cards, they changed cards inside it'
     const you = CHANGE_WORDS[entry.mineChange] || (entry.mineMoved ? 'moved' : 'changed')

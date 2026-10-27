@@ -409,4 +409,29 @@ describe('ZZ-TEST-draft merge', () => {
         expect(out.edges.map((item) => item.id)).toEqual(['v1'])
         expect(byId(out.nodes, 'p').data.inputs).toEqual({ template: 'hi', format: 'b' })
     })
+    test('we both connected a different card to the same variable input: one conflict, and the pick keeps one connection', () => {
+        const prompt = node(
+            'p',
+            { template: 'hi {x}' },
+            { data: { inputAnchors: [], inputParams: [{ name: 'template', acceptVariable: true }] } }
+        )
+        const link = (id, source) => ({
+            id,
+            source,
+            target: 'p',
+            sourceHandle: `${source}-output-${source}-string`,
+            targetHandle: 'p-input-template-string',
+            type: 'buttonedge'
+        })
+        const base = canvas([node('x'), node('y'), prompt])
+        const mine = canvas([node('x'), node('y'), prompt], [link('vx', 'x')])
+        const theirs = canvas([node('x'), node('y'), prompt], [link('vy', 'y')])
+        const plan = draftMergePlan(base, mine, theirs)
+        expect(plan.conflicts.map(conflictKey)).toEqual(['edge:vy'])
+        expect(conflictSummary(plan.conflicts[0])).toBe('You both connected a card to it')
+        expect(plan.conflicts[0].fields).toEqual([{ field: 'connection', label: 'Connected from', mine: 'ZZ-TEST-x', theirs: 'ZZ-TEST-y' }])
+        expect([...plan.merged, ...plan.kept]).toEqual([])
+        expect(parse(applyDraftMerge(plan)).edges.map((item) => item.id)).toEqual(['vx'])
+        expect(parse(applyDraftMerge(plan, { 'edge:vy': 'theirs' })).edges.map((item) => item.id)).toEqual(['vy'])
+    })
 })
