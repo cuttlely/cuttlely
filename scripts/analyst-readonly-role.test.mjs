@@ -382,7 +382,12 @@ describe('analyst: a login whose role defaults to read-only transactions', () =>
             if (failBegin && parts(text).some((p) => p.startsWith('BEGIN TRANSACTION READ WRITE'))) {
                 const error = new Error('cannot set transaction read-write mode during recovery')
                 error.code = '0A000'
-                return Promise.reject(error)
+                // Leave the session in an aborted transaction, the worst state a failed BEGIN could leave, so the
+                // fallback must clear it before it starts again.
+                return originalQuery.call(this, 'BEGIN TRANSACTION READ WRITE; SELECT 1 / 0').then(
+                    () => Promise.reject(error),
+                    () => Promise.reject(error)
+                )
             }
             if (text.includes('pg_is_in_recovery()')) return originalQuery.call(this, 'SELECT true AS r')
             if (!failBegin && text.startsWith('CREATE TEMP VIEW')) {

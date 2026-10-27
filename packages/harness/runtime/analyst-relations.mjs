@@ -412,6 +412,9 @@ export async function sampleRelationValues(client, runner, relation, relations, 
     if (!checked.length) return null
     await client.query('SET LOCAL transaction_read_only = on')
     await client.query(`SET LOCAL statement_timeout = ${SAMPLE_TIMEOUT_MS}`)
+    // The samples run only once the transaction reads back as read only.
+    const mode = await client.query('SHOW transaction_read_only')
+    if (mode.rows?.[0]?.transaction_read_only !== 'on') return null
     const values = {}
     for (const { column, statement } of checked) {
         const sample = await inSavepoint(client, 'cuttlely_sample', () => client.query(statement))

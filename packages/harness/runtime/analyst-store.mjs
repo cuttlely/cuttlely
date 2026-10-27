@@ -2117,6 +2117,8 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
                 `${readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN TRANSACTION READ WRITE'}; SET LOCAL statement_timeout = ${ms}`
             )
         } catch (error) {
+            // Clear any transaction the failed BEGIN may have left aborted before asking again.
+            await client.query('ROLLBACK').catch(() => {})
             if (readOnly || !(await inRecovery(client, error))) throw error
             await client.query(`BEGIN TRANSACTION READ ONLY; SET LOCAL statement_timeout = ${ms}`)
         }
