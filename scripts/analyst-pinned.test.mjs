@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import pg from 'pg'
 import fs from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { checkPinnedEquivalence } from '../packages/harness/runtime/pinned-query-equivalence.mjs'
 import { compilePinned, validateArgs } from '../packages/harness/runtime/pinned-query.mjs'
 import {
@@ -63,7 +63,10 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             'DROP OPERATOR public.= (text,bigint); DROP FUNCTION public.zz_test_rt_eq(text,bigint); DROP FUNCTION public.date_trunc(text,date)'
         )
         const c = config(database)
-        const url = `postgresql://${encodeURIComponent(c.user)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${database}`
+        const target = new URL(`postgresql://${c.host}:${c.port}/${database}`)
+        target.username = c.user
+        target.password = c.password
+        const url = target.href
         const options = { readOnlySql: true, relations: ['public.demo_sales'], rowCap: 100, scope: 'ZZ-TEST-runtime' }
         const entry = {
             id: 'ZZ-TEST-pin',
@@ -138,6 +141,26 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             } finally {
                 pg.Client.prototype.query = original
             }
+        })
+        await t.test('cursor-only replay of a pin with a required parameter reuses its binds', async () => {
+            const pinned = { entry, tool: entry.name }
+            const first = await queryAnalystUrl(url, null, { ...options, pinned: { ...pinned, args: { r: 'EU' } } })
+            assert.ok(first.cursor)
+            for (const changed of [
+                { entry: { ...entry, id: 'other' } },
+                { entry: { ...entry, version: 2 } },
+                { entry: { ...entry, sql: entry.sql.replace('LIMIT 300', 'LIMIT 299') } },
+                { tool: 'pq_other' }
+            ])
+                await assert.rejects(
+                    queryAnalystUrl(url, { cursor: first.cursor }, { ...options, pinned: { ...pinned, ...changed } }),
+                    /changed|another tool/
+                )
+            const second = await queryAnalystUrl(url, { cursor: first.cursor }, { ...options, pinned })
+            assert.equal(second.rows.length, 100)
+            assert.equal(second.rows[0].id, '101')
+            assert.ok(second.rows.every((row) => row.region === 'EU'))
+            assert.match(second.summary, /of 300.*page 2 of 3/)
         })
         await t.test('check-copy parse error is refused', async () => {
             await assert.rejects(queryAnalystUrl(url, compiled.runText, { ...bound, checkText: 'SELECT FROM WHERE' }))
@@ -323,11 +346,13 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             )
         })
         await t.test('suggestions cannot bypass the login table grants', async () => {
-            await admin.query(`CREATE ROLE "${deniedRole}" LOGIN`)
+            // CI servers use password auth, so the throwaway role gets a random one.
+            const deniedSecret = randomBytes(18).toString('hex')
+            await admin.query(`CREATE ROLE "${deniedRole}" LOGIN PASSWORD '${deniedSecret}'`)
             madeRole = true
             const deniedUrl = new URL(url)
             deniedUrl.username = deniedRole
-            deniedUrl.password = ''
+            deniedUrl.password = deniedSecret
             await assert.rejects(
                 queryAnalystUrl(deniedUrl.toString(), compiled.runText, { ...bound, suggestTypesSql: entry.sql.replaceAll(':r', '$1') }),
                 /selected|read|permission|no longer/i
