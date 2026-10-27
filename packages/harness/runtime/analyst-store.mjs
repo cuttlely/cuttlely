@@ -53,6 +53,8 @@ import {
     selectedRelationsRead,
     guardCheckReads,
     guardDefinitionReads,
+    validationFailure,
+    VALIDATION_STANDBY,
     ROUTINE_STAMP_SQL
 } from './analyst-relations.mjs'
 
@@ -2078,6 +2080,17 @@ function urlSecrets(postgresUrl) {
     return secrets
 }
 
+// After a READ WRITE check transaction failed to start: true when the server is a standby in recovery. The failed
+// BEGIN left no transaction open, so the read runs on its own.
+async function inRecovery(client, error) {
+    if (validationFailure(error) === 'standby') return true
+    try {
+        return (await client.query('SELECT pg_catalog.pg_is_in_recovery() AS r')).rows?.[0]?.r === true
+    } catch {
+        return false
+    }
+}
+
 // One transaction holds the settings and the work, so a transaction-pooling proxy such as PgBouncer cannot run
 // them on different server sessions. Nothing is ever committed.
 async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, readOnly = true } = {}) {
@@ -2097,7 +2110,16 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
         await client.connect()
         if (side) side.connectMs += performance.now() - connecting
         // One round trip. A multi-statement simple query stops at the first error, as separate calls would.
-        await client.query(`${readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN'}; SET LOCAL statement_timeout = ${ms}`)
+        // READ WRITE is explicit, so a role that defaults to read-only transactions can still create the sample checks'
+        // temporary views. On a standby it cannot start; the call then runs read only and the samples are left out.
+        try {
+            await client.query(
+                `${readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN TRANSACTION READ WRITE'}; SET LOCAL statement_timeout = ${ms}`
+            )
+        } catch (error) {
+            if (readOnly || !(await inRecovery(client, error))) throw error
+            await client.query(`BEGIN TRANSACTION READ ONLY; SET LOCAL statement_timeout = ${ms}`)
+        }
         return await fn(client, postgresRunner(client, { transaction: true }))
     } catch (error) {
         const outcome = analystErrorOutcome(error)
@@ -2233,7 +2255,9 @@ async function runUrlPostgres(
     const pathEntry = () => (guard.statementPathSql ? [{ exec: guard.statementPathSql }] : [])
     const begin = async (readOnly) => {
         guard.clearPrefetch?.()
-        const settings = [readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN', `SET LOCAL statement_timeout = ${ms}`]
+        // The check transaction is READ WRITE even for a role that defaults to read-only transactions: it only creates
+        // the temporary view and reads the catalog, and it always rolls back. The query transaction is READ ONLY.
+        const settings = [readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN TRANSACTION READ WRITE', `SET LOCAL statement_timeout = ${ms}`]
         settings.push('SET LOCAL standard_conforming_strings = on')
         // Keep the check transaction's release before the query transaction's BEGIN.
         if (guard.batchedGuard && carryRollback) settings.unshift('ROLLBACK')
@@ -2277,6 +2301,16 @@ async function runUrlPostgres(
             const login = await guard.get("SELECT pg_catalog.current_setting('search_path') AS p, pg_catalog.current_setting('jit') AS jit")
             loginJit = login?.jit || 'on'
             setStatementPath(String(login?.p || ''))
+        }
+    }
+    // A standby cannot start a READ WRITE transaction; that gets its own message instead of the raw error.
+    const beginCheck = async () => {
+        try {
+            await begin(false)
+        } catch (error) {
+            await rollback()
+            if (await inRecovery(client, error)) throw new AnalystToolError(VALIDATION_STANDBY, 'expected')
+            throw error
         }
     }
     const preparse = async () => {
@@ -2326,7 +2360,7 @@ async function runUrlPostgres(
             setStatementPath(login?.p || '')
         }
         if (scoped) {
-            await begin(false)
+            await beginCheck()
             try {
                 await preparse()
                 if (readOnlySql) await refuseRiskyTypes(guard)
@@ -2354,7 +2388,7 @@ async function runUrlPostgres(
             }
         } else if (readOnlySql) {
             // No selection: the node still resolves every called function through the catalog first, on every page.
-            await begin(false)
+            await beginCheck()
             try {
                 await preparse()
                 await refuseRiskyTypes(guard)

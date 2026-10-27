@@ -22,6 +22,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   Guarded PostgreSQL queries, pins and `describe` samples work for a login whose role sets `default_transaction_read_only = on`. Validation opens a short read-write transaction only to create a temporary view, which is always rolled back; queries run in a read-only transaction. A read-only standby and a login without `TEMP` now get separate, plain messages instead of one shared one.
+
 -   On a PostgreSQL MCP node that offers only pinned queries, a call by the node's own name no longer runs the first pin with the wrong arguments and pauses the tool; it returns an expected error naming the pins and their parameters. The analyst retry names the pins instead of the query tool, and a miss is logged as a `pinned query` step that says the analyst did not run a pinned query.
 
 -   User Management can change an existing user's role: **Change role** on a row lists that person's teams and changes the role on one. The team role route now refuses a change to your own role (403; was 409), and a change to an organization owner's role by anyone who is not an organization owner. Someone who is not the organization owner can no longer change the role of, or remove from a team, a person whose team role has a permission they do not hold. `GET /api/v1/role` now also accepts `workspace:update`, so a team lead can load the role picker.

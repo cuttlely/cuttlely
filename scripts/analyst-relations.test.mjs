@@ -1843,7 +1843,7 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         try {
             await refusal(
                 queryAnalystUrl(url, 'SELECT count(*) FROM items LIMIT 1', { readOnlySql: true }),
-                /cannot create a temporary view/
+                /no TEMP privilege on the database, so it cannot create the temporary view/
             )
         } finally {
             await owner.query(`GRANT TEMPORARY ON DATABASE "${dbName}" TO PUBLIC`)

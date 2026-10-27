@@ -236,6 +236,11 @@ jobs:
                   CUTTLELY_TEST_PG_REQUIRED: '1'
                   CUTTLELY_TEST_GUARD_LEGACY_ROUND_TRIPS: '1'
               run: node --test scripts/analyst-relations.test.mjs
+            - name: Analyst tests for a login that defaults to read-only transactions
+              env:
+                  PGPASSWORD: postgres
+                  CUTTLELY_TEST_PG_REQUIRED: '1'
+              run: node --test scripts/analyst-readonly-role.test.mjs
             - name: Analyst pinned query tests
               env:
                   PGPASSWORD: postgres

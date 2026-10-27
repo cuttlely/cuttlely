@@ -479,8 +479,8 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             )
         }
         await t.test('free SQL page, count, probe, length and replay match the round-trip golden', async () => {
-            // Updated for root-domain reads, catalog JIT settings and folded rollback batches,
-            // including SQL bytes and values.
+            // Updated for root-domain reads, catalog JIT settings, folded rollback batches and the
+            // check transaction's BEGIN TRANSACTION READ WRITE, including SQL bytes and values.
             // Only disposable relation/view OIDs and the prepared statement sequence vary per run.
             const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-da543c98.json', import.meta.url)))
             const oid = (await setup.query("SELECT 'demo_sales'::regclass::oid AS oid")).rows[0].oid
