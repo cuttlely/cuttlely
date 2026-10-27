@@ -1,6 +1,6 @@
 # Status
 
-Handoff 2026-10-27: branch `feat/pq-ui`: a bool parameter's default and allowed values are saved as real booleans, not the text typed in the editor, so the runtime accepts them (`entryFromEditor` in `packages/ui/src/views/canvas/pinnedQueries/model.js`; test in `pinnedQueries.test.js`). The pinned query guide's Audit section now says a successful Test & save attempts a `test` audit row (`docs/how-to/pinned-queries.md`).
+Handoff 2026-10-27: branch `feat/pq-ui`: a bool parameter's default and allowed values are saved as real booleans, not the text typed in the editor, so the runtime accepts them (`entryFromEditor` in `packages/ui/src/views/canvas/pinnedQueries/model.js`; test in `pinnedQueries.test.js`). The pinned query guide's Audit section now says a successful Test & save attempts a `test` audit row (`docs/how-to/pinned-queries.md`). The analyst guide, audit log guide and audit API reference say the same: the `test` audit row is best-effort and written only after a successful test.
 
 Handoff 2026-10-27: branch `feat/pq-ui`: merged `feat/pq-node` at eddbc8dd (which carries the runtime branch and main da543c98, no rebase): pinned binds reach the page, count, type probe and length reads past main's batched guard prefetch, the batched guard parses only the check copy, and the free-SQL golden is `scripts/fixtures/pinned/free-sql-da543c98.json`. Type suggestions keep their untyped-NULL check text on top. CHANGELOG bullets are separated by a blank line.
 
