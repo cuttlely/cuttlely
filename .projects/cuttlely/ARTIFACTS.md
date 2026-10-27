@@ -51,3 +51,5 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 | Verify report              | `.verify/verify-report.json`, `.verify/verify-summary.md`              |
 | App data from a source run | `.cuttlely/` (records, queue, runtime home, ETL data, version history) |
 | Nodes manifest             | `packages/components/dist/nodes-manifest.json`                         |
+
+Pinned query runtime helpers live in `packages/harness/runtime/pinned-query.mjs`. The compiler emits typed run and NULL check texts together and validates their parameter spans. Bound URL queries require `readOnlySql: true`; paging retains the original binds, check text and pin identity. Unit coverage is in `packages/harness/runtime/pinned-query.test.mjs`; `scripts/analyst-pinned.test.mjs` exercises the PostgreSQL path and the test-only BEGIN ATOMIC equivalence oracle in the analyst-postgres matrix (14–18).
