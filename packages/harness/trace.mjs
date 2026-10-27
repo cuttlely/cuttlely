@@ -879,6 +879,8 @@ export function buildRunTrace({
     handoffTokens = null,
     handoffFallback = '',
     handoffStatus = '',
+    handoffReason = '',
+    answerDirect = '',
     directDetail = null,
     routeParse = null,
     question = ''
@@ -943,7 +945,14 @@ export function buildRunTrace({
         })),
         handoff:
             direct || handoffStatus === 'skipped'
-                ? { status: 'skipped', ms: null, model: '', fallback: '', tokens: null }
+                ? {
+                      status: 'skipped',
+                      ms: null,
+                      model: '',
+                      fallback: '',
+                      tokens: null,
+                      ...(handoffReason === 'answerDirect' ? { reason: handoffReason } : {})
+                  }
                 : {
                       status: 'done',
                       ms: handoffMs,
@@ -951,6 +960,7 @@ export function buildRunTrace({
                       fallback: handoffFallback || '',
                       tokens: handoffTokens
                   },
+        ...(answerDirect ? { answerDirect } : {}),
         ...(direct && directDetail ? { directDetail } : {})
     }
     const reserved = fitTraceSqlPreviews({ ...body, question: redactTraceQuestion(question) })

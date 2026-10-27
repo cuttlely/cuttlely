@@ -236,6 +236,12 @@ function check(name, ok, detail) {
     console.error(`FAIL ${name}${detail ? `: ${detail}` : ''}`)
 }
 
+const answerDirectTests = spawnSync(process.execPath, ['--test', path.join(root, 'packages/harness/answer-direct.test.mjs')], {
+    encoding: 'utf8',
+    timeout: 60000
+})
+check('answer direct runtime and configuration tests', answerDirectTests.status === 0, answerDirectTests.stdout + answerDirectTests.stderr)
+
 saveHarness(
     {
         name: 'draft-probe',
@@ -4508,6 +4514,39 @@ const { invokeChat } = await import('./model.mjs')
 function onceChat(invoke) {
     return { chat: { invoke }, label: 'Scripted', nodeName: 'scriptedChat', toolCalling: false }
 }
+for (const key of ['response_metadata', 'additional_kwargs', 'generationInfo']) {
+    for (const [field, reason] of [
+        ['finish_reason', 'length'],
+        ['stop_reason', 'max_tokens'],
+        ['finishReason', 'MAX_TOKENS'],
+        ['finish_reason', 'stop']
+    ]) {
+        const reply = await invokeChat(
+            onceChat(async () => ({ content: 'Answer', [key]: { [field]: reason } })),
+            { messages: [] }
+        )
+        check(`model completion reason ${key} ${reason}`, reply.finishReason === (reason === 'stop' ? 'stop' : 'length'))
+    }
+}
+const noCompletionReason = await invokeChat(
+    onceChat(async () => ({ content: 'Answer' })),
+    { messages: [] }
+)
+check('model completion reason absent stays absent', !('finishReason' in noCompletionReason))
+const streamedCompletion = await invokeChat(
+    {
+        ...onceChat(async () => ({ content: 'Unused' })),
+        chat: {
+            invoke: async () => ({ content: 'Unused' }),
+            stream: async function* () {
+                yield { content: 'Answer' }
+                yield { content: '', response_metadata: { finish_reason: 'length' } }
+            }
+        }
+    },
+    { messages: [], onDelta: () => {} }
+)
+check('model streamed completion reason', streamedCompletion.content === 'Answer' && streamedCompletion.finishReason === 'length')
 const stallCalls = []
 let stallError = null
 try {

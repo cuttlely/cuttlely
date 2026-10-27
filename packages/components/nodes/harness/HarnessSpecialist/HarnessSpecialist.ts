@@ -14,7 +14,7 @@ class HarnessSpecialist_Harness implements INode {
     constructor() {
         this.label = 'Harness Specialist'
         this.name = 'harnessSpecialist'
-        this.version = 2.1
+        this.version = 2.2
         this.type = 'HarnessSpecialist'
         this.icon = 'harness.svg'
         this.category = 'Harness'
@@ -99,6 +99,16 @@ class HarnessSpecialist_Harness implements INode {
                     { label: 'When to use', name: 'description', type: 'string', placeholder: 'Questions about refunds and credits' },
                     { label: 'Content', name: 'content', type: 'string', rows: 8 }
                 ]
+            },
+            {
+                label: 'Answer direct',
+                name: 'answerDirect',
+                type: 'boolean',
+                default: false,
+                optional: true,
+                additionalParams: true,
+                description:
+                    "Return this specialist's answer as the reply when it is the only step and it succeeded. Harness Prime's instructions, persona and Handoff limit do not apply to that reply."
             },
             {
                 label: 'Handoff limit',

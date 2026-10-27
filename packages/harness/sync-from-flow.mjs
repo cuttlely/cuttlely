@@ -204,6 +204,7 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
                 instructions: inputs.instructions || '',
                 ...(routingSummaryText(inputs.routingSummary) ? { summary: routingSummaryText(inputs.routingSummary) } : {}),
                 ...(playbookList(inputs.playbooks).length ? { playbooks: playbookList(inputs.playbooks) } : {}),
+                ...(boolInput(inputs.answerDirect) ? { answerDirect: true } : {}),
                 ...(specialistHandoffChars(inputs.handoffChars) ? { handoffChars: specialistHandoffChars(inputs.handoffChars) } : {}),
                 ...(models.model ? { model: models.model } : {}),
                 ...(models.fallback ? { fallbackModel: models.fallback } : {}),

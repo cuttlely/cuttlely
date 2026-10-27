@@ -1565,6 +1565,11 @@ export function playbookLines(playbooks) {
 
 export function specialistSoul(specialist, env = process.env) {
     const lines = [presetInstructions(specialist) || 'Do the work on your allowlist.']
+    if (specialist.answerDirect === true) {
+        lines.push(
+            "Your reply is shown to the user as written: answer in the user's language, with no SQL, tool JSON or internal notes unless asked."
+        )
+    }
     if (specialist.browser) lines.push('Use the browser tools to open pages. Report what the page says.')
     if (specialist.codeExecution) lines.push('Run Python with execute_code. Report the script and its exact output.')
     if (specialist.fileAccess) lines.push('Write files with write_file under your working directory. Report each path you wrote.')

@@ -232,6 +232,7 @@ export function saveHarness(record, { overwrite = false } = {}) {
         const playbooks = playbookList(specialist.playbooks)
         if (playbooks.length) specialist.playbooks = playbooks
         else delete specialist.playbooks
+        if (specialist.answerDirect !== true) delete specialist.answerDirect
         const handoffChars = specialistHandoffChars(specialist.handoffChars)
         if (handoffChars) specialist.handoffChars = handoffChars
         else delete specialist.handoffChars
