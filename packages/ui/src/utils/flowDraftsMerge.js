@@ -9,6 +9,7 @@ import { parseCanvas } from './flowDrafts'
 import { fieldLabel } from './versionHistory'
 import { CREDENTIAL_INPUT } from './canvasSave'
 import { canvasAfterDelete } from '@/views/canvas/cardActions'
+import { rearrangeToolsOrdering } from './genericHelper'
 
 // Data keys that describe the node type or the editor's state, not what someone typed.
 const NOT_CONTENT_DATA = new Set([
@@ -335,9 +336,54 @@ export function applyDraftMerge(plan, choices = {}) {
                   edgeIds: goneEdges.map((edge) => edge.id)
               })
             : { nodes, edges }
-    out.nodes = cleaned.nodes
+    out.nodes = connectKeptEdges(cleaned.nodes, cleaned.edges)
     out.edges = cleaned.edges
     return JSON.stringify(out)
+}
+
+// Chatflow-style handles are nodeId-input-<field>-<type>. Workflow canvases connect to the card itself and
+// keep nothing in its inputs, so they have no field here.
+const INPUT_MARKER = '-input-'
+function edgeField(edge) {
+    const handle = String(edge?.targetHandle || '')
+    const at = handle.indexOf(INPUT_MARKER)
+    if (at === -1) return null
+    return handle.slice(at + INPUT_MARKER.length).split('-')[0] || null
+}
+
+const mentions = (value, ref) =>
+    Array.isArray(value)
+        ? value.some((item) => typeof item === 'string' && item.includes(ref))
+        : typeof value === 'string' && value.includes(ref)
+
+// The canvas's own connect step for every kept connection: a connection one side drew can sit next to the
+// other side's version of the card it feeds, and that card must still read from it. Fills the input the same
+// way connecting on the canvas does, and leaves an input that already reads from that card alone.
+function connectKeptEdges(nodes, edges) {
+    const byId = new Map(nodes.map((node) => [node.id, node]))
+    const patched = new Map()
+    for (const edge of edges) {
+        const field = edgeField(edge)
+        const node = patched.get(edge.target) || byId.get(edge.target)
+        if (!field || !node?.data) continue
+        const ref = `{{${edge.source}.data.instance}}`
+        const inputs = node.data.inputs || {}
+        if (mentions(inputs[field], ref)) continue
+        const anchor = (node.data.inputAnchors || []).find((item) => item?.name === field)
+        const param = (node.data.inputParams || []).find((item) => item?.name === field)
+        let value
+        if (anchor?.list) {
+            value = Array.isArray(inputs[field]) ? [...inputs[field]] : []
+            if (field === 'tools') rearrangeToolsOrdering(value, edge.source)
+            else value.push(ref)
+        } else if (param?.acceptVariable) {
+            continue
+        } else {
+            value = ref
+        }
+        patched.set(node.id, { ...node, data: { ...node.data, inputs: { ...inputs, [field]: value } } })
+    }
+    return patched.size ? nodes.map((node) => patched.get(node.id) || node) : nodes
 }
 
 export const conflictKey = (entry) => `${entry.kind}:${entry.id}`

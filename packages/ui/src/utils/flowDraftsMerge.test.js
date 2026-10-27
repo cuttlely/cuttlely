@@ -203,4 +203,49 @@ describe('ZZ-TEST-draft merge', () => {
             [{ field: 'inputs.temperature', label: 'temperature', before: '0.1', after: '0.9' }]
         ])
     })
+    test('keeping my card after they reconnected it to another model points it at their model', () => {
+        const chain = (inputs) =>
+            node('chain', inputs, { data: { inputAnchors: [{ name: 'model', type: 'BaseChatModel' }], inputParams: [] } })
+        const link = (id, source) => ({
+            id,
+            source,
+            target: 'chain',
+            sourceHandle: `${source}-output-${source}-BaseChatModel`,
+            targetHandle: 'chain-input-model-BaseChatModel',
+            type: 'buttonedge'
+        })
+        const base = canvas([node('m1'), node('m2'), chain({ model: '{{m1.data.instance}}', prompt: 'hi' })], [link('l1', 'm1')])
+        const mine = canvas([node('m1'), node('m2'), chain({ model: '{{m1.data.instance}}', prompt: 'my prompt' })], [link('l1', 'm1')])
+        const theirs = canvas([node('m1'), node('m2'), chain({ model: '{{m2.data.instance}}', prompt: 'hi' })], [link('l2', 'm2')])
+        const plan = draftMergePlan(base, mine, theirs)
+        expect(plan.conflicts.map(conflictKey)).toEqual(['node:chain'])
+        const out = parse(applyDraftMerge(plan, { 'node:chain': 'mine' }))
+        expect(out.edges.map((item) => item.id)).toEqual(['l2'])
+        expect(byId(out.nodes, 'chain').data.inputs).toEqual({ model: '{{m2.data.instance}}', prompt: 'my prompt' })
+    })
+
+    test('a list input I kept gains the connection they added, and keeps the ones it had', () => {
+        const agent = (tools) =>
+            node('agent', { tools }, { data: { inputAnchors: [{ name: 'tools', type: 'Tool', list: true }], inputParams: [] } })
+        const link = (id, source) => ({
+            id,
+            source,
+            target: 'agent',
+            sourceHandle: `${source}-output-${source}-Tool`,
+            targetHandle: 'agent-input-tools-Tool',
+            type: 'buttonedge'
+        })
+        const base = canvas([node('t1'), agent(['{{t1.data.instance}}'])], [link('k1', 't1')])
+        const mine = canvas([node('t1'), agent(['{{t1.data.instance}}']), node('t9')], [link('k1', 't1')])
+        const theirs = canvas(
+            [node('t1'), node('t2'), agent(['{{t1.data.instance}}', '{{t2.data.instance}}'])],
+            [link('k1', 't1'), link('k2', 't2')]
+        )
+        const out = parse(applyDraftMerge(draftMergePlan(base, mine, theirs)))
+        expect(byId(out.nodes, 'agent').data.inputs.tools).toEqual(['{{t1.data.instance}}', '{{t2.data.instance}}'])
+        const keepMine = canvas([node('t1'), agent(['{{t1.data.instance}}', 'x'])], [link('k1', 't1')])
+        const plan = draftMergePlan(base, keepMine, theirs)
+        const picked = parse(applyDraftMerge(plan, { 'node:agent': 'mine' }))
+        expect(byId(picked.nodes, 'agent').data.inputs.tools).toEqual(['{{t1.data.instance}}', 'x', '{{t2.data.instance}}'])
+    })
 })
