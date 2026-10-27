@@ -190,10 +190,12 @@ function readNodePins(node: unknown): { ok: true; pins: PinSnap[] } | { ok: fals
     return { ok: true, pins }
 }
 
-function pinsByNode(flowData: unknown): Map<string, { ok: true; pins: PinSnap[] } | { ok: false }> | null {
+type NodePins = { ok: true; pins: PinSnap[] } | { ok: false }
+
+function pinsByNode(flowData: unknown): Map<string, NodePins> | null {
     const flow = parseFlow(flowData)
     if (!flow) return null
-    const byNode = new Map<string, { ok: true; pins: PinSnap[] } | { ok: false }>()
+    const byNode = new Map<string, NodePins>()
     for (const node of flow.nodes) {
         const id = asRecord(node)?.id
         if (typeof id !== 'string' || !id) continue
@@ -208,16 +210,16 @@ function pinsByNode(flowData: unknown): Map<string, { ok: true; pins: PinSnap[] 
  * Sample fields that are not part of the pin definition do not count as an edit.
  */
 export function diffPinnedQueries(previousFlowData: unknown, nextFlowData: unknown, flowId = ''): PinnedQueryChange[] {
-    const before = pinsByNode(previousFlowData) ?? new Map()
-    const after = pinsByNode(nextFlowData) ?? new Map()
+    const before = pinsByNode(previousFlowData) ?? new Map<string, NodePins>()
+    const after = pinsByNode(nextFlowData) ?? new Map<string, NodePins>()
     const nodeIds = new Set<string>([...before.keys(), ...after.keys()])
     const changes: PinnedQueryChange[] = []
     for (const nodeId of nodeIds) {
         const oldNode = before.get(nodeId)
         const newNode = after.get(nodeId)
         if ((oldNode && !oldNode.ok) || (newNode && !newNode.ok)) continue
-        const oldPins = new Map((oldNode && oldNode.ok ? oldNode.pins : []).map((pin) => [pin.key, pin]))
-        const newPins = new Map((newNode && newNode.ok ? newNode.pins : []).map((pin) => [pin.key, pin]))
+        const oldPins = new Map<string, PinSnap>((oldNode && oldNode.ok ? oldNode.pins : []).map((pin) => [pin.key, pin]))
+        const newPins = new Map<string, PinSnap>((newNode && newNode.ok ? newNode.pins : []).map((pin) => [pin.key, pin]))
         for (const [key, pin] of oldPins) {
             if (!newPins.has(key)) changes.push(changeOf('delete', flowId, pin))
         }

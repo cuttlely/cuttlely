@@ -1,5 +1,7 @@
 # Pinned queries
 
+This guide describes the pinned-query integration design. This standalone draft adds Live-save audit hooks and a test-audit helper; the pinned-query runtime, editor, feature setting, and test route are not included in this branch. The setup and runtime behavior below require those integrations before they can be used.
+
 A pinned query is SQL you write and test on a **PostgreSQL MCP** node. The specialist does not write that statement. It calls a tool that accepts only the parameters you named, and the server runs the saved statement with those values bound.
 
 This guarantees **execution** of the saved statement. It does not guarantee that the statement is the right one for the business. A pin with a wrong join returns that wrong result every time. **Tested is not approved.** A passing test is not a compliance sign-off, and this version has no second-person approval. The audit records who tested the pin and who saved a change. The read-only guard still runs on every call. The tested stamp is a label, not a permission.
@@ -34,7 +36,9 @@ The agent cannot choose the table, the column list, `ORDER BY`, or `LIMIT`. Thos
 
 ### Parameter types
 
-The type is one of `text`, `int8`, `numeric`, `date`, `timestamp`, `timestamptz`, and `bool`. Each value is bound as `$n::pg_catalog.<type>`. Anything else is refused.
+The type is one of `text`, `int8`, `numeric`, `date`, `timestamp`, `timestamptz`, and `bool`. Each value is bound with a parenthesised cast, `($n::pg_catalog.<type>)`. Anything else is refused. The store compiles both the check text and the run text itself from the saved entry; callers cannot supply compiled SQL.
+
+A `[` or `(` immediately after a parameter is refused, as is an open slice such as `x[:n]`. An array constructor such as `ARRAY[:a, :b]` is accepted when both parameters have valid scalar specs.
 
 `timestamp` and `timestamptz` are different types. A `timestamp` value is not read in the server's local time zone. Values are checked and sent as canonical text, not as a rewritten date.
 
@@ -52,7 +56,7 @@ A pin runs only on the PostgreSQL MCP node. The connection is the Postgres URL c
 
 Pins do not run in Auto mode (`CUTTLELY_ANALYST=auto`, isolated tools). With pins configured in that mode the server returns a clear error and registers no `pq_` tools. They are not run on the isolated store, including when that store has no credential and no `CUTTLELY_POSTGRES_URL`, and they are not ignored.
 
-The same read-only guard used by **QUERY** runs at test time and again on every call, including a later page: one `SELECT` or `WITH`, a literal top-level `LIMIT`, no semicolon, the table and view selection, the function rules, the timeout, and the row cap. The node's row cap and timeout still apply. A result that comes back with as many rows as the statement's own `LIMIT` is marked possibly truncated.
+The same read-only guard used by **QUERY** runs at test time and again on every call, including a later page: one `SELECT` or `WITH`, a literal top-level `LIMIT`, no semicolon, the table and view selection, the function rules, the timeout, and the row cap. The node's row cap and timeout still apply. Results carry `pinned: { id, version, statementHash, tool }`. A result that comes back with as many rows as the statement's own `LIMIT` carries `possiblyTruncated`; this does not prove that more rows exist.
 
 The credential, the ticked tables and views, and the allowed functions are the node's. A specialist is offered the pins on the nodes wired to it. If two of those nodes offer the same tool name, harness sync fails with a clear error.
 
@@ -88,9 +92,9 @@ Every analyst statement, free SQL and pinned, including a refused call, a failed
 
 A page keeps the original statement's `sqlHash` from the cursor. Paging does not look like a different statement. A refused or failed call still has `sqlHash`.
 
-The SQL text is stored only when query previews are on. `CUTTLELY_ANALYST_TRACE_PREVIEW` is on when it is unset. The values `false`, `0`, `off`, and `no` turn it off, in any letter case. Any other value leaves it on. With previews on, the step includes the executed SQL, including literals that were written in the statement, cut at 4096 bytes. `sqlTruncated` is true when the text was cut. With previews off, `sqlHash` is still there and the SQL text is not.
+When `CUTTLELY_ANALYST_TRACE_PREVIEW` is on, the trace includes a capped, redacted SQL preview. `sqlHash` remains available with previews off. Bound values do not become SQL literals in that preview. Secure parameter values must be redacted before capture. These trace guarantees require the runtime integration; this audit-only branch does not implement trace capture.
 
-For a pin, the executed SQL contains `$n` placeholders, not the parameter values. The values are stored on the step only when previews are on. A parameter marked secure is redacted at capture and is not stored, whether previews are on or off. The step also carries the pin id, name, version, and statement hash. The statement hash is the hash of the compiled statement together with the parameter spec. It is not the same value as `sqlHash`, which covers the executed SQL text only. Row previews follow the same preview setting as they do today. The SQL fields do not contain result rows.
+The pin's statement hash identifies the compiled statement and parameter spec. It is distinct from `sqlHash`, which identifies the executed SQL text. Audit rows described below do not contain SQL previews or bound values.
 
 ## Column drift
 
@@ -98,9 +102,9 @@ If the columns that come back differ in name or type from the columns recorded w
 
 ## Audit
 
-A save that stores a new, changed, or removed pin on Live writes a `pinned_query_change` row. Publish does that, because Publish copies the draft onto Live. Saving a draft does not. **Test & save** writes a `test` row when the test runs, including when the pin is still only on the draft. There is no database migration for the new type.
+A save that stores a new, changed, or removed pin on Live attempts to write a `pinned_query_change` row. Publish does that, because Publish copies the draft onto Live. Saving a draft does not. The exported `recordPinnedQueryTest` helper attempts to write a `test` row when called. This branch has no test route to call it; recording editor tests requires that integration. Audit failures do not block a save. There is no database migration for the new type.
 
-The row records the flow, the node, the pin name, the version, the user, and the kind of change: `create`, `edit`, `delete`, or `test`. It records the statement hash when the saved statement compiles. It can also name the credential id and the parameter names. It does not record the SQL text, parameter values, defaults, allowed values, or sample values. A secure parameter value is never stored. The same list is on the [audit log](./audit-log.md).
+The row records the flow, the node, the pin name, the version, the user, and the kind of change: `create`, `edit`, `delete`, or `test`. It records a valid 64-character hexadecimal statement hash when the runtime hash helper is available and succeeds. In this standalone branch that runtime module is absent, so Live-save rows omit the hash. The test helper accepts an already computed hash and omits invalid hashes. It can also name the credential id and the parameter names. It does not record the SQL text, parameter values, defaults, allowed values, or sample values. Parameter values, including secure values, are never copied into audit rows. Metadata fields are caller-supplied labels and identifiers, not a content scanner: do not put SQL or sensitive values in pin names, versions, parameter names, or identifiers. The row also has the organization and workspace scope, actor and user ids, a timestamp, and a summary containing up to 80 characters of the pin name. Shared audit redaction still applies and drops the detail if its serialized length exceeds 8000 characters. Hash computation and edit comparison can read the saved SQL and parameter spec in memory; those objects are not passed to the audit writer. The same list is on the [audit log](./audit-log.md).
 
 ## Example: demo_sales
 
