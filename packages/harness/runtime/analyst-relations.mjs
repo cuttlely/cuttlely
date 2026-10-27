@@ -1305,6 +1305,33 @@ const NOT_ALLOWED_SCHEMA = "n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'inform
 async function resolveAllowedFunctions(runner) {
     const entries = runner.allowedFunctions || []
     const allowed = new Set()
+    if (!entries.length) return allowed
+    if (!runner.legacyRoundTrips) {
+        const names = entries.filter((entry) => entry.all).map((entry) => entry.name)
+        const signatures = entries.filter((entry) => !entry.all).map((entry) => entry.signature)
+        // Evaluate every entry in its original order, even when no pg_proc row matches. The UNION ALL evaluation
+        // branch preserves lookup errors (including missing argument types on PG 14/15); only 'p' rows admit functions.
+        const rows = await runner.all(
+            `SELECT 'e' AS k, CASE WHEN e.k = 'all' THEN pg_catalog.array_length(pg_catalog.parse_ident(e.v), 1)::int8
+                                  ELSE pg_catalog.to_regprocedure(e.v)::oid::int8 END AS oid
+             FROM ROWS FROM (pg_catalog.unnest(?::text[]), pg_catalog.unnest(?::text[])) WITH ORDINALITY AS e(k, v, i)
+             UNION ALL
+             SELECT 'p', p.oid::int8 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+             WHERE p.prokind = 'f' AND ${NOT_ALLOWED_SCHEMA} AND (
+               p.oid IN (SELECT pg_catalog.to_regprocedure(s) FROM pg_catalog.unnest(?::text[]) AS s)
+               OR EXISTS (SELECT 1 FROM pg_catalog.unnest(?::text[]) AS m, pg_catalog.parse_ident(m) AS i
+                          WHERE pg_catalog.array_length(i, 1) = 2 AND n.nspname = i[1] AND p.proname = i[2]))`,
+            [
+                entries.map((entry) => (entry.all ? 'all' : 'sig')),
+                entries.map((entry) => (entry.all ? entry.name : entry.signature)),
+                signatures,
+                names
+            ]
+        )
+        for (const row of rows) if (row.k === 'p') allowed.add(Number(row.oid))
+        return allowed
+    }
+    // Kept so the parity test can run the old round trips and the new ones in one process. Decisions must not differ.
     for (const entry of entries) {
         const rows = entry.all
             ? await runner.all(
