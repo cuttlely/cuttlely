@@ -146,6 +146,17 @@ const getHarness = async (name: string, workspaceId?: string | null) => {
     return (await isOrphan(harness)) ? { ...harness, orphaned: true } : harness
 }
 
+const setHarnessCategory = async (name: string, category: unknown, workspaceId?: string | null) => {
+    return withNameLock(name, async () => {
+        await requireHarness(name, workspaceId)
+        if (typeof category !== 'string' && !Array.isArray(category)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Category must be a string or an array.')
+        }
+        const store = await loadHarness('store.mjs')
+        return store.setHarnessCategory(name, category)
+    })
+}
+
 const saveHarness = async (body: Record<string, unknown>, workspaceId?: string | null) => {
     const ws = workspaceOf(workspaceId)
     try {
@@ -1604,6 +1615,7 @@ const replayCheck = async (
 }
 
 export default {
+    setHarnessCategory,
     startHarnessRuntime,
     backfillHarnessWorkspaces,
     removeOrphanHarnesses,
