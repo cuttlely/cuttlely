@@ -177,6 +177,10 @@ The preview is the first few rows and the first few columns. A long value is cut
 
 The preview is saved with the run trace, in **Try it**, in the canvas chat, and in a saved chat. It holds only rows that query already returned to this chat, in this workspace, and never more than the configured row cap (at most 1000). It does not hold the page cursor. Select the chip again to close it. A run saved before previews still opens. Its chips render, and a chip that already stored its rows still lists those rows.
 
+Each analyst statement also carries `sqlHash` in the run-trace JSON and the streamed tool-start event, including refused and failed calls. It is the full lowercase SHA-256 hex digest of the statement after collapsing whitespace, trimming leading and trailing whitespace, and removing trailing semicolons. A “show more” call uses the original statement's hash, retained with its cursor in memory for the cursor's lifetime.
+
+`CUTTLELY_ANALYST_TRACE_PREVIEW` also controls SQL text capture. With previews on (the default), the same trace step and tool-start event include `sql`: the statement text, including literals, with existing secret redaction applied and capped at 4096 UTF-8 bytes without cutting a character. `sqlTruncated: true` marks a cut. With previews off, `sqlHash` stays and `sql` is omitted. SQL fields add no result rows and follow the trace's existing retention.
+
 To leave row values out of new traces, turn off **Query previews in the run trace** under **Admin** > **Server Settings** > **Analyst**, then restart. The chip can still say how many rows came back. [Server settings](./server-settings.md).
 
 ![Try it on the chief-of-staff harness. The analyst row is open. The chip reads mcp__analyst__query · done · 100 rows. The preview shows id and title for Ticket 1 through Ticket 5. The caption says Showing 5 of 100 rows. The rest of these rows are in the answer in this chat. Say show more for the next page. The page line reads rows 1-100 of 150 (page 1 of 2, say "show more" for the next page).](../images/analyst/trace-query-preview.png)
