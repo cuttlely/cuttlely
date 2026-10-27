@@ -8,6 +8,7 @@ import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { safeRecordAudit } from '../../identity/auditLog'
+import { importEsm } from '../../utils/importEsm'
 import logger from '../../utils/logger'
 
 export type PinnedChangeKind = 'create' | 'edit' | 'delete' | 'test'
@@ -262,7 +263,7 @@ async function statementHashOf(entry: unknown): Promise<string | null> {
         if (hashForTests) return validHash(await hashForTests(entry))
         const url = runtimeUrl()
         if (!url) return null
-        const mod = (await import(url)) as { statementHash?: (entry: unknown) => string }
+        const mod = (await importEsm(url)) as { statementHash?: (entry: unknown) => string }
         if (typeof mod.statementHash !== 'function') return null
         return validHash(mod.statementHash(entry))
     } catch {

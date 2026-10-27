@@ -27,8 +27,7 @@ import {
     uncastCompiled,
     updatePermissionFor
 } from './sql'
-
-const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
+import { importEsm } from '../../utils/importEsm'
 
 export interface CompiledPin {
     runText: string

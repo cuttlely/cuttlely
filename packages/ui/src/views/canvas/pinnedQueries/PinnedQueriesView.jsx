@@ -158,7 +158,7 @@ export function PinnedQueriesView({
         <section data-testid='pinned-queries'>
             <Typography variant='subtitle2'>Pinned queries</Typography>
             {warning ? <p data-testid='pin-warning'>{warning}</p> : null}
-            <button type='button' data-testid='pinned-add' onClick={onAdd} style={buttonStyle} disabled={disabled}>
+            <button type='button' data-testid='pinned-add' onClick={onAdd} style={buttonStyle} disabled={busy || disabled}>
                 Add
             </button>
             <ul data-testid='pinned-list'>
@@ -166,10 +166,10 @@ export function PinnedQueriesView({
                     <li key={pin.id} data-testid={`pin-${pin.id}`}>
                         <span>{pin.name}</span>
                         {needsRetestMark(pin) ? <span data-testid='needs-retest'>Needs re-test</span> : null}
-                        <button type='button' onClick={() => onEdit(pin)}>
+                        <button type='button' onClick={() => onEdit(pin)} disabled={busy}>
                             Edit
                         </button>
-                        <button type='button' onClick={() => onRemove(pin.id)} disabled={disabled}>
+                        <button type='button' onClick={() => onRemove(pin.id)} disabled={busy || disabled}>
                             Remove
                         </button>
                     </li>

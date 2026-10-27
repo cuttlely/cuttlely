@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import pinnedQueriesApi from '@/api/pinnedQueries'
 import { PinnedQueriesView } from './PinnedQueriesView'
 import {
@@ -36,6 +36,9 @@ export default function PinnedQueriesBlock({
     onChange
 }) {
     const list = readPins(pins)
+    // A test can take a while. The canvas may change meanwhile, so merge into the newest list.
+    const latestPins = useRef(pins)
+    latestPins.current = pins
     const [editor, setEditor] = useState(null)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
@@ -113,7 +116,7 @@ export default function PinnedQueriesBlock({
             if (!current.descriptionTouched) {
                 tested.description = describePin(tested.purpose, tested.params, response.data.columns)
             }
-            onChange(mergeTestedPin(list, tested))
+            onChange(mergeTestedPin(readPins(latestPins.current), tested))
             setEditor({
                 ...editorFromPin(tested),
                 samples: current.samples,
@@ -150,6 +153,7 @@ export default function PinnedQueriesBlock({
                 setEditor(editorFromPin(pin))
             }}
             onRemove={(id) => {
+                if (busy || disabled) return
                 onChange(list.filter((pin) => pin.id !== id))
                 if (editor?.id === id) setEditor(null)
             }}
