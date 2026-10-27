@@ -1,3 +1,4 @@
+import { compilePinned, suggestParamTypes } from './pinned-query.mjs'
 // Isolated storage for CUTTLELY_ANALYST=auto.
 // Postgres: schema "analyst" and login analyst_reader in the application database.
 // SQLite: analyst.db beside database.sqlite. The application file is never opened.
@@ -1271,11 +1272,11 @@ async function countSimple(runner, simple) {
     }
 }
 
-async function countResult(runner, statement) {
+async function countResult(runner, statement, binds = []) {
     const inner = String(statement || '').trim()
     if (!/^(select|with|values|table)\b/i.test(inner)) return null
     try {
-        const row = await runner.get(`SELECT COUNT(*) AS analyst_n FROM (${inner}) AS analyst_count`, [])
+        const row = await runner.get(`SELECT COUNT(*) AS analyst_n FROM (${inner}) AS analyst_count`, [], binds)
         const n = Number(row?.analyst_n)
         return Number.isFinite(n) ? n : null
     } catch {
@@ -1286,9 +1287,14 @@ async function countResult(runner, statement) {
 // A keyset plan is one row per base-table row, so the filtered table count is
 // the result count. Anything else is counted from the statement itself.
 async function countPlan(runner, plan) {
-    return timeStep(runner, 'count', () => (plan?.simple ? countSimple(runner, plan.simple) : countResult(runner, plan?.statement)), {
-        run: true
-    })
+    return timeStep(
+        runner,
+        'count',
+        () => (plan?.simple ? countSimple(runner, plan.simple) : countResult(runner, plan?.statement, plan?.binds)),
+        {
+            run: true
+        }
+    )
 }
 
 function pageStartOffset(paging, pageSize) {
@@ -1346,6 +1352,9 @@ function finishPage(rawRows, paging, plan) {
     const state = {
         scope: paging.scope,
         statement: plan.statement,
+        ...(plan.binds ? { binds: [...plan.binds] } : {}),
+        ...(plan.checkText !== undefined ? { checkText: plan.checkText } : {}),
+        ...(plan.pinned ? { pinned: structuredClone(plan.pinned) } : {}),
         storeKey: paging.storeKey,
         mode: plan.mode,
         simple: plan.simple || null,
@@ -1409,7 +1418,7 @@ async function readSelectPage(runner, plan, paging, { countIfPaged = false } = {
     } else {
         query = offsetSql(plan.statement, limit, offset)
     }
-    const raw = await timeStep(runner, 'page', () => runner.all(query.sql, query.params), { run: true })
+    const raw = await timeStep(runner, 'page', () => runner.all(query.sql, query.params, plan.binds), { run: true })
     if (!raw.length && paging.page > 1) throw cursorError(ANALYST_CURSOR_ERRORS.past)
     let total = paging.total
     if (countIfPaged) {
@@ -1439,10 +1448,10 @@ function boundsCoverRows(lengths, rawRows, offset) {
 }
 
 // Lengths only: the handoff line is `key: value` joined with `, `, and NULL is the word null.
-async function postgresColumnTypes(runner, inner, names) {
+async function postgresColumnTypes(runner, inner, names, binds = []) {
     const sql = columnTypeSql(inner, names)
     if (!sql) return null
-    const rows = await runner.all(sql, [])
+    const rows = await runner.all(sql, [], binds)
     return rows[0] || {}
 }
 
@@ -1462,11 +1471,11 @@ async function measureResultWalk(runner, plan, columnNames, total) {
     try {
         const columnTypes =
             engine === 'postgres'
-                ? await timeStep(runner, 'probe', () => postgresColumnTypes(runner, inner, columnNames), { run: true })
+                ? await timeStep(runner, 'probe', () => postgresColumnTypes(runner, inner, columnNames, plan.binds), { run: true })
                 : null
         const sql = resultLengthSql(inner, columnNames, engine, columnTypes)
         if (!sql) return null
-        const rows = await timeStep(runner, 'probe', () => runner.all(sql, []), { run: true })
+        const rows = await timeStep(runner, 'probe', () => runner.all(sql, [], plan.binds), { run: true })
         const lengths = []
         for (const row of rows) {
             if (row?.analyst_line_len == null) return null
@@ -1484,7 +1493,7 @@ async function measureResultWalk(runner, plan, columnNames, total) {
 
 // The paging builders add their placeholders after all of the user's SQL, so only the last ones become $1..$n.
 // A question mark in the user's SQL, such as the JSONB ? operator or one in a literal, stays as written.
-export function pgPlaceholders(sql, params) {
+export function pgPlaceholders(sql, params, base = 0) {
     const marks = []
     for (let i = 0; i < sql.length; i += 1) if (sql[i] === '?') marks.push(i)
     const take = marks.slice(marks.length - params.length)
@@ -1492,7 +1501,7 @@ export function pgPlaceholders(sql, params) {
     let out = ''
     let from = 0
     take.forEach((at, index) => {
-        out += `${sql.slice(from, at)}$${index + 1}`
+        out += `${sql.slice(from, at)}$${base + index + 1}`
         from = at + 1
     })
     return { sql: out + sql.slice(from), params }
@@ -1517,8 +1526,9 @@ function sqliteRunner(db) {
 // a savepoint keeps the user's statement usable.
 function postgresRunner(client, { transaction = false } = {}) {
     return {
-        async all(sql, params = []) {
-            const bound = pgPlaceholders(sql, params)
+        async all(sql, params = [], binds = []) {
+            const bound = pgPlaceholders(sql, params, binds.length)
+            if (binds.length) bound.params = [...binds, ...bound.params]
             if (!transaction) {
                 const result = await client.query(bound.sql, bound.params)
                 return result.rows || []
@@ -1533,17 +1543,17 @@ function postgresRunner(client, { transaction = false } = {}) {
                 throw error
             }
         },
-        async get(sql, params = []) {
-            const rows = await this.all(sql, params)
+        async get(sql, params = [], binds = []) {
+            const rows = await this.all(sql, params, binds)
             return rows[0] || null
         }
     }
 }
 
-async function runPostgresStatement(client, statement, paging, runner = postgresRunner(client)) {
+async function runPostgresStatement(client, statement, paging, runner = postgresRunner(client), snapshot = {}) {
     // SHOW, EXPLAIN and RETURNING rows over the cap are kept for show more, like the SQLite store does.
     if (!isRowQuery(statement)) return shapeResult(await client.query(statement), paging)
-    const plan = await timeStep(runner, 'plan', () => planSelect(runner, 'postgres', statement))
+    const plan = Object.assign(await timeStep(runner, 'plan', () => planSelect(runner, 'postgres', statement)), snapshot)
     return readSelectPage(runner, plan, { ...paging, page: 1, previousOffset: 0, lastKey: null }, { countIfPaged: true })
 }
 
@@ -1961,22 +1971,27 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
 // Every query runs in BEGIN READ ONLY. With a table selection, the scope check first creates its temporary view in
 // its own short transaction on the same connection, which always rolls back. The query transaction then starts
 // read only and confirms transaction_read_only is on just before the query runs.
-async function queryUrlPostgres(
+export async function queryUrlPostgres(
     postgresUrl,
     statement,
     replay,
     timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS,
     env = process.env,
     relations = [],
-    { readOnlySql = false, allowedFunctions = [] } = {}
+    options = {}
 ) {
+    const { readOnlySql = false, allowedFunctions = [], binds = [], checkText = null, pinned = null, suggestTypesSql } = options
+    requirePinnedReadOnly(options)
+    if (replay?.plan) requirePinnedReadOnly({ ...replay.plan, readOnlySql })
+    if ((binds.length || replay?.plan?.binds?.length) && !(replay?.plan?.checkText ?? checkText))
+        throw new AnalystToolError('Bound replay requires checkText.', 'expected')
     const scoped = relations.length > 0
     // The text check passed only row queries. Anything else would go out as a simple-protocol query.
     if (readOnlySql && !replay?.plan && !isRowQuery(statement)) {
         throw new AnalystToolError('Cuttlely refused this query: only one SELECT or WITH query is allowed.', 'expected')
     }
     const ms = analystStatementTimeoutMs(timeoutMs ?? ANALYST_STATEMENT_TIMEOUT_MS, env)
-    const text = replay?.plan?.statement || statement
+    const text = replay?.plan?.checkText ?? checkText ?? replay?.plan?.statement ?? statement
     const client = new Client({
         connectionString: postgresUrl,
         application_name: 'cuttlely-analyst',
@@ -2090,9 +2105,17 @@ async function queryUrlPostgres(
             const pageCursor = replay?.paging?.cursor
             const cursorBefore = pageCursor ? pageCursors.get(pageCursor) : undefined
             await statementPath()
-            const result = replay?.plan
+            runner.pinnedChecksComplete = Boolean(readOnlySql && checked)
+            runner.checkedRunSql = statement
+            const result = suggestTypesSql
+                ? { paramTypes: await suggestParamTypes(client, runner, suggestTypesSql) }
+                : replay?.plan
                 ? await readSelectPage(runner, replay.plan, replay.paging)
-                : await runPostgresStatement(client, statement, replay?.paging, runner)
+                : await runPostgresStatement(client, statement, replay?.paging, runner, {
+                      ...(binds.length ? { binds: [...binds] } : {}),
+                      ...(checkText != null ? { checkText } : {}),
+                      ...(pinned ? { pinned: structuredClone(pinned) } : {})
+                  })
             await catalogPath()
             // An overload or schema created after the last comparison could have changed what a name reached while
             // the statement was parsed. Its rows are not returned, the cursor stays where it was, and the transaction
@@ -2187,7 +2210,24 @@ async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBa
     if ((await routineCatalogStamp(runner)) !== checked.stamp) throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
 }
 
+function requirePinnedReadOnly(options) {
+    if ((options.pinned != null || options.binds != null || options.checkText != null) && options.readOnlySql !== true)
+        throw new AnalystToolError('Pinned calls require readOnlySql: true.', 'expected')
+}
+
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
+    requirePinnedReadOnly(options)
+    if (options.pinned?.entry) {
+        const { entry, args, tool } = options.pinned
+        const compiled = compilePinned(entry, args ?? {})
+        options = {
+            ...options,
+            binds: compiled.binds,
+            checkText: compiled.checkText,
+            pinned: { id: entry.id, version: entry.version, statementHash: compiled.statementHash, tool }
+        }
+        if (!(sqlOrInput && typeof sqlOrInput === 'object' && sqlOrInput.cursor)) sqlOrInput = compiled.runText
+    }
     const input = sqlOrInput && typeof sqlOrInput === 'object' && !Array.isArray(sqlOrInput) ? sqlOrInput : { sql: sqlOrInput }
     const env = options.env || process.env
     const relations = parseRelationSelection(options.relations)
@@ -2196,6 +2236,7 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         now: nowOf(options),
         ttl: ttlOf(options),
         storeKey: urlStoreKey(postgresUrl),
+        ...(options.pinned ? { pinned: options.pinned } : {}),
         rowCap: analystRowCap(options.rowCap, env)
     }
     const cursor = clean(input.cursor)
@@ -2205,7 +2246,10 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         if (options.readOnlySql) checkReadOnlySql(replay.plan.statement)
         return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations, {
             readOnlySql: Boolean(options.readOnlySql),
-            allowedFunctions: options.allowedFunctions
+            allowedFunctions: options.allowedFunctions,
+            ...(replay.plan.binds ? { binds: replay.plan.binds } : {}),
+            checkText: replay.plan.checkText,
+            pinned: replay.plan.pinned
         })
     }
     sweepCursors(pagingBase.now)
@@ -2223,7 +2267,14 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         options.statementTimeoutMs,
         env,
         relations,
-        { readOnlySql: Boolean(options.readOnlySql), allowedFunctions: options.allowedFunctions }
+        {
+            readOnlySql: Boolean(options.readOnlySql),
+            allowedFunctions: options.allowedFunctions,
+            ...(options.binds != null ? { binds: options.binds } : {}),
+            checkText: options.checkText,
+            pinned: options.pinned,
+            suggestTypesSql: options.suggestTypesSql
+        }
     )
 }
 
@@ -2451,6 +2502,13 @@ export function continueBufferedAnalystPage(cursor, input, options = {}) {
 function replayCursor(token, input, pagingBase) {
     const state = pageCursors.get(token)
     if (!state || state.storeKey !== pagingBase.storeKey) throw cursorError(ANALYST_CURSOR_ERRORS.invalid)
+    if (state.binds?.length && !state.checkText) throw cursorError('Bound replay requires checkText.')
+    if (state.pinned || pagingBase.pinned) {
+        const fields = ['id', 'version', 'statementHash', 'tool']
+        if (!state.pinned || !pagingBase.pinned || fields.some((k) => state.pinned[k] !== pagingBase.pinned[k])) {
+            throw cursorError('This pinned query changed or this cursor belongs to another tool. Re-run the query.')
+        }
+    }
     if (state.expiresAt <= pagingBase.now) {
         pageCursors.delete(token)
         throw cursorError(ANALYST_CURSOR_ERRORS.expired)
@@ -2488,6 +2546,9 @@ function replayCursor(token, input, pagingBase) {
         plan: {
             mode: state.mode,
             statement: state.statement,
+            ...(state.binds ? { binds: [...state.binds] } : {}),
+            ...(state.checkText !== undefined ? { checkText: state.checkText } : {}),
+            ...(state.pinned ? { pinned: structuredClone(state.pinned) } : {}),
             simple: state.simple,
             keys: state.keys,
             engine: state.engine || null,
