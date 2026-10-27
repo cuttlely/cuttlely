@@ -86,6 +86,17 @@ def test_analyst_page_scope_is_only_added_for_the_analyst_server():
     assert analyst_call_arguments("analyst", args, "") is args
 
 
+def test_page_scope_is_added_for_a_bridge_named_after_its_specialist():
+    args = {"sql": "select 1"}
+    bridge = {"command": "node", "env": {"CUTTLELY_ANALYST_BRIDGE": "1"}}
+    scoped = analyst_call_arguments("data", args, "sales--data:chat-9", bridge)
+    assert scoped["_cuttlelyScope"] == "sales--data:chat-9"
+    assert "_cuttlelyScope" not in args
+    assert analyst_call_arguments("data", args, "sales--data:chat-9", {"command": "node", "env": {}}) is args
+    assert analyst_call_arguments("data", args, "sales--data:chat-9", None) is args
+    assert analyst_call_arguments("data", args, "", bridge) is args
+
+
 def test_expected_outcome_leaves_the_breaker_text_unchanged():
     assert leaves_breaker_unchanged('{"error":"no such table: missing_table_xyz","cuttlelyOutcome":"expected"}')
     assert counts_toward_breaker({"error": "no such table: missing_table_xyz", "cuttlelyOutcome": "expected"}) is False

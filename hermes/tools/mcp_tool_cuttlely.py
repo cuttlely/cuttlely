@@ -44,13 +44,25 @@ def counts_toward_breaker(payload: Any) -> bool:
     return True
 
 
-def analyst_call_arguments(server_name: str, args: dict, session_id: Optional[str]) -> dict:
+def is_analyst_bridge(server_name: str, config: Optional[dict] = None) -> bool:
+    """cuttlely: the bridge is named after its specialist, so a data specialist's bridge is "data".
+
+    The harness profile marks every bridge with a query tool with CUTTLELY_ANALYST_BRIDGE=1 in its env.
+    """
+    if server_name == "analyst":
+        return True
+    env = (config or {}).get("env") if isinstance(config, dict) else None
+    return isinstance(env, dict) and str(env.get("CUTTLELY_ANALYST_BRIDGE", "")) == "1"
+
+
+def analyst_call_arguments(server_name: str, args: dict, session_id: Optional[str],
+                           config: Optional[dict] = None) -> dict:
     """cuttlely: a page cursor is scoped to this chat.
 
     The analyst bridge reads ``_cuttlelyScope`` and drops it before the tool schema.
     Other MCP servers keep the model's arguments unchanged.
     """
-    if server_name != "analyst":
+    if not is_analyst_bridge(server_name, config):
         return args
     session = str(session_id or "").strip()
     if not session:

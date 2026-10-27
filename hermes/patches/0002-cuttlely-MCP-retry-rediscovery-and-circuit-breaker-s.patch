@@ -7,21 +7,21 @@ What: tools/mcp_tool_cuttlely.py holds the logic; tools/mcp_tool.py, mcp_tool_di
 
 Why: Cuttlely's MCP bridge starts alongside Hermes, so the first tools/list can be empty, and an expected analyst refusal must not take the analyst tool away for every chat.
 ---
- tests/tools/test_cuttlely_mcp_retry.py | 94 ++++++++++++++++++++++++++
- tools/mcp_tool.py                      | 38 +++++++++--
- tools/mcp_tool_cuttlely.py             | 89 ++++++++++++++++++++++++
- tools/mcp_tool_discovery.py            | 62 +++++++++++++++++
- tools/mcp_tool_handlers.py             | 60 ++++++++++++++--
- 5 files changed, 329 insertions(+), 14 deletions(-)
+ tests/tools/test_cuttlely_mcp_retry.py | 105 +++++++++++++++++++++++++
+ tools/mcp_tool.py                      |  38 +++++++--
+ tools/mcp_tool_cuttlely.py             | 101 ++++++++++++++++++++++++
+ tools/mcp_tool_discovery.py            |  62 +++++++++++++++
+ tools/mcp_tool_handlers.py             |  61 ++++++++++++--
+ 5 files changed, 353 insertions(+), 14 deletions(-)
  create mode 100644 tests/tools/test_cuttlely_mcp_retry.py
  create mode 100644 tools/mcp_tool_cuttlely.py
 
 diff --git a/tests/tools/test_cuttlely_mcp_retry.py b/tests/tools/test_cuttlely_mcp_retry.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..53964975129f205fb154d358681340c7d7b7c5b1
+index 0000000000000000000000000000000000000000..77c98c2604455b861113b374fc0f461cbd16db87
 --- /dev/null
 +++ b/tests/tools/test_cuttlely_mcp_retry.py
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,105 @@
 +"""cuttlely: empty MCP tool lists are retried, and expected analyst results do not open the breaker."""
 +
 +import asyncio
@@ -110,6 +110,17 @@ index 0000000000000000000000000000000000000000..53964975129f205fb154d358681340c7
 +    assert analyst_call_arguments("analyst", args, "") is args
 +
 +
++def test_page_scope_is_added_for_a_bridge_named_after_its_specialist():
++    args = {"sql": "select 1"}
++    bridge = {"command": "node", "env": {"CUTTLELY_ANALYST_BRIDGE": "1"}}
++    scoped = analyst_call_arguments("data", args, "sales--data:chat-9", bridge)
++    assert scoped["_cuttlelyScope"] == "sales--data:chat-9"
++    assert "_cuttlelyScope" not in args
++    assert analyst_call_arguments("data", args, "sales--data:chat-9", {"command": "node", "env": {}}) is args
++    assert analyst_call_arguments("data", args, "sales--data:chat-9", None) is args
++    assert analyst_call_arguments("data", args, "", bridge) is args
++
++
 +def test_expected_outcome_leaves_the_breaker_text_unchanged():
 +    assert leaves_breaker_unchanged('{"error":"no such table: missing_table_xyz","cuttlelyOutcome":"expected"}')
 +    assert counts_toward_breaker({"error": "no such table: missing_table_xyz", "cuttlelyOutcome": "expected"}) is False
@@ -186,10 +197,10 @@ index 91d8aef01e49a722f8dea4e396143f655688194a..d1e9974e840090dc07c9a4fa16b69e95
  # Servers opted into parallel tool calls, keyed by the consuming profile's own key (``foo-bar``/
 diff --git a/tools/mcp_tool_cuttlely.py b/tools/mcp_tool_cuttlely.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..c23f5e74aca73934c5b11ad34a6a710423dd665b
+index 0000000000000000000000000000000000000000..a885ee542f0c97545e4596b0cea597989d66c4f9
 --- /dev/null
 +++ b/tools/mcp_tool_cuttlely.py
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,101 @@
 +"""cuttlely patch: startup retries for an MCP server that lists no tools or cannot be reached,
 +and the flag that keeps an expected analyst result off the circuit breaker.
 +
@@ -236,13 +247,25 @@ index 0000000000000000000000000000000000000000..c23f5e74aca73934c5b11ad34a6a7104
 +    return True
 +
 +
-+def analyst_call_arguments(server_name: str, args: dict, session_id: Optional[str]) -> dict:
++def is_analyst_bridge(server_name: str, config: Optional[dict] = None) -> bool:
++    """cuttlely: the bridge is named after its specialist, so a data specialist's bridge is "data".
++
++    The harness profile marks every bridge with a query tool with CUTTLELY_ANALYST_BRIDGE=1 in its env.
++    """
++    if server_name == "analyst":
++        return True
++    env = (config or {}).get("env") if isinstance(config, dict) else None
++    return isinstance(env, dict) and str(env.get("CUTTLELY_ANALYST_BRIDGE", "")) == "1"
++
++
++def analyst_call_arguments(server_name: str, args: dict, session_id: Optional[str],
++                           config: Optional[dict] = None) -> dict:
 +    """cuttlely: a page cursor is scoped to this chat.
 +
 +    The analyst bridge reads ``_cuttlelyScope`` and drops it before the tool schema.
 +    Other MCP servers keep the model's arguments unchanged.
 +    """
-+    if server_name != "analyst":
++    if not is_analyst_bridge(server_name, config):
 +        return args
 +    session = str(session_id or "").strip()
 +    if not session:
@@ -367,7 +390,7 @@ index d113a8f6e622c25bda662ac19a19ec6026c2bd04..ae7702421ee3f0d0637cd02cc6aa4ec9
              _note_connect_success(name)
  
 diff --git a/tools/mcp_tool_handlers.py b/tools/mcp_tool_handlers.py
-index dd8b8e649191e3683aaef3bd9c2f1c6599d7e140..82be66da1325b9cc1d10d15a333cea7b1b0845d9 100644
+index dd8b8e649191e3683aaef3bd9c2f1c6599d7e140..fdc50473f827cf7e06197c4ac9d0c0f6acf03337 100644
 --- a/tools/mcp_tool_handlers.py
 +++ b/tools/mcp_tool_handlers.py
 @@ -87,8 +87,7 @@ def _trust_gate_check(server_name: str, tool_name: str) -> Optional[str]:
@@ -472,14 +495,15 @@ index dd8b8e649191e3683aaef3bd9c2f1c6599d7e140..82be66da1325b9cc1d10d15a333cea7b
          # Only a tool annotated readOnlyHint=True is replayed after session expiry; a 401 is always
          # pre-dispatch so the auth recoverer keeps its retry for every tool.
          read_only = _tool_is_read_only(server_name, tool_name)
-@@ -572,7 +615,10 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+@@ -572,7 +615,11 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
              async with server._rpc_lock, _track_inflight_rpc(server, server_name, op, retry_safe=read_only):
                  server._pending_call_context = contextvars.copy_context()  # for the elicitation callback
                  try:
 -                    result = await _call_tool_racing_stdio_death(server, server_name, tool_name, args)
-+                    # cuttlely: page cursors are scoped to this chat. Only the analyst bridge reads it.
++                    # cuttlely: page cursors are scoped to this chat. Only a bridge with a query tool reads it.
 +                    from tools.mcp_tool_cuttlely import analyst_call_arguments
-+                    call_args = analyst_call_arguments(server_name, args, kwargs.get("session_id"))
++                    call_args = analyst_call_arguments(
++                        server_name, args, kwargs.get("session_id"), getattr(server, "_config", None))
 +                    result = await _call_tool_racing_stdio_death(server, server_name, tool_name, call_args)
                  finally:
                      server._pending_call_context = None
