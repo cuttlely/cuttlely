@@ -127,7 +127,10 @@ function fixture(shadow = false) {
             ALTER ROLE "${writer}" IN DATABASE "${database}" SET search_path = ${etl}, pg_catalog_shadow, public
         `)
         const { host, port } = adminConfig()
-        state.url = `postgresql://${writer}:${password}@${host}:${port}/${database}`
+        const url = new URL(`postgresql://${host}:${port}/${database}`)
+        url.username = writer
+        url.password = password
+        state.url = url.toString()
     })
     after(async () => {
         setGuardLegacyRoundTripsForTests(false)
