@@ -1305,6 +1305,22 @@ const NOT_ALLOWED_SCHEMA = "n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'inform
 async function resolveAllowedFunctions(runner) {
     const entries = runner.allowedFunctions || []
     const allowed = new Set()
+    if (!entries.length) return allowed
+    if (!runner.legacyRoundTrips) {
+        const names = entries.filter((entry) => entry.all).map((entry) => entry.name)
+        const signatures = entries.filter((entry) => !entry.all).map((entry) => entry.signature)
+        const rows = await runner.all(
+            `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+             WHERE p.prokind = 'f' AND ${NOT_ALLOWED_SCHEMA} AND (
+               p.oid IN (SELECT pg_catalog.to_regprocedure(s) FROM pg_catalog.unnest(?::text[]) AS s)
+               OR EXISTS (SELECT 1 FROM pg_catalog.unnest(?::text[]) AS m, pg_catalog.parse_ident(m) AS i
+                          WHERE pg_catalog.array_length(i, 1) = 2 AND n.nspname = i[1] AND p.proname = i[2]))`,
+            [signatures, names]
+        )
+        for (const row of rows) allowed.add(Number(row.oid))
+        return allowed
+    }
+    // Kept so the parity test can run the old round trips and the new ones in one process. Decisions must not differ.
     for (const entry of entries) {
         const rows = entry.all
             ? await runner.all(

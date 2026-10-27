@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
 import { after, before, describe, it } from 'node:test'
+import { parseAllowedFunctions } from '../packages/harness/runtime/analyst-relations.mjs'
 import { queryAnalystUrl, setGuardLegacyRoundTripsForTests, withAnalystScope } from '../packages/harness/runtime/analyst-store.mjs'
 
 const baseline = process.env.CUTTLELY_TEST_GUARD_BASELINE_STORE
@@ -494,7 +495,10 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
     const state = fixture()
     const statement = `SELECT ${schema}._etl_safe_round(total), ${schema}._etl_safe_pct(total, 2) FROM ${schema}.orders JOIN ${schema}.customers USING (id) ORDER BY id LIMIT 50`
     const options = { readOnlySql: true, relations: selection, allowedFunctions: allowlist, rowCap: 50 }
+    let unusedFunctionOid
     const injections = [
+        { name: 'failed allowlist read', match: /to_regprocedure/, throws: true },
+        { name: 'empty allowlist read', match: /to_regprocedure/, alter: (r) => ({ ...r, rows: [] }) },
         { name: 'empty allowlist lookup', match: /to_regprocedure/, params: /_etl_safe_round/, alter: (r) => ({ ...r, rows: [] }) },
         { name: 'failed allowlist lookup', match: /to_regprocedure/, params: /_etl_safe_round/, throws: true },
         {
@@ -502,7 +506,11 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
             match: /to_regprocedure/,
             params: /_etl_safe_date/,
             allowed: true,
-            alter: (r) => ({ ...r, rows: [] })
+            prepare: async () => {
+                const result = await state.owner.query(`SELECT '${schema}._etl_safe_date(text)'::regprocedure::oid::int8 AS oid`)
+                unusedFunctionOid = Number(result.rows[0].oid)
+            },
+            alter: (r) => ({ ...r, rows: r.rows.filter((row) => Number(row.oid) !== unusedFunctionOid) })
         },
         { name: 'failed check backend pid read', match: /^SELECT pg_backend_pid\(\)/, checkTransaction: true, throws: true },
         { name: 'failed query backend pid read', match: /^SELECT pg_backend_pid\(\)/, queryTransaction: true, throws: true },
@@ -523,6 +531,7 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
             alter: (r) => ({ ...r, rows: r.rows.slice(1) })
         },
         { name: 'failed domain checks', match: /SELECT c.contypid::int8 AS domain_oid/, throws: true },
+        { name: 'failed lock batch after the first relation', match: /\bLOCK TABLE ONLY\b.*,/s, throws: true },
         { name: 'failed single LOCK', match: /\bLOCK TABLE ONLY/, throws: true },
         {
             name: 'changed post-statement stamp',
@@ -553,6 +562,7 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
     for (const fault of injections) {
         it(fault.name, async (t) => {
             if (!state.url) return t.skip('Local Postgres admin is unavailable')
+            await fault.prepare?.()
             const uninjected = fault.allowed ? await queryAnalystUrl(state.url, statement, options) : undefined
             const original = Client.prototype.query
             const sent = []
@@ -581,8 +591,10 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
                 const result = await original.apply(this, args)
                 if (!matches) return result
                 hit = true
-                assert.ok(result.rows.length > 0, 'Short-result injection must remove a real row')
-                return fault.alter(result)
+                const altered = fault.alter(result)
+                if (/^(empty|short) /.test(fault.name))
+                    assert.ok(altered.rows.length < result.rows.length, 'Short-result injection must remove a real row')
+                return altered
             }
             try {
                 if (fault.allowed) {
@@ -611,14 +623,73 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
     }
 })
 
+function isAllowlistLookup(text) {
+    return /to_regprocedure|parse_ident/.test(text) && /\bpg_proc\b/.test(text)
+}
+
+function lockStatements(text) {
+    const statements = text.split('; ')
+    if (!statements.every((part) => /^(LOCK TABLE ONLY .+ IN ACCESS SHARE MODE|SELECT 1 FROM ONLY .+ LIMIT 0)$/.test(part))) return [text]
+    return statements.flatMap((part) => {
+        const lock = /^LOCK TABLE ONLY (.+) IN ACCESS SHARE MODE$/.exec(part)
+        return lock ? lock[1].split(', ').map((name) => `LOCK TABLE ONLY ${name} IN ACCESS SHARE MODE`) : [part]
+    })
+}
+
 function catalogLookups(texts) {
     return texts
         .filter((text) => !/^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/.test(text))
-        .map((text) => text.replace(/cuttlely_scope_check_\d+/g, 'cuttlely_scope_check_N'))
+        .flatMap(lockStatements)
+        .map((text) =>
+            isAllowlistLookup(text) ? 'ALLOWED FUNCTIONS' : text.replace(/cuttlely_scope_check_\d+/g, 'cuttlely_scope_check_N')
+        )
+        .filter((text, index, all) => text !== 'ALLOWED FUNCTIONS' || all[index - 1] !== text)
 }
 
 describe('analyst guard sends every catalog lookup', () => {
     const state = fixture()
+    it('batches relation locks and resolves the allowlist once', async (t) => {
+        if (!state.url) return t.skip('Local Postgres admin is unavailable')
+        const config = configurations[1]
+        const sql =
+            'SELECT o.id FROM orders o JOIN customers c ON c.id = o.customer_id JOIN items i ON i.order_id = o.id ORDER BY o.id LIMIT 50'
+        const original = Client.prototype.query
+        const captures = []
+        try {
+            for (const legacy of [true, false]) {
+                const texts = []
+                Client.prototype.query = function (...args) {
+                    texts.push(typeof args[0] === 'string' ? args[0] : args[0]?.text || '')
+                    return original.apply(this, args)
+                }
+                const result = await decision(state.url, sql, config, legacy)
+                assert.equal(result.ok, true, result.message)
+                captures.push(texts)
+            }
+        } finally {
+            Client.prototype.query = original
+            setGuardLegacyRoundTripsForTests(false)
+        }
+        const batches = captures[1].filter((text) => {
+            const statements = text.split('; ')
+            return (
+                statements.every((part) => /^(LOCK TABLE ONLY .+ IN ACCESS SHARE MODE|SELECT 1 FROM ONLY .+ LIMIT 0)$/.test(part)) &&
+                statements.some((part) => part.startsWith('LOCK TABLE ONLY'))
+            )
+        })
+        assert.equal(batches.length, 1)
+        const relationNames = (texts) =>
+            texts.flatMap(lockStatements).flatMap((text) => {
+                const match = /^(?:LOCK TABLE ONLY (.+) IN ACCESS SHARE MODE|SELECT 1 FROM ONLY (.+) LIMIT 0)$/.exec(text)
+                return match ? [match[1] || match[2]] : []
+            })
+        const legacyNames = relationNames(captures[0])
+        assert.ok(legacyNames.length > 1)
+        assert.deepEqual(relationNames(batches), legacyNames)
+        assert.equal(captures[1].filter(isAllowlistLookup).length, 1)
+        assert.equal(captures[0].filter(isAllowlistLookup).length, parseAllowedFunctions(config.allowedFunctions).length)
+        assert.deepEqual(catalogLookups(captures[1]), catalogLookups(captures[0]))
+    })
     const entries = [
         { config: configurations[0], sql: 'SELECT id FROM orders ORDER BY id LIMIT 50' },
         { config: configurations[1], sql: 'SELECT id FROM orders ORDER BY id LIMIT 50' },

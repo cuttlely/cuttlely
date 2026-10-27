@@ -1990,6 +1990,7 @@ async function queryUrlPostgres(
     const legacy = guardLegacyRoundTrips
     const guard = legacy ? runner : postgresRunner(client)
     runner.legacyRoundTrips = legacy
+    guard.legacyRoundTrips = legacy
     runner.timer = guard.timer = timer
     // Only the node's own setting, passed by the node from the saved flow; never the tool input.
     if (readOnlySql) runner.allowedFunctions = guard.allowedFunctions = parseAllowedFunctions(allowedFunctions)
@@ -2131,13 +2132,11 @@ async function keepCheckedScope(client, runner, relations, selected, checkedBack
     if (!checkedBackend || checkedBackend !== queryBackend) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
     // Postgres cannot LOCK a materialized view or every foreign table. Reading no rows from one takes the same
     // ACCESS SHARE lock, held until the transaction ends.
-    for (const relation of selected) {
-        if (relation.kind === 'table' || relation.kind === 'view') {
-            await client.query(`LOCK TABLE ONLY ${relation.name} IN ACCESS SHARE MODE`)
-        } else {
-            await client.query(`SELECT 1 FROM ONLY ${relation.name} LIMIT 0`)
-        }
-    }
+    await takeAccessShare(
+        client,
+        runner,
+        selected.map((r) => ({ name: r.name, lockable: r.kind === 'table' || r.kind === 'view' }))
+    )
     const now = await resolveRelations(runner, relations)
     const same =
         now.length === selected.length &&
@@ -2162,6 +2161,40 @@ export function setCheckGapHookForTests(hook) {
 const POLICY_UNLOCKED =
     'Cuttlely refused this query: a table or view that a row-security policy reads could not be locked for the query, so the policy could not be held as checked.'
 
+function accessShareStatements(items) {
+    const statements = []
+    let names = []
+    const flush = () => {
+        if (names.length) {
+            statements.push(`LOCK TABLE ONLY ${names.join(', ')} IN ACCESS SHARE MODE`)
+            names = []
+        }
+    }
+    for (const item of items) {
+        if (item.lockable) names.push(item.name)
+        else {
+            flush()
+            statements.push(`SELECT 1 FROM ONLY ${item.name} LIMIT 0`)
+        }
+    }
+    flush()
+    return statements
+}
+
+async function takeAccessShare(client, runner, items) {
+    if (runner.legacyRoundTrips) {
+        for (const item of items) {
+            await client.query(
+                item.lockable ? `LOCK TABLE ONLY ${item.name} IN ACCESS SHARE MODE` : `SELECT 1 FROM ONLY ${item.name} LIMIT 0`
+            )
+        }
+        return
+    }
+    // One LOCK lists relations in the same order; Postgres takes them in list order, and any failure aborts the statement.
+    const statements = accessShareStatements(items)
+    if (statements.length) await client.query(statements.join('; '))
+}
+
 // ACCESS SHARE until the transaction ends. Locking a view locks everything its definition reads. A materialized
 // view or foreign table cannot always be LOCKed, and reading no rows from it takes the same lock.
 async function lockRelations(client, runner, oids) {
@@ -2170,10 +2203,12 @@ async function lockRelations(client, runner, oids) {
         "SELECT c.relkind AS kind, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY c.oid",
         [oids]
     )
+    const items = []
     for (const row of rows) {
-        if (row.kind === 'r' || row.kind === 'p' || row.kind === 'v') await client.query(`LOCK TABLE ONLY ${row.name} IN ACCESS SHARE MODE`)
-        else if (row.kind === 'm' || row.kind === 'f') await client.query(`SELECT 1 FROM ONLY ${row.name} LIMIT 0`)
+        if (row.kind === 'r' || row.kind === 'p' || row.kind === 'v') items.push({ name: row.name, lockable: true })
+        else if (row.kind === 'm' || row.kind === 'f') items.push({ name: row.name, lockable: false })
     }
+    await takeAccessShare(client, runner, items)
 }
 
 const DEFINITIONS_CHANGED = 'Cuttlely refused this query: a table or view it reads changed while it was being checked. Run it again.'
