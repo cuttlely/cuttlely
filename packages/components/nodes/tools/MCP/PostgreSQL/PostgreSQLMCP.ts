@@ -715,16 +715,23 @@ class PostgreSQL_MCP implements INode {
                 cursor: { type: 'string' },
                 page: { type: 'number' }
             }
+            // A next-page call sends only cursor and page, so the schema cannot list required parameters.
+            // validateArgs still refuses a first call that leaves one out, naming it.
+            const { required: requiredParams, ...inputSchema } = (definition.inputSchema || {}) as Record<string, unknown>
             const schema: Record<string, unknown> = {
-                ...definition.inputSchema,
+                ...inputSchema,
                 type: 'object',
                 properties,
                 additionalProperties: false
             }
-            const description =
+            const requiredNames = Array.isArray(requiredParams) ? requiredParams.filter((item) => typeof item === 'string') : []
+            const baseDescription =
                 definition.description ||
                 (typeof entry.purpose === 'string' && entry.purpose.trim()) ||
                 `Pinned query ${name}. Call it with the listed parameters and report the rows it returns.`
+            const description = requiredNames.length
+                ? `${baseDescription} Required on a first call: ${requiredNames.join(', ')}. For the next page, send only cursor and page.`
+                : baseDescription
             const postgresUrl = decision.postgresUrl
             const allowedFunctions = nodeAllowedFunctions(nodeData)
             const statementHash = compiled.statementHash

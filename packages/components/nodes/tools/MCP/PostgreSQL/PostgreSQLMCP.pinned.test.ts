@@ -364,6 +364,30 @@ describe('PostgreSQL MCP pinned queries', () => {
         }
     })
 
+    it('a next-page call with only a cursor passes the schema of a pin with required parameters', async () => {
+        const sink = await listenSink()
+        try {
+            process.env.CUTTLELY_PINNED_QUERIES = 'true'
+            const { entry } = await stamped({
+                id: 'ZZ-TEST-pin',
+                name: 'pq_revenue',
+                version: 1,
+                sql: 'SELECT :region AS region LIMIT 1',
+                params: [{ name: 'region', type: 'int8', required: true }]
+            })
+            const tools = await initAt(sink.url, { mcpActions: [], pinnedQueries: JSON.stringify([entry]) })
+            expect((tools[0].schema as { required?: unknown }).required).toBeUndefined()
+            expect(tools[0].description).toContain('Required on a first call: region.')
+            const missing = JSON.parse(await tools[0].invoke({}))
+            expect(missing.cuttlelyOutcome).toBe('expected')
+            expect(missing.error).toContain('region')
+            const next = JSON.parse(await tools[0].invoke({ cursor: 'ZZ-TEST-cursor', page: 2 }))
+            expect(next.error || '').not.toContain('region')
+        } finally {
+            await sink.close()
+        }
+    })
+
     it('listActions does not offer pinned tools', async () => {
         const sink = await listenSink()
         try {

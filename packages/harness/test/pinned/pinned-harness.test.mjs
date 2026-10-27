@@ -62,6 +62,40 @@ function withPin(env) {
     }
 }
 
+test('pinned tool names match the shared pattern without backtracking', () => {
+    const samples = [
+        'pq_a',
+        'pq_',
+        '__pq_',
+        '__pq_a',
+        'x__pq_a',
+        'x__pq_a-b',
+        'a-b__pq_c',
+        'pq_a__pq_b',
+        'pq_a-b',
+        '__pq__pq_',
+        'MCP__Data__pq_x',
+        ' pq_a ',
+        '',
+        'pq',
+        '_pq_a',
+        'x_pq_a'
+    ]
+    const alphabet = ['_', 'p', 'q', 'a', '-', '__pq_', 'pq_']
+    for (let i = 0; i < 2000; i++) {
+        let text = ''
+        for (let j = (i * 7) % 6; j >= 0; j--) text += alphabet[(i * 31 + j * 17) % alphabet.length]
+        samples.push(text)
+    }
+    for (const name of samples) {
+        assert.equal(isPinnedToolName(name), PINNED_TOOL_RE.test(name.trim().toLowerCase()), JSON.stringify(name))
+    }
+    const hostile = 'pq_' + '__pq_'.repeat(50000) + '-'
+    const started = Date.now()
+    assert.equal(isPinnedToolName(hostile), false)
+    assert.ok(Date.now() - started < 500)
+})
+
 test('pq_ tools match capture predicates', () => {
     assert.equal(String(PINNED_TOOL_RE), '/(^|__)pq_[a-z0-9_]+$/')
     assert.equal(isPinnedToolName('pq_revenue'), true)
