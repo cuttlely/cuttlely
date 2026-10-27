@@ -627,12 +627,30 @@ function isAllowlistLookup(text) {
     return /to_regprocedure|parse_ident/.test(text) && /\bpg_proc\b/.test(text)
 }
 
+function lockListElements(list) {
+    const elements = []
+    let quoted = false
+    let start = 0
+    for (let i = 0; i < list.length; i++) {
+        if (list[i] === '"') {
+            if (quoted && list[i + 1] === '"') i++
+            else quoted = !quoted
+        } else if (list[i] === ',' && !quoted) {
+            elements.push(list.slice(start, i).trim())
+            start = i + 1
+        }
+    }
+    elements.push(list.slice(start).trim())
+    return elements
+}
+
 function lockStatements(text) {
     const statements = text.split('; ')
-    if (!statements.every((part) => /^(LOCK TABLE ONLY .+ IN ACCESS SHARE MODE|SELECT 1 FROM ONLY .+ LIMIT 0)$/.test(part))) return [text]
+    if (!statements.every((part) => /^(LOCK TABLE .+ IN ACCESS SHARE MODE|SELECT 1 FROM ONLY .+ LIMIT 0)$/.test(part))) return [text]
     return statements.flatMap((part) => {
-        const lock = /^LOCK TABLE ONLY (.+) IN ACCESS SHARE MODE$/.exec(part)
-        return lock ? lock[1].split(', ').map((name) => `LOCK TABLE ONLY ${name} IN ACCESS SHARE MODE`) : [part]
+        const lock = /^LOCK TABLE (.+) IN ACCESS SHARE MODE$/.exec(part)
+        // Preserve a missing ONLY so ordered parity with the legacy locks fails.
+        return lock ? lockListElements(lock[1]).map((element) => `LOCK TABLE ${element} IN ACCESS SHARE MODE`) : [part]
     })
 }
 
@@ -645,6 +663,16 @@ function catalogLookups(texts) {
         )
         .filter((text, index, all) => text !== 'ALLOWED FUNCTIONS' || all[index - 1] !== text)
 }
+
+it('normalizes lock lists without hiding missing ONLY modifiers or splitting quoted identifiers', () => {
+    const first = '"schema, ""quoted"""."plain, table"'
+    const second = '"schema, ""quoted"""."parent, table"'
+    const legacy = [`LOCK TABLE ONLY ${first} IN ACCESS SHARE MODE`, `LOCK TABLE ONLY ${second} IN ACCESS SHARE MODE`]
+    assert.deepEqual(catalogLookups([`LOCK TABLE ONLY ${first}, ONLY ${second} IN ACCESS SHARE MODE`]), legacy)
+    const missingOnly = catalogLookups([`LOCK TABLE ONLY ${first}, ${second} IN ACCESS SHARE MODE`])
+    assert.deepEqual(missingOnly, [legacy[0], `LOCK TABLE ${second} IN ACCESS SHARE MODE`])
+    assert.notDeepEqual(missingOnly, legacy)
+})
 
 describe('analyst guard sends every catalog lookup', () => {
     const state = fixture()
@@ -678,6 +706,14 @@ describe('analyst guard sends every catalog lookup', () => {
             )
         })
         assert.equal(batches.length, 1)
+        for (const batch of batches) {
+            for (const part of batch.split('; ')) {
+                const lock = /^LOCK TABLE (.+) IN ACCESS SHARE MODE$/.exec(part)
+                if (lock) {
+                    for (const element of lockListElements(lock[1])) assert.ok(element.startsWith('ONLY '), element)
+                }
+            }
+        }
         const relationNames = (texts) =>
             texts.flatMap(lockStatements).flatMap((text) => {
                 const match = /^(?:LOCK TABLE ONLY (.+) IN ACCESS SHARE MODE|SELECT 1 FROM ONLY (.+) LIMIT 0)$/.exec(text)
@@ -689,6 +725,52 @@ describe('analyst guard sends every catalog lookup', () => {
         assert.equal(captures[1].filter(isAllowlistLookup).length, 1)
         assert.equal(captures[0].filter(isAllowlistLookup).length, parseAllowedFunctions(config.allowedFunctions).length)
         assert.deepEqual(catalogLookups(captures[1]), catalogLookups(captures[0]))
+    })
+    it('locks the selected plain table and partitioned parent without locking the partition', async (t) => {
+        if (!state.url) return t.skip('Local Postgres admin is unavailable')
+        const plain = `${schema}.guard_lock_plain`
+        const parent = `${schema}.guard_lock_parent`
+        const partition = `${schema}.guard_lock_partition`
+        const original = Client.prototype.query
+        const captures = []
+        try {
+            await state.owner.query(`
+                CREATE TABLE ${plain}(id int);
+                CREATE TABLE ${parent}(id int) PARTITION BY RANGE (id);
+                CREATE TABLE ${partition} PARTITION OF ${parent} FOR VALUES FROM (0) TO (10);
+                GRANT SELECT ON ${plain}, ${parent}, ${partition} TO "${state.writer}"
+            `)
+            for (const legacy of [true, false]) {
+                const snapshots = []
+                Client.prototype.query = async function (...args) {
+                    const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
+                    const result = await original.apply(this, args)
+                    // In legacy mode the parent is the second lock; in batched mode both locks just completed.
+                    // Read on this client before any user statement could acquire its own relation locks.
+                    if (text.startsWith('LOCK TABLE ') && text.includes(parent)) {
+                        const locks = await original.call(
+                            this,
+                            "SELECT relation::regclass::text AS r FROM pg_catalog.pg_locks WHERE pid = pg_backend_pid() AND locktype = 'relation'"
+                        )
+                        snapshots.push(
+                            [...new Set(locks.rows.map((row) => row.r).filter((r) => [plain, parent, partition].includes(r)))].sort()
+                        )
+                    }
+                    return result
+                }
+                // Selection order puts the partitioned parent after the plain table, exercising a later LOCK list entry.
+                const result = await decision(state.url, 'SELECT 1 LIMIT 50', { relations: [plain, parent] }, legacy)
+                assert.equal(result.ok, true, result.message)
+                assert.equal(snapshots.length, 1, 'Captured the locks inside the query transaction')
+                assert.deepEqual(snapshots[0], [plain, parent].sort(), 'The selected relations are locked, but their partition is not')
+                captures.push(snapshots[0])
+            }
+            assert.deepEqual(captures[1], captures[0])
+        } finally {
+            Client.prototype.query = original
+            setGuardLegacyRoundTripsForTests(false)
+            await state.owner.query(`DROP TABLE IF EXISTS ${parent}, ${plain} CASCADE`)
+        }
     })
     const entries = [
         { config: configurations[0], sql: 'SELECT id FROM orders ORDER BY id LIMIT 50' },

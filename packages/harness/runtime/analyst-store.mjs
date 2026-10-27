@@ -2161,12 +2161,13 @@ export function setCheckGapHookForTests(hook) {
 const POLICY_UNLOCKED =
     'Cuttlely refused this query: a table or view that a row-security policy reads could not be locked for the query, so the policy could not be held as checked.'
 
+// ONLY is written before every name so no relation implicitly locks its inheritance children or partitions.
 function accessShareStatements(items) {
     const statements = []
     let names = []
     const flush = () => {
         if (names.length) {
-            statements.push(`LOCK TABLE ONLY ${names.join(', ')} IN ACCESS SHARE MODE`)
+            statements.push(`LOCK TABLE ${names.map((name) => `ONLY ${name}`).join(', ')} IN ACCESS SHARE MODE`)
             names = []
         }
     }
@@ -2190,7 +2191,8 @@ async function takeAccessShare(client, runner, items) {
         }
         return
     }
-    // One LOCK lists relations in the same order; Postgres takes them in list order, and any failure aborts the statement.
+    // One LOCK lists relations in the same order, with ONLY written before every name; Postgres takes them in
+    // list order, and any failure aborts the statement.
     const statements = accessShareStatements(items)
     if (statements.length) await client.query(statements.join('; '))
 }

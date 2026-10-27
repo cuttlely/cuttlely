@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   The PostgreSQL MCP node's read-only query checks make fewer round trips: their own catalog reads no longer each open and release a savepoint, the allowed-function list resolves in one query, and the ACCESS SHARE locks on the selected tables go out in one round trip, one LOCK TABLE ONLY over the same relations in the same order. Every check still runs, in the same order, against the live catalog.
+-   The PostgreSQL MCP node's read-only query checks make fewer round trips: their own catalog reads no longer each open and release a savepoint, the allowed-function list resolves in one query, and the ACCESS SHARE locks on the selected tables go out in one round trip, one LOCK TABLE over the same relations in the same order, with ONLY before every name so inheritance children and partitions are not implicitly locked. Every check still runs, in the same order, against the live catalog.
 
 -   Analyst Postgres queries (a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the PostgreSQL MCP node and auto storage on Postgres) whose first page holds every row run their statement once instead of four times: the row count, the column type probe and the row length pass now run only when the first page is full or cut, and a result that pages is unchanged. Each transaction the query opens starts in one round trip, the PostgreSQL MCP node reuses its table selection summary for 30 seconds instead of opening a connection on every call, and the run trace's query step records per-step timings (`timings`), with the database's share (`dbMs`, every round trip to Postgres) apart from the connect (`connectMs`) and Cuttlely's own time (`cuttlelyMs`).
 
