@@ -1463,6 +1463,14 @@ describe('analyst relations: writable CTEs on a scratch Postgres', () => {
         try {
             const result = await queryAnalystUrl(url, "SELECT 'a\\b' AS v LIMIT 1")
             assert.equal(result.rows[0].v, 'a\\b')
+            // The guard requires E strings for backslashes, regardless of the login setting.
+            const guarded = await queryAnalystUrl(url, "SELECT E'a\\\\b' AS v LIMIT 1", { readOnlySql: true })
+            assert.deepEqual(guarded.rows, [{ v: 'a\\b' }])
+            const scoped = await queryAnalystUrl(url, 'SELECT name FROM items ORDER BY id LIMIT 2', {
+                readOnlySql: true,
+                relations: ['public.items']
+            })
+            assert.deepEqual(scoped.rows, [{ name: 'Rye' }, { name: 'Sourdough' }])
         } finally {
             await admin.query(`ALTER ROLE "${writer}" RESET standard_conforming_strings`)
         }

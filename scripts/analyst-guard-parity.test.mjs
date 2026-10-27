@@ -32,7 +32,9 @@ const allowlist = [`${schema}._etl_safe_date(text)`, `${schema}._etl_safe_round(
 const configurations = [
     { name: 'unselected', allowedFunctions: allowlist },
     { name: 'selected', relations: selection, allowedFunctions: allowlist },
-    { name: 'unlisted' }
+    { name: 'unlisted' },
+    { name: 'unselected-scs-off', allowedFunctions: allowlist, scsOff: true },
+    { name: 'selected-scs-off', relations: selection, allowedFunctions: allowlist, scsOff: true }
 ]
 
 function adminConfig(database = 'postgres') {
@@ -103,6 +105,18 @@ function fixture(shadow = false, empty = false) {
             INSERT INTO ${schema}.guarded VALUES (1);
             ALTER TABLE ${schema}.guarded ENABLE ROW LEVEL SECURITY;
             CREATE POLICY guard_policy ON ${schema}.guarded USING (${schema}.policy_fn());
+            CREATE TABLE ${schema}.safe_policy(id int);
+            INSERT INTO ${schema}.safe_policy VALUES (-1), (1);
+            ALTER TABLE ${schema}.safe_policy ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY safe_policy ON ${schema}.safe_policy USING (id > 0);
+            CREATE TABLE ${schema}.inherit_parent(id int);
+            CREATE TABLE ${schema}.inherit_child() INHERITS (${schema}.inherit_parent);
+            INSERT INTO ${schema}.inherit_parent VALUES (1);
+            INSERT INTO ${schema}.inherit_child VALUES (2);
+            CREATE TABLE ${schema}."MixedCase"(id int);
+            INSERT INTO ${schema}."MixedCase" VALUES (1);
+            CREATE FUNCTION ${schema}.overloaded(integer) RETURNS integer IMMUTABLE LANGUAGE sql AS 'SELECT $1';
+            CREATE FUNCTION ${schema}.overloaded(text) RETURNS text IMMUTABLE LANGUAGE sql AS 'SELECT $1';
             GRANT USAGE ON SCHEMA ${schema} TO "${writer}";
             GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA ${schema} TO "${writer}";
             GRANT USAGE ON SEQUENCE ${schema}.order_seq TO "${writer}";
@@ -434,29 +448,36 @@ async function differential(state, statements, configs, t, shadow = false) {
     const expectations = []
     let count = 0
     for (const config of configs) {
-        for (const entry of statements) {
-            const old = await decision(state.url, entry.sql, config, true, !shadow)
-            const current = await decision(state.url, entry.sql, config, false)
-            count++
-            if (old.ok !== current.ok || old.message !== current.message || (!entry.volatileRows && old.rows !== current.rows))
-                diffs.push({ config: config.name, sql: entry.sql, old, current })
-            const expected = shadow || (entry.category === 'allowlisted helpers' && config.name === 'unlisted') ? 'refuse' : entry.expected
-            for (const [mode, result] of [
-                ['legacy', old],
-                ['new', current]
-            ]) {
-                if (expected === 'refuse' && result.ok) {
-                    const finding = { config: config.name, sql: entry.sql, mode, result }
-                    t.diagnostic(`STOP: expected refusal was allowed: ${JSON.stringify(finding)}`)
-                    assert.fail(`STOP: expected refusal was allowed: ${JSON.stringify(finding)}`)
+        if (config.scsOff) await state.owner.query(`ALTER ROLE "${state.writer}" SET standard_conforming_strings = off`)
+        try {
+            for (const entry of statements) {
+                const old = await decision(state.url, entry.sql, config, true, !shadow)
+                const current = await decision(state.url, entry.sql, config, false)
+                count++
+                if (old.ok !== current.ok || old.message !== current.message || (!entry.volatileRows && old.rows !== current.rows))
+                    diffs.push({ config: config.name, sql: entry.sql, old, current })
+                const expected =
+                    shadow || (entry.category === 'allowlisted helpers' && config.name === 'unlisted') ? 'refuse' : entry.expected
+                for (const [mode, result] of [
+                    ['legacy', old],
+                    ['new', current]
+                ]) {
+                    if (expected === 'refuse' && result.ok) {
+                        const finding = { config: config.name, sql: entry.sql, mode, result }
+                        t.diagnostic(`STOP: expected refusal was allowed: ${JSON.stringify(finding)}`)
+                        assert.fail(`STOP: expected refusal was allowed: ${JSON.stringify(finding)}`)
+                    }
+                    if (result.ok !== (expected === 'allow'))
+                        expectations.push({ config: config.name, sql: entry.sql, expected, mode, result })
                 }
-                if (result.ok !== (expected === 'allow')) expectations.push({ config: config.name, sql: entry.sql, expected, mode, result })
             }
+            await noEffects(state)
+        } finally {
+            if (config.scsOff) await state.owner.query(`ALTER ROLE "${state.writer}" RESET standard_conforming_strings`)
         }
-        await noEffects(state)
     }
     t.diagnostic(`comparisons=${count} differences=${diffs.length}`)
-    assert.ok(count >= (shadow ? 48 : 400))
+    assert.equal(count, statements.length * configs.length)
     assert.equal(diffs.length, 0, JSON.stringify(diffs.slice(0, 8), null, 2))
     assert.equal(expectations.length, 0, JSON.stringify(expectations.slice(0, 15), null, 2))
 }
@@ -467,11 +488,37 @@ describe('analyst guard differential corpus', () => {
         assert.ok(new Set(corpus.map((entry) => entry.sql)).size >= 160)
         await differential(state, corpus, configurations, t)
     })
+    it('agrees on safe policies, inheritance, overloads and quoted names', async (t) => {
+        // Keep the main selection (and its lock/benchmark fixtures) unchanged.
+        const relations = ['safe_policy', 'inherit_parent', 'inherit_child', '"MixedCase"'].map((name) => `${schema}.${name}`)
+        const statements = [
+            {
+                category: 'plain reads and expressions',
+                expected: 'allow',
+                sql: `SELECT id FROM ${schema}.safe_policy ORDER BY id LIMIT 50`
+            },
+            {
+                category: 'plain reads and expressions',
+                expected: 'allow',
+                sql: `SELECT id FROM ${schema}.inherit_parent ORDER BY id LIMIT 50`
+            },
+            { category: 'plain reads and expressions', expected: 'allow', sql: `SELECT id FROM ${schema}."MixedCase" LIMIT 50` },
+            { category: 'allowlisted helpers', expected: 'allow', sql: `SELECT ${schema}.overloaded(1) LIMIT 50` },
+            { category: 'unlisted overload', expected: 'refuse', sql: `SELECT ${schema}.overloaded('x'::text) LIMIT 50` }
+        ]
+        const configs = configurations.map((config) => ({
+            ...config,
+            ...(config.relations ? { relations } : {}),
+            ...(config.allowedFunctions ? { allowedFunctions: `${allowlist}\n${schema}.overloaded(integer)` } : {})
+        }))
+        await differential(state, statements, configs, t)
+    })
     it('reduces round trips in every configuration', async (t) => {
         if (!state.url) return t.skip('Local Postgres admin is unavailable')
         for (const config of configurations) {
             const trips = []
             const guardMs = []
+            if (config.scsOff) await state.owner.query(`ALTER ROLE "${state.writer}" SET standard_conforming_strings = off`)
             try {
                 for (const legacy of [true, false]) {
                     setGuardLegacyRoundTripsForTests(legacy)
@@ -492,6 +539,7 @@ describe('analyst guard differential corpus', () => {
                 }
             } finally {
                 setGuardLegacyRoundTripsForTests(false)
+                if (config.scsOff) await state.owner.query(`ALTER ROLE "${state.writer}" RESET standard_conforming_strings`)
             }
             t.diagnostic(`${config.name}: legacy=${trips[0]} new=${trips[1]} guard ms: legacy=${guardMs[0]} new=${guardMs[1]}`)
             assert.ok(trips[1] < trips[0])

@@ -199,7 +199,7 @@ const RELATION_COLUMNS = `
 export const LIST_RELATIONS_SQL = `SELECT ${RELATION_COLUMNS}
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 'p', 'f', 'v', 'm') AND NOT c.relispartition
-  AND n.nspname <> 'information_schema' AND n.nspname NOT LIKE 'pg\\_%'
+  AND n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
   AND has_table_privilege(c.oid, 'SELECT')
 ORDER BY CASE c.relkind WHEN 'm' THEN 0 WHEN 'v' THEN 1 ELSE 2 END, n.nspname, c.relname
 LIMIT 2000`
@@ -1355,7 +1355,7 @@ export function parseAllowedFunctions(value) {
     return entries
 }
 
-const NOT_ALLOWED_SCHEMA = "n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'"
+const NOT_ALLOWED_SCHEMA = "n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'"
 
 // Function id -> marks, for the entries that resolve now. Runs in the caller's transaction, with only pg_catalog on
 // the search path, so type names in a signature resolve the same way the refusal message prints them.
@@ -2098,8 +2098,9 @@ FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = A
 
 // Only riskyDomains consumes supersets: it builds oid maps and sorts names. The numeric runs are a
 // conservative superset of treeObjectIds; JS must verify coverage, filter to its exact ids and still decide.
+// Avoid backslashes: a startup batch is lexed before SET LOCAL standard_conforming_strings runs.
 const DOMAIN_DIGITS_SQL = `SELECT DISTINCT digit[1]::int8 AS id FROM (${ALL_DOMAIN_CHECKS_SQL}) checks
-    CROSS JOIN LATERAL pg_catalog.regexp_matches(checks.tree, '\\d+', 'g') AS digit
+    CROSS JOIN LATERAL pg_catalog.regexp_matches(checks.tree, '[0-9]+', 'g') AS digit
     WHERE CASE WHEN length(digit[1]) <= 10 THEN digit[1]::int8 BETWEEN 1 AND 4294967295 ELSE false END`
 function domainSuperset(sql, routines = false) {
     const requested = routines
