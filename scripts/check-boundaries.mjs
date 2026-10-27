@@ -27,7 +27,9 @@ const R5_ALLOW = new Set([
     'scripts/hermes-git-config.py',
     'scripts/hermes-git-config.test.mjs',
     // The tool error preview test runs the run stream's preview function from the vendored runtime.
-    'scripts/hermes-tool-error-preview.test.mjs'
+    'scripts/hermes-tool-error-preview.test.mjs',
+    // The analyst scope test loads the runtime's MCP argument helper.
+    'scripts/hermes-analyst-scope.test.mjs'
 ])
 
 // The checker names runtime paths in its own rule. It does not load that tree.
@@ -964,7 +966,7 @@ function violationsFor(snapshot, baseline) {
             message: [
                 `R5: ${edge.from} reads ${edge.to}.`,
                 'Files outside hermes/ do not read the agent runtime source. Harness code talks to the runtime over HTTP.',
-                'The scripts that may read it are scripts/vendor-hermes.mjs, scripts/start-cuttlely.sh, scripts/setup-hermes.sh, scripts/cuttlely-hermes-api.py, scripts/hermes-git-config.py, scripts/hermes-git-config.test.mjs, and scripts/hermes-tool-error-preview.test.mjs.',
+                'The scripts that may read it are scripts/vendor-hermes.mjs, scripts/start-cuttlely.sh, scripts/setup-hermes.sh, scripts/cuttlely-hermes-api.py, scripts/hermes-git-config.py, scripts/hermes-git-config.test.mjs, scripts/hermes-tool-error-preview.test.mjs, and scripts/hermes-analyst-scope.test.mjs.',
                 'Fix: delete the read and call the runtime over HTTP.'
             ].join('\n')
         })

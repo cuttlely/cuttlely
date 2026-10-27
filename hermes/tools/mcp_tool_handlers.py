@@ -615,9 +615,10 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
             async with server._rpc_lock, _track_inflight_rpc(server, server_name, op, retry_safe=read_only):
                 server._pending_call_context = contextvars.copy_context()  # for the elicitation callback
                 try:
-                    # cuttlely: page cursors are scoped to this chat. Only the analyst bridge reads it.
+                    # cuttlely: page cursors are scoped to this chat. Only a bridge with a query tool reads it.
                     from tools.mcp_tool_cuttlely import analyst_call_arguments
-                    call_args = analyst_call_arguments(server_name, args, kwargs.get("session_id"))
+                    call_args = analyst_call_arguments(
+                        server_name, args, kwargs.get("session_id"), getattr(server, "_config", None))
                     result = await _call_tool_racing_stdio_death(server, server_name, tool_name, call_args)
                 finally:
                     server._pending_call_context = None
