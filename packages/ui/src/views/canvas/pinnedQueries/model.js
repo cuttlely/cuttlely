@@ -264,18 +264,27 @@ function literal(value) {
     return text
 }
 
+// A bool parameter's default and allowed values are typed in as text; the runtime accepts only real booleans.
+function typedValue(type, value) {
+    if (type !== 'bool') return value
+    if (value === true || value === 'true') return true
+    if (value === false || value === 'false') return false
+    return value
+}
+
 export function entryFromEditor(editor) {
     const params = (editor.params || []).map((param) => {
         const row = { name: param.name, type: param.type, required: param.required !== false }
         const fallback = literal(param.default)
-        if (fallback !== undefined) row.default = fallback
+        if (fallback !== undefined) row.default = typedValue(param.type, fallback)
         if (typeof param.allowedValues === 'string' && param.allowedValues.trim()) {
             row.allowedValues = param.allowedValues
                 .split(',')
                 .map((item) => item.trim())
                 .filter(Boolean)
+                .map((item) => typedValue(param.type, item))
         } else if (Array.isArray(param.allowedValues) && param.allowedValues.length) {
-            row.allowedValues = param.allowedValues
+            row.allowedValues = param.allowedValues.map((item) => typedValue(param.type, item))
         }
         const min = literal(param.min)
         const max = literal(param.max)

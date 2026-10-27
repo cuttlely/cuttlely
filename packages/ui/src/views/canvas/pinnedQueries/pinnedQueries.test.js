@@ -10,6 +10,8 @@ import {
     applySuggestions,
     canvasFor,
     clearTest,
+    editorFromPin,
+    entryFromEditor,
     mergeTestedPin,
     messageFrom,
     needsRetestMark,
@@ -204,4 +206,20 @@ test('ZZ-TEST- canvasFor sends the unsaved credential and guard inputs only', ()
         inputs: { analystRelations: '["demo_sales"]', analystRowCap: '10', pinnedQueries: [] }
     })
     expect(canvasFor({ inputs: {} })).toEqual({ credential: '', inputs: {} })
+})
+
+test('ZZ-TEST- a bool parameter saves its default and allowed values as booleans', () => {
+    const editor = {
+        slug: 'zz_test_active',
+        purpose: 'ZZ-TEST- active rows',
+        sql: 'SELECT id FROM demo_sales WHERE active = :active',
+        params: [
+            { name: 'active', type: 'bool', required: false, default: 'false', allowedValues: 'true, false' },
+            { name: 'region', type: 'text', required: false, default: 'false', allowedValues: 'true, EU' }
+        ]
+    }
+    const entry = entryFromEditor(editor)
+    expect(entry.params[0]).toEqual({ name: 'active', type: 'bool', required: false, default: false, allowedValues: [true, false] })
+    expect(entry.params[1]).toEqual({ name: 'region', type: 'text', required: false, default: 'false', allowedValues: ['true', 'EU'] })
+    expect(entryFromEditor(editorFromPin({ ...entry, id: 'zz-test-1' })).params).toEqual(entry.params)
 })
