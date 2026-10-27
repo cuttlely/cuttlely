@@ -944,6 +944,11 @@
             "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
         },
         {
+            "from": "packages/server/src/services/flow-drafts/draftChanged.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The draft conflict error and dialog reuse the shared server error class and the shared button, as the other draft files do."
+        },
+        {
             "from": "packages/server/src/services/flow-drafts/harnessLimits.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "A harness draft save refuses Rules over the cap as a 400, the same AppError the draft service throws."
@@ -1700,6 +1705,11 @@
             "to": "packages/ui/src/utils/useNotifier.js"
         },
         {
+            "from": "packages/ui/src/ui-component/dialog/DraftConflictDialog.jsx",
+            "to": "packages/ui/src/ui-component/button/StyledButton.jsx",
+            "reason": "The draft conflict error and dialog reuse the shared server error class and the shared button, as the other draft files do."
+        },
+        {
             "from": "packages/ui/src/ui-component/dialog/ExpandTextDialog.test.js",
             "to": "packages/ui/src/ui-component/dialog/ExpandTextDialog.jsx",
             "reason": "The Save-over-the-cap test renders the inherited Expand editor it covers."
@@ -1764,6 +1774,11 @@
             "from": "packages/ui/src/utils/credentialSaveValues.js",
             "to": "packages/ui/src/store/constant.js",
             "reason": "credential dialog save values helper reads the blank placeholder value"
+        },
+        {
+            "from": "packages/ui/src/utils/flowDraftsMerge.js",
+            "to": "packages/ui/src/utils/genericHelper.js",
+            "reason": "The draft merge writes kept tool connections in the same order the canvas uses when you connect a tool"
         },
         {
             "from": "packages/ui/src/utils/usePrompt.test.js",
