@@ -241,6 +241,12 @@ jobs:
                   PGPASSWORD: postgres
                   CUTTLELY_TEST_PG_REQUIRED: '1'
               run: node --test scripts/analyst-pinned.test.mjs
+            - name: PostgreSQL node pinned query tests
+              env:
+                  PGPASSWORD: postgres
+                  CUTTLELY_TEST_PG_REQUIRED: '1'
+                  CUTTLELY_TEST_PG_URL: postgres://postgres@localhost:5432/postgres
+              run: pnpm --filter @cuttlely/components test:pinned
             - name: Invite sign-in tests
               env:
                   PGPASSWORD: postgres

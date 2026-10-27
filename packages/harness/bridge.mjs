@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { HarnessError } from './errors.mjs'
 import { repoRoot } from './paths.mjs'
 import { getHarness } from './store.mjs'
+import { isPinnedToolName, pinnedToolRefusal } from './pinned-names.mjs'
 
 export async function executeModule(binding, input, options = {}) {
     const prepared = await prepareModule(binding, input, options)
@@ -245,6 +246,9 @@ async function readyRaw(ready, input, toolName, assertCall) {
     if (ready == null) return ''
     if (Array.isArray(ready)) {
         const tools = toolsOf(ready)
+        if (toolName && isPinnedToolName(toolName) && !tools.some((item) => item.name === toolName)) {
+            return JSON.stringify(pinnedToolRefusal(toolName))
+        }
         const tool = (toolName && tools.find((item) => item.name === toolName)) || tools[0]
         if (!tool) return ready
         return readyRaw(tool, input, '', assertCall)

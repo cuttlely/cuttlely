@@ -52,12 +52,14 @@ export function analystPageRequest(text) {
     return { kind: 'page', page: n }
 }
 
-export function analystPageTask(token, request) {
+// tool is the pinned query tool (pq_...) that returned the cursor; any other value pages through the query tool.
+export function analystPageTask(token, request, tool = '') {
     const cursor = String(token || '')
+    const name = /^pq_[a-z0-9_]+$/.test(String(tool || '')) ? tool : 'query'
     if (request?.kind === 'page') {
-        return `Call the query tool with cursor ${cursor} and page ${request.page}. Do not write a new SQL statement.`
+        return `Call the ${name} tool with cursor ${cursor} and page ${request.page}. Do not write a new SQL statement.`
     }
-    return `Call the query tool with cursor ${cursor}. Do not write a new SQL statement.`
+    return `Call the ${name} tool with cursor ${cursor}. Do not write a new SQL statement.`
 }
 
 function topKeywords(sql) {

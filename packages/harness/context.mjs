@@ -1,3 +1,5 @@
+import { isPinnedToolName } from './pinned-names.mjs'
+
 // Token counts here are ceil(chars / 4). That is an estimate, not a provider tokenizer.
 export const CHARS_PER_TOKEN = 4
 export const DEFAULT_SPECIALIST_CONTEXT_TOKENS = 4000
@@ -356,7 +358,7 @@ export function isAnalystQueryTool(name) {
         .trim()
         .toLowerCase()
     if (!value || value === 'tool_call' || value === 'tool_search' || value === 'tool_describe') return false
-    return value === 'query' || value.endsWith('__query')
+    return value === 'query' || value.endsWith('__query') || isPinnedToolName(value)
 }
 
 function analystRowResult(result) {
