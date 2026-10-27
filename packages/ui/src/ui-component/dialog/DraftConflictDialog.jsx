@@ -81,8 +81,14 @@ const ChangeItem = ({ entry, side }) => (
             {mergeLine(entry, side)}
             {entry.same ? ' (they made the same change)' : ''}
         </Typography>
-        {entry.changes?.length ? (
-            <FieldTable rows={entry.changes} left='Before' right={side === 'mine' ? 'Mine' : 'Theirs'} leftKey='before' rightKey='after' />
+        {(side === 'mine' ? entry.mineRows : entry.theirRows)?.length ? (
+            <FieldTable
+                rows={side === 'mine' ? entry.mineRows : entry.theirRows}
+                left='Before'
+                right={side === 'mine' ? 'Mine' : 'Theirs'}
+                leftKey='before'
+                rightKey='after'
+            />
         ) : null}
     </Box>
 )
