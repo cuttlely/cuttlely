@@ -377,4 +377,16 @@ describe('ZZ-TEST-draft merge', () => {
         const keepTheirs = parse(applyDraftMerge(plan, { 'node:loop': 'theirs' }))
         expect(keepTheirs.nodes.map((item) => item.id)).toEqual(['other'])
     })
+    test('keeping an iteration card I changed and they removed keeps the cards inside it', () => {
+        const loop = (inputs) => ({ ...node('loop', inputs), type: 'iteration' })
+        const child = { ...node('c1'), parentNode: 'loop' }
+        const base = canvas([loop({ items: 'a' }), child])
+        const mine = canvas([loop({ items: 'b' }), child])
+        const theirs = canvas([])
+        const plan = draftMergePlan(base, mine, theirs)
+        expect(plan.conflicts.map(conflictKey)).toEqual(['node:loop'])
+        expect([...plan.merged, ...plan.kept]).toEqual([])
+        expect(parse(applyDraftMerge(plan)).nodes.map((item) => item.id)).toEqual(['loop', 'c1'])
+        expect(parse(applyDraftMerge(plan, { 'node:loop': 'theirs' })).nodes).toEqual([])
+    })
 })

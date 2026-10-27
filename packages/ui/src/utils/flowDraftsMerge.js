@@ -312,18 +312,18 @@ function groupInsideCards(nodes) {
             ['mine', 'theirs']
         ]) {
             const goneChange = gone === 'theirs' ? parent.theirChange : parent.mineChange
-            if (goneChange !== 'removed' || !parent[other] || (parent.conflict && parent.take === undefined)) continue
+            if (goneChange !== 'removed' || !parent[other]) continue
             const inside = nodes.filter((entry) => entry !== parent && parentOf(entry) === parent.id)
             const otherChanged = inside.some((entry) => (other === 'mine' ? entry.mineChange : entry.theirChange) || entry.conflict)
-            if (!otherChanged) continue
-            delete parent.take
-            delete parent.moveConflict
-            parent.conflict = true
-            parent.insideChanged = other
-            parent.fields = fieldRows(parent.base, parent.mine, parent.theirs, nodeFields)
-            for (const entry of inside) {
-                if (!entry[gone]) entry.follows = parent.id
+            if (!parent.conflict && !otherChanged) continue
+            if (!parent.conflict || parent.take !== undefined) {
+                delete parent.take
+                delete parent.moveConflict
+                parent.conflict = true
+                parent.fields = fieldRows(parent.base, parent.mine, parent.theirs, nodeFields)
             }
+            if (otherChanged) parent.insideChanged = other
+            for (const entry of inside) if (!entry[gone]) entry.follows = parent.id
         }
     }
 }
