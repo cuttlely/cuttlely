@@ -843,9 +843,10 @@ describe('analyst guard sends every catalog lookup', () => {
                     // In legacy mode the parent is the second lock; in batched mode both locks just completed.
                     // Read on this client before any user statement could acquire its own relation locks.
                     if (text.split(/\n;\n|; /).some((part) => part.startsWith('LOCK TABLE ') && part.includes(parent))) {
+                        // The batch restores the statement search_path, so qualify lock names explicitly.
                         const locks = await original.call(
                             this,
-                            "SELECT relation::regclass::text AS r FROM pg_catalog.pg_locks WHERE pid = pg_backend_pid() AND locktype = 'relation'"
+                            "SELECT pg_catalog.quote_ident(n.nspname) OPERATOR(pg_catalog.||) '.' OPERATOR(pg_catalog.||) pg_catalog.quote_ident(c.relname) AS r FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_class c ON c.oid = l.relation JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE l.pid = pg_catalog.pg_backend_pid() AND l.locktype = 'relation'"
                         )
                         snapshots.push(
                             [...new Set(locks.rows.map((row) => row.r).filter((r) => [plain, parent, partition].includes(r)))].sort()
