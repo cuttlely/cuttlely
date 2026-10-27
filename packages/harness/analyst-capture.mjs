@@ -154,7 +154,6 @@ export function recordAnalystResult({
         const now = Date.now()
         for (const [key, value] of cursors) if (now - value.at >= ANALYST_PAGE_TTL_MS) cursors.delete(key)
         cursors.set(runKey(harness, specialist, chatId) + '\0' + result.cursor, { ...traceFields, at: now })
-        if (cursors.size > 200) cursors.delete(cursors.keys().next().value)
     }
     pending.push({
         traceFields,

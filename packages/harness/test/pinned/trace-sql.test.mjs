@@ -146,3 +146,10 @@ test('a raw MCP start without gateway arguments retains its lifecycle event', ()
     capture.flush()
     assert.deepEqual(events, [start])
 })
+
+test('page hash remains available while other live cursors accumulate', () => {
+    for (let index = 0; index <= 200; index += 1) {
+        recordAnalystResult({ ...scope, sql: `${sql} -- ZZ-TEST-${index}`, result: { rows: [], cursor: `ZZ-TEST-cursor-${index}` } })
+    }
+    assert.equal(analystSqlTrace({ ...scope, cursor: 'ZZ-TEST-cursor-0' }, off).sqlHash, sqlTraceFields(`${sql} -- ZZ-TEST-0`).sqlHash)
+})
