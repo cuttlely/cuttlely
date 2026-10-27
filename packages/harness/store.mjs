@@ -284,3 +284,19 @@ export function claimWorkspace(name, workspaceId) {
     fs.writeFileSync(fileFor(name), JSON.stringify(stored, null, 2))
     return stored
 }
+
+export function setHarnessCategory(name, category) {
+    const existing = getHarness(name)
+    if (!existing) return null
+    const tags = (Array.isArray(category) ? category : category.split(';'))
+        .filter((tag) => typeof tag === 'string')
+        .map((tag) => tag.trim().slice(0, 100))
+        .filter(Boolean)
+    const normalized = [...new Set(tags)].slice(0, 20).join(';')
+    const stored = { ...existing }
+    if (normalized) stored.category = normalized
+    else delete stored.category
+    fs.mkdirSync(harnessStoreDir(), { recursive: true })
+    fs.writeFileSync(fileFor(name), JSON.stringify(stored, null, 2))
+    return stored
+}
