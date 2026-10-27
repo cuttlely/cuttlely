@@ -12,6 +12,10 @@
 // A ticked view is the gate: it may read relations that are not ticked. For the PostgreSQL MCP node, the functions,
 // operators and types inside every view it reads are checked too.
 
+import { createRequire } from 'node:module'
+
+const nodeGuard = createRequire(import.meta.url)('./node-guard.cjs')
+
 export const RELATION_KINDS = { r: 'table', p: 'table', f: 'foreign table', v: 'view', m: 'materialized view' }
 
 export const SCOPE_ONLY_SELECT =
@@ -165,29 +169,8 @@ class ScopeRefusal extends Error {
 const IDENT = String.raw`(?:[A-Za-z_][A-Za-z0-9_$]*|"(?:[^"]|"")+")`
 const QUALIFIED = new RegExp(`^${IDENT}\\.${IDENT}$`)
 
-// A saved selection is a JSON array of schema-qualified names, as the picker lists them.
-export function parseRelationSelection(value) {
-    let list = value
-    if (typeof list === 'string') {
-        const text = list.trim()
-        if (!text || text === 'choose an option') return []
-        try {
-            list = JSON.parse(text)
-        } catch {
-            list = text.split(',')
-        }
-    }
-    if (!Array.isArray(list)) return []
-    const seen = new Set()
-    const out = []
-    for (const item of list) {
-        const name = typeof item === 'string' ? item.trim() : ''
-        if (!name || seen.has(name)) continue
-        seen.add(name)
-        out.push(name)
-    }
-    return out
-}
+// One reader for the node's saved selection, shared with the node and the server: runtime/node-guard.cjs.
+export const parseRelationSelection = nodeGuard.parseRelationSelection
 
 const RELATION_COLUMNS = `
     quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name,

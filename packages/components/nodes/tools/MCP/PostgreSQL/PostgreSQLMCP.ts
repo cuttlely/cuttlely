@@ -1,4 +1,5 @@
 import fs from 'fs'
+import { createRequire } from 'module'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { tool, Tool } from '@langchain/core/tools'
@@ -53,19 +54,49 @@ type AnalystStoreModule = {
     ) => Promise<unknown>
 }
 
-// Allowed functions come only from the saved node inputs, written by the flow author. Tool input never reaches them.
-const nodeAllowedFunctions = (nodeData: INodeData): string => {
-    const value = nodeData?.inputs?.analystAllowedFunctions
-    // The server leaves this input unresolved and never takes it from a request (UNRESOLVED_INPUT_NAMES and
-    // HARD_DENIED_OVERRIDE_KEYS); a value that still names a variable is ignored whole.
-    return typeof value === 'string' && !/\{\{|\$vars|\$flow/.test(value) ? value : ''
+type NodeGuardModule = {
+    readPinnedEntries: (value: unknown) => { entries: PinnedEntry[]; invalid: boolean }
+    nodeGuardSettings: (
+        inputs: unknown,
+        pin?: unknown
+    ) => {
+        relations: string[]
+        allowedFunctions: string
+        stampFunctions: string[]
+        requested: { rowCap?: number; statementTimeoutMs?: number }
+    }
+}
+
+// The guard settings are read by packages/harness/runtime/node-guard.cjs, the same file the server's pinned query
+// test route uses. Allowed functions come only from the saved node inputs, written by the flow author; the server
+// leaves that input unresolved and never takes it from a request (UNRESOLVED_INPUT_NAMES and
+// HARD_DENIED_OVERRIDE_KEYS), and a value that still names a variable is ignored whole. Tool input never reaches them.
+const nodeRequire = createRequire(__filename)
+let nodeGuardModule: NodeGuardModule | undefined
+
+function nodeGuard(): NodeGuardModule {
+    if (nodeGuardModule) return nodeGuardModule
+    let dir = __dirname
+    for (let i = 0; i < 10; i += 1) {
+        for (const candidate of [
+            path.join(dir, 'packages', 'harness', 'runtime', 'node-guard.cjs'),
+            path.join(dir, 'harness', 'runtime', 'node-guard.cjs')
+        ]) {
+            if (fs.existsSync(candidate)) {
+                nodeGuardModule = nodeRequire(candidate) as NodeGuardModule
+                return nodeGuardModule
+            }
+        }
+        dir = path.dirname(dir)
+    }
+    throw new Error('PostgreSQL MCP could not load the node guard settings.')
+}
+
+function guardSettings(nodeData: INodeData, pin?: unknown) {
+    return nodeGuard().nodeGuardSettings(nodeData?.inputs, pin)
 }
 
 type AnalystRelation = { name: string; kind: string; columns: number; comment: string }
-
-type AnalystRelationsModule = {
-    parseRelationSelection: (value: unknown) => string[]
-}
 
 const RELATION_LOOKUP_MS = 10000
 // Every call prepares the node again. The selection summary in the tool description is reused for this long instead
@@ -112,17 +143,7 @@ function validPinnedQueryName(name: unknown): name is string {
 }
 
 function readPinnedEntries(value: unknown): { entries: PinnedEntry[]; invalid: boolean } {
-    if (value == null || value === '') return { entries: [], invalid: false }
-    let parsed = value
-    if (typeof value === 'string') {
-        try {
-            parsed = JSON.parse(value)
-        } catch {
-            return { entries: [], invalid: true }
-        }
-    }
-    if (!Array.isArray(parsed)) return { entries: [], invalid: true }
-    return { entries: parsed.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as PinnedEntry[], invalid: false }
+    return nodeGuard().readPinnedEntries(value)
 }
 
 function isolatedAnalyst(nodeData: INodeData, env: NodeJS.ProcessEnv = process.env): boolean {
@@ -140,13 +161,6 @@ function expectedFailure(message: string): Error {
     const error = new Error(message)
     ;(error as { cuttlelyOutcome?: string }).cuttlelyOutcome = 'expected'
     return error
-}
-
-function functionLines(nodeData: INodeData): string[] {
-    return nodeAllowedFunctions(nodeData)
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
 }
 
 function workspaceIdOf(options: ICommonObject): string {
@@ -172,17 +186,10 @@ function noteColumnDrift(body: Record<string, unknown>, testedColumns: unknown) 
     body.warning = PINNED_COLUMN_WARNING
 }
 
-function optionalPositive(value: unknown): number | undefined {
-    if (value === undefined || value === null || String(value).trim() === '') return undefined
-    const n = Number(value)
-    return Number.isFinite(n) && n > 0 ? n : undefined
-}
-
 const importEsm = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>
 
 let analystPostgres: Promise<AnalystPostgresModule> | undefined
 let analystStore: Promise<AnalystStoreModule> | undefined
-let analystRelations: Promise<AnalystRelationsModule> | undefined
 let pinnedQueryModule: Promise<PinnedQueryModule> | undefined
 
 function loadModule<T>(
@@ -220,17 +227,6 @@ function loadAnalystStore() {
             analystStore = value
         },
         'PostgreSQL MCP could not load analyst storage.'
-    )
-}
-
-function loadAnalystRelations() {
-    return loadModule<AnalystRelationsModule>(
-        'analyst-relations.mjs',
-        () => analystRelations,
-        (value) => {
-            analystRelations = value
-        },
-        'PostgreSQL MCP could not load the table picker.'
     )
 }
 
@@ -512,23 +508,9 @@ class PostgreSQL_MCP implements INode {
         const decision = await this.connection(nodeData, options)
         // Each workspace has its own analyst area. A harness run also passes its workspace with the call.
         const workspace = options?.searchOptions?.workspaceId?._value || options?.workspaceId || ''
-        const requested = this.nodeLimits(nodeData)
-        if (decision.kind === 'auto') return this.isolatedTools(typeof workspace === 'string' ? workspace : '', requested)
-        const { parseRelationSelection } = await loadAnalystRelations()
-        return this.urlTools(
-            decision.postgresUrl,
-            requested,
-            parseRelationSelection(nodeData?.inputs?.analystRelations),
-            nodeAllowedFunctions(nodeData)
-        )
-    }
-
-    nodeLimits(nodeData: INodeData): { rowCap?: number; statementTimeoutMs?: number } {
-        const seconds = optionalPositive(nodeData?.inputs?.analystTimeoutSeconds)
-        return {
-            rowCap: optionalPositive(nodeData?.inputs?.analystRowCap),
-            statementTimeoutMs: seconds === undefined ? undefined : Math.round(seconds * 1000)
-        }
+        const guard = guardSettings(nodeData)
+        if (decision.kind === 'auto') return this.isolatedTools(typeof workspace === 'string' ? workspace : '', guard.requested)
+        return this.urlTools(decision.postgresUrl, guard.requested, guard.relations, guard.allowedFunctions)
     }
 
     async isolatedTools(workspace = '', requested: { rowCap?: number; statementTimeoutMs?: number } = {}): Promise<Tool[]> {
@@ -649,13 +631,10 @@ class PostgreSQL_MCP implements INode {
         } catch {
             throw expectedFailure('Pinned queries need the server encryption key before they can be offered.')
         }
-        const { parseRelationSelection } = await loadAnalystRelations()
-        const relations = parseRelationSelection(nodeData?.inputs?.analystRelations)
-        const functions = functionLines(nodeData)
+        const { relations, allowedFunctions, stampFunctions } = guardSettings(nodeData)
         const workspaceId = workspaceIdOf(options)
         const cred = typeof nodeData.credential === 'string' ? nodeData.credential : ''
         const store = await loadAnalystStore()
-        const limits = store.analystCallLimits(this.nodeLimits(nodeData), process.env)
         const { sqlTraceFields } = await findModule<{ sqlTraceFields: (sql: string) => { sqlHash: string } }>(
             '../analyst-capture.mjs',
             'PostgreSQL MCP could not load SQL trace fields.'
@@ -685,7 +664,7 @@ class PostgreSQL_MCP implements INode {
                     statementHash: compiled.statementHash,
                     params: Array.isArray(entry.params) ? entry.params : [],
                     relations,
-                    allowedFunctions: functions,
+                    allowedFunctions: stampFunctions,
                     testedColumns: entry.testedColumns
                 })
                 if (!stamp.verifyStamp(key, payload, String(entry.testedStamp))) {
@@ -733,7 +712,8 @@ class PostgreSQL_MCP implements INode {
                 ? `${baseDescription} Required on a first call: ${requiredNames.join(', ')}. For the next page, send only cursor and page.`
                 : baseDescription
             const postgresUrl = decision.postgresUrl
-            const allowedFunctions = nodeAllowedFunctions(nodeData)
+            // The pin's own row cap, when it has one, lowers the node's; the pinned query test applies the same.
+            const limits = store.analystCallLimits(guardSettings(nodeData, entry).requested, process.env)
             const statementHash = compiled.statementHash
             const version = entry.version
             const testedColumns = entry.testedColumns

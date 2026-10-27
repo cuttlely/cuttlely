@@ -51,6 +51,7 @@ import { utilGetUploadsConfig } from '../../utils/getUploadsConfig'
 import logger from '../../utils/logger'
 import flowVersionsService from '../flow-versions'
 import flowDraftsService, { withChatflowLock } from '../flow-drafts'
+import { auditPinnedQuerySave, recordPinnedQueryTest } from './pinnedQueryAudit'
 import { VersionActor } from '../flow-versions/author'
 import { VersionKind } from '../flow-versions/store'
 import { updateStorageUsage } from '../../utils/quotaUsage'
@@ -475,6 +476,15 @@ const saveChatflow = async (
         ...(actor ? { author: actor } : {})
     })
     record?.onVersionQueued?.(recorded)
+    // Live create only. A draft save does not come through here.
+    await auditPinnedQuerySave({
+        flowId: dbResponse.id,
+        organizationId: orgId,
+        workspaceId,
+        actor,
+        previousFlowData: '',
+        nextFlowData: dbResponse.flowData
+    })
 
     // Check if the flow is agentflow and if it has a schedule node, if yes then notify the beat to sync the schedule
     if (dbResponse.type === EnumChatflowType.AGENTFLOW) {
@@ -802,6 +812,15 @@ const updateChatflow = async (
         ...(options.actor ? { author: options.actor } : {})
     })
     options.onVersionQueued?.(recorded)
+    // Live update only. A draft save does not come through here.
+    await auditPinnedQuerySave({
+        flowId: dbResponse.id,
+        organizationId: orgId,
+        workspaceId,
+        actor: options.actor,
+        previousFlowData: previousRow.flowData,
+        nextFlowData: dbResponse.flowData
+    })
 
     // Check if the flow is agentflow and if it has a schedule node, if yes then notify the beat to sync the schedule
     if (dbResponse.type === EnumChatflowType.AGENTFLOW) {
@@ -1168,6 +1187,7 @@ export default {
     getChatflowByIdForWorkspace,
     saveChatflow,
     updateChatflow,
+    recordPinnedQueryTest,
     getSinglePublicChatbotConfig,
     checkIfChatflowHasChanged,
     getAllChatflowsCountByOrganization,

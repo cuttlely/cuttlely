@@ -1,0 +1,21 @@
+{
+    "about": "One PostgreSQL MCP node configuration, read by the node and by the pinned query test route. Both tests assert the same normalised result: packages/server/src/controllers/pinned-queries/index.test.ts and packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.pinned.test.ts.",
+    "inputs": {
+        "analystRelations": "public.demo_sales, public.demo_regions,public.demo_sales",
+        "analystAllowedFunctions": "public.zz_test_lower(text)\r\n# ZZ-TEST- note\n\n",
+        "analystRowCap": "2.5",
+        "analystTimeoutSeconds": "1.5"
+    },
+    "expected": {
+        "relations": ["public.demo_sales", "public.demo_regions"],
+        "allowedFunctions": "public.zz_test_lower(text)\r\n# ZZ-TEST- note\n\n",
+        "stampFunctions": ["public.zz_test_lower(text)", "# ZZ-TEST- note"],
+        "requested": { "rowCap": 2.5, "statementTimeoutMs": 1500 },
+        "limits": { "rowCap": 2, "timeoutMs": 1500 }
+    },
+    "pin": {
+        "rowCap": 1,
+        "requested": { "rowCap": 1, "statementTimeoutMs": 1500 },
+        "limits": { "rowCap": 1, "timeoutMs": 1500 }
+    }
+}

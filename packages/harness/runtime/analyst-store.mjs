@@ -2096,6 +2096,17 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
 // read only and confirms transaction_read_only is on just before the query runs.
 // binds: [] with no pin and no check text is the free-SQL path and keeps today's options.
 const hasCallerBinds = (binds) => binds != null && !(Array.isArray(binds) && binds.length === 0)
+// A type suggestion's entry has temporary text parameters. Its check text uses untyped NULLs at the compiled spans,
+// so Postgres resolves each one from its context (amount > NULL is numeric) instead of failing on text.
+function untypedCheckText(checkText, spans) {
+    let out = ''
+    let at = 0
+    for (const { checkStart, type } of spans) {
+        out += checkText.slice(at, checkStart) + '(NULL)'
+        at = checkStart + `(NULL::pg_catalog.${type})`.length
+    }
+    return out + checkText.slice(at)
+}
 function compileStoreOptions(options, env, replaying = false) {
     requirePinnedReadOnly(options)
     // Any caller pair other than binds: [] is refused: only the store compiles one.
@@ -2114,7 +2125,7 @@ function compileStoreOptions(options, env, replaying = false) {
         options: {
             ...options,
             binds: compiled.binds ?? [],
-            checkText: compiled.checkText,
+            checkText: options.suggestTypesSql != null ? untypedCheckText(compiled.checkText, compiled.spans) : compiled.checkText,
             pinned: { id: entry.id, version: entry.version, statementHash: compiled.statementHash, tool }
         }
     }

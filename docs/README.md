@@ -17,6 +17,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [How the customer care demo works](./how-to/customer-care-demo.md). Specialists that each own one system, a step that waits for another's finding, and amounts that come from code, so you can build the same kind of team on your own data.
 -   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, where a run shows the tokens it used, and [usage over time](./how-to/context-and-tokens.md#usage-over-time).
 -   [Analyst mode](./how-to/analyst.md). A specialist with its own database that creates tables and answers from them. Turn it on with `CUTTLELY_ANALYST=auto`; on Render, see [Analyst database](./how-to/render.md#analyst-database).
+-   [Pinned queries](./how-to/pinned-queries.md). Saved SQL with typed parameters on the PostgreSQL MCP node, off unless `CUTTLELY_PINNED_QUERIES` is `1` or `true`. Tested is not an approval.
 -   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.
 -   [A/B test a change with Compare](./how-to/ab-testing.md). Ask the same questions on Live and on your draft, see each Changed answer before you publish, and make Publish wait for a passing test set.
 -   [Evaluations](./how-to/evaluations.md). Create a dataset, add text, JSON, numeric, and model checks, run them, and refuse Publish until that test set passes. [Turn real answers into tests](./how-to/tests-from-answers.md) starts from a rated answer in the message viewer.
@@ -37,7 +38,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server Settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History. Runtime limits apply on the next use. The routes are the [Server settings API](./reference/server-settings-api.md).
 -   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Users without AuthKit](./how-to/users-without-authkit.md) is email and password, including one-time invite and reset links. An invited person joins only through their own invite link: [Invite people](./how-to/sign-in.md#invite-people). [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
 -   [Roles and permissions](./how-to/roles-and-permissions.md). Teams, the built-in roles, how to add a role and assign it, and every permission key with the pages and API routes that check it.
--   [Audit log](./how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, and settings changes. Passwords, tokens, secret values, and question text are not stored.
+-   [Audit log](./how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, settings changes, and pinned query changes. Passwords, tokens, secret values, and question text are not stored.
 
 ## Reference
 

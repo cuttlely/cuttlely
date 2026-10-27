@@ -502,6 +502,13 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 suggestTypesSql: 'SELECT id FROM demo_sales WHERE region=($1) AND amount>($2) AND month>($3) AND active=($4) LIMIT 1'
             })
             assert.deepEqual(result.paramTypes, ['text', 'numeric', 'date', 'bool'])
+            // The editor sends temporary text parameters; typed comparisons still get their real types.
+            const fromText = await queryAnalystUrl(url, null, {
+                ...options,
+                pinned: { entry: { ...e, params: e.params.map(({ name }) => ({ name, type: 'text' })) } },
+                suggestTypesSql: 'SELECT id FROM demo_sales WHERE region=($1) AND amount>($2) AND month>($3) AND active=($4) LIMIT 1'
+            })
+            assert.deepEqual(fromText.paramTypes, ['text', 'numeric', 'date', 'bool'])
             const ambiguous = await queryAnalystUrl(url, null, {
                 ...options,
                 pinned: {
