@@ -18,7 +18,7 @@ You can change how large a specialist prompt may be. In **Admin** > **Server Set
 
 ## What a specialist hands back
 
-Harness Prime writes the answer from the specialists' results. It reads each result up to that specialist's **Handoff limit**. The default is 4,000 characters. Empty or `0` means the default. You can set it from 160 to 20,000 under **Additional Parameters** on the Harness Specialist: a lower value is read as 160, and a higher one as 20,000. `-1` means no limit: Harness Prime reads the whole answer. A full context still shortens it, as described below. Any other negative number, or text, means the default. A long knowledge answer may need more.
+Harness Prime writes the answer from the specialists' results. It reads each result up to that specialist's **Handoff limit**. The default is 4,000 characters. A decimal is rounded down first, so `-0.5` is read as `-1`. Empty or `0` means the default. You can set it from 160 to 20,000 under **Additional Parameters** on the Harness Specialist: a lower value is read as 160, and a higher one as 20,000. `-1` means no limit: Harness Prime reads the whole answer. A full context still shortens it, as described below. Any other negative number, or text, means the default. A long knowledge answer may need more.
 
 Source documents in that prompt are the name and a short snippet, at most eight. The documents themselves go back to your app on the response `sources`, with the text the tool returned. They are not pasted in full into the prompt that writes the answer.
 
