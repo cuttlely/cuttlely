@@ -1,4 +1,5 @@
 import { isAnalystCapSummary, sourceName, wantsAnalystRows } from './context.mjs'
+import { isPinnedToolName } from './pinned-names.mjs'
 
 const TASK_LIMIT = 500
 
@@ -223,6 +224,11 @@ export const TRACE_ROW_CAP_DEFAULT = 100
 export const TRACE_ROW_CAP_MAX = 1000
 
 function isAnalystQueryChip(name) {
+    const value = String(name || '')
+    return value === 'query' || value.endsWith('__query') || isPinnedToolName(value)
+}
+
+function isFreeSqlChip(name) {
     const value = String(name || '')
     return value === 'query' || value.endsWith('__query')
 }
@@ -463,23 +469,76 @@ export function queryStepTimings(value) {
 // The public query step keeps the row count and, when previews are on, the short preview.
 // The full page stays out of the trace. A create or a failure keeps its short detail.
 
-export function publicToolStep(tool, env) {
-    const timings = isAnalystQueryChip(tool?.name) ? queryStepTimings(tool?.timings) : null
-    const sqlFields =
-        isAnalystQueryChip(tool?.name) && tool?.sqlHash
-            ? {
-                  sqlHash: tool.sqlHash,
-                  ...(analystTracePreviewsEnabled(env) && tool.sql !== undefined
-                      ? { ...sqlPreviewFields(tool.sql), ...(tool.sqlTruncated ? { sqlTruncated: true } : {}) }
-                      : {})
-              }
-            : {}
-    const base = { name: tool?.name, status: tool?.status, ...(timings ? { timings } : {}), ...sqlFields }
-    if (!tool?.detail || !isAnalystQueryChip(tool.name)) {
-        return tool?.detail ? { ...base, detail: String(tool.detail) } : base
+function hashHex(value) {
+    return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : ''
+}
+
+function pinnedTrace(tool, body) {
+    const fromTool = tool?.pinned && typeof tool.pinned === 'object' && !Array.isArray(tool.pinned) ? tool.pinned : null
+    const fromBody = body?.pinned && typeof body.pinned === 'object' && !Array.isArray(body.pinned) ? body.pinned : null
+    if (!fromTool && !fromBody && body?.columnsChanged !== true) return null
+    const source = { ...(fromBody || {}), ...(fromTool || {}) }
+    const pinned = {}
+    if (source.id != null) pinned.id = source.id
+    if (source.name != null) pinned.name = source.name
+    if (source.version != null) pinned.version = source.version
+    const hash = source.hash || source.statementHash
+    if (hash != null) pinned.hash = hash
+    if (source.params && typeof source.params === 'object' && !Array.isArray(source.params)) pinned.params = source.params
+    if (source.columnsChanged === true || body?.columnsChanged === true) pinned.columnsChanged = true
+    const rowCount = finiteCount(source.rowCount) ?? (Array.isArray(body?.rows) ? body.rows.length : null)
+    if (rowCount != null) pinned.rowCount = rowCount
+    return Object.keys(pinned).length ? pinned : null
+}
+
+function stepExtras(tool, body) {
+    const pinned = isPinnedToolName(tool?.name) ? pinnedTrace(tool, body) : null
+    const free = isFreeSqlChip(tool?.name) && Array.isArray(tool?.freeSqlWithPin) && tool.freeSqlWithPin.length ? tool.freeSqlWithPin : null
+    return { ...(pinned ? { pinned } : {}), ...(free ? { freeSqlWithPin: free } : {}) }
+}
+
+function detailWithoutTraceSql(detail, body) {
+    if (!body || !Object.prototype.hasOwnProperty.call(body, '_cuttlelyTraceSql')) return String(detail)
+    const copy = { ...body }
+    delete copy._cuttlelyTraceSql
+    try {
+        const outer = JSON.parse(String(detail))
+        if (outer && typeof outer === 'object' && !Array.isArray(outer) && typeof outer.result === 'string') {
+            return JSON.stringify({ ...outer, result: JSON.stringify(copy) })
+        }
+    } catch {
+        // The detail was the result object itself.
     }
-    const body = parseAnalystResult(tool.detail)
-    if (!body || !Array.isArray(body.rows)) return { ...base, detail: String(tool.detail) }
+    return JSON.stringify(copy)
+}
+
+export function publicToolStep(tool, env) {
+    const analyst = isAnalystQueryChip(tool?.name)
+    const body = analyst && tool?.detail ? parseAnalystResult(tool.detail) : null
+    const sqlHash = analyst ? tool?.sqlHash || hashHex(body?.sqlHash) : ''
+    const ownSql = analyst && tool?.sql !== undefined
+    const previewSql =
+        analyst && analystTracePreviewsEnabled(env)
+            ? ownSql
+                ? tool.sql
+                : typeof body?._cuttlelyTraceSql === 'string'
+                ? body._cuttlelyTraceSql
+                : undefined
+            : undefined
+    const sqlFields = sqlHash
+        ? {
+              sqlHash,
+              ...(previewSql !== undefined
+                  ? { ...sqlPreviewFields(previewSql), ...(ownSql && tool.sqlTruncated ? { sqlTruncated: true } : {}) }
+                  : {})
+          }
+        : {}
+    const timings = analyst ? queryStepTimings(tool?.timings) : null
+    const base = { name: tool?.name, status: tool?.status, ...(timings ? { timings } : {}), ...sqlFields, ...stepExtras(tool, body) }
+    if (!tool?.detail || !analyst) {
+        return tool?.detail ? { ...base, detail: detailWithoutTraceSql(tool.detail, body) } : base
+    }
+    if (!body || !Array.isArray(body.rows)) return { ...base, detail: detailWithoutTraceSql(tool.detail, body) }
     const shaped = analystQueryPreview(body, env)
     const next = { ...base, rowCount: shaped.rowCount }
     if (shaped.preview) next.preview = shaped.preview
@@ -631,16 +690,19 @@ function noteTool(specialists, event) {
     const specialist = next.find((item) => item.name === name)
     const tools = [...specialist.tools]
     if (event.phase === 'start') {
+        const traced = event.sqlHash || event.pinned || event.freeSqlWithPin
         tools.push({
             name: event.name || 'tool',
             status: 'running',
-            ...(event.sqlHash
+            ...(traced
                 ? publicToolStep({
                       name: event.name,
                       status: 'running',
-                      sqlHash: event.sqlHash,
+                      ...(event.sqlHash ? { sqlHash: event.sqlHash } : {}),
                       ...(event.sql !== undefined ? { sql: event.sql } : {}),
-                      ...(event.sqlTruncated ? { sqlTruncated: true } : {})
+                      ...(event.sqlTruncated ? { sqlTruncated: true } : {}),
+                      ...(event.pinned ? { pinned: event.pinned } : {}),
+                      ...(event.freeSqlWithPin ? { freeSqlWithPin: event.freeSqlWithPin } : {})
                   })
                 : {})
         })

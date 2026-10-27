@@ -962,6 +962,8 @@ function emitTool(context, data) {
                       ...(data.sqlTruncated ? { sqlTruncated: true } : {})
                   }
                 : {}),
+            ...(data.pinned ? { pinned: data.pinned } : {}),
+            ...(data.freeSqlWithPin ? { freeSqlWithPin: data.freeSqlWithPin } : {}),
             ...(callId ? { callId } : {})
         })
     } else {
@@ -2144,6 +2146,8 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         slots[slotIndex].detail = maskWorkspacePaths(JSON.stringify({ result: JSON.stringify(item.result) }))
         Object.assign(slots[slotIndex], item.traceFields)
         if (item.timings) slots[slotIndex].timings = item.timings
+        if (item.pinned) slots[slotIndex].pinned = item.pinned
+        if (item.freeSqlWithPin) slots[slotIndex].freeSqlWithPin = item.freeSqlWithPin
     }
 }
 

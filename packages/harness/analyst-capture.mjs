@@ -126,7 +126,7 @@ export function noteAnalystGatewayCall({
     const id = analystCaptureId({ callId, seq, sql, cursor })
     const traceFields = analystSqlTrace({ harness, specialist, chatId, sql, cursor })
     list.push({ id, seq, traceFields, ...(pinned ? { pinned } : {}) })
-    listeners.get(key)?.({ name: toolName, callId: id, ...traceFields })
+    listeners.get(key)?.({ name: toolName, callId: id, ...traceFields, ...(pinned ? { pinned } : {}) })
     return id
 }
 
@@ -135,6 +135,8 @@ export function analystCallsFor(harness, specialist, chatId = '') {
 }
 
 // timings is the store's step-timing record for the call (numbers only), shown on the run trace's query step.
+const EMPTY_SQL_HASH = sqlTraceFields('').sqlHash
+
 export function recordAnalystResult({
     harness,
     specialist,
@@ -145,11 +147,17 @@ export function recordAnalystResult({
     timings = null,
     sql = '',
     cursor = '',
-    pinned = null
+    pinned = null,
+    freeSqlWithPin = null,
+    executedSql = ''
 } = {}) {
     if (!harness || !specialist || result == null) return
     const call = (calls.get(runKey(harness, specialist, chatId)) || []).find((item) => item.id === callId)
-    const traceFields = call?.traceFields || analystSqlTrace({ harness, specialist, chatId, sql, cursor })
+    let traceFields = call?.traceFields || analystSqlTrace({ harness, specialist, chatId, sql, cursor })
+    // A pinned call is noted before the node compiles the statement. The executed text replaces that empty hash.
+    if (executedSql && traceFields?.sqlHash === EMPTY_SQL_HASH) {
+        traceFields = analystSqlTrace({ harness, specialist, chatId, sql: executedSql, cursor: '' })
+    }
     if (result?.cursor) {
         const now = Date.now()
         for (const [key, value] of cursors) if (now - value.at >= ANALYST_PAGE_TTL_MS) cursors.delete(key)
@@ -158,6 +166,7 @@ export function recordAnalystResult({
     pending.push({
         traceFields,
         ...(pinned ? { pinned } : {}),
+        ...(Array.isArray(freeSqlWithPin) && freeSqlWithPin.length ? { freeSqlWithPin } : {}),
         harness: String(harness),
         specialist: String(specialist),
         chatId: String(chatId || ''),
@@ -203,7 +212,9 @@ export function takeAnalystResults({ harness, specialist, chatId = '', since = 0
         traceFields: item.traceFields,
         result: item.result,
         callId: item.callId || '',
-        ...(item.timings ? { timings: item.timings } : {})
+        ...(item.timings ? { timings: item.timings } : {}),
+        ...(item.pinned ? { pinned: item.pinned } : {}),
+        ...(item.freeSqlWithPin ? { freeSqlWithPin: item.freeSqlWithPin } : {})
     }))
 }
 

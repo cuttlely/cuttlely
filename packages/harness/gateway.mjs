@@ -5,6 +5,16 @@ import path from 'node:path'
 import { noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.mjs'
 import { isAnalystQueryTool } from './context.mjs'
 import { SQL_TOOL_REFUSED, enforcesTables, runsSql } from './sql-tools.mjs'
+import { analystTracePreviewsEnabled } from './trace.mjs'
+import {
+    PINNED_MISSING_ERROR,
+    PINNED_OFF_ERROR,
+    assertPinnedQueryRoster,
+    capturePinnedParams,
+    isPinnedToolName,
+    pinnedQueriesEnabled,
+    secureParamNames
+} from './pinned-names.mjs'
 import { analystScopeKey, finishAnalystCallTimings, withAnalystScope } from './runtime/analyst-store.mjs'
 import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpecs, specialistToolBindings } from './bridge.mjs'
 import { HarnessError } from './errors.mjs'
@@ -834,6 +844,11 @@ function writeStream(res, { id, created, model, content, toolCalls, reason, usag
 async function toolSpecs(record, specialistName, ctx, profileName) {
     const specialist = specialistOf(record, specialistName)
     if (!specialist) return []
+    assertPinnedQueryRoster({ specialists: [specialist] })
+    if (profileName) {
+        offeredPins.set(refusalKey(profileName), new Map())
+        pinSecrets.set(refusalKey(profileName), new Map())
+    }
     const refused = new Set()
     const routes = new Map()
     const all = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
@@ -868,6 +883,7 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
         const ready = served.get(binding)
         const specs = refuseSqlTools(profileName, specialistName, binding, ready, refused, names.get(binding))
         for (const spec of ready) if (!routes.has(spec.name)) routes.set(spec.name, routeOf(binding))
+        rememberPinnedBinding(profileName, binding, specs, routeOf(binding))
         if (specs.length) tools.push(...specs)
         else if (ready.length) continue
         else {
@@ -889,6 +905,45 @@ async function toolSpecs(record, specialistName, ctx, profileName) {
 
 // The node behind each advertised tool name, per profile, so a call runs the node it was listed for.
 const toolRoutes = new Map()
+const offeredPins = new Map()
+const pinSecrets = new Map()
+
+function routeKey(route) {
+    if (route?.nodeId) return `node:${route.nodeId}`
+    if (Number.isInteger(route?.index)) return `index:${route.index}`
+    return ''
+}
+
+function rememberPinnedBinding(profileName, binding, specs, route) {
+    if (!profileName) return
+    const key = refusalKey(profileName)
+    const names = (specs || []).map((spec) => spec.name).filter((name) => isPinnedToolName(name))
+    if (names.length) {
+        const map = offeredPins.get(key) || new Map()
+        const id = routeKey(route)
+        if (id) map.set(id, names)
+        offeredPins.set(key, map)
+    }
+    const secrets = pinSecrets.get(key) || new Map()
+    for (const [name, secure] of secureParamNames(binding)) secrets.set(name, secure)
+    if (secrets.size) pinSecrets.set(key, secrets)
+}
+
+function secretNamesFor(profileName, toolName) {
+    const map = pinSecrets.get(refusalKey(profileName))
+    if (!map) return []
+    if (map.has(toolName)) return map.get(toolName)
+    const lower = String(toolName || '').toLowerCase()
+    for (const [name, secure] of map) if (lower === name || lower.endsWith(`__${name}`)) return secure
+    return []
+}
+
+function freePinsFor(profileName, toolName) {
+    if (!profileName || !isAnalystQueryTool(toolName) || isPinnedToolName(toolName)) return null
+    const route = toolRoutes.get(refusalKey(profileName))?.get(toolName)
+    const names = offeredPins.get(refusalKey(profileName))?.get(routeKey(route))
+    return names?.length ? names : null
+}
 
 // SQL tools from an MCP server that cannot limit its tables are not offered, and a call to one is refused.
 const refusedSqlTools = new Map()
@@ -897,7 +952,7 @@ function refusalKey(profileName) {
     return String(profileName || '')
 }
 
-function refuseSqlTools(profileName, specialistName, binding, specs, refused, ownName) {
+export function refuseSqlTools(profileName, specialistName, binding, specs, refused, ownName) {
     if (enforcesTables(binding)) return specs
     const before = refusedSqlTools.get(refusalKey(profileName))
     const kept = []
@@ -955,6 +1010,12 @@ async function callTool(req, res, meta) {
     const callId = hermesToolCallId(body, args)
     delete args._cuttlelyCallId
     const chatId = scope.startsWith(`${record.name}:`) ? scope.slice(record.name.length + 1) : ''
+    // A call can come before any tool list in this process, after a restart for example.
+    if (meta.profileName && (!refusedSqlTools.has(refusalKey(meta.profileName)) || !toolRoutes.has(refusalKey(meta.profileName)))) {
+        await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
+    }
+    const secureNames = secretNamesFor(meta.profileName, body.name)
+    const capturedParams = isPinnedToolName(body.name) ? capturePinnedParams(args, secureNames, analystTracePreviewsEnabled()) : null
     const captureId = isAnalystQueryTool(body.name)
         ? noteAnalystGatewayCall({
               harness: record.name,
@@ -962,15 +1023,22 @@ async function callTool(req, res, meta) {
               chatId,
               callId,
               ...analystStatement(args),
-              toolName: body.name
+              toolName: body.name,
+              ...(capturedParams ? { pinned: { params: capturedParams } } : {})
           })
         : ''
-    // A call can come before any tool list in this process, after a restart for example.
-    if (meta.profileName && (!refusedSqlTools.has(refusalKey(meta.profileName)) || !toolRoutes.has(refusalKey(meta.profileName)))) {
-        await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
-    }
     if (isRefusedSqlTool(meta.profileName, body.name)) {
         const result = JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' })
+        sendJson(res, 200, { result })
+        return
+    }
+    if (isPinnedToolName(body.name) && !pinnedQueriesEnabled()) {
+        const result = JSON.stringify({ error: PINNED_OFF_ERROR, cuttlelyOutcome: 'expected' })
+        sendJson(res, 200, { result })
+        return
+    }
+    if (isPinnedToolName(body.name) && meta.profileName && !toolRoutes.get(refusalKey(meta.profileName))?.has(body.name)) {
+        const result = JSON.stringify({ error: PINNED_MISSING_ERROR, cuttlelyOutcome: 'expected' })
         sendJson(res, 200, { result })
         return
     }
@@ -997,8 +1065,34 @@ async function callTool(req, res, meta) {
     )
     finishAnalystCallTimings(timings, performance.now() - callStarted)
     assertStillValid(meta)
-    rememberAnalystResult(record.name, meta.specialistName, result, scope, args, captureId, timings.at(-1))
-    sendJson(res, 200, { result })
+    const shown = modelToolResult(result)
+    rememberAnalystResult(record.name, meta.specialistName, shown.result, scope, args, captureId, timings.at(-1), {
+        executedSql: shown.traceSql,
+        freeSqlWithPin: freePinsFor(meta.profileName, body.name),
+        secureNames,
+        pinnedCall: isPinnedToolName(body.name)
+    })
+    sendJson(res, 200, { result: shown.result })
+}
+
+function modelToolResult(result) {
+    if (typeof result !== 'string' || !result.includes('_cuttlelyTraceSql')) return { result, traceSql: '' }
+    try {
+        const parsed = JSON.parse(result)
+        if (
+            !parsed ||
+            typeof parsed !== 'object' ||
+            Array.isArray(parsed) ||
+            !Object.prototype.hasOwnProperty.call(parsed, '_cuttlelyTraceSql')
+        ) {
+            return { result, traceSql: '' }
+        }
+        const traceSql = typeof parsed._cuttlelyTraceSql === 'string' ? parsed._cuttlelyTraceSql : ''
+        delete parsed._cuttlelyTraceSql
+        return { result: JSON.stringify(parsed), traceSql }
+    } catch {
+        return { result, traceSql: '' }
+    }
 }
 
 // Hermes sends its session id as the scope. A per-turn id ends in a turn mark; the cursor belongs to the chat.
@@ -1033,7 +1127,20 @@ function analystStatement(args) {
     return { sql, cursor }
 }
 
-function rememberAnalystResult(savedName, specialistName, result, scope, args, callId, timings) {
+function pinnedTraceObject(result, params) {
+    const base = result?.pinned && typeof result.pinned === 'object' && !Array.isArray(result.pinned) ? { ...result.pinned } : null
+    if (!base && !params && result?.columnsChanged !== true) return null
+    const pinned = base || {}
+    if (params) pinned.params = params
+    if (result?.columnsChanged === true) pinned.columnsChanged = true
+    if (Array.isArray(result?.rows)) pinned.rowCount = result.rows.length
+    if (pinned.statementHash && pinned.hash == null) pinned.hash = pinned.statementHash
+    delete pinned.statementHash
+    delete pinned.tool
+    return pinned
+}
+
+function rememberAnalystResult(savedName, specialistName, result, scope, args, callId, timings, extra = {}) {
     const prefix = `${savedName}:`
     const chatId = typeof scope === 'string' && scope.startsWith(prefix) ? scope.slice(prefix.length) : ''
     const statement = analystStatement(args)
@@ -1048,7 +1155,19 @@ function rememberAnalystResult(savedName, specialistName, result, scope, args, c
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
     if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor) return
-    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed, timings, ...statement })
+    const params = extra.pinnedCall ? capturePinnedParams(args, extra.secureNames || [], analystTracePreviewsEnabled()) : null
+    recordAnalystResult({
+        harness: savedName,
+        specialist: specialistName,
+        chatId,
+        callId: id,
+        result: parsed,
+        timings,
+        ...statement,
+        executedSql: extra.executedSql || '',
+        freeSqlWithPin: extra.freeSqlWithPin || null,
+        pinned: pinnedTraceObject(parsed, params)
+    })
 }
 
 async function parseJson(req) {
