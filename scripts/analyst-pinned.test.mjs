@@ -306,12 +306,19 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 sent = []
                 const second = await queryAnalystUrl(url, input, { ...options, env: { ...process.env, CUTTLELY_PINNED_QUERIES: 'true' } })
                 assert.equal(JSON.stringify(first), JSON.stringify(second))
+                const afterFlag = sent
+                sent = []
+                const third = await queryAnalystUrl(url, input, { ...options, env: {}, binds: [], checkText: null })
+                assert.equal(JSON.stringify(third), JSON.stringify(first))
+                const emptyBinds = sent
+                sent = afterFlag
                 const stable = (calls) =>
                     JSON.stringify(calls.map((args) => (typeof args[0] === 'string' ? args[0] : args[0].text))).replace(
                         /cuttlely_scope_check_\d+/g,
                         'cuttlely_scope_check_SEQ'
                     )
                 assert.equal(stable(sent), stable(before))
+                assert.equal(stable(emptyBinds), stable(before))
             } finally {
                 pg.Client.prototype.query = original
             }
@@ -515,6 +522,10 @@ test('ZZ-TEST- exported stores refuse caller pairs before any query executes', a
     try {
         const options = { readOnlySql: true, binds: [], checkText: 'SELECT 1 LIMIT 1' }
         await assert.rejects(queryAnalystUrl('unused', 'SELECT * FROM other_table LIMIT 1', options), /Caller-supplied/)
+        await assert.rejects(
+            queryAnalystUrl('unused', 'SELECT * FROM other_table WHERE id=$1 LIMIT 1', { readOnlySql: true, binds: ['1'] }),
+            /Caller-supplied/
+        )
         await assert.rejects(
             queryUrlPostgres('unused', 'SELECT * FROM other_table LIMIT 1', null, undefined, process.env, [], options),
             /Caller-supplied/

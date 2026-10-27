@@ -1980,7 +1980,9 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
 // read only and confirms transaction_read_only is on just before the query runs.
 function compileStoreOptions(options, env, replaying = false) {
     requirePinnedReadOnly(options)
-    if (Object.hasOwn(options, 'binds') || Object.hasOwn(options, 'checkText'))
+    // binds: [] with no check text is today's free-SQL path. Any other caller pair is refused: only the store compiles one.
+    const callerBinds = options.binds != null && !(Array.isArray(options.binds) && options.binds.length === 0)
+    if (callerBinds || options.checkText != null)
         throw new AnalystToolError('Caller-supplied binds and checkText are refused; use pinned.entry.', 'expected')
     if ((options.pinned != null || options.suggestTypesSql != null) && !pinnedQueriesEnabled(env))
         throw new AnalystToolError('Pinned queries are turned off on this server.', 'expected')
