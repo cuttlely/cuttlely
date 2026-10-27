@@ -35,8 +35,12 @@ import {
     describeAnalystUrlRelation,
     listAnalystUrlRelations,
     queryAnalystUrl,
-    setCheckGapHookForTests
+    setCheckGapHookForTests,
+    setGuardLegacyRoundTripsForTests
 } from '../packages/harness/runtime/analyst-store.mjs'
+
+// The CI job runs this file a second time this way so every existing case is checked against the old round trips too.
+if (process.env.CUTTLELY_TEST_GUARD_LEGACY_ROUND_TRIPS === '1') setGuardLegacyRoundTripsForTests(true)
 
 const { Client } = pg
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')

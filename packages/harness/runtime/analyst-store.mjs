@@ -1530,7 +1530,8 @@ function sqliteRunner(db) {
 }
 
 // Inside a transaction a failed helper query (a count that does not fit, say) would abort the whole transaction;
-// a savepoint keeps the user's statement usable.
+// a savepoint keeps the user's statement usable. Guard catalog reads run without per-lookup savepoints because
+// any failed guard lookup ends the check.
 function postgresRunner(client, { transaction = false } = {}) {
     return {
         async all(sql, params = [], binds = []) {
@@ -2049,9 +2050,12 @@ async function runUrlPostgres(
     const timer = queryTimer()
     client.query = meteredQuery(client, timer)
     const runner = postgresRunner(client, { transaction: true })
-    runner.timer = timer
+    const legacy = guardLegacyRoundTrips
+    const guard = legacy ? runner : postgresRunner(client)
+    runner.legacyRoundTrips = legacy
+    runner.timer = guard.timer = timer
     // Only the node's own setting, passed by the node from the saved flow; never the tool input.
-    if (readOnlySql) runner.allowedFunctions = parseAllowedFunctions(allowedFunctions)
+    if (readOnlySql) runner.allowedFunctions = guard.allowedFunctions = parseAllowedFunctions(allowedFunctions)
     let selected = []
     const statementPath = async () => {
         if (runner.statementSearchPath)
@@ -2102,16 +2106,16 @@ async function runUrlPostgres(
         await timeStep(runner, 'connect', () => client.connect())
         if (readOnlySql) {
             const path = (await client.query("SELECT pg_catalog.current_setting('search_path') AS p")).rows?.[0]?.p || ''
-            runner.statementSearchPath = path.trim() ? `pg_catalog, ${path}` : 'pg_catalog'
+            runner.statementSearchPath = guard.statementSearchPath = path.trim() ? `pg_catalog, ${path}` : 'pg_catalog'
         }
         if (scoped) {
             await begin(false)
             try {
-                if (readOnlySql) await refuseRiskyTypes(runner)
-                selected = await resolveRelations(runner, relations)
+                if (readOnlySql) await refuseRiskyTypes(guard)
+                selected = await resolveRelations(guard, relations)
                 checked = await checkStatementScope(
                     client,
-                    runner,
+                    guard,
                     text,
                     selected,
                     isRowQuery,
@@ -2130,9 +2134,9 @@ async function runUrlPostgres(
             // No selection: the node still resolves every called function through the catalog first, on every page.
             await begin(false)
             try {
-                await refuseRiskyTypes(runner)
+                await refuseRiskyTypes(guard)
                 // No cache key: the node's catalog scans run fresh before every parse.
-                checked = await checkStatementRoutines(client, runner, text, isRowQuery, '')
+                checked = await checkStatementRoutines(client, guard, text, isRowQuery, '')
                 checkedBackend = await backend()
             } catch (error) {
                 throw await hinted(error)
@@ -2148,8 +2152,8 @@ async function runUrlPostgres(
                 throw new AnalystToolError('Cuttlely could not start a read-only transaction, so the query did not run.', 'expected')
             }
             const queryBackend = await backend()
-            if (scoped) await keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend)
-            if (checked) await keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend)
+            if (scoped) await keepCheckedScope(client, guard, relations, selected, checkedBackend, queryBackend)
+            if (checked) await keepCheckedDefinitions(client, guard, checked, scoped, checkedBackend, queryBackend)
             const pageCursor = replay?.paging?.cursor
             const cursorBefore = pageCursor ? pageCursors.get(pageCursor) : undefined
             await statementPath()
@@ -2168,7 +2172,7 @@ async function runUrlPostgres(
             // An overload or schema created after the last comparison could have changed what a name reached while
             // the statement was parsed. Its rows are not returned, the cursor stays where it was, and the transaction
             // is read only and rolls back.
-            const unchanged = !checked || (await routineCatalogStamp(runner).catch(() => null)) === checked.stamp
+            const unchanged = !checked || (await routineCatalogStamp(guard).catch(() => null)) === checked.stamp
             if (!unchanged) {
                 if (pageCursor && cursorBefore) pageCursors.set(pageCursor, cursorBefore)
                 throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
@@ -2210,6 +2214,13 @@ async function keepCheckedScope(client, runner, relations, selected, checkedBack
         now.length === selected.length &&
         now.every((relation) => selected.some((checked) => checked.name === relation.name && checked.oid === relation.oid))
     if (!same) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
+}
+
+let guardLegacyRoundTrips = false
+
+// Kept so the parity test can run the old round trips and the new ones in one process. Decisions must not differ.
+export function setGuardLegacyRoundTripsForTests(on) {
+    guardLegacyRoundTrips = Boolean(on)
 }
 
 let checkGapHookForTests = null
