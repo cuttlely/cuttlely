@@ -26,6 +26,7 @@ import CanvasHeader from './CanvasHeader'
 import AddNodes from './AddNodes'
 import NodeSidePanel from './NodeSidePanel'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
+import DraftConflictDialog from '@/ui-component/dialog/DraftConflictDialog'
 import ChatPopUp from '@/views/chatmessage/ChatPopUp'
 import VectorStorePopUp from '@/views/vectorstore/VectorStorePopUp'
 import EtlPanel from '@/views/etl/EtlPanel'
@@ -45,6 +46,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
+import useDraftSave from '@/hooks/useDraftSave'
 import { useAuth } from '@/hooks/useAuth'
 
 // icons
@@ -154,6 +156,8 @@ const Canvas = () => {
     const [draftStatus, setDraftStatusState] = useState(null)
     const draftStatusRef = useRef(null)
     const fitOnOpenRef = useRef(false)
+    const draftSave = useDraftSave()
+    const pendingSaveNameRef = useRef('')
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -405,7 +409,14 @@ const Canvas = () => {
         }
     }
 
-    const handleSaveFlow = async (chatflowName) => {
+    const reloadSharedDraft = () => {
+        draftSave.dismiss()
+        if (!chatflow?.id) return
+        getSpecificChatflowApi.request(chatflow.id)
+    }
+
+    const handleSaveFlow = async (chatflowName, saveOptions) => {
+        if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
             const rfInstanceObject = canvasSaveDocument(reactFlowInstance)
             const flowData = JSON.stringify(rfInstanceObject)
@@ -452,7 +463,8 @@ const Canvas = () => {
                 })
                 if (plan.draft) {
                     try {
-                        const res = await flowDraftsApi.saveDraft(chatflow.id, plan.draft.flowData)
+                        const res = await draftSave.save(chatflow.id, plan.draft.flowData, saveOptions)
+                        if (res?.conflict) return
                         setDraftStatus(res.data)
                     } catch (error) {
                         errorFailed(apiErrorMessage(error, 'Save failed'))
@@ -740,7 +752,8 @@ const Canvas = () => {
     // runs the draft and Publish puts it live. A server with drafts off keeps the old way: the cards go live.
     const saveFirstDraft = async (created, draft) => {
         try {
-            const res = await flowDraftsApi.saveDraft(created.id, draft)
+            const res = await draftSave.save(created.id, draft)
+            if (res?.conflict) return
             setDraftStatus(res.data)
             saveChatflowSuccess('Saved as a draft. Live stays empty until you publish.')
         } catch {
@@ -898,6 +911,7 @@ const Canvas = () => {
             const paint = (status) => {
                 if (cancelled) return
                 setDraftStatus(status)
+                draftSave.record(status)
                 const text = canvasFlowText(loaded, status)
                 try {
                     const initialFlow = readGraph(text)
@@ -916,6 +930,7 @@ const Canvas = () => {
                     }
                 }
                 dispatch({ type: SET_CHATFLOW, chatflow: loaded })
+                dispatch({ type: REMOVE_DIRTY })
             }
             const built = takeSavedBuild(loaded.id)
             if (built) builtNotice(built)
@@ -959,7 +974,10 @@ const Canvas = () => {
             if (!draft) {
                 flowDraftsApi
                     .getStatus(chatflow.id)
-                    .then((res) => setDraftStatus(res.data))
+                    .then((res) => {
+                        setDraftStatus(res.data)
+                        draftSave.record(res.data)
+                    })
                     .catch(() => undefined)
             }
             window.history.replaceState(
@@ -1454,6 +1472,16 @@ const Canvas = () => {
                     </ReactFlowProvider>
                 </Box>
                 <ConfirmDialog />
+                <DraftConflictDialog
+                    open={Boolean(draftSave.conflict)}
+                    conflict={draftSave.conflict}
+                    onReload={reloadSharedDraft}
+                    onSaveAnyway={() => {
+                        draftSave.dismiss()
+                        handleSaveFlow(pendingSaveNameRef.current, { overwriteDraftChanges: true })
+                    }}
+                    onClose={draftSave.dismiss}
+                />
             </Box>
         </>
     )

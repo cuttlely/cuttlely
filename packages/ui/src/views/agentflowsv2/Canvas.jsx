@@ -28,6 +28,7 @@ import StickyNote from './StickyNote'
 import CanvasHeader from '@/views/canvas/CanvasHeader'
 import AddNodes from '@/views/canvas/AddNodes'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
+import DraftConflictDialog from '@/ui-component/dialog/DraftConflictDialog'
 import EditNodeDialog from '@/views/agentflowsv2/EditNodeDialog'
 import ChatPopUp from '@/views/chatmessage/ChatPopUp'
 import ScheduleHistoryFAB from '@/views/schedule/ScheduleHistoryFAB'
@@ -45,6 +46,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
+import useDraftSave from '@/hooks/useDraftSave'
 import { isNewLook, panelNode } from '@/utils/canvasLook'
 import { createCanvasDeleteQueue, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 
@@ -106,6 +108,8 @@ const AgentflowCanvas = () => {
     const [chatflow, setChatflow] = useState(null)
     const [draftStatus, setDraftStatusState] = useState(null)
     const draftStatusRef = useRef(null)
+    const draftSave = useDraftSave()
+    const pendingSaveNameRef = useRef('')
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -270,7 +274,14 @@ const AgentflowCanvas = () => {
         }
     }
 
-    const handleSaveFlow = async (chatflowName) => {
+    const reloadSharedDraft = () => {
+        draftSave.dismiss()
+        if (!chatflow?.id) return
+        getSpecificChatflowApi.request(chatflow.id)
+    }
+
+    const handleSaveFlow = async (chatflowName, saveOptions) => {
+        if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
             const rfInstanceObject = canvasSaveDocument(reactFlowInstance, { workflow: true })
             const flowData = JSON.stringify(rfInstanceObject)
@@ -296,7 +307,8 @@ const AgentflowCanvas = () => {
                 })
                 if (plan.draft) {
                     try {
-                        const res = await flowDraftsApi.saveDraft(chatflow.id, plan.draft.flowData)
+                        const res = await draftSave.save(chatflow.id, plan.draft.flowData, saveOptions)
+                        if (res?.conflict) return
                         setDraftStatus(res.data)
                         saveBuilderStarters(chatflow)
                     } catch (error) {
@@ -724,6 +736,7 @@ const AgentflowCanvas = () => {
             const paint = (status) => {
                 if (cancelled) return
                 setDraftStatus(status)
+                draftSave.record(status)
                 const text = canvasFlowText(loaded, status)
                 try {
                     const initialFlow = readGraph(text)
@@ -740,6 +753,7 @@ const AgentflowCanvas = () => {
                     }
                 }
                 dispatch({ type: SET_CHATFLOW, chatflow: loaded })
+                dispatch({ type: REMOVE_DIRTY })
             }
             flowDraftsApi
                 .getStatus(loaded.id)
@@ -764,7 +778,10 @@ const AgentflowCanvas = () => {
             saveChatflowSuccess()
             flowDraftsApi
                 .getStatus(chatflow.id)
-                .then((res) => setDraftStatus(res.data))
+                .then((res) => {
+                    setDraftStatus(res.data)
+                    draftSave.record(res.data)
+                })
                 .catch(() => undefined)
             window.history.replaceState(state, null, `/v2/agentcanvas/${chatflow.id}`)
         } else if (createNewChatflowApi.error) {
@@ -1151,6 +1168,16 @@ const AgentflowCanvas = () => {
                     </ReactFlowProvider>
                 </Box>
                 <ConfirmDialog />
+                <DraftConflictDialog
+                    open={Boolean(draftSave.conflict)}
+                    conflict={draftSave.conflict}
+                    onReload={reloadSharedDraft}
+                    onSaveAnyway={() => {
+                        draftSave.dismiss()
+                        handleSaveFlow(pendingSaveNameRef.current, { overwriteDraftChanges: true })
+                    }}
+                    onClose={draftSave.dismiss}
+                />
             </Box>
         </>
     )

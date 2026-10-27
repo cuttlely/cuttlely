@@ -23,7 +23,13 @@ import {
     datasetGateBlock,
     showPublishGate,
     showPublishInstantly,
-    testChatFlow
+    testChatFlow,
+    draftVersion,
+    draftConflictFrom,
+    draftConflictMessage,
+    DRAFT_CONFLICT_TITLE,
+    DRAFT_CONFLICT_RELOAD,
+    DRAFT_CONFLICT_SAVE_ANYWAY
 } from './flowDrafts'
 
 const live = JSON.stringify({
@@ -394,5 +400,48 @@ describe('history markers and restore into a draft', () => {
             'Opened this version as your draft. Live is unchanged until you publish. Add these credentials before you publish: OpenAI trial. Replace [secret hidden] in Conversation Chain (System Message) before you publish.'
         )
         expect(restoreMessage({ unchanged: true }).message).toBe('The flow already matches this version.')
+    })
+})
+
+describe('ZZ-TEST-shared draft conflict', () => {
+    const now = Date.parse('2026-10-27T12:03:00.000Z')
+    const savedAt = '2026-10-27T12:00:00.000Z'
+
+    test('ZZ-TEST-draftVersion is the loaded hash, or null when there is no draft', () => {
+        expect(draftVersion({ draft: { hash: 'abc123' } })).toBe('abc123')
+        expect(draftVersion({ draft: null })).toBeNull()
+        expect(draftVersion(null)).toBeNull()
+        expect(draftVersion({})).toBeNull()
+    })
+
+    test('ZZ-TEST-draftConflictFrom keeps only a 409 DRAFT_CHANGED body', () => {
+        const conflict = {
+            savedBy: { id: 'zz-test-rosa', name: 'ZZ-TEST-Rosa' },
+            savedAt
+        }
+        expect(
+            draftConflictFrom({
+                response: { status: 409, data: { code: 'DRAFT_CHANGED', message: 'ask first', ...conflict } }
+            })
+        ).toEqual(conflict)
+        expect(draftConflictFrom({ response: { status: 409, data: { code: 'OTHER', message: 'no' } } })).toBeNull()
+        expect(draftConflictFrom({ response: { status: 400, data: { code: 'DRAFT_CHANGED' } } })).toBeNull()
+        expect(draftConflictFrom(new Error('offline'))).toBeNull()
+    })
+
+    test('ZZ-TEST-the message names who saved and when, and the buttons', () => {
+        expect(DRAFT_CONFLICT_TITLE).toBe('Someone else saved this draft')
+        expect(DRAFT_CONFLICT_RELOAD).toBe('Reload')
+        expect(DRAFT_CONFLICT_SAVE_ANYWAY).toBe('Save anyway')
+        expect(draftConflictMessage({ savedBy: { id: 'zz-test-rosa', name: 'ZZ-TEST-Rosa' }, savedAt }, now)).toBe(
+            'ZZ-TEST-Rosa saved this draft 3 minutes ago. Reload to see their changes, or save anyway to replace them.'
+        )
+        expect(relativeTime(savedAt, now)).toBe('3 minutes ago')
+        expect(draftConflictMessage({ savedBy: { name: 'ZZ-TEST-Rosa' }, savedAt: null }, now)).toBe(
+            'ZZ-TEST-Rosa saved this draft after you opened it. Reload to see their changes, or save anyway to replace them.'
+        )
+        expect(draftConflictMessage({ savedBy: { name: 'ZZ-TEST-Rosa' } }, now)).toBe(
+            'ZZ-TEST-Rosa saved this draft after you opened it. Reload to see their changes, or save anyway to replace them.'
+        )
     })
 })

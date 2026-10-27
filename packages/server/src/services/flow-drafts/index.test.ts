@@ -28,9 +28,18 @@ let duringDatasetLookup: null | (() => Promise<void>) = null
 const datasets = new Map<string, any>()
 const datasetRows: any[] = []
 const evaluators = new Map<string, any>()
+const users = new Map<string, { id: string; name?: string; email?: string }>()
+let userLookupError: Error | null = null
+const userRepo = {
+    findOneBy: jest.fn(async (where: any) => {
+        if (userLookupError) throw userLookupError
+        return users.get(where?.id) || null
+    })
+}
 const repositoryFor = (entity: { name?: string }) => {
     const name = entity?.name
     if (name === 'ChatFlow') return chatRepo
+    if (name === 'User') return userRepo
     if (name === 'Dataset') {
         return {
             findOneBy: async (where: any) => {
@@ -85,6 +94,8 @@ jest.mock('./harnessLimits', () => ({
 
 import {
     canvasHash,
+    draftChangedBy,
+    DraftChangedError,
     deleteStateFor,
     discardDraft,
     flowDataForTestChat,
@@ -211,6 +222,8 @@ beforeEach(() => {
     datasets.clear()
     datasetRows.length = 0
     evaluators.clear()
+    users.clear()
+    userLookupError = null
     duringDatasetLookup = null
     clearGateCheckNotes()
     draftWriteHooks.afterStateRead = null
@@ -1720,4 +1733,194 @@ test('deleting a flow removes its row', async () => {
     await saveDraft(flow(), canvas('Draft'), context)
     await deleteStateFor('flow-1')
     expect(rows).toEqual([])
+})
+
+describe('ZZ-TEST-a shared draft save asks before it replaces someone else', () => {
+    const rosa = 'zz-test-rosa'
+    const other = 'zz-test-other'
+    const rememberRosa = (name = 'ZZ-TEST-Rosa') => {
+        users.set(rosa, { id: rosa, name, email: 'zz-test-rosa@example.test' })
+    }
+    const writes = () => fakeRepo.update.mock.calls.length + fakeRepo.save.mock.calls.length
+
+    test('ZZ-TEST-another user saved since the loaded hash is a 409 and the row is unchanged', async () => {
+        rememberRosa()
+        const first = await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        rows[0].draftUpdatedDate = new Date('2026-10-27T12:00:00.000Z')
+        const stored = rows[0].draftFlowData
+        expect(first.draft?.hash).toBe(canvasHash(stored))
+        const loaded = canvasHash(canvas('older than Rosa'))
+        expect(loaded).not.toBe(first.draft?.hash)
+        const before = writes()
+        let caught: any
+        try {
+            await saveDraft(flow(), canvas('ZZ-TEST-other canvas'), { ...context, userId: other, expectedDraftHash: loaded })
+        } catch (error) {
+            caught = error
+        }
+        expect(caught).toBeInstanceOf(DraftChangedError)
+        expect(caught).toMatchObject({
+            statusCode: 409,
+            code: 'DRAFT_CHANGED',
+            savedBy: { id: rosa, name: 'ZZ-TEST-Rosa' },
+            savedAt: '2026-10-27T12:00:00.000Z',
+            message:
+                'ZZ-TEST-Rosa saved this draft after you opened it. Reload to see their changes, or send overwriteDraftChanges: true to replace them.'
+        })
+        expect(JSON.stringify(caught)).not.toContain('example.test')
+        expect(JSON.stringify(caught)).not.toContain('@')
+        expect(rows[0].draftFlowData).toBe(stored)
+        expect(rows[0].draftUpdatedBy).toBe(rosa)
+        expect(new Date(rows[0].draftUpdatedDate).toISOString()).toBe('2026-10-27T12:00:00.000Z')
+        expect(writes()).toBe(before)
+    })
+
+    test('ZZ-TEST-a refused save stores no uploaded file', async () => {
+        rememberRosa()
+        await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        const upload = 'data:text/plain;base64,QQ==,filename:note.txt'
+        const withFile = JSON.stringify({
+            nodes: [{ id: 'txt_0', data: { category: 'Document Loaders', inputs: { txtFile: upload } } }],
+            edges: []
+        })
+        updateFlowDataWithFilePaths.mockClear()
+        await expect(saveDraft(flow(), withFile, { ...context, userId: other, expectedDraftHash: 'not-the-draft' })).rejects.toBeInstanceOf(
+            DraftChangedError
+        )
+        expect(updateFlowDataWithFilePaths).not.toHaveBeenCalled()
+        expect(rows[0].draftFlowData).toBe(canvas('ZZ-TEST-Rosa draft'))
+    })
+
+    test('ZZ-TEST-the same user can save the hash they loaded and their own earlier hash', async () => {
+        const me = 'zz-test-me'
+        const first = await saveDraft(flow(), canvas('ZZ-TEST-mine 1'), { ...context, userId: me })
+        const loaded = first.draft?.hash
+        const seen = await saveDraft(flow(), canvas('ZZ-TEST-mine 2'), { ...context, userId: me, expectedDraftHash: loaded })
+        expect(seen.draft?.flowData).toBe(canvas('ZZ-TEST-mine 2'))
+        const again = await saveDraft(flow(), canvas('ZZ-TEST-mine 3'), { ...context, userId: me, expectedDraftHash: loaded })
+        expect(again.draft?.flowData).toBe(canvas('ZZ-TEST-mine 3'))
+        expect(rows[0].draftUpdatedBy).toBe(me)
+        // A matching hash is the draft they opened, whoever saved it.
+        const current = again.draft?.hash
+        const shared = await saveDraft(flow(), canvas('ZZ-TEST-seen'), { ...context, userId: other, expectedDraftHash: current })
+        expect(shared.draft?.flowData).toBe(canvas('ZZ-TEST-seen'))
+        rows[0].draftFlowData = null
+        rows[0].draftBaseHash = null
+        rows[0].draftUpdatedBy = null
+        rows[0].draftUpdatedDate = null
+        const key = await saveDraft(flow(), canvas('ZZ-TEST-key 1'), { ...context, userId: null, expectedDraftHash: null })
+        expect(key.draft?.flowData).toBe(canvas('ZZ-TEST-key 1'))
+        const sameKey = await saveDraft(flow(), canvas('ZZ-TEST-key 2'), {
+            ...context,
+            userId: undefined,
+            expectedDraftHash: 'not-the-current-hash'
+        })
+        expect(sameKey.draft?.flowData).toBe(canvas('ZZ-TEST-key 2'))
+        expect(rows[0].draftUpdatedBy).toBeNull()
+        expect(draftChangedBy({ draftFlowData: canvas('x'), draftUpdatedBy: undefined }, 'stale', null, false)).toBeNull()
+    })
+
+    test('ZZ-TEST-overwriteDraftChanges true replaces the draft, and any other value does not', async () => {
+        rememberRosa()
+        await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        await expect(
+            saveDraft(flow(), canvas('ZZ-TEST-not yet'), {
+                ...context,
+                userId: other,
+                expectedDraftHash: 'stale',
+                overwriteDraftChanges: 'true'
+            })
+        ).rejects.toBeInstanceOf(DraftChangedError)
+        expect(rows[0].draftFlowData).toBe(canvas('ZZ-TEST-Rosa draft'))
+        const replaced = await saveDraft(flow(), canvas('ZZ-TEST-replaced'), {
+            ...context,
+            userId: other,
+            expectedDraftHash: 'stale',
+            overwriteDraftChanges: true
+        })
+        expect(replaced.draft?.flowData).toBe(canvas('ZZ-TEST-replaced'))
+        expect(rows[0].draftUpdatedBy).toBe(other)
+    })
+
+    test('ZZ-TEST-the first draft, and a row with no draft, accepts expectedDraftHash null', async () => {
+        const created = await saveDraft(flow(), canvas('ZZ-TEST-first'), { ...context, expectedDraftHash: null })
+        expect(created.draft?.flowData).toBe(canvas('ZZ-TEST-first'))
+        expect(created.draft?.hash).toBe(canvasHash(created.draft?.flowData || ''))
+        rows[0].draftFlowData = null
+        rows[0].draftBaseHash = null
+        rows[0].draftUpdatedBy = rosa
+        rows[0].draftUpdatedDate = new Date('2026-10-27T11:00:00.000Z')
+        const again = await saveDraft(flow(), canvas('ZZ-TEST-after publish'), {
+            ...context,
+            userId: other,
+            expectedDraftHash: null
+        })
+        expect(again.draft?.flowData).toBe(canvas('ZZ-TEST-after publish'))
+        expect(again.draft?.hash).toBe(canvasHash(canvas('ZZ-TEST-after publish')))
+    })
+
+    test('ZZ-TEST-no expectedDraftHash keeps last save wins', async () => {
+        await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        const later = await saveDraft(flow(), canvas('ZZ-TEST-later'), { ...context, userId: other })
+        expect(later.draft?.flowData).toBe(canvas('ZZ-TEST-later'))
+        expect(rows[0].draftUpdatedBy).toBe(other)
+    })
+
+    test('ZZ-TEST-a canvas equal to Live from a stale client does not clear another user draft', async () => {
+        rememberRosa()
+        await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        const stored = rows[0].draftFlowData
+        const prettyLive = JSON.stringify(JSON.parse(LIVE), null, 2)
+        await expect(
+            saveDraft(flow(), prettyLive, { ...context, userId: other, expectedDraftHash: canvasHash(canvas('stale client')) })
+        ).rejects.toBeInstanceOf(DraftChangedError)
+        expect(rows[0].draftFlowData).toBe(stored)
+        expect(rows[0].draftUpdatedBy).toBe(rosa)
+        expect(rows[0].draftBaseHash).toBeTruthy()
+    })
+
+    test('ZZ-TEST-an email-shaped name is not sent, and a lookup failure uses a short id', async () => {
+        rememberRosa('zz-test-rosa@example.test')
+        await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        await expect(
+            saveDraft(flow(), canvas('ZZ-TEST-other'), { ...context, userId: other, expectedDraftHash: 'stale' })
+        ).rejects.toMatchObject({ savedBy: { id: rosa, name: 'User zz-test-' } })
+        expect(rows[0].draftUpdatedBy).toBe(rosa)
+        userLookupError = new Error('db down')
+        await expect(
+            saveDraft(flow(), canvas('ZZ-TEST-other'), { ...context, userId: other, expectedDraftHash: 'stale' })
+        ).rejects.toMatchObject({ savedBy: { id: rosa, name: 'User zz-test-' } })
+        const body = JSON.stringify(rows[0])
+        expect(body).not.toContain('example.test')
+    })
+
+    test('ZZ-TEST-an API key draft names the saver without an id', async () => {
+        await saveDraft(flow(), canvas('ZZ-TEST-key'), { ...context, userId: null })
+        rows[0].draftUpdatedDate = new Date('2026-10-27T12:08:00.000Z')
+        await expect(
+            saveDraft(flow(), canvas('ZZ-TEST-person'), { ...context, userId: other, expectedDraftHash: 'stale' })
+        ).rejects.toMatchObject({
+            savedBy: { id: null, name: 'Someone using an API key' },
+            savedAt: '2026-10-27T12:08:00.000Z'
+        })
+        expect(rows[0].draftFlowData).toBe(canvas('ZZ-TEST-key'))
+        expect(rows[0].draftUpdatedBy).toBeNull()
+    })
+
+    test('ZZ-TEST-a hash that is not a string or null is a 400 and writes nothing', async () => {
+        const upload = 'data:text/plain;base64,QQ==,filename:note.txt'
+        const withFile = JSON.stringify({
+            nodes: [{ id: 'txt_0', data: { category: 'Document Loaders', inputs: { txtFile: upload } } }],
+            edges: []
+        })
+        await expect(saveDraft(flow(), withFile, { ...context, expectedDraftHash: 5, overwriteDraftChanges: true })).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'expectedDraftHash must be a string or null.'
+        })
+        expect(rows).toEqual([])
+        expect(updateFlowDataWithFilePaths).not.toHaveBeenCalled()
+        expect(() => draftChangedBy(null, { no: 'hash' }, other, false)).toThrow(
+            expect.objectContaining({ statusCode: 400, message: 'expectedDraftHash must be a string or null.' })
+        )
+    })
 })

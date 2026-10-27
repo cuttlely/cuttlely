@@ -16,6 +16,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   A harness specialist with the PostgreSQL MCP node that is not named `analyst` (its query tool is `mcp__<name>__query`) now gets its chat scope on every query call, so the run trace and the saved run keep that query step's row preview and `timings`, and its "show more" cursor stays with its chat.
 
+-   Saving a shared draft now asks before it replaces a draft someone else saved after you opened the canvas. Reload shows their changes. Save anyway replaces them. Saving twice yourself does not ask, and an API save that sends no `expectedDraftHash` still replaces the draft.
+
 ## [1.4.7] - 2026-10-26
 
 ### Added

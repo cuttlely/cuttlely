@@ -7,6 +7,29 @@ import { describeDiff, relativeTime } from './versionHistory'
 export const STALE_DRAFT_WARNING =
     'Live changed after you started these edits (for example through the API). Publishing replaces those changes.'
 
+export const DRAFT_CONFLICT_TITLE = 'Someone else saved this draft'
+export const DRAFT_CONFLICT_RELOAD = 'Reload'
+export const DRAFT_CONFLICT_SAVE_ANYWAY = 'Save anyway'
+
+// The draft version the canvas loaded. Null when the status has no draft.
+export const draftVersion = (status) => status?.draft?.hash ?? null
+
+// The 409 body when a save would replace a draft saved since this canvas opened. Null for every other error.
+export const draftConflictFrom = (error) => {
+    const data = error?.response?.data
+    if (error?.response?.status !== 409 || !data || data.code !== 'DRAFT_CHANGED') return null
+    return { savedBy: data.savedBy ?? null, savedAt: data.savedAt ?? null }
+}
+
+// "Avery saved this draft 3 minutes ago. Reload to see their changes, or save anyway to replace them."
+export const draftConflictMessage = (conflict, now = Date.now()) => {
+    const raw = conflict?.savedBy?.name
+    const name = typeof raw === 'string' && raw.trim() ? raw.trim() : 'Someone'
+    const when = conflict?.savedAt ? relativeTime(conflict.savedAt, now) : ''
+    const timing = when || 'after you opened it'
+    return `${name} saved this draft ${timing}. Reload to see their changes, or save anyway to replace them.`
+}
+
 export const PUBLISH_INSTANTLY_HELP = 'Every save goes live immediately, like before drafts.'
 export const PUBLISH_INSTANTLY_LOCKED = 'Publish or discard the draft before changing this.'
 

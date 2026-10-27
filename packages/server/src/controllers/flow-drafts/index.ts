@@ -4,6 +4,7 @@ import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import chatflowsService from '../../services/chatflows'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
+import { DraftChangedError } from '../../services/flow-drafts/draftChanged'
 import flowCheckService from '../../services/flow-check'
 import { listQuestionHistory } from '../../services/flow-check/history'
 import { BadQuestionIdsError, CheckRuleError, questionIdFailureMessage } from '../../services/flow-check/question-ids-error'
@@ -59,10 +60,22 @@ const saveDraft = async (req: Request, res: Response, next: NextFunction) => {
             userId: req.user?.id || null,
             orgId,
             subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
-            caller: await harnessCallerFor(req)
+            caller: await harnessCallerFor(req),
+            expectedDraftHash: req.body?.expectedDraftHash,
+            overwriteDraftChanges: req.body?.overwriteDraftChanges
         })
         return res.json(await shownStatus(req, status))
     } catch (error) {
+        if (error instanceof DraftChangedError) {
+            return res.status(StatusCodes.CONFLICT).json({
+                statusCode: StatusCodes.CONFLICT,
+                success: false,
+                code: error.code,
+                message: error.message,
+                savedBy: error.savedBy,
+                savedAt: error.savedAt
+            })
+        }
         next(error)
     }
 }
