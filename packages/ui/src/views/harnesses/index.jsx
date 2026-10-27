@@ -37,7 +37,7 @@ import {
     harnessDeleteTitle,
     harnessNodeImages
 } from '@/utils/harnessCard'
-import { CHATFLOW_CATEGORY_PERMISSION } from '@/utils/flowCategoryPermission'
+import { HARNESS_CATEGORY_PERMISSION } from '@/utils/flowCategoryPermission'
 import { baseURL } from '@/store/constant'
 
 import { IconLayoutGrid, IconList, IconPlus, IconTag, IconTemplate, IconTrash } from '@tabler/icons-react'
@@ -78,7 +78,7 @@ const Harnesses = () => {
     const renderRowActions = (harness) => (
         <>
             <PermissionIconButton
-                permissionId={CHATFLOW_CATEGORY_PERMISSION}
+                permissionId={HARNESS_CATEGORY_PERMISSION}
                 aria-label={`Update Category ${harness.name}`}
                 title='Update Category'
                 size='small'

@@ -73,7 +73,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 import { fireEvent, within } from '@testing-library/react'
 import harnessesApi from '@/api/harnesses'
-import { flowCategoryPermission } from '@/utils/flowCategoryPermission'
+import { HARNESS_CATEGORY_PERMISSION } from '@/utils/flowCategoryPermission'
 import { harnessCategories, harnessNodeImages } from '@/utils/harnessCard'
 import Harnesses from './index'
 
@@ -168,14 +168,14 @@ it('shows category chips on cards', () => {
     expect(beta.querySelectorAll('[data-chip]')).toHaveLength(0)
 })
 
-it('gates the tag action on the permission the Chatflows list uses', async () => {
-    expect(flowCategoryPermission(false)).toBe('chatflows:update')
+it('gates the tag action in both views on the permission the harness category route accepts', async () => {
+    expect(HARNESS_CATEGORY_PERMISSION).toBe('chatflows:update,agentflows:update')
     const cardTags = within(container).getAllByTitle('Update Category')
     expect(cardTags).toHaveLength(2)
-    for (const button of cardTags) expect(button.getAttribute('data-permission')).toBe(flowCategoryPermission(false))
+    for (const button of cardTags) expect(button.getAttribute('data-permission')).toBe(HARNESS_CATEGORY_PERMISSION)
     await act(async () => fireEvent.click(within(container).getByTitle('List View')))
     for (const button of within(container).getAllByTitle('Update Category')) {
-        expect(button.getAttribute('data-permission')).toBe(flowCategoryPermission(false))
+        expect(button.getAttribute('data-permission')).toBe(HARNESS_CATEGORY_PERMISSION)
     }
 })
 
@@ -187,6 +187,12 @@ it('builds node icons and chips from the stored record without failing on old sh
     expect(harnessNodeImages({ chief: { model: { nodeName: 'a b' } } }, '/base')).toEqual([
         { imageSrc: '/base/api/v1/node-icon/a%20b', label: 'a b' }
     ])
+    expect(
+        harnessNodeImages({
+            chief: { model: { nodeName: 'chatOpenAI' }, fallbackModel: { nodeName: 'chatOllama', label: 'Ollama' } },
+            specialists: [{ model: { nodeName: 'chatOpenAI' }, fallbackModel: { nodeName: 'chatGroq' } }]
+        }).map((image) => image.label)
+    ).toEqual(['chatOpenAI', 'Ollama', 'chatGroq'])
     expect(harnessCategories({ category: 'a;;b' })).toEqual(['a', 'b'])
     expect(harnessCategories({})).toEqual([])
 })
