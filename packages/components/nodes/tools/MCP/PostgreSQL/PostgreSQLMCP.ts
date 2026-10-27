@@ -3,7 +3,6 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import { tool, Tool } from '@langchain/core/tools'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../../src/Interface'
-import { createHash } from 'crypto'
 import { getCredentialData, getCredentialParam, getPinnedQueryKey, pinnedQueriesEnabled } from '../../../../src/utils'
 
 // tsc rewrites import() into require(), which cannot load the ESM analyst modules.
@@ -27,15 +26,13 @@ type AnalystStoreModule = {
     ) => { rowCap: number; timeoutMs: number }
     queryAnalystUrl: (
         postgresUrl: string,
-        input: string | Record<string, unknown>,
+        input: string | Record<string, unknown> | null,
         options?: {
             rowCap?: number
             statementTimeoutMs?: number
             relations?: string[]
             readOnlySql?: boolean
             allowedFunctions?: string
-            binds?: unknown[] | null
-            checkText?: string | null
             pinned?: Record<string, unknown> | null
         }
     ) => Promise<unknown>
@@ -97,22 +94,17 @@ type PinnedEntry = {
     testedColumns?: unknown
 }
 
-type CompiledPin = {
-    runText?: string
-    runSql?: string
-    checkText?: string
-    checkSql?: string
-    binds?: unknown[] | null
-    statementHash?: string
-}
+type CompiledPin = { runText: string; statementHash: string }
 
 type PinnedQueryModule = {
-    compilePinned: (entry: PinnedEntry, args?: Record<string, unknown>) => CompiledPin
-    validateArgs?: (entry: PinnedEntry, args: Record<string, unknown>) => unknown[]
+    compilePinned: (entry: PinnedEntry) => CompiledPin
+    validateArgs: (entry: PinnedEntry, args: Record<string, unknown>) => unknown[]
+    pinnedToolDefinition: (entry: PinnedEntry) => { name: string; description: string; inputSchema: Record<string, unknown> }
+}
+
+type PinnedStampModule = {
     stampPayload: (input: Record<string, unknown>) => string
     verifyStamp: (key: Buffer, payload: string, stamp: string) => boolean
-    pinnedToolDefinition: (entry: PinnedEntry) => { name: string; description: string; inputSchema: Record<string, unknown> }
-    sqlTraceFields?: (sql: string, options?: { preview?: boolean }) => { sqlHash?: string }
 }
 
 function validPinnedQueryName(name: unknown): name is string {
@@ -148,27 +140,6 @@ function expectedFailure(message: string): Error {
     const error = new Error(message)
     ;(error as { cuttlelyOutcome?: string }).cuttlelyOutcome = 'expected'
     return error
-}
-
-function statementSqlHash(sql: string): string {
-    const text = String(sql || '').replace(/\s+/g, ' ')
-    let end = text.length
-    while (end > 0 && (text[end - 1] === ';' || text[end - 1] === ' ')) end -= 1
-    return createHash('sha256').update(text.slice(0, end).trim()).digest('hex')
-}
-
-function compiledPin(compiled: CompiledPin): { runText: string; checkText: string | null; binds: unknown[] | null; statementHash: string } {
-    const runText = compiled?.runText ?? compiled?.runSql
-    const checkText = compiled?.checkText ?? compiled?.checkSql ?? null
-    if (typeof runText !== 'string' || typeof compiled?.statementHash !== 'string' || !compiled.statementHash) {
-        throw expectedFailure('Pinned query could not be compiled.')
-    }
-    return {
-        runText,
-        checkText: typeof checkText === 'string' ? checkText : null,
-        binds: compiled.binds ?? null,
-        statementHash: compiled.statementHash
-    }
 }
 
 function functionLines(nodeData: INodeData): string[] {
@@ -685,7 +656,12 @@ class PostgreSQL_MCP implements INode {
         const cred = typeof nodeData.credential === 'string' ? nodeData.credential : ''
         const store = await loadAnalystStore()
         const limits = store.analystCallLimits(this.nodeLimits(nodeData), process.env)
-        const accepted: { entry: PinnedEntry; name: string; identity: string; compiled: ReturnType<typeof compiledPin> }[] = []
+        const { sqlTraceFields } = await findModule<{ sqlTraceFields: (sql: string) => { sqlHash: string } }>(
+            '../analyst-capture.mjs',
+            'PostgreSQL MCP could not load SQL trace fields.'
+        )
+        const stamp = await findModule<PinnedStampModule>('pinned-stamp.mjs', 'PostgreSQL MCP could not load pinned query stamps.')
+        const accepted: { entry: PinnedEntry; name: string; identity: string; compiled: CompiledPin }[] = []
         const seen = new Set<string>()
         for (const entry of named) {
             const name = entry.name as string
@@ -700,21 +676,19 @@ class PostgreSQL_MCP implements INode {
                 console.warn(`Pinned query ${name} was not offered.`)
                 continue
             }
-            let compiled: ReturnType<typeof compiledPin>
+            let compiled: CompiledPin
             try {
-                compiled = compiledPin(pq.compilePinned(entry))
-                const payload = pq.stampPayload({
+                compiled = pq.compilePinned(entry)
+                const payload = stamp.stampPayload({
                     workspaceId,
                     cred,
                     statementHash: compiled.statementHash,
                     params: Array.isArray(entry.params) ? entry.params : [],
-                    tables: relations,
-                    functions,
                     relations,
                     allowedFunctions: functions,
                     testedColumns: entry.testedColumns
                 })
-                if (!pq.verifyStamp(key, payload, String(entry.testedStamp))) {
+                if (!stamp.verifyStamp(key, payload, String(entry.testedStamp))) {
                     console.warn(`Pinned query ${name} was not offered.`)
                     continue
                 }
@@ -765,66 +739,42 @@ class PostgreSQL_MCP implements INode {
                     const page = raw.page
                     delete raw.cursor
                     delete raw.page
-                    let runText = ''
-                    let checkText: string | null = null
-                    let binds: unknown[] | null = null
-                    let hash = statementHash
-                    const traceExtra = () =>
-                        runText
-                            ? {
-                                  pinned: { id: identity, name, version, hash },
-                                  sqlHash: pq.sqlTraceFields
-                                      ? pq.sqlTraceFields(runText).sqlHash || statementSqlHash(runText)
-                                      : statementSqlHash(runText),
-                                  _cuttlelyTraceSql: runText
-                              }
-                            : { pinned: { id: identity, name, version, hash } }
+                    const traceExtra = {
+                        pinned: { id: identity, name, version, hash: statementHash },
+                        ...sqlTraceFields(compiled.runText),
+                        _cuttlelyTraceSql: compiled.runText
+                    }
                     try {
-                        const bare = compiledPin(pq.compilePinned(entry))
-                        runText = bare.runText
-                        checkText = bare.checkText
-                        hash = bare.statementHash
                         if (!cursor) {
-                            const fresh = compiledPin(pq.compilePinned(entry, raw))
-                            runText = fresh.runText
-                            checkText = fresh.checkText
-                            binds = fresh.binds
-                            hash = fresh.statementHash
-                            if (binds == null && pq.validateArgs) binds = pq.validateArgs(entry, raw)
+                            try {
+                                pq.validateArgs(entry, raw)
+                            } catch (error) {
+                                throw expectedFailure(error instanceof Error ? error.message : 'Invalid pinned query parameters.')
+                            }
                         }
                         const result = await store.queryAnalystUrl(
                             postgresUrl,
-                            cursor ? { cursor, ...(page == null ? {} : { page }) } : runText,
+                            cursor ? { cursor, ...(page == null ? {} : { page }) } : null,
                             {
                                 rowCap: limits.rowCap,
                                 statementTimeoutMs: limits.timeoutMs,
                                 relations,
                                 readOnlySql: true,
                                 allowedFunctions,
-                                ...(cursor
-                                    ? {}
-                                    : {
-                                          binds: Array.isArray(binds) ? binds : [],
-                                          checkText
-                                      }),
-                                pinned: cursor
-                                    ? { id: identity, version, statementHash: hash, tool: name }
-                                    : { entry, args: raw, tool: name, id: identity, version, statementHash: hash }
+                                pinned: { entry, args: raw, tool: name }
                             }
                         )
                         const body =
                             result && typeof result === 'object' && !Array.isArray(result)
                                 ? (result as Record<string, unknown>)
                                 : { result }
-                        body.pinned = { id: identity, name, version, hash }
-                        body.sqlHash = pq.sqlTraceFields
-                            ? pq.sqlTraceFields(runText).sqlHash || statementSqlHash(runText)
-                            : statementSqlHash(runText)
-                        body._cuttlelyTraceSql = runText
+                        body.pinned = { id: identity, name, version, hash: statementHash }
+                        body.sqlHash = body.sqlHash || sqlTraceFields(compiled.runText).sqlHash
+                        body._cuttlelyTraceSql = compiled.runText
                         noteColumnDrift(body, testedColumns)
                         return store.analystResultJson(body)
                     } catch (error) {
-                        return pinnedCallError(error, traceExtra())
+                        return pinnedCallError(error, traceExtra)
                     }
                 },
                 { name, description, schema }

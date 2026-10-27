@@ -2109,6 +2109,10 @@
             "reason": "The Current Date Time tool test stays with the inherited tool it covers."
         },
         {
+            "path": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.pinned.test.ts",
+            "reason": "Pinned query tests sit beside the PostgreSQL MCP node and the key helper they test"
+        },
+        {
             "path": "packages/components/nodes/tools/RetrieverTool/RetrieverTool.test.ts",
             "reason": "The Retriever Tool test stays with the inherited tool it covers."
         },
@@ -2119,6 +2123,10 @@
         {
             "path": "packages/components/src/missingModelCredential.test.ts",
             "reason": "The missing-credential tests stay next to getCredentialData and the chat model nodes they exercise."
+        },
+        {
+            "path": "packages/components/src/pinnedQueryKey.test.ts",
+            "reason": "Pinned query tests sit beside the PostgreSQL MCP node and the key helper they test"
         },
         {
             "path": "packages/node-pack-caches-memory/credentials/DynamodbMemoryApi.credential.ts",

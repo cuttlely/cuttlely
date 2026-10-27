@@ -1978,16 +1978,20 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
 // Every query runs in BEGIN READ ONLY. With a table selection, the scope check first creates its temporary view in
 // its own short transaction on the same connection, which always rolls back. The query transaction then starts
 // read only and confirms transaction_read_only is on just before the query runs.
+// binds: [] with no pin and no check text is the free-SQL path and keeps today's options.
+const hasCallerBinds = (binds) => binds != null && !(Array.isArray(binds) && binds.length === 0)
 function compileStoreOptions(options, env, replaying = false) {
     requirePinnedReadOnly(options)
-    if (Object.hasOwn(options, 'binds') || Object.hasOwn(options, 'checkText'))
+    // Any caller pair other than binds: [] is refused: only the store compiles one.
+    if (hasCallerBinds(options.binds) || options.checkText != null)
         throw new AnalystToolError('Caller-supplied binds and checkText are refused; use pinned.entry.', 'expected')
     if ((options.pinned != null || options.suggestTypesSql != null) && !pinnedQueriesEnabled(env))
         throw new AnalystToolError('Pinned queries are turned off on this server.', 'expected')
     if (options.pinned == null) return { options }
     if (!options.pinned.entry) throw new AnalystToolError('Pinned calls require pinned.entry.', 'expected')
     const { entry, args, tool } = options.pinned
-    const compiled = compilePinned(entry, replaying ? undefined : args ?? {})
+    // A type suggestion only prepares the SQL, so it compiles without arguments and a required parameter needs no value.
+    const compiled = compilePinned(entry, replaying || options.suggestTypesSql != null ? undefined : args ?? {})
     assertCheckRunPair(compiled.runText, compiled.checkText, compiled.spans)
     return {
         statement: compiled.runText,
@@ -2255,7 +2259,7 @@ async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBa
 }
 
 function requirePinnedReadOnly(options) {
-    if ((options.pinned != null || options.binds != null || options.checkText != null) && options.readOnlySql !== true)
+    if ((options.pinned != null || hasCallerBinds(options.binds) || options.checkText != null) && options.readOnlySql !== true)
         throw new AnalystToolError('Pinned calls require readOnlySql: true.', 'expected')
 }
 
