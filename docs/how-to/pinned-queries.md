@@ -1,0 +1,172 @@
+# Pinned queries
+
+A pinned query is SQL you write and test on a **PostgreSQL MCP** node. The specialist does not write that statement. It calls a tool that accepts only the parameters you named, and the server runs the saved statement with those values bound.
+
+This guarantees **execution** of the saved statement. It does not guarantee that the statement is the right one for the business. A pin with a wrong join returns that wrong result every time. **Tested is not approved.** A passing test is not a compliance sign-off, and this version has no second-person approval. The audit records who tested the pin and who saved a change. The read-only guard still runs on every call. The tested stamp is a label, not a permission.
+
+Pinned queries are off unless you turn them on. With no pins on the node, free SQL behaves as it does today whether the flag is on or off.
+
+The worked example below uses a made-up `demo_sales` table. It is not a migration and it is not your data.
+
+## Turn the flag on
+
+Set `CUTTLELY_PINNED_QUERIES` to exactly `1` or `true`. Those two values are the only ones that turn it on. Unset, empty, `yes`, `on`, `TRUE`, `false`, `0`, and every other value leave it off.
+
+The key is registered with the analyst server settings, next to `CUTTLELY_ANALYST_TRACE_PREVIEW`. You can also set it in the server environment.
+
+Unsetting the variable, or setting it to anything else, rolls the feature back: pinned tools are not added, a call to one is refused, and the test route refuses the request and does not run a statement. Pins already saved on the node stay saved. The **query** tick is not changed. Set the flag back to `1` or `true` and a pin whose stamp still verifies is offered again.
+
+While the flag is off, a node that has no pins keeps today's free SQL. Turning the flag on does not by itself change that.
+
+## Add a pin
+
+On the **PostgreSQL MCP** node, open **Pinned queries** and choose **Add**.
+
+1. Paste one `SELECT` or `WITH` statement. Use `:name` for each parameter, for example `:month`.
+2. Write a one-line purpose. The tool name starts as `pq_` plus a slug taken from that purpose. The `pq_` prefix is fixed and is not editable. The rest is letters, digits, and underscores. The whole name is at most 64 characters.
+3. Each `:name` becomes a row in the parameter table. A type Postgres can infer is suggested. If it cannot infer one, you pick it. The suggestion never quietly becomes `text`.
+4. Parameters are required unless you say otherwise. Description, default, allowed values, and min/max sit under **Advanced**.
+5. **Test & save** runs the statement with the sample values you typed, through the same guard and the same connection the specialist will use. When it passes, the server stores a tested stamp.
+
+A trailing semicolon is refused. The editor can remove it. A statement with no top-level `LIMIT` is refused. The editor can insert `LIMIT 100`. The `LIMIT` count has to be a literal number in the saved SQL. A parameter in `LIMIT` or `OFFSET` is refused, including inside a subquery. `:n` cannot be the page size.
+
+The agent cannot choose the table, the column list, `ORDER BY`, or `LIMIT`. Those stay in the SQL you saved. There is no `IN`-list parameter, no array parameter, and no parameter that names an identifier.
+
+### Parameter types
+
+The type is one of `text`, `int8`, `numeric`, `date`, `timestamp`, `timestamptz`, and `bool`. Each value is bound as `$n::pg_catalog.<type>`. Anything else is refused.
+
+`timestamp` and `timestamptz` are different types. A `timestamp` value is not read in the server's local time zone. Values are checked and sent as canonical text, not as a rewritten date.
+
+A value that does not match its type is refused, as is an unknown argument name. Required, default, allowed values, min, and max are enforced. The error names the parameters the tool accepts. The tool never accepts SQL from the model.
+
+These names are refused as parameters: `sql`, `statement`, `query`, `cursor`, `page`. A raw `$1` in the saved SQL is refused. `:name` is the only parameter form.
+
+`?` is not a parameter. JSONB operators such as `tags ? 'seasonal'`, `?|`, and `?&` stay as written. `:name` inside a quoted string, a quoted identifier, a comment, or a dollar quote is not a parameter, and a cast written with `::` is not one either.
+
+Every `:name` in the SQL needs a parameter row, and every parameter row has to appear in the SQL.
+
+### Where it runs
+
+A pin runs only on the PostgreSQL MCP node. The connection is the Postgres URL credential on that node, or `CUTTLELY_POSTGRES_URL` when the node has no credential. The test route and the tool both take that connection from the saved node. A request cannot supply a database URL.
+
+Pins do not run in Auto mode (`CUTTLELY_ANALYST=auto`, isolated tools). With pins configured in that mode the server returns a clear error and registers no `pq_` tools. They are not run on the isolated store, including when that store has no credential and no `CUTTLELY_POSTGRES_URL`, and they are not ignored.
+
+The same read-only guard used by **QUERY** runs at test time and again on every call, including a later page: one `SELECT` or `WITH`, a literal top-level `LIMIT`, no semicolon, the table and view selection, the function rules, the timeout, and the row cap. The node's row cap and timeout still apply. A result that comes back with as many rows as the statement's own `LIMIT` is marked possibly truncated.
+
+The credential, the ticked tables and views, and the allowed functions are the node's. A specialist is offered the pins on the nodes wired to it. If two of those nodes offer the same tool name, harness sync fails with a clear error.
+
+## Tested stamp
+
+**Test & save** asks `POST /api/v1/pinned-queries/:chatflowId/test`. A signed-in editor needs the update permission for that kind of flow (`chatflows:update` or `agentflows:update`). An API key needs the same permission, and the harness canvas check for that flow id. The server loads the flow in the caller's workspace. The credential, the ticked tables and views, and the allowed functions come from the open draft when there is one, otherwise from Live.
+
+The stamp is an HMAC the server computes from the credential encryption key. It covers the workspace, the credential, the statement hash, the parameter spec, the ticked tables and views, the allowed functions, and the columns the test returned. It does not cover the flow id. The server recomputes it when the node starts. If it does not match, the pin is not offered. Hand-editing the flow or pasting a stamp from somewhere else does not make a pin tested.
+
+These make the stamp fail, and the pin has to be tested again:
+
+-   the SQL or the parameter spec changed
+-   the credential on the node changed
+-   the ticked tables or views, or the allowed functions, changed
+-   the flow was imported onto another server
+-   the credential encryption key was rotated
+
+A copy of the flow in the same workspace, still using the same credential, keeps the stamp, because the flow id is not part of it. A copy in another workspace does not. An export includes the SQL. It does not include the database credential.
+
+A passing test records who ran it. That person tested the statement. They did not approve it, and Cuttlely does not record a compliance sign-off.
+
+## Free SQL stays available
+
+Adding pins does not turn off free SQL. The **query** tick is unchanged. With pins on the node, the dialog labels that tick **Allow free SQL (query and describe)**. Leave it ticked and the specialist still has the `query` tool. `describe` comes with `query`. The model will often call a pin when one fits. That is not a guarantee. Only unticking **query** removes free SQL and leaves the pinned tools. That is the pinned-only setting, and it is off unless you untick **query**.
+
+When a free `query` call runs on a node that is offering at least one valid pin, that trace step includes `freeSqlWithPin`, the tool names of those pins. The list is not a match between the SQL text and a pin. It only says the node had offered those pins.
+
+## What the trace stores
+
+Every analyst statement, free SQL and pinned, including a refused call, a failed call, and a later page, has `sqlHash` on the trace step.
+
+`sqlHash` is the full SHA-256 hex digest, 64 characters, of the normalised statement. Normalisation is the one `statementFingerprint` uses: each run of whitespace is collapsed to a single space, trailing semicolons are dropped, and the string is trimmed. The short fingerprint used for a call id is not this field. The digest is not cut down.
+
+A page keeps the original statement's `sqlHash` from the cursor. Paging does not look like a different statement. A refused or failed call still has `sqlHash`.
+
+The SQL text is stored only when query previews are on. `CUTTLELY_ANALYST_TRACE_PREVIEW` is on when it is unset. The values `false`, `0`, `off`, and `no` turn it off, in any letter case. Any other value leaves it on. With previews on, the step includes the executed SQL, including literals that were written in the statement, cut at 4096 bytes. `sqlTruncated` is true when the text was cut. With previews off, `sqlHash` is still there and the SQL text is not.
+
+For a pin, the executed SQL contains `$n` placeholders, not the parameter values. The values are stored on the step only when previews are on. A parameter marked secure is redacted at capture and is not stored, whether previews are on or off. The step also carries the pin id, name, version, and statement hash. The statement hash is the hash of the compiled statement together with the parameter spec. It is not the same value as `sqlHash`, which covers the executed SQL text only. Row previews follow the same preview setting as they do today. The SQL fields do not contain result rows.
+
+## Column drift
+
+If the columns that come back differ in name or type from the columns recorded when the pin was tested, the result includes a warning and `columnsChanged`, and the editor marks the pin as needing a re-test. The call is not blocked. A column the statement itself names that is no longer in the table still makes the query fail, as it does for any other statement.
+
+## Audit
+
+A save that stores a new, changed, or removed pin on Live writes a `pinned_query_change` row. Publish does that, because Publish copies the draft onto Live. Saving a draft does not. **Test & save** writes a `test` row when the test runs, including when the pin is still only on the draft. There is no database migration for the new type.
+
+The row records the flow, the node, the pin name, the version, the user, and the kind of change: `create`, `edit`, `delete`, or `test`. It records the statement hash when the saved statement compiles. It can also name the credential id and the parameter names. It does not record the SQL text, parameter values, defaults, allowed values, or sample values. A secure parameter value is never stored. The same list is on the [audit log](./audit-log.md).
+
+## Example: demo_sales
+
+This table is made up. Create it in the database the node's credential reads, and tick `demo_sales` on the node.
+
+```sql
+CREATE TABLE demo_sales (
+    id int8 PRIMARY KEY,
+    region text NOT NULL,
+    month date NOT NULL,
+    product text NOT NULL,
+    amount numeric(12, 2) NOT NULL,
+    units int8 NOT NULL
+);
+
+INSERT INTO demo_sales (id, region, month, product, amount, units) VALUES
+    (1, 'north', DATE '2026-01-01', 'cedar tea', 120.00, 4),
+    (2, 'north', DATE '2026-01-01', 'maple soap', 45.50, 9),
+    (3, 'south', DATE '2026-01-01', 'cedar tea', 80.00, 2),
+    (4, 'south', DATE '2026-02-01', 'linen towel', 210.00, 6),
+    (5, 'east', DATE '2026-02-01', 'maple soap', 30.00, 3),
+    (6, 'east', DATE '2026-01-01', 'linen towel', 64.00, 2);
+```
+
+### pq_revenue_by_region
+
+Parameter: `month`, type `date`, required.
+
+```sql
+SELECT region, sum(amount) AS revenue
+FROM demo_sales
+WHERE month = :month
+GROUP BY region
+ORDER BY region
+LIMIT 100
+```
+
+For `month = 2026-01-01` the rows are east 64.00, north 165.50, and south 80.00.
+
+### pq_top_products
+
+Parameters: `month`, type `date`, required, and `n`, type `int8`, required, maximum 20.
+
+`:n` is a rank filter. It is not the `LIMIT`. The `LIMIT` is the literal `20`, which is required, and the maximum on `n` stops a caller from asking for more ranks than that `LIMIT` returns.
+
+```sql
+SELECT product, revenue
+FROM (
+    SELECT product,
+           sum(amount) AS revenue,
+           rank() OVER (ORDER BY sum(amount) DESC) AS rnk
+    FROM demo_sales
+    WHERE month = :month
+    GROUP BY product
+) ranked
+WHERE rnk <= :n
+ORDER BY rnk
+LIMIT 20
+```
+
+For `month = 2026-01-01` and `n = 2` the rows are cedar tea 200.00, then linen towel 64.00.
+
+## What this version does not do
+
+-   A second person approving a pin.
+-   Pins in Auto mode (`CUTTLELY_ANALYST=auto`). The isolated analyst store does not run them, and no `pq_` tools are registered.
+-   A parameter that chooses `LIMIT`, `OFFSET`, `ORDER BY`, a column, or a table.
+-   One shared `pinned_query` tool that takes a name. Each pin is its own tool.
+-   Blocking a call because the columns drifted. v1 warns and marks the pin needs re-test.

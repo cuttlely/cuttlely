@@ -1,6 +1,6 @@
 # Audit API
 
-One list of sign-in, lockout, invite, reset, role change, user disable, settings changes, harness runs started with the API, changes to an API key's harness list, and harness schedule changes. How to open it in the app: [Audit log](../how-to/audit-log.md).
+One list of sign-in, lockout, invite, reset, role change, user disable, settings changes, harness runs started with the API, changes to an API key's harness list, harness schedule changes, and pinned query changes. How to open it in the app: [Audit log](../how-to/audit-log.md).
 
 `POST /api/v1/audit/login-activity` stays **404** `{ "message": "Not Found" }`.
 
@@ -27,11 +27,13 @@ The response sends `Cache-Control: no-store`.
 | `user`   | User id. At most 255 characters. A longer value is **400** `{ "code": "INVALID_USER" }`.                                                                       |
 | `limit`  | Page size. Default 50. Maximum 100. `0` or a non-number is **400** `{ "code": "INVALID_LIMIT" }`.                                                              |
 
-Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`, `harness_run`, `harness_access`, `harness_schedule`.
+Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`, `harness_run`, `harness_access`, `harness_schedule`, `pinned_query_change`.
 
 `user_disable` includes an enable. `detail.disabled` is true or false.
 
 `harness_run` is a run started through `POST /api/v1/harnesses/:name/runs/async`, or a harness run an API key was refused because the harness is not on its list. `detail` has `harness`, `outcome` (`started` or `refused`), `via` (`api_key` or `session`), the key's id as `keyId` for an API key, and `runId` for a start. The question is not stored. `harness_access` is a change to the harnesses an API key may run: `detail` has `keyId`, `keyName`, `harnesses`, and `previous`. `harness_schedule` is a schedule saved, paused, resumed, or deleted (`detail.action` is `saved`, `paused`, `resumed`, or `deleted`, with `cron`, `timezone`, and `status`), a scheduled run started (`detail.action` is `run_started`, with the `runId`), or a scheduled run refused because the owner can no longer run the harness (`detail.action` is `run_refused`). For a scheduled run, `userId` is the owner. All three name the team.
+
+`pinned_query_change` is written when a new, changed, or removed pin is stored on Live, including by Publish, or when a pin is tested. A draft save does not write a `create`, `edit`, or `delete` row. The test row is written when the test runs. `detail.kind` is `create`, `edit`, `delete`, or `test`. `detail` also has `flow`, `node`, `pin` (the tool name), `version`, `hash` (the statement hash, when the pin compiles), `user`, and may have `cred` (the credential id) and `paramNames`. It does not include SQL text or parameter values. [Pinned queries](../how-to/pinned-queries.md).
 
 A bad cursor is **400** `{ "message": "Cursor is not valid", "code": "INVALID_CURSOR" }`.
 
