@@ -1358,6 +1358,8 @@ packages/server/src/services/attachments/index.ts
 packages/server/src/services/chat-messages/index.ts
 packages/server/src/services/chatflows/index.test.ts
 packages/server/src/services/chatflows/index.ts
+packages/server/src/services/chatflows/pinnedQueryAudit.test.ts
+packages/server/src/services/chatflows/pinnedQueryAudit.ts
 packages/server/src/services/components-credentials/index.ts
 packages/server/src/services/credentials/index.ts
 packages/server/src/services/custom-mcp-servers/index.test.ts

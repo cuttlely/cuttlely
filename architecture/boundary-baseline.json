@@ -2048,6 +2048,16 @@
             "reason": "The chat flow delete registers itself so the Agent Team card delete can remove a harness canvas without the harness service importing the chat flow service."
         },
         {
+            "from": "packages/server/src/services/chatflows/pinnedQueryAudit.test.ts",
+            "to": "packages/server/src/identity/auditLog.ts",
+            "reason": "Pinned query saves and tests write audit rows through the shared audit writer"
+        },
+        {
+            "from": "packages/server/src/services/chatflows/pinnedQueryAudit.ts",
+            "to": "packages/server/src/identity/auditLog.ts",
+            "reason": "Pinned query saves and tests write audit rows through the shared audit writer"
+        },
+        {
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
             "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
@@ -3179,6 +3189,14 @@
         {
             "path": "packages/server/src/routes/nodes/auth.test.ts",
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
+        },
+        {
+            "path": "packages/server/src/services/chatflows/pinnedQueryAudit.test.ts",
+            "reason": "Pinned query saves and tests write audit rows through the shared audit writer"
+        },
+        {
+            "path": "packages/server/src/services/chatflows/pinnedQueryAudit.ts",
+            "reason": "Pinned query saves and tests write audit rows through the shared audit writer"
         },
         {
             "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
