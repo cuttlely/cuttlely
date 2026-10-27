@@ -4,7 +4,15 @@ const path = (chatflowId) => `/flow-drafts/${encodeURIComponent(chatflowId)}`
 
 const getStatus = (chatflowId) => client.get(path(chatflowId))
 
-const saveDraft = (chatflowId, flowData) => client.put(path(chatflowId), { flowData })
+const saveDraft = (chatflowId, flowData, options = {}) => {
+    const body = { flowData }
+    if (options && Object.prototype.hasOwnProperty.call(options, 'expectedDraftHash')) {
+        const hash = options.expectedDraftHash
+        if (typeof hash === 'string' || hash === null) body.expectedDraftHash = hash
+    }
+    if (options && options.overwriteDraftChanges === true) body.overwriteDraftChanges = true
+    return client.put(path(chatflowId), body)
+}
 
 const discardDraft = (chatflowId) => client.delete(path(chatflowId))
 

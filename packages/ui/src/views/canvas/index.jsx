@@ -26,6 +26,7 @@ import CanvasHeader from './CanvasHeader'
 import AddNodes from './AddNodes'
 import NodeSidePanel from './NodeSidePanel'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
+import DraftConflictDialog from '@/ui-component/dialog/DraftConflictDialog'
 import ChatPopUp from '@/views/chatmessage/ChatPopUp'
 import VectorStorePopUp from '@/views/vectorstore/VectorStorePopUp'
 import EtlPanel from '@/views/etl/EtlPanel'
@@ -45,6 +46,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
+import useDraftSave from '@/hooks/useDraftSave'
 import { useAuth } from '@/hooks/useAuth'
 
 // icons
@@ -154,6 +156,8 @@ const Canvas = () => {
     const [draftStatus, setDraftStatusState] = useState(null)
     const draftStatusRef = useRef(null)
     const fitOnOpenRef = useRef(false)
+    const draftSave = useDraftSave()
+    const pendingSaveNameRef = useRef('')
     const setDraftStatus = (status) => {
         draftStatusRef.current = status
         setDraftStatusState(status)
@@ -405,7 +409,43 @@ const Canvas = () => {
         }
     }
 
-    const handleSaveFlow = async (chatflowName) => {
+    const reloadSharedDraft = () => {
+        draftSave.dismiss()
+        if (!chatflow?.id) return
+        getSpecificChatflowApi.request(chatflow.id)
+    }
+
+    // The merged canvas from the conflict review screen. It replaces the cards and stays unsaved, so the
+    // next Save sends the hash of the draft the other person saved.
+    const applyMergedDraft = (text, theirs) => {
+        if (!canvasTextToApply(text)) return
+        try {
+            const flow = readGraph(text)
+            setNodes(flow.nodes || [])
+            setEdges(flow.edges || [])
+        } catch {
+            return
+        }
+        // The settings panel's dropdowns keep the value they opened with, so the panel closes on a new canvas.
+        setPanelNodeId(null)
+        draftSave.adopt(theirs)
+        if (theirs?.status) setDraftStatus(theirs.status)
+        draftSave.dismiss()
+        setTimeout(() => setDirty(), 0)
+    }
+
+    // Publish answered 409: the open editor is "mine" for the review screen.
+    const reviewPublishConflict = (found) => {
+        if (!chatflow?.id || !reactFlowInstance) return
+        // Save anyway from the review screen keeps the flow's name.
+        pendingSaveNameRef.current = chatflow.name || ''
+        draftSave.openConflict(chatflow.id, found, JSON.stringify(canvasSaveDocument(reactFlowInstance)))
+    }
+
+    const normalizeForMerge = (flow) => normalizeCanvasFlow(flow, canvasSpecs())
+
+    const handleSaveFlow = async (chatflowName, saveOptions) => {
+        if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
             const rfInstanceObject = canvasSaveDocument(reactFlowInstance)
             const flowData = JSON.stringify(rfInstanceObject)
@@ -452,7 +492,8 @@ const Canvas = () => {
                 })
                 if (plan.draft) {
                     try {
-                        const res = await flowDraftsApi.saveDraft(chatflow.id, plan.draft.flowData)
+                        const res = await draftSave.save(chatflow.id, plan.draft.flowData, saveOptions)
+                        if (res?.conflict) return
                         setDraftStatus(res.data)
                     } catch (error) {
                         errorFailed(apiErrorMessage(error, 'Save failed'))
@@ -726,7 +767,11 @@ const Canvas = () => {
         } catch {
             return
         }
+        setPanelNodeId(null)
         dispatch({ type: REMOVE_DIRTY })
+        // Discard, Publish and rollback replace the canvas with a saved one, and set the new draft status first.
+        // The next save and the review screen build on that canvas, not on the draft that was open before.
+        draftSave.record(draftStatusRef.current, text)
     }
 
     // ==============================|| Build with AI ||============================== //
@@ -740,7 +785,8 @@ const Canvas = () => {
     // runs the draft and Publish puts it live. A server with drafts off keeps the old way: the cards go live.
     const saveFirstDraft = async (created, draft) => {
         try {
-            const res = await flowDraftsApi.saveDraft(created.id, draft)
+            const res = await draftSave.save(created.id, draft)
+            if (res?.conflict) return
             setDraftStatus(res.data)
             saveChatflowSuccess('Saved as a draft. Live stays empty until you publish.')
         } catch {
@@ -899,6 +945,7 @@ const Canvas = () => {
                 if (cancelled) return
                 setDraftStatus(status)
                 const text = canvasFlowText(loaded, status)
+                draftSave.record(status, text)
                 try {
                     const initialFlow = readGraph(text)
                     setLasUpdatedDateTime(loaded.updatedDate)
@@ -916,6 +963,7 @@ const Canvas = () => {
                     }
                 }
                 dispatch({ type: SET_CHATFLOW, chatflow: loaded })
+                dispatch({ type: REMOVE_DIRTY })
             }
             const built = takeSavedBuild(loaded.id)
             if (built) builtNotice(built)
@@ -959,7 +1007,10 @@ const Canvas = () => {
             if (!draft) {
                 flowDraftsApi
                     .getStatus(chatflow.id)
-                    .then((res) => setDraftStatus(res.data))
+                    .then((res) => {
+                        setDraftStatus(res.data)
+                        draftSave.record(res.data, canvasFlowText(chatflow, res.data))
+                    })
                     .catch(() => undefined)
             }
             window.history.replaceState(
@@ -1267,6 +1318,8 @@ const Canvas = () => {
                                 if (next?.updatedDate) setLasUpdatedDateTime(next.updatedDate)
                             }}
                             onApplyCanvas={applyCanvasText}
+                            draftExpected={draftSave.expected}
+                            onDraftConflict={reviewPublishConflict}
                         />
                     </Toolbar>
                 </AppBar>
@@ -1454,6 +1507,18 @@ const Canvas = () => {
                     </ReactFlowProvider>
                 </Box>
                 <ConfirmDialog />
+                <DraftConflictDialog
+                    open={Boolean(draftSave.conflict)}
+                    conflict={draftSave.conflict}
+                    onReload={reloadSharedDraft}
+                    onSaveAnyway={() => {
+                        draftSave.dismiss()
+                        handleSaveFlow(pendingSaveNameRef.current, { overwriteDraftChanges: true })
+                    }}
+                    onApply={applyMergedDraft}
+                    onClose={draftSave.dismiss}
+                    normalize={normalizeForMerge}
+                />
             </Box>
         </>
     )
