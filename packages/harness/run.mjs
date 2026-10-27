@@ -25,6 +25,7 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
+import { isPinnedToolName } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
@@ -947,9 +948,12 @@ function toolsFor(context, name) {
 function emitTool(context, data) {
     if (!context.toolLog) context.toolLog = []
     // A tool's detail (a preview, an error) can quote a workspace path; it is masked before the log, events and trace.
-    const detail = data.detail ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
+    // A pinned tool's start carries no detail: its arguments can hold secure parameter values.
+    const pinnedStart = data.phase === 'start' && isPinnedToolName(data.name)
+    const detail = data.detail && !pinnedStart ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
     const callId = typeof data.callId === 'string' ? data.callId.trim() : ''
     const emitted = { ...data, ...(detail ? { detail } : {}) }
+    if (pinnedStart) delete emitted.detail
     delete emitted.callId
     if (data.phase === 'start') {
         context.toolLog.push({
@@ -1957,12 +1961,14 @@ export function hermesToolFailed(event) {
 export function hermesToolEvent(name, event) {
     const kind = event?.event
     if (kind !== 'tool.started' && kind !== 'tool.completed' && kind !== 'tool.failed') return null
-    const detail = event.preview ? String(event.preview) : ''
+    const toolName = String(event.tool || event.tool_name || 'tool')
+    // A pinned tool's start preview quotes the arguments, which can hold secure parameter values. It is never sent.
+    const detail = event.preview && !(kind === 'tool.started' && isPinnedToolName(toolName)) ? String(event.preview) : ''
     const callId = hermesEventCallId(event)
     return {
         phase: kind === 'tool.started' ? 'start' : 'done',
         specialist: name,
-        name: String(event.tool || event.tool_name || 'tool'),
+        name: toolName,
         ...(kind !== 'tool.started' && hermesToolFailed(event) ? { error: true } : {}),
         ...(detail ? { detail } : {}),
         ...(callId ? { callId } : {})

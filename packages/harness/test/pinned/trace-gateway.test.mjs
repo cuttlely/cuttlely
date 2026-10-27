@@ -173,3 +173,40 @@ test('gateway captures refused, failed and paged statements before execution on 
         fs.rmSync(dataDir, { recursive: true, force: true })
     }
 })
+
+test('ZZ-TEST- a secure pinned parameter never reaches the live start event', () => {
+    const secret = 'ZZ-TEST-code-4417'
+    const events = []
+    const capture = analystStartCapture((event) => events.push(event), { gatewayName: 'data__pq_order_status' })
+    for (const tool of ['data__pq_order_status', 'pq_order_status']) {
+        const start = hermesToolEvent('data', {
+            event: 'tool.started',
+            tool,
+            tool_call_id: `ZZ-TEST-call-${tool}`,
+            preview: JSON.stringify({ code: secret, region: 'east' })
+        })
+        assert.equal(start.detail, undefined)
+        assert.ok(!JSON.stringify(start).includes(secret))
+    }
+    capture.hermesStarted(
+        hermesToolEvent('data', {
+            event: 'tool.started',
+            tool: 'data__pq_order_status',
+            tool_call_id: 'ZZ-TEST-call-1',
+            preview: JSON.stringify({ code: secret })
+        })
+    )
+    capture.gatewayStarted(
+        { name: 'pq_order_status', callId: 'ZZ-TEST-call-1', pinned: { id: 'pin-1', params: { code: '[redacted]' } } },
+        { pairById: true }
+    )
+    assert.equal(events.length, 1)
+    assert.equal(events[0].pinned.params.code, '[redacted]')
+    assert.ok(!JSON.stringify(events).includes(secret))
+    // Other tools keep their preview, and a pinned tool's end keeps its own detail.
+    assert.equal(hermesToolEvent('data', { event: 'tool.started', tool: 'web_search', preview: 'ZZ-TEST-q' }).detail, 'ZZ-TEST-q')
+    assert.equal(
+        hermesToolEvent('data', { event: 'tool.completed', tool: 'pq_order_status', preview: 'ZZ-TEST-rows' }).detail,
+        'ZZ-TEST-rows'
+    )
+})
