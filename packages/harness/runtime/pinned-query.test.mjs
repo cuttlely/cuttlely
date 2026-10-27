@@ -211,10 +211,25 @@ test('ZZ-TEST- T1 generated compiler pairs preserve all bytes outside typed span
             assert.ok(assertCheckRunPair(c.runText, c.checkText, spans))
             assert.throws(() => assertCheckRunPair(c.runText, c.checkText + ' ', spans))
         }
-    for (const site of ['$1', '$12::text', 'a:v', ':v::text', ':v$tail', ':v:other', 'é:v'])
+    for (const site of ['$1', '$12::text', 'a:v', ':v$tail', ':v:other', 'é:v'])
         assert.throws(() => compilePinned({ sql: `SELECT ${site} LIMIT 1`, params: [{ name: 'v', type: 'text' }] }))
     assert.doesNotThrow(() => compilePinned({ sql: "SELECT '$1::text :v' AS v, $$:v$$ AS q LIMIT 1" }))
     assert.throws(() => assertCheckRunPair('SELECT $1', 'SELECT $1', []))
     assert.throws(() => compilePinned({ sql: 'SELECT :v LIMIT 1', params: [{ name: 'v', type: 'text(10)' }] }))
     assert.deepEqual(compilePinned(entry(), { Value: 'demo' }).binds, ['demo'])
+})
+
+test('placeholder followed by a cast preserves the typed check/run pair', async () => {
+    const { assertCheckRunPair } = await import('./pinned-query.mjs')
+    const c = compilePinned({ sql: 'SELECT id FROM demo_sales WHERE id = :id::int4 LIMIT 1', params: [{ name: 'id', type: 'int8' }] })
+    assert.equal(c.runText, 'SELECT id FROM demo_sales WHERE id = $1::pg_catalog.int8::int4 LIMIT 1')
+    assert.equal(c.checkText, 'SELECT id FROM demo_sales WHERE id = NULL::pg_catalog.int8::int4 LIMIT 1')
+    assert.ok(
+        assertCheckRunPair(c.runText, c.checkText, [
+            { runStart: c.runText.indexOf('$1'), checkStart: c.checkText.indexOf('NULL'), index: 1, type: 'int8' }
+        ])
+    )
+    assert.deepEqual(compilePinned({ sql: 'SELECT x::name FROM demo_sales LIMIT 1' }).order, [])
+    for (const site of ['x:id::int4', 'é:id::int4', ':id$tail::int4', ':id:other'])
+        assert.throws(() => compilePinned({ sql: `SELECT ${site} LIMIT 1`, params: [{ name: 'id', type: 'int8' }] }))
 })

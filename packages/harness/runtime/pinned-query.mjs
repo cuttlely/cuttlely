@@ -197,7 +197,11 @@ export function compilePinned(entry, args) {
         checkText = '',
         at = 0
     for (const t of tokens.filter((t) => t.param)) {
-        if (/[A-Za-z0-9_$\u0080-\uffff:]/.test(sql[t.start - 1] || '') || /[A-Za-z0-9_$\u0080-\uffff:]/.test(sql[t.end] || ''))
+        if (
+            /[A-Za-z0-9_$\u0080-\uffff:]/.test(sql[t.start - 1] || '') ||
+            /[A-Za-z0-9_$\u0080-\uffff]/.test(sql[t.end] || '') ||
+            (sql[t.end] === ':' && sql.slice(t.end, t.end + 2) !== '::')
+        )
             fail('A parameter must be separated from an identifier.', 'param_position')
         const p = byName.get(t.param)
         if (!p) fail(`Missing specification for ${t.param}.`, 'missing_spec')

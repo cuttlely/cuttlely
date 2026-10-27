@@ -139,6 +139,26 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 pg.Client.prototype.query = original
             }
         })
+        await t.test('cursor-only replay of a pin with a required parameter reuses its binds', async () => {
+            const pinned = { entry, tool: entry.name }
+            const first = await queryAnalystUrl(url, null, { ...options, pinned: { ...pinned, args: { r: 'EU' } } })
+            assert.ok(first.cursor)
+            for (const changed of [
+                { entry: { ...entry, id: 'other' } },
+                { entry: { ...entry, version: 2 } },
+                { entry: { ...entry, sql: entry.sql.replace('LIMIT 300', 'LIMIT 299') } },
+                { tool: 'pq_other' }
+            ])
+                await assert.rejects(
+                    queryAnalystUrl(url, { cursor: first.cursor }, { ...options, pinned: { ...pinned, ...changed } }),
+                    /changed|another tool/
+                )
+            const second = await queryAnalystUrl(url, { cursor: first.cursor }, { ...options, pinned })
+            assert.equal(second.rows.length, 100)
+            assert.equal(second.rows[0].id, '101')
+            assert.ok(second.rows.every((row) => row.region === 'EU'))
+            assert.match(second.summary, /of 300.*page 2 of 3/)
+        })
         await t.test('check-copy parse error is refused', async () => {
             await assert.rejects(queryAnalystUrl(url, compiled.runText, { ...bound, checkText: 'SELECT FROM WHERE' }))
         })

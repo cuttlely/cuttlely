@@ -2219,7 +2219,8 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     requirePinnedReadOnly(options)
     if (options.pinned?.entry) {
         const { entry, args, tool } = options.pinned
-        const compiled = compilePinned(entry, args ?? {})
+        const replaying = sqlOrInput && typeof sqlOrInput === 'object' && sqlOrInput.cursor
+        const compiled = compilePinned(entry, replaying ? undefined : args ?? {})
         options = {
             ...options,
             binds: compiled.binds,
