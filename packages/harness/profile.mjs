@@ -1324,8 +1324,20 @@ function usesBridge(specialist) {
     return (specialist?.modules || []).length > 0 || (specialist?.mcpServers || []).some(isFlowiseMcpBinding)
 }
 
+// The name Hermes gives an MCP tool: mcp__<server>__<tool>, with every character outside [A-Za-z0-9_] in either part
+// replaced by _ (hyphens too), and a name over 64 characters cut to fit with an 8-character SHA-256 suffix
+// (mcp_prefixed_tool_name in hermes/tools/mcp_tool_schema.py).
+const HERMES_TOOL_NAME_MAX = 64
+export function hermesMcpToolName(server, tool) {
+    const part = (value) => String(value ?? '').replace(/[^A-Za-z0-9_]/g, '_')
+    const full = `mcp__${part(server)}__${part(tool)}`
+    if (full.length <= HERMES_TOOL_NAME_MAX) return full
+    const suffix = `_${crypto.createHash('sha256').update(full, 'utf8').digest('hex').slice(0, 8)}`
+    return full.slice(0, HERMES_TOOL_NAME_MAX - suffix.length) + suffix
+}
+
 export function analystBridgeQueryName(specialist) {
-    return usesBridge(specialist) ? `mcp__${serverNameFor(specialist)}__query` : ''
+    return usesBridge(specialist) ? hermesMcpToolName(serverNameFor(specialist), 'query') : ''
 }
 
 function requestedBuiltin(specialist, name) {

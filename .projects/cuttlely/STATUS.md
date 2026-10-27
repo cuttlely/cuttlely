@@ -1,5 +1,7 @@
 # Status
 
+Handoff 2026-10-27: branch `fix/specialist-query-name-hyphen`: the analyst bridge query start name is built the way Hermes names MCP tools (characters outside [A-Za-z0-9_] become \_, names over 64 characters are clamped with a hash suffix), so a hyphenated specialist such as `sales-data` pairs its query start (`hermesMcpToolName` in `packages/harness/profile.mjs`; test in `packages/harness/test/pinned/trace-sql.test.mjs`).
+
 Handoff 2026-10-27: branch `feat/pq-trace`: a tool end now closes the running chip with its own call id, so parallel calls to one tool keep their own SQL and hash when one fails first (`logToolEvent` in `packages/harness/run.mjs`; tests in `packages/harness/test/pinned/trace-gateway.test.mjs`). An end without a call id still closes the newest running chip of that name.
 
 Stage 1 PostgreSQL read-only guard change: guard catalog reads skip per-read savepoints; statement paging helpers retain them. Startup reads, individual locks, allowlist resolution, and check order are unchanged. The new guard parity suite covers the differential corpus, shadow catalogs, failed catalog reads, ordered lookup parity, and round-trip reduction; CI also runs the existing selection tests with legacy round trips.

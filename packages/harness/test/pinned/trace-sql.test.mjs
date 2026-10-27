@@ -24,7 +24,7 @@ import {
     TRACE_JSON_LIMIT
 } from '../../trace.mjs'
 import { isAnalystQueryTool } from '../../context.mjs'
-import { analystBridgeQueryName } from '../../profile.mjs'
+import { analystBridgeQueryName, hermesMcpToolName } from '../../profile.mjs'
 
 const scope = { harness: 'ZZ-TEST-trace', specialist: 'ZZ-TEST-data', chatId: 'ZZ-TEST-chat' }
 const off = { CUTTLELY_ANALYST_TRACE_PREVIEW: 'false' }
@@ -155,15 +155,33 @@ test('ZZ-TEST-raw MCP query emits its start immediately', () => {
     const specialist = { name: scope.specialist, mcpServers: [{ command: 'ZZ-TEST-mcp', args: [] }] }
     assert.equal(analystBridgeQueryName(specialist), '')
     const capture = analystStartCapture((event) => events.push(event), { gatewayName: analystBridgeQueryName(specialist) })
-    const start = { phase: 'start', specialist: scope.specialist, name: 'mcp__ZZ-TEST-search__query' }
+    const start = { phase: 'start', specialist: scope.specialist, name: 'mcp__ZZ_TEST_search__query' }
     capture.hermesStarted(start)
     assert.deepEqual(events, [start])
     capture.flush()
     assert.deepEqual(events, [start])
     assert.equal(
         analystBridgeQueryName({ name: scope.specialist, mcpServers: [{ nodeName: 'postgreSQLMCP', category: 'Tools (MCP)' }] }),
-        `mcp__${scope.specialist}__query`
+        `mcp__${scope.specialist.replace(/[^A-Za-z0-9_]/g, '_')}__query`
     )
+})
+
+test('ZZ-TEST- a hyphenated specialist pairs its bridge query start under the name Hermes gives it', () => {
+    const bridged = (name) => ({ name, mcpServers: [{ nodeName: 'postgreSQLMCP', category: 'Tools (MCP)' }] })
+    // Expected values come from mcp_prefixed_tool_name in hermes/tools/mcp_tool_schema.py.
+    assert.equal(analystBridgeQueryName(bridged('sales-data')), 'mcp__sales_data__query')
+    assert.equal(hermesMcpToolName('zz-test.db', 'query'), 'mcp__zz_test_db__query')
+    const long = `zz-test-${'x'.repeat(60)}`
+    assert.equal(analystBridgeQueryName(bridged(long)), 'mcp__zz_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_445cf378')
+    assert.equal(analystBridgeQueryName(bridged(long)).length, 64)
+    const events = []
+    const capture = analystStartCapture((event) => events.push(event), { gatewayName: analystBridgeQueryName(bridged('sales-data')) })
+    const start = { phase: 'start', specialist: 'sales-data', name: 'mcp__sales_data__query', callId: 'ZZ-TEST-call-1' }
+    capture.hermesStarted(start)
+    assert.deepEqual(events, [])
+    const metadata = { name: 'query', ...sqlTraceFields(sql, { preview: true }) }
+    capture.gatewayStarted(metadata)
+    assert.deepEqual(events, [{ ...start, ...metadata, name: start.name, callId: start.callId }])
 })
 
 test('page hash remains available while other live cursors accumulate', () => {
