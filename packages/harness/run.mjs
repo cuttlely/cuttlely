@@ -2144,7 +2144,10 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         if (slotIndex < 0) continue
         used.add(slotIndex)
         slots[slotIndex].detail = maskWorkspacePaths(JSON.stringify({ result: JSON.stringify(item.result) }))
-        Object.assign(slots[slotIndex], item.traceFields)
+        const fields = item.traceFields || {}
+        if (typeof fields.sqlHash === 'string') slots[slotIndex].sqlHash = fields.sqlHash
+        if (typeof fields.sql === 'string') slots[slotIndex].sql = fields.sql
+        if (fields.sqlTruncated === true) slots[slotIndex].sqlTruncated = true
         if (item.timings) slots[slotIndex].timings = item.timings
         if (item.pinned) slots[slotIndex].pinned = item.pinned
         if (item.freeSqlWithPin) slots[slotIndex].freeSqlWithPin = item.freeSqlWithPin

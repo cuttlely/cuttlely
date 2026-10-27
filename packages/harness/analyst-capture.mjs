@@ -126,7 +126,8 @@ export function noteAnalystGatewayCall({
     const id = analystCaptureId({ callId, seq, sql, cursor })
     const traceFields = analystSqlTrace({ harness, specialist, chatId, sql, cursor })
     list.push({ id, seq, traceFields, ...(pinned ? { pinned } : {}) })
-    listeners.get(key)?.({ name: toolName, callId: id, ...traceFields, ...(pinned ? { pinned } : {}) })
+    const onStart = listeners.get(key)
+    if (typeof onStart === 'function') onStart({ name: toolName, callId: id, ...traceFields, ...(pinned ? { pinned } : {}) })
     return id
 }
 
