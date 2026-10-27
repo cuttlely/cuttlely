@@ -951,12 +951,20 @@ function emitTool(context, data) {
     // A pinned tool's start carries no detail: its arguments can hold secure parameter values.
     const pinnedStart = data.phase === 'start' && isPinnedToolName(data.name)
     const detail = data.detail && !pinnedStart ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
-    const callId = typeof data.callId === 'string' ? data.callId.trim() : ''
     const emitted = { ...data, ...(detail ? { detail } : {}) }
     if (pinnedStart) delete emitted.detail
     delete emitted.callId
+    logToolEvent(context.toolLog, data, detail)
+    emit(context, 'tool', emitted)
+}
+
+// Records a tool start or end on the run's tool log. An end closes the running chip with its own call id when it has
+// one, so parallel calls to the same tool keep their own SQL and hash. Only an end without a matching id falls back to
+// the newest running chip of that name that has no other call id.
+export function logToolEvent(toolLog, data, detail = '') {
+    const callId = typeof data.callId === 'string' ? data.callId.trim() : ''
     if (data.phase === 'start') {
-        context.toolLog.push({
+        toolLog.push({
             specialist: data.specialist,
             name: data.name,
             status: 'running',
@@ -971,25 +979,25 @@ function emitTool(context, data) {
             ...(data.freeSqlWithPin ? { freeSqlWithPin: data.freeSqlWithPin } : {}),
             ...(callId ? { callId } : {})
         })
-    } else {
-        const open = [...context.toolLog]
-            .reverse()
-            .find((item) => item.specialist === data.specialist && item.name === data.name && item.status === 'running')
-        if (open) {
-            open.status = data.error ? 'failed' : 'done'
-            if (detail) open.detail = detail
-            if (callId) open.callId = callId
-        } else {
-            context.toolLog.push({
-                specialist: data.specialist,
-                name: data.name,
-                status: data.error ? 'failed' : 'done',
-                ...(detail ? { detail } : {}),
-                ...(callId ? { callId } : {})
-            })
-        }
+        return
     }
-    emit(context, 'tool', emitted)
+    const running = (item) => item.specialist === data.specialist && item.name === data.name && item.status === 'running'
+    const open =
+        (callId && toolLog.find((item) => running(item) && item.callId === callId)) ||
+        [...toolLog].reverse().find((item) => running(item) && !(callId && item.callId))
+    if (open) {
+        open.status = data.error ? 'failed' : 'done'
+        if (detail) open.detail = detail
+        if (callId) open.callId = callId
+    } else {
+        toolLog.push({
+            specialist: data.specialist,
+            name: data.name,
+            status: data.error ? 'failed' : 'done',
+            ...(detail ? { detail } : {}),
+            ...(callId ? { callId } : {})
+        })
+    }
 }
 
 function configuredModel(context, specialist) {
