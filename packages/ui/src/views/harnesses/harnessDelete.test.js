@@ -40,6 +40,9 @@ jest.mock('@/ui-component/button/RBACButtons', () => {
     }
     return { PermissionButton: gate('button'), StyledPermissionButton: gate('button'), PermissionIconButton: gate('button') }
 })
+jest.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ hasPermission: () => true }) }))
+jest.mock('react-redux', () => ({ useSelector: (selector) => selector({ customization: { isDarkMode: false } }) }))
+jest.mock('@/ui-component/button/FlowListMenu', () => ({ __esModule: true, default: () => null }))
 jest.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: jest.fn() }))
 jest.mock('@/views/chatmessage/HarnessRunTrace', () => ({
     __esModule: true,

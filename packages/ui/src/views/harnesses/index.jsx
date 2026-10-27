@@ -1,13 +1,28 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack, Typography } from '@mui/material'
+import {
+    Box,
+    Button,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
+    Stack,
+    ToggleButton,
+    ToggleButtonGroup,
+    Typography
+} from '@mui/material'
 import { alpha, useTheme } from '@mui/material/styles'
 
 import harnessesApi from '@/api/harnesses'
 import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import MainCard from '@/ui-component/cards/MainCard'
 import ItemCard from '@/ui-component/cards/ItemCard'
+import { FlowListTable } from '@/ui-component/table/FlowListTable'
+import TagDialog from '@/ui-component/dialog/TagDialog'
+import { useError } from '@/store/context/ErrorContext'
 import { PermissionButton, PermissionIconButton, StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import WhichFlow from '@/ui-component/flow/WhichFlow'
 import { t } from '@/i18n'
@@ -16,7 +31,7 @@ import { HARNESS_LABEL } from '@/ui-component/flow/buildChoices'
 import useApi from '@/hooks/useApi'
 import { HARNESS_DELETE_PERMISSION, harnessCardDescription, harnessDeleteBody, harnessDeleteTitle } from '@/utils/harnessCard'
 
-import { IconPlus, IconTemplate, IconTrash } from '@tabler/icons-react'
+import { IconLayoutGrid, IconList, IconPlus, IconTag, IconTemplate, IconTrash } from '@tabler/icons-react'
 
 const actionButtonSx = {
     height: 40,
@@ -32,9 +47,56 @@ const Harnesses = () => {
     const theme = useTheme()
     const listApi = useApi(harnessesApi.listHarnesses)
     const [search, setSearch] = useState('')
+    const [view, setView] = useState(localStorage.getItem('harnessDisplayStyle') || 'card')
+    const [pendingCategory, setPendingCategory] = useState(null)
+    const [categoryDialogProps, setCategoryDialogProps] = useState({})
+    const { handleError } = useError()
     const [pendingDelete, setPendingDelete] = useState(null)
     const [deleting, setDeleting] = useState(false)
     const [deleteError, setDeleteError] = useState('')
+
+    const saveCategory = async (categories) => {
+        const harness = pendingCategory
+        setPendingCategory(null)
+        try {
+            await harnessesApi.updateHarnessCategory(harness.name, categories.join(';'))
+            listApi.request()
+        } catch (error) {
+            handleError(error)
+        }
+    }
+
+    const renderRowActions = (harness) => (
+        <>
+            <PermissionIconButton
+                permissionId='chatflows:update,agentflows:update'
+                aria-label={`Update Category ${harness.name}`}
+                title='Update Category'
+                size='small'
+                onClick={(event) => {
+                    event.stopPropagation()
+                    setCategoryDialogProps(harness.category ? { category: harness.category.split(';') } : {})
+                    setPendingCategory(harness)
+                }}
+            >
+                <IconTag size={18} />
+            </PermissionIconButton>
+            <PermissionIconButton
+                permissionId={HARNESS_DELETE_PERMISSION}
+                aria-label={`Delete ${harness.name}`}
+                title='Delete'
+                size='small'
+                color='error'
+                onClick={(event) => {
+                    event.stopPropagation()
+                    setDeleteError('')
+                    setPendingDelete(harness)
+                }}
+            >
+                <IconTrash size={18} />
+            </PermissionIconButton>
+        </>
+    )
 
     const confirmDelete = async () => {
         if (!pendingDelete) return
@@ -64,7 +126,10 @@ const Harnesses = () => {
     const saved = listApi.data || []
     const harnesses = saved.filter((harness) => {
         if (!search) return true
-        return harness.name.toLowerCase().includes(search.toLowerCase())
+        return (
+            harness.name.toLowerCase().includes(search.toLowerCase()) ||
+            (harness.category || '').toLowerCase().includes(search.toLowerCase())
+        )
     })
 
     const renderActions = (justify) => (
@@ -114,6 +179,43 @@ const Harnesses = () => {
                     searchPlaceholder='Search harnesses'
                     description='An agent team you can run from this page and call by name from a chatflow.'
                 >
+                    <ToggleButtonGroup
+                        sx={{ borderRadius: 2, maxHeight: 40, flexShrink: 0 }}
+                        value={view}
+                        color='primary'
+                        disabled={saved.length === 0}
+                        exclusive
+                        onChange={(_, nextView) => {
+                            if (!nextView) return
+                            setView(nextView)
+                            localStorage.setItem('harnessDisplayStyle', nextView)
+                        }}
+                    >
+                        <ToggleButton
+                            sx={{
+                                borderColor: theme.palette.grey[900] + 25,
+                                borderRadius: 2,
+                                color: theme?.customization?.isDarkMode ? 'white' : 'inherit'
+                            }}
+                            variant='contained'
+                            value='card'
+                            title='Card View'
+                        >
+                            <IconLayoutGrid />
+                        </ToggleButton>
+                        <ToggleButton
+                            sx={{
+                                borderColor: theme.palette.grey[900] + 25,
+                                borderRadius: 2,
+                                color: theme?.customization?.isDarkMode ? 'white' : 'inherit'
+                            }}
+                            variant='contained'
+                            value='list'
+                            title='List View'
+                        >
+                            <IconList />
+                        </ToggleButton>
+                    </ToggleButtonGroup>
                     {renderActions('flex-end')}
                 </ViewHeader>
                 <TryTheDemo show={empty} />
@@ -157,6 +259,21 @@ const Harnesses = () => {
                     </Box>
                 ) : harnesses.length === 0 ? (
                     <Typography color='text.secondary'>No agent team matches “{search}”.</Typography>
+                ) : view === 'list' ? (
+                    <FlowListTable
+                        data={harnesses.map((harness) => ({
+                            ...harness,
+                            id: harness.name,
+                            name: harness.name,
+                            category: harness.category || '',
+                            updatedDate: harness.updatedAt
+                        }))}
+                        images={{}}
+                        filterFunction={() => true}
+                        getRowLink={(row) => `/harnesses/${encodeURIComponent(row.name)}`}
+                        renderActions={renderRowActions}
+                        sortStorageKeyPrefix='harness'
+                    />
                 ) : (
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 2 }}>
                         {harnesses.map((harness) => (
@@ -171,26 +288,20 @@ const Harnesses = () => {
                                     }}
                                     onClick={() => navigate(`/harnesses/${encodeURIComponent(harness.name)}`)}
                                 />
-                                <PermissionIconButton
-                                    permissionId={HARNESS_DELETE_PERMISSION}
-                                    aria-label={`Delete ${harness.name}`}
-                                    title='Delete'
-                                    size='small'
-                                    color='error'
-                                    onClick={(event) => {
-                                        event.stopPropagation()
-                                        setDeleteError('')
-                                        setPendingDelete(harness)
-                                    }}
-                                    sx={{ position: 'absolute', top: 8, right: 8 }}
-                                >
-                                    <IconTrash size={18} />
-                                </PermissionIconButton>
+                                <Stack direction='row' sx={{ position: 'absolute', top: 8, right: 8 }}>
+                                    {renderRowActions(harness)}
+                                </Stack>
                             </Box>
                         ))}
                     </Box>
                 )}
             </Stack>
+            <TagDialog
+                isOpen={Boolean(pendingCategory)}
+                dialogProps={categoryDialogProps}
+                onClose={() => setPendingCategory(null)}
+                onSubmit={saveCategory}
+            />
             <Dialog
                 open={Boolean(pendingDelete)}
                 onClose={() => !deleting && setPendingDelete(null)}
