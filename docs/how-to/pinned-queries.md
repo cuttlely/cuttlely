@@ -62,7 +62,7 @@ The credential, the ticked tables and views, and the allowed functions are the n
 
 **Test & save** asks `POST /api/v1/pinned-queries/:chatflowId/test`. A signed-in editor needs the update permission for that kind of flow (`chatflows:update` or `agentflows:update`). An API key needs the same permission, and the harness canvas check for that flow id. The server loads the flow in the caller's workspace. The node must already be in the open draft (or Live, when there is no draft). The editor sends that node's unsaved credential id, ticked tables and views, allowed functions, row cap, timeout, and pin list in `canvas`; values it does not send come from the draft or Live. The request is refused if `canvas` holds anything else, such as a URL.
 
-The stamp is an HMAC the server computes from the credential encryption key. It covers the workspace, the credential, the statement hash, the parameter spec, the ticked tables and views, the allowed functions, and the columns the test returned. It does not cover the flow id. The server recomputes it when the node starts. If it does not match, the pin is not offered. Hand-editing the flow or pasting a stamp from somewhere else does not make a pin tested.
+The stamp is an HMAC the server computes from the credential encryption key. It covers the workspace, the credential, the statement hash, the parameter spec, the ticked tables and views, the allowed functions, and the columns the test returned. It does not cover the flow id. The server recomputes it when the node starts. If it does not match, the pin is not offered. Hand-editing the flow or pasting a stamp from somewhere else does not make a pin tested. The stamp only decides whether a pin is offered; every call to a pin still runs the full guard (read-only transaction, ticked tables and views, allowed functions, row cap, and timeout).
 
 These make the stamp fail, and the pin has to be tested again:
 
@@ -96,7 +96,7 @@ The pin's statement hash identifies the compiled statement and parameter spec. I
 
 ## Column drift
 
-If the columns that come back differ in name or type from the columns recorded when the pin was tested, the result includes a warning and `columnsChanged`, which say the pin needs a re-test. The editor does not see run results, so it does not mark the pin; re-test the pin in the editor to record the new columns. The editor marks a pin as needing a re-test when its SQL or parameters change after its last test. The call is not blocked. A column the statement itself names that is no longer in the table still makes the query fail, as it does for any other statement.
+If the column names that come back, or their order, differ from the columns recorded when the pin was tested (a changed column type alone is not compared), the result includes a warning and `columnsChanged`, which say the pin needs a re-test. The editor does not see run results, so it does not mark the pin; re-test the pin in the editor to record the new columns. The editor marks a pin as needing a re-test when its SQL or parameters change after its last test. The call is not blocked. A column the statement itself names that is no longer in the table still makes the query fail, as it does for any other statement.
 
 ## Audit
 

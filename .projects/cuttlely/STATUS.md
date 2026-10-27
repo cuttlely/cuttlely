@@ -1,5 +1,7 @@
 # Status
 
+Handoff 2026-10-27: branch `feat/pq-ui`: docs say column drift compares column names and order only, and that the stamp only decides whether a pin is offered while every call still runs the full guard.
+
 Handoff 2026-10-27: branch `feat/pq-ui`: type suggestions check the statement with untyped NULLs at the compiled spans, so `amount > :minimum` gets a type (`analyst-store.mjs`, `scripts/analyst-pinned.test.mjs`). Test & save sends the node's unsaved credential id and guard inputs as `canvas`; the server overlays them on the draft node after the flow, workspace, and permission checks and still refuses URLs. Docs now say column drift warns in the run result and the editor does not mark it.
 
 Handoff 2026-10-27: branch `feat/pq-audit`: pinned query changes get an audit type `pinned_query_change` (`packages/server/src/identity/auditLog.ts`). `auditPinnedQuerySave` in `packages/server/src/services/chatflows/pinnedQueryAudit.ts` diffs the pins in the previous and next flow data on a live create or update (`diffPinnedQueries`) and writes one row per `create`, `edit` or `delete`; `recordPinnedQueryTest` writes a `test` row. Rows carry the flow, node, pin name, version, user, optional credential id, parameter names and a 64-hex statement hash when the runtime hash helper is present; never SQL text or parameter values. The audit page lists the type (`packages/ui/src/views/audit/query.js`). Guide: `docs/how-to/pinned-queries.md`. Tests: `packages/server/src/services/chatflows/pinnedQueryAudit.test.ts`.
