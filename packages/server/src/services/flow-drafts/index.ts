@@ -9,9 +9,13 @@
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { IsNull, type EntityManager, type FindOptionsWhere } from 'typeorm'
+import { versionAuthor } from '@cuttlely/versioning'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
+import { User } from '../../database/entities/identity/User'
 import { AppError } from '../../errors/appError'
+import { DraftChangedError } from './draftChanged'
+import type { DraftChangedAction } from './draftChanged'
 import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fileRepository'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stampNodePack } from '../../utils/nodePacks'
@@ -38,6 +42,8 @@ import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-ch
 import { assertHarnessDraftLimits } from './harnessLimits'
 
 export { redactDraftStatus } from './gate'
+export { DraftChangedError } from './draftChanged'
+export type { DraftSaver } from './draftChanged'
 
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
 export const draftWriteHooks: {
@@ -139,6 +145,8 @@ export interface DraftInfo {
     updatedBy: string | null
     // Live changed after the draft started, for example through the API.
     stale: boolean
+    // The draft's version: sha256 hex of the stored draft canvas.
+    hash: string
 }
 
 export interface DraftStatus {
@@ -228,7 +236,8 @@ function draftInfo(flow: DraftFlow, state: FlowVersionState | null): DraftInfo |
         flowData: state.draftFlowData,
         updatedDate: state.draftUpdatedDate ? new Date(state.draftUpdatedDate).toISOString() : null,
         updatedBy: state.draftUpdatedBy || null,
-        stale: Boolean(state.draftBaseHash) && !baseMatches(state.draftBaseHash as string, flow)
+        stale: Boolean(state.draftBaseHash) && !baseMatches(state.draftBaseHash as string, flow),
+        hash: canvasHash(state.draftFlowData)
     }
 }
 
@@ -372,16 +381,87 @@ export interface SaveDraftContext {
     subscriptionId: string
     // Who saves the draft. A draft that names a harness needs a person, or an API key that lists every one of them.
     caller?: IHarnessCaller
+    // The draft hash the canvas loaded. Null means it loaded with no draft. Leave it out when the caller
+    // does not track the draft (an older client, an import, or an API save).
+    expectedDraftHash?: unknown
+    // Only literal true replaces a draft someone else saved after this canvas opened.
+    overwriteDraftChanges?: unknown
+}
+
+const API_KEY_DRAFT_SAVER = 'Someone using an API key'
+
+// Who last saved the stored draft, for the conflict answer. An API key has no user id.
+// A lookup problem falls back to a short id label. The email is never used.
+async function draftSaverName(userId: string | null): Promise<string> {
+    if (!userId) return API_KEY_DRAFT_SAVER
+    try {
+        const user = await getRunningExpressApp().AppDataSource.getRepository(User).findOneBy({ id: userId })
+        return versionAuthor({ id: userId, name: typeof user?.name === 'string' ? user.name : '' }).name
+    } catch {
+        return `User ${userId.slice(0, 8)}`
+    }
+}
+
+function savedAtIso(value: Date | string | null): string | null {
+    if (value == null || value === '') return null
+    const date = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(date.getTime())) return null
+    return date.toISOString()
+}
+
+// Whether this save would replace a draft the caller has not seen.
+// No conflict when the caller sends overwriteDraftChanges true, sends no expected hash, there is no
+// stored draft, the stored draft is the one they loaded, or they saved it themselves. Null and undefined
+// user ids count as the same saver. Any other overwriteDraftChanges value is ignored. A hash that is
+// not a string or null is a 400.
+export function draftChangedBy(
+    state: { draftFlowData?: string | null; draftUpdatedBy?: string | null; draftUpdatedDate?: Date | string | null } | null | undefined,
+    expectedDraftHash: unknown,
+    userId: string | null | undefined,
+    overwriteDraftChanges?: unknown
+): { savedById: string | null; savedAt: Date | string | null } | null {
+    if (expectedDraftHash !== undefined && expectedDraftHash !== null && typeof expectedDraftHash !== 'string') {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'expectedDraftHash must be a string or null.')
+    }
+    if (overwriteDraftChanges === true) return null
+    if (expectedDraftHash === undefined) return null
+    if (!state?.draftFlowData) return null
+    if (canvasHash(state.draftFlowData) === expectedDraftHash) return null
+    const storedBy = state.draftUpdatedBy ?? null
+    const caller = userId ?? null
+    if (storedBy === caller) return null
+    return { savedById: storedBy, savedAt: state.draftUpdatedDate ?? null }
+}
+
+// What Publish knows about the draft the caller saw. The same fields and rules as a save.
+export interface PublishDraftContext {
+    userId?: string | null
+    expectedDraftHash?: unknown
+    overwriteDraftChanges?: unknown
+}
+
+async function throwIfDraftChanged(
+    state: FlowVersionState | null,
+    context: Pick<SaveDraftContext, 'userId' | 'expectedDraftHash' | 'overwriteDraftChanges'>,
+    action: DraftChangedAction = 'save'
+): Promise<void> {
+    const changed = draftChangedBy(state, context.expectedDraftHash, context.userId, context.overwriteDraftChanges)
+    if (!changed) return
+    const name = await draftSaverName(changed.savedById)
+    throw new DraftChangedError({ id: changed.savedById, name }, savedAtIso(changed.savedAt), action)
 }
 
 // Saves the canvas as this flow's draft. Live is not touched. A canvas that matches Live clears the
 // draft instead, so opening a flow and saving it without changes leaves nothing to publish.
 export async function saveDraft(flow: DraftFlow, flowData: unknown, context: SaveDraftContext): Promise<DraftStatus> {
-    refuse(flow, await getState(flow.id))
+    const seen = await getState(flow.id)
+    refuse(flow, seen)
     let canvas = checkCanvas(flowData)
     assertHarnessReferencesWellFormed(canvas)
     assertCallerMayUseHarnesses(context.caller, referencedHarnessNames(canvas))
     if (flow.type === 'HARNESS') await assertHarnessDraftLimits(flow.name || '', canvas)
+    // Before any uploaded file is stored. The check inside the lock is the one that decides.
+    await throwIfDraftChanged(seen, context)
     if (containsBase64File({ flowData: canvas } as any)) {
         const app = getRunningExpressApp()
         canvas = await updateFlowDataWithFilePaths(
@@ -403,6 +483,9 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
         }
         const stateRepo = manager.getRepository(FlowVersionState)
         const state = await stateRepo.findOneBy({ chatflowId: flow.id })
+        // The chatflow row lock, or the SQLite per-flow queue, makes this read the one to compare.
+        // Checked before a canvas equal to Live can clear the draft.
+        await throwIfDraftChanged(state, context)
         if (draftWriteHooks.afterStateRead) await draftWriteHooks.afterStateRead()
         const clearing = sameCanvas(canvas, flow.flowData)
         const draftPatch = clearing
@@ -467,11 +550,14 @@ export async function discardDraft(flow: DraftFlow): Promise<DraftStatus> {
 // changed after the draft started (for example through the API) unless the caller chose to replace those
 // changes, so nobody's Live edit is dropped without being asked. A draft left over from before Publish
 // instantly was turned on can still be published, so it is never stranded.
-export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unknown): Promise<string> {
+export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unknown, seen: PublishDraftContext = {}): Promise<string> {
     if (!isDraftsEnabled()) throw new AppError(StatusCodes.CONFLICT, 'Drafts are off on this server.')
     const state = await getState(flow.id)
     const draft = draftInfo(flow, state)
     if (!draft) throw new AppError(StatusCodes.CONFLICT, 'There are no unpublished changes to publish.')
+    // The same check as a save: the canvas sends the draft hash it loaded. The canvas returned here is the one
+    // compared, so a draft saved after this read is not published and is kept.
+    await throwIfDraftChanged(state, { ...seen, userId: seen.userId ?? null }, 'publish')
     // Checked here, whatever the timing of a type change: a draft is only ever published as its own kind of flow.
     if (isOtherType(state?.draftBaseHash, flow)) {
         throw new AppError(
