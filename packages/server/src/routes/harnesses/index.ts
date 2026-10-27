@@ -78,6 +78,12 @@ router.delete(
     requireAnyPermission('chatflows:create,chatflows:update,agentflows:create'),
     harnessesController.deleteSchedule
 )
+router.put(
+    '/:name/category',
+    requireAnyPermission('chatflows:update,agentflows:update'),
+    requireHarnessAccess(),
+    harnessesController.setHarnessCategory
+)
 router.get('/:name', requireAnyPermission('chatflows:view,agentflows:view'), requireHarnessAccess(), harnessesController.getHarness)
 router.delete(
     '/:name',

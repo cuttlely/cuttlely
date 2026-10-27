@@ -1890,6 +1890,11 @@
         },
         {
             "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/store/context/ErrorContext.jsx",
+            "reason": "The Agent Team list reuses the Chatflows list table, tag dialog and error context so both lists behave the same"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
             "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
         },
         {
@@ -1899,6 +1904,16 @@
         {
             "from": "packages/ui/src/views/harnesses/index.jsx",
             "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/ui-component/dialog/TagDialog.jsx",
+            "reason": "The Agent Team list reuses the Chatflows list table, tag dialog and error context so both lists behave the same"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/ui-component/table/FlowListTable.jsx",
+            "reason": "The Agent Team list reuses the Chatflows list table, tag dialog and error context so both lists behave the same"
         },
         {
             "from": "packages/ui/src/views/notfound/index.jsx",
