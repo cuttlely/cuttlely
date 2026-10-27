@@ -21,7 +21,7 @@ const entry = (sql = 'SELECT :Value AS v LIMIT 5', params = [{ name: 'Value', ty
 test('ZZ-TEST- compiler preserves casts, quotes, comments, dollar quotes and JSON operators', () => {
     const c = compilePinned(
         entry(
-            `SELECT (:Value)::text, ':ignored', E'\\\':ignored', ":column", $$:ignored$$, $tag$:ignored$tag$, doc ? 'key' /* :ignored /* :ignored */ */ -- :ignored\n FROM demo_sales WHERE name = :Value LIMIT 5`
+            `SELECT (:Value)::text, ':ignored', E'\\':ignored', ":column", $$:ignored$$, $tag$:ignored$tag$, doc ? 'key' /* :ignored /* :ignored */ */ -- :ignored\n FROM demo_sales WHERE name = :Value LIMIT 5`
         )
     )
     assert.deepEqual(c.order, ['Value'])
@@ -32,7 +32,7 @@ test('ZZ-TEST- compiler preserves casts, quotes, comments, dollar quotes and JSO
         c.statementHash,
         statementHash(
             entry(
-                `SELECT (:Value)::text, ':ignored', E'\\\':ignored', ":column", $$:ignored$$, $tag$:ignored$tag$, doc ? 'key' /* :ignored /* :ignored */ */ -- :ignored\n FROM demo_sales WHERE name = :Value LIMIT 5`
+                `SELECT (:Value)::text, ':ignored', E'\\':ignored', ":column", $$:ignored$$, $tag$:ignored$tag$, doc ? 'key' /* :ignored /* :ignored */ */ -- :ignored\n FROM demo_sales WHERE name = :Value LIMIT 5`
             )
         )
     )
@@ -136,7 +136,8 @@ test('ZZ-TEST- bool inputs accept only JSON booleans', () => {
 
 test('ZZ-TEST- strict adversarial parameter values and exact numeric bounds', () => {
     const check = (type, value) => validateArgs(entry(undefined, [{ name: 'Value', type, required: true }]), { Value: value })
-    for (const v of ['1e3', ' 42', '0x10', '42abc', '9223372036854775808', 1.5, 9007199254740993]) assert.throws(() => check('int8', v))
+    for (const v of ['1e3', ' 42', '0x10', '42abc', '9223372036854775808', 1.5, Number.MAX_SAFE_INTEGER + 2])
+        assert.throws(() => check('int8', v))
     for (const v of ['NaN', 'Infinity', '1,000']) assert.throws(() => check('numeric', v))
     for (const v of ['2026-02-30', 'today', 'now', 'epoch', 'infinity', '26-10-2026']) assert.throws(() => check('date', v))
     for (const v of [['EU'], { a: 1 }, 42, true, null]) assert.throws(() => check('text', v))
