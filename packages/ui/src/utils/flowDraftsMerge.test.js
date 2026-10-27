@@ -338,4 +338,27 @@ describe('ZZ-TEST-draft merge', () => {
         expect(kept.edges.map((item) => item.id)).toEqual(['e1'])
         expect(byId(parse(applyDraftMerge(plan, { 'node:a': 'theirs' })).nodes, 'a')).toBeUndefined()
     })
+    test('their node update and their resize of an iteration card merge with my edit to another card', () => {
+        const loop = (width, height) => ({ ...node('loop'), type: 'iteration', width, height })
+        const base = canvas([node('a', {}, { data: { version: 1 } }), loop(300, 250), node('b', { prompt: 'hi' })])
+        const mine = canvas([node('a', {}, { data: { version: 1 } }), loop(300, 250), node('b', { prompt: 'mine' })])
+        const theirs = canvas([node('a', {}, { data: { version: 2 } }), loop(600, 400), node('b', { prompt: 'hi' })])
+        const plan = draftMergePlan(base, mine, theirs)
+        expect(plan.conflicts).toEqual([])
+        expect(plan.merged.map((entry) => entry.id)).toEqual(['a', 'loop'])
+        expect(plan.merged[1].theirRows).toEqual([
+            { field: 'position', label: 'Position', before: 'x 0, y 0, 300 × 250', after: 'x 0, y 0, 600 × 400' }
+        ])
+        const out = parse(applyDraftMerge(plan))
+        expect(byId(out.nodes, 'a').data.version).toBe(2)
+        expect(byId(out.nodes, 'loop')).toMatchObject({ width: 600, height: 400 })
+        expect(byId(out.nodes, 'b').data.inputs.prompt).toBe('mine')
+    })
+
+    test('a measured size on an ordinary card is not a change', () => {
+        const sized = (width) => ({ ...node('a'), width, height: 80 })
+        const plan = draftMergePlan(canvas([sized(200)]), canvas([sized(210)]), canvas([sized(190)]))
+        expect(plan.conflicts).toEqual([])
+        expect([...plan.merged, ...plan.kept]).toEqual([])
+    })
 })

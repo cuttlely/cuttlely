@@ -25,7 +25,6 @@ const NOT_CONTENT_DATA = new Set([
     'description',
     'filePath',
     'icon',
-    'version',
     'tags',
     'badge',
     'documentation',
@@ -98,7 +97,29 @@ const changedFieldNames = (a, b) => {
     return [...keys].filter((key) => a[key] !== b[key]).sort()
 }
 
-const samePosition = (a, b) => json(a?.position ?? null) === json(b?.position ?? null)
+// Where a card sits, and for a resizable iteration card its size too. Other cards' sizes are measured by the
+// browser, so they are not anyone's change.
+const RESIZABLE = new Set(['iteration'])
+const LAYOUT_KEYS = ['width', 'height', 'style']
+const layoutOf = (node) => {
+    const layout = { position: node?.position ?? null }
+    if (RESIZABLE.has(node?.type)) for (const key of LAYOUT_KEYS) layout[key] = node?.[key] ?? null
+    return layout
+}
+const samePosition = (a, b) => json(layoutOf(a)) === json(layoutOf(b))
+// The picked card with the layout of another side's version of it.
+const withLayout = (picked, from) => {
+    const moved = { ...picked, position: from.position }
+    if (from.positionAbsolute) moved.positionAbsolute = from.positionAbsolute
+    else delete moved.positionAbsolute
+    if (RESIZABLE.has(from.type)) {
+        for (const key of LAYOUT_KEYS) {
+            if (from[key] === undefined) delete moved[key]
+            else moved[key] = from[key]
+        }
+    }
+    return moved
+}
 
 const byId = (list) => {
     const map = new Map()
@@ -177,7 +198,9 @@ const POSITION_FIELD = 'position'
 const positionText = (node) => {
     const at = node?.position
     if (!at || typeof at !== 'object') return ''
-    return `x ${Math.round(Number(at.x) || 0)}, y ${Math.round(Number(at.y) || 0)}`
+    const where = `x ${Math.round(Number(at.x) || 0)}, y ${Math.round(Number(at.y) || 0)}`
+    if (!RESIZABLE.has(node?.type) || !(node.width || node.height)) return where
+    return `${where}, ${Math.round(Number(node.width) || 0)} × ${Math.round(Number(node.height) || 0)}`
 }
 const positionRow = (before, after) => ({
     field: POSITION_FIELD,
@@ -286,17 +309,12 @@ function resolvedItem(entry, choice) {
     if (entry.moveConflict) {
         const from = choice === 'theirs' ? entry.theirs : entry.mine
         if (!from) return picked
-        const moved = { ...picked, position: from.position }
-        if (from.positionAbsolute) moved.positionAbsolute = from.positionAbsolute
-        else delete moved.positionAbsolute
-        return moved
+        return withLayout(picked, from)
     }
     const other = take === 'theirs' ? entry.mine : entry.theirs
     const base = entry.base
     if (other && base && samePosition(picked, base) && !samePosition(other, base)) {
-        const moved = { ...picked, position: other.position }
-        if (other.positionAbsolute) moved.positionAbsolute = other.positionAbsolute
-        return moved
+        return withLayout(picked, other)
     }
     return picked
 }
