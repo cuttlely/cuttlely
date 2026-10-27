@@ -374,6 +374,13 @@ function valueString(type, value) {
     if (!m || +m[1] > 23 || +m[2] > 59 || +m[3] > 59 || (m[6] && (+m[6] > 15 || +m[7] > 59))) throw Error()
     return s.replace(' ', 'T')
 }
+function sameAllowedValue(type, allowed, value) {
+    try {
+        return valueString(type, allowed) === value
+    } catch {
+        return false
+    }
+}
 export function validateArgs(entry, args) {
     const params = specs(entry),
         { order } = compilePinned(entry)
@@ -392,7 +399,8 @@ export function validateArgs(entry, args) {
         }
         try {
             v = valueString(p.type, v)
-            if (p.allowedValues && !p.allowedValues.some((a) => a === (Object.hasOwn(args, p.name) ? args[p.name] : p.default))) bad(p.name)
+            // Compare canonical forms, so 1 and '1' match the same int8 or numeric choice.
+            if (p.allowedValues && !p.allowedValues.some((a) => sameAllowedValue(p.type, a, v))) bad(p.name)
             if (
                 p.min !== undefined &&
                 (p.type === 'numeric'

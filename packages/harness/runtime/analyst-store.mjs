@@ -1980,14 +1980,17 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
 // read only and confirms transaction_read_only is on just before the query runs.
 function compileStoreOptions(options, env, replaying = false) {
     requirePinnedReadOnly(options)
-    if (Object.hasOwn(options, 'binds') || Object.hasOwn(options, 'checkText'))
+    // binds: [] with no check text is today's free-SQL path. Any other caller pair is refused: only the store compiles one.
+    const callerBinds = options.binds != null && !(Array.isArray(options.binds) && options.binds.length === 0)
+    if (callerBinds || options.checkText != null)
         throw new AnalystToolError('Caller-supplied binds and checkText are refused; use pinned.entry.', 'expected')
     if ((options.pinned != null || options.suggestTypesSql != null) && !pinnedQueriesEnabled(env))
         throw new AnalystToolError('Pinned queries are turned off on this server.', 'expected')
     if (options.pinned == null) return { options }
     if (!options.pinned.entry) throw new AnalystToolError('Pinned calls require pinned.entry.', 'expected')
     const { entry, args, tool } = options.pinned
-    const compiled = compilePinned(entry, replaying ? undefined : args ?? {})
+    // A type suggestion only prepares the SQL, so it compiles without arguments and a required parameter needs no value.
+    const compiled = compilePinned(entry, replaying || options.suggestTypesSql != null ? undefined : args ?? {})
     assertCheckRunPair(compiled.runText, compiled.checkText, compiled.spans)
     return {
         statement: compiled.runText,

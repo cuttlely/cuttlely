@@ -121,6 +121,10 @@ test('ZZ-TEST- strict adversarial parameter values and exact numeric bounds', ()
     assert.throws(() => validateArgs(bounded, { Value: '9007199254740993.001' }))
     assert.throws(() => validateArgs(bounded, { Value: '9007199254740993.099' }))
     assert.throws(() => validateArgs(entry(undefined, [{ name: 'Value', type: 'text', allowedValues: ['EU'] }]), { Value: 'eu' }))
+    const int8Choice = entry(undefined, [{ name: 'Value', type: 'int8', allowedValues: ['1', '2'] }])
+    assert.deepEqual(validateArgs(int8Choice, { Value: 1 }), ['1'])
+    assert.deepEqual(validateArgs(entry(undefined, [{ name: 'Value', type: 'numeric', allowedValues: [1.5] }]), { Value: '1.50' }), ['1.5'])
+    assert.throws(() => validateArgs(int8Choice, { Value: 3 }), /Invalid parameter Value/)
 })
 test('ZZ-TEST- comments end at carriage returns and nested comment parameter discovery agrees', () => {
     assert.deepEqual(compilePinned(entry('SELECT 1 -- ignored\r, :Value LIMIT 1')).order, ['Value'])
@@ -189,6 +193,21 @@ test('ZZ-TEST- T1 generated compiler pairs preserve all bytes outside typed span
     assert.throws(() => assertCheckRunPair('SELECT $1', 'SELECT $1', []))
     assert.throws(() => compilePinned({ sql: 'SELECT :v LIMIT 1', params: [{ name: 'v', type: 'text(10)' }] }))
     assert.deepEqual(compilePinned(entry(), { Value: 'demo' }).binds, ['demo'])
+    // order is the bind order: $n is the position of the name in order, by first use.
+    const ordered = compilePinned(
+        {
+            sql: 'SELECT 1 AS n WHERE :b = :b AND :a IS NOT NULL LIMIT 1',
+            params: [
+                { name: 'a', type: 'int8' },
+                { name: 'b', type: 'text' }
+            ]
+        },
+        { a: 7, b: 'demo' }
+    )
+    assert.deepEqual(ordered.order, ['b', 'a'])
+    assert.deepEqual(ordered.binds, ['demo', '7'])
+    assert.match(ordered.runText, /\(\$1::pg_catalog\.text\) = \(\$1::pg_catalog\.text\) AND \(\$2::pg_catalog\.int8\)/)
+    assert.ok(assertCheckRunPair(ordered.runText, ordered.checkText, ordered.spans))
 })
 
 test('ZZ-TEST- placeholder followed by a cast preserves the typed check/run pair', async () => {
