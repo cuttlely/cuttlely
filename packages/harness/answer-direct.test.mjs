@@ -171,6 +171,7 @@ test('answer direct single analyst skips handoff and streams the final trace', a
     assert.equal(payload.trace.handoff.status, 'skipped')
     assert.equal(payload.trace.handoff.reason, 'answerDirect')
     assert.equal(payload.trace.handoff.tokens, null)
+    assert.deepEqual(payload.report.tokens, { prompt: null, completion: null, cached: null })
     assert.ok(payload.timings.handoffMs < 50)
     assert.equal(events.filter((e) => e.type === 'handoff').length, 0)
     const partials = events.filter((e) => e.type === 'partial' && e.phase === 'answer')
@@ -192,6 +193,30 @@ test('answer direct old records retain the chief handoff and trace shape', async
     assert.equal(payload.trace.handoff.status, 'done')
     assert.ok(!('reason' in payload.trace.handoff))
     assert.ok(!('answerDirect' in payload.trace))
+})
+
+test('answer direct single dependent step retains the chief handoff', async () => {
+    // Routing removes a lone dependency; supply it on step objects at the runtime boundary.
+    const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'after')
+    Object.defineProperty(Object.prototype, 'after', {
+        configurable: true,
+        get() {
+            return this.specialist?.name === 'analyst' && this.task === question ? 'earlier' : undefined
+        }
+    })
+    try {
+        const { payload, calls, requests } = await run()
+        assert.equal(payload.trace.route.steps.length, 1)
+        assert.equal(payload.trace.route.steps[0].after, 'earlier')
+        assert.equal(requests.length, 1)
+        assert.equal(calls.length, 1)
+        assert.equal(payload.trace.answerDirect, 'after')
+        assert.equal(payload.trace.handoff.status, 'done')
+        assert.ok(!('reason' in payload.trace.handoff))
+    } finally {
+        if (previous) Object.defineProperty(Object.prototype, 'after', previous)
+        else delete Object.prototype.after
+    }
 })
 for (const [label, event] of [
     ['failed call', { event: 'tool.failed', tool: 'mcp__analyst__query', error: 'Query failed' }],
