@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { Link } from 'react-router-dom'
 import * as PropTypes from 'prop-types'
 import { formatListDateTime } from '@/utils/formatDate'
-import { roleLabel } from '@/utils/roleLabel'
+import { canChangeRole, roleLabel } from '@/utils/roleLabel'
 
 // material-ui
 import {
@@ -30,12 +30,12 @@ import MainCard from '@/ui-component/cards/MainCard'
 import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import ErrorBoundary from '@/ErrorBoundary'
-import EditUserDialog from '@/views/users/EditUserDialog'
+import EditWorkspaceUserRoleDialog from '@/views/workspace/EditWorkspaceUserRoleDialog'
 import UserSessionsDrawer from '@/views/users/UserSessionsDrawer'
 import { StyledTableCell, StyledTableRow } from '@/ui-component/table/TableStyles'
 import InviteUsersDialog from '@/ui-component/dialog/InviteUsersDialog'
 import CreateUserDialog from '@/ui-component/dialog/CreateUserDialog'
-import { PermissionIconButton, StyledPermissionButton } from '@/ui-component/button/RBACButtons'
+import { PermissionButton, PermissionIconButton, StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 
 // API
 import userApi from '@/api/user'
@@ -48,7 +48,7 @@ import useConfirm from '@/hooks/useConfirm'
 import useNotifier from '@/utils/useNotifier'
 
 // Icons
-import { IconTrash, IconX, IconPlus, IconUser, IconEyeOff, IconEye, IconUserStar } from '@tabler/icons-react'
+import { IconTrash, IconX, IconPlus, IconUser, IconEyeOff, IconEye, IconUserStar, IconUserCog } from '@tabler/icons-react'
 import users_emptySVG from '@/assets/images/users_empty.svg'
 
 // store
@@ -60,16 +60,33 @@ function ShowUserRow(props) {
     const customization = useSelector((state) => state.customization)
 
     const [open, setOpen] = useState(false)
+    const [editable, setEditable] = useState(false)
     const [userRoles, setUserRoles] = useState([])
+    const [roleDialogProps, setRoleDialogProps] = useState(null)
 
     const theme = useTheme()
     const { isOpenSource } = useConfig()
 
     const getWorkspacesByUserId = useApi(userApi.getWorkspacesByOrganizationIdUserId)
 
-    const handleViewUserRoles = (userId, organizationId) => {
-        setOpen(!open)
+    const handleViewUserRoles = (userId, organizationId, edit = false) => {
+        setEditable(edit)
+        setOpen(edit || !open)
         getWorkspacesByUserId.request(organizationId, userId)
+    }
+
+    const openRoleDialog = (membership) => {
+        setRoleDialogProps({
+            type: 'EDIT',
+            cancelButtonName: 'Cancel',
+            confirmButtonName: 'Update Role',
+            data: membership
+        })
+    }
+
+    const onRoleChanged = () => {
+        setRoleDialogProps(null)
+        getWorkspacesByUserId.request(props.row.organizationId, props.row.userId)
     }
 
     useEffect(() => {
@@ -86,13 +103,19 @@ function ShowUserRow(props) {
     }, [open])
 
     const currentUser = useSelector((state) => state.auth.user)
+    const showChangeRole = canChangeRole(props.row, currentUser.id)
 
     const assignedRolesDrawer = (
         <Drawer anchor='right' open={open} onClose={() => setOpen(false)}>
             <Box sx={{ p: { xs: 2, sm: 4 }, height: 'auto', width: 'min(650px, 100vw)' }}>
                 <Typography sx={{ textAlign: 'left', mb: 2 }} variant='h2'>
-                    Assigned Roles
+                    {editable ? 'Change role' : 'Assigned Roles'}
                 </Typography>
+                {editable && (
+                    <Typography sx={{ textAlign: 'left', mb: 2 }} variant='body2'>
+                        Pick a team to give {props.row.user?.name || props.row.user?.email} a different role there.
+                    </Typography>
+                )}
                 <TableContainer
                     sx={{ border: 1, borderColor: theme.palette.grey[900] + 25, borderRadius: 2, overflowX: 'auto' }}
                     component={Paper}
@@ -107,6 +130,7 @@ function ShowUserRow(props) {
                             <TableRow>
                                 <StyledTableCell sx={{ width: '50%' }}>Role</StyledTableCell>
                                 <StyledTableCell sx={{ width: '50%' }}>Workspace</StyledTableCell>
+                                {editable && <StyledTableCell>&nbsp;</StyledTableCell>}
                             </TableRow>
                         </TableHead>
                         <TableBody>
@@ -117,12 +141,34 @@ function ShowUserRow(props) {
                                         {String(item.role?.name || '').toLowerCase() === 'owner' ? ' (read-only)' : ''}
                                     </StyledTableCell>
                                     <StyledTableCell>{item.workspace.name}</StyledTableCell>
+                                    {editable && (
+                                        <StyledTableCell>
+                                            {showChangeRole && (
+                                                <PermissionButton
+                                                    permissionId={'workspace:update'}
+                                                    size='small'
+                                                    variant='outlined'
+                                                    onClick={() => openRoleDialog(item)}
+                                                >
+                                                    Change
+                                                </PermissionButton>
+                                            )}
+                                        </StyledTableCell>
+                                    )}
                                 </TableRow>
                             ))}
                         </TableBody>
                     </Table>
                 </TableContainer>
             </Box>
+            {roleDialogProps && (
+                <EditWorkspaceUserRoleDialog
+                    show={Boolean(roleDialogProps)}
+                    dialogProps={roleDialogProps}
+                    onCancel={() => setRoleDialogProps(null)}
+                    onConfirm={onRoleChanged}
+                />
+            )}
         </Drawer>
     )
 
@@ -154,6 +200,17 @@ function ShowUserRow(props) {
                         <IconTrash />
                     </PermissionIconButton>
                 ))}
+            {showChangeRole && (
+                <PermissionIconButton
+                    permissionId={'workspace:update'}
+                    title='Change role'
+                    aria-label='Change role'
+                    color='primary'
+                    onClick={() => handleViewUserRoles(props.row.userId, props.row.organizationId, true)}
+                >
+                    <IconUserCog />
+                </PermissionIconButton>
+            )}
             <PermissionIconButton
                 permissionId={'users:manage'}
                 title='Sessions'
@@ -292,7 +349,6 @@ function ShowUserRow(props) {
 ShowUserRow.propTypes = {
     row: PropTypes.any,
     onDeleteClick: PropTypes.func,
-    onEditClick: PropTypes.func,
     onSessionsClick: PropTypes.func,
     open: PropTypes.bool,
     theme: PropTypes.any,
@@ -317,7 +373,6 @@ const Users = () => {
 
     const [isLoading, setLoading] = useState(true)
     const [showInviteDialog, setShowInviteDialog] = useState(false)
-    const [showEditDialog, setShowEditDialog] = useState(false)
     const [inviteDialogProps, setInviteDialogProps] = useState({})
     const [users, setUsers] = useState([])
     const [search, setSearch] = useState('')
@@ -348,19 +403,6 @@ const Users = () => {
         }
         setInviteDialogProps(dialogProp)
         setShowInviteDialog(true)
-    }
-
-    const edit = (user) => editUser(user)
-
-    const editUser = (user) => {
-        const dialogProp = {
-            type: 'EDIT',
-            cancelButtonName: 'Cancel',
-            confirmButtonName: 'Save',
-            data: user
-        }
-        setInviteDialogProps(dialogProp)
-        setShowEditDialog(true)
     }
 
     const deleteUser = async (user) => {
@@ -415,7 +457,6 @@ const Users = () => {
 
     const onConfirm = () => {
         setShowInviteDialog(false)
-        setShowEditDialog(false)
         getAllUsersByOrganizationIdApi.request(currentUser.activeOrganizationId)
     }
 
@@ -506,7 +547,6 @@ const Users = () => {
                                                 narrow
                                                 row={item}
                                                 onDeleteClick={deleteUser}
-                                                onEditClick={edit}
                                                 onSessionsClick={setSessionUser}
                                                 deletingUserId={deletingUserId}
                                             />
@@ -588,7 +628,6 @@ const Users = () => {
                                                                     key={index}
                                                                     row={item}
                                                                     onDeleteClick={deleteUser}
-                                                                    onEditClick={edit}
                                                                     onSessionsClick={setSessionUser}
                                                                     deletingUserId={deletingUserId}
                                                                 />
@@ -616,15 +655,6 @@ const Users = () => {
                         onConfirm={onConfirm}
                     ></InviteUsersDialog>
                 ))}
-            {showEditDialog && (
-                <EditUserDialog
-                    show={showEditDialog}
-                    dialogProps={inviteDialogProps}
-                    onCancel={() => setShowEditDialog(false)}
-                    onConfirm={onConfirm}
-                    setError={setError}
-                ></EditUserDialog>
-            )}
             <UserSessionsDrawer
                 open={Boolean(sessionUser)}
                 userId={sessionUser?.userId || sessionUser?.user?.id || ''}

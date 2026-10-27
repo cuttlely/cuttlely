@@ -496,15 +496,17 @@ const WorkspaceDetails = () => {
                                                                         <IconEdit />
                                                                     </IconButton>
                                                                 )}
-                                                                {!item.isOrgOwner && item.status.toUpperCase() === 'ACTIVE' && (
-                                                                    <IconButton
-                                                                        title='Change Role'
-                                                                        color='primary'
-                                                                        onClick={() => onEditClick(item)}
-                                                                    >
-                                                                        <IconEdit />
-                                                                    </IconButton>
-                                                                )}
+                                                                {!item.isOrgOwner &&
+                                                                    item.userId !== currentUser.id &&
+                                                                    item.status.toUpperCase() === 'ACTIVE' && (
+                                                                        <IconButton
+                                                                            title='Change Role'
+                                                                            color='primary'
+                                                                            onClick={() => onEditClick(item)}
+                                                                        >
+                                                                            <IconEdit />
+                                                                        </IconButton>
+                                                                    )}
                                                             </StyledTableCell>
                                                         </StyledTableRow>
                                                     ))}
