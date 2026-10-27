@@ -872,10 +872,15 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
     const workspaceId = text(record.workspaceId).trim()
     const roleId = text(record.roleId).trim()
     if (!userId || !workspaceId || !roleId) throw new DirectoryError(400, 'User, team, and role are required')
+    if (userId === actor.id) throw new DirectoryError(403, 'You cannot change your own role')
     let fromRoleId = ''
     const result = await sql.transaction(async (query) => {
         await assertSameWorkspace(query, sql, actor, workspaceId)
         const grant = await actorGrant(query, sql, actor)
+        // Only another owner may change an owner's team role. An admin never can, even with several owners.
+        if (!grant.owner && (await ownerUser(query, sql, actor.organizationId, userId))) {
+            throw new DirectoryError(403, "The organization owner's role cannot be changed")
+        }
         const role = await roleRow(query, sql, roleId)
         if (!role) throw new DirectoryError(400, 'Choose a role')
         const roleName = text(cell(role, 'name')).toLowerCase()
