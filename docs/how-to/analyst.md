@@ -157,7 +157,7 @@ The end of the first answer is row 100 and the page line:
 
 ![The end of page 1 in the canvas chat: a table of tickets that ends at Ticket 100, then the line rows 1-100 of 150 (page 1 of 2, say "show more" for the next page).](../images/analyst/paging-page-1-line.png)
 
-In that same chat, say `show more`, `next page`, or `page 2`. That fetches the next page of the same select. It does not run a new query, and the model does not see the earlier pages again.
+In that same chat, say `show more`, `next page`, or `page 2`. That fetches the next page of the same select. It does not run a new query, and the model does not see the earlier pages again. After a pinned query (a `pq_` tool), the next page is fetched through that same pinned tool.
 
 The last page reads `rows 101-150 of 150 (page 2 of 2, last page)`. With 101 rows and a limit of 100, page 2 is the single row 101. If the total is expensive or unknown, the line says `more rows available` and does not invent a count.
 

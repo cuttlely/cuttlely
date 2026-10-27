@@ -11,12 +11,19 @@ process.env.CUTTLELY_DATA_DIR = dataDir
 process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'runtime')
 const { saveHarness, deleteHarness, getHarness } = await import('../../store.mjs')
 const { registerProfileToken, forgetProfileToken, setGatewayContext, startGateway } = await import('../../gateway.mjs')
-const { analystStartCapture, beginAnalystCalls, endAnalystCalls, resetAnalystCapture, sqlTraceFields, takeAnalystResults } = await import(
-    '../../analyst-capture.mjs'
-)
+const {
+    analystStartCapture,
+    beginAnalystCalls,
+    endAnalystCalls,
+    latestAnalystCursor,
+    recordAnalystResult,
+    resetAnalystCapture,
+    sqlTraceFields,
+    takeAnalystResults
+} = await import('../../analyst-capture.mjs')
 
 const { chiefInstructions, specialistSoul, hermesToolsetsFor } = await import('../../profile.mjs')
-const { hermesToolEvent } = await import('../../run.mjs')
+const { applyAnalystPageRoute, hermesToolEvent } = await import('../../run.mjs')
 // Captured from ae8394e7 gateway, profile and run modules with the same in-process node stub.
 const golden = JSON.parse(fs.readFileSync(new URL('./no-pins-golden.json', import.meta.url)))
 
@@ -209,4 +216,33 @@ test('ZZ-TEST- a secure pinned parameter never reaches the live start event', ()
         hermesToolEvent('data', { event: 'tool.completed', tool: 'pq_order_status', preview: 'ZZ-TEST-rows' }).detail,
         'ZZ-TEST-rows'
     )
+})
+
+test('ZZ-TEST- show more after a pinned result pages through the same pinned tool', () => {
+    resetAnalystCapture()
+    const harness = 'zz-test-pinned-page'
+    const specialists = [{ name: 'data', mcpServers: [{ nodeName: 'postgreSQLMCP' }] }]
+    recordAnalystResult({
+        harness,
+        specialist: 'data',
+        chatId: 'ZZ-TEST-pin',
+        result: { rows: [{ value: 1 }], cursor: 'ZZ-TEST-pin-cursor' },
+        pinned: { id: 'pin-1', name: 'pq_order_status', version: 1 }
+    })
+    const pinned = latestAnalystCursor({ harness, chatId: 'ZZ-TEST-pin' })
+    assert.equal(pinned.tool, 'pq_order_status')
+    const route = applyAnalystPageRoute('show more', [], specialists, pinned)
+    assert.equal(route.steps[0].task, 'Call the pq_order_status tool with cursor ZZ-TEST-pin-cursor. Do not write a new SQL statement.')
+    recordAnalystResult({
+        harness,
+        specialist: 'data',
+        chatId: 'ZZ-TEST-free',
+        sql: 'SELECT 1',
+        result: { rows: [{ value: 1 }], cursor: 'ZZ-TEST-free-cursor' }
+    })
+    const free = latestAnalystCursor({ harness, chatId: 'ZZ-TEST-free' })
+    assert.deepEqual(Object.keys(free).sort(), ['specialist', 'summary', 'token'])
+    const freeRoute = applyAnalystPageRoute('show more', [], specialists, free)
+    assert.equal(freeRoute.steps[0].task, 'Call the query tool with cursor ZZ-TEST-free-cursor. Do not write a new SQL statement.')
+    resetAnalystCapture()
 })

@@ -1298,7 +1298,7 @@ export function applyAnalystPageRoute(input, steps, specialists, cursor) {
     if (!analysts.length) return { steps: list, reply: '' }
     const owner = analysts.find((specialist) => specialist.name === cursor.specialist) || (analysts.length === 1 ? analysts[0] : null)
     if (!owner) return { steps: [], reply: ANALYST_PAGE_OWNER_GONE }
-    return { steps: [{ specialist: owner, task: analystPageTask(cursor.token, request), paging: true }], reply: '' }
+    return { steps: [{ specialist: owner, task: analystPageTask(cursor.token, request, cursor.tool), paging: true }], reply: '' }
 }
 
 // The router can return no steps and Prime then invents a database answer. A data task with one analyst on the

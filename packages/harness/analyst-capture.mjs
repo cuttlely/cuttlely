@@ -208,7 +208,9 @@ export function latestAnalystCursor({ harness, chatId, now = Date.now(), ttlMs =
         // so a later "show more" can say so without asking the analyst to guess.
         const age = now - Number(item.at || 0)
         if (Number.isFinite(ttl) && ttl >= 0 && age >= ttl) return { expired: true, summary, specialist: item.specialist }
-        return { token, summary, specialist: item.specialist }
+        // A pinned query's cursor pages through the same pq_ tool; free SQL pages through query.
+        const tool = typeof item.pinned?.name === 'string' ? item.pinned.name : ''
+        return { token, summary, specialist: item.specialist, ...(tool ? { tool } : {}) }
     }
     return null
 }
