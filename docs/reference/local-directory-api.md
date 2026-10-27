@@ -25,7 +25,7 @@ The caller's active team is the workspace on the session. Switch with `POST /api
 
 The owner of the active team's organization passes every check. An owner role in another organization does not. Anyone else needs the key on their role in the active team. A missing session is **401** `{ "message": "Unauthorized" }`. A signed-in caller without the key is **403** `{ "message": "Forbidden" }`.
 
-An admin cannot grant a permission they do not hold, and cannot assign Owner. That is **403** `{ "message": "You cannot grant a permission you do not have" }` or `{ "message": "Only an owner can assign the owner role" }`.
+An admin cannot grant a permission they do not hold, and cannot assign Owner. That is **403** `{ "message": "You cannot grant a permission you do not have" }` or `{ "message": "Only an owner can assign the owner role" }`. On a team role change, nobody can change their own row, and only an organization owner can change an organization owner's role: **403** `{ "message": "You cannot change your own role" }` or `{ "message": "The organization owner's role cannot be changed" }`. Someone who is not the organization owner also cannot change the role of, or remove from a team, a person whose current team role has a permission they do not hold: **403** `{ "message": "You cannot change the role of someone with permissions you do not have" }` or `{ "message": "You cannot remove someone with permissions you do not have" }`.
 
 ## Built-in roles
 
@@ -48,7 +48,7 @@ A team role and the organization role are separate. `PUT /api/v1/users/:id/role`
 
 An enabled owner is an active user whose organization membership is active and whose organization role is `owner`. Team rows are not part of that count. A disabled user does not count. An owner with no team still counts.
 
-Demoting, disabling, or deleting that person, including when they do it to themselves, answers **409** `{ "message": "The last owner cannot be removed" }` when it would leave none. Removing the last owner's last non-personal team, or deleting that team, answers the same 409. A second owner can be disabled. The check and the write run in one transaction. On SQLite that transaction starts with `BEGIN IMMEDIATE`. On other databases the owner rows are locked until the transaction commits, so two overlapping removals of the last owner's teams cannot both succeed.
+Disabling or deleting that person, including when they do it to themselves, or another owner demoting them, answers **409** `{ "message": "The last owner cannot be removed" }` when it would leave none. Changing your own team role is **403** `{ "message": "You cannot change your own role" }` before this check runs. Removing the last owner's last non-personal team, or deleting that team, answers the same 409. A second owner can be disabled. The check and the write run in one transaction. On SQLite that transaction starts with `BEGIN IMMEDIATE`. On other databases the owner rows are locked until the transaction commits, so two overlapping removals of the last owner's teams cannot both succeed.
 
 ## AuthKit and local password sign-in
 
@@ -102,7 +102,7 @@ Query: `limit` (default 50, max 100), `offset` (default 0), `q` (name or email, 
 }
 ```
 
-`workspaceId` must be the caller's active team, unless the caller is the organization owner. An unknown role is **400** `{ "message": "Choose a role" }`. A missing user is **404** `{ "message": "Workspace user not found" }`. Success is **200** `{ "id": "<user id>" }`.
+`workspaceId` must be the caller's active team, unless the caller is the organization owner. An unknown role is **400** `{ "message": "Choose a role" }`. A missing user is **404** `{ "message": "Workspace user not found" }`. Your own row is **403** `{ "message": "You cannot change your own role" }`, and an organization owner's row, unless the caller is an organization owner, is **403** `{ "message": "The organization owner's role cannot be changed" }`. Success is **200** `{ "id": "<user id>" }`.
 
 ## Sessions
 
@@ -182,12 +182,12 @@ These routes are the team API. They are not limited to local users mode, because
 
 ## Errors
 
-| Status | When                                                                                                                                                                          |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | Missing name, team, or role; permissions are not catalog keys; `limit` is outside 1 to 100; `offset` is negative; `disabled` is not a boolean; `sort` or `status` is unknown. |
-| 401    | No signed-in user.                                                                                                                                                            |
-| 403    | Missing permission, built-in role edit or delete, grant above the caller, or assigning Owner.                                                                                 |
-| 404    | Local users mode is off; user, role, session, or team is missing; the team is not the caller's active team.                                                                   |
-| 409    | The last owner would be removed. Repeating disable or enable is 200, not 409.                                                                                                 |
+| Status | When                                                                                                                                                                                                                                               |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | Missing name, team, or role; permissions are not catalog keys; `limit` is outside 1 to 100; `offset` is negative; `disabled` is not a boolean; `sort` or `status` is unknown.                                                                      |
+| 401    | No signed-in user.                                                                                                                                                                                                                                 |
+| 403    | Missing permission, built-in role edit or delete, grant above the caller, assigning Owner, changing your own team role, changing an organization owner's role as a non-owner, or changing or removing someone whose team role is above the caller. |
+| 404    | Local users mode is off; user, role, session, or team is missing; the team is not the caller's active team.                                                                                                                                        |
+| 409    | The last owner would be removed. Repeating disable or enable is 200, not 409.                                                                                                                                                                      |
 
 `limit must be from 1 to 100`, `offset must be 0 or greater`, and `Active workspace is required` are the 400 messages for those cases.

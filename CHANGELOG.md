@@ -16,6 +16,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   User Management can change an existing user's role: **Change role** on a row lists that person's teams and changes the role on one. The team role route now refuses a change to your own role (403; was 409), and a change to an organization owner's role by anyone who is not an organization owner. Someone who is not the organization owner can no longer change the role of, or remove from a team, a person whose team role has a permission they do not hold. `GET /api/v1/role` now also accepts `workspace:update`, so a team lead can load the role picker.
+
 -   A harness specialist with the PostgreSQL MCP node that is not named `analyst` (its query tool is `mcp__<name>__query`) now gets its chat scope on every query call, so the run trace and the saved run keep that query step's row preview and `timings`, and its "show more" cursor stays with its chat.
 
 ## [1.4.7] - 2026-10-26
