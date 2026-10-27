@@ -14,7 +14,7 @@ import {
     takeAnalystResults,
     dropAnalystCapture
 } from '../../analyst-capture.mjs'
-import { publicToolStep, snapshotSpecialist, reduceHarnessEvent, emptyTrace, buildRunTrace } from '../../trace.mjs'
+import { publicToolStep, snapshotSpecialist, reduceHarnessEvent, emptyTrace, buildRunTrace, TRACE_JSON_LIMIT } from '../../trace.mjs'
 import { isAnalystQueryTool } from '../../context.mjs'
 
 const scope = { harness: 'ZZ-TEST-trace', specialist: 'ZZ-TEST-data', chatId: 'ZZ-TEST-chat' }
@@ -152,4 +152,43 @@ test('page hash remains available while other live cursors accumulate', () => {
         recordAnalystResult({ ...scope, sql: `${sql} -- ZZ-TEST-${index}`, result: { rows: [], cursor: `ZZ-TEST-cursor-${index}` } })
     }
     assert.equal(analystSqlTrace({ ...scope, cursor: 'ZZ-TEST-cursor-0' }, off).sqlHash, sqlTraceFields(`${sql} -- ZZ-TEST-0`).sqlHash)
+})
+
+test('many long SQL previews keep the trace under the history limit', () => {
+    for (const [count, character] of [
+        [5, 'x'],
+        [12, '"'],
+        [12, '😀']
+    ]) {
+        const tools = Array.from({ length: count }, (_, index) =>
+            publicToolStep(
+                {
+                    name: 'query',
+                    status: 'done',
+                    ...sqlTraceFields(character.repeat(character === '😀' ? 1024 : 4096), { preview: true }),
+                    timings: { totalMs: index + 1, dbMs: index }
+                },
+                on
+            )
+        )
+        const original = structuredClone(tools)
+        const input = { harness: scope.harness, agents: [{ name: scope.specialist, tools }], question: 'ZZ-TEST-question' }
+        const trace = buildRunTrace(input)
+        assert.ok(JSON.stringify(trace).length <= TRACE_JSON_LIMIT)
+        assert.deepEqual(buildRunTrace(input), trace)
+        assert.deepEqual(tools, original)
+        const saved = trace.specialists[0].tools
+        assert.ok(saved.some((tool, index) => tool.sql !== original[index].sql))
+        if (count === 12) assert.ok(saved.some((tool) => tool.sql === undefined))
+        saved.forEach((tool, index) => {
+            assert.equal(tool.sqlHash, original[index].sqlHash)
+            assert.deepEqual(tool.timings, original[index].timings)
+            if (tool.sql !== original[index].sql) assert.equal(tool.sqlTruncated, true)
+            if (tool.sql !== undefined) {
+                assert.ok(original[index].sql.startsWith(tool.sql))
+                assert.ok(!tool.sql.includes('\ufffd'))
+                assert.equal(Buffer.from(tool.sql).toString('utf8'), tool.sql)
+            }
+        })
+    }
 })

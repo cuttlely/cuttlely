@@ -18,7 +18,7 @@ const SPECIALIST_PARTS = {
     sources: (name) => `Source snippets from ${name} were shortened before Harness Prime read them.`
 }
 
-// history.mjs drops a trace whose JSON is longer than this. The question is the part that shrinks.
+// Shared with history.mjs: SQL previews and the question shrink to fit this limit.
 export const TRACE_JSON_LIMIT = 20000
 
 // The same replacements previewText uses, with no length cut. A secret past the
@@ -52,6 +52,39 @@ function redactTraceQuestion(value) {
 
 function traceJsonFits(trace) {
     return JSON.stringify(trace).length <= TRACE_JSON_LIMIT
+}
+
+// Budget the serialized JSON, including escaping and truncation flags. Work
+// latest-first; hashes, timings and the caller's tool objects stay untouched.
+function fitTraceSqlPreviews(trace) {
+    if (traceJsonFits(trace)) return trace
+    trace.specialists = trace.specialists.map((item) => ({ ...item, tools: item.tools.map((tool) => ({ ...tool })) }))
+    const tools = trace.specialists.flatMap((item) => item.tools)
+    for (let index = tools.length - 1; index >= 0; index -= 1) {
+        const tool = tools[index]
+        if (typeof tool.sql !== 'string') continue
+        const sql = tool.sql
+        tool.sqlTruncated = true
+        delete tool.sql
+        if (!traceJsonFits(trace)) continue
+        // Find the longest prefix that fits, without splitting a code point.
+        const characters = Array.from(sql)
+        let lo = 1
+        let hi = characters.length
+        let best = 0
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1
+            tool.sql = characters.slice(0, mid).join('')
+            if (traceJsonFits(trace)) {
+                best = mid
+                lo = mid + 1
+            } else hi = mid - 1
+        }
+        if (best) tool.sql = characters.slice(0, best).join('')
+        else delete tool.sql
+        break
+    }
+    return trace
 }
 
 // A question that does not fit is cut, and marked so the caption does not treat
@@ -858,7 +891,7 @@ export function buildRunTrace({
                   },
         ...(direct && directDetail ? { directDetail } : {})
     }
-    return fitTraceQuestion(body, question)
+    return fitTraceQuestion(fitTraceSqlPreviews(body), question)
 }
 
 export function traceFromPayload(payload) {
