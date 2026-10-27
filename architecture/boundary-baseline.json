@@ -1890,6 +1890,11 @@
         },
         {
             "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/store/constant.js",
+            "reason": "The Agent Team list builds node icon URLs from the same baseURL as the Chatflows list"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
             "to": "packages/ui/src/store/context/ErrorContext.jsx",
             "reason": "The Agent Team list reuses the Chatflows list table, tag dialog and error context so both lists behave the same"
         },
