@@ -239,7 +239,7 @@ jobs:
               env:
                   PGPASSWORD: postgres
                   CUTTLELY_TEST_PG_REQUIRED: '1'
-                  CUTTLELY_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
+                  CUTTLELY_TEST_PG_URL: postgres://postgres@localhost:5432/postgres
               run: pnpm --filter @cuttlely/components test:pinned
             - name: Invite sign-in tests
               env:
