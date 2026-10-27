@@ -32,7 +32,12 @@ type AnalystStoreModule = {
     analystUrlToolSpec: (rowCap?: number, relations?: AnalystRelation[] | null) => { description: string; schema: Record<string, unknown> }
     analystDescribeToolSpec: () => { description: string; schema: Record<string, unknown> }
     listAnalystUrlRelations: (postgresUrl: string, options?: { timeoutMs?: number }) => Promise<AnalystRelation[]>
-    analystUrlRelations: (postgresUrl: string, names: string[], options?: { timeoutMs?: number }) => Promise<AnalystRelation[]>
+    analystUrlRelations: (
+        postgresUrl: string,
+        names: string[],
+        options?: { timeoutMs?: number; cacheMs?: number }
+    ) => Promise<AnalystRelation[]>
+    analystResultJson: (result: unknown) => string
     describeAnalystUrlRelation: (
         postgresUrl: string,
         input: Record<string, unknown>,
@@ -56,6 +61,9 @@ type AnalystRelationsModule = {
 }
 
 const RELATION_LOOKUP_MS = 10000
+// Every call prepares the node again. The selection summary in the tool description is reused for this long instead
+// of opening another connection; each query still runs the scope check.
+const RELATION_SUMMARY_CACHE_MS = 30000
 // checkReadOnlySql in packages/harness/runtime/analyst-relations.mjs refuses anything else before connecting.
 const READ_ONLY_SQL_NOTE =
     'Send one SELECT or WITH query with a LIMIT and no semicolon. SET, RESET, BEGIN, COMMIT, COPY, DO, INSERT, UPDATE, DELETE, set_config and pg_sleep are refused.'
@@ -414,7 +422,10 @@ class PostgreSQL_MCP implements INode {
         let summary: AnalystRelation[] | null = null
         if (scoped) {
             try {
-                summary = await store.analystUrlRelations(postgresUrl, relations, { timeoutMs: RELATION_LOOKUP_MS })
+                summary = await store.analystUrlRelations(postgresUrl, relations, {
+                    timeoutMs: RELATION_LOOKUP_MS,
+                    cacheMs: RELATION_SUMMARY_CACHE_MS
+                })
             } catch {
                 // The database is not answering yet. Name the selection without details; the scope check still applies.
                 summary = relations.map((name) => ({ name, kind: '', columns: 0, comment: '' }))
@@ -424,7 +435,7 @@ class PostgreSQL_MCP implements INode {
         const query = tool(
             async (input: { sql?: string; statement?: string; query?: string; cursor?: string; page?: number }): Promise<string> => {
                 try {
-                    return JSON.stringify(
+                    return store.analystResultJson(
                         await store.queryAnalystUrl(postgresUrl, input || {}, {
                             rowCap: limits.rowCap,
                             statementTimeoutMs: limits.timeoutMs,

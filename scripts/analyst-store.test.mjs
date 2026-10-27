@@ -44,8 +44,11 @@ import {
     pgPlaceholders,
     analystUrlToolSpec,
     withAnalystScope,
+    finishAnalystCallTimings,
     resetAnalystStoreForTests,
-    rowPageSummary
+    rowPageSummary,
+    analystResultJson,
+    analystUrlRelations
 } from '../packages/harness/runtime/analyst-store.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, parseSimpleSelect, resultLengthSql } from '../packages/harness/runtime/analyst-page.mjs'
 import { analystHandoffLine, analystShownRows, presentAnalystToolResult } from '../packages/harness/context.mjs'
@@ -1791,6 +1794,36 @@ describe('analyst postgres role', () => {
             assert.match(JSON.stringify(held.rows), /15s|15000/)
             const heldPath = await queryAnalyst('SHOW search_path', { env })
             assert.equal(heldPath.rows[0].search_path, 'analyst')
+
+            // Auto storage on Postgres times its queries too, with its own connection and with a run's reused
+            // session, and the parts add up to the total.
+            await queryAnalyst('CREATE TABLE timed (n integer)', { env })
+            await queryAnalyst('INSERT INTO timed SELECT generate_series(1, 5)', { env })
+            for (const scope of ['', `demo:timed-${suffix}`]) {
+                for (let call = 0; call < 2; call += 1) {
+                    const timings = []
+                    const timed = await withAnalystScope(scope, () => queryAnalyst('SELECT n FROM timed ORDER BY n LIMIT 10', { env }), {
+                        timings
+                    })
+                    assert.deepEqual(
+                        timed.rows.map((row) => row.n),
+                        [1, 2, 3, 4, 5]
+                    )
+                    assert.equal(timings.length, 1, scope)
+                    const [timing] = timings
+                    assert.equal(timing.statementRuns, 1)
+                    assert.equal(timing.roundTrips > 0, true)
+                    assert.equal(timing.dbMs > 0, true, JSON.stringify(timing))
+                    const tenths = (ms) => Math.round(ms * 10)
+                    assert.equal(
+                        tenths(timing.connectMs) + tenths(timing.dbMs) + tenths(timing.cuttlelyMs),
+                        tenths(timing.totalMs),
+                        JSON.stringify(timing)
+                    )
+                }
+            }
+            await endAnalystRun(`demo:timed-${suffix}`)
+            await queryAnalyst('DROP TABLE timed', { env })
             await assert.rejects(
                 queryAnalyst("SELECT set_config('statement_timeout', '0', false), pg_sleep(2)", { env, statementTimeoutMs: 500 }),
                 (error) => {
@@ -2437,6 +2470,187 @@ describe('analyst URL path', () => {
             assert.equal(moreSettings.rows.length > 0, true)
             assert.notDeepEqual(moreSettings.rows[0], settings.rows[0])
         } finally {
+            await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})
+            await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {})
+            await admin.end()
+        }
+    })
+    // A first page that holds every row has no page line, page count or cursor, so the count, the type probe and the
+    // length pass are skipped and the statement runs once. A query that pages still gets all of them, and its
+    // pages, page line and cursor are the same as before.
+    // The database's share is every round trip to Postgres. The connect is apart from it, and Cuttlely's share is
+    // the rest, so the three add up to the total (exactly, in tenths of a millisecond), and the database does work.
+    const assertTimingsAddUp = (timing) => {
+        const tenths = (ms) => Math.round(ms * 10)
+        assert.equal(
+            tenths(timing.connectMs) + tenths(timing.dbMs) + tenths(timing.cuttlelyMs),
+            tenths(timing.totalMs),
+            JSON.stringify(timing)
+        )
+        assert.equal(timing.dbMs > 0, true, JSON.stringify(timing))
+        // The page step is the statement's own round trips plus a little shaping, so it is mostly database time.
+        assert.equal(timing.dbMs + 1 >= timing.pageMs, true, JSON.stringify(timing))
+    }
+
+    it('runs a LIMIT query that fits one page once, and pages a longer one exactly as before', async (t) => {
+        const admin = await postgresAdmin()
+        if (!admin) {
+            t.skip('analyst URL path: local postgres admin is not reachable')
+            return
+        }
+        const suffix = randomBytes(4).toString('hex')
+        const dbName = `analyst_once_${suffix}`
+        const role = `once_${suffix}`
+        const password = randomBytes(18).toString('base64url')
+        const sent = []
+        const query = Client.prototype.query
+        try {
+            await admin.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`)
+            await admin.query(`CREATE DATABASE ${dbName} OWNER ${role}`)
+            const cfg = adminConfig()
+            const url = postgresUrl({ user: role, password, host: cfg.host, port: cfg.port, database: dbName })
+            const owner = new Client({ connectionString: url })
+            await owner.connect()
+            await owner.query('CREATE TABLE orders (id integer PRIMARY KEY, region text NOT NULL)')
+            await owner.query(
+                `INSERT INTO orders SELECT g, (ARRAY['central', 'east', 'north', 'south', 'west'])[1 + g % 5] FROM generate_series(1, 250) g`
+            )
+            await owner.end()
+            Client.prototype.query = function (text, ...rest) {
+                if (this.connectionParameters?.database === dbName) sent.push(typeof text === 'string' ? text : text?.text || '')
+                return query.call(this, text, ...rest)
+            }
+            // A run reads the statement's rows. The scope check's temporary view only defines it.
+            const runs = () => sent.filter((sql) => sql.includes('FROM orders') && !/^\s*CREATE TEMP VIEW/i.test(sql)).length
+            const run = async (input, relations) => {
+                sent.length = 0
+                const timings = []
+                const result = await withAnalystScope(
+                    'demo:chat-once',
+                    async () => {
+                        const value = await queryAnalystUrl(url, input, { readOnlySql: true, relations })
+                        return { value, text: analystResultJson(value) }
+                    },
+                    { timings }
+                )
+                assert.equal(timings.length, 1)
+                return { ...result, timing: timings[0], runs: runs(), roundTrips: sent.length }
+            }
+            const ids = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
+            const orderRows = (from, to) =>
+                ids(from, to).map((id) => ({ id, region: ['central', 'east', 'north', 'south', 'west'][id % 5] }))
+            for (const relations of [[], ['public.orders']]) {
+                const fits = [
+                    {
+                        sql: 'SELECT region, count(*)::int AS n FROM orders GROUP BY region ORDER BY region LIMIT 10',
+                        rows: ['central', 'east', 'north', 'south', 'west'].map((region) => ({ region, n: 50 }))
+                    },
+                    // Exactly the row cap: the extra row the page asks for is not there, so nothing continues.
+                    { sql: 'SELECT id, region FROM orders ORDER BY id LIMIT 100', rows: orderRows(1, 100) },
+                    { sql: 'SELECT id, region FROM orders WHERE id > 240 ORDER BY id LIMIT 50', rows: orderRows(241, 250) }
+                ]
+                for (const item of fits) {
+                    const once = await run({ sql: item.sql }, relations)
+                    assert.equal(once.runs, 1, item.sql)
+                    assert.equal(once.text, JSON.stringify({ rows: item.rows, truncated: false }), item.sql)
+                    assert.equal(once.timing.statementRuns, 1)
+                    assert.equal(once.timing.countMs, 0)
+                    assert.equal(once.timing.probeMs, 0)
+                    assert.equal(once.timing.roundTrips, once.roundTrips)
+                    for (const field of ['connectMs', 'guardMs', 'pageMs', 'serializeMs', 'totalMs', 'dbMs', 'cuttlelyMs']) {
+                        assert.equal(Number.isFinite(once.timing[field]) && once.timing[field] >= 0, true, field)
+                    }
+                    assertTimingsAddUp(once.timing)
+                }
+                // A full page counts its rows and measures every page, so it names the page count, and a page
+                // number from its cursor opens the page that number names.
+                const first = await run({ sql: 'SELECT id, region FROM orders ORDER BY id LIMIT 250' }, relations)
+                assert.equal(first.runs, 4)
+                assert.equal(first.timing.statementRuns, 4)
+                assertTimingsAddUp(first.timing)
+                const { cursor } = first.value
+                assert.equal(typeof cursor, 'string')
+                const page = (from, to, summary) => JSON.stringify({ rows: orderRows(from, to), truncated: to < 250, summary, cursor })
+                assert.equal(first.text, page(1, 100, 'rows 1-100 of 250 (page 1 of 3, say "show more" for the next page)'))
+                const second = await run({ cursor }, relations)
+                assert.equal(second.text, page(101, 200, 'rows 101-200 of 250 (page 2 of 3, say "show more" for the next page)'))
+                const third = await run({ cursor }, relations)
+                assert.equal(third.text, page(201, 250, 'rows 201-250 of 250 (page 3 of 3, last page)'))
+                const jump = await run({ cursor, page: 2 }, relations)
+                assert.equal(jump.text, page(101, 200, 'rows 101-200 of 250 (page 2 of 3, say "show more" for the next page)'))
+            }
+        } finally {
+            Client.prototype.query = query
+            await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})
+            await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {})
+            await admin.end()
+        }
+    })
+    it('reuses a recent table selection summary only when asked to', async (t) => {
+        const admin = await postgresAdmin()
+        if (!admin) {
+            t.skip('analyst URL path: local postgres admin is not reachable')
+            return
+        }
+        const suffix = randomBytes(4).toString('hex')
+        const dbName = `analyst_summary_${suffix}`
+        const role = `summary_${suffix}`
+        const password = randomBytes(18).toString('base64url')
+        const sent = []
+        const query = Client.prototype.query
+        try {
+            await admin.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`)
+            await admin.query(`CREATE DATABASE ${dbName} OWNER ${role}`)
+            const cfg = adminConfig()
+            const url = postgresUrl({ user: role, password, host: cfg.host, port: cfg.port, database: dbName })
+            const owner = new Client({ connectionString: url })
+            owner.on('error', () => {})
+            await owner.connect()
+            await owner.query('CREATE TABLE orders (id integer PRIMARY KEY)')
+            Client.prototype.query = function (text, ...rest) {
+                if (this !== owner && this.connectionParameters?.database === dbName) sent.push(String(text?.text || text))
+                return query.call(this, text, ...rest)
+            }
+            const names = ['public.orders']
+            const first = await analystUrlRelations(url, names, { cacheMs: 60000 })
+            assert.equal(first[0].columns, 1)
+            const looked = sent.length
+            assert.equal(looked > 0, true)
+            await owner.query('ALTER TABLE orders ADD COLUMN region text')
+            // A caller that changes the copy it got does not change the next one.
+            first[0].columns = 99
+            const cached = await analystUrlRelations(url, names, { cacheMs: 60000 })
+            assert.equal(sent.length, looked)
+            assert.equal(cached[0].columns, 1)
+            const fresh = await analystUrlRelations(url, names)
+            assert.equal(sent.length > looked, true)
+            assert.equal(fresh[0].columns, 2)
+            // A tool call that looks the selection up and then queries: the lookup's connection and round trips
+            // count as connect and database time, not as Cuttlely's, and the parts still add up.
+            sent.length = 0
+            const timings = []
+            const callStarted = performance.now()
+            await withAnalystScope(
+                'demo:chat-summary',
+                async () => {
+                    await analystUrlRelations(url, names)
+                    return queryAnalystUrl(url, { sql: 'SELECT id FROM orders LIMIT 10' }, { readOnlySql: true, relations: names })
+                },
+                { timings }
+            )
+            const queryOnly = { ...timings[0] }
+            finishAnalystCallTimings(timings, performance.now() - callStarted)
+            const [call] = timings
+            assert.equal(call.roundTrips, sent.length)
+            assert.equal(call.roundTrips > queryOnly.roundTrips, true)
+            assert.equal(call.dbMs > queryOnly.dbMs, true)
+            assert.equal(call.connectMs > queryOnly.connectMs, true)
+            assert.equal(call.bridgeMs >= 0, true)
+            const tenths = (ms) => Math.round(ms * 10)
+            assert.equal(tenths(call.connectMs) + tenths(call.dbMs) + tenths(call.cuttlelyMs), tenths(call.totalMs), JSON.stringify(call))
+            await owner.end()
+        } finally {
+            Client.prototype.query = query
             await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})
             await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {})
             await admin.end()

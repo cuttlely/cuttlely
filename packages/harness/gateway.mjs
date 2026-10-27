@@ -5,7 +5,7 @@ import path from 'node:path'
 import { noteAnalystGatewayCall, recordAnalystResult } from './analyst-capture.mjs'
 import { isAnalystQueryTool } from './context.mjs'
 import { SQL_TOOL_REFUSED, enforcesTables, runsSql } from './sql-tools.mjs'
-import { analystScopeKey, withAnalystScope } from './runtime/analyst-store.mjs'
+import { analystScopeKey, finishAnalystCallTimings, withAnalystScope } from './runtime/analyst-store.mjs'
 import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpecs, specialistToolBindings } from './bridge.mjs'
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
@@ -964,6 +964,9 @@ async function callTool(req, res, meta) {
     }
     // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
     assertStillValid(meta)
+    // Step timings for the run trace. The tool result itself is unchanged.
+    const timings = []
+    const callStarted = performance.now()
     const result = await withAnalystScope(
         scope,
         () =>
@@ -978,10 +981,11 @@ async function callTool(req, res, meta) {
                 beforeCall: () => readyToRun(meta),
                 assertCall: () => assertStillValid(meta)
             }),
-        { workspace: record.workspaceId }
+        { workspace: record.workspaceId, timings }
     )
+    finishAnalystCallTimings(timings, performance.now() - callStarted)
     assertStillValid(meta)
-    rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId)
+    rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId, timings.at(-1))
     sendJson(res, 200, { result })
 }
 
@@ -1017,7 +1021,7 @@ function analystStatement(args) {
     return { sql, cursor }
 }
 
-function rememberAnalystResult(savedName, specialistName, result, scope, toolName, args, callId) {
+function rememberAnalystResult(savedName, specialistName, result, scope, toolName, args, callId, timings) {
     const prefix = `${savedName}:`
     const chatId = typeof scope === 'string' && scope.startsWith(prefix) ? scope.slice(prefix.length) : ''
     const statement = analystStatement(args)
@@ -1042,7 +1046,7 @@ function rememberAnalystResult(savedName, specialistName, result, scope, toolNam
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
     if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor) return
-    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed })
+    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed, timings })
 }
 
 async function parseJson(req) {

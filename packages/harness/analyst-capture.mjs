@@ -58,7 +58,8 @@ export function analystCallsFor(harness, specialist, chatId = '') {
     return calls.get(runKey(harness, specialist, chatId)) || []
 }
 
-export function recordAnalystResult({ harness, specialist, chatId = '', result, callId = '', at = Date.now() } = {}) {
+// timings is the store's step-timing record for the call (numbers only), shown on the run trace's query step.
+export function recordAnalystResult({ harness, specialist, chatId = '', result, callId = '', at = Date.now(), timings = null } = {}) {
     if (!harness || !specialist || result == null) return
     pending.push({
         harness: String(harness),
@@ -66,6 +67,7 @@ export function recordAnalystResult({ harness, specialist, chatId = '', result, 
         chatId: String(chatId || ''),
         callId: String(callId || '').trim(),
         result,
+        ...(timings && typeof timings === 'object' ? { timings } : {}),
         at,
         claimed: false
     })
@@ -101,7 +103,7 @@ export function takeAnalystResults({ harness, specialist, chatId = '', since = 0
         (item) => !item.claimed && item.harness === name && item.specialist === who && item.chatId === chat && item.at >= since
     )
     for (const item of rows) item.claimed = true
-    return rows.map((item) => ({ result: item.result, callId: item.callId || '' }))
+    return rows.map((item) => ({ result: item.result, callId: item.callId || '', ...(item.timings ? { timings: item.timings } : {}) }))
 }
 
 export function resetAnalystCapture() {
