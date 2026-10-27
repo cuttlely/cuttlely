@@ -1,10 +1,11 @@
 // NODE_OPTIONS=--experimental-vm-modules is required. Jest runs this file in a VM, and the node loads the harness ESM files with import().
 import crypto from 'crypto'
+import fs from 'fs'
 import net from 'net'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { Client } from 'pg'
-import { getPinnedQueryKey } from '../../../../src/utils'
+import { getCredentialData, getPinnedQueryKey } from '../../../../src/utils'
 
 const { nodeClass: PostgreSQLMCP } = require('./PostgreSQLMCP')
 
@@ -39,6 +40,9 @@ type Sink = { url: string; hits: { n: number }; close: () => Promise<void> }
 
 const root = path.resolve(__dirname, '../../../../../../')
 const saved: Record<string, string | undefined> = {}
+
+// The same file the server route test reads (packages/server/src/controllers/pinned-queries/index.test.ts).
+const GUARD_PARITY = JSON.parse(fs.readFileSync(path.join(root, 'scripts/fixtures/pinned/guard-parity.json'), 'utf8'))
 
 let pq: PinnedModule
 let withAnalystScope: (scope: string, fn: () => Promise<string>, options: { timings: Record<string, unknown>[] }) => Promise<string>
@@ -155,6 +159,71 @@ async function initAt(url: string, inputs: Record<string, unknown>, credential =
 }
 
 describe('PostgreSQL MCP pinned queries', () => {
+    it('ZZ-TEST-reads the guard settings exactly as the pinned query test route does', async () => {
+        const sink = await listenSink()
+        const urlTools = jest.spyOn(PostgreSQLMCP.prototype, 'urlTools').mockResolvedValue([])
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        try {
+            process.env.CUTTLELY_PINNED_QUERIES = 'true'
+            const { inputs, expected } = GUARD_PARITY
+            const pin = {
+                id: 'ZZ-TEST-parity',
+                name: 'pq_parity',
+                version: 1,
+                sql: 'SELECT region FROM public.demo_sales LIMIT 5',
+                params: []
+            }
+            // Stamped with what the route stamps for these inputs, so the node accepts it only if it reads them the same.
+            const matching = await stamped(pin, { relations: expected.relations, functions: expected.stampFunctions })
+            const notes = await stamped(
+                { ...pin, id: 'ZZ-TEST-parity-b', name: 'pq_parity_b' },
+                { relations: expected.relations, functions: ['public.zz_test_lower(text)'] }
+            )
+            const tools = await initAt(sink.url, {
+                ...inputs,
+                mcpActions: ['query'],
+                pinnedQueries: JSON.stringify([matching.entry, notes.entry])
+            })
+            expect(namesOf(tools)).toEqual(['pq_parity'])
+            expect(urlTools).toHaveBeenCalledTimes(1)
+            expect(urlTools.mock.calls[0].slice(1)).toEqual([expected.requested, expected.relations, expected.allowedFunctions])
+            expect(sink.hits.n).toBe(0)
+        } finally {
+            urlTools.mockRestore()
+            warn.mockRestore()
+            await sink.close()
+        }
+    })
+
+    it('ZZ-TEST-refuses a credential id from another workspace before connecting', async () => {
+        const sink = await listenSink()
+        try {
+            process.env.CUTTLELY_PINNED_QUERIES = 'true'
+            process.env.CUTTLELY_POSTGRES_URL = sink.url
+            const count = jest.fn().mockResolvedValue(0)
+            const appDataSource = {
+                getRepository: (entity: { kind?: string }) =>
+                    entity?.kind === 'share'
+                        ? { count }
+                        : { findOneBy: async () => ({ id: 'ZZ-TEST-cred-team-b', workspaceId: 'ZZ-TEST-ws-b', encryptedData: '' }) },
+                entityMetadatas: [{ name: 'WorkspaceShared', target: { kind: 'share' } }]
+            }
+            await expect(
+                node().init(data({ mcpActions: ['query'] }, 'ZZ-TEST-cred-team-b'), '', {
+                    workspaceId: WORKSPACE,
+                    appDataSource,
+                    databaseEntities: { Credential: { kind: 'credential' } }
+                })
+            ).rejects.toThrow('Credential ZZ-TEST-cred-team-b not found')
+            expect(count).toHaveBeenCalledWith({
+                where: { workspaceId: WORKSPACE, sharedItemId: 'ZZ-TEST-cred-team-b', itemType: 'credential' }
+            })
+            expect(sink.hits.n).toBe(0)
+        } finally {
+            await sink.close()
+        }
+    })
+
     it('stamp verified without a DB round trip', async () => {
         const sink = await listenSink()
         try {
@@ -438,6 +507,82 @@ describe('PostgreSQL MCP pinned queries', () => {
     })
 })
 
+// The pinned query test route (defaultLoadCredentialUrl in packages/server/src/services/pinned-queries/index.ts) and
+// this node load a credential through getCredentialData with the flow's workspace. These run the real loader with the
+// options the route builds; only the database is a stand-in. A credential id from another workspace is refused before
+// anything is decrypted.
+const FLOW_WORKSPACE = WORKSPACE
+const OTHER_WORKSPACE = 'ZZ-TEST-ws-b'
+
+function storeWith(row: { id: string; workspaceId: string } | null, shares = 0) {
+    const reads = { encryptedData: 0 }
+    const credential = row
+        ? Object.defineProperty({ ...row }, 'encryptedData', {
+              enumerable: true,
+              get() {
+                  reads.encryptedData += 1
+                  return 'ZZ-TEST-not-decryptable'
+              }
+          })
+        : null
+    const findOneBy = jest.fn().mockResolvedValue(credential)
+    const count = jest.fn().mockResolvedValue(shares)
+    const appDataSource = {
+        getRepository: jest.fn((entity: { kind?: string }) => (entity?.kind === 'share' ? { count } : { findOneBy })),
+        entityMetadatas: [{ name: 'WorkspaceShared', target: { kind: 'share' } }]
+    }
+    return { appDataSource, databaseEntities: { Credential: { kind: 'credential' } }, findOneBy, count, reads }
+}
+
+describe('ZZ-TEST-pinned query credential scope (the real getCredentialData)', () => {
+    it('ZZ-TEST-refuses a canvas credential id that belongs to another workspace', async () => {
+        const store = storeWith({ id: 'ZZ-TEST-cred-team-b', workspaceId: OTHER_WORKSPACE })
+        await expect(
+            getCredentialData('ZZ-TEST-cred-team-b', {
+                appDataSource: store.appDataSource,
+                databaseEntities: store.databaseEntities,
+                workspaceId: FLOW_WORKSPACE
+            })
+        ).rejects.toThrow('Credential ZZ-TEST-cred-team-b not found')
+        expect(store.findOneBy).toHaveBeenCalledWith({ id: 'ZZ-TEST-cred-team-b' })
+        // The share check asks about the flow's workspace, and nothing is decrypted.
+        expect(store.count).toHaveBeenCalledWith({
+            where: { workspaceId: FLOW_WORKSPACE, sharedItemId: 'ZZ-TEST-cred-team-b', itemType: 'credential' }
+        })
+        expect(store.reads.encryptedData).toBe(0)
+    })
+
+    it('ZZ-TEST-refuses an unknown credential id', async () => {
+        const store = storeWith(null)
+        await expect(
+            getCredentialData('ZZ-TEST-cred-missing', {
+                appDataSource: store.appDataSource,
+                databaseEntities: store.databaseEntities,
+                workspaceId: FLOW_WORKSPACE
+            })
+        ).rejects.toThrow('Credential ZZ-TEST-cred-missing not found')
+    })
+
+    it('ZZ-TEST-passes the scope check for its own workspace and for a share into it', async () => {
+        for (const store of [
+            storeWith({ id: 'ZZ-TEST-cred-team-a', workspaceId: FLOW_WORKSPACE }),
+            storeWith({ id: 'ZZ-TEST-cred-team-a', workspaceId: OTHER_WORKSPACE }, 1)
+        ]) {
+            // The stand-in row cannot be decrypted. Reaching the decrypt step shows the workspace check let it through.
+            const outcome = await getCredentialData('ZZ-TEST-cred-team-a', {
+                appDataSource: store.appDataSource,
+                databaseEntities: store.databaseEntities,
+                workspaceId: FLOW_WORKSPACE
+            }).then(
+                () => '',
+                (error: Error) => error.message
+            )
+            expect(outcome).not.toContain('not found')
+            expect(store.reads.encryptedData).toBe(1)
+        }
+    })
+})
+
 // The fixture database comes from CUTTLELY_TEST_PG_URL (an admin login that may create a database).
 // Without it these tests are skipped, unless CUTTLELY_TEST_PG_REQUIRED=1 says the database must be there.
 const fixtureAdminUrl = process.env.CUTTLELY_TEST_PG_URL || ''
@@ -461,6 +606,7 @@ describeFixture('PostgreSQL MCP pinned queries against a fixture database', () =
         await db.connect()
         await db.query('CREATE TABLE public.demo_sales (region text NOT NULL, revenue integer NOT NULL)')
         await db.query("INSERT INTO public.demo_sales (region, revenue) VALUES ('east', 12), ('north', 7), ('west', 3)")
+        await db.query('CREATE TABLE public.demo_regions (region text NOT NULL)')
         await db.end()
     })
 
@@ -582,5 +728,30 @@ describeFixture('PostgreSQL MCP pinned queries against a fixture database', () =
         expect(pinTimings[0].roundTrips).toBe(freeTimings[0].roundTrips)
         expect(typeof pinTimings[0].guardMs).toBe('number')
         expect(typeof freeTimings[0].guardMs).toBe('number')
+    })
+
+    it('ZZ-TEST-a decimal row cap and a pin row cap give the rows the test route reports', async () => {
+        process.env.CUTTLELY_PINNED_QUERIES = 'true'
+        const { inputs, expected, pin: capped } = GUARD_PARITY
+        const base = { version: 1, sql: SALES_SQL, params: [] }
+        const nodeCap = await stamped(
+            { ...base, id: 'ZZ-TEST-node-cap', name: 'pq_node_cap' },
+            { relations: expected.relations, functions: expected.stampFunctions }
+        )
+        const pinCap = await stamped(
+            { ...base, id: 'ZZ-TEST-pin-cap', name: 'pq_pin_cap', rowCap: capped.rowCap },
+            { relations: expected.relations, functions: expected.stampFunctions }
+        )
+        const tools = await initAt(url, {
+            ...inputs,
+            mcpActions: [],
+            pinnedQueries: JSON.stringify([nodeCap.entry, pinCap.entry])
+        })
+        expect(namesOf(tools)).toEqual(['pq_node_cap', 'pq_pin_cap'])
+        const run = async (index: number) =>
+            JSON.parse(await withAnalystScope('ZZ-TEST-harness:ZZ-TEST-cap', () => tools[index].invoke({}), { timings: [] }))
+        // analystRowCap "2.5" is two rows here and in the route; the pin's own cap of 1 lowers it to one.
+        expect((await run(0)).rows).toEqual(CANONICAL_ROWS.slice(0, expected.limits.rowCap))
+        expect((await run(1)).rows).toEqual(CANONICAL_ROWS.slice(0, capped.limits.rowCap))
     })
 })
