@@ -8,6 +8,8 @@ A secret setting and every host-only key are named here and marked **not shown**
 
 The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Accepted values are exactly `true` and `false`. How a host value wins, and the error codes, are in the [Server settings API](./server-settings-api.md#publish-check-switch).
 
+Pinned queries are `CUTTLELY_PINNED_QUERIES`. They are on only when the value is exactly `1` or `true`. Any other value, including `false`, `yes`, `on`, `TRUE`, and an empty value, leaves them off. Off removes the pinned query tools at the next start.
+
 The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters each `content.input` and `content.output` span attribute keeps. The default is `4000`. Accepted values are a positive whole number, or `0` for no limit. No limit sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. [Run traces](../how-to/observability.md#full-question-and-answer-text).
 
 | Key                                          | Default                                     | Range             | Unit          | Where it can be set            | Restart |
@@ -51,6 +53,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `CUTTLELY_ANALYST_ROW_CAP`                   | 100                                         | 1 to 1000         | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`      | 15000                                       | 1 to 120          | ms-as-seconds | Host, then Server settings     | Yes     |
 | `CUTTLELY_ANALYST_TRACE_PREVIEW`             | true                                        | —                 | —             | Host, then Server settings     | Yes     |
+| `CUTTLELY_PINNED_QUERIES`                    | Off                                         | —                 | —             | Host, then Server settings     | Yes     |
 | `MODEL_LIST_CONFIG_JSON`                     | Daily from Cuttlely                         | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_MODELS_DEV`                        | 0                                           | —                 | —             | Host, then Server settings     | Yes     |
 | `STORAGE_TYPE`                               | local                                       | —                 | —             | Host, then Server settings     | Yes     |

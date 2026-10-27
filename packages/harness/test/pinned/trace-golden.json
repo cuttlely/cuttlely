@@ -1,0 +1,260 @@
+[
+    {
+        "env": {
+            "CUTTLELY_ANALYST_TRACE_PREVIEW": "false"
+        },
+        "input": {
+            "name": "ZZ-TEST-data",
+            "calls": [],
+            "tools": [
+                {
+                    "specialist": "ZZ-TEST-data",
+                    "name": "mcp__data__query",
+                    "status": "done",
+                    "detail": "{\"rows\":[{\"value\":\"ZZ-TEST-value\"}],\"columns\":[\"value\"],\"summary\":\"ZZ-TEST-result\"}",
+                    "timings": {
+                        "totalMs": 7,
+                        "dbMs": 3
+                    }
+                },
+                {
+                    "specialist": "ZZ-TEST-data",
+                    "name": "mcp__data__query",
+                    "status": "failed",
+                    "detail": "ZZ-TEST-error"
+                },
+                {
+                    "specialist": "ZZ-TEST-data",
+                    "name": "ZZ-TEST-other",
+                    "status": "done",
+                    "detail": "ZZ-TEST-output"
+                }
+            ]
+        },
+        "expected": {
+            "model": "",
+            "fallback": "",
+            "tokens": null,
+            "tools": [
+                {
+                    "name": "mcp__data__query",
+                    "status": "done",
+                    "timings": {
+                        "dbMs": 3,
+                        "totalMs": 7
+                    },
+                    "detail": "{\"rows\":[{\"value\":\"ZZ-TEST-value\"}],\"columns\":[\"value\"],\"summary\":\"ZZ-TEST-result\"}"
+                },
+                {
+                    "name": "mcp__data__query",
+                    "status": "failed",
+                    "detail": "ZZ-TEST-error"
+                },
+                {
+                    "name": "ZZ-TEST-other",
+                    "status": "done",
+                    "detail": "ZZ-TEST-output"
+                }
+            ]
+        },
+        "expectedRun": {
+            "harness": "ZZ-TEST-trace",
+            "status": "completed",
+            "direct": false,
+            "wallMs": null,
+            "error": "",
+            "timings": {
+                "routeMs": 0,
+                "specialistsMs": 0,
+                "handoffMs": 0,
+                "profileMs": 0,
+                "profileSkipped": false
+            },
+            "tokens": {
+                "prompt": null,
+                "completion": null,
+                "cached": null
+            },
+            "truncated": [],
+            "route": {
+                "status": "done",
+                "ms": 0,
+                "model": "",
+                "fallback": "",
+                "tokens": null,
+                "steps": []
+            },
+            "specialists": [
+                {
+                    "name": "ZZ-TEST-data",
+                    "task": "",
+                    "status": "completed",
+                    "model": "",
+                    "fallback": "",
+                    "ms": null,
+                    "tokens": null,
+                    "tools": [
+                        {
+                            "name": "mcp__data__query",
+                            "status": "done",
+                            "timings": {
+                                "dbMs": 3,
+                                "totalMs": 7
+                            },
+                            "detail": "{\"rows\":[{\"value\":\"ZZ-TEST-value\"}],\"columns\":[\"value\"],\"summary\":\"ZZ-TEST-result\"}"
+                        },
+                        {
+                            "name": "mcp__data__query",
+                            "status": "failed",
+                            "detail": "ZZ-TEST-error"
+                        },
+                        {
+                            "name": "ZZ-TEST-other",
+                            "status": "done",
+                            "detail": "ZZ-TEST-output"
+                        }
+                    ],
+                    "sources": [],
+                    "error": ""
+                }
+            ],
+            "handoff": {
+                "status": "done",
+                "ms": 0,
+                "model": "",
+                "fallback": "",
+                "tokens": null
+            },
+            "question": "ZZ-TEST-question"
+        }
+    },
+    {
+        "env": {
+            "CUTTLELY_ANALYST_TRACE_PREVIEW": "true"
+        },
+        "input": {
+            "name": "ZZ-TEST-data",
+            "calls": [],
+            "tools": [
+                {
+                    "specialist": "ZZ-TEST-data",
+                    "name": "mcp__data__query",
+                    "status": "done",
+                    "detail": "{\"rows\":[{\"value\":\"ZZ-TEST-value\"}],\"columns\":[\"value\"],\"summary\":\"ZZ-TEST-result\"}",
+                    "timings": {
+                        "totalMs": 7,
+                        "dbMs": 3
+                    }
+                },
+                {
+                    "specialist": "ZZ-TEST-data",
+                    "name": "mcp__data__query",
+                    "status": "failed",
+                    "detail": "ZZ-TEST-error"
+                },
+                {
+                    "specialist": "ZZ-TEST-data",
+                    "name": "ZZ-TEST-other",
+                    "status": "done",
+                    "detail": "ZZ-TEST-output"
+                }
+            ]
+        },
+        "expected": {
+            "model": "",
+            "fallback": "",
+            "tokens": null,
+            "tools": [
+                {
+                    "name": "mcp__data__query",
+                    "status": "done",
+                    "timings": {
+                        "dbMs": 3,
+                        "totalMs": 7
+                    },
+                    "detail": "{\"rows\":[{\"value\":\"ZZ-TEST-value\"}],\"columns\":[\"value\"],\"summary\":\"ZZ-TEST-result\"}"
+                },
+                {
+                    "name": "mcp__data__query",
+                    "status": "failed",
+                    "detail": "ZZ-TEST-error"
+                },
+                {
+                    "name": "ZZ-TEST-other",
+                    "status": "done",
+                    "detail": "ZZ-TEST-output"
+                }
+            ]
+        },
+        "expectedRun": {
+            "harness": "ZZ-TEST-trace",
+            "status": "completed",
+            "direct": false,
+            "wallMs": null,
+            "error": "",
+            "timings": {
+                "routeMs": 0,
+                "specialistsMs": 0,
+                "handoffMs": 0,
+                "profileMs": 0,
+                "profileSkipped": false
+            },
+            "tokens": {
+                "prompt": null,
+                "completion": null,
+                "cached": null
+            },
+            "truncated": [],
+            "route": {
+                "status": "done",
+                "ms": 0,
+                "model": "",
+                "fallback": "",
+                "tokens": null,
+                "steps": []
+            },
+            "specialists": [
+                {
+                    "name": "ZZ-TEST-data",
+                    "task": "",
+                    "status": "completed",
+                    "model": "",
+                    "fallback": "",
+                    "ms": null,
+                    "tokens": null,
+                    "tools": [
+                        {
+                            "name": "mcp__data__query",
+                            "status": "done",
+                            "timings": {
+                                "dbMs": 3,
+                                "totalMs": 7
+                            },
+                            "detail": "{\"rows\":[{\"value\":\"ZZ-TEST-value\"}],\"columns\":[\"value\"],\"summary\":\"ZZ-TEST-result\"}"
+                        },
+                        {
+                            "name": "mcp__data__query",
+                            "status": "failed",
+                            "detail": "ZZ-TEST-error"
+                        },
+                        {
+                            "name": "ZZ-TEST-other",
+                            "status": "done",
+                            "detail": "ZZ-TEST-output"
+                        }
+                    ],
+                    "sources": [],
+                    "error": ""
+                }
+            ],
+            "handoff": {
+                "status": "done",
+                "ms": 0,
+                "model": "",
+                "fallback": "",
+                "tokens": null
+            },
+            "question": "ZZ-TEST-question"
+        }
+    }
+]

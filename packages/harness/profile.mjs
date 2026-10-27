@@ -15,6 +15,7 @@ import { ANALYST_RULES_MAX_CHARS, ROUTING_SUMMARY_CHARS, joinedAnalystRules, rou
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
 import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
 import { parseRelationSelection } from './runtime/analyst-relations.mjs'
+import { PINNED_QUERY_GUIDANCE, pinnedQueriesEnabled, specialistHasStampedPin } from './pinned-names.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -1484,6 +1485,10 @@ export const SPECIALIST_REPAIR_ONCE =
     'Run every step in this task before you answer. One SQL statement per tool call. Do not stop to ask whether to continue. If a statement fails with an SQL error, such as an unknown column or a syntax error, read the error, fix that statement and run it once more. If the fixed statement fails too, or the tool refused the statement, stop and return that error.'
 export const ANALYST_TOOL_REQUIRED =
     'Every SQL statement or database question goes through the query tool, including a statement you expect to be refused or to fail. Never predict, simulate, or paraphrase a database result or error. If the tool refuses or errors, quote that text exactly.'
+export const ANALYST_TOOL_REQUIRED_WITH_PINS =
+    'Every SQL statement or database question goes through the query tool or a pinned query tool, including a statement you expect to be refused or to fail. Never predict, simulate, or paraphrase a database result or error. If the tool refuses or errors, quote that text exactly.'
+export const SPECIALIST_REPAIR_WITH_PINS =
+    'Run every step in this task before you answer. One SQL statement per tool call. Do not stop to ask whether to continue. If a statement fails with an SQL error, such as an unknown column or a syntax error, read the error, fix that statement and run it once more. If the fixed statement fails too, or the tool refused the statement, stop and return that error. Do not rewrite a pinned query tool call as your own SQL. If a pinned query tool fails, stop and return that error.'
 // Text comparison is case-sensitive, so a filter on 'east' finds nothing in a column of 'East' and looks like a real zero.
 export const ANALYST_EMPTY_FILTER =
     'If a query that filters on a text value returns no rows, check the distinct values of that column or retry with ILIKE before you report zero or none.'
@@ -1548,6 +1553,11 @@ export function specialistSoul(specialist, env = process.env) {
     if (specialist.codeExecution) lines.push('Run Python with execute_code. Report the script and its exact output.')
     if (specialist.fileAccess) lines.push('Write files with write_file under your working directory. Report each path you wrote.')
     if (specialist.shell) lines.push('Use the terminal for commands. Report the command and its output.')
+    const pinnedTools =
+        hasAnalystTool(specialist) &&
+        analystConnection(specialist, env).readOnly &&
+        pinnedQueriesEnabled(env) &&
+        specialistHasStampedPin(specialist)
     if (hasAnalystTool(specialist)) {
         const connection = analystConnection(specialist, env)
         const dialect = connection.dialect
@@ -1558,12 +1568,13 @@ export function specialistSoul(specialist, env = process.env) {
         if (connection.readOnly) {
             lines.push('This connection is read-only PostgreSQL. It cannot create or change tables.')
         }
-        lines.push(connection.readOnly ? SPECIALIST_REPAIR_ONCE : SPECIALIST_RUN_ALL_STEPS)
-        lines.push(ANALYST_TOOL_REQUIRED)
+        lines.push(connection.readOnly ? (pinnedTools ? SPECIALIST_REPAIR_WITH_PINS : SPECIALIST_REPAIR_ONCE) : SPECIALIST_RUN_ALL_STEPS)
+        lines.push(pinnedTools ? ANALYST_TOOL_REQUIRED_WITH_PINS : ANALYST_TOOL_REQUIRED)
         lines.push(dialect === 'SQLite' ? ANALYST_EMPTY_FILTER_SQLITE : ANALYST_EMPTY_FILTER)
         lines.push(ANALYST_RESULT_SHAPE)
         lines.push(...analystRulesSection(specialist))
     }
+    if (pinnedTools) lines.push(PINNED_QUERY_GUIDANCE)
     if ((specialist.playbooks || []).length) lines.push(SPECIALIST_PLAYBOOKS, ...playbookLines(specialist.playbooks))
     lines.push(SPECIALIST_NO_INVENTION)
     lines.push('Return the result itself, not a plan.')
