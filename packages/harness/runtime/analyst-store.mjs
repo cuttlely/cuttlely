@@ -1,4 +1,4 @@
-import { compilePinned, suggestParamTypes } from './pinned-query.mjs'
+import { assertCheckRunPair, compilePinned, pinnedQueriesEnabled, pinnedStatementLimit, suggestParamTypes } from './pinned-query.mjs'
 // Isolated storage for CUTTLELY_ANALYST=auto.
 // Postgres: schema "analyst" and login analyst_reader in the application database.
 // SQLite: analyst.db beside database.sqlite. The application file is never opened.
@@ -79,6 +79,7 @@ export { rowPageSummary, analystPageRequest, analystPageTask } from './analyst-p
 
 const analystCall = new AsyncLocalStorage()
 const pageCursors = new Map()
+const trustedCursorReplays = new WeakSet()
 const SQLITE_WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'analyst-sqlite-worker.mjs')
 
 function positiveInt(value) {
@@ -1344,6 +1345,12 @@ function finishPage(rawRows, paging, plan) {
         walked
     })
     const shaped = { rows: shown, truncated: described.truncated }
+    if (plan.pinned) {
+        shaped.pinned = structuredClone(plan.pinned)
+        const limit = pinnedStatementLimit(plan.statement)
+        const total = paging.total ?? (rawRows.length <= pageSize ? startOffset + rawRows.length : null)
+        shaped.possiblyTruncated = limit !== null && total === limit
+    }
     if (described.summary) shaped.summary = described.summary
     if (!described.multi) return shaped
     const last = capped[shown.length - 1]
@@ -1971,7 +1978,44 @@ async function withUrlClient(postgresUrl, fn, { timeoutMs, env = process.env, re
 // Every query runs in BEGIN READ ONLY. With a table selection, the scope check first creates its temporary view in
 // its own short transaction on the same connection, which always rolls back. The query transaction then starts
 // read only and confirms transaction_read_only is on just before the query runs.
+function compileStoreOptions(options, env, replaying = false) {
+    requirePinnedReadOnly(options)
+    if (Object.hasOwn(options, 'binds') || Object.hasOwn(options, 'checkText'))
+        throw new AnalystToolError('Caller-supplied binds and checkText are refused; use pinned.entry.', 'expected')
+    if ((options.pinned != null || options.suggestTypesSql != null) && !pinnedQueriesEnabled(env))
+        throw new AnalystToolError('Pinned queries are turned off on this server.', 'expected')
+    if (options.pinned == null) return { options }
+    if (!options.pinned.entry) throw new AnalystToolError('Pinned calls require pinned.entry.', 'expected')
+    const { entry, args, tool } = options.pinned
+    const compiled = compilePinned(entry, replaying ? undefined : args ?? {})
+    assertCheckRunPair(compiled.runText, compiled.checkText, compiled.spans)
+    return {
+        statement: compiled.runText,
+        options: {
+            ...options,
+            binds: compiled.binds ?? [],
+            checkText: compiled.checkText,
+            pinned: { id: entry.id, version: entry.version, statementHash: compiled.statementHash, tool }
+        }
+    }
+}
+
 export async function queryUrlPostgres(
+    postgresUrl,
+    statement,
+    replay,
+    timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS,
+    env = process.env,
+    relations = [],
+    options = {}
+) {
+    const compiled = compileStoreOptions(options, env, Boolean(replay?.plan))
+    if (replay?.plan && !trustedCursorReplays.has(replay))
+        throw new AnalystToolError('Only server-held cursor replay is allowed.', 'expected')
+    return runUrlPostgres(postgresUrl, compiled.statement ?? statement, replay, timeoutMs, env, relations, compiled.options)
+}
+
+async function runUrlPostgres(
     postgresUrl,
     statement,
     replay,
@@ -2216,19 +2260,9 @@ function requirePinnedReadOnly(options) {
 }
 
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
-    requirePinnedReadOnly(options)
-    if (options.pinned?.entry) {
-        const { entry, args, tool } = options.pinned
-        const replaying = sqlOrInput && typeof sqlOrInput === 'object' && sqlOrInput.cursor
-        const compiled = compilePinned(entry, replaying ? undefined : args ?? {})
-        options = {
-            ...options,
-            binds: compiled.binds,
-            checkText: compiled.checkText,
-            pinned: { id: entry.id, version: entry.version, statementHash: compiled.statementHash, tool }
-        }
-        if (!(sqlOrInput && typeof sqlOrInput === 'object' && sqlOrInput.cursor)) sqlOrInput = compiled.runText
-    }
+    const compiled = compileStoreOptions(options, options.env || process.env, Boolean(sqlOrInput?.cursor))
+    options = compiled.options
+    if (compiled.statement && !sqlOrInput?.cursor) sqlOrInput = compiled.statement
     const input = sqlOrInput && typeof sqlOrInput === 'object' && !Array.isArray(sqlOrInput) ? sqlOrInput : { sql: sqlOrInput }
     const env = options.env || process.env
     const relations = parseRelationSelection(options.relations)
@@ -2245,7 +2279,7 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
         const replay = replayCursor(cursor, input, pagingBase)
         // A cursor made without the node's text check is checked now, before a node page connects.
         if (options.readOnlySql) checkReadOnlySql(replay.plan.statement)
-        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations, {
+        return runUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, env, relations, {
             readOnlySql: Boolean(options.readOnlySql),
             allowedFunctions: options.allowedFunctions,
             ...(replay.plan.binds ? { binds: replay.plan.binds } : {}),
@@ -2258,7 +2292,7 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     // The PostgreSQL MCP node asks for the stricter text check, which runs before any connection.
     if (options.readOnlySql) checkReadOnlySql(sql)
     const statement = oneSqlStatement(sql)
-    return queryUrlPostgres(
+    return runUrlPostgres(
         postgresUrl,
         statement,
         {
@@ -2543,7 +2577,7 @@ function replayCursor(token, input, pagingBase) {
         offset = requested == null || page === state.page + 1 ? nextOffset : (page - 1) * pageSize
     }
     if (Number.isFinite(state.total) && offset >= state.total) throw cursorError(ANALYST_CURSOR_ERRORS.past)
-    return {
+    const replay = {
         plan: {
             mode: state.mode,
             statement: state.statement,
@@ -2570,6 +2604,8 @@ function replayCursor(token, input, pagingBase) {
             statement: state.statement
         }
     }
+    trustedCursorReplays.add(replay)
+    return replay
 }
 
 const ANALYST_SQL_KEYS = ['sql', 'statement', 'query']
