@@ -51,3 +51,9 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 | Verify report              | `.verify/verify-report.json`, `.verify/verify-summary.md`              |
 | App data from a source run | `.cuttlely/` (records, queue, runtime home, ETL data, version history) |
 | Nodes manifest             | `packages/components/dist/nodes-manifest.json`                         |
+
+Analyst SQL trace capture: `packages/harness/analyst-capture.mjs` exports `sqlTraceFields` (full SHA-256 over the statement fingerprint normalisation) and retains original statement metadata for cursor pages. `packages/harness/trace.mjs` shapes the browser-safe public fields. SQL previews follow `CUTTLELY_ANALYST_TRACE_PREVIEW`, existing redaction and a 4096-byte UTF-8 cap; hashes remain with previews off. The agent runtime's tool-start events join with gateway metadata before streaming. Targeted regression coverage is in `packages/harness/test/pinned/trace-sql.test.mjs` and `trace-gateway.test.mjs`; `trace-golden.json` records the base trace shape with previews off and on. Run the directory with `node --test packages/harness/test/pinned/` on Node 24. No database is needed for these tests.
+
+-   PR1 SQL trace review: saved traces budget SQL previews against the shared history limit, cutting or omitting the last previews first while keeping every SQL hash and timing. The pinned SQL regression covers many long previews, JSON escaping and multibyte text.
+
+PR #324 review corrections reserve the trace question before fitting SQL previews, pair gateway starts by call id, and emit raw MCP starts immediately. The pinned harness tests include main-behavior golden data for tool definitions, instructions, executed SQL, start events and saved traces. The accepted contract permits only the added `sqlHash`, `sql` and `sqlTruncated` fields on free-SQL traces.

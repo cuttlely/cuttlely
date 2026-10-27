@@ -18,7 +18,7 @@ const SPECIALIST_PARTS = {
     sources: (name) => `Source snippets from ${name} were shortened before Harness Prime read them.`
 }
 
-// history.mjs drops a trace whose JSON is longer than this. The question is the part that shrinks.
+// Shared with history.mjs: SQL previews and the question shrink to fit this limit.
 export const TRACE_JSON_LIMIT = 20000
 
 // The same replacements previewText uses, with no length cut. A secret past the
@@ -31,6 +31,17 @@ export function redactSecrets(value) {
         .replace(/\bpostgres(?:ql)?:\/\/\S+/gi, '[redacted]')
 }
 
+// Browser-safe: trace.mjs is also used by the trace panel.
+export function sqlPreviewFields(sql) {
+    const bytes = new TextEncoder().encode(redactSecrets(sql))
+    let end = Math.min(bytes.length, 4096)
+    if (end < bytes.length) while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1
+    return {
+        sql: new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes.subarray(0, end)),
+        ...(end < bytes.length ? { sqlTruncated: true } : {})
+    }
+}
+
 function redactTraceQuestion(value) {
     return redactSecrets(
         String(value ?? '')
@@ -41,6 +52,39 @@ function redactTraceQuestion(value) {
 
 function traceJsonFits(trace) {
     return JSON.stringify(trace).length <= TRACE_JSON_LIMIT
+}
+
+// Budget the serialized JSON, including escaping and truncation flags. Work
+// latest-first; hashes, timings and the caller's tool objects stay untouched.
+function fitTraceSqlPreviews(trace) {
+    if (traceJsonFits(trace)) return trace
+    trace.specialists = trace.specialists.map((item) => ({ ...item, tools: item.tools.map((tool) => ({ ...tool })) }))
+    const tools = trace.specialists.flatMap((item) => item.tools)
+    for (let index = tools.length - 1; index >= 0; index -= 1) {
+        const tool = tools[index]
+        if (typeof tool.sql !== 'string') continue
+        const sql = tool.sql
+        tool.sqlTruncated = true
+        delete tool.sql
+        if (!traceJsonFits(trace)) continue
+        // Find the longest prefix that fits, without splitting a code point.
+        const characters = Array.from(sql)
+        let lo = 1
+        let hi = characters.length
+        let best = 0
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1
+            tool.sql = characters.slice(0, mid).join('')
+            if (traceJsonFits(trace)) {
+                best = mid
+                lo = mid + 1
+            } else hi = mid - 1
+        }
+        if (best) tool.sql = characters.slice(0, best).join('')
+        else delete tool.sql
+        break
+    }
+    return trace
 }
 
 // A question that does not fit is cut, and marked so the caption does not treat
@@ -421,7 +465,16 @@ export function queryStepTimings(value) {
 
 export function publicToolStep(tool, env) {
     const timings = isAnalystQueryChip(tool?.name) ? queryStepTimings(tool?.timings) : null
-    const base = { name: tool?.name, status: tool?.status, ...(timings ? { timings } : {}) }
+    const sqlFields =
+        isAnalystQueryChip(tool?.name) && tool?.sqlHash
+            ? {
+                  sqlHash: tool.sqlHash,
+                  ...(analystTracePreviewsEnabled(env) && tool.sql !== undefined
+                      ? { ...sqlPreviewFields(tool.sql), ...(tool.sqlTruncated ? { sqlTruncated: true } : {}) }
+                      : {})
+              }
+            : {}
+    const base = { name: tool?.name, status: tool?.status, ...(timings ? { timings } : {}), ...sqlFields }
     if (!tool?.detail || !isAnalystQueryChip(tool.name)) {
         return tool?.detail ? { ...base, detail: String(tool.detail) } : base
     }
@@ -483,6 +536,7 @@ export function snapshotSpecialist({ calls, tools, name, configuredModel, failed
             .map((tool) =>
                 publicToolStep(
                     {
+                        ...tool,
                         name: tool.name,
                         status: tool.status === 'running' && failed ? 'failed' : tool.status,
                         ...(tool.detail ? { detail: tool.detail } : {}),
@@ -577,7 +631,19 @@ function noteTool(specialists, event) {
     const specialist = next.find((item) => item.name === name)
     const tools = [...specialist.tools]
     if (event.phase === 'start') {
-        tools.push({ name: event.name || 'tool', status: 'running' })
+        tools.push({
+            name: event.name || 'tool',
+            status: 'running',
+            ...(event.sqlHash
+                ? publicToolStep({
+                      name: event.name,
+                      status: 'running',
+                      sqlHash: event.sqlHash,
+                      ...(event.sql !== undefined ? { sql: event.sql } : {}),
+                      ...(event.sqlTruncated ? { sqlTruncated: true } : {})
+                  })
+                : {})
+        })
     } else {
         const open = [...tools].reverse().find((tool) => tool.name === event.name && tool.status === 'running')
         const status = event.error ? 'failed' : 'done'
@@ -825,7 +891,9 @@ export function buildRunTrace({
                   },
         ...(direct && directDetail ? { directDetail } : {})
     }
-    return fitTraceQuestion(body, question)
+    const reserved = fitTraceSqlPreviews({ ...body, question: redactTraceQuestion(question) })
+    delete reserved.question
+    return fitTraceQuestion(reserved, question)
 }
 
 export function traceFromPayload(payload) {
