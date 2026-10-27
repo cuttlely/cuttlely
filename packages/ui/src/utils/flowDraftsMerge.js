@@ -192,6 +192,21 @@ function markMoves(entry) {
     const { base: b, mine: m, theirs: t } = entry
     entry.mineMoved = Boolean(b && m && !samePosition(m, b))
     entry.theirMoved = Boolean(b && t && !samePosition(t, b))
+    // A card one side only moved and the other side removed: keeping the move means keeping the card.
+    const movedRemoved = (entry.mineMoved && !t && !entry.mineChange) || (entry.theirMoved && !m && !entry.theirChange)
+    if (movedRemoved && !entry.conflict) {
+        delete entry.take
+        delete entry.changes
+        entry.conflict = true
+        entry.fields = [
+            {
+                field: POSITION_FIELD,
+                label: 'Position',
+                mine: m ? positionText(m) : REMOVED_CELL,
+                theirs: t ? positionText(t) : REMOVED_CELL
+            }
+        ]
+    }
     if (entry.mineMoved && entry.theirMoved && !samePosition(m, t)) {
         entry.moveConflict = true
         if (!entry.conflict) {
@@ -386,12 +401,15 @@ export function applyDraftMerge(plan, choices = {}) {
         if (entry.kind !== 'node' || !(entry.mineChange || entry.theirChange)) continue
         owner.set(entry.id, entry.take ?? pick(entry))
     }
+    const nodeEntries = new Map(plan.items.filter((item) => item.kind === 'node').map((item) => [item.id, item]))
     const ends = new Set()
     let edges = []
     for (const entry of plan.items.filter((item) => item.kind === 'edge')) {
         const any = entry.mine || entry.theirs || entry.base
         const side = edgeField(any) ? owner.get(any.target) : undefined
-        const edge = side ? (side === 'theirs' ? entry.theirs : entry.mine) || null : resolvedItem(entry, pick(entry))
+        const edge =
+            (side ? (side === 'theirs' ? entry.theirs : entry.mine) || null : resolvedItem(entry, pick(entry))) ||
+            restoredEdge(entry, nodeEntries, present)
         if (!edge || !present.has(edge.source) || !present.has(edge.target)) continue
         const key = edgeEnds(edge)
         if (ends.has(key)) continue
@@ -422,6 +440,26 @@ export function applyDraftMerge(plan, choices = {}) {
     out.nodes = connectKeptEdges(cleaned.nodes, cleaned.edges)
     out.edges = cleaned.edges
     return JSON.stringify(out)
+}
+
+// A connection one side removed only by removing a card at one of its ends, when the pick keeps that card:
+// the other side's connection comes back with it.
+function restoredEdge(entry, nodeEntries, present) {
+    for (const [side, other] of [
+        ['theirs', 'mine'],
+        ['mine', 'theirs']
+    ]) {
+        const change = side === 'theirs' ? entry.theirChange : entry.mineChange
+        const otherChange = side === 'theirs' ? entry.mineChange : entry.theirChange
+        const kept = entry[other]
+        if (change !== 'removed' || otherChange || !kept) continue
+        const restored = [kept.source, kept.target].some((id) => {
+            const card = nodeEntries.get(id)
+            return card && (side === 'theirs' ? card.theirChange : card.mineChange) === 'removed' && present.has(id)
+        })
+        if (restored) return kept
+    }
+    return null
 }
 
 // Chatflow-style handles are nodeId-input-<field>-<type>. Workflow canvases connect to the card itself and
@@ -523,8 +561,8 @@ export const mergeLine = (entry, side) => {
 // "Both changed it", "You changed it, they removed it", for a conflict's heading.
 export const conflictSummary = (entry) => {
     if (entry.moveConflict && entry.take !== undefined) return 'You both moved it'
-    const you = CHANGE_WORDS[entry.mineChange] || 'changed'
-    const they = CHANGE_WORDS[entry.theirChange] || 'changed'
+    const you = CHANGE_WORDS[entry.mineChange] || (entry.mineMoved ? 'moved' : 'changed')
+    const they = CHANGE_WORDS[entry.theirChange] || (entry.theirMoved ? 'moved' : 'changed')
     if (you === they) return `You both ${you} it`
     return `You ${you} it, they ${they} it`
 }
