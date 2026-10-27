@@ -545,6 +545,7 @@ packages/components/nodes/tools/MCP/CustomMCP/CustomMCP.ts
 packages/components/nodes/tools/MCP/CustomMCP/customMCP.png
 packages/components/nodes/tools/MCP/CustomMcpServerTool/CustomMcpServerTool.ts
 packages/components/nodes/tools/MCP/CustomMcpServerTool/customMCP.png
+packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.pinned.test.ts
 packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.ts
 packages/components/nodes/tools/MCP/PostgreSQL/postgres.svg
 packages/components/nodes/tools/MCP/core.test.ts
@@ -607,6 +608,7 @@ packages/components/src/missingModelCredential.test.ts
 packages/components/src/modelLoader.ts
 packages/components/src/multiModalUtils.ts
 packages/components/src/otelRunSpans.ts
+packages/components/src/pinnedQueryKey.test.ts
 packages/components/src/recordManagerSecurity.test.ts
 packages/components/src/recordManagerSecurity.ts
 packages/components/src/sanitizeDataSourceOptions.test.ts

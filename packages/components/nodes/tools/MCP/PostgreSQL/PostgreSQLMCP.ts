@@ -3,7 +3,7 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import { tool, Tool } from '@langchain/core/tools'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../../src/Interface'
-import { getCredentialData, getCredentialParam } from '../../../../src/utils'
+import { getCredentialData, getCredentialParam, getPinnedQueryKey, pinnedQueriesEnabled } from '../../../../src/utils'
 
 // tsc rewrites import() into require(), which cannot load the ESM analyst modules.
 type AnalystConnection = { kind: 'url'; postgresUrl: string } | { kind: 'auto' }
@@ -26,8 +26,15 @@ type AnalystStoreModule = {
     ) => { rowCap: number; timeoutMs: number }
     queryAnalystUrl: (
         postgresUrl: string,
-        input: Record<string, unknown>,
-        options?: { rowCap?: number; statementTimeoutMs?: number; relations?: string[]; readOnlySql?: boolean; allowedFunctions?: string }
+        input: string | Record<string, unknown> | null,
+        options?: {
+            rowCap?: number
+            statementTimeoutMs?: number
+            relations?: string[]
+            readOnlySql?: boolean
+            allowedFunctions?: string
+            pinned?: Record<string, unknown> | null
+        }
     ) => Promise<unknown>
     analystUrlToolSpec: (rowCap?: number, relations?: AnalystRelation[] | null) => { description: string; schema: Record<string, unknown> }
     analystDescribeToolSpec: () => { description: string; schema: Record<string, unknown> }
@@ -70,6 +77,100 @@ const READ_ONLY_SQL_NOTE =
 
 // ANALYST_RULES_MAX_CHARS in packages/harness/store.mjs, which refuses a longer save.
 const ANALYST_RULES_MAX_CHARS = 2000
+const PINNED_NAME_RE = /^pq_[a-z0-9_]+$/
+const PINNED_OFF_ERROR = 'Pinned queries are turned off on this server.'
+const PINNED_AUTO_ERROR = 'Pinned queries need a Postgres URL on this node. Isolated analyst storage cannot run them.'
+const PINNED_COLUMN_WARNING = 'The columns from this pinned query differ from the columns recorded when it was tested.'
+
+type PinnedEntry = {
+    id?: unknown
+    name?: unknown
+    purpose?: unknown
+    description?: unknown
+    sql?: unknown
+    params?: unknown
+    version?: unknown
+    testedStamp?: unknown
+    testedColumns?: unknown
+}
+
+type CompiledPin = { runText: string; statementHash: string }
+
+type PinnedQueryModule = {
+    compilePinned: (entry: PinnedEntry) => CompiledPin
+    validateArgs: (entry: PinnedEntry, args: Record<string, unknown>) => unknown[]
+    pinnedToolDefinition: (entry: PinnedEntry) => { name: string; description: string; inputSchema: Record<string, unknown> }
+}
+
+type PinnedStampModule = {
+    stampPayload: (input: Record<string, unknown>) => string
+    verifyStamp: (key: Buffer, payload: string, stamp: string) => boolean
+}
+
+function validPinnedQueryName(name: unknown): name is string {
+    return typeof name === 'string' && name.length <= 64 && PINNED_NAME_RE.test(name)
+}
+
+function readPinnedEntries(value: unknown): { entries: PinnedEntry[]; invalid: boolean } {
+    if (value == null || value === '') return { entries: [], invalid: false }
+    let parsed = value
+    if (typeof value === 'string') {
+        try {
+            parsed = JSON.parse(value)
+        } catch {
+            return { entries: [], invalid: true }
+        }
+    }
+    if (!Array.isArray(parsed)) return { entries: [], invalid: true }
+    return { entries: parsed.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) as PinnedEntry[], invalid: false }
+}
+
+function isolatedAnalyst(nodeData: INodeData, env: NodeJS.ProcessEnv = process.env): boolean {
+    const cred = typeof nodeData?.credential === 'string' ? nodeData.credential.trim() : ''
+    if (cred) return false
+    if (String(env.CUTTLELY_POSTGRES_URL || '').trim()) return false
+    return (
+        String(env.CUTTLELY_ANALYST || '')
+            .trim()
+            .toLowerCase() === 'auto'
+    )
+}
+
+function expectedFailure(message: string): Error {
+    const error = new Error(message)
+    ;(error as { cuttlelyOutcome?: string }).cuttlelyOutcome = 'expected'
+    return error
+}
+
+function functionLines(nodeData: INodeData): string[] {
+    return nodeAllowedFunctions(nodeData)
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+}
+
+function workspaceIdOf(options: ICommonObject): string {
+    const value = options?.searchOptions?.workspaceId?._value || options?.workspaceId || ''
+    return typeof value === 'string' ? value : ''
+}
+
+function noteColumnDrift(body: Record<string, unknown>, testedColumns: unknown) {
+    const expected = Array.isArray(testedColumns)
+        ? testedColumns.map((column) => (column && typeof column.name === 'string' ? column.name : '')).filter(Boolean)
+        : []
+    const rows = Array.isArray(body.rows) ? body.rows : []
+    if (!expected.length || !rows.length) return
+    const actual: string[] = []
+    for (const row of rows) {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) continue
+        for (const key of Object.keys(row as Record<string, unknown>)) if (!actual.includes(key)) actual.push(key)
+    }
+    if (!actual.length) return
+    const changed = actual.length !== expected.length || actual.some((name, index) => name !== expected[index])
+    if (!changed) return
+    body.columnsChanged = true
+    body.warning = PINNED_COLUMN_WARNING
+}
 
 function optionalPositive(value: unknown): number | undefined {
     if (value === undefined || value === null || String(value).trim() === '') return undefined
@@ -82,6 +183,7 @@ const importEsm = new Function('specifier', 'return import(specifier)') as <T>(s
 let analystPostgres: Promise<AnalystPostgresModule> | undefined
 let analystStore: Promise<AnalystStoreModule> | undefined
 let analystRelations: Promise<AnalystRelationsModule> | undefined
+let pinnedQueryModule: Promise<PinnedQueryModule> | undefined
 
 function loadModule<T>(
     fileName: string,
@@ -132,11 +234,33 @@ function loadAnalystRelations() {
     )
 }
 
+function loadPinnedQuery() {
+    return loadModule<PinnedQueryModule>(
+        'pinned-query.mjs',
+        () => pinnedQueryModule,
+        (value) => {
+            pinnedQueryModule = value
+        },
+        'PostgreSQL MCP could not load pinned queries.'
+    )
+}
+
 function toolError(error: unknown): string {
     const outcome = (error as { cuttlelyOutcome?: string })?.cuttlelyOutcome
     if (outcome === 'expected' || outcome === 'transport') {
         const message = error instanceof Error ? error.message : 'The analyst query failed.'
         return JSON.stringify({ error: message, cuttlelyOutcome: outcome })
+    }
+    throw error
+}
+
+function pinnedCallError(error: unknown, extra: Record<string, unknown> = {}): string {
+    const marked = error as { cuttlelyOutcome?: string; outcome?: string }
+    const outcome =
+        marked?.cuttlelyOutcome || (marked?.outcome === 'expected' || marked?.outcome === 'transport' ? marked.outcome : undefined)
+    if (outcome === 'expected' || outcome === 'transport') {
+        const message = error instanceof Error ? error.message : 'The pinned query failed.'
+        return JSON.stringify({ error: message, cuttlelyOutcome: outcome, ...extra })
     }
     throw error
 }
@@ -185,7 +309,7 @@ class PostgreSQL_MCP implements INode {
     constructor() {
         this.label = 'PostgreSQL MCP'
         this.name = 'postgreSQLMCP'
-        this.version = 1.3
+        this.version = 1.4
         this.type = 'PostgreSQL MCP Tool'
         this.icon = 'postgres.svg'
         this.category = 'Tools (MCP)'
@@ -256,6 +380,15 @@ class PostgreSQL_MCP implements INode {
                 additionalParams: true,
                 description:
                     'How long one statement on this node may run, in seconds. Leave empty to use the server timeout. It cannot go above the server timeout.'
+            },
+            {
+                label: 'Pinned queries',
+                name: 'pinnedQueries',
+                type: 'json',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'Optional pinned query tools. Each entry is SQL a builder tested. Leave empty to keep the query tool only. The server offers a tool only when pinned queries are turned on and the entry has a valid tested stamp.'
             }
         ]
         this.baseClasses = ['Tool']
@@ -329,7 +462,10 @@ class PostgreSQL_MCP implements INode {
     }
 
     async init(nodeData: INodeData, _: string, options: ICommonObject): Promise<any> {
-        const tools = await this.getTools(nodeData, options)
+        const enabled = pinnedQueriesEnabled()
+        const saved = nodeData.inputs?.pinnedQueries
+        const untouched = !enabled || saved == null || saved === '' || (Array.isArray(saved) && saved.length === 0)
+        const tools = untouched ? await this.getTools(nodeData, options) : await this.toolsForPins(nodeData, options)
 
         const _mcpActions = nodeData.inputs?.mcpActions
         let mcpActions = []
@@ -342,7 +478,21 @@ class PostgreSQL_MCP implements INode {
         }
 
         // describe comes with query once a table selection exists, so a saved node does not need to tick it.
-        return tools.filter((tool: any) => mcpActions.includes(tool.name) || (tool.name === 'describe' && mcpActions.includes('query')))
+        const selected = tools.filter(
+            (tool: any) => mcpActions.includes(tool.name) || (tool.name === 'describe' && mcpActions.includes('query'))
+        )
+        if (untouched) return selected
+        const pins = await this.pinnedTools(nodeData, options)
+        return [...selected, ...pins]
+    }
+
+    // Isolated storage cannot run a pinned query. Fail before the store is created.
+    async toolsForPins(nodeData: INodeData, options: ICommonObject): Promise<Tool[]> {
+        const { entries, invalid } = readPinnedEntries(nodeData.inputs?.pinnedQueries)
+        if (invalid) console.warn('Pinned queries on this PostgreSQL MCP node were not read. The query tool is unchanged.')
+        if (entries.some((entry) => validPinnedQueryName(entry?.name)) && isolatedAnalyst(nodeData))
+            throw expectedFailure(PINNED_AUTO_ERROR)
+        return this.getTools(nodeData, options)
     }
 
     async connection(nodeData: INodeData, options: ICommonObject): Promise<AnalystConnection> {
@@ -477,6 +627,168 @@ class PostgreSQL_MCP implements INode {
             }
         )
         return [query as Tool, describe as Tool]
+    }
+
+    // One tool per entry whose stamp matches this node. The stamp check is HMAC only. listActions does not call this.
+    async pinnedTools(nodeData: INodeData, options: ICommonObject): Promise<Tool[]> {
+        if (!pinnedQueriesEnabled()) return []
+        const { entries } = readPinnedEntries(nodeData.inputs?.pinnedQueries)
+        const named = entries.filter((entry) => validPinnedQueryName(entry?.name) && String(entry?.testedStamp || '').trim())
+        if (!named.length) return []
+        const nameCount = new Map<string, number>()
+        for (const entry of named) nameCount.set(entry.name as string, (nameCount.get(entry.name as string) || 0) + 1)
+        let pq: PinnedQueryModule
+        try {
+            pq = await loadPinnedQuery()
+        } catch {
+            throw expectedFailure('Pinned queries are configured but the pinned query runtime is not available.')
+        }
+        let key: Buffer
+        try {
+            key = await getPinnedQueryKey()
+        } catch {
+            throw expectedFailure('Pinned queries need the server encryption key before they can be offered.')
+        }
+        const { parseRelationSelection } = await loadAnalystRelations()
+        const relations = parseRelationSelection(nodeData?.inputs?.analystRelations)
+        const functions = functionLines(nodeData)
+        const workspaceId = workspaceIdOf(options)
+        const cred = typeof nodeData.credential === 'string' ? nodeData.credential : ''
+        const store = await loadAnalystStore()
+        const limits = store.analystCallLimits(this.nodeLimits(nodeData), process.env)
+        const { sqlTraceFields } = await findModule<{ sqlTraceFields: (sql: string) => { sqlHash: string } }>(
+            '../analyst-capture.mjs',
+            'PostgreSQL MCP could not load SQL trace fields.'
+        )
+        const stamp = await findModule<PinnedStampModule>('pinned-stamp.mjs', 'PostgreSQL MCP could not load pinned query stamps.')
+        const accepted: { entry: PinnedEntry; name: string; identity: string; compiled: CompiledPin }[] = []
+        const seen = new Set<string>()
+        for (const entry of named) {
+            const name = entry.name as string
+            if (seen.has(name)) continue
+            seen.add(name)
+            if ((nameCount.get(name) || 0) > 1) {
+                console.warn(`Pinned query ${name} was not offered.`)
+                continue
+            }
+            const identity = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : ''
+            if (!identity || entry.version == null || entry.version === '') {
+                console.warn(`Pinned query ${name} was not offered.`)
+                continue
+            }
+            let compiled: CompiledPin
+            try {
+                compiled = pq.compilePinned(entry)
+                const payload = stamp.stampPayload({
+                    workspaceId,
+                    cred,
+                    statementHash: compiled.statementHash,
+                    params: Array.isArray(entry.params) ? entry.params : [],
+                    relations,
+                    allowedFunctions: functions,
+                    testedColumns: entry.testedColumns
+                })
+                if (!stamp.verifyStamp(key, payload, String(entry.testedStamp))) {
+                    console.warn(`Pinned query ${name} was not offered.`)
+                    continue
+                }
+                accepted.push({ entry, name, identity, compiled })
+            } catch {
+                console.warn(`Pinned query ${name} was not offered.`)
+                continue
+            }
+        }
+        if (!accepted.length) return []
+        const decision = await this.connection(nodeData, options)
+        if (decision.kind !== 'url') throw expectedFailure(PINNED_AUTO_ERROR)
+        const offered: Tool[] = []
+        for (const { entry, name, identity, compiled } of accepted) {
+            let definition: { name: string; description: string; inputSchema: Record<string, unknown> }
+            try {
+                definition = pq.pinnedToolDefinition(entry)
+            } catch {
+                console.warn(`Pinned query ${name} was not offered.`)
+                continue
+            }
+            const properties = {
+                ...((definition.inputSchema?.properties as Record<string, unknown>) || {}),
+                cursor: { type: 'string' },
+                page: { type: 'number' }
+            }
+            // A next-page call sends only cursor and page, so the schema cannot list required parameters.
+            // validateArgs still refuses a first call that leaves one out, naming it.
+            const { required: requiredParams, ...inputSchema } = (definition.inputSchema || {}) as Record<string, unknown>
+            const schema: Record<string, unknown> = {
+                ...inputSchema,
+                type: 'object',
+                properties,
+                additionalProperties: false
+            }
+            const requiredNames = Array.isArray(requiredParams) ? requiredParams.filter((item) => typeof item === 'string') : []
+            const baseDescription =
+                definition.description ||
+                (typeof entry.purpose === 'string' && entry.purpose.trim()) ||
+                `Pinned query ${name}. Call it with the listed parameters and report the rows it returns.`
+            const description = requiredNames.length
+                ? `${baseDescription} Required on a first call: ${requiredNames.join(', ')}. For the next page, send only cursor and page.`
+                : baseDescription
+            const postgresUrl = decision.postgresUrl
+            const allowedFunctions = nodeAllowedFunctions(nodeData)
+            const statementHash = compiled.statementHash
+            const version = entry.version
+            const testedColumns = entry.testedColumns
+            const pin = tool(
+                async (input: unknown): Promise<string> => {
+                    if (!pinnedQueriesEnabled()) return JSON.stringify({ error: PINNED_OFF_ERROR, cuttlelyOutcome: 'expected' })
+                    const raw = input && typeof input === 'object' && !Array.isArray(input) ? { ...(input as Record<string, unknown>) } : {}
+                    delete raw._cuttlelyScope
+                    const cursor = typeof raw.cursor === 'string' ? raw.cursor.trim() : ''
+                    const page = raw.page
+                    delete raw.cursor
+                    delete raw.page
+                    const traceExtra = {
+                        pinned: { id: identity, name, version, hash: statementHash },
+                        ...sqlTraceFields(compiled.runText),
+                        _cuttlelyTraceSql: compiled.runText
+                    }
+                    try {
+                        if (!cursor) {
+                            try {
+                                pq.validateArgs(entry, raw)
+                            } catch (error) {
+                                throw expectedFailure(error instanceof Error ? error.message : 'Invalid pinned query parameters.')
+                            }
+                        }
+                        const result = await store.queryAnalystUrl(
+                            postgresUrl,
+                            cursor ? { cursor, ...(page == null ? {} : { page }) } : null,
+                            {
+                                rowCap: limits.rowCap,
+                                statementTimeoutMs: limits.timeoutMs,
+                                relations,
+                                readOnlySql: true,
+                                allowedFunctions,
+                                pinned: { entry, args: raw, tool: name }
+                            }
+                        )
+                        const body =
+                            result && typeof result === 'object' && !Array.isArray(result)
+                                ? (result as Record<string, unknown>)
+                                : { result }
+                        body.pinned = { id: identity, name, version, hash: statementHash }
+                        body.sqlHash = body.sqlHash || sqlTraceFields(compiled.runText).sqlHash
+                        body._cuttlelyTraceSql = compiled.runText
+                        noteColumnDrift(body, testedColumns)
+                        return store.analystResultJson(body)
+                    } catch (error) {
+                        return pinnedCallError(error, traceExtra)
+                    }
+                },
+                { name, description, schema }
+            )
+            offered.push(pin as unknown as Tool)
+        }
+        return offered
     }
 }
 

@@ -2595,7 +2595,7 @@ describe('analyst relations: user functions inside views', () => {
         }
         const { nodeClass } = createRequire(import.meta.url)(NODE_BUILD)
         const inst = new nodeClass()
-        assert.equal(Number(inst.version), 1.3)
+        assert.ok(Number(inst.version) >= 1.3, `node version ${inst.version} still carries analystAllowedFunctions`)
         const source = fs.readFileSync(NODE_SOURCE, 'utf8')
         assert.match(source, /name: 'analystAllowedFunctions'/)
         const allowList = [

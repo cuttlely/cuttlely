@@ -8,6 +8,7 @@ import { Runnable, type RunnableConfig } from '@langchain/core/runnables'
 import { TextSplitter } from '@langchain/textsplitters'
 import axios from 'axios'
 import { AES, enc } from 'crypto-js'
+import { createHmac } from 'crypto'
 import { encryptionKeyOverwrite } from './settingAlias'
 import * as fs from 'fs'
 import JSON5 from 'json5'
@@ -601,6 +602,22 @@ const getEncryptionKey = async (): Promise<string> => {
     } catch (error) {
         throw new Error(error)
     }
+}
+
+// On only for the exact host or panel values. false, yes, on, TRUE, and empty stay off.
+export const pinnedQueriesEnabled = (env: NodeJS.ProcessEnv = process.env): boolean =>
+    env?.CUTTLELY_PINNED_QUERIES === '1' || env?.CUTTLELY_PINNED_QUERIES === 'true'
+
+const PINNED_QUERY_PURPOSE = 'cuttlely-pinned-query-v1'
+let pinnedQueryKeyCache: { secret: string; key: Buffer } | undefined
+
+// HMAC-SHA256(getEncryptionKey(), purpose). Cached per secret so a cloud key is not fetched for every tool.
+export const getPinnedQueryKey = async (): Promise<Buffer> => {
+    const secret = await getEncryptionKey()
+    if (pinnedQueryKeyCache && pinnedQueryKeyCache.secret === secret) return pinnedQueryKeyCache.key
+    const key = createHmac('sha256', secret).update(PINNED_QUERY_PURPOSE).digest()
+    pinnedQueryKeyCache = { secret, key }
+    return key
 }
 
 /**

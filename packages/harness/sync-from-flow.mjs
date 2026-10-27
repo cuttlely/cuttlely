@@ -6,6 +6,7 @@ import { specialistHandoffChars } from './context.mjs'
 import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
 import { toolCallingWarnings } from './tool-fallback.mjs'
 import { SPECIALIST_PRESETS, presetName } from './presets.mjs'
+import { assertPinnedQueryRoster } from './pinned-names.mjs'
 
 function boolInput(value) {
     return value === true || value === 'true'
@@ -250,6 +251,7 @@ export function assertFlowLimits({ name, flowData }) {
 export async function syncHarnessFromFlow(args) {
     assertHarnessCaller(args?.name, args?.caller, { allow: SAVE_CALLERS })
     const roster = rosterFromFlow(args)
+    assertPinnedQueryRoster(roster)
     // Checked with no await before the save and compile: a roster that would compile into another harness's profile
     // is refused before the record is written, so a refused update leaves the saved harness as it was.
     const taken = profileDestinationConflicts(roster)

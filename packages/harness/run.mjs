@@ -25,6 +25,7 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
+import { isPinnedToolName } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
@@ -947,8 +948,11 @@ function toolsFor(context, name) {
 function emitTool(context, data) {
     if (!context.toolLog) context.toolLog = []
     // A tool's detail (a preview, an error) can quote a workspace path; it is masked before the log, events and trace.
-    const detail = data.detail ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
+    // A pinned tool's start carries no detail: its arguments can hold secure parameter values.
+    const pinnedStart = data.phase === 'start' && isPinnedToolName(data.name)
+    const detail = data.detail && !pinnedStart ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
     const emitted = { ...data, ...(detail ? { detail } : {}) }
+    if (pinnedStart) delete emitted.detail
     delete emitted.callId
     logToolEvent(context.toolLog, data, detail)
     emit(context, 'tool', emitted)
@@ -971,6 +975,8 @@ export function logToolEvent(toolLog, data, detail = '') {
                       ...(data.sqlTruncated ? { sqlTruncated: true } : {})
                   }
                 : {}),
+            ...(data.pinned ? { pinned: data.pinned } : {}),
+            ...(data.freeSqlWithPin ? { freeSqlWithPin: data.freeSqlWithPin } : {}),
             ...(callId ? { callId } : {})
         })
         return
@@ -1300,7 +1306,7 @@ export function applyAnalystPageRoute(input, steps, specialists, cursor) {
     if (!analysts.length) return { steps: list, reply: '' }
     const owner = analysts.find((specialist) => specialist.name === cursor.specialist) || (analysts.length === 1 ? analysts[0] : null)
     if (!owner) return { steps: [], reply: ANALYST_PAGE_OWNER_GONE }
-    return { steps: [{ specialist: owner, task: analystPageTask(cursor.token, request), paging: true }], reply: '' }
+    return { steps: [{ specialist: owner, task: analystPageTask(cursor.token, request, cursor.tool), paging: true }], reply: '' }
 }
 
 // The router can return no steps and Prime then invents a database answer. A data task with one analyst on the
@@ -1963,12 +1969,14 @@ export function hermesToolFailed(event) {
 export function hermesToolEvent(name, event) {
     const kind = event?.event
     if (kind !== 'tool.started' && kind !== 'tool.completed' && kind !== 'tool.failed') return null
-    const detail = event.preview ? String(event.preview) : ''
+    const toolName = String(event.tool || event.tool_name || 'tool')
+    // A pinned tool's start preview quotes the arguments, which can hold secure parameter values. It is never sent.
+    const detail = event.preview && !(kind === 'tool.started' && isPinnedToolName(toolName)) ? String(event.preview) : ''
     const callId = hermesEventCallId(event)
     return {
         phase: kind === 'tool.started' ? 'start' : 'done',
         specialist: name,
-        name: String(event.tool || event.tool_name || 'tool'),
+        name: toolName,
         ...(kind !== 'tool.started' && hermesToolFailed(event) ? { error: true } : {}),
         ...(detail ? { detail } : {}),
         ...(callId ? { callId } : {})
@@ -2158,6 +2166,8 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         if (typeof fields.sql === 'string') slots[slotIndex].sql = fields.sql
         if (fields.sqlTruncated === true) slots[slotIndex].sqlTruncated = true
         if (item.timings) slots[slotIndex].timings = item.timings
+        if (item.pinned) slots[slotIndex].pinned = item.pinned
+        if (item.freeSqlWithPin) slots[slotIndex].freeSqlWithPin = item.freeSqlWithPin
     }
 }
 
