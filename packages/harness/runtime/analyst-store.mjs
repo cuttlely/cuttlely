@@ -48,7 +48,11 @@ import {
     parseRelationSelection,
     relationToolNote,
     resolveRelations,
-    sampleRelationValues
+    sampleRelationValues,
+    selectedRelationsRead,
+    guardCheckReads,
+    guardDefinitionReads,
+    ROUTINE_STAMP_SQL
 } from './analyst-relations.mjs'
 
 // Repo root. This module lives in packages/harness/runtime/.
@@ -56,6 +60,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const require = createRequire(path.join(ROOT, 'packages/components/package.json'))
 const CryptoJS = require('crypto-js')
 const { Client } = require('pg')
+const { prepareValue } = require('pg/lib/utils.js')
 let pgClientFactory = (config) => new Client(config)
 
 export function setAnalystPgClientForTests(factory) {
@@ -1514,10 +1519,119 @@ function sqliteRunner(db) {
 }
 
 // Inside a transaction a failed helper query (a count that does not fit, say) would abort the whole transaction;
-// a savepoint keeps the user's statement usable.
-function postgresRunner(client, { transaction = false } = {}) {
+// a savepoint keeps the user's statement usable. Guard catalog reads run without per-lookup savepoints because
+// any failed guard lookup ends the check.
+export const GUARD_BATCH_MESSAGE = 'Cuttlely could not read the catalog in one batch, so the query did not run.'
+let guardBatchHookForTests = null
+let guardReadHookForTests = null
+
+export function setGuardBatchHookForTests(fn) {
+    guardBatchHookForTests = typeof fn === 'function' ? fn : null
+}
+
+// Records consumption, not speculative sends: tests can compare the JS lookup order with legacy.
+export function setGuardReadHookForTests(fn) {
+    guardReadHookForTests = typeof fn === 'function' ? fn : null
+}
+
+function inlineParams(client, sql, params = []) {
+    const literal = (value) => {
+        if (value == null) return 'NULL'
+        if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+        if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE'
+        if (typeof value === 'string') return client.escapeLiteral(value)
+        if (Array.isArray(value)) {
+            // pg's text array format is also what the extended protocol sends. Validate nested values first.
+            const validate = (items) => items.forEach((item) => (Array.isArray(item) ? validate(item) : literal(item)))
+            validate(value)
+            return client.escapeLiteral(prepareValue(value))
+        }
+        throw new AnalystToolError(GUARD_BATCH_MESSAGE, 'expected')
+    }
+    const marks = [...sql.matchAll(/\?/g)].map((match) => match.index).slice(-params.length)
+    if (!params.length) return sql
+    if (marks.length !== params.length) throw new AnalystToolError(GUARD_BATCH_MESSAGE, 'expected')
+    let from = 0
+    let out = ''
+    for (let i = 0; i < marks.length; i++) {
+        out += sql.slice(from, marks[i]) + literal(params[i])
+        from = marks[i] + 1
+    }
+    return out + sql.slice(from)
+}
+
+export function postgresRunner(client, { transaction = false } = {}) {
+    // Call-local and transaction-local. Duplicate keys form a queue; each result is consumed once.
+    const prefetched = new Map()
+    const supersets = new Map()
+    const key = (sql, params) => sql + '\u0000' + JSON.stringify(params)
     return {
+        logicalRead(sql, params) {
+            guardReadHookForTests?.(sql, params)
+        },
+        clearPrefetch() {
+            prefetched.clear()
+            supersets.clear()
+            this.pathSetByBatch = false
+            this.locksSetByBatch = false
+            this.afterAccessShareBatch = null
+            this.postStampFailed = false
+        },
+        takeSuperset(sql) {
+            const value = supersets.get(sql)
+            supersets.delete(sql)
+            return value
+        },
+        async prefetchSuperset(entries) {
+            return this.prefetch(entries)
+        },
+        async prefetch(entries) {
+            if (!entries.length) return
+            // Newline before the separator terminates SQL constants' trailing line comments.
+            const text = entries.map((entry) => entry.exec ?? inlineParams(client, entry.sql, entry.params || [])).join('\n;\n')
+            const result = await client.query(text)
+            let results = Array.isArray(result) ? result : [result]
+            results = guardBatchHookForTests?.(text, results) ?? results
+            if (!Array.isArray(results) || results.length !== entries.length) throw new AnalystToolError(GUARD_BATCH_MESSAGE, 'expected')
+            if (entries.some((entry, index) => entry.exec == null && !Array.isArray(results[index]?.rows)))
+                throw new AnalystToolError(GUARD_BATCH_MESSAGE, 'expected')
+            // Publish only after the entire batch succeeds and its result count is validated.
+            entries.forEach((entry, index) => {
+                if (entry.exec != null) return
+                const rows = results[index].rows
+                if (entry.superset) {
+                    const requested = new Set((rows[0]?.requested || []).map(Number))
+                    const kept = rows.map(({ requested: unused, ...row }) => row).filter((row) => Object.values(row).some((v) => v != null))
+                    supersets.set(entry.superset, { requested, rows: kept })
+                } else {
+                    const k = key(entry.sql, entry.params || [])
+                    const queue = prefetched.get(k) || []
+                    queue.push(rows)
+                    prefetched.set(k, queue)
+                }
+            })
+        },
         async all(sql, params = []) {
+            this.logicalRead(sql, params)
+            const k = key(sql, params)
+            const queue = prefetched.get(k)
+            if (queue?.length) {
+                const rows = queue.shift()
+                if (!queue.length) prefetched.delete(k)
+                return rows
+            }
+            if (this.batchedGuard && this.pathSetByBatch) {
+                // A failed prediction must still read under pg_catalog. Restore the statement path LAST;
+                // the single fallback read is never silently replaced by a missing/empty result.
+                await this.prefetch([
+                    { exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" },
+                    { sql, params },
+                    { exec: this.statementPathSql }
+                ])
+                const rows = prefetched.get(k).shift()
+                prefetched.delete(k)
+                return rows
+            }
             const bound = pgPlaceholders(sql, params)
             if (!transaction) {
                 const result = await client.query(bound.sql, bound.params)
@@ -1986,29 +2100,86 @@ async function queryUrlPostgres(
     const timer = queryTimer()
     client.query = meteredQuery(client, timer)
     const runner = postgresRunner(client, { transaction: true })
-    runner.timer = timer
+    const legacy = guardLegacyRoundTrips
+    const guard = legacy ? runner : postgresRunner(client)
+    // Only the node guard opts into catalog batching; the page runner keeps its existing behavior.
+    if (!legacy) guard.batchedGuard = true
+    runner.legacyRoundTrips = legacy
+    guard.legacyRoundTrips = legacy
+    runner.timer = guard.timer = timer
     // Only the node's own setting, passed by the node from the saved flow; never the tool input.
-    if (readOnlySql) runner.allowedFunctions = parseAllowedFunctions(allowedFunctions)
+    if (readOnlySql) runner.allowedFunctions = guard.allowedFunctions = parseAllowedFunctions(allowedFunctions)
     let selected = []
+    const setStatementPath = (path) => {
+        runner.statementSearchPath = guard.statementSearchPath = path.trim() ? `pg_catalog, ${path}` : 'pg_catalog'
+        guard.statementPathSql = `SELECT pg_catalog.set_config('search_path', ${client.escapeLiteral(guard.statementSearchPath)}, true)`
+    }
     const statementPath = async () => {
+        if (guard.batchedGuard && guard.pathSetByBatch) {
+            guard.pathSetByBatch = false
+            return
+        }
         if (runner.statementSearchPath)
             await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
     }
     const catalogPath = async () => {
         if (runner.statementSearchPath) await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
     }
+    const rollback = async () => {
+        guard.clearPrefetch?.()
+        try {
+            await client.query('ROLLBACK').catch(() => {})
+        } finally {
+            guard.clearPrefetch?.()
+        }
+    }
+    const pathEntry = () => (guard.statementPathSql ? [{ exec: guard.statementPathSql }] : [])
     const begin = async (readOnly) => {
+        guard.clearPrefetch?.()
         const settings = [readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN', `SET LOCAL statement_timeout = ${ms}`]
-        // Every analyst statement check reads '...' as standard SQL strings (where one statement ends depends on
-        // it), so Postgres must too, for every caller.
         settings.push('SET LOCAL standard_conforming_strings = on')
-        // The node's own catalog queries run with only pg_catalog on the search path (pg_temp is never searched
-        // for functions or operators), so a same-named function elsewhere cannot answer them. The statement itself
-        // is parsed and run with pg_catalog in front of the login's path (runner.statementSearchPath).
-        if (readOnlySql) settings.push("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
-        // One round trip. These are fixed strings and an integer, never the tool input. A multi-statement simple
-        // query stops at the first error, as separate calls would, and the transaction stays open after it.
-        await client.query(settings.join('; '))
+        if (!guard.batchedGuard) {
+            if (readOnlySql) settings.push("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+            await client.query(settings.join('; '))
+            return
+        }
+        // B1 reads the login's path before pinning catalog lookup. The pid is the same session pid that
+        // legacy reads at the end of the check transaction; the comparison itself is unchanged.
+        const reads = settings.map((exec) => ({ exec }))
+        if (readOnlySql && !runner.statementSearchPath) reads.push({ sql: "SELECT pg_catalog.current_setting('search_path') AS p" })
+        if (readOnlySql) reads.push({ exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" })
+        if (readOnly) reads.push({ sql: 'SHOW transaction_read_only' })
+        reads.push({ sql: 'SELECT pg_backend_pid() AS pid' })
+        if (readOnly) {
+            if (scoped) {
+                reads.push(
+                    ...accessShareStatements(
+                        selected.map((r) => ({ name: r.name, lockable: r.kind === 'table' || r.kind === 'view' }))
+                    ).map((exec) => ({ exec }))
+                )
+                // Rechecks follow LOCK in this simple query. Policy locks have their own error boundary;
+                // in that case definitions are fetched later, after those locks have succeeded.
+                if (!checked?.bodies.policyRelations?.length) {
+                    const selection = selectedRelationsRead(relations)
+                    if (selection) reads.push(selection)
+                    if (checked) reads.push(...guardDefinitionReads(checked))
+                    reads.push(...pathEntry())
+                }
+            } else if (checked?.relations.length) reads.push({ sql: LOCK_RELATIONS_SQL, params: [checked.relations] })
+            else if (checked && !checked.bodies.policyRelations?.length) reads.push(...guardDefinitionReads(checked), ...pathEntry())
+        }
+        await guard.prefetch(reads)
+        if (readOnly && scoped) guard.locksSetByBatch = true
+        if (guard.statementPathSql && reads.at(-1)?.exec === guard.statementPathSql) guard.pathSetByBatch = true
+        if (!readOnly && readOnlySql)
+            setStatementPath(String((await guard.get("SELECT pg_catalog.current_setting('search_path') AS p"))?.p || ''))
+    }
+    const preparse = async () => {
+        if (!guard.batchedGuard) return
+        // Other callers can cache the domain scan. Do not speculate that cached read again.
+        const reads = readOnlySql ? guardCheckReads({ names: relations, readOnlySql }) : [selectedRelationsRead(relations)].filter(Boolean)
+        await guard.prefetch([...reads, ...pathEntry()])
+        if (guard.statementPathSql) guard.pathSetByBatch = true
     }
     const hinted = async (error) => {
         const missing = missingRelationName(error)
@@ -2016,7 +2187,7 @@ async function queryUrlPostgres(
             let names = selected.map((relation) => relation.name)
             if (!scoped) {
                 // The failed transaction is over. A fresh read-only one lists what this login can read.
-                await client.query('ROLLBACK').catch(() => {})
+                await rollback()
                 try {
                     await begin(true)
                     names = (await listRelations(runner)).map((relation) => relation.name)
@@ -2032,23 +2203,27 @@ async function queryUrlPostgres(
         if (hint && error instanceof Error) error.message = `${error.message.replace(/[.\s]+$/, '')}.${hint}`
         return error
     }
-    const backend = async () => String((await client.query('SELECT pg_backend_pid() AS pid')).rows?.[0]?.pid ?? '')
+    const backend = async () =>
+        !guard.batchedGuard
+            ? String((await client.query('SELECT pg_backend_pid() AS pid')).rows?.[0]?.pid ?? '')
+            : String((await guard.get('SELECT pg_backend_pid() AS pid'))?.pid ?? '')
     let checkedBackend = ''
     let checked = null
     try {
         await timeStep(runner, 'connect', () => client.connect())
-        if (readOnlySql) {
+        if (!guard.batchedGuard && readOnlySql) {
             const path = (await client.query("SELECT pg_catalog.current_setting('search_path') AS p")).rows?.[0]?.p || ''
-            runner.statementSearchPath = path.trim() ? `pg_catalog, ${path}` : 'pg_catalog'
+            setStatementPath(path)
         }
         if (scoped) {
             await begin(false)
             try {
-                if (readOnlySql) await refuseRiskyTypes(runner)
-                selected = await resolveRelations(runner, relations)
+                await preparse()
+                if (readOnlySql) await refuseRiskyTypes(guard)
+                selected = await resolveRelations(guard, relations)
                 checked = await checkStatementScope(
                     client,
-                    runner,
+                    guard,
                     text,
                     selected,
                     isRowQuery,
@@ -2061,43 +2236,60 @@ async function queryUrlPostgres(
             } catch (error) {
                 throw await hinted(error)
             } finally {
-                await client.query('ROLLBACK').catch(() => {})
+                await rollback()
             }
         } else if (readOnlySql) {
             // No selection: the node still resolves every called function through the catalog first, on every page.
             await begin(false)
             try {
-                await refuseRiskyTypes(runner)
+                await preparse()
+                await refuseRiskyTypes(guard)
                 // No cache key: the node's catalog scans run fresh before every parse.
-                checked = await checkStatementRoutines(client, runner, text, isRowQuery, '')
+                checked = await checkStatementRoutines(client, guard, text, isRowQuery, '')
                 checkedBackend = await backend()
             } catch (error) {
                 throw await hinted(error)
             } finally {
-                await client.query('ROLLBACK').catch(() => {})
+                await rollback()
             }
         }
         if (checkGapHookForTests) await checkGapHookForTests()
         await begin(true)
         try {
-            const mode = await client.query('SHOW transaction_read_only')
-            if (mode.rows?.[0]?.transaction_read_only !== 'on') {
+            const mode = !guard.batchedGuard
+                ? (await client.query('SHOW transaction_read_only')).rows?.[0]
+                : await guard.get('SHOW transaction_read_only')
+            if (mode?.transaction_read_only !== 'on') {
                 throw new AnalystToolError('Cuttlely could not start a read-only transaction, so the query did not run.', 'expected')
             }
             const queryBackend = await backend()
-            if (scoped) await keepCheckedScope(client, runner, relations, selected, checkedBackend, queryBackend)
-            if (checked) await keepCheckedDefinitions(client, runner, checked, scoped, checkedBackend, queryBackend)
+            if (scoped) await keepCheckedScope(client, guard, relations, selected, checkedBackend, queryBackend)
+            if (guard.batchedGuard && checked && !scoped && checked.relations.length && !checked.bodies.policyRelations?.length)
+                guard.afterAccessShareBatch = [...guardDefinitionReads(checked), ...pathEntry()]
+            if (checked) await keepCheckedDefinitions(client, guard, checked, scoped, checkedBackend, queryBackend)
             const pageCursor = replay?.paging?.cursor
             const cursorBefore = pageCursor ? pageCursors.get(pageCursor) : undefined
             await statementPath()
             const result = replay?.plan
                 ? await readSelectPage(runner, replay.plan, replay.paging)
                 : await runPostgresStatement(client, statement, replay?.paging, runner)
-            await catalogPath()
+            if (guard.batchedGuard && checked) {
+                // B5 remains after the user's standalone statement. Failure is the legacy null stamp.
+                await guard
+                    .prefetch([
+                        ...(runner.statementSearchPath
+                            ? [{ exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" }]
+                            : []),
+                        { sql: ROUTINE_STAMP_SQL }
+                    ])
+                    .catch(() => {
+                        guard.postStampFailed = true
+                    })
+            } else await catalogPath()
             // An overload or schema created after the last comparison could have changed what a name reached while
             // the statement was parsed. Its rows are not returned, the cursor stays where it was, and the transaction
             // is read only and rolls back.
-            const unchanged = !checked || (await routineCatalogStamp(runner).catch(() => null)) === checked.stamp
+            const unchanged = !checked || (!guard.postStampFailed && (await routineCatalogStamp(guard).catch(() => null)) === checked.stamp)
             if (!unchanged) {
                 if (pageCursor && cursorBefore) pageCursors.set(pageCursor, cursorBefore)
                 throw new AnalystToolError(DEFINITIONS_CHANGED, 'expected')
@@ -2111,7 +2303,7 @@ async function queryUrlPostgres(
         const outcome = analystErrorOutcome(error)
         throw new AnalystToolError(scrub(error, urlSecrets(postgresUrl)).message, outcome)
     } finally {
-        await client.query('ROLLBACK').catch(() => {})
+        await rollback()
         await client.end().catch(() => {})
         recordQueryTimings(timer)
     }
@@ -2127,18 +2319,23 @@ async function keepCheckedScope(client, runner, relations, selected, checkedBack
     if (!checkedBackend || checkedBackend !== queryBackend) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
     // Postgres cannot LOCK a materialized view or every foreign table. Reading no rows from one takes the same
     // ACCESS SHARE lock, held until the transaction ends.
-    for (const relation of selected) {
-        if (relation.kind === 'table' || relation.kind === 'view') {
-            await client.query(`LOCK TABLE ONLY ${relation.name} IN ACCESS SHARE MODE`)
-        } else {
-            await client.query(`SELECT 1 FROM ONLY ${relation.name} LIMIT 0`)
-        }
-    }
+    await takeAccessShare(
+        client,
+        runner,
+        selected.map((r) => ({ name: r.name, lockable: r.kind === 'table' || r.kind === 'view' }))
+    )
     const now = await resolveRelations(runner, relations)
     const same =
         now.length === selected.length &&
         now.every((relation) => selected.some((checked) => checked.name === relation.name && checked.oid === relation.oid))
     if (!same) throw new AnalystToolError(SCOPE_CHANGED, 'expected')
+}
+
+let guardLegacyRoundTrips = false
+
+// Kept so the parity test can run the old round trips and the new ones in one process. Decisions must not differ.
+export function setGuardLegacyRoundTripsForTests(on) {
+    guardLegacyRoundTrips = Boolean(on)
 }
 
 let checkGapHookForTests = null
@@ -2151,18 +2348,65 @@ export function setCheckGapHookForTests(hook) {
 const POLICY_UNLOCKED =
     'Cuttlely refused this query: a table or view that a row-security policy reads could not be locked for the query, so the policy could not be held as checked.'
 
+// ONLY is written before every name so no relation implicitly locks its inheritance children or partitions.
+function accessShareStatements(items) {
+    const statements = []
+    let names = []
+    const flush = () => {
+        if (names.length) {
+            statements.push(`LOCK TABLE ${names.map((name) => `ONLY ${name}`).join(', ')} IN ACCESS SHARE MODE`)
+            names = []
+        }
+    }
+    for (const item of items) {
+        if (item.lockable) names.push(item.name)
+        else {
+            flush()
+            statements.push(`SELECT 1 FROM ONLY ${item.name} LIMIT 0`)
+        }
+    }
+    flush()
+    return statements
+}
+
+async function takeAccessShare(client, runner, items) {
+    if (runner.batchedGuard && runner.locksSetByBatch) {
+        runner.locksSetByBatch = false
+        return
+    }
+    if (runner.legacyRoundTrips) {
+        for (const item of items) {
+            await client.query(
+                item.lockable ? `LOCK TABLE ONLY ${item.name} IN ACCESS SHARE MODE` : `SELECT 1 FROM ONLY ${item.name} LIMIT 0`
+            )
+        }
+        return
+    }
+    // One LOCK lists relations in the same order, with ONLY written before every name; Postgres takes them in
+    // list order, and any failure aborts the statement.
+    const statements = accessShareStatements(items)
+    if (runner.batchedGuard && runner.afterAccessShareBatch) {
+        const reads = runner.afterAccessShareBatch
+        runner.afterAccessShareBatch = null
+        await runner.prefetch([...statements.map((exec) => ({ exec })), ...reads])
+        if (runner.statementPathSql && reads.at(-1)?.exec === runner.statementPathSql) runner.pathSetByBatch = true
+    } else if (statements.length) await client.query(statements.join('; '))
+}
+
 // ACCESS SHARE until the transaction ends. Locking a view locks everything its definition reads. A materialized
 // view or foreign table cannot always be LOCKed, and reading no rows from it takes the same lock.
+const LOCK_RELATIONS_SQL =
+    "SELECT c.relkind AS kind, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY c.oid"
+
 async function lockRelations(client, runner, oids) {
     if (!oids.length) return
-    const rows = await runner.all(
-        "SELECT c.relkind AS kind, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.oid = ANY(?::oid[]) ORDER BY c.oid",
-        [oids]
-    )
+    const rows = await runner.all(LOCK_RELATIONS_SQL, [oids])
+    const items = []
     for (const row of rows) {
-        if (row.kind === 'r' || row.kind === 'p' || row.kind === 'v') await client.query(`LOCK TABLE ONLY ${row.name} IN ACCESS SHARE MODE`)
-        else if (row.kind === 'm' || row.kind === 'f') await client.query(`SELECT 1 FROM ONLY ${row.name} LIMIT 0`)
+        if (row.kind === 'r' || row.kind === 'p' || row.kind === 'v') items.push({ name: row.name, lockable: true })
+        else if (row.kind === 'm' || row.kind === 'f') items.push({ name: row.name, lockable: false })
     }
+    await takeAccessShare(client, runner, items)
 }
 
 const DEFINITIONS_CHANGED = 'Cuttlely refused this query: a table or view it reads changed while it was being checked. Run it again.'
@@ -2178,6 +2422,11 @@ async function keepCheckedDefinitions(client, runner, checked, scoped, checkedBa
         await lockRelations(client, runner, checked.bodies.policyRelations || [])
     } catch {
         throw new AnalystToolError(POLICY_UNLOCKED, 'expected')
+    }
+    if (runner.batchedGuard && checked.bodies.policyRelations?.length) {
+        // The policy lock has already kept its POLICY_UNLOCKED boundary. No definition read moves before it.
+        await runner.prefetch([...guardDefinitionReads(checked), ...(runner.statementPathSql ? [{ exec: runner.statementPathSql }] : [])])
+        if (runner.statementPathSql) runner.pathSetByBatch = true
     }
     // The database-wide scan runs again, uncached, so a type, operator class, text search callback or foreign
     // partition added since the check is refused before the statement is planned.
