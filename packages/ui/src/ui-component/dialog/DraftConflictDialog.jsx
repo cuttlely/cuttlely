@@ -23,12 +23,74 @@ import { StyledButton } from '@/ui-component/button/StyledButton'
 import { DRAFT_CONFLICT_RELOAD, DRAFT_CONFLICT_SAVE_ANYWAY, DRAFT_CONFLICT_TITLE, draftConflictMessage } from '@/utils/flowDrafts'
 import { applyDraftMerge, conflictKey, conflictSummary, draftMergePlan, mergeLine } from '@/utils/flowDraftsMerge'
 
+const LINE_COLORS = { added: 'success.main', removed: 'error.main', changed: 'warning.main' }
+
 export const DRAFT_CONFLICT_APPLY = 'Apply merge'
 export const DRAFT_CONFLICT_MERGE_HELP =
     'Their changes that do not touch yours are merged for you. Where you both changed the same card, connection or setting, pick which one to keep. Applying puts the result on your canvas without saving it.'
 export const DRAFT_CONFLICT_NO_MERGE = 'Their saved draft could not be read, so it cannot be merged here. Reload to see it, or save anyway.'
 
 const valueSx = { fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', verticalAlign: 'top' }
+
+// The full value, scrolled inside its cell when it is long, so a change past the first lines is still there to read.
+const Value = ({ text }) => (
+    <TableCell sx={valueSx}>
+        <Box sx={{ maxHeight: 200, overflow: 'auto' }}>{text || '(empty)'}</Box>
+    </TableCell>
+)
+
+Value.propTypes = { text: PropTypes.string }
+
+// Field | left | right for one item's changed fields.
+const FieldTable = ({ rows, left, right, leftKey, rightKey }) => (
+    <Table size='small'>
+        <TableHead>
+            <TableRow>
+                <TableCell>Field</TableCell>
+                <TableCell>{left}</TableCell>
+                <TableCell>{right}</TableCell>
+            </TableRow>
+        </TableHead>
+        <TableBody>
+            {rows.map((row) => (
+                <TableRow key={row.field}>
+                    <TableCell sx={{ verticalAlign: 'top' }}>{row.label}</TableCell>
+                    <Value text={row[leftKey]} />
+                    <Value text={row[rightKey]} />
+                </TableRow>
+            ))}
+        </TableBody>
+    </Table>
+)
+
+FieldTable.propTypes = {
+    rows: PropTypes.array.isRequired,
+    left: PropTypes.string,
+    right: PropTypes.string,
+    leftKey: PropTypes.string,
+    rightKey: PropTypes.string
+}
+
+// One change taken without asking: its line, then the changed fields before and after.
+const ChangeItem = ({ entry, side }) => (
+    <Box
+        data-testid={`draft-change-${side}`}
+        sx={{ borderLeft: 2, borderColor: LINE_COLORS[side === 'mine' ? entry.mineChange : entry.theirChange], pl: 1.5 }}
+    >
+        <Typography variant='body2'>
+            {mergeLine(entry, side)}
+            {entry.same ? ' (they made the same change)' : ''}
+        </Typography>
+        {entry.changes?.length ? (
+            <FieldTable rows={entry.changes} left='Before' right={side === 'mine' ? 'Mine' : 'Theirs'} leftKey='before' rightKey='after' />
+        ) : null}
+    </Box>
+)
+
+ChangeItem.propTypes = {
+    entry: PropTypes.object.isRequired,
+    side: PropTypes.oneOf(['mine', 'theirs'])
+}
 
 const ConflictItem = ({ entry, choice, onChoose }) => (
     <Box data-testid='draft-conflict-item' sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
@@ -39,26 +101,7 @@ const ConflictItem = ({ entry, choice, onChoose }) => (
             <FormControlLabel value='mine' control={<Radio size='small' />} label='Keep mine' />
             <FormControlLabel value='theirs' control={<Radio size='small' />} label='Keep theirs' />
         </RadioGroup>
-        {entry.fields?.length ? (
-            <Table size='small'>
-                <TableHead>
-                    <TableRow>
-                        <TableCell>Field</TableCell>
-                        <TableCell>Mine</TableCell>
-                        <TableCell>Theirs</TableCell>
-                    </TableRow>
-                </TableHead>
-                <TableBody>
-                    {entry.fields.map((row) => (
-                        <TableRow key={row.field}>
-                            <TableCell sx={{ verticalAlign: 'top' }}>{row.label}</TableCell>
-                            <TableCell sx={valueSx}>{row.mine || '(empty)'}</TableCell>
-                            <TableCell sx={valueSx}>{row.theirs || '(empty)'}</TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        ) : null}
+        {entry.fields?.length ? <FieldTable rows={entry.fields} left='Mine' right='Theirs' leftKey='mine' rightKey='theirs' /> : null}
     </Box>
 )
 
@@ -67,8 +110,6 @@ ConflictItem.propTypes = {
     choice: PropTypes.oneOf(['mine', 'theirs']),
     onChoose: PropTypes.func
 }
-
-const LINE_COLORS = { added: 'success.main', removed: 'error.main', changed: 'warning.main' }
 
 // The conflict review screen. On a 409 it compares the draft this canvas started from, the open editor and
 // the draft the other person saved. Reload and Save anyway stay as the two ways out. Closing, including
@@ -119,16 +160,26 @@ const DraftConflictDialog = ({ open, conflict, onReload, onSaveAnyway, onApply, 
                             <Typography variant='body2'>{DRAFT_CONFLICT_MERGE_HELP}</Typography>
                             <Typography variant='subtitle2'>Merged from their draft</Typography>
                             {plan.merged.length ? (
-                                <Stack spacing={0.5} data-testid='draft-conflict-merged'>
+                                <Stack spacing={1} data-testid='draft-conflict-merged'>
                                     {plan.merged.map((entry) => (
-                                        <Typography key={conflictKey(entry)} variant='body2' sx={{ color: LINE_COLORS[entry.theirChange] }}>
-                                            {mergeLine(entry, 'theirs')}
-                                        </Typography>
+                                        <ChangeItem key={conflictKey(entry)} entry={entry} side='theirs' />
                                     ))}
                                 </Stack>
                             ) : (
                                 <Typography variant='body2' color='text.secondary'>
                                     Nothing else to merge.
+                                </Typography>
+                            )}
+                            <Typography variant='subtitle2'>Your changes kept</Typography>
+                            {plan.kept.length ? (
+                                <Stack spacing={1} data-testid='draft-conflict-kept'>
+                                    {plan.kept.map((entry) => (
+                                        <ChangeItem key={conflictKey(entry)} entry={entry} side='mine' />
+                                    ))}
+                                </Stack>
+                            ) : (
+                                <Typography variant='body2' color='text.secondary'>
+                                    No unsaved changes of yours outside the list below.
                                 </Typography>
                             )}
                             <Typography variant='subtitle2'>Changed on both sides</Typography>

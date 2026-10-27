@@ -163,4 +163,44 @@ describe('ZZ-TEST-draft merge', () => {
         expect(draftMergePlan(BASE, '{', BASE)).toBeNull()
         expect(applyDraftMerge(null)).toBeNull()
     })
+
+    test('keeping my card that pointed at a card they deleted clears that input, as deleting it on the canvas does', () => {
+        const model = node('m', {})
+        const chain = (inputs) => node('c', inputs)
+        const link = { ...edge('e-mc', 'm', 'c'), targetHandle: 'c-input-model-BaseLanguageModel' }
+        const base = canvas([model, chain({ model: '{{m.data.instance}}', prompt: 'one' })], [link])
+        const mine = canvas([model, chain({ model: '{{m.data.instance}}', prompt: 'mine' })], [link])
+        const theirs = canvas([chain({ model: '', prompt: 'one' })], [])
+        const plan = draftMergePlan(base, mine, theirs)
+        expect(plan.conflicts.map(conflictKey)).toEqual(['node:c'])
+        const out = parse(applyDraftMerge(plan))
+        expect(out.nodes.map((item) => item.id)).toEqual(['c'])
+        expect(out.edges).toEqual([])
+        expect(out.nodes[0].data.inputs.prompt).toBe('mine')
+        expect(JSON.stringify(out.nodes[0].data.inputs)).not.toContain('m.data.instance')
+    })
+
+    test('a long value is shown whole, so a change past its first lines can be read', () => {
+        const long = (end) => `${'x'.repeat(600)}${end}`
+        const mine = canvas([node('a', { temperature: 0.1, prompt: long('mine') }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+        const theirs = canvas(
+            [node('a', { temperature: 0.1, prompt: long('theirs') }), node('b', { prompt: 'hi' })],
+            [edge('e1', 'a', 'b')]
+        )
+        const [conflict] = draftMergePlan(BASE, mine, theirs).conflicts
+        expect(conflict.fields[0].mine).toBe(long('mine'))
+        expect(conflict.fields[0].theirs).toBe(long('theirs'))
+    })
+
+    test('their merged changes and my kept changes each list the changed fields, before and after', () => {
+        const mine = canvas([node('a', { temperature: 0.9 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+        const theirs = canvas([node('a', { temperature: 0.1 }), node('b', { prompt: 'hello' })], [edge('e1', 'a', 'b')])
+        const plan = draftMergePlan(BASE, mine, theirs)
+        expect(plan.merged.map((entry) => entry.changes)).toEqual([
+            [{ field: 'inputs.prompt', label: 'prompt', before: 'hi', after: 'hello' }]
+        ])
+        expect(plan.kept.map((entry) => entry.changes)).toEqual([
+            [{ field: 'inputs.temperature', label: 'temperature', before: '0.1', after: '0.9' }]
+        ])
+    })
 })

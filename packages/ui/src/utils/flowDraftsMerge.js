@@ -8,6 +8,7 @@
 import { parseCanvas } from './flowDrafts'
 import { fieldLabel } from './versionHistory'
 import { CREDENTIAL_INPUT } from './canvasSave'
+import { canvasAfterDelete } from '@/views/canvas/cardActions'
 
 // Data keys that describe the node type or the editor's state, not what someone typed.
 const NOT_CONTENT_DATA = new Set([
@@ -130,8 +131,7 @@ const shown = (text) => {
     } catch {
         value = text
     }
-    const out = typeof value === 'string' ? value : JSON.stringify(value)
-    return out.length > 400 ? `${out.slice(0, 400)}…` : out
+    return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
 // The changed fields of a conflicting item, side by side. When one side removed the item, the rows are
@@ -156,6 +156,19 @@ const fieldRows = (baseItem, mineItem, theirsItem, fieldsOf) => {
         label: fieldLabel(field) || field,
         mine: shown(mine[field]),
         theirs: shown(theirs[field])
+    }))
+}
+
+// What one side changed on an item, compared with the base: the changed fields, before and after.
+const changeRows = (entry, side, fieldsOf) => {
+    const after = side === 'mine' ? entry.mine : entry.theirs
+    const before = entry.base ? fieldsOf(entry.base) : {}
+    const now = after ? fieldsOf(after) : {}
+    return changedFieldNames(before, now).map((field) => ({
+        field,
+        label: fieldLabel(field) || field,
+        before: entry.base ? shown(before[field]) : '',
+        after: after ? shown(now[field]) : REMOVED_CELL
     }))
 }
 
@@ -185,10 +198,14 @@ function mergeItems(kind, baseList, mineList, theirsList, fieldsOf, labelOf) {
         const entry = { kind, id, label, mineChange, theirChange, base: b, mine: m, theirs: t }
         if (!theirChange) {
             entry.take = 'mine'
+            if (mineChange) entry.changes = changeRows(entry, 'mine', fieldsOf)
         } else if (!mineChange) {
             entry.take = 'theirs'
+            entry.changes = changeRows(entry, 'theirs', fieldsOf)
         } else if (m && t && sameFields(fieldsOf(m), fieldsOf(t))) {
             entry.take = 'mine'
+            entry.same = true
+            entry.changes = changeRows(entry, 'mine', fieldsOf)
         } else if (!m && !t) {
             entry.take = 'mine'
         } else {
@@ -266,7 +283,9 @@ export function draftMergePlan(baseText, mineText, theirsText, normalize) {
         items,
         conflicts: items.filter((item) => item.conflict),
         // What their save changed that is taken without asking.
-        merged: items.filter((item) => !item.conflict && item.take === 'theirs' && item.theirChange)
+        merged: items.filter((item) => !item.conflict && item.take === 'theirs' && item.theirChange),
+        // What the open editor changed that they did not touch, or that they changed the same way. Kept as is.
+        kept: items.filter((item) => !item.conflict && item.take === 'mine' && item.mineChange)
     }
 }
 
@@ -297,8 +316,27 @@ export function applyDraftMerge(plan, choices = {}) {
         ends.add(key)
         edges.push(edge)
     }
-    out.nodes = nodes
-    out.edges = edges
+    // The editor's own delete cleanup: a card or connection that is gone after the merge leaves no input
+    // pointing at it, the same as deleting it on the canvas.
+    const goneNodes = []
+    const goneEdges = []
+    const keptEdges = new Set(edges.map((edge) => edge.id))
+    for (const entry of plan.items) {
+        const any = entry.mine || entry.theirs || entry.base
+        if (entry.kind === 'node' && any && !present.has(entry.id)) goneNodes.push(any)
+        if (entry.kind === 'edge' && any && !keptEdges.has(entry.id)) goneEdges.push(any)
+    }
+    const cleaned =
+        goneNodes.length || goneEdges.length
+            ? canvasAfterDelete({
+                  nodes: [...nodes, ...goneNodes],
+                  edges: [...edges, ...goneEdges],
+                  nodeIds: goneNodes.map((node) => node.id),
+                  edgeIds: goneEdges.map((edge) => edge.id)
+              })
+            : { nodes, edges }
+    out.nodes = cleaned.nodes
+    out.edges = cleaned.edges
     return JSON.stringify(out)
 }
 
