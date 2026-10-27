@@ -471,7 +471,11 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
         needsRetest: false
     }
     if (guard.storedCap) stored.rowCap = guard.storedCap
-    let tool = { name: entry.name, description: entry.description || entry.purpose, inputSchema: { type: 'object', properties: {} } }
+    let tool: { name: string; description: string; inputSchema: unknown } = {
+        name: entry.name,
+        description: entry.description || entry.purpose,
+        inputSchema: { type: 'object', properties: {} }
+    }
     try {
         tool = used.pinnedToolDefinition(stored)
     } catch {
