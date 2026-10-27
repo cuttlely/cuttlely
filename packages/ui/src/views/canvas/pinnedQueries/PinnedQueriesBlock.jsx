@@ -24,7 +24,17 @@ import {
 
 // The dialog edits a draft in memory. Test & save is the only write of a tested entry.
 // Remove updates the list on the node and marks the canvas dirty. The flow is not published here.
-export default function PinnedQueriesBlock({ enabled = false, chatflowId, nodeId, pins, nodes, edges, disabled = false, onChange }) {
+export default function PinnedQueriesBlock({
+    enabled = false,
+    chatflowId,
+    nodeId,
+    canvas,
+    pins,
+    nodes,
+    edges,
+    disabled = false,
+    onChange
+}) {
     const list = readPins(pins)
     const [editor, setEditor] = useState(null)
     const [busy, setBusy] = useState(false)
@@ -72,7 +82,11 @@ export default function PinnedQueriesBlock({ enabled = false, chatflowId, nodeId
         try {
             if (current.params.some((param) => !param.type)) {
                 try {
-                    const suggested = await pinnedQueriesApi.suggestPinnedTypes(chatflowId, { nodeId, sql: current.sql })
+                    const suggested = await pinnedQueriesApi.suggestPinnedTypes(chatflowId, {
+                        nodeId,
+                        sql: current.sql,
+                        ...(canvas ? { canvas } : {})
+                    })
                     current = { ...current, params: applySuggestions(current.params, suggested?.data?.params) }
                     setEditor(current)
                 } catch {
@@ -91,7 +105,8 @@ export default function PinnedQueriesBlock({ enabled = false, chatflowId, nodeId
             const response = await pinnedQueriesApi.testPinnedQuery(chatflowId, {
                 nodeId,
                 entry: payload,
-                sampleValues: sampleValuesFrom(current)
+                sampleValues: sampleValuesFrom(current),
+                ...(canvas ? { canvas } : {})
             })
             const tested = response?.data?.entry
             if (!tested) throw new Error('The test did not return a saved query.')
@@ -159,6 +174,7 @@ PinnedQueriesBlock.propTypes = {
     enabled: PropTypes.bool,
     chatflowId: PropTypes.string,
     nodeId: PropTypes.string,
+    canvas: PropTypes.object,
     pins: PropTypes.oneOfType([PropTypes.array, PropTypes.string]),
     nodes: PropTypes.array,
     edges: PropTypes.array,

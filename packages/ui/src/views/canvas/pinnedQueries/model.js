@@ -323,6 +323,15 @@ export function mergeTestedPin(pins, tested) {
     return list
 }
 
+// The node's unsaved credential and guard inputs, so a test checks what Save will store. Never a connection URL.
+export const CANVAS_INPUT_KEYS = ['analystRelations', 'analystAllowedFunctions', 'analystRowCap', 'analystTimeoutSeconds', 'pinnedQueries']
+
+export function canvasFor(data) {
+    const inputs = {}
+    for (const key of CANVAS_INPUT_KEYS) if (data?.inputs?.[key] !== undefined) inputs[key] = data.inputs[key]
+    return { credential: typeof data?.credential === 'string' ? data.credential : '', inputs }
+}
+
 export function needsRetestMark(pin) {
     return Boolean(pin && (pin.needsRetest || pin.columnsChanged))
 }

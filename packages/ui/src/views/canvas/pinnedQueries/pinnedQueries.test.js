@@ -8,6 +8,7 @@ import {
     FREE_SQL_NUDGE,
     addLimit100,
     applySuggestions,
+    canvasFor,
     clearTest,
     mergeTestedPin,
     messageFrom,
@@ -185,4 +186,22 @@ describe('pinned query editor model', () => {
             'refused [hidden]'
         )
     })
+})
+
+test('ZZ-TEST- canvasFor sends the unsaved credential and guard inputs only', () => {
+    const data = {
+        credential: 'cred-zz-test',
+        inputs: {
+            analystRelations: '["demo_sales"]',
+            analystRowCap: '10',
+            pinnedQueries: [],
+            postgresUrl: 'postgres://zz-test.example/demo_sales',
+            mcpActions: ['query']
+        }
+    }
+    expect(canvasFor(data)).toEqual({
+        credential: 'cred-zz-test',
+        inputs: { analystRelations: '["demo_sales"]', analystRowCap: '10', pinnedQueries: [] }
+    })
+    expect(canvasFor({ inputs: {} })).toEqual({ credential: '', inputs: {} })
 })

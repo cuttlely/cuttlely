@@ -80,7 +80,7 @@ import { credentialMarkOptional } from '@/utils/postgresCredentialHint'
 import InputHintDialog from '@/ui-component/dialog/InputHintDialog'
 import { useConfig } from '@/store/context/ConfigContext'
 import PinnedQueriesBlock from './pinnedQueries/PinnedQueriesBlock'
-import { showFreeSql, FREE_SQL_LABEL, readPins } from './pinnedQueries/model'
+import { showFreeSql, FREE_SQL_LABEL, readPins, canvasFor } from './pinnedQueries/model'
 import { FreeSqlNote } from './pinnedQueries/PinnedQueriesView'
 import NvidiaNIMDialog from '@/ui-component/dialog/NvidiaNIMDialog'
 import PromptGeneratorDialog from '@/ui-component/dialog/PromptGeneratorDialog'
@@ -959,6 +959,7 @@ const NodeInputHandler = ({
                                 enabled={pinnedOn}
                                 chatflowId={chatflowId}
                                 nodeId={data.id}
+                                canvas={canvasFor(data)}
                                 pins={readPins(data.inputs?.pinnedQueries)}
                                 nodes={canvasNodes}
                                 edges={canvasEdges}

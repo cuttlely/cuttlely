@@ -50,7 +50,7 @@ Every `:name` in the SQL needs a parameter row, and every parameter row has to a
 
 ### Where it runs
 
-A pin runs only on the PostgreSQL MCP node. The connection is the Postgres URL credential on that node, or `CUTTLELY_POSTGRES_URL` when the node has no credential. The test route and the tool both take that connection from the saved node. A request cannot supply a database URL.
+A pin runs only on the PostgreSQL MCP node. The connection is the Postgres URL credential on that node, or `CUTTLELY_POSTGRES_URL` when the node has no credential. The tool takes that connection from the saved node. The test route takes the credential id from the node as it is on the canvas, so a test checks what Save will store. The credential still loads inside your workspace, and a request cannot supply a database URL.
 
 Pins do not run in Auto mode (`CUTTLELY_ANALYST=auto`, isolated tools). With pins configured in that mode the server returns a clear error and registers no `pq_` tools. They are not run on the isolated store, including when that store has no credential and no `CUTTLELY_POSTGRES_URL`, and they are not ignored.
 
@@ -60,7 +60,7 @@ The credential, the ticked tables and views, and the allowed functions are the n
 
 ## Tested stamp
 
-**Test & save** asks `POST /api/v1/pinned-queries/:chatflowId/test`. A signed-in editor needs the update permission for that kind of flow (`chatflows:update` or `agentflows:update`). An API key needs the same permission, and the harness canvas check for that flow id. The server loads the flow in the caller's workspace. The credential, the ticked tables and views, and the allowed functions come from the open draft when there is one, otherwise from Live.
+**Test & save** asks `POST /api/v1/pinned-queries/:chatflowId/test`. A signed-in editor needs the update permission for that kind of flow (`chatflows:update` or `agentflows:update`). An API key needs the same permission, and the harness canvas check for that flow id. The server loads the flow in the caller's workspace. The node must already be in the open draft (or Live, when there is no draft). The editor sends that node's unsaved credential id, ticked tables and views, allowed functions, row cap, timeout, and pin list in `canvas`; values it does not send come from the draft or Live. The request is refused if `canvas` holds anything else, such as a URL.
 
 The stamp is an HMAC the server computes from the credential encryption key. It covers the workspace, the credential, the statement hash, the parameter spec, the ticked tables and views, the allowed functions, and the columns the test returned. It does not cover the flow id. The server recomputes it when the node starts. If it does not match, the pin is not offered. Hand-editing the flow or pasting a stamp from somewhere else does not make a pin tested.
 
@@ -96,7 +96,7 @@ The pin's statement hash identifies the compiled statement and parameter spec. I
 
 ## Column drift
 
-If the columns that come back differ in name or type from the columns recorded when the pin was tested, the result includes a warning and `columnsChanged`, and the editor marks the pin as needing a re-test. The call is not blocked. A column the statement itself names that is no longer in the table still makes the query fail, as it does for any other statement.
+If the columns that come back differ in name or type from the columns recorded when the pin was tested, the result includes a warning and `columnsChanged`, which say the pin needs a re-test. The editor does not see run results, so it does not mark the pin; re-test the pin in the editor to record the new columns. The editor marks a pin as needing a re-test when its SQL or parameters change after its last test. The call is not blocked. A column the statement itself names that is no longer in the table still makes the query fail, as it does for any other statement.
 
 ## Audit
 
@@ -171,4 +171,4 @@ For `month = 2026-01-01` and `n = 2` the rows are cedar tea 200.00, then linen t
 -   Pins in Auto mode (`CUTTLELY_ANALYST=auto`). The isolated analyst store does not run them, and no `pq_` tools are registered.
 -   A parameter that chooses `LIMIT`, `OFFSET`, `ORDER BY`, a column, or a table.
 -   One shared `pinned_query` tool that takes a name. Each pin is its own tool.
--   Blocking a call because the columns drifted. v1 warns and marks the pin needs re-test.
+-   Blocking a call because the columns drifted. v1 warns in the result that the pin needs a re-test.

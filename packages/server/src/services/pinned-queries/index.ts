@@ -9,6 +9,8 @@ import {
     NormalizedEntry,
     PinnedRequestError,
     BODY_KEYS,
+    CANVAS_INPUT_KEYS,
+    CANVAS_KEYS,
     SUGGEST_KEYS,
     assertExactKeys,
     columnProbeSql,
@@ -238,7 +240,29 @@ async function savedNode(req: Request, used: PinnedDeps): Promise<{ flow: any; n
     if (!node || node?.data?.name !== 'postgreSQLMCP') {
         throw new PinnedRequestError(400, 'Pinned queries run on a PostgreSQL MCP node in this flow.')
     }
-    return { flow, node, workspaceId }
+    return { flow, node: withCanvas(node, (req.body || {}).canvas), workspaceId }
+}
+
+// The editor sends the node's unsaved credential and guard inputs, so a test checks what Save will store. The flow,
+// workspace, permission, and node come from the server first; the credential still loads inside the workspace.
+function withCanvas(node: any, canvas: unknown): any {
+    if (canvas === undefined) return node
+    if (!canvas || typeof canvas !== 'object' || Array.isArray(canvas)) throw new PinnedRequestError(400, CALLER_URL_MESSAGE)
+    assertExactKeys(canvas, CANVAS_KEYS)
+    const { credential, inputs } = canvas as { credential?: unknown; inputs?: unknown }
+    if (credential !== undefined && typeof credential !== 'string') throw new PinnedRequestError(400, CALLER_URL_MESSAGE)
+    if (inputs !== undefined && (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)))
+        throw new PinnedRequestError(400, CALLER_URL_MESSAGE)
+    if (inputs !== undefined) assertExactKeys(inputs, CANVAS_INPUT_KEYS)
+    const data = node.data || {}
+    return {
+        ...node,
+        data: {
+            ...data,
+            credential: credential === undefined ? data.credential : credential,
+            inputs: { ...(data.inputs || {}), ...((inputs as Record<string, unknown>) || {}) }
+        }
+    }
 }
 
 async function connectionFor(node: any, workspaceId: string, used: PinnedDeps): Promise<{ postgresUrl: string; credentialId: string }> {

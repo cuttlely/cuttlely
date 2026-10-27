@@ -320,7 +320,7 @@ describe('pinned query test route', () => {
             .send({ nodeId: 'pg_0', entry: entry(), sampleValues: { region: 'east' }, postgresUrl: CRED_URL })
         expect(refused.status).toBe(400)
         expect(refused.body.message).toBe(
-            'The test uses the connection and guard settings saved on the node. Do not send a URL, credential, or table list.'
+            'The test uses the node on this canvas and its credential. Do not send a connection URL or settings for other nodes.'
         )
         expect(JSON.stringify(refused.body)).not.toContain(CRED_URL)
         expect(calls.query).toHaveLength(0)
@@ -430,6 +430,55 @@ describe('pinned query test route', () => {
         expect(packed).not.toContain('postgres://')
         expect(packed).not.toContain(SAMPLE)
         expect(packed).not.toContain('forged-hash')
+    })
+
+    it('tests the unsaved canvas values for the node', async () => {
+        const res = await request(app())
+            .post(`/api/v1/pinned-queries/${FLOW}/test`)
+            .send({
+                nodeId: 'pg_0',
+                entry: entry(),
+                sampleValues: { region: 'east' },
+                canvas: {
+                    credential: 'cred-demo',
+                    inputs: { analystRelations: JSON.stringify(['demo_sales', 'demo_regions']), analystRowCap: '10', pinnedQueries: [] }
+                }
+            })
+        expect(res.status).toBe(200)
+        expect(calls.flows).toEqual([[FLOW, 'team-a']])
+        expect(calls.creds).toEqual([['cred-demo', 'team-a']])
+        expect(calls.query[0].options.relations).toEqual(['demo_sales', 'demo_regions'])
+        expect(calls.query[0].options.rowCap).toBe(10)
+        expect(calls.query[0].options.allowedFunctions).toBe('public.lower(text)')
+        expect(calls.stampFields[0].relations).toEqual(['demo_sales', 'demo_regions'])
+        // The canvas has no saved copy of this pin yet, so the version is the entry's own.
+        expect(res.body.entry.version).toBe(2)
+
+        const suggest = await request(app())
+            .post(`/api/v1/pinned-queries/${FLOW}/suggest`)
+            .send({
+                nodeId: 'pg_0',
+                sql: 'SELECT id FROM demo_regions WHERE region = :region LIMIT 1',
+                canvas: { inputs: { analystRelations: JSON.stringify(['demo_regions']) } }
+            })
+        expect(suggest.status).toBe(200)
+        expect(calls.query[calls.query.length - 1].options.relations).toEqual(['demo_regions'])
+
+        for (const canvas of [
+            { credential: 'cred-demo', postgresUrl: CRED_URL },
+            { inputs: { postgresUrl: CRED_URL } },
+            { credential: 7 },
+            { inputs: [] },
+            'cred-demo'
+        ]) {
+            const before = calls.query.length
+            const refused = await request(app())
+                .post(`/api/v1/pinned-queries/${FLOW}/test`)
+                .send({ nodeId: 'pg_0', entry: entry(), sampleValues: { region: 'east' }, canvas })
+            expect(refused.status).toBe(400)
+            expect(JSON.stringify(refused.body)).not.toContain(CRED_URL)
+            expect(calls.query).toHaveLength(before)
+        }
     })
 
     it('suggested types', async () => {

@@ -4,8 +4,17 @@
 
 export const PARAM_TYPES = ['text', 'int8', 'numeric', 'date', 'timestamp', 'timestamptz', 'bool'] as const
 
-export const BODY_KEYS = new Set(['nodeId', 'entry', 'sampleValues'])
-export const SUGGEST_KEYS = new Set(['nodeId', 'sql', 'params'])
+export const BODY_KEYS = new Set(['nodeId', 'entry', 'sampleValues', 'canvas'])
+export const SUGGEST_KEYS = new Set(['nodeId', 'sql', 'params', 'canvas'])
+// The editor's unsaved values for the node under test. A connection URL is never accepted.
+export const CANVAS_KEYS = new Set(['credential', 'inputs'])
+export const CANVAS_INPUT_KEYS = new Set([
+    'analystRelations',
+    'analystAllowedFunctions',
+    'analystRowCap',
+    'analystTimeoutSeconds',
+    'pinnedQueries'
+])
 export const ENTRY_KEYS = new Set([
     'id',
     'name',
@@ -26,7 +35,7 @@ export const ENTRY_KEYS = new Set([
 export const PARAM_KEYS = new Set(['name', 'type', 'required', 'default', 'allowedValues', 'min', 'max', 'secure'])
 
 export const CALLER_URL_MESSAGE =
-    'The test uses the connection and guard settings saved on the node. Do not send a URL, credential, or table list.'
+    'The test uses the node on this canvas and its credential. Do not send a connection URL or settings for other nodes.'
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 const TOOL_RE = /^pq_[a-z0-9_]{1,61}$/
