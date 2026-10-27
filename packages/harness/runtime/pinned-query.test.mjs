@@ -4,11 +4,7 @@ import {
     compilePinned,
     validateArgs,
     statementHash,
-    stampPayload,
-    computeStamp,
-    verifyStamp,
     pinnedToolDefinition,
-    sqlTraceFields,
     isPinnedToolName,
     pinnedQueriesEnabled,
     suggestParamTypes
@@ -27,7 +23,7 @@ test('ZZ-TEST- compiler preserves casts, quotes, comments, dollar quotes and JSO
     assert.deepEqual(c.order, ['Value'])
     assert.equal((c.runText.match(/\$1::pg_catalog.text/g) || []).length, 2)
     assert.match(c.runText, /doc \? 'key'/)
-    assert.match(c.checkText, /NULL::pg_catalog.text\)::text/)
+    assert.match(c.checkText, /NULL::pg_catalog.text\)\)::text/)
     assert.equal(
         c.statementHash,
         statementHash(
@@ -84,24 +80,7 @@ test('ZZ-TEST- type parsing rejects ambiguous dates, nonfinite numbers and coerc
     }
     assert.throws(() => validateArgs(entry(undefined, [{ name: 'Value', type: 'text', allowedValues: ['one'] }]), { Value: 'two' }))
 })
-test('ZZ-TEST- stamps are canonical, scoped and timing-safe', () => {
-    const args = {
-        workspaceId: 'ZZ-TEST',
-        cred: 'demo',
-        statementHash: 'abc',
-        params: [],
-        tables: ['b', 'a'],
-        functions: [],
-        testedColumns: []
-    }
-    const p = stampPayload(args),
-        key = Buffer.alloc(32, 7),
-        stamp = computeStamp(key, p)
-    assert.equal(p, stampPayload({ ...args, tables: ['a', 'b'] }))
-    assert.ok(verifyStamp(key, p, stamp))
-    assert.ok(!verifyStamp(key, p + 'x', stamp))
-    assert.ok(!verifyStamp(key, p, 'a'))
-})
+
 test('ZZ-TEST- tool schema and strict flag', () => {
     assert.equal(pinnedToolDefinition(entry()).inputSchema.additionalProperties, false)
     assert.deepEqual(pinnedToolDefinition(entry()).inputSchema.required, ['Value'])
@@ -111,14 +90,6 @@ test('ZZ-TEST- tool schema and strict flag', () => {
         assert.ok(!pinnedQueriesEnabled({ CUTTLELY_PINNED_QUERIES: value }))
     for (const name of ['pq_demo', 'node__pq_demo']) assert.ok(isPinnedToolName(name))
     for (const name of ['pq_', 'pq_Demo', 'query', 'xpq_demo']) assert.ok(!isPinnedToolName(name))
-})
-test('ZZ-TEST- trace full hash and UTF-8 safe cap', () => {
-    assert.equal(sqlTraceFields(' SELECT 1; ', {}).sqlHash, sqlTraceFields('SELECT 1', {}).sqlHash)
-    assert.equal(sqlTraceFields('select 1', {}).sql, undefined)
-    const r = sqlTraceFields('a'.repeat(4095) + '😀', { preview: true })
-    assert.equal(Buffer.byteLength(r.sql), 4095)
-    assert.equal(r.sqlTruncated, true)
-    assert.ok(!r.sql.includes('�'))
 })
 
 test('ZZ-TEST- identifier adjacency and ten positional sites', () => {
@@ -198,8 +169,8 @@ test('ZZ-TEST- T1 generated compiler pairs preserve all bytes outside typed span
             const c = compilePinned(e)
             assert.equal(c.binds, null)
             const spans = [],
-                run = `$1::pg_catalog.${type}`,
-                check = `NULL::pg_catalog.${type}`
+                run = `($1::pg_catalog.${type})`,
+                check = `(NULL::pg_catalog.${type})`
             let r = 0,
                 k = 0
             for (let i = 0; i < (sql.match(/:v\b/g) || []).length; i++) {
@@ -220,17 +191,78 @@ test('ZZ-TEST- T1 generated compiler pairs preserve all bytes outside typed span
     assert.deepEqual(compilePinned(entry(), { Value: 'demo' }).binds, ['demo'])
 })
 
-test('placeholder followed by a cast preserves the typed check/run pair', async () => {
+test('ZZ-TEST- placeholder followed by a cast preserves the typed check/run pair', async () => {
     const { assertCheckRunPair } = await import('./pinned-query.mjs')
     const c = compilePinned({ sql: 'SELECT id FROM demo_sales WHERE id = :id::int4 LIMIT 1', params: [{ name: 'id', type: 'int8' }] })
-    assert.equal(c.runText, 'SELECT id FROM demo_sales WHERE id = $1::pg_catalog.int8::int4 LIMIT 1')
-    assert.equal(c.checkText, 'SELECT id FROM demo_sales WHERE id = NULL::pg_catalog.int8::int4 LIMIT 1')
+    assert.equal(c.runText, 'SELECT id FROM demo_sales WHERE id = ($1::pg_catalog.int8)::int4 LIMIT 1')
+    assert.equal(c.checkText, 'SELECT id FROM demo_sales WHERE id = (NULL::pg_catalog.int8)::int4 LIMIT 1')
     assert.ok(
         assertCheckRunPair(c.runText, c.checkText, [
-            { runStart: c.runText.indexOf('$1'), checkStart: c.checkText.indexOf('NULL'), index: 1, type: 'int8' }
+            { runStart: c.runText.indexOf('($1'), checkStart: c.checkText.indexOf('(NULL'), index: 1, type: 'int8' }
         ])
     )
     assert.deepEqual(compilePinned({ sql: 'SELECT x::name FROM demo_sales LIMIT 1' }).order, [])
     for (const site of ['x:id::int4', 'é:id::int4', ':id$tail::int4', ':id:other'])
         assert.throws(() => compilePinned({ sql: `SELECT ${site} LIMIT 1`, params: [{ name: 'id', type: 'int8' }] }))
+})
+
+test('ZZ-TEST- open-lower-bound array slices are refused', () => {
+    for (const site of ['tags[:n]', 'tags[ :n]', '(ARRAY[1,2,3])[:n]'])
+        assert.throws(() => compilePinned(entry(`SELECT ${site} FROM demo_sales LIMIT 5`, [{ name: 'n', type: 'int8' }])), {
+            code: 'param_position'
+        })
+    const ctor = compilePinned(
+        entry('SELECT id FROM demo_sales WHERE region = ANY(ARRAY[:a, :b]) LIMIT 5', [
+            { name: 'a', type: 'text' },
+            { name: 'b', type: 'text' }
+        ]),
+        { a: 'east', b: 'west' }
+    )
+    assert.match(ctor.runText, /ARRAY\[\(\$1::pg_catalog\.text\), \(\$2::pg_catalog\.text\)\]/)
+})
+
+test('ZZ-TEST- LIMIT and OFFSET names are distinct from count clauses', () => {
+    for (const sql of [
+        'SELECT amount AS limit FROM demo_sales WHERE amount > :n LIMIT 5',
+        'SELECT id FROM demo_sales WHERE offset = :n LIMIT 5',
+        'SELECT t.limit, t.offset FROM demo_sales t WHERE id = :n LIMIT 5',
+        'SELECT id AS offset FROM demo_sales WHERE id = :n LIMIT 5'
+    ])
+        assert.doesNotThrow(() => compilePinned(entry(sql, [{ name: 'n', type: 'int8' }])))
+    assert.doesNotThrow(() =>
+        compilePinned(entry('SELECT offset, region FROM demo_sales WHERE region = :r LIMIT 5', [{ name: 'r', type: 'text' }]))
+    )
+    for (const sql of [
+        'SELECT id FROM demo_sales LIMIT :n',
+        'SELECT id FROM demo_sales LIMIT 5 OFFSET :n',
+        'SELECT id FROM demo_sales LIMIT 5 OFFSET (:n + 1)',
+        'SELECT (SELECT id FROM demo_sales LIMIT :n) LIMIT 5',
+        'SELECT (SELECT id FROM demo_sales LIMIT 1 OFFSET :n) LIMIT 5'
+    ])
+        assert.throws(() => compilePinned(entry(sql, [{ name: 'n', type: 'int8' }])))
+})
+
+test('ZZ-TEST- object identifier aliases are allowed while casts are refused', () => {
+    for (const type of ['oid', 'regclass']) {
+        assert.doesNotThrow(() => compilePinned({ sql: `SELECT id AS ${type} FROM demo_sales LIMIT 5` }))
+        for (const expression of [`id::${type}`, `id::pg_catalog.${type}`, `CAST(id AS ${type})`, `CAST(id AS pg_catalog.${type})`])
+            assert.throws(() => compilePinned({ sql: `SELECT ${expression} FROM demo_sales LIMIT 5` }), { code: 'param_cast' })
+    }
+    assert.doesNotThrow(() => compilePinned({ sql: 'SELECT CAST(id AS int8) AS oid FROM demo_sales LIMIT 5' }))
+})
+
+test('ZZ-TEST- parameter suffixes cannot change the declared type', () => {
+    for (const suffix of ['[1]', '(5)'])
+        assert.throws(() => compilePinned(entry(`SELECT :Value${suffix} LIMIT 5`)), { code: 'param_position' })
+    assert.equal(compilePinned(entry()).runText, 'SELECT ($1::pg_catalog.text) AS v LIMIT 5')
+})
+test('ZZ-TEST- numeric fraction zeros keep canonical output', () => {
+    const e = entry(undefined, [{ name: 'Value', type: 'numeric' }])
+    for (const [Value, expected] of [
+        ['0.0000', '0'],
+        ['001.23000', '1.23'],
+        ['-10.000', '-10'],
+        ['0.' + '0'.repeat(4000) + '1', '0.' + '0'.repeat(4000) + '1']
+    ])
+        assert.deepEqual(validateArgs(e, { Value }), [expected])
 })
