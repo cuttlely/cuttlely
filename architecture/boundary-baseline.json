@@ -1861,6 +1861,11 @@
             "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
         },
         {
+            "from": "packages/ui/src/views/harnesses/harnessListParity.test.js",
+            "to": "packages/ui/src/utils/flowCategoryPermission.js",
+            "reason": "The Agent Team list and the Chatflows list menu share the Update Category permission so the two lists gate tagging the same way"
+        },
+        {
             "from": "packages/ui/src/views/harnesses/HarnessSchedule.jsx",
             "to": "packages/ui/src/hooks/useAuth.jsx",
             "reason": "The harness scheduler logs each due time with the shared server logger, and the Schedule card uses the shared permission button and role check like the harness page beside it."
@@ -1919,6 +1924,11 @@
             "from": "packages/ui/src/views/harnesses/index.jsx",
             "to": "packages/ui/src/ui-component/table/FlowListTable.jsx",
             "reason": "The Agent Team list reuses the Chatflows list table, tag dialog and error context so both lists behave the same"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/utils/flowCategoryPermission.js",
+            "reason": "The Agent Team list and the Chatflows list menu share the Update Category permission so the two lists gate tagging the same way"
         },
         {
             "from": "packages/ui/src/views/notfound/index.jsx",
@@ -3382,6 +3392,10 @@
         {
             "path": "packages/ui/src/utils/chatArtifacts.test.js",
             "reason": "tests for chatArtifacts.js, which is inherited"
+        },
+        {
+            "path": "packages/ui/src/utils/flowCategoryPermission.js",
+            "reason": "The Agent Team list and the Chatflows list menu share the Update Category permission so the two lists gate tagging the same way"
         },
         {
             "path": "packages/ui/src/utils/migrationScan.test.js",
