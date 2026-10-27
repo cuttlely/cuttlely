@@ -513,6 +513,32 @@ describe('analyst guard differential corpus', () => {
         }))
         await differential(state, statements, configs, t)
     })
+    it('preserves refusal text after rollback and page batching changes', async (t) => {
+        if (!state.url) return t.skip('Local Postgres admin is unavailable')
+        const config = configurations[1]
+        for (const sql of [
+            `INSERT INTO ${schema}.orders(id) VALUES (999)`,
+            `CREATE TABLE ${schema}.forbidden(id int)`,
+            'SELECT pg_sleep(0) LIMIT 1',
+            'SELECT * FROM pg_catalog.pg_authid LIMIT 1'
+        ]) {
+            const old = await decision(state.url, sql, config, true)
+            assert.equal(old.ok, false)
+            assert.deepEqual(await decision(state.url, sql, config, false), old)
+        }
+        for (const check of ["VALUE <> 'pg_class'::regclass::oid", `${schema}.bump() > 0`]) {
+            await state.owner.query(`CREATE DOMAIN ${schema}.rt_risky AS oid CHECK (${check})`)
+            try {
+                const sql = `SELECT id FROM ${schema}.orders LIMIT 1`
+                const old = await decision(state.url, sql, config, true)
+                assert.equal(old.ok, false)
+                assert.deepEqual(await decision(state.url, sql, config, false), old)
+            } finally {
+                await state.owner.query(`DROP DOMAIN ${schema}.rt_risky`)
+            }
+        }
+        await noEffects(state)
+    })
     it('reduces round trips in every configuration', async (t) => {
         if (!state.url) return t.skip('Local Postgres admin is unavailable')
         for (const config of configurations) {
@@ -698,7 +724,7 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
             setGuardLegacyRoundTripsForTests(false)
             Client.prototype.query = async function (...args) {
                 const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
-                if (/^BEGIN/.test(text)) begins++
+                if (text.split(/\n;\n|; /).some((part) => /^BEGIN/.test(part))) begins++
                 // CREATE TEMP VIEW parses the statement without executing it during the check transaction.
                 const user = !/^CREATE TEMP VIEW/.test(text) && text.includes(statement)
                 const parts = text.split('\n;\n')
@@ -845,7 +871,7 @@ describe('analyst guard sends every catalog lookup', () => {
                 captureReads(reads, () => transaction)
                 Client.prototype.query = function (...args) {
                     const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
-                    if (text.startsWith('BEGIN')) transaction++
+                    if (text.split(/\n;\n|; /).some((part) => part.startsWith('BEGIN'))) transaction++
                     texts.push(typeof args[0] === 'string' ? args[0] : args[0]?.text || '')
                     return original.apply(this, args)
                 }
@@ -950,7 +976,7 @@ describe('analyst guard sends every catalog lookup', () => {
                     captureReads(reads, () => transaction)
                     Client.prototype.query = function (...args) {
                         const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
-                        if (text.startsWith('BEGIN')) transaction++
+                        if (text.split(/\n;\n|; /).some((part) => part.startsWith('BEGIN'))) transaction++
                         texts.push(typeof args[0] === 'string' ? args[0] : args[0]?.text || '')
                         return original.apply(this, args)
                     }
@@ -1075,12 +1101,15 @@ describe('analyst guard catalog batch failures', () => {
     const statement = `SELECT o.id FROM ${schema}.orders o JOIN ${schema}.customers c ON c.id = o.customer_id ORDER BY o.id LIMIT 50`
     const options = { readOnlySql: true, relations: selection, allowedFunctions: allowlist, rowCap: 50 }
     const batches = [
-        { name: 'B2', match: (text) => text.startsWith('SELECT DISTINCT format_type') },
-        { name: 'B3', match: (text) => text.startsWith('SELECT c.oid::int8 AS oid, c.relkind AS kind') },
-        { name: 'B4', match: (text) => text.startsWith('BEGIN TRANSACTION READ ONLY') },
+        { name: 'B2', match: (text) => text.split('\n;\n').some((part) => part.startsWith('SELECT DISTINCT format_type')) },
+        {
+            name: 'B3',
+            match: (text) => text.split('\n;\n').some((part) => part.startsWith('SELECT c.oid::int8 AS oid, c.relkind AS kind'))
+        },
+        { name: 'B4', match: (text) => text.split('\n;\n').some((part) => part.startsWith('BEGIN TRANSACTION READ ONLY')) },
         {
             name: 'B5',
-            match: (text) => text.startsWith("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)\n;\nSELECT md5"),
+            match: (text) => text.includes("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)\n;\nSELECT md5"),
             post: true
         }
     ]
@@ -1207,9 +1236,13 @@ describe('analyst guard benchmark catalog shape', () => {
         const timings = []
         const original = Client.prototype.query
         const calls = []
-        Client.prototype.query = function (...args) {
+        let transactionStatus
+        Client.prototype.query = async function (...args) {
             calls.push(typeof args[0] === 'string' ? args[0] : args[0]?.text || '')
-            return original.apply(this, args)
+            this.connection.once('readyForQuery', (message) => {
+                transactionStatus = message.status
+            })
+            return await original.apply(this, args)
         }
         try {
             await withAnalystScope(
@@ -1228,7 +1261,8 @@ describe('analyst guard benchmark catalog shape', () => {
         t.diagnostic(`19 selections, 5 CHECK domains: ${calls.length} round trips`)
         assert.equal(calls.length, timings[0].roundTrips)
         assert.ok(calls.length <= 20, calls.map((text, i) => `${i + 1}: ${text.slice(0, 100)}`).join('\n'))
-        assert.equal(calls.at(-1), 'ROLLBACK', 'Final rollback remains a standalone query')
+        assert.match(calls.at(-1), /SELECT md5[\s\S]*\n;\nROLLBACK$/, 'Final rollback ends the stamp batch')
+        assert.equal(transactionStatus, 'I', 'The final stamp batch leaves no open transaction')
         const create = calls.find((text) => text.startsWith('CREATE TEMP VIEW'))
         assert.ok(create && !create.includes('\n;\n'))
         await noEffects(state)
@@ -1253,7 +1287,9 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
         if (sql.startsWith('SELECT md5')) return [{ stamp: 'stable' }]
         if (sql.startsWith('WITH req AS MATERIALIZED')) {
             const requested = ['96', '65', '16', '23']
-            return /p.provolatile AS volatility/.test(sql)
+            return /ty.typname AS typname/.test(sql)
+                ? [{ requested, oid: '23', name: 'integer', typname: 'int4', typtype: 'b', schema: 'pg_catalog', foreign_io: [] }]
+                : /p.provolatile AS volatility/.test(sql)
                 ? [{ requested, oid: '65', name: 'int4eq', schema: 'pg_catalog', volatility: 'i' }]
                 : [{ requested, oid: '96', schema: 'pg_catalog', code: '65' }]
         }
@@ -1286,7 +1322,7 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
         if (sql.startsWith('SELECT o.oid::int8 AS oid')) return [{ oid: '96', schema: 'pg_catalog', code: '65' }]
         if (sql.startsWith('SELECT p.oid::int8 AS oid, p.proname AS name'))
             return [{ oid: '65', name: 'int4eq', schema: 'pg_catalog', volatility: 'i' }]
-        if (/^WITH RECURSIVE t\(oid\)/.test(sql))
+        if (/^WITH RECURSIVE t\(oid\)/.test(sql) || sql.startsWith('SELECT ty.oid::int8 AS oid'))
             return [{ oid: '23', name: 'integer', typname: 'int4', typtype: 'b', schema: 'pg_catalog', foreign_io: [] }]
         if (sql.startsWith("SELECT 'regconfig'")) return [{ regconfig: '3734', regdictionary: '3769' }]
         if (isAllowlistLookup(sql)) return [{ oid: '501' }]
@@ -1305,7 +1341,7 @@ async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
     Client.prototype.query = async function (query, params) {
         const text = typeof query === 'string' ? query : query.text
         calls.push({ text, named: typeof query === 'object' && Boolean(query.name) })
-        if (text.startsWith('BEGIN')) transaction++
+        if (text.split(/\n;\n|; /).some((part) => part.startsWith('BEGIN'))) transaction++
         const parts = text.split(text.includes('\n;\n') ? '\n;\n' : text.startsWith('BEGIN') ? '; ' : /$^/)
         const results = parts.map((sql) => ({ rows: rows(sql, params) }))
         return results.length === 1 ? results[0] : results
@@ -1337,7 +1373,7 @@ describe('analyst guard transaction orchestration (offline)', () => {
                             const result = await decision('postgresql://127.0.0.1:55440/mock', statement, options, legacy)
                             assert.equal(result.ok, true, result.message)
                             captures.push(catalogLookups(reads))
-                            assert.equal(calls.at(-1).text, 'ROLLBACK')
+                            assert.equal(calls.at(-1).text.split('\n;\n').at(-1), 'ROLLBACK')
                             const creates = calls.filter(({ text }) => text.startsWith('CREATE TEMP VIEW'))
                             assert.equal(creates.length, 1)
                             assert.equal(creates[0].named, true)
@@ -1352,7 +1388,7 @@ describe('analyst guard transaction orchestration (offline)', () => {
                                     // Policy locks remain a separate error boundary before definition reads.
                                     const definitionBatch = calls.findIndex(
                                         ({ text }) =>
-                                            text.startsWith('SELECT DISTINCT format_type') &&
+                                            text.split('\n;\n').some((part) => part.startsWith('SELECT DISTINCT format_type')) &&
                                             !text.includes('WITH ORDINALITY') &&
                                             !text.includes('regconfigin')
                                     )
@@ -1426,10 +1462,10 @@ describe('analyst guard broader callers (offline)', () => {
 
 describe('analyst guard failure orchestration (offline)', () => {
     const batchMatchers = {
-        B2: (text) => text.startsWith('SELECT DISTINCT format_type'),
-        B3: (text) => text.startsWith('SELECT c.oid::int8 AS oid, c.relkind AS kind'),
-        B4: (text) => text.startsWith('BEGIN TRANSACTION READ ONLY'),
-        B5: (text) => text.startsWith("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)\n;\nSELECT md5")
+        B2: (text) => text.split('\n;\n').some((part) => part.startsWith('SELECT DISTINCT format_type')),
+        B3: (text) => text.split('\n;\n').some((part) => part.startsWith('SELECT c.oid::int8 AS oid, c.relkind AS kind')),
+        B4: (text) => text.split('\n;\n').some((part) => part.startsWith('BEGIN TRANSACTION READ ONLY')),
+        B5: (text) => text.includes("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)\n;\nSELECT md5")
     }
     for (const [batch, match] of Object.entries(batchMatchers))
         for (const short of [true, false])

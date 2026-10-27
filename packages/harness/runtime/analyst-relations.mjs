@@ -2066,6 +2066,14 @@ SELECT ty.oid::int8 AS oid, format_type(ty.oid, NULL) AS name, ty.typname AS typ
                AND pn.nspname <> 'pg_catalog') AS foreign_io
 FROM t JOIN pg_type ty ON ty.oid = t.oid JOIN pg_namespace tn ON tn.oid = ty.typnamespace`
 
+// riskyDomains tests only the root ids it asks for, so it needs only the root rows; filterable by oid.
+const DOMAIN_TYPES_SQL = `SELECT ty.oid::int8 AS oid, format_type(ty.oid, NULL) AS name, ty.typname AS typname, ty.typtype AS typtype,
+       tn.nspname AS schema,
+       ARRAY(SELECT pn.nspname || '.' || p.proname FROM pg_proc p JOIN pg_namespace pn ON pn.oid = p.pronamespace
+             WHERE p.oid IN (ty.typinput, ty.typoutput, ty.typreceive, ty.typsend, ty.typmodin, ty.typmodout)
+               AND pn.nspname <> 'pg_catalog') AS foreign_io
+FROM pg_type ty JOIN pg_namespace tn ON tn.oid = ty.typnamespace WHERE ty.oid = ANY(?::oid[])`
+
 const ALL_DOMAIN_CHECKS_SQL = `SELECT c.contypid::int8 AS domain_oid,
        quote_ident(n.nspname) || '.' || quote_ident(t.typname) AS domain, c.conbin::text AS tree,
        ARRAY(SELECT d.refobjid::int8 FROM pg_depend d
@@ -2099,7 +2107,7 @@ function domainSuperset(sql, routines = false) {
 }
 
 async function idRows(runner, sql, ids) {
-    // A closure cannot be filtered by root: domain types always take the exact real read.
+    // Recursive closures cannot be filtered by root. Root domain rows can use a covered superset.
     const entry = runner.batchedGuard && sql !== TYPE_CLOSURE_SQL ? runner.takeSuperset?.(sql) : null
     if (entry && [...ids].every((id) => entry.requested.has(Number(id)))) {
         runner.logicalRead?.(sql, [[...ids]])
@@ -2117,6 +2125,7 @@ export function guardCheckReads({ names = [], readOnlySql = false } = {}) {
         { sql: ALL_DOMAIN_CHECKS_SQL },
         domainSuperset(OPERATORS_SQL),
         domainSuperset(ROUTINES_SQL, true),
+        domainSuperset(DOMAIN_TYPES_SQL),
         { sql: REG_TSEARCH_TYPES_SQL },
         { sql: REG_TSEARCH_FUNCTIONS_SQL, params: [TEXT_SEARCH_FUNCTIONS] },
         { sql: REG_TSEARCH_IO_SQL, params: [['regconfigin', 'regconfigout', 'regdictionaryin', 'regdictionaryout']] }
@@ -2129,6 +2138,7 @@ export function guardDefinitionReads(checked) {
         { sql: ALL_DOMAIN_CHECKS_SQL },
         domainSuperset(OPERATORS_SQL),
         domainSuperset(ROUTINES_SQL, true),
+        domainSuperset(DOMAIN_TYPES_SQL),
         ...(checked.bodies.size ? [{ sql: RELATION_BODIES_SQL, params: [[...checked.bodies.keys()]] }] : []),
         { sql: ROUTINE_STAMP_SQL }
     ]
@@ -2173,7 +2183,7 @@ async function riskyDomains(runner, cacheKey = '') {
     const typeIds = new Set(trees.flatMap(({ ids }) => [...ids.types]))
     const badTypes = new Set()
     if (typeIds.size) {
-        for (const type of await idRows(runner, TYPE_CLOSURE_SQL, typeIds)) {
+        for (const type of await idRows(runner, DOMAIN_TYPES_SQL, typeIds)) {
             const denied = type.schema === 'pg_catalog' && DENIED_TYPES.has(type.typname)
             if (denied || (type.foreign_io || []).length) badTypes.add(Number(type.oid))
         }

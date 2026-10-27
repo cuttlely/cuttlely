@@ -1251,6 +1251,8 @@ async function planSelect(runner, engine, statement) {
     if (!simple) return { mode: 'offset', statement, engine }
     let columns = []
     let tie = null
+    const previousSwallowedStep = runner.swallowedStep
+    runner.swallowedStep = true
     try {
         if (engine === 'sqlite') {
             columns = await sqliteColumns(runner, simple.table)
@@ -1261,6 +1263,8 @@ async function planSelect(runner, engine, statement) {
         }
     } catch {
         return { mode: 'offset', statement, simple, engine }
+    } finally {
+        runner.swallowedStep = previousSwallowedStep
     }
     const keys = tie ? safeOrderKeys(simple.orders, columns, tie) : null
     if (!keys) return { mode: 'offset', statement, simple, engine }
@@ -1293,14 +1297,19 @@ async function countResult(runner, statement, binds = []) {
 // A keyset plan is one row per base-table row, so the filtered table count is
 // the result count. Anything else is counted from the statement itself.
 async function countPlan(runner, plan) {
-    return timeStep(
-        runner,
-        'count',
-        () => (plan?.simple ? countSimple(runner, plan.simple) : countResult(runner, plan?.statement, plan?.binds)),
-        {
-            run: true
-        }
-    )
+    // Count helpers return null on failure; preserve their transaction recovery just like probes.
+    const previousSwallowedStep = runner.swallowedStep
+    runner.swallowedStep = true
+    try {
+        return await timeStep(
+            runner,
+            'count',
+            () => (plan?.simple ? countSimple(runner, plan.simple) : countResult(runner, plan?.statement, plan?.binds)),
+            { run: true }
+        )
+    } finally {
+        runner.swallowedStep = previousSwallowedStep
+    }
 }
 
 function pageStartOffset(paging, pageSize) {
@@ -1480,6 +1489,7 @@ async function measureResultWalk(runner, plan, columnNames, total) {
     }
     const engine = plan.engine === 'postgres' ? 'postgres' : plan.engine === 'sqlite' ? 'sqlite' : null
     if (!engine) return null
+    runner.swallowedStep = true
     try {
         const columnTypes =
             engine === 'postgres'
@@ -1500,6 +1510,8 @@ async function measureResultWalk(runner, plan, columnNames, total) {
         return lengths
     } catch {
         return null
+    } finally {
+        runner.swallowedStep = false
     }
 }
 
@@ -1603,6 +1615,10 @@ export function postgresRunner(client, { transaction = false } = {}) {
         },
         async prefetch(entries) {
             if (!entries.length) return
+            // Path restoration may have restored the login JIT setting. Each catalog batch pins it
+            // again, except BEGIN batches which capture the login setting before disabling JIT.
+            if (this.catalogJitOff && !entries.some((entry) => /^BEGIN/.test(entry.exec || '')))
+                entries = [{ exec: 'SET LOCAL jit = off' }, ...entries]
             // Newline before the separator terminates SQL constants' trailing line comments.
             const text = entries.map((entry) => entry.exec ?? inlineParams(client, entry.sql, entry.params || [])).join('\n;\n')
             const result = await client.query(text)
@@ -1652,7 +1668,8 @@ export function postgresRunner(client, { transaction = false } = {}) {
             }
             const bound = pgPlaceholders(sql, params, binds.length)
             if (binds.length) bound.params = [...binds, ...bound.params]
-            if (!transaction) {
+            // Page errors leave the call immediately. Counts and optional probes need recovery.
+            if (!transaction || (this.statementReads && !this.swallowedStep && !this.legacyRoundTrips)) {
                 const result = await client.query(bound.sql, bound.params)
                 return result.rows || []
             }
@@ -2178,29 +2195,33 @@ async function runUrlPostgres(
     const runner = postgresRunner(client, { transaction: true })
     const legacy = guardLegacyRoundTrips
     const guard = legacy ? runner : postgresRunner(client)
-    // Only the node guard opts into catalog batching; the page runner keeps its existing behavior.
+    // Catalog predictions and page reads have separate runners and error boundaries.
     if (!legacy) guard.batchedGuard = true
+    guard.catalogJitOff = readOnlySql
     runner.legacyRoundTrips = legacy
     guard.legacyRoundTrips = legacy
     runner.timer = guard.timer = timer
     // Only the node's own setting, passed by the node from the saved flow; never the tool input.
     if (readOnlySql) runner.allowedFunctions = guard.allowedFunctions = parseAllowedFunctions(allowedFunctions)
     let selected = []
+    let loginJit = 'on'
     const setStatementPath = (path) => {
         runner.statementSearchPath = guard.statementSearchPath = path.trim() ? `pg_catalog, ${path}` : 'pg_catalog'
-        guard.statementPathSql = `SELECT pg_catalog.set_config('search_path', ${client.escapeLiteral(guard.statementSearchPath)}, true)`
+        guard.statementPathSql = `SELECT pg_catalog.set_config('search_path', ${client.escapeLiteral(
+            guard.statementSearchPath
+        )}, true), pg_catalog.set_config('jit', ${client.escapeLiteral(loginJit)}, true)`
     }
     const statementPath = async () => {
         if (guard.batchedGuard && guard.pathSetByBatch) {
             guard.pathSetByBatch = false
             return
         }
-        if (runner.statementSearchPath)
-            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
+        if (runner.statementSearchPath) await client.query(guard.statementPathSql)
     }
     const catalogPath = async () => {
         if (runner.statementSearchPath) await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
     }
+    let carryRollback = false
     const rollback = async () => {
         guard.clearPrefetch?.()
         try {
@@ -2214,15 +2235,20 @@ async function runUrlPostgres(
         guard.clearPrefetch?.()
         const settings = [readOnly ? 'BEGIN TRANSACTION READ ONLY' : 'BEGIN', `SET LOCAL statement_timeout = ${ms}`]
         settings.push('SET LOCAL standard_conforming_strings = on')
+        // Keep the check transaction's release before the query transaction's BEGIN.
+        if (guard.batchedGuard && carryRollback) settings.unshift('ROLLBACK')
+        carryRollback = false
         if (!guard.batchedGuard) {
-            if (readOnlySql) settings.push("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+            if (readOnlySql) settings.push('SET LOCAL jit = off', "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
             await client.query(settings.join('; '))
             return
         }
         // B1 reads the login's path before pinning catalog lookup. The pid is the same session pid that
         // legacy reads at the end of the check transaction; the comparison itself is unchanged.
         const reads = settings.map((exec) => ({ exec }))
-        if (readOnlySql && !runner.statementSearchPath) reads.push({ sql: "SELECT pg_catalog.current_setting('search_path') AS p" })
+        if (readOnlySql && !runner.statementSearchPath)
+            reads.push({ sql: "SELECT pg_catalog.current_setting('search_path') AS p, pg_catalog.current_setting('jit') AS jit" })
+        if (readOnlySql) reads.push({ exec: 'SET LOCAL jit = off' })
         if (readOnlySql) reads.push({ exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" })
         if (readOnly) reads.push({ sql: 'SHOW transaction_read_only' })
         reads.push({ sql: 'SELECT pg_backend_pid() AS pid' })
@@ -2247,8 +2273,11 @@ async function runUrlPostgres(
         await guard.prefetch(reads)
         if (readOnly && scoped) guard.locksSetByBatch = true
         if (guard.statementPathSql && reads.at(-1)?.exec === guard.statementPathSql) guard.pathSetByBatch = true
-        if (!readOnly && readOnlySql)
-            setStatementPath(String((await guard.get("SELECT pg_catalog.current_setting('search_path') AS p"))?.p || ''))
+        if (!readOnly && readOnlySql) {
+            const login = await guard.get("SELECT pg_catalog.current_setting('search_path') AS p, pg_catalog.current_setting('jit') AS jit")
+            loginJit = login?.jit || 'on'
+            setStatementPath(String(login?.p || ''))
+        }
     }
     const preparse = async () => {
         if (!guard.batchedGuard) return
@@ -2285,11 +2314,16 @@ async function runUrlPostgres(
             : String((await guard.get('SELECT pg_backend_pid() AS pid'))?.pid ?? '')
     let checkedBackend = ''
     let checked = null
+    let checkOk = false
+    let finalRolledBack = false
     try {
         await timeStep(runner, 'connect', () => client.connect())
         if (!guard.batchedGuard && readOnlySql) {
-            const path = (await client.query("SELECT pg_catalog.current_setting('search_path') AS p")).rows?.[0]?.p || ''
-            setStatementPath(path)
+            const login = (
+                await client.query("SELECT pg_catalog.current_setting('search_path') AS p, pg_catalog.current_setting('jit') AS jit")
+            ).rows?.[0]
+            loginJit = login?.jit || 'on'
+            setStatementPath(login?.p || '')
         }
         if (scoped) {
             await begin(false)
@@ -2309,10 +2343,14 @@ async function runUrlPostgres(
                     }
                 )
                 checkedBackend = await backend()
+                checkOk = true
             } catch (error) {
                 throw await hinted(error)
             } finally {
-                await rollback()
+                if (checkOk && guard.batchedGuard && !checkGapHookForTests) {
+                    guard.clearPrefetch?.()
+                    carryRollback = true
+                } else await rollback()
             }
         } else if (readOnlySql) {
             // No selection: the node still resolves every called function through the catalog first, on every page.
@@ -2323,10 +2361,14 @@ async function runUrlPostgres(
                 // No cache key: the node's catalog scans run fresh before every parse.
                 checked = await checkStatementRoutines(client, guard, text, isRowQuery, '')
                 checkedBackend = await backend()
+                checkOk = true
             } catch (error) {
                 throw await hinted(error)
             } finally {
-                await rollback()
+                if (checkOk && guard.batchedGuard && !checkGapHookForTests) {
+                    guard.clearPrefetch?.()
+                    carryRollback = true
+                } else await rollback()
             }
         }
         if (checkGapHookForTests) await checkGapHookForTests()
@@ -2346,6 +2388,7 @@ async function runUrlPostgres(
             const pageCursor = replay?.paging?.cursor
             const cursorBefore = pageCursor ? pageCursors.get(pageCursor) : undefined
             await statementPath()
+            runner.statementReads = true
             runner.pinnedChecksComplete = Boolean(readOnlySql && checked)
             runner.checkedRunSql = statement
             const result = suggestTypesSql
@@ -2364,8 +2407,12 @@ async function runUrlPostgres(
                         ...(runner.statementSearchPath
                             ? [{ exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" }]
                             : []),
-                        { sql: ROUTINE_STAMP_SQL }
+                        { sql: ROUTINE_STAMP_SQL },
+                        { exec: 'ROLLBACK' }
                     ])
+                    .then(() => {
+                        finalRolledBack = true
+                    })
                     .catch(() => {
                         guard.postStampFailed = true
                     })
@@ -2387,7 +2434,8 @@ async function runUrlPostgres(
         const outcome = analystErrorOutcome(error)
         throw new AnalystToolError(scrub(error, urlSecrets(postgresUrl)).message, outcome)
     } finally {
-        await rollback()
+        if (!finalRolledBack) await rollback()
+        else guard.clearPrefetch?.()
         await client.end().catch(() => {})
         recordQueryTimings(timer)
     }
