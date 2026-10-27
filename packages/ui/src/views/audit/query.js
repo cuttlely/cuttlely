@@ -10,7 +10,8 @@ export const AUDIT_TYPES = [
     { value: 'setting_change', label: 'Settings changed' },
     { value: 'harness_run', label: 'Harness run from the API' },
     { value: 'harness_access', label: 'API key harness access' },
-    { value: 'harness_schedule', label: 'Harness schedule' }
+    { value: 'harness_schedule', label: 'Harness schedule' },
+    { value: 'pinned_query_change', label: 'Pinned query change' }
 ]
 
 export function auditParams({ type, user, cursor } = {}) {
