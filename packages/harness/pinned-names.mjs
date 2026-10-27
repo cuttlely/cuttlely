@@ -16,12 +16,20 @@ export const PINNED_QUERY_GUIDANCE =
 
 export const pinnedQueriesEnabled = (env = process.env) => env?.CUTTLELY_PINNED_QUERIES === '1' || env?.CUTTLELY_PINNED_QUERIES === 'true'
 
+const PINNED_TAIL_CHAR = /[a-z0-9_]/
+
+// Same answer as PINNED_TOOL_RE.test(name), in one pass, so a long hostile name cannot make it slow.
 export function isPinnedToolName(name) {
-    return PINNED_TOOL_RE.test(
-        String(name || '')
-            .trim()
-            .toLowerCase()
-    )
+    const text = String(name || '')
+        .trim()
+        .toLowerCase()
+    let tail = text.length
+    while (tail > 0 && PINNED_TAIL_CHAR.test(text[tail - 1])) tail--
+    // A match needs `pq_` (at the start, or right after `__`) followed only by tail characters, at least one.
+    if (tail === 0 && text.length > PINNED_PREFIX.length && text.startsWith(PINNED_PREFIX)) return true
+    const marker = '__' + PINNED_PREFIX
+    const at = text.indexOf(marker, Math.max(0, tail - marker.length))
+    return at !== -1 && at + marker.length < text.length
 }
 
 export function validPinnedQueryName(name) {
