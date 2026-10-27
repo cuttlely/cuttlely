@@ -3280,6 +3280,14 @@
             "reason": "1 MB JSON parsers for A2A, Orchestrate, and MCP skip the global file-size parser"
         },
         {
+            "path": "packages/server/src/utils/importEsm.test.ts",
+            "reason": "pinned query native import helper, its compiled-output test, and the Test & save lock test"
+        },
+        {
+            "path": "packages/server/src/utils/importEsm.ts",
+            "reason": "pinned query native import helper, its compiled-output test, and the Test & save lock test"
+        },
+        {
             "path": "packages/server/src/utils/missingModelCredential.prediction.test.ts",
             "reason": "The missing-credential HTTP test stays next to the prediction error path it exercises."
         },
@@ -3370,6 +3378,10 @@
         {
             "path": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesBlock.jsx",
             "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "path": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesBlock.test.js",
+            "reason": "pinned query native import helper, its compiled-output test, and the Test & save lock test"
         },
         {
             "path": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesView.jsx",
