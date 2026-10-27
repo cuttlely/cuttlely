@@ -122,6 +122,137 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
         const compiled = compilePinned(entry)
         const pin = { id: entry.id, version: 1, statementHash: compiled.statementHash, tool: entry.name }
         const bound = { ...options, pinned: { entry, args: { r: 'EU' }, tool: entry.name } }
+        await t.test('guard round trips stay fixed for pinned tables, views, functions and pages', async (st) => {
+            await setup.query(`CREATE TABLE rt_orders AS SELECT id::int, region, amount FROM demo_sales;
+                CREATE VIEW rt_v1 AS SELECT * FROM rt_orders;
+                CREATE VIEW rt_v2 AS SELECT * FROM rt_v1;
+                CREATE FUNCTION rt_double(numeric) RETURNS numeric LANGUAGE sql IMMUTABLE AS 'SELECT $1 * 2'`)
+            try {
+                for (const [name, table, expression, rowCap, expected] of [
+                    ['basic', 'rt_orders', 'amount', 50, 10],
+                    ['view', 'rt_v2', 'amount', 50, 12],
+                    ['function', 'rt_orders', 'public.rt_double(amount)', 50, 10],
+                    ['multi-page', 'rt_orders', 'amount', 10, 19]
+                ]) {
+                    const timings = []
+                    const e = { ...entry, sql: `SELECT id, ${expression} FROM public.${table} WHERE region=:r ORDER BY id LIMIT 20` }
+                    await withAnalystScope(
+                        'rt-count',
+                        () =>
+                            queryAnalystUrl(url, null, {
+                                ...options,
+                                rowCap,
+                                relations: ['public.rt_orders', 'public.rt_v1', 'public.rt_v2'],
+                                allowedFunctions: 'public.rt_double(numeric)',
+                                pinned: { entry: e, args: { r: 'EU' }, tool: e.name }
+                            }),
+                        { timings }
+                    )
+                    assert.equal(timings[0].roundTrips, expected, name)
+                    st.diagnostic(`${name}: ${timings[0].roundTrips}`)
+                }
+            } finally {
+                await setup.query('DROP VIEW rt_v2; DROP VIEW rt_v1; DROP TABLE rt_orders; DROP FUNCTION rt_double(numeric)')
+            }
+        })
+        await t.test('catalog batches disable JIT and user statements retain the login setting', async () => {
+            const original = pg.Client.prototype.query
+            const observed = []
+            pg.Client.prototype.query = async function (...args) {
+                if (typeof args[0] !== 'string' || !args[0].includes('\n;\n')) return original.apply(this, args)
+                const parts = args[0].split('\n;\n')
+                const expanded = []
+                for (const part of parts) {
+                    expanded.push(part)
+                    if (/FROM pg_(type|proc|rewrite)/.test(part)) expanded.push("SELECT current_setting('jit') AS zz_guard_jit")
+                }
+                const results = await original.call(this, expanded.join('\n;\n'), ...args.slice(1))
+                return results.filter((result) => {
+                    if (!result.fields?.some((field) => field.name === 'zz_guard_jit')) return true
+                    observed.push(result.rows[0].zz_guard_jit)
+                    return false
+                })
+            }
+            try {
+                for (const jit of ['on', 'off']) {
+                    const login = (await setup.query('SELECT current_user AS name')).rows[0].name
+                    await setup.query(
+                        `ALTER ROLE ${setup.escapeIdentifier(login)} IN DATABASE ${setup.escapeIdentifier(database)} SET jit = ${jit}`
+                    )
+                    const result = await queryAnalystUrl(url, "SELECT current_setting('jit') AS jit FROM demo_sales LIMIT 1", options)
+                    assert.equal(result.rows[0].jit, jit)
+                }
+                assert.ok(observed.length > 4)
+                assert.ok(
+                    observed.every((jit) => jit === 'off'),
+                    JSON.stringify(observed)
+                )
+            } finally {
+                pg.Client.prototype.query = original
+                const login = (await setup.query('SELECT current_user AS name')).rows[0].name
+                await setup.query(`ALTER ROLE ${setup.escapeIdentifier(login)} IN DATABASE ${setup.escapeIdentifier(database)} RESET jit`)
+            }
+        })
+        await t.test('a swallowed count failure retains savepoint recovery', async () => {
+            const original = pg.Client.prototype.query
+            let failed = false
+            let recovered = false
+            pg.Client.prototype.query = async function (...args) {
+                const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
+                if (!failed && text.startsWith('SELECT COUNT(*) AS analyst_n FROM (')) {
+                    failed = true
+                    return original.call(this, 'SELECT 1 / 0')
+                }
+                const result = await original.apply(this, args)
+                if (failed && text === 'ROLLBACK TO SAVEPOINT analyst_step') recovered = true
+                return result
+            }
+            try {
+                const result = await queryAnalystUrl(url, null, bound)
+                assert.equal(result.rows.length, 100)
+                assert.ok(failed)
+                assert.ok(recovered)
+            } finally {
+                pg.Client.prototype.query = original
+            }
+        })
+        await t.test('failed page rolls back before closing its connection', async () => {
+            const original = pg.Client.prototype.query
+            let failed = false
+            let rolledBack = false
+            let idle = false
+            pg.Client.prototype.query = async function (...args) {
+                const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
+                if (!failed && text.startsWith('SELECT * FROM (') && Array.isArray(args[1]) && args[1].includes('EU')) {
+                    failed = true
+                    return original.call(this, 'SELECT 1 / 0')
+                }
+                if (!failed || text !== 'ROLLBACK') return original.apply(this, args)
+                // The failed page's own ReadyForQuery ('E') can arrive after ROLLBACK is queued,
+                // so read the status from the last ReadyForQuery before ROLLBACK resolves.
+                let status = null
+                const onReady = (message) => {
+                    status = message.status
+                }
+                this.connection.on('readyForQuery', onReady)
+                try {
+                    const result = await original.apply(this, args)
+                    rolledBack = true
+                    idle = status === 'I'
+                    return result
+                } finally {
+                    this.connection.off('readyForQuery', onReady)
+                }
+            }
+            try {
+                await assert.rejects(queryAnalystUrl(url, null, bound), /division by zero/)
+                assert.ok(failed)
+                assert.ok(rolledBack)
+                assert.ok(idle)
+            } finally {
+                pg.Client.prototype.query = original
+            }
+        })
         await t.test('exported PostgreSQL store compiles the entry internally', async () => {
             const result = await queryUrlPostgres(
                 url,
@@ -347,8 +478,8 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 }
             )
         }
-        await t.test('free SQL page, count, probe, length and replay match the main golden', async () => {
-            // Generated from the unmodified main runner at da543c98 (after the batched catalog guard in #325, #327 and #329),
+        await t.test('free SQL page, count, probe, length and replay match the round-trip golden', async () => {
+            // Updated for root-domain reads, catalog JIT settings and folded rollback batches,
             // including SQL bytes and values.
             // Only disposable relation/view OIDs and the prepared statement sequence vary per run.
             const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-da543c98.json', import.meta.url)))

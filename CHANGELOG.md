@@ -10,6 +10,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   Guarded PostgreSQL queries run faster with fewer database round trips and JIT disabled for catalog checks; user statements retain the login JIT setting.
+
 -   The Harness Specialist **Handoff limit** tooltip now says what each value does: default 4,000, empty or `0` means the default, `-1` means no limit, and other values are kept from 160 to 20,000.
 
 -   Analyst run traces add `sqlHash`, plus `sql` and `sqlTruncated` when `CUTTLELY_ANALYST_TRACE_PREVIEW` is on; SQL previews are redacted and capped at 4 KB.
