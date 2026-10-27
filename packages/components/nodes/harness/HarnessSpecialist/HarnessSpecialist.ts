@@ -108,7 +108,7 @@ class HarnessSpecialist_Harness implements INode {
                 additionalParams: true,
                 placeholder: '4000',
                 description:
-                    "Optional. How many characters of this specialist's answer Harness Prime reads before it writes the reply, from 160 to 20,000. Empty is 4,000. -1 is no limit: Harness Prime reads the whole answer, but a full context still shortens it. A long knowledge answer may need more."
+                    "Optional. How many characters of this specialist's answer Harness Prime reads before it writes the reply. A decimal is rounded down first. Default 4,000. Empty or 0 means the default. -1 means no limit: Harness Prime reads the whole answer, but a full context still shortens it. Other values are kept from 160 to 20,000: a lower value is read as 160, a higher one as 20,000. Any other negative number, or text, means the default. A long knowledge answer may need more."
             },
             {
                 label: 'Shell',
