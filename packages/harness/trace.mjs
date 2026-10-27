@@ -953,7 +953,9 @@ export function buildRunTrace({
                   },
         ...(direct && directDetail ? { directDetail } : {})
     }
-    return fitTraceQuestion(fitTraceSqlPreviews(body), question)
+    const reserved = fitTraceSqlPreviews({ ...body, question: redactTraceQuestion(question) })
+    delete reserved.question
+    return fitTraceQuestion(reserved, question)
 }
 
 export function traceFromPayload(payload) {

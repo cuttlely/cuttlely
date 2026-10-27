@@ -49,6 +49,7 @@ import {
     noteLiveTry,
     tryProfileName,
     analystTablesNote,
+    analystBridgeQueryName,
     hasAnalystTool,
     needsAgentLoop,
     routerDialectNote,
@@ -2068,7 +2069,9 @@ async function runHermesSpecialist(context, specialist, task) {
     context.workSignal?.addEventListener('abort', onAbort, { once: true })
     const specialistStarted = Date.now()
     const toolLogStart = context.toolLog?.length || 0
-    const startCapture = analystStartCapture((data) => emitTool(context, data))
+    const startCapture = analystStartCapture((data) => emitTool(context, data), {
+        gatewayName: analystBridgeQueryName(specialist)
+    })
     if (!context.analystStarts) context.analystStarts = new Map()
     context.analystStarts.set(specialist.name, startCapture)
     beginAnalystCalls(context.name, specialist.name, context.chatId, startCapture.gatewayStarted)
