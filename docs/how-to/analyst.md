@@ -569,7 +569,7 @@ The stamp is tied to the workspace, the credential, the statement, the parameter
 
 Pins do not run in Auto mode (`CUTTLELY_ANALYST=auto`). With pins configured there, the server returns a clear error and registers no `pq_` tools. They are not run on the isolated store, including when it has no credential and no `CUTTLELY_POSTGRES_URL`. A pin that runs uses the node's Postgres credential, or `CUTTLELY_POSTGRES_URL` when the node has none.
 
-A save that stores a new, changed, or removed pin on Live writes a `pinned_query_change` audit row, including Publish. A draft save does not. A successful test attempts to write a `test` row, even if the pin is still only on the draft; a refused or failed test writes none, and an audit failure does not block the test result. The row records the flow, the node, the pin name, the version, the user, and the statement hash when the saved statement compiles. It does not record SQL text or parameter values.
+A save that stores a new, changed, or removed pin on Live attempts to write a `pinned_query_change` audit row, including Publish. A draft save does not, and an audit failure does not block the save. A successful test attempts to write a `test` row, even if the pin is still only on the draft; a refused or failed test writes none, and an audit failure does not block the test result. The row records the flow, the node, the pin name, the version, the user, and the statement hash when the saved statement compiles. It does not record SQL text or parameter values.
 
 ## Other SQL tools
 
