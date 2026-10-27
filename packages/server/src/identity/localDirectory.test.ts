@@ -260,6 +260,69 @@ describe('change a team role from User Management', () => {
         expect(roleOf(db, ADMIN)).toEqual([{ roleId: 'role-admin' }])
         expect(roleOf(db, OWNER)).toEqual([{ roleId: 'role-owner' }])
     })
+
+    const addLead = (db: InstanceType<typeof DatabaseSync>) => {
+        db.exec(`
+            INSERT INTO role (id, "organizationId", name, description, permissions) VALUES
+                ('role-lead', '${ORG}', 'Lead', 'lead', '["workspace:update","workspace:unlink-user","users:manage","chatflows:view"]');
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES ('lead-1', 'Avery Chen', 'avery.chen@example.com', 'active', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', 'lead-1', 'role-member', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM}', 'lead-1', 'role-lead', 'active');
+        `)
+        return { id: 'lead-1', organizationId: ORG, workspaceId: TEAM }
+    }
+
+    it('refuses a lead who tries to demote an admin, and still lets the lead change a member', async () => {
+        const { sql, db } = memorySql()
+        const lead = addLead(db)
+        await expect(updateWorkspaceUserRole(sql, lead, { userId: ADMIN, workspaceId: TEAM, roleId: 'role-member' })).rejects.toMatchObject(
+            {
+                status: 403,
+                message: 'You cannot change the role of someone with permissions you do not have'
+            }
+        )
+        expect(roleOf(db, ADMIN)).toEqual([{ roleId: 'role-admin' }])
+        await expect(updateWorkspaceUserRole(sql, lead, { userId: 'member-1', workspaceId: TEAM, roleId: 'role-lead' })).resolves.toEqual({
+            id: 'member-1'
+        })
+        expect(roleOf(db, 'member-1')).toEqual([{ roleId: 'role-lead' }])
+    })
+
+    it('refuses a lead who tries to remove an admin from the team, and still lets the lead remove a member', async () => {
+        const { sql, db } = memorySql()
+        const lead = addLead(db)
+        await expect(deleteWorkspaceUser(sql, lead, TEAM, ADMIN)).rejects.toMatchObject({
+            status: 403,
+            message: 'You cannot remove someone with permissions you do not have'
+        })
+        expect(roleOf(db, ADMIN)).toEqual([{ roleId: 'role-admin' }])
+        await expect(deleteWorkspaceUser(sql, lead, TEAM, 'member-1')).resolves.toEqual({ id: 'member-1' })
+        expect(roleOf(db, 'member-1')).toEqual([])
+    })
+
+    it('refuses another team, a person not on the team, and a role from another organization', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO organization (id, name) VALUES ('org-2', 'Elsewhere');
+            INSERT INTO role (id, "organizationId", name, description, permissions) VALUES
+                ('role-foreign', 'org-2', 'Foreign', 'foreign', '["chatflows:view"]');
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES ('only-b', 'Only B', 'only.b@example.com', 'active', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', 'only-b', 'role-viewer', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM_B}', 'only-b', 'role-viewer', 'active');
+        `)
+        await expect(
+            updateWorkspaceUserRole(sql, admin, { userId: 'viewer-1', workspaceId: TEAM_B, roleId: 'role-builder' })
+        ).rejects.toMatchObject({ status: 404, message: 'Team not found' })
+        expect(roleOf(db, 'viewer-1', TEAM_B)).toEqual([{ roleId: 'role-viewer' }])
+        await expect(
+            updateWorkspaceUserRole(sql, admin, { userId: 'only-b', workspaceId: TEAM, roleId: 'role-builder' })
+        ).rejects.toMatchObject({ status: 404, message: 'Workspace user not found' })
+        expect(roleOf(db, 'only-b')).toEqual([])
+        await expect(
+            updateWorkspaceUserRole(sql, admin, { userId: 'member-1', workspaceId: TEAM, roleId: 'role-foreign' })
+        ).rejects.toMatchObject({ status: 400, message: 'Choose a role' })
+        expect(roleOf(db, 'member-1')).toEqual([{ roleId: 'role-member' }])
+    })
 })
 
 describe('local directory rules', () => {

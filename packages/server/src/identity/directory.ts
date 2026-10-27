@@ -260,12 +260,19 @@ async function actorGrant(query: QueryFn, sql: Sql, actor: DirectoryActor): Prom
     return { owner: false, permissions: permissionsOn(rows[0] || {}) }
 }
 
-function assertCovers(grant: { owner: boolean; permissions: string[] }, keys: string[]): void {
+function assertCovers(
+    grant: { owner: boolean; permissions: string[] },
+    keys: string[],
+    message = 'You cannot grant a permission you do not have'
+): void {
     if (grant.owner) return
     for (const key of keys) {
-        if (!grant.permissions.includes(key)) throw new DirectoryError(403, 'You cannot grant a permission you do not have')
+        if (!grant.permissions.includes(key)) throw new DirectoryError(403, message)
     }
 }
+
+const TARGET_NOT_COVERED = 'You cannot change the role of someone with permissions you do not have'
+const TARGET_REMOVE_NOT_COVERED = 'You cannot remove someone with permissions you do not have'
 
 async function assertSameWorkspace(query: QueryFn, sql: Sql, actor: DirectoryActor, workspaceId: string): Promise<void> {
     await workspaceInOrg(query, sql, workspaceId, actor.organizationId)
@@ -833,11 +840,15 @@ export async function deleteWorkspaceUser(sql: Sql, actor: DirectoryActor, works
         await assertSameWorkspace(query, sql, actor, workspaceId)
         await lockOrgOwners(query, sql, actor.organizationId, userId)
         const rows = await query(
-            `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')}
-             WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`,
+            `SELECT wu.${q(sql, 'userId')} AS userId, r.${q(sql, 'name')} AS name, r.${q(sql, 'permissions')} AS permissions
+             FROM ${q(sql, 'workspace_user')} wu
+             LEFT JOIN ${q(sql, 'role')} r ON r.${q(sql, 'id')} = wu.${q(sql, 'roleId')}
+             WHERE wu.${q(sql, 'workspaceId')} = ? AND wu.${q(sql, 'userId')} = ?`,
             [workspaceId, userId]
         )
         if (!rows.length) throw new DirectoryError(404, 'Workspace user not found')
+        // A non-owner may remove only someone whose current team role they cover.
+        assertCovers(await actorGrant(query, sql, actor), permissionsOn(rows[0] || {}), TARGET_REMOVE_NOT_COVERED)
         const owners = `(${enabledOwnersSql(sql)})`
         const blocked = await query(
             `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')} current
@@ -895,6 +906,8 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
             [workspaceId, userId]
         )
         if (!current.length) throw new DirectoryError(404, 'Workspace user not found')
+        // A non-owner may change only someone whose current team role they cover.
+        assertCovers(grant, permissionsOn(current[0] || {}), TARGET_NOT_COVERED)
         fromRoleId = text(cell(current[0] || {}, 'roleId'))
         await lockOrgOwners(query, sql, actor.organizationId, userId)
         const wasOwner = await ownerUser(query, sql, actor.organizationId, userId)
