@@ -628,8 +628,9 @@ export function answerDirectDecision(context, steps, results, question) {
     const text = keepClosingLines(preserveAnalystRows(String(result.text || ''), results, question), results)
     if (!text.trim()) return { reason: 'empty' }
     if (/<\/?(?:think|tool_call)\b/i.test(text)) return { reason: 'raw' }
+    const wholeFence = /^(`{3,})[^`\r\n]*\r?\n([\s\S]*?)\r?\n\1$/.exec(text.trim())
     try {
-        JSON.parse(text)
+        JSON.parse(wholeFence ? wholeFence[2] : text)
         return { reason: 'raw' }
     } catch {
         return { text }
@@ -1851,6 +1852,7 @@ async function runStep(context, step) {
             task,
             publicTask: step.task,
             text: out.text,
+            ...(out.finishReason ? { finishReason: out.finishReason } : {}),
             tools: toolsFor(context, specialist.name),
             sources: out.sources || [],
             ms,
@@ -2244,7 +2246,7 @@ async function runInlineSpecialist(context, specialist, task) {
             onDelta: (text) => forwardDelta(context, specialist, String(text ?? '')),
             specialist
         })
-        return { text: reply.content }
+        return { text: reply.content, ...(reply.finishReason ? { finishReason: reply.finishReason } : {}) }
     }
     const prepared = await Promise.all(modules.map((binding) => prepareModule(binding, task, context.moduleOptions)))
     if (prepared.length === 1 && preparedKind(prepared[0]) === 'query') {
@@ -2276,7 +2278,7 @@ async function runInlineSpecialist(context, specialist, task) {
         onDelta: (text) => forwardDelta(context, specialist, String(text ?? '')),
         specialist
     })
-    if (!reply.toolCalls.length) return { text: reply.content }
+    if (!reply.toolCalls.length) return { text: reply.content, ...(reply.finishReason ? { finishReason: reply.finishReason } : {}) }
     const calls = await Promise.all(
         reply.toolCalls.map(async (call) => {
             const match = named.find((entry) => entry.name === call.function?.name)
@@ -2367,7 +2369,7 @@ function analystRowCells(line) {
             .map((cell) => cell.trim())
             .filter(Boolean)
     const labeled = []
-    const pattern = /(?:^|,)\s*[^:,|]+:\s*([^,|]+)/g
+    const pattern = /(?:^|,)[^:,|]+:([^,|]+)/g
     let match
     while ((match = pattern.exec(text))) {
         const cell = match[1].trim()

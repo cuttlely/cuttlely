@@ -108,7 +108,8 @@ async function run({
     images,
     forceSpecialistFailure,
     onEvent,
-    budgetMs
+    budgetMs,
+    finishReason
 } = {}) {
     const name = harness || `answer-check-${++sequence}`
     if (!harness)
@@ -150,7 +151,10 @@ async function run({
                                   if (system.includes('You route work'))
                                       return { content: JSON.stringify({ steps: route || [{ specialist: 'analyst', task: input }] }) }
                                   if (system.includes('You are Harness Prime')) calls.push(messages)
-                                  return { content: system.includes('You are Harness Prime') ? 'Chief reply.' : runPlan.output }
+                                  return {
+                                      content: system.includes('You are Harness Prime') ? 'Chief reply.' : runPlan.output,
+                                      ...(finishReason ? { response_metadata: { finish_reason: finishReason } } : {})
+                                  }
                               }
                           }
                       }
@@ -410,3 +414,20 @@ for (const state of ['none', 'expired', 'owner gone']) {
         if (state === 'expired') assert.equal(next.payload.text, ANALYST_CURSOR_ERRORS.expired)
     })
 }
+
+test('answer direct inline length completion uses the handoff', async () => {
+    const { payload, calls } = await run({ specialists: [{ name: 'analyst', answerDirect: true }], finishReason: 'length' })
+    assert.equal(calls.length, 1)
+    assert.equal(payload.trace.answerDirect, 'length')
+    assert.equal(payload.trace.handoff.status, 'done')
+})
+
+test('answer direct rejects whole fenced JSON and accepts prose around a fence', () => {
+    for (const language of ['', 'json', 'JSON']) {
+        const fenced = `\`\`\`${language}\n{"rows":[{"id":1}]}\n\`\`\``
+        assert.deepEqual(decide({ results: [{ ...result, dataTask: false, text: fenced }] }), { reason: 'raw' })
+    }
+    const fenced = '```json\n{"rows":[{"id":1}]}\n```'
+    const text = `Here are the rows:\n${fenced}\nOne row returned.`
+    assert.deepEqual(decide({ results: [{ ...result, dataTask: false, text }] }), { text })
+})
