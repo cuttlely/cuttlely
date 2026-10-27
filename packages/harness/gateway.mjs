@@ -954,12 +954,24 @@ async function callTool(req, res, meta) {
     const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? { ...body.arguments } : {}
     const callId = hermesToolCallId(body, args)
     delete args._cuttlelyCallId
+    const chatId = scope.startsWith(`${record.name}:`) ? scope.slice(record.name.length + 1) : ''
+    const captureId = isAnalystQueryTool(body.name)
+        ? noteAnalystGatewayCall({
+              harness: record.name,
+              specialist: meta.specialistName,
+              chatId,
+              callId,
+              ...analystStatement(args),
+              toolName: body.name
+          })
+        : ''
     // A call can come before any tool list in this process, after a restart for example.
     if (meta.profileName && (!refusedSqlTools.has(refusalKey(meta.profileName)) || !toolRoutes.has(refusalKey(meta.profileName)))) {
         await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
     }
     if (isRefusedSqlTool(meta.profileName, body.name)) {
-        sendJson(res, 200, { result: JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' }) })
+        const result = JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' })
+        sendJson(res, 200, { result })
         return
     }
     // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
@@ -985,7 +997,7 @@ async function callTool(req, res, meta) {
     )
     finishAnalystCallTimings(timings, performance.now() - callStarted)
     assertStillValid(meta)
-    rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId, timings.at(-1))
+    rememberAnalystResult(record.name, meta.specialistName, result, scope, args, captureId, timings.at(-1))
     sendJson(res, 200, { result })
 }
 
@@ -1021,21 +1033,11 @@ function analystStatement(args) {
     return { sql, cursor }
 }
 
-function rememberAnalystResult(savedName, specialistName, result, scope, toolName, args, callId, timings) {
+function rememberAnalystResult(savedName, specialistName, result, scope, args, callId, timings) {
     const prefix = `${savedName}:`
     const chatId = typeof scope === 'string' && scope.startsWith(prefix) ? scope.slice(prefix.length) : ''
     const statement = analystStatement(args)
-    // Count every analyst call, including CREATE and INSERT, so a later SELECT keeps its own sequence.
-    const id = isAnalystQueryTool(toolName)
-        ? noteAnalystGatewayCall({
-              harness: savedName,
-              specialist: specialistName,
-              chatId,
-              callId,
-              sql: statement.sql,
-              cursor: statement.cursor
-          })
-        : ''
+    const id = callId
     const text = typeof result === 'string' ? result : ''
     if (!text) return
     let parsed
@@ -1046,7 +1048,7 @@ function rememberAnalystResult(savedName, specialistName, result, scope, toolNam
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
     if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor) return
-    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed, timings })
+    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed, timings, ...statement })
 }
 
 async function parseJson(req) {

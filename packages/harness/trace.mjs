@@ -31,6 +31,17 @@ export function redactSecrets(value) {
         .replace(/\bpostgres(?:ql)?:\/\/\S+/gi, '[redacted]')
 }
 
+// Browser-safe: trace.mjs is also used by the trace panel.
+export function sqlPreviewFields(sql) {
+    const bytes = new TextEncoder().encode(redactSecrets(sql))
+    let end = Math.min(bytes.length, 4096)
+    if (end < bytes.length) while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1
+    return {
+        sql: new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes.subarray(0, end)),
+        ...(end < bytes.length ? { sqlTruncated: true } : {})
+    }
+}
+
 function redactTraceQuestion(value) {
     return redactSecrets(
         String(value ?? '')
@@ -421,7 +432,16 @@ export function queryStepTimings(value) {
 
 export function publicToolStep(tool, env) {
     const timings = isAnalystQueryChip(tool?.name) ? queryStepTimings(tool?.timings) : null
-    const base = { name: tool?.name, status: tool?.status, ...(timings ? { timings } : {}) }
+    const sqlFields =
+        isAnalystQueryChip(tool?.name) && tool?.sqlHash
+            ? {
+                  sqlHash: tool.sqlHash,
+                  ...(analystTracePreviewsEnabled(env) && tool.sql !== undefined
+                      ? { ...sqlPreviewFields(tool.sql), ...(tool.sqlTruncated ? { sqlTruncated: true } : {}) }
+                      : {})
+              }
+            : {}
+    const base = { name: tool?.name, status: tool?.status, ...(timings ? { timings } : {}), ...sqlFields }
     if (!tool?.detail || !isAnalystQueryChip(tool.name)) {
         return tool?.detail ? { ...base, detail: String(tool.detail) } : base
     }
@@ -483,6 +503,7 @@ export function snapshotSpecialist({ calls, tools, name, configuredModel, failed
             .map((tool) =>
                 publicToolStep(
                     {
+                        ...tool,
                         name: tool.name,
                         status: tool.status === 'running' && failed ? 'failed' : tool.status,
                         ...(tool.detail ? { detail: tool.detail } : {}),
@@ -577,7 +598,19 @@ function noteTool(specialists, event) {
     const specialist = next.find((item) => item.name === name)
     const tools = [...specialist.tools]
     if (event.phase === 'start') {
-        tools.push({ name: event.name || 'tool', status: 'running' })
+        tools.push({
+            name: event.name || 'tool',
+            status: 'running',
+            ...(event.sqlHash
+                ? publicToolStep({
+                      name: event.name,
+                      status: 'running',
+                      sqlHash: event.sqlHash,
+                      ...(event.sql !== undefined ? { sql: event.sql } : {}),
+                      ...(event.sqlTruncated ? { sqlTruncated: true } : {})
+                  })
+                : {})
+        })
     } else {
         const open = [...tools].reverse().find((tool) => tool.name === event.name && tool.status === 'running')
         const status = event.error ? 'failed' : 'done'

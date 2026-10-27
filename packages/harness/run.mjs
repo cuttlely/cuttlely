@@ -30,6 +30,7 @@ export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
 import {
     analystCallsFor,
+    analystStartCapture,
     beginAnalystCalls,
     dropAnalystCapture,
     endAnalystCalls,
@@ -954,6 +955,13 @@ function emitTool(context, data) {
             specialist: data.specialist,
             name: data.name,
             status: 'running',
+            ...('sqlHash' in data
+                ? {
+                      sqlHash: data.sqlHash,
+                      ...(data.sql !== undefined ? { sql: data.sql } : {}),
+                      ...(data.sqlTruncated ? { sqlTruncated: true } : {})
+                  }
+                : {}),
             ...(callId ? { callId } : {})
         })
     } else {
@@ -1906,7 +1914,12 @@ function forwardHermes(context, specialist, event) {
         return
     }
     const data = hermesToolEvent(specialist.name, event)
-    if (data) emitTool(context, data)
+    const capture = context.analystStarts?.get(specialist.name)
+    if (data?.phase === 'start' && isAnalystQueryTool(data.name) && capture) capture.hermesStarted(data)
+    else {
+        if (data && isAnalystQueryTool(data.name)) capture?.flush()
+        if (data) emitTool(context, data)
+    }
 }
 
 // A code or shell tool result that reports a failure in its own top-level fields: execute_code's
@@ -2053,7 +2066,10 @@ async function runHermesSpecialist(context, specialist, task) {
     context.workSignal?.addEventListener('abort', onAbort, { once: true })
     const specialistStarted = Date.now()
     const toolLogStart = context.toolLog?.length || 0
-    beginAnalystCalls(context.name, specialist.name, context.chatId)
+    const startCapture = analystStartCapture((data) => emitTool(context, data))
+    if (!context.analystStarts) context.analystStarts = new Map()
+    context.analystStarts.set(specialist.name, startCapture)
+    beginAnalystCalls(context.name, specialist.name, context.chatId, startCapture.gatewayStarted)
     try {
         const created = await createRun({ ...request, body })
         runId = created.run_id
@@ -2084,6 +2100,8 @@ async function runHermesSpecialist(context, specialist, task) {
         if (!text.trim()) throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned nothing.`)
         return { text }
     } finally {
+        startCapture.flush()
+        context.analystStarts.delete(specialist.name)
         endAnalystCalls(context.name, specialist.name, context.chatId)
         context.workSignal?.removeEventListener('abort', onAbort)
         await Promise.all(stops)
@@ -2124,6 +2142,7 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         if (slotIndex < 0) continue
         used.add(slotIndex)
         slots[slotIndex].detail = maskWorkspacePaths(JSON.stringify({ result: JSON.stringify(item.result) }))
+        Object.assign(slots[slotIndex], item.traceFields)
         if (item.timings) slots[slotIndex].timings = item.timings
     }
 }
