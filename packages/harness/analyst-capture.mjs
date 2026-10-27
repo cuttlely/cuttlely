@@ -58,10 +58,14 @@ export function analystSqlTrace({ harness, specialist, chatId = '', sql = '', cu
 }
 
 // Hermes has the public MCP name; the gateway has the full arguments. Either can arrive first.
-export function analystStartCapture(emit) {
+export function analystStartCapture(emit, { gatewayName } = {}) {
     const starts = []
     const metadata = []
-    const matches = (start, call) => start.name === call.name || start.name.endsWith(`__${call.name}`)
+    // A gateway id taken from the Hermes tool call pairs exactly. A sequence id (Hermes sent none) pairs by name, in order.
+    const matches = (start, entry) => {
+        if (entry.pairById && start.callId) return start.callId === entry.call.callId
+        return start.name === entry.call.name || start.name.endsWith(`__${entry.call.name}`)
+    }
     function drain() {
         for (let i = 0; i < starts.length; ) {
             const index = metadata.findIndex((call) => matches(starts[i], call))
@@ -70,17 +74,21 @@ export function analystStartCapture(emit) {
                 continue
             }
             const [start] = starts.splice(i, 1)
-            const [call] = metadata.splice(index, 1)
-            emit({ ...start, ...call, name: start.name })
+            const [{ call }] = metadata.splice(index, 1)
+            emit({ ...start, ...call, name: start.name, ...(start.callId ? { callId: start.callId } : {}) })
         }
     }
     return {
         hermesStarted(start) {
+            if (gatewayName !== undefined && start.name !== gatewayName) {
+                emit(start)
+                return
+            }
             starts.push(start)
             drain()
         },
-        gatewayStarted(call) {
-            metadata.push(call)
+        gatewayStarted(call, { pairById = false } = {}) {
+            metadata.push({ call, pairById })
             drain()
         },
         // Raw MCP tools have no gateway arguments; retain their existing lifecycle event.
@@ -127,7 +135,11 @@ export function noteAnalystGatewayCall({
     const traceFields = analystSqlTrace({ harness, specialist, chatId, sql, cursor })
     list.push({ id, seq, traceFields, ...(pinned ? { pinned } : {}) })
     const onStart = listeners.get(key)
-    if (typeof onStart === 'function') onStart({ name: toolName, callId: id, ...traceFields, ...(pinned ? { pinned } : {}) })
+    if (typeof onStart === 'function')
+        onStart(
+            { name: toolName, callId: id, ...traceFields, ...(pinned ? { pinned } : {}) },
+            { pairById: Boolean(String(callId || '').trim()) }
+        )
     return id
 }
 
