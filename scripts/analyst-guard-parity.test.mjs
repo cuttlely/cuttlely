@@ -530,6 +530,13 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
             postStatement: true,
             alter: (r) => ({ ...r, rows: [{ stamp: 'injected-change' }] }),
             message: /changed while it was being checked/
+        },
+        {
+            name: 'failed post-statement stamp',
+            match: /AS stamp FROM/,
+            postStatement: true,
+            throws: true,
+            message: /changed while it was being checked/
         }
     ]
     it('normally allows the statement used for injections', async (t) => {
