@@ -198,9 +198,10 @@ identityWorkspaceRouter.delete(
 identityWorkspaceRouter.use(notFound)
 
 export const identityRoleRouter = Router()
+// Changing a team role needs the role list, so workspace:update can read it too. Writes still need roles:manage.
 identityRoleRouter.get(
     '/',
-    requirePermission('roles:manage'),
+    requireAnyPermission('roles:manage,workspace:update'),
     send((req) => listRoles(sql(), actorFrom(req), one(req.query.organizationId)))
 )
 identityRoleRouter.post(
