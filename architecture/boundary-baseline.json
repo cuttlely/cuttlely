@@ -507,6 +507,11 @@
         },
         {
             "from": "packages/server/src/identity/rbac.routes.test.ts",
+            "to": "packages/server/src/routes/pinned-queries/index.ts",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "from": "packages/server/src/identity/rbac.routes.test.ts",
             "to": "packages/server/src/routes/stats/index.ts",
             "reason": "The permission test imports the stats router so it can check the view gate."
         },
@@ -2063,6 +2068,16 @@
             "reason": "The chat flow delete registers itself so the Agent Team card delete can remove a harness canvas without the harness service importing the chat flow service."
         },
         {
+            "from": "packages/server/src/services/chatflows/pinnedQueryAudit.test.ts",
+            "to": "packages/server/src/identity/auditLog.ts",
+            "reason": "Pinned query saves and tests write audit rows through the shared audit writer"
+        },
+        {
+            "from": "packages/server/src/services/chatflows/pinnedQueryAudit.ts",
+            "to": "packages/server/src/identity/auditLog.ts",
+            "reason": "Pinned query saves and tests write audit rows through the shared audit writer"
+        },
+        {
             "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "to": "packages/server/src/services/flow-check/score.ts",
             "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
@@ -3136,6 +3151,14 @@
             "reason": "tests for inherited public config endpoints and template saving"
         },
         {
+            "path": "packages/server/src/controllers/pinned-queries/index.test.ts",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "path": "packages/server/src/controllers/pinned-queries/index.ts",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
             "path": "packages/server/src/database/migrations/mariadb/1795000000000-AddDatasetRowSource.ts",
             "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
         },
@@ -3204,6 +3227,18 @@
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
         },
         {
+            "path": "packages/server/src/routes/pinned-queries/index.ts",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "path": "packages/server/src/services/chatflows/pinnedQueryAudit.test.ts",
+            "reason": "Pinned query saves and tests write audit rows through the shared audit writer"
+        },
+        {
+            "path": "packages/server/src/services/chatflows/pinnedQueryAudit.ts",
+            "reason": "Pinned query saves and tests write audit rows through the shared audit writer"
+        },
+        {
             "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
             "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
         },
@@ -3218,6 +3253,18 @@
         {
             "path": "packages/server/src/services/marketplaces/customTemplateInputs.test.ts",
             "reason": "tests for inherited public config endpoints and template saving"
+        },
+        {
+            "path": "packages/server/src/services/pinned-queries/index.ts",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "path": "packages/server/src/services/pinned-queries/sql.test.ts",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "path": "packages/server/src/services/pinned-queries/sql.ts",
+            "reason": "Pinned query test route, dialog and their tests"
         },
         {
             "path": "packages/server/src/services/settings/publicPayload.test.ts",
@@ -3248,6 +3295,14 @@
             "reason": "1 MB JSON parsers for A2A, Orchestrate, and MCP skip the global file-size parser"
         },
         {
+            "path": "packages/server/src/utils/importEsm.test.ts",
+            "reason": "pinned query native import helper, its compiled-output test, and the Test & save lock test"
+        },
+        {
+            "path": "packages/server/src/utils/importEsm.ts",
+            "reason": "pinned query native import helper, its compiled-output test, and the Test & save lock test"
+        },
+        {
             "path": "packages/server/src/utils/missingModelCredential.prediction.test.ts",
             "reason": "The missing-credential HTTP test stays next to the prediction error path it exercises."
         },
@@ -3262,6 +3317,10 @@
         {
             "path": "packages/server/src/utils/upsertErrors.ts",
             "reason": "The vector upsert error helper and its test stay next to the inherited upsert path they serve."
+        },
+        {
+            "path": "packages/ui/src/api/pinnedQueries.js",
+            "reason": "Pinned query test route, dialog and their tests"
         },
         {
             "path": "packages/ui/src/ui-component/array/ArrayRenderer.test.js",
@@ -3322,6 +3381,26 @@
         {
             "path": "packages/ui/src/utils/migrationScan.test.js",
             "reason": "Unit tests and made-up fixtures for the inherited import and validation code"
+        },
+        {
+            "path": "packages/ui/src/views/canvas/pinnedQueries/model.js",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "path": "packages/ui/src/views/canvas/pinnedQueries/pinnedQueries.test.js",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "path": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesBlock.jsx",
+            "reason": "Pinned query test route, dialog and their tests"
+        },
+        {
+            "path": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesBlock.test.js",
+            "reason": "pinned query native import helper, its compiled-output test, and the Test & save lock test"
+        },
+        {
+            "path": "packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesView.jsx",
+            "reason": "Pinned query test route, dialog and their tests"
         },
         {
             "path": "packages/ui/src/views/chatmessage/ChatPopUp.test.js",

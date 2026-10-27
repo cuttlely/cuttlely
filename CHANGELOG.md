@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   The Harness Specialist **Handoff limit** tooltip now says what each value does: default 4,000, empty or `0` means the default, `-1` means no limit, and other values are kept from 160 to 20,000.
+
 -   Analyst run traces add `sqlHash`, plus `sql` and `sqlTruncated` when `CUTTLELY_ANALYST_TRACE_PREVIEW` is on; SQL previews are redacted and capped at 4 KB.
 
 -   The PostgreSQL MCP node's read-only query checks make fewer round trips: their own catalog reads no longer each open and release a savepoint, the allowed-function list resolves in one query, evaluating every entry in order even when no user function matches so lookup errors preserve legacy refusals, and the ACCESS SHARE locks on the selected tables and views go out in one round trip as LOCK TABLE lists over the same relations in the same order, with ONLY before every name so a listed table's inheritance children and partitions are not locked through it, and SELECT 1 FROM ONLY ... LIMIT 0 kept in place for a materialized view or foreign table. The remaining catalog reads are sent ahead in transaction-local batches and consumed once by the same JavaScript checks, in the same order; post-lock rechecks and the post-statement comparison stay in place. Queries with no routine calls still skip allowlist resolution, so a malformed signature does not cause a new refusal.

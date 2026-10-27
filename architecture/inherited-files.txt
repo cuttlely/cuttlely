@@ -1014,6 +1014,8 @@ packages/server/src/controllers/openai-assistants/index.ts
 packages/server/src/controllers/openai-realtime/index.ts
 packages/server/src/controllers/ping/boot-accept.test.ts
 packages/server/src/controllers/ping/index.ts
+packages/server/src/controllers/pinned-queries/index.test.ts
+packages/server/src/controllers/pinned-queries/index.ts
 packages/server/src/controllers/predictions/index.ts
 packages/server/src/controllers/prompts-lists/index.ts
 packages/server/src/controllers/settings/index.ts
@@ -1332,6 +1334,7 @@ packages/server/src/routes/openai-assistants-vector-store/index.ts
 packages/server/src/routes/openai-assistants/index.ts
 packages/server/src/routes/openai-realtime/index.ts
 packages/server/src/routes/ping/index.ts
+packages/server/src/routes/pinned-queries/index.ts
 packages/server/src/routes/predictions/index.ts
 packages/server/src/routes/prompts-lists/index.ts
 packages/server/src/routes/public-chatbots/index.ts
@@ -1360,6 +1363,8 @@ packages/server/src/services/attachments/index.ts
 packages/server/src/services/chat-messages/index.ts
 packages/server/src/services/chatflows/index.test.ts
 packages/server/src/services/chatflows/index.ts
+packages/server/src/services/chatflows/pinnedQueryAudit.test.ts
+packages/server/src/services/chatflows/pinnedQueryAudit.ts
 packages/server/src/services/components-credentials/index.ts
 packages/server/src/services/credentials/index.ts
 packages/server/src/services/custom-mcp-servers/index.test.ts
@@ -1399,6 +1404,9 @@ packages/server/src/services/nodes/nodes.test.ts
 packages/server/src/services/openai-assistants-vector-store/index.ts
 packages/server/src/services/openai-assistants/index.ts
 packages/server/src/services/openai-realtime/index.ts
+packages/server/src/services/pinned-queries/index.ts
+packages/server/src/services/pinned-queries/sql.test.ts
+packages/server/src/services/pinned-queries/sql.ts
 packages/server/src/services/predictions/index.ts
 packages/server/src/services/prompts-lists/index.ts
 packages/server/src/services/schedule/index.test.ts
@@ -1453,6 +1461,8 @@ packages/server/src/utils/getChatMessageFeedback.ts
 packages/server/src/utils/getRunningExpressApp.ts
 packages/server/src/utils/getUploadsConfig.ts
 packages/server/src/utils/hub.ts
+packages/server/src/utils/importEsm.test.ts
+packages/server/src/utils/importEsm.ts
 packages/server/src/utils/index.ts
 packages/server/src/utils/ipValidation.test.ts
 packages/server/src/utils/ipValidation.ts
@@ -1532,6 +1542,7 @@ packages/ui/src/api/marketplaces.js
 packages/ui/src/api/mcpserver.js
 packages/ui/src/api/nodes.js
 packages/ui/src/api/oauth2.js
+packages/ui/src/api/pinnedQueries.js
 packages/ui/src/api/platformsettings.js
 packages/ui/src/api/prediction.js
 packages/ui/src/api/pricing.js
@@ -1887,6 +1898,11 @@ packages/ui/src/views/canvas/canvasSavePermission.test.js
 packages/ui/src/views/canvas/cardActions.test.js
 packages/ui/src/views/canvas/index.css
 packages/ui/src/views/canvas/index.jsx
+packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesBlock.jsx
+packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesBlock.test.js
+packages/ui/src/views/canvas/pinnedQueries/PinnedQueriesView.jsx
+packages/ui/src/views/canvas/pinnedQueries/model.js
+packages/ui/src/views/canvas/pinnedQueries/pinnedQueries.test.js
 packages/ui/src/views/chatbot/index.jsx
 packages/ui/src/views/chatflows/APICodeDialog.jsx
 packages/ui/src/views/chatflows/EmbedChat.jsx

@@ -549,6 +549,28 @@ The next turn in the same chat runs `SELECT * FROM tmp_targets;` and gets `no su
 
 ![The next run in the same Try it chat. The prompt is SELECT * FROM tmp_targets. The analyst row is done with 1 tool, and the answer is The analyst query failed: no such table: tmp_targets.](../images/analyst/temp-table-next-turn.png)
 
+## Pinned queries
+
+A pinned query is SQL a builder saves on the **PostgreSQL MCP** node. The specialist calls a tool that takes only the named parameters, and the server runs that saved statement with the values bound. The walkthrough, the made-up `demo_sales` seed, and the two example pins are in [Pinned queries](./pinned-queries.md).
+
+This guarantees that the saved statement is what runs. It does not guarantee that the statement is right for the business. **Tested is not approved**, and a passing test is not a compliance sign-off. There is no second-person approval. The read-only guard still runs on every call, including a later page. The tested stamp only labels a statement that passed a test.
+
+`CUTTLELY_PINNED_QUERIES` turns the feature on only when the value is exactly `1` or `true`. Unset, empty, and any other value leave it off. It is registered with the analyst server settings, next to `CUTTLELY_ANALYST_TRACE_PREVIEW`. Unsetting it, or setting anything else, rolls the feature back: pinned tools are not offered, a pinned call is refused, and the test route refuses the request. Saved pins stay on the node. The **query** tick is not changed. With no pins configured, free SQL is unchanged whether the flag is on or off.
+
+Free SQL stays on when you add pins. Unticking **query** is what makes the node pinned-only. `describe` comes with `query`, so it goes too. With **query** left ticked, the model may still write SQL. That is not a guarantee that it will pick a pin. A free `query` step on a node that is offering at least one valid pin includes `freeSqlWithPin`, the names of those pin tools. The list is not a comparison with the SQL text.
+
+Parameter types are `text`, `int8`, `numeric`, `date`, `timestamp`, `timestamptz`, and `bool`. A parameter in `LIMIT` or `OFFSET` is refused. The statement needs a literal top-level `LIMIT`. A trailing semicolon is refused. Values are bound. They are not written into the SQL text. A parameter marked secure is redacted and is not stored in the trace.
+
+The trace step of every analyst statement, including a refused call, a failed call, and a later page, has `sqlHash`. That is the full SHA-256 of the statement after the `statementFingerprint` normalisation: whitespace collapsed to single spaces, trailing semicolons dropped, then trimmed. It is the full 64-character digest. A page keeps the original statement's hash from the cursor. The SQL text, including literals, is stored only when query previews are on (`CUTTLELY_ANALYST_TRACE_PREVIEW` unset means on; `false`, `0`, `off`, and `no`, in any letter case, turn it off). The text is cut at 4096 bytes, with `sqlTruncated` when it was cut. Pin parameter values are included only when previews are on. A parameter marked secure is redacted at capture and is not stored, whether previews are on or off. With previews off, `sqlHash` is still present and the SQL text is not.
+
+If the column names that come back, or their order, differ from the columns recorded when the pin was tested (a changed column type alone is not compared), the result includes a warning and `columnsChanged`, which say the pin needs a re-test. The editor does not see run results, so it does not mark the pin; re-test the pin in the editor to record the new columns. The editor marks a pin as needing a re-test when its SQL or parameters change after its last test. The call is not blocked. A column the statement itself names that is no longer in the table still makes the query fail.
+
+The stamp is tied to the workspace, the credential, the statement, the parameter spec, the ticked tables and views, the allowed functions, and the tested columns. It is not tied to the flow id. An import onto another server, or a rotation of the credential encryption key, makes the stamp fail until the pin is tested again. A copy in the same workspace that still uses the same credential keeps it.
+
+Pins do not run in Auto mode (`CUTTLELY_ANALYST=auto`). With pins configured there, the server returns a clear error and registers no `pq_` tools. They are not run on the isolated store, including when it has no credential and no `CUTTLELY_POSTGRES_URL`. A pin that runs uses the node's Postgres credential, or `CUTTLELY_POSTGRES_URL` when the node has none.
+
+A save that stores a new, changed, or removed pin on Live attempts to write a `pinned_query_change` audit row, including Publish. A draft save does not, and an audit failure does not block the save. A successful test attempts to write a `test` row, even if the pin is still only on the draft; a refused or failed test writes none, and an audit failure does not block the test result. The row records the flow, the node, the pin name, the version, the user, and the statement hash when the saved statement compiles. It does not record SQL text or parameter values.
+
 ## Other SQL tools
 
 Cuttlely can list and limit the tables the analyst reaches only through its own PostgreSQL MCP node. Another MCP server that runs SQL reaches every table its own login can. So a harness specialist does not get those tools:

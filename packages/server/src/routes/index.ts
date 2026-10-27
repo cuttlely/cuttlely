@@ -43,6 +43,7 @@ import openaiAssistantsFileRouter from './openai-assistants-files'
 import openaiAssistantsVectorStoreRouter from './openai-assistants-vector-store'
 import openaiRealtimeRouter from './openai-realtime'
 import pingRouter from './ping'
+import pinnedQueriesRouter from './pinned-queries'
 import predictionRouter from './predictions'
 import orchestrateRouter from './orchestrate'
 import a2aRouter from './a2a'
@@ -113,6 +114,7 @@ router.use('/demo', demoRouter)
 router.use('/harnesses', harnessesRouter)
 router.use('/flow-versions', flowVersionsRouter)
 router.use('/flow-drafts', flowDraftsRouter)
+router.use('/pinned-queries', pinnedQueriesRouter)
 router.use('/etl', etlRouter)
 router.use('/chatflows-streaming', chatflowsStreamingRouter)
 router.use('/chatmessage', chatMessageRouter)

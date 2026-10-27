@@ -9,8 +9,8 @@
  *
  * One audit list: sign-in, lockout, invite, reset, role change, and user
  * disable in audit_event, plus settings changes read from the settings
- * history file. Passwords, tokens, secret values, and question text are
- * not stored.
+ * history file, harness activity, and pinned query changes. Passwords,
+ * tokens, secret values, and question text are not stored.
  */
 
 import { randomUUID } from 'crypto'
@@ -29,7 +29,9 @@ export const AUDIT_TYPES = [
     'setting_change',
     'harness_run',
     'harness_access',
-    'harness_schedule'
+    'harness_schedule',
+    // 19 characters. audit_event.type is varchar(32) with no check constraint, so this needs no migration.
+    'pinned_query_change'
 ] as const
 
 export type AuditType = (typeof AUDIT_TYPES)[number]
@@ -186,6 +188,7 @@ export function auditSummary(type: AuditType): string {
     if (type === 'harness_run') return 'Harness run'
     if (type === 'harness_access') return 'API key harness access changed'
     if (type === 'harness_schedule') return 'Harness schedule changed'
+    if (type === 'pinned_query_change') return 'Pinned query changed'
     return 'Settings changed'
 }
 

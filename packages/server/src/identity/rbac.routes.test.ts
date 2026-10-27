@@ -147,6 +147,31 @@ jest.mock('../controllers/flow-drafts', () => ({
     )
 }))
 
+jest.mock(
+    '@cuttlely/components',
+    () => ({
+        StorageProviderFactory: {
+            getProvider: () => ({
+                getLoggerTransports: () => []
+            })
+        }
+    }),
+    { virtual: true }
+)
+
+jest.mock('../controllers/pinned-queries', () => ({
+    __esModule: true,
+    default: new Proxy(
+        {},
+        {
+            get: () => (_req: Request, res: express.Response) => {
+                hits.n += 1
+                res.status(200).json({ ok: true })
+            }
+        }
+    )
+}))
+
 import modelPricesRouter from '../routes/model-prices'
 import statsRouter from '../routes/stats'
 import apikeyRouter from '../routes/apikey'
@@ -156,6 +181,7 @@ import etlRouter from '../routes/etl'
 import harnessesRouter from '../routes/harnesses'
 import flowVersionsRouter from '../routes/flow-versions'
 import flowDraftsRouter from '../routes/flow-drafts'
+import pinnedQueriesRouter from '../routes/pinned-queries'
 import { setHarnessFlowLookup, setHarnessKeyLookup } from '../services/harnesses/apiAccess'
 
 type Method = 'get' | 'post' | 'put' | 'delete'
@@ -275,6 +301,12 @@ const groups: Group[] = [
         router: apikeyRouter,
         allow: { method: 'get', path: '/', permission: 'apikeys:view' },
         anyOf: { method: 'put', path: '/key-1', permission: 'apikeys:update' }
+    },
+    {
+        name: 'pinned-queries',
+        router: pinnedQueriesRouter,
+        allow: { method: 'post', path: '/0b5c3a1e-1111-2222-3333-444455556666/test', permission: 'chatflows:update' },
+        anyOf: { method: 'post', path: '/0b5c3a1e-1111-2222-3333-444455556666/suggest', permission: 'agentflows:update' }
     }
 ]
 
@@ -381,6 +413,25 @@ describe('switched route groups', () => {
         expect(lookups).toBe(1)
         const home = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
         expect((await call(group.router, home, group.allow)).status).toBe(200)
+    })
+
+    it('pinned-queries refuses a view-only role', async () => {
+        memberships.set('user-1|team-a', grant(['chatflows:view', 'agentflows:view']))
+        const user = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
+        const test = await call(pinnedQueriesRouter, user, {
+            method: 'post',
+            path: '/0b5c3a1e-1111-2222-3333-444455556666/test',
+            permission: 'chatflows:view'
+        })
+        expect(test.status).toBe(403)
+        expect(hits.n).toBe(0)
+        const suggest = await call(pinnedQueriesRouter, user, {
+            method: 'post',
+            path: '/0b5c3a1e-1111-2222-3333-444455556666/suggest',
+            permission: 'chatflows:view'
+        })
+        expect(suggest.status).toBe(403)
+        expect(hits.n).toBe(0)
     })
 
     it('flow-versions restore refuses a view-only role', async () => {

@@ -4,9 +4,10 @@ import { Platform } from '../../Interface'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { canvasCardLook } from './canvasCardLook'
 import { IT_WORKED_DISABLE_ENV } from '../../utils/constants'
+import { pinnedQueriesEnabled } from '../pinned-queries/sql'
 
 const getSettings = async () => {
-    const look = { CANVAS_CARD_LOOK: canvasCardLook() }
+    const look = { CANVAS_CARD_LOOK: canvasCardLook(), PINNED_QUERIES: pinnedQueriesEnabled() }
     try {
         const appServer = getRunningExpressApp()
         const platformType = appServer.identityManager.getPlatformType()
