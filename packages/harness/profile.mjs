@@ -1324,6 +1324,10 @@ function usesBridge(specialist) {
     return (specialist?.modules || []).length > 0 || (specialist?.mcpServers || []).some(isFlowiseMcpBinding)
 }
 
+export function analystBridgeQueryName(specialist) {
+    return usesBridge(specialist) ? `mcp__${serverNameFor(specialist)}__query` : ''
+}
+
 function requestedBuiltin(specialist, name) {
     if (name === 'browser') return Boolean(specialist.browser)
     if (name === 'terminal') return Boolean(specialist.shell)
