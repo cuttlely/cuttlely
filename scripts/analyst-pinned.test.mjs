@@ -63,7 +63,10 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             'DROP OPERATOR public.= (text,bigint); DROP FUNCTION public.zz_test_rt_eq(text,bigint); DROP FUNCTION public.date_trunc(text,date)'
         )
         const c = config(database)
-        const url = `postgresql://${encodeURIComponent(c.user)}:${encodeURIComponent(c.password)}@${c.host}:${c.port}/${database}`
+        const target = new URL(`postgresql://${c.host}:${c.port}/${database}`)
+        target.username = c.user
+        target.password = c.password
+        const url = target.href
         const options = { readOnlySql: true, relations: ['public.demo_sales'], rowCap: 100, scope: 'ZZ-TEST-runtime' }
         const entry = {
             id: 'ZZ-TEST-pin',
