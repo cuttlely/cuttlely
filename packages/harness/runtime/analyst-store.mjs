@@ -2177,9 +2177,7 @@ async function queryUrlPostgres(
     const preparse = async () => {
         if (!guard.batchedGuard) return
         // Other callers can cache the domain scan. Do not speculate that cached read again.
-        const reads = readOnlySql
-            ? guardCheckReads({ names: relations, readOnlySql, allowedFunctions: guard.allowedFunctions })
-            : [selectedRelationsRead(relations)].filter(Boolean)
+        const reads = readOnlySql ? guardCheckReads({ names: relations, readOnlySql }) : [selectedRelationsRead(relations)].filter(Boolean)
         await guard.prefetch([...reads, ...pathEntry()])
         if (guard.statementPathSql) guard.pathSetByBatch = true
     }

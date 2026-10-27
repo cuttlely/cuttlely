@@ -2124,7 +2124,8 @@ async function idRows(runner, sql, ids) {
     return runner.all(sql, [[...ids]])
 }
 
-export function guardCheckReads({ names = [], readOnlySql = false, allowedFunctions = [] } = {}) {
+export function guardCheckReads({ names = [], readOnlySql = false } = {}) {
+    // Allowlist lookups can raise; resolveAllowedFunctions must read them only when routine checking needs them.
     return [
         ...(readOnlySql ? [{ sql: RISKY_TYPES_SQL }] : []),
         selectedRelationsRead(names),
@@ -2132,7 +2133,6 @@ export function guardCheckReads({ names = [], readOnlySql = false, allowedFuncti
         { sql: ALL_DOMAIN_CHECKS_SQL },
         domainSuperset(OPERATORS_SQL),
         domainSuperset(ROUTINES_SQL, true),
-        allowedFunctionsRead(allowedFunctions),
         { sql: REG_TSEARCH_TYPES_SQL },
         { sql: REG_TSEARCH_FUNCTIONS_SQL, params: [TEXT_SEARCH_FUNCTIONS] },
         { sql: REG_TSEARCH_IO_SQL, params: [['regconfigin', 'regconfigout', 'regdictionaryin', 'regdictionaryout']] }

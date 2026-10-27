@@ -550,6 +550,21 @@ for (const empty of [true, false]) {
                 // Signature errors (missing type or bad syntax) raise on PG 14/15 and resolve to NULL on PG 16+; legacy is the oracle.
                 if (config.ok !== undefined) assert.equal(old.ok, config.ok, old.message)
             })
+            it(`${config.name} without routine calls`, async (t) => {
+                if (!state.url) return t.skip('Local Postgres admin is unavailable')
+                const allowedFunctions = config.entries.join('\n')
+                const statements = [
+                    { sql: 'SELECT 1 LIMIT 50' },
+                    ...(!empty ? [{ sql: `SELECT id FROM ${schema}.orders LIMIT 50`, relations: [selection[0]] }] : [])
+                ]
+                for (const { sql, relations } of statements) {
+                    const options = { allowedFunctions, ...(relations ? { relations } : {}) }
+                    const old = await decision(state.url, sql, options, true)
+                    const current = await decision(state.url, sql, options, false)
+                    // Legacy decides whether this path resolves the allowlist, including version-dependent lookup errors.
+                    assert.deepEqual(current, old, `${sql}: allow/refuse decisions and error messages must agree`)
+                }
+            })
         }
     })
 }
@@ -1282,6 +1297,9 @@ describe('analyst guard transaction orchestration (offline)', () => {
                             if (!legacy) {
                                 t.diagnostic(`mock 19 selections, 5 domains: ${calls.length} queries`)
                                 assert.ok(calls.length <= 20)
+                                const allowlistCalls = calls.filter(({ text }) => isAllowlistLookup(text))
+                                assert.equal(allowlistCalls.length, 1)
+                                assert.ok(!allowlistCalls[0].text.includes('\n;\n'), 'Allowlist resolution stays outside prefetch batches')
                                 if (policy) {
                                     // Policy locks remain a separate error boundary before definition reads.
                                     const definitionBatch = calls.findIndex(
