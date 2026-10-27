@@ -16,7 +16,7 @@
 
 import express, { Request } from 'express'
 import request from 'supertest'
-import { identityUsersRouter } from './directoryRoutes'
+import { identityRoleRouter, identityUsersRouter } from './directoryRoutes'
 import { setTeamPermissionLookup } from './rbac'
 
 jest.mock('../DataSource', () => ({
@@ -80,5 +80,31 @@ describe('local user route validation', () => {
         const disabled = await request(server).patch('/api/v1/users/user-2').send({ disabled: 'yes' })
         expect(disabled.status).toBe(400)
         expect(disabled.body).toEqual({ message: 'disabled must be true or false' })
+    })
+})
+
+describe('role list route permission', () => {
+    function roleApp() {
+        const server = express()
+        server.use(express.json())
+        server.use((req, _res, next) => {
+            req.user = { id: 'user-1', activeOrganizationId: 'org-1', activeWorkspaceId: 'team-1', permissions: [] }
+            next()
+        })
+        server.use('/api/v1/role', identityRoleRouter)
+        server.use((error: Error, _req: Request, res: express.Response, _next: express.NextFunction) => {
+            if (!res.headersSent) res.status(500).json({ message: error.message })
+        })
+        return server
+    }
+
+    afterEach(() => setTeamPermissionLookup(null))
+
+    it('lets workspace:update read the role list for Change role, and keeps role writes on roles:manage', async () => {
+        setTeamPermissionLookup({ accessFor: async () => ({ owner: false, permissions: ['chatflows:view'] }) })
+        expect((await request(roleApp()).get('/api/v1/role?organizationId=org-1')).status).toBe(403)
+        setTeamPermissionLookup({ accessFor: async () => ({ owner: false, permissions: ['workspace:update'] }) })
+        expect((await request(roleApp()).get('/api/v1/role?organizationId=org-1')).status).not.toBe(403)
+        expect((await request(roleApp()).post('/api/v1/role').send({ name: 'Lead', permissions: '[]' })).status).toBe(403)
     })
 })
