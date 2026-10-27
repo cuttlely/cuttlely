@@ -78,6 +78,10 @@ import ManageScrapedLinksDialog from '@/ui-component/dialog/ManageScrapedLinksDi
 import CredentialInputHandler from './CredentialInputHandler'
 import { credentialMarkOptional } from '@/utils/postgresCredentialHint'
 import InputHintDialog from '@/ui-component/dialog/InputHintDialog'
+import { useConfig } from '@/store/context/ConfigContext'
+import PinnedQueriesBlock from './pinnedQueries/PinnedQueriesBlock'
+import { showFreeSql, FREE_SQL_LABEL, readPins } from './pinnedQueries/model'
+import { FreeSqlNote } from './pinnedQueries/PinnedQueriesView'
 import NvidiaNIMDialog from '@/ui-component/dialog/NvidiaNIMDialog'
 import PromptGeneratorDialog from '@/ui-component/dialog/PromptGeneratorDialog'
 
@@ -150,6 +154,7 @@ const NodeInputHandler = ({
 
     useNotifier()
     const dispatch = useDispatch()
+    const pinnedOn = (useConfig() || {}).config?.PINNED_QUERIES === true
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
     const closeSnackbar = (...args) => dispatch(closeSnackbarAction(...args))
 
@@ -853,6 +858,11 @@ const NodeInputHandler = ({
     const webhookMethod = data.inputs?.webhookMethod ?? 'POST'
     const webhookUrlBase = chatflowId ? `${baseURL}/api/v1/webhook/${chatflowId}` : null
     const webhookUrl = webhookUrlBase ? `${webhookMethod} ${webhookUrlBase}` : 'Save the flow first to generate the webhook URL'
+    // The dialog is the editor. A raw pinnedQueries field, if the node exposes one, stays hidden.
+    if (inputParam?.name === 'pinnedQueries') return null
+    const freeSql = showFreeSql(data, inputParam?.name, pinnedOn)
+    const canvasNodes = reactFlowInstance?.getNodes?.() || []
+    const canvasEdges = reactFlowInstance?.getEdges?.() || []
 
     return (
         <div ref={ref}>
@@ -944,9 +954,21 @@ const NodeInputHandler = ({
                                 </Button>
                             </>
                         )}
+                        {inputParam?.name === 'mcpActions' && data.name === 'postgreSQLMCP' && (
+                            <PinnedQueriesBlock
+                                enabled={pinnedOn}
+                                chatflowId={chatflowId}
+                                nodeId={data.id}
+                                pins={readPins(data.inputs?.pinnedQueries)}
+                                nodes={canvasNodes}
+                                edges={canvasEdges}
+                                disabled={disabled}
+                                onChange={(next) => commitCanvasInput('pinnedQueries', next)}
+                            />
+                        )}
                         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
                             <Typography>
-                                {inputParam.label}
+                                {freeSql ? FREE_SQL_LABEL : inputParam.label}
                                 {!credentialMarkOptional(inputParam, credentialHint) && <span style={{ color: 'red' }}>&nbsp;*</span>}
                                 {inputParam.description && <TooltipWithParser style={{ marginLeft: 10 }} title={inputParam.description} />}
                             </Typography>
@@ -1456,6 +1478,7 @@ const NodeInputHandler = ({
                                         </IconButton>
                                     )}
                                 </div>
+                                {freeSql && <FreeSqlNote />}
                             </>
                         )}
                         {inputParam.type === 'timePicker' && (

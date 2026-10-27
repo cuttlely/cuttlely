@@ -76,7 +76,7 @@ A passing test records who ran it. That person tested the statement. They did no
 
 ## Free SQL stays available
 
-Adding pins does not turn off free SQL. The **query** tick is unchanged. With pins on the node, the dialog labels that tick **Allow free SQL (query and describe)**. Leave it ticked and the specialist still has the `query` tool. `describe` comes with `query`. The model will often call a pin when one fits. That is not a guarantee. Only unticking **query** removes free SQL and leaves the pinned tools. That is the pinned-only setting, and it is off unless you untick **query**.
+Adding pins does not turn off free SQL. The **query** tick is unchanged. With pins on the node, the dialog labels that tick **Allow free SQL (query + describe)**. The note under it says that with free SQL on, the agent usually picks a pinned query when it fits, and that only pinned-only guarantees it. Leave it ticked and the specialist still has the `query` tool. `describe` comes with `query`. The model will often call a pin when one fits. That is not a guarantee. Only unticking **query** removes free SQL and leaves the pinned tools. That is the pinned-only setting, and it is off unless you untick **query**.
 
 When a free `query` call runs on a node that is offering at least one valid pin, that trace step includes `freeSqlWithPin`, the tool names of those pins. The list is not a match between the SQL text and a pin. It only says the node had offered those pins.
 
