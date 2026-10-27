@@ -34,7 +34,7 @@ function adminConfig(database = 'postgres') {
     }
 }
 
-function fixture(shadow = false) {
+function fixture(shadow = false, empty = false) {
     const suffix = randomBytes(6).toString('hex')
     const database = `guard_${suffix}`
     const writer = `writer_${suffix}`
@@ -57,7 +57,8 @@ function fixture(shadow = false) {
         owner = new Client(adminConfig(database))
         await owner.connect()
         state.owner = owner
-        await owner.query(`
+        if (!empty)
+            await owner.query(`
             CREATE SCHEMA ${schema};
             CREATE SCHEMA ${etl} AUTHORIZATION "${writer}";
             CREATE TABLE ${schema}.orders(id int PRIMARY KEY, customer_id int, placed_at timestamptz, total numeric, status text);
@@ -102,13 +103,15 @@ function fixture(shadow = false) {
             RESET ROLE;
             ALTER ROLE "${writer}" IN DATABASE "${database}" SET search_path = ${schema}, ${etl}, public
         `)
-        try {
-            await owner.query('CREATE EXTENSION IF NOT EXISTS dblink')
-            // Its foreign data wrapper globally refuses reads. Keep the callable functions for the corpus.
-            await owner.query('ALTER EXTENSION dblink DROP FOREIGN DATA WRAPPER dblink_fdw')
-            await owner.query('DROP FOREIGN DATA WRAPPER dblink_fdw')
-        } catch {
-            // Missing dblink must still fail closed in both modes.
+        if (!empty) {
+            try {
+                await owner.query('CREATE EXTENSION IF NOT EXISTS dblink')
+                // Its foreign data wrapper globally refuses reads. Keep the callable functions for the corpus.
+                await owner.query('ALTER EXTENSION dblink DROP FOREIGN DATA WRAPPER dblink_fdw')
+                await owner.query('DROP FOREIGN DATA WRAPPER dblink_fdw')
+            } catch {
+                // Missing dblink must still fail closed in both modes.
+            }
         }
         if (shadow)
             await owner.query(`
@@ -490,6 +493,54 @@ describe('analyst guard shadow catalog', () => {
         await differential(state, corpus.slice(0, 24), configurations.slice(0, 2), t, true)
     })
 })
+
+for (const empty of [true, false]) {
+    describe(`analyst guard allowlist evaluation (${empty ? 'no user functions' : 'normal fixture'})`, () => {
+        const state = fixture(false, empty)
+        before(async () => {
+            if (!empty || !state.url) return
+            const result = await state.owner.query(`SELECT p.oid FROM pg_catalog.pg_proc p
+                JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'`)
+            assert.deepEqual(result.rows, [], 'The database has no candidate user functions')
+        })
+        const valid = [`${schema}._etl_safe_date(text)`, `${schema}._etl_safe_pct(*)`]
+        const missingType = 'public.helper(missing_type)'
+        const badSignature = 'public.helper("unterminated)'
+        const otherBadSignature = 'public.helper(text))'
+        const badNames = ['"unterminated(*)', 'a.b.c(*)']
+        const lists = [
+            { name: 'missing argument type', entries: [missingType] },
+            { name: 'bad signature syntax', entries: [badSignature] },
+            { name: 'valid entries before a missing type', entries: [...valid, missingType] },
+            { name: 'valid entries after a missing type', entries: [missingType, ...valid] },
+            { name: 'valid entries before bad syntax', entries: [...valid, badSignature] },
+            { name: 'valid entries after bad syntax', entries: [badSignature, ...valid] },
+            { name: 'first signature error wins', entries: [badSignature, ...valid, otherBadSignature] },
+            { name: 'reversed signature errors', entries: [otherBadSignature, ...valid, badSignature] },
+            ...badNames.flatMap((entry) => [
+                { name: `parser rejects ${entry}`, entries: [entry], parsed: [], ok: true },
+                { name: `valid entries with rejected ${entry}`, entries: [valid[0], entry, valid[1]], parsed: valid, ok: true }
+            ])
+        ]
+        for (const config of lists) {
+            it(config.name, async (t) => {
+                const allowedFunctions = config.entries.join('\n')
+                // name(*) requires exactly two valid identifiers; malformed names never reach parse_ident.
+                if (config.parsed) assert.deepEqual(parseAllowedFunctions(allowedFunctions), parseAllowedFunctions(config.parsed))
+                else assert.equal(parseAllowedFunctions(allowedFunctions).length, config.entries.length)
+                if (!state.url) return t.skip('Local Postgres admin is unavailable')
+                // Use a built-in function so routine checking resolves the allowlist even in the empty database.
+                const sql = 'SELECT pg_catalog.abs(1) LIMIT 50'
+                const old = await decision(state.url, sql, { allowedFunctions }, true)
+                const current = await decision(state.url, sql, { allowedFunctions }, false)
+                assert.deepEqual(current, old, 'Allow/refuse decisions and error messages must agree')
+                // Signature errors (missing type or bad syntax) raise on PG 14/15 and resolve to NULL on PG 16+; legacy is the oracle.
+                if (config.ok !== undefined) assert.equal(old.ok, config.ok, old.message)
+            })
+        }
+    })
+}
 
 describe('analyst guard fails closed on failed or incomplete catalog reads', () => {
     const state = fixture()
