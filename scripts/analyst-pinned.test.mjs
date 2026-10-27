@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import pg from 'pg'
 import fs from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { checkPinnedEquivalence } from '../packages/harness/runtime/pinned-query-equivalence.mjs'
 import { compilePinned, validateArgs } from '../packages/harness/runtime/pinned-query.mjs'
 import {
@@ -346,11 +346,13 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             )
         })
         await t.test('suggestions cannot bypass the login table grants', async () => {
-            await admin.query(`CREATE ROLE "${deniedRole}" LOGIN`)
+            // CI servers use password auth, so the throwaway role gets a random one.
+            const deniedSecret = randomBytes(18).toString('hex')
+            await admin.query(`CREATE ROLE "${deniedRole}" LOGIN PASSWORD '${deniedSecret}'`)
             madeRole = true
             const deniedUrl = new URL(url)
             deniedUrl.username = deniedRole
-            deniedUrl.password = ''
+            deniedUrl.password = deniedSecret
             await assert.rejects(
                 queryAnalystUrl(deniedUrl.toString(), compiled.runText, { ...bound, suggestTypesSql: entry.sql.replaceAll(':r', '$1') }),
                 /selected|read|permission|no longer/i
