@@ -1,5 +1,5 @@
 import { checkReadOnlySql } from './analyst-relations.mjs'
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash } from 'node:crypto'
 
 export const PINNED_PREFIX = 'pq_'
 export const PINNED_TOOL_RE = /(^|__)pq_[a-z0-9_]+$/
@@ -139,6 +139,25 @@ function scan(sql, allowPositional = false) {
     }
     return tokens
 }
+// Clause words can also be column names or aliases. Require a following count expression.
+function countClauseAt(tokens, index) {
+    const token = tokens[index],
+        before = tokens[index - 1],
+        next = tokens[index + 1]
+    if (token.quoted || !/^(limit|offset)$/i.test(token.text)) return false
+    if (before?.text === '.' || (!before?.quoted && /^as$/i.test(before?.text || '')) || next?.text === '.') return false
+    if (!next) return false
+    if (next.param || next.positional || next.quoted || /^(\d+|\(|\+|-)$/i.test(next.text)) return true
+    return (
+        /^[A-Za-z_]/.test(next.text) &&
+        !/^(from|where|group|having|window|order|union|intersect|except|offset|fetch|for|limit|into)$/i.test(next.text)
+    )
+}
+export function pinnedStatementLimit(sql) {
+    const top = scan(sql, true).filter((t) => t.depth === 0)
+    const index = top.findIndex((t, i) => /^limit$/i.test(t.text) && countClauseAt(top, i))
+    return index >= 0 && /^\d+$/.test(top[index + 1]?.text || '') ? Number(top[index + 1].text) : null
+}
 function specs(entry) {
     const params = entry.params ?? []
     if (!Array.isArray(params)) fail('Parameters must be a list.', 'param_spec')
@@ -156,12 +175,24 @@ function specs(entry) {
     }
     return params
 }
+// A parameter right after a subscript "[" would read as a slice bound (tags[:n]). An ARRAY[ constructor element is fine.
+function subscriptBefore(sql, start) {
+    const before = sql.slice(Math.max(0, start - 64), start).trimEnd()
+    if (!before.endsWith('[')) return false
+    return !/(?:^|[^A-Za-z0-9_$"])array\s*\[$/i.test(before)
+}
+
 export function compilePinned(entry, args) {
     const sql = String(entry.sql || ''),
         params = specs(entry),
         tokens = scan(sql)
     for (let i = 0; i < tokens.length; i++) {
-        if (!['::', 'as'].includes(tokens[i].text.toLowerCase())) continue
+        const token = tokens[i]
+        if (token.text !== '::') {
+            if (token.quoted || !/^as$/i.test(token.text)) continue
+            const open = tokens.findLastIndex((t, j) => j < i && t.text === '(' && t.depth === token.depth)
+            if (open < 1 || tokens[open - 1].quoted || !/^cast$/i.test(tokens[open - 1].text)) continue
+        }
         let j = i + 1
         if (tokens[j + 1]?.text === '.') j += 2
         const type = tokens[j]?.text.replace(/^"|"$/g, '').toLowerCase()
@@ -173,8 +204,8 @@ export function compilePinned(entry, args) {
             fail('Object identifier casts are not allowed in pinned SQL.', 'param_cast')
     }
     if (tokens.some((t) => t.text === ';')) fail('Semicolons are not allowed.', 'semicolon')
-    const top = tokens.filter((t) => t.depth === 0 && !t.quoted)
-    const limit = top.findIndex((t) => /^limit$/i.test(t.text))
+    const top = tokens.filter((t) => t.depth === 0)
+    const limit = top.findIndex((t, i) => /^limit$/i.test(t.text) && countClauseAt(top, i))
     if (
         limit < 0 ||
         !/^\d+$/.test(top[limit + 1]?.text || '') ||
@@ -183,9 +214,13 @@ export function compilePinned(entry, args) {
         fail('A literal top-level LIMIT is required.', 'limit')
     // LIMIT/OFFSET expressions at every nesting level must be literal, never model parameters.
     for (let i = 0; i < tokens.length; i++)
-        if (!tokens[i].quoted && /^(limit|offset)$/i.test(tokens[i].text)) {
+        if (countClauseAt(tokens, i)) {
             for (let j = i + 1; j < tokens.length && tokens[j].depth >= tokens[i].depth; j++) {
-                if (!tokens[j].quoted && /^(offset|limit|for|union|except|intersect)$/i.test(tokens[j].text)) break
+                if (
+                    tokens[j].depth === tokens[i].depth &&
+                    (countClauseAt(tokens, j) || /^(for|union|except|intersect)$/i.test(tokens[j].text))
+                )
+                    break
                 if (tokens[j].param) fail('Parameters in LIMIT or OFFSET are not allowed.', 'limit_parameter')
             }
         }
@@ -197,7 +232,12 @@ export function compilePinned(entry, args) {
         checkText = '',
         at = 0
     for (const t of tokens.filter((t) => t.param)) {
-        if (/[A-Za-z0-9_$\u0080-\uffff:]/.test(sql[t.start - 1] || '') || /[A-Za-z0-9_$\u0080-\uffff:]/.test(sql[t.end] || ''))
+        if (
+            /[A-Za-z0-9_$\u0080-\uffff:]/.test(sql[t.start - 1] || '') ||
+            subscriptBefore(sql, t.start) ||
+            /[A-Za-z0-9_$\u0080-\uffff[(]/.test(sql[t.end] || '') ||
+            (sql[t.end] === ':' && sql.slice(t.end, t.end + 2) !== '::')
+        )
             fail('A parameter must be separated from an identifier.', 'param_position')
         const p = byName.get(t.param)
         if (!p) fail(`Missing specification for ${t.param}.`, 'missing_spec')
@@ -213,8 +253,8 @@ export function compilePinned(entry, args) {
             index: order.indexOf(p.name) + 1,
             type: p.type
         })
-        runText += `${prefix}$${order.indexOf(p.name) + 1}${cast}`
-        checkText += `${prefix}NULL${cast}`
+        runText += `${prefix}($${order.indexOf(p.name) + 1}${cast})`
+        checkText += `${prefix}(NULL${cast})`
         at = t.end
     }
     for (const p of params) if (!seen.has(p.name)) fail(`Unused parameter ${p.name}.`, 'unused_param')
@@ -226,6 +266,7 @@ export function compilePinned(entry, args) {
         checkText,
         binds: args === undefined ? null : validateArgs(entry, args),
         order,
+        spans,
         statementHash: hash(normal(runText) + '\n' + json(params))
     }
 }
@@ -237,8 +278,8 @@ export function assertCheckRunPair(runText, checkText, spans) {
         const { runStart, checkStart, index, type } = span
         if (!PARAM_TYPES.includes(type) || !Number.isSafeInteger(index) || index < 1 || runStart < r || checkStart < c)
             fail('Invalid parameter span.', 'check_run_pair')
-        const run = `$${index}::pg_catalog.${type}`,
-            check = `NULL::pg_catalog.${type}`
+        const run = `($${index}::pg_catalog.${type})`,
+            check = `(NULL::pg_catalog.${type})`
         if (
             runText.slice(r, runStart) !== checkText.slice(c, checkStart) ||
             runText.slice(runStart, runStart + run.length) !== run ||
@@ -251,7 +292,7 @@ export function assertCheckRunPair(runText, checkText, spans) {
     if (runText.slice(r) !== checkText.slice(c)) fail('Check and run texts differ.', 'check_run_pair')
     // No raw or uncast positional site may hide outside the emitted spans.
     const sites = scan(runText, true).filter((t) => t.positional)
-    if (sites.length !== spans.length || sites.some((t, i) => t.start !== spans[i].runStart))
+    if (sites.length !== spans.length || sites.some((t, i) => t.start !== spans[i].runStart + 1))
         fail('Untracked positional parameter.', 'check_run_pair')
     return true
 }
@@ -271,10 +312,14 @@ function decimalString(s) {
             : point >= digits.length
             ? digits + '0'.repeat(point - digits.length)
             : digits.slice(0, point) + '.' + digits.slice(point)
-    out = out
-        .replace(/^0+(?=\d)/, '')
-        .replace(/(\.\d*?)0+$/, '$1')
-        .replace(/\.$/, '')
+    out = out.replace(/^0+(?=\d)/, '')
+    const dot = out.indexOf('.')
+    if (dot >= 0) {
+        let end = out.length
+        while (end > dot + 1 && out[end - 1] === '0') end--
+        if (end === dot + 1) end = dot
+        out = out.slice(0, end)
+    }
     return (m[1] === '-' && /[1-9]/.test(out) ? '-' : '') + out
 }
 function decimalCompare(a, b) {
@@ -373,22 +418,6 @@ export function validateArgs(entry, args) {
     }
     return order.map((name) => values.get(name))
 }
-export function stampPayload({ workspaceId, cred, statementHash, params, tables, functions, testedColumns }) {
-    return json({
-        workspaceId,
-        cred,
-        statementHash,
-        params,
-        tables: [...(tables || [])].sort(),
-        functions: [...(functions || [])].sort(),
-        testedColumns
-    })
-}
-export const computeStamp = (keyBuf, payload) => createHmac('sha256', keyBuf).update(payload).digest('hex')
-export function verifyStamp(keyBuf, payload, stamp) {
-    if (typeof stamp !== 'string' || !/^[a-f0-9]{64}$/.test(stamp)) return false
-    return timingSafeEqual(Buffer.from(computeStamp(keyBuf, payload), 'hex'), Buffer.from(stamp, 'hex'))
-}
 export function pinnedToolDefinition(entry) {
     if (!/^pq_[a-z0-9_]+$/.test(entry.name) || entry.name.length > 64) fail('Invalid pinned tool name.', 'tool_name')
     compilePinned(entry)
@@ -415,19 +444,6 @@ export function pinnedToolDefinition(entry) {
         }
     }
 }
-export function sqlTraceFields(sql, { preview } = {}) {
-    const text = String(sql || ''),
-        result = { sqlHash: hash(normal(text)) }
-    if (preview) {
-        const bytes = Buffer.from(text)
-        let end = Math.min(bytes.length, 4096)
-        while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--
-        result.sql = bytes.subarray(0, end).toString('utf8')
-        if (bytes.length > end) result.sqlTruncated = true
-    }
-    return result
-}
-
 // Low-level helper: the caller must first complete the node scope/routine checks on
 // checkText, then enter its read-only run transaction on this same connection.
 let prepareSequence = 0

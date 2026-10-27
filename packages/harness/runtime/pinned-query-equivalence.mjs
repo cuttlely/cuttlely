@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { compilePinned, validateArgs } from './pinned-query.mjs'
+import { compilePinned } from './pinned-query.mjs'
 
 // Constructs from the pinned-query equivalence spike, exercised on the CI PG matrix.
 const CASES = [
+    ['placeholder followed by cast', 'SELECT id FROM demo_sales WHERE id = :id::int4 LIMIT 1', { id: 'int8' }, { id: '1' }],
     [
         'V07 fixture shape',
         "WITH p AS (SELECT lower(product_family) AS pf, MAX(month_end) AS m FROM zz_test_utilization WHERE utilization_pct IS NOT NULL GROUP BY 1),\nr AS (SELECT p.pf, u.account_id, u.mom_change_pp FROM zz_test_utilization u JOIN p ON lower(u.product_family) = p.pf AND u.month_end = p.m WHERE u.utilization_pct IS NOT NULL AND u.mom_change_pp IS NOT NULL),\na AS (SELECT pf, account_id, MAX(mom_change_pp) AS mx, MIN(mom_change_pp) AS mn, BOOL_AND(mom_change_pp = 0) AS flat FROM r GROUP BY 1,2)\nSELECT p.pf AS product_family, p.m AS latest_month, (p.m - INTERVAL '1 month')::date AS prior_month, :threshold_pp AS threshold_pp, COUNT(a.account_id) AS accounts_with_change_value,\n  COUNT(*) FILTER (WHERE a.mx > :threshold_pp) AS accounts_up_over_threshold, COUNT(*) FILTER (WHERE a.mn < -:threshold_pp) AS accounts_down_over_threshold, COUNT(*) FILTER (WHERE a.flat) AS accounts_no_change, CASE WHEN COUNT(a.account_id) = 0 THEN 'no month-over-month data' ELSE '' END AS mom_data_note FROM p LEFT JOIN a ON a.pf = p.pf GROUP BY p.pf, p.m ORDER BY p.pf LIMIT 20",
@@ -281,7 +282,9 @@ export async function provePair(client, compiled, types, binds) {
                 [types.map((t) => 'pg_catalog.' + t).join(',')]
             )
         ).rows[0].tree
-        assert.deepEqual(oracleIds(fn), oracleIds(view), 'T3 stored tree OIDs and types')
+        const viewOid = (await client.query("SELECT 'pg_temp.zz_test_equivalence'::regclass::oid AS oid")).rows[0].oid
+        const viewIds = oracleIds(view).filter((id) => id !== `relid:${viewOid}`)
+        assert.deepEqual(oracleIds(fn), viewIds, 'T3 stored tree OIDs and types')
     } finally {
         await client.query('ROLLBACK')
         if (prepared) await client.query('DEALLOCATE zz_test_pair')
@@ -294,10 +297,6 @@ export async function checkPinnedEquivalence(t, client) {
         for (const [name, sql, spec, args] of CASES)
             await t.test(name, async () => {
                 const entry = { sql, params: Object.entries(spec).map(([name, type]) => ({ name, type })) }
-                if (name === 'user cast after param') {
-                    assert.throws(() => compilePinned(entry), /separated/)
-                    return
-                }
                 const c = compilePinned(entry, args),
                     types = c.order.map((n) => spec[n])
                 if (name === 'GROUP BY distinct params (equal() trap)') {
