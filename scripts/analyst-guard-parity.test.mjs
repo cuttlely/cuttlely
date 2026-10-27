@@ -46,7 +46,7 @@ function adminConfig(database = 'postgres') {
     }
 }
 
-function fixture(shadow = false) {
+function fixture(shadow = false, empty = false) {
     const suffix = randomBytes(6).toString('hex')
     const database = `guard_${suffix}`
     const writer = `writer_${suffix}`
@@ -69,7 +69,8 @@ function fixture(shadow = false) {
         owner = new Client(adminConfig(database))
         await owner.connect()
         state.owner = owner
-        await owner.query(`
+        if (!empty)
+            await owner.query(`
             CREATE SCHEMA ${schema};
             CREATE SCHEMA ${etl} AUTHORIZATION "${writer}";
             CREATE TABLE ${schema}.orders(id int PRIMARY KEY, customer_id int, placed_at timestamptz, total numeric, status text);
@@ -114,13 +115,15 @@ function fixture(shadow = false) {
             RESET ROLE;
             ALTER ROLE "${writer}" IN DATABASE "${database}" SET search_path = ${schema}, ${etl}, public
         `)
-        try {
-            await owner.query('CREATE EXTENSION IF NOT EXISTS dblink')
-            // Its foreign data wrapper globally refuses reads. Keep the callable functions for the corpus.
-            await owner.query('ALTER EXTENSION dblink DROP FOREIGN DATA WRAPPER dblink_fdw')
-            await owner.query('DROP FOREIGN DATA WRAPPER dblink_fdw')
-        } catch {
-            // Missing dblink must still fail closed in both modes.
+        if (!empty) {
+            try {
+                await owner.query('CREATE EXTENSION IF NOT EXISTS dblink')
+                // Its foreign data wrapper globally refuses reads. Keep the callable functions for the corpus.
+                await owner.query('ALTER EXTENSION dblink DROP FOREIGN DATA WRAPPER dblink_fdw')
+                await owner.query('DROP FOREIGN DATA WRAPPER dblink_fdw')
+            } catch {
+                // Missing dblink must still fail closed in both modes.
+            }
         }
         if (shadow)
             await owner.query(`
@@ -503,6 +506,54 @@ describe('analyst guard shadow catalog', () => {
     })
 })
 
+for (const empty of [true, false]) {
+    describe(`analyst guard allowlist evaluation (${empty ? 'no user functions' : 'normal fixture'})`, () => {
+        const state = fixture(false, empty)
+        before(async () => {
+            if (!empty || !state.url) return
+            const result = await state.owner.query(`SELECT p.oid FROM pg_catalog.pg_proc p
+                JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'`)
+            assert.deepEqual(result.rows, [], 'The database has no candidate user functions')
+        })
+        const valid = [`${schema}._etl_safe_date(text)`, `${schema}._etl_safe_pct(*)`]
+        const missingType = 'public.helper(missing_type)'
+        const badSignature = 'public.helper("unterminated)'
+        const otherBadSignature = 'public.helper(text))'
+        const badNames = ['"unterminated(*)', 'a.b.c(*)']
+        const lists = [
+            { name: 'missing argument type', entries: [missingType] },
+            { name: 'bad signature syntax', entries: [badSignature] },
+            { name: 'valid entries before a missing type', entries: [...valid, missingType] },
+            { name: 'valid entries after a missing type', entries: [missingType, ...valid] },
+            { name: 'valid entries before bad syntax', entries: [...valid, badSignature] },
+            { name: 'valid entries after bad syntax', entries: [badSignature, ...valid] },
+            { name: 'first signature error wins', entries: [badSignature, ...valid, otherBadSignature] },
+            { name: 'reversed signature errors', entries: [otherBadSignature, ...valid, badSignature] },
+            ...badNames.flatMap((entry) => [
+                { name: `parser rejects ${entry}`, entries: [entry], parsed: [], ok: true },
+                { name: `valid entries with rejected ${entry}`, entries: [valid[0], entry, valid[1]], parsed: valid, ok: true }
+            ])
+        ]
+        for (const config of lists) {
+            it(config.name, async (t) => {
+                const allowedFunctions = config.entries.join('\n')
+                // name(*) requires exactly two valid identifiers; malformed names never reach parse_ident.
+                if (config.parsed) assert.deepEqual(parseAllowedFunctions(allowedFunctions), parseAllowedFunctions(config.parsed))
+                else assert.equal(parseAllowedFunctions(allowedFunctions).length, config.entries.length)
+                if (!state.url) return t.skip('Local Postgres admin is unavailable')
+                // Use a built-in function so routine checking resolves the allowlist even in the empty database.
+                const sql = 'SELECT pg_catalog.abs(1) LIMIT 50'
+                const old = await decision(state.url, sql, { allowedFunctions }, true)
+                const current = await decision(state.url, sql, { allowedFunctions }, false)
+                assert.deepEqual(current, old, 'Allow/refuse decisions and error messages must agree')
+                // Signature errors (missing type or bad syntax) raise on PG 14/15 and resolve to NULL on PG 16+; legacy is the oracle.
+                if (config.ok !== undefined) assert.equal(old.ok, config.ok, old.message)
+            })
+        }
+    })
+}
+
 describe('analyst guard fails closed on failed or incomplete catalog reads', () => {
     const state = fixture()
     const statement = `SELECT ${schema}._etl_safe_round(total), ${schema}._etl_safe_pct(total, 2) FROM ${schema}.orders JOIN ${schema}.customers USING (id) ORDER BY id LIMIT 50`
@@ -647,12 +698,30 @@ function isAllowlistLookup(text) {
     return /to_regprocedure|parse_ident/.test(text) && /\bpg_proc\b/.test(text)
 }
 
+function lockListElements(list) {
+    const elements = []
+    let quoted = false
+    let start = 0
+    for (let i = 0; i < list.length; i++) {
+        if (list[i] === '"') {
+            if (quoted && list[i + 1] === '"') i++
+            else quoted = !quoted
+        } else if (list[i] === ',' && !quoted) {
+            elements.push(list.slice(start, i).trim())
+            start = i + 1
+        }
+    }
+    elements.push(list.slice(start).trim())
+    return elements
+}
+
 function lockStatements(text) {
     const statements = text.split(/\n;\n|; /)
-    if (!statements.every((part) => /^(LOCK TABLE ONLY .+ IN ACCESS SHARE MODE|SELECT 1 FROM ONLY .+ LIMIT 0)$/.test(part))) return [text]
+    if (!statements.every((part) => /^(LOCK TABLE .+ IN ACCESS SHARE MODE|SELECT 1 FROM ONLY .+ LIMIT 0)$/.test(part))) return [text]
     return statements.flatMap((part) => {
-        const lock = /^LOCK TABLE ONLY (.+) IN ACCESS SHARE MODE$/.exec(part)
-        return lock ? lock[1].split(', ').map((name) => `LOCK TABLE ONLY ${name} IN ACCESS SHARE MODE`) : [part]
+        const lock = /^LOCK TABLE (.+) IN ACCESS SHARE MODE$/.exec(part)
+        // Preserve a missing ONLY so ordered parity with the legacy locks fails.
+        return lock ? lockListElements(lock[1]).map((element) => `LOCK TABLE ${element} IN ACCESS SHARE MODE`) : [part]
     })
 }
 
@@ -661,8 +730,9 @@ function catalogLookups(reads) {
     for (const { sql, params, transaction } of reads) {
         if (/^(SELECT pg_backend_pid|SHOW transaction_read_only|SELECT pg_catalog.current_setting)/.test(sql)) continue
         if (isAllowlistLookup(sql)) {
+            const [signatures, names] = params.length === 4 ? params.slice(2) : params
             const entries = Array.isArray(params[0])
-                ? [...params[0].map((s) => `signature:${s}`), ...params[1].map((s) => `name:${s}`)]
+                ? [...signatures.map((s) => `signature:${s}`), ...names.map((s) => `name:${s}`)]
                 : [`${sql.includes('to_regprocedure') ? 'signature' : 'name'}:${params[0]}`]
             let previous = normalized.at(-1)
             if (!previous?.allowlist || previous.transaction !== transaction) {
@@ -681,6 +751,18 @@ function catalogLookups(reads) {
 function captureReads(reads, getTransaction) {
     setGuardReadHookForTests((sql, params) => reads.push({ sql, params: structuredClone(params), transaction: getTransaction() }))
 }
+
+it('normalizes lock lists without hiding missing ONLY modifiers or splitting quoted identifiers', () => {
+    const first = '"schema, ""quoted"""."plain, table"'
+    const second = '"schema, ""quoted"""."parent, table"'
+    const legacy = [`LOCK TABLE ONLY ${first} IN ACCESS SHARE MODE`, `LOCK TABLE ONLY ${second} IN ACCESS SHARE MODE`]
+    assert.deepEqual(lockStatements(`LOCK TABLE ONLY ${first}, ONLY ${second} IN ACCESS SHARE MODE`), legacy)
+    assert.deepEqual(lockStatements(legacy.join('\n;\n')), legacy)
+    assert.deepEqual(lockStatements(legacy.join('; ')), legacy)
+    const missingOnly = lockStatements(`LOCK TABLE ONLY ${first}, ${second} IN ACCESS SHARE MODE`)
+    assert.deepEqual(missingOnly, [legacy[0], `LOCK TABLE ${second} IN ACCESS SHARE MODE`])
+    assert.notDeepEqual(missingOnly, legacy)
+})
 
 describe('analyst guard sends every catalog lookup', () => {
     const state = fixture()
@@ -716,6 +798,14 @@ describe('analyst guard sends every catalog lookup', () => {
         }
         const batches = captures[1].filter((text) => text.split(/\n;\n|; /).some((part) => part.startsWith('LOCK TABLE ONLY')))
         assert.equal(batches.length, 1)
+        for (const batch of batches) {
+            for (const part of batch.split(/\n;\n|; /)) {
+                const lock = /^LOCK TABLE (.+) IN ACCESS SHARE MODE$/.exec(part)
+                if (lock) {
+                    for (const element of lockListElements(lock[1])) assert.ok(element.startsWith('ONLY '), element)
+                }
+            }
+        }
         const relationNames = (texts) =>
             texts
                 .flatMap((text) => text.split(/\n;\n|; /))
@@ -730,6 +820,52 @@ describe('analyst guard sends every catalog lookup', () => {
         assert.equal(captures[1].filter(isAllowlistLookup).length, 1)
         assert.equal(captures[0].filter(isAllowlistLookup).length, parseAllowedFunctions(config.allowedFunctions).length)
         assert.deepEqual(logical[1], logical[0])
+    })
+    it('locks the selected plain table and partitioned parent without locking the partition', async (t) => {
+        if (!state.url) return t.skip('Local Postgres admin is unavailable')
+        const plain = `${schema}.guard_lock_plain`
+        const parent = `${schema}.guard_lock_parent`
+        const partition = `${schema}.guard_lock_partition`
+        const original = Client.prototype.query
+        const captures = []
+        try {
+            await state.owner.query(`
+                CREATE TABLE ${plain}(id int);
+                CREATE TABLE ${parent}(id int) PARTITION BY RANGE (id);
+                CREATE TABLE ${partition} PARTITION OF ${parent} FOR VALUES FROM (0) TO (10);
+                GRANT SELECT ON ${plain}, ${parent}, ${partition} TO "${state.writer}"
+            `)
+            for (const legacy of [true, false]) {
+                const snapshots = []
+                Client.prototype.query = async function (...args) {
+                    const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
+                    const result = await original.apply(this, args)
+                    // In legacy mode the parent is the second lock; in batched mode both locks just completed.
+                    // Read on this client before any user statement could acquire its own relation locks.
+                    if (text.split(/\n;\n|; /).some((part) => part.startsWith('LOCK TABLE ') && part.includes(parent))) {
+                        const locks = await original.call(
+                            this,
+                            "SELECT relation::regclass::text AS r FROM pg_catalog.pg_locks WHERE pid = pg_backend_pid() AND locktype = 'relation'"
+                        )
+                        snapshots.push(
+                            [...new Set(locks.rows.map((row) => row.r).filter((r) => [plain, parent, partition].includes(r)))].sort()
+                        )
+                    }
+                    return result
+                }
+                // Selection order puts the partitioned parent after the plain table, exercising a later LOCK list entry.
+                const result = await decision(state.url, 'SELECT 1 LIMIT 50', { relations: [plain, parent] }, legacy)
+                assert.equal(result.ok, true, result.message)
+                assert.equal(snapshots.length, 1, 'Captured the locks inside the query transaction')
+                assert.deepEqual(snapshots[0], [plain, parent].sort(), 'The selected relations are locked, but their partition is not')
+                captures.push(snapshots[0])
+            }
+            assert.deepEqual(captures[1], captures[0])
+        } finally {
+            Client.prototype.query = original
+            setGuardLegacyRoundTripsForTests(false)
+            await state.owner.query(`DROP TABLE IF EXISTS ${parent}, ${plain} CASCADE`)
+        }
     })
     const entries = [
         { config: configurations[0], sql: 'SELECT id FROM orders ORDER BY id LIMIT 50' },
