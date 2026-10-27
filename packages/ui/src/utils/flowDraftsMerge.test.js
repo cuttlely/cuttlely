@@ -389,4 +389,24 @@ describe('ZZ-TEST-draft merge', () => {
         expect(parse(applyDraftMerge(plan)).nodes.map((item) => item.id)).toEqual(['loop', 'c1'])
         expect(parse(applyDraftMerge(plan, { 'node:loop': 'theirs' })).nodes).toEqual([])
     })
+    test('their connection to a variable input merges with my edit to the same card', () => {
+        const prompt = (inputs) =>
+            node('p', inputs, { data: { inputAnchors: [], inputParams: [{ name: 'template', acceptVariable: true }] } })
+        const link = {
+            id: 'v1',
+            source: 'x',
+            target: 'p',
+            sourceHandle: 'x-output-x-string',
+            targetHandle: 'p-input-template-string',
+            type: 'buttonedge'
+        }
+        const base = canvas([node('x'), prompt({ template: 'hi', format: 'a' })])
+        const mine = canvas([node('x'), prompt({ template: 'hi', format: 'b' })])
+        const theirs = canvas([node('x'), prompt({ template: 'hi', format: 'a' })], [link])
+        const plan = draftMergePlan(base, mine, theirs)
+        expect(plan.conflicts).toEqual([])
+        const out = parse(applyDraftMerge(plan))
+        expect(out.edges.map((item) => item.id)).toEqual(['v1'])
+        expect(byId(out.nodes, 'p').data.inputs).toEqual({ template: 'hi', format: 'b' })
+    })
 })

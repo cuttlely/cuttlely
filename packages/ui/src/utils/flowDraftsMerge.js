@@ -448,11 +448,12 @@ export function applyDraftMerge(plan, choices = {}) {
         })
         .filter(Boolean)
     const present = new Set(nodes.map((node) => node.id))
-    // The side whose version of a card is kept also decides the connections into that card's inputs.
+    // On a card both sides changed, the side whose version is kept also decides the connections into its inputs.
     const owner = new Map()
     for (const entry of plan.items) {
-        if (entry.kind !== 'node' || !(entry.mineChange || entry.theirChange)) continue
-        owner.set(entry.id, entry.take ?? pick(entry))
+        // Only when both sides changed the card's settings. Otherwise each connection merges on its own.
+        if (entry.kind !== 'node' || !entry.conflict || entry.take !== undefined) continue
+        owner.set(entry.id, pick(entry))
     }
     const ends = new Set()
     let edges = []
