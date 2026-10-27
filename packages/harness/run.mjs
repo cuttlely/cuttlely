@@ -25,6 +25,7 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
+import { isPinnedToolName } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
@@ -947,12 +948,23 @@ function toolsFor(context, name) {
 function emitTool(context, data) {
     if (!context.toolLog) context.toolLog = []
     // A tool's detail (a preview, an error) can quote a workspace path; it is masked before the log, events and trace.
-    const detail = data.detail ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
-    const callId = typeof data.callId === 'string' ? data.callId.trim() : ''
+    // A pinned tool's start carries no detail: its arguments can hold secure parameter values.
+    const pinnedStart = data.phase === 'start' && isPinnedToolName(data.name)
+    const detail = data.detail && !pinnedStart ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
     const emitted = { ...data, ...(detail ? { detail } : {}) }
+    if (pinnedStart) delete emitted.detail
     delete emitted.callId
+    logToolEvent(context.toolLog, data, detail)
+    emit(context, 'tool', emitted)
+}
+
+// Records a tool start or end on the run's tool log. An end closes the running chip with its own call id when it has
+// one, so parallel calls to the same tool keep their own SQL and hash. Only an end without a matching id falls back to
+// the newest running chip of that name that has no other call id.
+export function logToolEvent(toolLog, data, detail = '') {
+    const callId = typeof data.callId === 'string' ? data.callId.trim() : ''
     if (data.phase === 'start') {
-        context.toolLog.push({
+        toolLog.push({
             specialist: data.specialist,
             name: data.name,
             status: 'running',
@@ -967,25 +979,25 @@ function emitTool(context, data) {
             ...(data.freeSqlWithPin ? { freeSqlWithPin: data.freeSqlWithPin } : {}),
             ...(callId ? { callId } : {})
         })
-    } else {
-        const open = [...context.toolLog]
-            .reverse()
-            .find((item) => item.specialist === data.specialist && item.name === data.name && item.status === 'running')
-        if (open) {
-            open.status = data.error ? 'failed' : 'done'
-            if (detail) open.detail = detail
-            if (callId) open.callId = callId
-        } else {
-            context.toolLog.push({
-                specialist: data.specialist,
-                name: data.name,
-                status: data.error ? 'failed' : 'done',
-                ...(detail ? { detail } : {}),
-                ...(callId ? { callId } : {})
-            })
-        }
+        return
     }
-    emit(context, 'tool', emitted)
+    const running = (item) => item.specialist === data.specialist && item.name === data.name && item.status === 'running'
+    const open =
+        (callId && toolLog.find((item) => running(item) && item.callId === callId)) ||
+        [...toolLog].reverse().find((item) => running(item) && !(callId && item.callId))
+    if (open) {
+        open.status = data.error ? 'failed' : 'done'
+        if (detail) open.detail = detail
+        if (callId) open.callId = callId
+    } else {
+        toolLog.push({
+            specialist: data.specialist,
+            name: data.name,
+            status: data.error ? 'failed' : 'done',
+            ...(detail ? { detail } : {}),
+            ...(callId ? { callId } : {})
+        })
+    }
 }
 
 function configuredModel(context, specialist) {
@@ -1294,7 +1306,7 @@ export function applyAnalystPageRoute(input, steps, specialists, cursor) {
     if (!analysts.length) return { steps: list, reply: '' }
     const owner = analysts.find((specialist) => specialist.name === cursor.specialist) || (analysts.length === 1 ? analysts[0] : null)
     if (!owner) return { steps: [], reply: ANALYST_PAGE_OWNER_GONE }
-    return { steps: [{ specialist: owner, task: analystPageTask(cursor.token, request), paging: true }], reply: '' }
+    return { steps: [{ specialist: owner, task: analystPageTask(cursor.token, request, cursor.tool), paging: true }], reply: '' }
 }
 
 // The router can return no steps and Prime then invents a database answer. A data task with one analyst on the
@@ -1957,12 +1969,14 @@ export function hermesToolFailed(event) {
 export function hermesToolEvent(name, event) {
     const kind = event?.event
     if (kind !== 'tool.started' && kind !== 'tool.completed' && kind !== 'tool.failed') return null
-    const detail = event.preview ? String(event.preview) : ''
+    const toolName = String(event.tool || event.tool_name || 'tool')
+    // A pinned tool's start preview quotes the arguments, which can hold secure parameter values. It is never sent.
+    const detail = event.preview && !(kind === 'tool.started' && isPinnedToolName(toolName)) ? String(event.preview) : ''
     const callId = hermesEventCallId(event)
     return {
         phase: kind === 'tool.started' ? 'start' : 'done',
         specialist: name,
-        name: String(event.tool || event.tool_name || 'tool'),
+        name: toolName,
         ...(kind !== 'tool.started' && hermesToolFailed(event) ? { error: true } : {}),
         ...(detail ? { detail } : {}),
         ...(callId ? { callId } : {})

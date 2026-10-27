@@ -11,7 +11,11 @@ import {
     withAnalystScope,
     setCheckGapHookForTests,
     pgPlaceholders,
-    queryUrlPostgres
+    queryUrlPostgres,
+    postgresRunner,
+    setGuardBatchHookForTests,
+    setGuardReadHookForTests,
+    setGuardLegacyRoundTripsForTests
 } from '../packages/harness/runtime/analyst-store.mjs'
 
 const config = (database = 'postgres') => ({
@@ -27,6 +31,40 @@ test('ZZ-TEST- pinned placeholder offsets preserve JSONB operators', () => {
     const sql = "SELECT tags ? 'vip', tags ?| array['vip'], tags ?& array['vip'] WHERE region=$1 LIMIT ? OFFSET ?"
     assert.equal(pgPlaceholders(sql, [101, 0], 1).sql, sql.replace('LIMIT ? OFFSET ?', 'LIMIT $2 OFFSET $3'))
     assert.equal(pgPlaceholders(sql, [], 1).sql, sql)
+})
+
+test('ZZ-TEST- bound runner reads skip the guard prefetch queue and batched fallback', async () => {
+    const sent = []
+    const client = {
+        escapeLiteral: (v) => `'${String(v).replaceAll("'", "''")}'`,
+        async query(text, values) {
+            sent.push({ text, values })
+            if (text.includes('\n;\n')) return text.split('\n;\n').map(() => ({ rows: [{ from: 'batch' }] }))
+            return { rows: [{ from: 'direct' }] }
+        }
+    }
+    const runner = postgresRunner(client)
+    runner.batchedGuard = true
+    const sql = 'SELECT id FROM demo_sales WHERE region=$1::pg_catalog.text LIMIT ?'
+    await runner.prefetch([
+        { sql, params: [101] },
+        { sql: 'SELECT 1', params: [] }
+    ])
+    sent.length = 0
+    runner.pathSetByBatch = true
+    runner.statementPathSql = "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)"
+    assert.deepEqual(await runner.all(sql, [101], ['EU']), [{ from: 'direct' }])
+    assert.deepEqual(sent, [{ text: 'SELECT id FROM demo_sales WHERE region=$1::pg_catalog.text LIMIT $2', values: ['EU', 101] }])
+    assert.deepEqual(await runner.get(sql, [101], ['EU']), { from: 'direct' })
+    assert.deepEqual(sent[1].values, ['EU', 101])
+    // The unbound guard read still takes its prefetched rows, then the batched fallback.
+    sent.length = 0
+    assert.deepEqual(await runner.all(sql, [101]), [{ from: 'batch' }])
+    assert.equal(sent.length, 0)
+    assert.deepEqual(await runner.all(sql, [101]), [{ from: 'batch' }])
+    assert.equal(sent.length, 1)
+    assert.ok(sent[0].text.includes('\n;\n'))
+    assert.equal(sent[0].values, undefined)
 })
 
 test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
@@ -255,10 +293,65 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             )
             assert.equal(times[0].roundTrips, freeTimes[0].roundTrips)
         })
-        await t.test('free SQL page, count, probe, length and replay match the ae8394e7 golden', async () => {
-            // Generated from the unmodified ae8394e7 runner, including SQL bytes and values.
+        for (const legacy of [false, true]) {
+            await t.test(
+                `${legacy ? 'legacy' : 'batched'} guard: binds reach page, count, probe and length; the guard parses only the check copy`,
+                async () => {
+                    const original = pg.Client.prototype.query,
+                        sent = [],
+                        batches = []
+                    setGuardLegacyRoundTripsForTests(legacy)
+                    setGuardBatchHookForTests((text) => {
+                        batches.push(text)
+                    })
+                    pg.Client.prototype.query = function (...args) {
+                        sent.push(args)
+                        return original.apply(this, args)
+                    }
+                    try {
+                        const first = await queryAnalystUrl(url, null, bound)
+                        assert.equal(first.rows.length, 100)
+                        const second = await queryAnalystUrl(url, { cursor: first.cursor }, bound)
+                        assert.equal(second.rows[0].id, '101')
+                    } finally {
+                        pg.Client.prototype.query = original
+                        setGuardBatchHookForTests(null)
+                        setGuardLegacyRoundTripsForTests(false)
+                    }
+                    const calls = sent.map(([q, values]) => ({
+                        text: typeof q === 'string' ? q : q.text,
+                        values: values ?? q.values ?? []
+                    }))
+                    const boundCalls = calls.filter((q) => q.text.includes('$1::pg_catalog.text'))
+                    for (const kind of ['AS analyst_page', 'COUNT(*) AS analyst_n', 'pg_typeof', 'analyst_line_len'])
+                        assert.ok(
+                            boundCalls.some((q) => q.text.includes(kind)),
+                            kind
+                        )
+                    assert.equal(boundCalls.filter((q) => q.text.includes('AS analyst_page')).length, 2)
+                    for (const q of boundCalls) assert.equal(q.values[0], 'EU')
+                    // No bound statement read is inlined into a guard batch or served from the prefetch queue.
+                    if (!legacy) assert.ok(batches.length > 0)
+                    else assert.equal(batches.length, 0)
+                    for (const text of [...batches, ...calls.filter((q) => q.text.includes('\n;\n')).map((q) => q.text)]) {
+                        assert.ok(!text.includes('$1::pg_catalog.text'))
+                        assert.ok(!text.includes("'EU'"))
+                    }
+                    const parses = calls.filter((q) => /CREATE TEMP VIEW/.test(q.text))
+                    assert.equal(parses.length, 2)
+                    for (const q of parses) {
+                        assert.ok(q.text.includes('(NULL::pg_catalog.text)'))
+                        assert.ok(!q.text.includes('$1'))
+                        assert.equal(q.values.length, 0)
+                    }
+                }
+            )
+        }
+        await t.test('free SQL page, count, probe, length and replay match the main golden', async () => {
+            // Generated from the unmodified main runner at da543c98 (after the batched catalog guard in #325, #327 and #329),
+            // including SQL bytes and values.
             // Only disposable relation/view OIDs and the prepared statement sequence vary per run.
-            const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-ae8394e7.json', import.meta.url)))
+            const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-da543c98.json', import.meta.url)))
             const oid = (await setup.query("SELECT 'demo_sales'::regclass::oid AS oid")).rows[0].oid
             const original = pg.Client.prototype.query
             let sent = []
