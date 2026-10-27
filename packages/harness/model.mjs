@@ -316,13 +316,22 @@ export function reportedUsage(result) {
     return null
 }
 
+function completionReason(result) {
+    for (const metadata of [result?.response_metadata, result?.additional_kwargs, result?.generationInfo]) {
+        const reason = metadata?.finish_reason ?? metadata?.stop_reason ?? metadata?.finishReason
+        if (reason) return { finishReason: ['length', 'max_tokens', 'MAX_TOKENS'].includes(reason) ? 'length' : reason }
+    }
+    return {}
+}
+
 function chatResult(result, json) {
     if (typeof result === 'string') return { content: json ? lenientJson(result) : result, toolCalls: [], usage: null }
     const content = messageText(result?.content)
     return {
         content: json ? lenientJson(content) : content,
         toolCalls: rawToolCalls(result).map(toolCallOf),
-        usage: reportedUsage(result)
+        usage: reportedUsage(result),
+        ...completionReason(result)
     }
 }
 
@@ -354,7 +363,8 @@ async function streamChat(chat, messages, options, json, onDelta) {
     return {
         content: json ? lenientJson(content) : content,
         toolCalls: rawToolCalls(combined).map(toolCallOf),
-        usage: reportedUsage(combined)
+        usage: reportedUsage(combined),
+        ...completionReason(combined)
     }
 }
 

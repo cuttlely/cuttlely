@@ -57,6 +57,19 @@ describe('usageRange', () => {
 })
 
 describe('usageLinesFromRun', () => {
+    it('omits an answer direct skipped handoff from usage', () => {
+        expect(
+            usageLinesFromRun({
+                harnessPayload: {
+                    trace: {
+                        specialists: [{ model: 'analyst-model', tokens: { prompt: 10, completion: 4 } }],
+                        handoff: { status: 'skipped', reason: 'answerDirect', model: 'chief-model', tokens: { prompt: 20, completion: 5 } }
+                    }
+                }
+            })
+        ).toEqual([{ model: 'analyst-model', inputTokens: 10, outputTokens: 4 }])
+    })
+
     it('splits a harness trace into route, specialists, and handoff without double counting the report', () => {
         const lines = usageLinesFromRun({
             report: { tokens: { prompt: 999, completion: 999 } },

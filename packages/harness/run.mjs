@@ -25,7 +25,7 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
-import { isPinnedToolName } from './pinned-names.mjs'
+import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
@@ -606,6 +606,37 @@ function reportNote(context) {
     return `tokens ${tokens}, truncated ${cut}`
 }
 
+export function answerDirectDecision(context, steps, results, question) {
+    throwIfClient(context)
+    if (steps[0]?.specialist?.answerDirect !== true) return { reason: 'off' }
+    if (steps.length !== 1 || results.length !== 1) return { reason: 'steps' }
+    const [step] = steps
+    const [result] = results
+    const { specialist } = step
+    if (step.after) return { reason: 'after' }
+    if (context.images?.length) return { reason: 'images' }
+    if (result.status !== 'completed') return { reason: 'failed' }
+    if (result.ungrounded) return { reason: 'ungrounded' }
+    if (result.dataTask && !result.analystOk) return { reason: 'analyst' }
+    if (writesFiles(specialist)) return { reason: 'files' }
+    if (!(specialist.profileName && needsAgentLoop(specialist)) && (specialist.modules || []).length) {
+        return { reason: 'toolOutput' }
+    }
+    if (!step.paging && String(step.task || '').trim() !== String(question).trim()) return { reason: 'task' }
+    if (overBudget(context)) return { reason: 'budget' }
+    if (result.finishReason === 'length' || result.finish_reason === 'length') return { reason: 'length' }
+    const text = keepClosingLines(preserveAnalystRows(String(result.text || ''), results, question), results)
+    if (!text.trim()) return { reason: 'empty' }
+    if (/<\/?(?:think|tool_call)\b/i.test(text)) return { reason: 'raw' }
+    const wholeFence = /^(`{3,})[^`\r\n]*\r?\n([\s\S]*?)\r?\n\1$/.exec(text.trim())
+    try {
+        JSON.parse(wholeFence ? wholeFence[2] : text)
+        return { reason: 'raw' }
+    } catch {
+        return { text }
+    }
+}
+
 async function runRoster(context, input) {
     const preparedUploads = prepareHarnessTurnUploads({
         question: String(input ?? ''),
@@ -633,13 +664,21 @@ async function runRoster(context, input) {
     } else {
         results = await runSteps(context, steps)
         finished = Date.now()
-        text = await chiefHandoff(context, question, history, results)
+        const direct = steps[0]?.specialist?.answerDirect === true ? answerDirectDecision(context, steps, results, question) : null
+        if (direct && 'text' in direct) {
+            text = direct.text
+            context.handoffSkipped = 'answerDirect'
+        } else {
+            if (direct) context.answerDirectIneligible = direct.reason
+            text = await chiefHandoff(context, question, history, results)
+        }
     }
     if (!text.trim()) {
         throw new HarnessError('empty_output', `Harness "${context.name}" finished without a Harness Prime answer.`)
     }
     // The stored turn feeds the next prompt and the chat history; it holds file names, never workspace paths.
     text = maskWorkspacePaths(text)
+    if (context.handoffSkipped === 'answerDirect') emit(context, 'partial', { phase: 'answer', text })
     if (!context.replay) {
         appendTurn(
             context.name,
@@ -674,13 +713,16 @@ async function runRoster(context, input) {
         handoffTokens: sumCallTokens(handoffCalls),
         handoffFallback: handoffLast?.fallback || '',
         handoffStatus: handoffCalls.length ? 'done' : 'skipped',
+        handoffReason: context.handoffSkipped,
+        answerDirect: context.answerDirectIneligible,
         routeParse: context.routeParse,
         question
     })
     console.info(
         `[harness] ${context.name} route ${timings.routeMs}ms, specialists ${timings.specialistsMs}ms (` +
             agents.map((agent) => `${agent.name} ${agent.status} ${agent.ms}ms`).join(', ') +
-            `), handoff ${timings.handoffMs}ms, profile ${profileNote(context)}, ${reportNote(context)}`
+            `), handoff ${timings.handoffMs}ms, profile ${profileNote(context)}, ${reportNote(context)}` +
+            (context.answerDirectIneligible ? `, answerDirect:${context.answerDirectIneligible}` : '')
     )
     const sources = [...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])]
     // Image and file bytes ride on the returned payload only; the Harness node stores them for the chat. Events carry
@@ -1273,6 +1315,18 @@ export const ANALYST_TOOL_UNAVAILABLE =
     'The analyst tool is unavailable. Hermes has not registered it. Wait a few seconds and send the prompt again, or restart Cuttlely.'
 export const ANALYST_TOOL_RETRY =
     'Call the query tool now for the SQL above. Do not answer until that tool returns. Never predict, simulate, or paraphrase a database result or error.'
+export const ANALYST_DID_NOT_RUN_PINNED = 'The analyst did not run a pinned query.'
+// The step name for that miss. It has a space, so it can never be an offered tool's name.
+export const PINNED_MISS_STEP = 'pinned query'
+
+// A specialist whose nodes offer only pinned queries has no query tool to call; the retry names the pins instead.
+export function analystToolRetry(pins) {
+    if (!pins?.length) return ANALYST_TOOL_RETRY
+    const hints = pins.map((pin) => pinnedToolHint(pin.name, pin.params))
+    return `This analyst has no free SQL tool, only pinned queries. Call the pinned query tool that fits the task now (its tool name ends with the name shown): ${hints.join(
+        '; '
+    )}. Pass its parameters as named arguments, not SQL. Do not answer until that tool returns. Never predict, simulate, or paraphrase a database result or error.`
+}
 
 const ANALYST_DATA_TASK =
     /\b(select|insert|update|delete|drop|create|alter|vacuum|attach|detach|pragma|truncate|table|tables|database|schema|sql|query|rows?)\b/i
@@ -1771,17 +1825,18 @@ async function runStep(context, step) {
         let out = await runSpecialistOnce(context, specialist, task)
         throwIfClient(context)
         const dataTask = hasAnalystTool(specialist) && (analystDataTask(context, task) || analystDataTask(context, context.userText))
+        const pinsOnly = dataTask ? pinnedOnlyTools(specialist) : []
         if (dataTask && analystQueryCount(context, specialist.name) === 0) {
-            out = await runSpecialistOnce(context, specialist, `${task}\n\n${ANALYST_TOOL_RETRY}`)
+            out = await runSpecialistOnce(context, specialist, `${task}\n\n${analystToolRetry(pinsOnly)}`)
             throwIfClient(context)
         }
         if (dataTask && analystQueryCount(context, specialist.name) === 0) {
             const unavailable = analystToolsMissing()
-            const detail = unavailable ? ANALYST_TOOL_UNAVAILABLE : ANALYST_DID_NOT_RUN
+            const detail = unavailable ? ANALYST_TOOL_UNAVAILABLE : pinsOnly.length ? ANALYST_DID_NOT_RUN_PINNED : ANALYST_DID_NOT_RUN
             emitTool(context, {
                 phase: 'done',
                 specialist: specialist.name,
-                name: 'query',
+                name: pinsOnly.length ? PINNED_MISS_STEP : 'query',
                 error: true,
                 detail
             })
@@ -1810,10 +1865,16 @@ async function runStep(context, step) {
             task,
             publicTask: step.task,
             text: out.text,
+            ...(out.finishReason ? { finishReason: out.finishReason } : {}),
             tools: toolsFor(context, specialist.name),
             sources: out.sources || [],
             ms,
             soul: specialistSoul(specialist),
+            dataTask,
+            analystOk: analystPayloadsFor(
+                (context.toolLog || []).filter((tool) => tool.specialist === specialist.name && tool.status === 'done'),
+                specialist.name
+            ).some((body) => typeof body.error !== 'string'),
             ...(specialist.handoffChars ? { handoffChars: specialist.handoffChars } : {}),
             ...(out.analystPayloads ? { analystPayloads: out.analystPayloads } : {}),
             ...(out.ungrounded ? { ungrounded: true, error: out.text } : {})
@@ -2198,7 +2259,7 @@ async function runInlineSpecialist(context, specialist, task) {
             onDelta: (text) => forwardDelta(context, specialist, String(text ?? '')),
             specialist
         })
-        return { text: reply.content }
+        return { text: reply.content, ...(reply.finishReason ? { finishReason: reply.finishReason } : {}) }
     }
     const prepared = await Promise.all(modules.map((binding) => prepareModule(binding, task, context.moduleOptions)))
     if (prepared.length === 1 && preparedKind(prepared[0]) === 'query') {
@@ -2230,7 +2291,7 @@ async function runInlineSpecialist(context, specialist, task) {
         onDelta: (text) => forwardDelta(context, specialist, String(text ?? '')),
         specialist
     })
-    if (!reply.toolCalls.length) return { text: reply.content }
+    if (!reply.toolCalls.length) return { text: reply.content, ...(reply.finishReason ? { finishReason: reply.finishReason } : {}) }
     const calls = await Promise.all(
         reply.toolCalls.map(async (call) => {
             const match = named.find((entry) => entry.name === call.function?.name)
@@ -2321,7 +2382,7 @@ function analystRowCells(line) {
             .map((cell) => cell.trim())
             .filter(Boolean)
     const labeled = []
-    const pattern = /(?:^|,)\s*[^:,|]+:\s*([^,|]+)/g
+    const pattern = /(?:^|,)[^:,|]+:([^,|]+)/g
     let match
     while ((match = pattern.exec(text))) {
         const cell = match[1].trim()

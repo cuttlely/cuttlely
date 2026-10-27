@@ -1825,6 +1825,8 @@ packages/ui/src/utils/chatArtifacts.test.js
 packages/ui/src/utils/customMention.js
 packages/ui/src/utils/errorHandler.js
 packages/ui/src/utils/exportImport.js
+packages/ui/src/utils/flowCategoryPermission.js
+packages/ui/src/utils/flowCategoryPermission.test.js
 packages/ui/src/utils/genericHelper.js
 packages/ui/src/utils/genericHelper.test.js
 packages/ui/src/utils/itWorked.jsx

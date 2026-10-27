@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Harness Specialist **Answer direct** can return an eligible single-step answer without a Harness Prime write-up. The option defaults to off.
+
 ### Changed
 
 -   Guarded PostgreSQL queries run faster with fewer database round trips and JIT disabled for catalog checks; user statements retain the login JIT setting.
@@ -17,6 +21,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Analyst Postgres queries (a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the PostgreSQL MCP node and auto storage on Postgres) whose first page holds every row run their statement once instead of four times: the row count, the column type probe and the row length pass now run only when the first page is full or cut, and a result that pages is unchanged. Each transaction the query opens starts in one round trip, the PostgreSQL MCP node reuses its table selection summary for 30 seconds instead of opening a connection on every call, and the run trace's query step records per-step timings (`timings`), with the database's share (`dbMs`, every round trip to Postgres) apart from the connect (`connectMs`) and Cuttlely's own time (`cuttlelyMs`).
 
 ### Fixed
+
+-   On a PostgreSQL MCP node that offers only pinned queries, a call by the node's own name no longer runs the first pin with the wrong arguments and pauses the tool; it returns an expected error naming the pins and their parameters. The analyst retry names the pins instead of the query tool, and a miss is logged as a `pinned query` step that says the analyst did not run a pinned query.
 
 -   User Management can change an existing user's role: **Change role** on a row lists that person's teams and changes the role on one. The team role route now refuses a change to your own role (403; was 409), and a change to an organization owner's role by anyone who is not an organization owner. Someone who is not the organization owner can no longer change the role of, or remove from a team, a person whose team role has a permission they do not hold. `GET /api/v1/role` now also accepts `workspace:update`, so a team lead can load the role picker.
 

@@ -39,6 +39,7 @@ import AllowedDomainsDialog from '../dialog/AllowedDomainsDialog'
 import SpeechToTextDialog from '../dialog/SpeechToTextDialog'
 import ExportAsTemplateDialog from '@/ui-component/dialog/ExportAsTemplateDialog'
 import { canCopyToNewFlow } from '@/utils/legacyAgentflows'
+import { flowCategoryPermission } from '@/utils/flowCategoryPermission'
 
 const StyledMenu = styled((props) => (
     <Menu
@@ -427,11 +428,7 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
                     <MicNoneOutlinedIcon />
                     Speech To Text
                 </PermissionMenuItem>
-                <PermissionMenuItem
-                    permissionId={isAgentCanvas ? 'agentflows:update' : 'chatflows:update'}
-                    onClick={handleFlowCategory}
-                    disableRipple
-                >
+                <PermissionMenuItem permissionId={flowCategoryPermission(isAgentCanvas)} onClick={handleFlowCategory} disableRipple>
                     <FileCategoryIcon />
                     Update Category
                 </PermissionMenuItem>
