@@ -300,6 +300,34 @@ function mergeItems(kind, baseList, mineList, theirsList, fieldsOf, labelOf) {
     return items
 }
 
+// An iteration card one side removed, while the other side changed or added a card inside it, is a
+// conflict: removing it removes the cards inside. The cards inside that the removing side does not have, lost
+// with it or added by the other side, go with the pick for the iteration card, so they are not listed or
+// picked on their own.
+function groupInsideCards(nodes) {
+    const parentOf = (entry) => (entry.mine || entry.theirs || entry.base)?.parentNode
+    for (const parent of nodes) {
+        for (const [gone, other] of [
+            ['theirs', 'mine'],
+            ['mine', 'theirs']
+        ]) {
+            const goneChange = gone === 'theirs' ? parent.theirChange : parent.mineChange
+            if (goneChange !== 'removed' || !parent[other] || (parent.conflict && parent.take === undefined)) continue
+            const inside = nodes.filter((entry) => entry !== parent && parentOf(entry) === parent.id)
+            const otherChanged = inside.some((entry) => (other === 'mine' ? entry.mineChange : entry.theirChange) || entry.conflict)
+            if (!otherChanged) continue
+            delete parent.take
+            delete parent.moveConflict
+            parent.conflict = true
+            parent.insideChanged = other
+            parent.fields = fieldRows(parent.base, parent.mine, parent.theirs, nodeFields)
+            for (const entry of inside) {
+                if (!entry[gone]) entry.follows = parent.id
+            }
+        }
+    }
+}
+
 // Picks one item's final shape. A node keeps the other side's move when only that side moved it.
 function resolvedItem(entry, choice) {
     // A conflict on the position alone keeps the content both sides agree on, and the pick moves the card.
@@ -345,6 +373,7 @@ export function draftMergePlan(baseText, mineText, theirsText, normalize) {
     const names = new Map()
     for (const canvas of [base, theirs, mine]) for (const node of canvas.nodes) if (node?.id) names.set(node.id, nodeLabel(node))
     const nodes = mergeItems('node', base.nodes, mine.nodes, theirs.nodes, nodeFields, nodeLabel)
+    groupInsideCards(nodes)
     const edges = mergeItems('edge', base.edges, mine.edges, theirs.edges, edgeFields, (edge) => edgeLabel(edge, names))
     // Other top-level canvas settings merge the same way, one key at a time.
     const settings = []
@@ -408,9 +437,15 @@ export function applyDraftMerge(plan, choices = {}) {
         if (kept) out[entry.id] = kept.value
         else delete out[entry.id]
     }
+    const nodeEntries = new Map(plan.items.filter((item) => item.kind === 'node').map((item) => [item.id, item]))
+    // A card inside an iteration card that went with the iteration card's removal follows the pick for it.
     const nodes = plan.items
         .filter((item) => item.kind === 'node')
-        .map((entry) => resolvedItem(entry, pick(entry)))
+        .map((entry) => {
+            const parent = entry.follows ? nodeEntries.get(entry.follows) : null
+            if (!parent) return resolvedItem(entry, pick(entry))
+            return (pick(parent) === 'theirs' ? entry.theirs : entry.mine) || null
+        })
         .filter(Boolean)
     const present = new Set(nodes.map((node) => node.id))
     // The side whose version of a card is kept also decides the connections into that card's inputs.
@@ -419,7 +454,6 @@ export function applyDraftMerge(plan, choices = {}) {
         if (entry.kind !== 'node' || !(entry.mineChange || entry.theirChange)) continue
         owner.set(entry.id, entry.take ?? pick(entry))
     }
-    const nodeEntries = new Map(plan.items.filter((item) => item.kind === 'node').map((item) => [item.id, item]))
     const ends = new Set()
     let edges = []
     for (const entry of plan.items.filter((item) => item.kind === 'edge')) {
@@ -579,6 +613,8 @@ export const mergeLine = (entry, side) => {
 // "Both changed it", "You changed it, they removed it", for a conflict's heading.
 export const conflictSummary = (entry) => {
     if (entry.moveConflict && entry.take !== undefined) return 'You both moved it'
+    if (entry.insideChanged === 'mine') return 'You changed cards inside it, they removed it with its cards'
+    if (entry.insideChanged === 'theirs') return 'You removed it with its cards, they changed cards inside it'
     const you = CHANGE_WORDS[entry.mineChange] || (entry.mineMoved ? 'moved' : 'changed')
     const they = CHANGE_WORDS[entry.theirChange] || (entry.theirMoved ? 'moved' : 'changed')
     if (you === they) return `You both ${you} it`
