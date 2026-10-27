@@ -189,7 +189,7 @@ jobs:
               run: node --version && node --test test/cli.test.js
 
     # Analyst table selection against every supported Postgres major (advisory): same gating as build. The scope
-    # check reads Postgres query trees and catalogs, so each major runs scripts/analyst-relations.test.mjs.
+    # check reads Postgres query trees and catalogs, so each major runs the selection tests and parity corpus.
     # CUTTLELY_TEST_PG_REQUIRED fails the run instead of skipping when the service is not reachable. The case that
     # loads the built node skips here, because this job does not build; the build job's verify covers it.
     analyst-postgres:
@@ -229,6 +229,12 @@ jobs:
               env:
                   PGPASSWORD: postgres
                   CUTTLELY_TEST_PG_REQUIRED: '1'
+              run: node --test scripts/analyst-relations.test.mjs scripts/analyst-guard-parity.test.mjs
+            - name: Analyst table selection tests (old round trips)
+              env:
+                  PGPASSWORD: postgres
+                  CUTTLELY_TEST_PG_REQUIRED: '1'
+                  CUTTLELY_TEST_GUARD_LEGACY_ROUND_TRIPS: '1'
               run: node --test scripts/analyst-relations.test.mjs
             - name: Analyst pinned query tests
               env:
