@@ -236,6 +236,11 @@ jobs:
                   CUTTLELY_TEST_PG_REQUIRED: '1'
                   CUTTLELY_TEST_GUARD_LEGACY_ROUND_TRIPS: '1'
               run: node --test scripts/analyst-relations.test.mjs
+            - name: Analyst pinned query tests
+              env:
+                  PGPASSWORD: postgres
+                  CUTTLELY_TEST_PG_REQUIRED: '1'
+              run: node --test scripts/analyst-pinned.test.mjs
             - name: Invite sign-in tests
               env:
                   PGPASSWORD: postgres
