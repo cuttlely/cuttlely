@@ -63,17 +63,24 @@ export const FlowListTable = ({
     isAgentCanvas,
     isAgentflowV2,
     currentPage,
-    pageLimit
+    pageLimit,
+    getRowLink,
+    renderActions,
+    sortStorageKeyPrefix
 }) => {
     const { hasPermission } = useAuth()
-    const isActionsAvailable = isAgentCanvas
+    const isActionsAvailable = renderActions
+        ? true
+        : isAgentCanvas
         ? hasPermission('agentflows:update,agentflows:delete,agentflows:config,agentflows:domains,templates:flowexport,agentflows:export')
         : hasPermission('chatflows:update,chatflows:delete,chatflows:config,chatflows:domains,templates:flowexport,chatflows:export')
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
 
-    const localStorageKeyOrder = getLocalStorageKeyName('order', isAgentCanvas)
-    const localStorageKeyOrderBy = getLocalStorageKeyName('orderBy', isAgentCanvas)
+    const localStorageKeyOrder = sortStorageKeyPrefix ? `${sortStorageKeyPrefix}Order` : getLocalStorageKeyName('order', isAgentCanvas)
+    const localStorageKeyOrderBy = sortStorageKeyPrefix
+        ? `${sortStorageKeyPrefix}OrderBy`
+        : getLocalStorageKeyName('orderBy', isAgentCanvas)
 
     const [order, setOrder] = useState(localStorage.getItem(localStorageKeyOrder) || 'desc')
     const [orderBy, setOrderBy] = useState(localStorage.getItem(localStorageKeyOrderBy) || 'updatedDate')
@@ -208,7 +215,7 @@ export const FlowListTable = ({
                                                         }}
                                                     >
                                                         <Link
-                                                            to={onFlowClick(row)}
+                                                            to={getRowLink ? getRowLink(row) : onFlowClick(row)}
                                                             style={{ color: theme.palette.primary.main, textDecoration: 'none' }}
                                                         >
                                                             {row.templateName || row.name}
@@ -334,15 +341,19 @@ export const FlowListTable = ({
                                                     justifyContent='center'
                                                     alignItems='center'
                                                 >
-                                                    <FlowListMenu
-                                                        isAgentCanvas={isAgentCanvas}
-                                                        isAgentflowV2={isAgentflowV2}
-                                                        chatflow={row}
-                                                        setError={setError}
-                                                        updateFlowsApi={updateFlowsApi}
-                                                        currentPage={currentPage}
-                                                        pageLimit={pageLimit}
-                                                    />
+                                                    {renderActions ? (
+                                                        renderActions(row)
+                                                    ) : (
+                                                        <FlowListMenu
+                                                            isAgentCanvas={isAgentCanvas}
+                                                            isAgentflowV2={isAgentflowV2}
+                                                            chatflow={row}
+                                                            setError={setError}
+                                                            updateFlowsApi={updateFlowsApi}
+                                                            currentPage={currentPage}
+                                                            pageLimit={pageLimit}
+                                                        />
+                                                    )}
                                                 </Stack>
                                             </StyledTableCell>
                                         )}
@@ -369,5 +380,8 @@ FlowListTable.propTypes = {
     isAgentCanvas: PropTypes.bool,
     isAgentflowV2: PropTypes.bool,
     currentPage: PropTypes.number,
+    getRowLink: PropTypes.func,
+    renderActions: PropTypes.func,
+    sortStorageKeyPrefix: PropTypes.string,
     pageLimit: PropTypes.number
 }

@@ -43,6 +43,14 @@ const getHarness = async (req: Request, res: Response, next: NextFunction) => {
     }
 }
 
+const setHarnessCategory = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        return res.json(await harnessesService.setHarnessCategory(req.params.name, req.body?.category, activeWorkspace(req)))
+    } catch (error) {
+        next(error)
+    }
+}
+
 const saveHarness = async (req: Request, res: Response, next: NextFunction) => {
     try {
         return res.json(await harnessesService.saveHarness(req.body, activeWorkspace(req)))
@@ -229,6 +237,7 @@ const deleteSchedule = async (req: Request, res: Response, next: NextFunction) =
 }
 
 export default {
+    setHarnessCategory,
     listHarnesses,
     getHarness,
     saveHarness,

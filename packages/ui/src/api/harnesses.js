@@ -3,6 +3,7 @@ import client from './client'
 const listHarnesses = () => client.get('/harnesses')
 const getHarness = (name) => client.get(`/harnesses/${encodeURIComponent(name)}`)
 const saveHarness = (body) => client.post('/harnesses', body)
+const updateHarnessCategory = (name, category) => client.put(`/harnesses/${encodeURIComponent(name)}/category`, { category })
 const deleteHarness = (name) => client.delete(`/harnesses/${encodeURIComponent(name)}`)
 const listRuns = (name) => client.get(`/harnesses/${encodeURIComponent(name)}/runs`)
 const getRun = (name, runId) => client.get(`/harnesses/${encodeURIComponent(name)}/runs/${encodeURIComponent(runId)}`)
@@ -13,6 +14,7 @@ const resumeSchedule = (name) => client.post(`/harnesses/${encodeURIComponent(na
 const deleteSchedule = (name) => client.delete(`/harnesses/${encodeURIComponent(name)}/schedule`)
 
 export default {
+    updateHarnessCategory,
     listHarnesses,
     getHarness,
     saveHarness,
