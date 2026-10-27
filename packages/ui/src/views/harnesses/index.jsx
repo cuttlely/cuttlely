@@ -29,7 +29,16 @@ import { t } from '@/i18n'
 import TryTheDemo from '@/ui-component/flow/TryTheDemo'
 import { HARNESS_LABEL } from '@/ui-component/flow/buildChoices'
 import useApi from '@/hooks/useApi'
-import { HARNESS_DELETE_PERMISSION, harnessCardDescription, harnessDeleteBody, harnessDeleteTitle } from '@/utils/harnessCard'
+import {
+    HARNESS_DELETE_PERMISSION,
+    harnessCardDescription,
+    harnessCategories,
+    harnessDeleteBody,
+    harnessDeleteTitle,
+    harnessNodeImages
+} from '@/utils/harnessCard'
+import { HARNESS_CATEGORY_PERMISSION } from '@/utils/flowCategoryPermission'
+import { baseURL } from '@/store/constant'
 
 import { IconLayoutGrid, IconList, IconPlus, IconTag, IconTemplate, IconTrash } from '@tabler/icons-react'
 
@@ -69,7 +78,7 @@ const Harnesses = () => {
     const renderRowActions = (harness) => (
         <>
             <PermissionIconButton
-                permissionId='chatflows:update,agentflows:update'
+                permissionId={HARNESS_CATEGORY_PERMISSION}
                 aria-label={`Update Category ${harness.name}`}
                 title='Update Category'
                 size='small'
@@ -131,6 +140,8 @@ const Harnesses = () => {
             (harness.category || '').toLowerCase().includes(search.toLowerCase())
         )
     })
+
+    const images = Object.fromEntries(saved.map((harness) => [harness.name, harnessNodeImages(harness, baseURL)]))
 
     const renderActions = (justify) => (
         <Stack
@@ -268,7 +279,7 @@ const Harnesses = () => {
                             category: harness.category || '',
                             updatedDate: harness.updatedAt
                         }))}
-                        images={{}}
+                        images={images}
                         filterFunction={() => true}
                         getRowLink={(row) => `/harnesses/${encodeURIComponent(row.name)}`}
                         renderActions={renderRowActions}
@@ -283,9 +294,10 @@ const Harnesses = () => {
                                         name: harness.name,
                                         description: harnessCardDescription(harness),
                                         type: 'HARNESS',
-                                        updatedDate: harness.updatedAt || harness.updatedDate,
-                                        iconSrc: undefined
+                                        updatedDate: harness.updatedAt || harness.updatedDate
                                     }}
+                                    images={images[harness.name]}
+                                    categories={harnessCategories(harness)}
                                     onClick={() => navigate(`/harnesses/${encodeURIComponent(harness.name)}`)}
                                 />
                                 <Stack direction='row' sx={{ position: 'absolute', top: 8, right: 8 }}>

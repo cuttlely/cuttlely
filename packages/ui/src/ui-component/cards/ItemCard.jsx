@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux'
 
 // material-ui
 import { styled } from '@mui/material/styles'
-import { Box, Grid, Tooltip, Typography, useTheme } from '@mui/material'
+import { Box, Chip, Grid, Tooltip, Typography, useTheme } from '@mui/material'
 
 // project imports
 import MainCard from '@/ui-component/cards/MainCard'
@@ -48,7 +48,7 @@ const TYPE_LABELS = {
     Tool: 'Tool'
 }
 
-const ItemCard = ({ data, images, icons, scheduleStatus, onClick }) => {
+const ItemCard = ({ data, images, icons, categories, scheduleStatus, onClick }) => {
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
     const typeLabel = TYPE_LABELS[data.type] || data.typeLabel || ''
@@ -130,6 +130,13 @@ const ItemCard = ({ data, images, icons, scheduleStatus, onClick }) => {
                             >
                                 {data.description}
                             </span>
+                        )}
+                        {categories?.length > 0 && (
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1.25 }}>
+                                {categories.map((tag, index) => (
+                                    <Chip key={`${tag}-${index}`} label={tag} size='small' />
+                                ))}
+                            </Box>
                         )}
                     </Box>
                     {(images?.length > 0 || icons?.length > 0 || scheduleStatus?.isScheduled) && (
@@ -226,6 +233,7 @@ ItemCard.propTypes = {
     data: PropTypes.object,
     images: PropTypes.array,
     icons: PropTypes.array,
+    categories: PropTypes.arrayOf(PropTypes.string),
     scheduleStatus: PropTypes.object,
     onClick: PropTypes.func
 }

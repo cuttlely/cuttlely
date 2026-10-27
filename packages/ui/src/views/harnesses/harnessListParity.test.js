@@ -32,8 +32,18 @@ jest.mock('@/ui-component/cards/MainCard', () => ({
 }))
 jest.mock('@/ui-component/cards/ItemCard', () => ({
     __esModule: true,
-    default: ({ data }) => require('react').createElement('article', null, `${data.name} ${data.description}`)
+    default: ({ data, images, categories }) => {
+        const React = require('react')
+        return React.createElement(
+            'article',
+            null,
+            `${data.name} ${data.description}`,
+            ...(images || []).map((image) => React.createElement('img', { key: image.imageSrc, src: image.imageSrc, alt: image.label })),
+            ...(categories || []).map((tag) => React.createElement('span', { key: tag, 'data-chip': tag }, tag))
+        )
+    }
 }))
+jest.mock('@/store/constant', () => ({ baseURL: 'http://ui.test' }))
 jest.mock('@/ui-component/flow/WhichFlow', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/ui-component/flow/TryTheDemo', () => ({ __esModule: true, default: () => null }))
 jest.mock('@/ui-component/flow/buildChoices', () => ({ HARNESS_LABEL: 'Agent Team' }))
@@ -42,7 +52,8 @@ jest.mock('@/ui-component/button/RBACButtons', () => {
     const React = require('react')
     const gate = (Tag) => {
         const Gated = (props) => {
-            const rest = { ...props }
+            // eslint-disable-next-line react/prop-types
+            const rest = { ...props, 'data-permission': props.permissionId }
             delete rest.permissionId
             delete rest.display
             delete rest.startIcon
@@ -62,10 +73,26 @@ import { act } from 'react-dom/test-utils'
 import { createRoot } from 'react-dom/client'
 import { fireEvent, within } from '@testing-library/react'
 import harnessesApi from '@/api/harnesses'
+import { HARNESS_CATEGORY_PERMISSION } from '@/utils/flowCategoryPermission'
+import { harnessCategories, harnessNodeImages } from '@/utils/harnessCard'
 import Harnesses from './index'
 
 const teams = [
-    { name: 'ZZ-TEST-alpha', category: 'sales;ops', updatedAt: '2026-01-01T00:00:00Z' },
+    {
+        name: 'ZZ-TEST-alpha',
+        category: 'sales;ops',
+        updatedAt: '2026-01-01T00:00:00Z',
+        chief: { model: { nodeName: 'chatOpenAI', label: 'ChatOpenAI' } },
+        specialists: [
+            {
+                name: 'researcher',
+                model: { nodeName: 'chatAnthropic', label: 'ChatAnthropic' },
+                modules: [{ nodeName: 'calculator', label: 'Calculator' }],
+                mcpServers: [{ nodeName: 'customMCP', label: 'Custom MCP' }]
+            },
+            { name: 'writer', model: { nodeName: 'chatOpenAI', label: 'ChatOpenAI' }, modules: [], mcpServers: [] }
+        ]
+    },
     { name: 'ZZ-TEST-beta', updatedAt: '2026-02-01T00:00:00Z' }
 ]
 let container
@@ -119,4 +146,81 @@ it('reuses the table sorting, category chips, search and category dialog', async
     await act(async () => fireEvent.click(within(container).getByTitle('Card View')))
     expect(within(container).getByText(/ZZ-TEST-alpha/)).toBeTruthy()
     expect(container.textContent).not.toContain('ZZ-TEST-beta')
+})
+
+const icon = (name) => `http://ui.test/api/v1/node-icon/${name}`
+
+it('shows each member node icon once in the Nodes column and on the card', async () => {
+    const cardIcons = () => [...container.querySelectorAll('article img')].map((img) => img.getAttribute('src'))
+    expect(cardIcons()).toEqual([icon('chatOpenAI'), icon('chatAnthropic'), icon('calculator'), icon('customMCP')])
+
+    await act(async () => fireEvent.click(within(container).getByTitle('List View')))
+    const row = within(container).getByRole('link', { name: 'ZZ-TEST-alpha' }).closest('tr')
+    const rowIcons = [...row.querySelectorAll('img')].map((img) => img.getAttribute('src'))
+    expect(rowIcons).toEqual([icon('chatOpenAI'), icon('chatAnthropic'), icon('calculator'), icon('customMCP')])
+    const betaRow = within(container).getByRole('link', { name: 'ZZ-TEST-beta' }).closest('tr')
+    expect(betaRow.querySelectorAll('img')).toHaveLength(0)
+})
+
+it('shows category chips on cards', () => {
+    const [alpha, beta] = container.querySelectorAll('article')
+    expect([...alpha.querySelectorAll('[data-chip]')].map((chip) => chip.textContent)).toEqual(['sales', 'ops'])
+    expect(beta.querySelectorAll('[data-chip]')).toHaveLength(0)
+})
+
+it('gates the tag action in both views on the permission the harness category route accepts', async () => {
+    expect(HARNESS_CATEGORY_PERMISSION).toBe('chatflows:update,agentflows:update')
+    const cardTags = within(container).getAllByTitle('Update Category')
+    expect(cardTags).toHaveLength(2)
+    for (const button of cardTags) expect(button.getAttribute('data-permission')).toBe(HARNESS_CATEGORY_PERMISSION)
+    await act(async () => fireEvent.click(within(container).getByTitle('List View')))
+    for (const button of within(container).getAllByTitle('Update Category')) {
+        expect(button.getAttribute('data-permission')).toBe(HARNESS_CATEGORY_PERMISSION)
+    }
+})
+
+it('builds node icons and chips from the stored record without failing on old shapes', () => {
+    expect(harnessNodeImages({ chief: { model: { provider: 'openai', model: 'gpt' } }, specialists: [{ modules: ['x', null] }] })).toEqual(
+        []
+    )
+    expect(harnessNodeImages(undefined)).toEqual([])
+    expect(harnessNodeImages({ chief: { model: { nodeName: 'a b' } } }, '/base')).toEqual([
+        { imageSrc: '/base/api/v1/node-icon/a%20b', label: 'a b' }
+    ])
+    expect(
+        harnessNodeImages({
+            chief: { model: { nodeName: 'chatOpenAI' }, fallbackModel: { nodeName: 'chatOllama', label: 'Ollama' } },
+            specialists: [{ model: { nodeName: 'chatOpenAI' }, fallbackModel: { nodeName: 'chatGroq' } }]
+        }).map((image) => image.label)
+    ).toEqual(['chatOpenAI', 'Ollama', 'chatGroq'])
+    expect(harnessCategories({ category: 'a;;b' })).toEqual(['a', 'b'])
+    expect(harnessCategories({})).toEqual([])
+})
+
+it('the real card renders the chips and node icons it is given', async () => {
+    const RealItemCard = jest.requireActual('@/ui-component/cards/ItemCard').default
+    const { ThemeProvider, createTheme } = require('@mui/material/styles')
+    const theme = createTheme({ palette: { card: { main: '#fff', hover: '#eee' } } })
+    const holder = document.createElement('div')
+    document.body.appendChild(holder)
+    const cardRoot = createRoot(holder)
+    await act(async () =>
+        cardRoot.render(
+            createElement(
+                ThemeProvider,
+                { theme },
+                createElement(RealItemCard, {
+                    data: { name: 'ZZ-TEST-alpha', type: 'HARNESS' },
+                    images: harnessNodeImages(teams[0], 'http://ui.test'),
+                    categories: harnessCategories(teams[0])
+                })
+            )
+        )
+    )
+    expect(within(holder).getByText('sales')).toBeTruthy()
+    expect(within(holder).getByText('ops')).toBeTruthy()
+    expect(holder.querySelectorAll('img')).toHaveLength(3)
+    expect(within(holder).getByText('+ 1 More')).toBeTruthy()
+    act(() => cardRoot.unmount())
+    holder.remove()
 })

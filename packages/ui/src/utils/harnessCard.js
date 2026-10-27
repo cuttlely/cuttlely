@@ -32,3 +32,29 @@ export function harnessCardDescription(harness) {
     if (harness?.orphaned) return 'Canvas deleted. This team cannot run.'
     return harness?.description || `${harness?.specialists?.length || 0} specialists`
 }
+
+// One icon per distinct model or tool node on the team: the chief's models, then each specialist's
+// models, tools and MCP servers. Same shape and same node-icon URL as the Chatflows list.
+export function harnessNodeImages(harness, base = '') {
+    const bindings = [harness?.chief?.model, harness?.chief?.fallbackModel]
+    for (const specialist of Array.isArray(harness?.specialists) ? harness.specialists : []) {
+        bindings.push(specialist?.model, specialist?.fallbackModel)
+        for (const list of [specialist?.modules, specialist?.mcpServers]) {
+            if (Array.isArray(list)) bindings.push(...list)
+        }
+    }
+    const images = []
+    const seen = new Set()
+    for (const binding of bindings) {
+        const nodeName = binding?.nodeName
+        if (typeof nodeName !== 'string' || !nodeName || seen.has(nodeName)) continue
+        seen.add(nodeName)
+        images.push({ imageSrc: `${base}/api/v1/node-icon/${encodeURIComponent(nodeName)}`, label: binding.label || nodeName })
+    }
+    return images
+}
+
+// The ';'-joined category string as chips, the same split the Chatflows list table uses.
+export function harnessCategories(harness) {
+    return typeof harness?.category === 'string' ? harness.category.split(';').filter((tag) => tag.trim()) : []
+}
