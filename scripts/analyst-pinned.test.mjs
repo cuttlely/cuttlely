@@ -387,6 +387,17 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                 suggestTypesSql: 'SELECT id FROM demo_sales WHERE ($1) IS NULL OR region=($1) LIMIT 1'
             })
             assert.equal(ambiguous.paramTypes, null)
+            const required = await queryAnalystUrl(url, null, {
+                ...options,
+                pinned: {
+                    entry: {
+                        sql: 'SELECT id FROM demo_sales WHERE region=:r LIMIT 1',
+                        params: [{ name: 'r', type: 'text', required: true }]
+                    }
+                },
+                suggestTypesSql: 'SELECT id FROM demo_sales WHERE region=($1) LIMIT 1'
+            })
+            assert.deepEqual(required.paramTypes, ['text'])
             await assert.rejects(
                 queryAnalystUrl(url, 'SELECT id FROM other_table LIMIT 1', {
                     ...options,

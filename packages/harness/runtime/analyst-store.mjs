@@ -1987,7 +1987,8 @@ function compileStoreOptions(options, env, replaying = false) {
     if (options.pinned == null) return { options }
     if (!options.pinned.entry) throw new AnalystToolError('Pinned calls require pinned.entry.', 'expected')
     const { entry, args, tool } = options.pinned
-    const compiled = compilePinned(entry, replaying ? undefined : args ?? {})
+    // A type suggestion only prepares the SQL, so it compiles without arguments and a required parameter needs no value.
+    const compiled = compilePinned(entry, replaying || options.suggestTypesSql != null ? undefined : args ?? {})
     assertCheckRunPair(compiled.runText, compiled.checkText, compiled.spans)
     return {
         statement: compiled.runText,
