@@ -40,6 +40,7 @@
         "./runtime/analyst-sqlite-worker.mjs": "./runtime/analyst-sqlite-worker.mjs",
         "./runtime/analyst-store.mjs": "./runtime/analyst-store.mjs",
         "./runtime/hermes-stream.mjs": "./runtime/hermes-stream.mjs",
+        "./runtime/node-guard.cjs": "./runtime/node-guard.cjs",
         "./session.mjs": "./session.mjs",
         "./specialist-run.mjs": "./specialist-run.mjs",
         "./sql-tools.mjs": "./sql-tools.mjs",

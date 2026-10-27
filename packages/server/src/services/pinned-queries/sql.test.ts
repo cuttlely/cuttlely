@@ -1,4 +1,4 @@
-import { functionLines, pinnedQueriesEnabled, sameSpec, scanParamNames, stampAllowedFunctions, statementLimit, uncastCompiled } from './sql'
+import { pinnedQueriesEnabled, sameSpec, scanParamNames, statementLimit, uncastCompiled } from './sql'
 
 describe('pinned query request checks', () => {
     it('leaves ($10) whole when substitutions are parenthesised', () => {
@@ -37,16 +37,10 @@ describe('pinned query request checks', () => {
         expect(sameSpec({ sql: entry.sql, params: [{ name: 'region', type: 'text', required: false }] }, entry as any)).toBe(false)
     })
 
-    it('reads a trailing LIMIT and drops a templated function list', () => {
+    it('reads a trailing LIMIT', () => {
         expect(statementLimit('SELECT 1 FROM demo_sales LIMIT 100')).toBe(100)
         expect(statementLimit('SELECT 1 FROM demo_sales LIMIT 100 OFFSET 20')).toBe(100)
         expect(statementLimit('SELECT 1 FROM demo_sales')).toBeNull()
-        expect(functionLines('public.lower(text)\n# note')).toEqual(['public.lower(text)'])
-        expect(functionLines('public.lower(text)\n{{secret}}')).toEqual([])
-        expect(functionLines('public.lower($vars.fn)')).toEqual([])
-        expect(stampAllowedFunctions('public.lower(text)\n# note')).toEqual(['public.lower(text)', '# note'])
-        expect(stampAllowedFunctions('public.lower(text)\n{{secret}}')).toEqual([])
-        expect(stampAllowedFunctions('public.lower($vars.fn)')).toEqual([])
     })
 
     it('enables the flag only for 1 and true', () => {

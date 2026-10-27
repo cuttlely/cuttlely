@@ -481,7 +481,12 @@ describe('ZZ-TEST-pinned query audit rows', () => {
 describe('ZZ-TEST-pinned_query_change is a listed audit type', () => {
     it('ZZ-TEST-fits the type column and is on the audit screen', () => {
         expect(AUDIT_TYPES).toContain('pinned_query_change')
-        expect('pinned_query_change'.length).toBeLessThanOrEqual(32)
+        // The column width comes from the audit_event table the schema migration creates.
+        const schema = fs.readFileSync(path.resolve(__dirname, '../../identity/schemaMigration.ts'), 'utf8')
+        const table = schema.slice(schema.indexOf("CREATE TABLE ${q(dialect, 'audit_event')}"))
+        const width = /\$\{q\(dialect, 'type'\)\} varchar\((\d+)\)/.exec(table)
+        expect(width).not.toBeNull()
+        expect('pinned_query_change'.length).toBeLessThanOrEqual(Number(width![1]))
         const ui = fs.readFileSync(path.resolve(__dirname, '../../../../ui/src/views/audit/query.js'), 'utf8')
         expect(ui).toContain("value: 'pinned_query_change'")
         expect(ui).toContain("label: 'Pinned query change'")

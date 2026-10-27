@@ -14,11 +14,36 @@ jest.mock(
     { virtual: true }
 )
 
+// The audit row goes through the real recordPinnedQueryTest and recordAudit; only the database handle is a stand-in.
+const mockAuditSql: { text: string; params: unknown[] }[] = []
+jest.mock('../../identity/production', () => ({
+    applicationSql: () => ({
+        type: 'postgres',
+        query: async (text: string, params: unknown[] = []) => {
+            mockAuditSql.push({ text, params })
+            return []
+        },
+        transaction: async () => {
+            throw new Error('no transaction expected')
+        }
+    })
+}))
+
+import fs from 'fs'
+import path from 'path'
 import { setTeamPermissionLookup } from '../../identity/rbac'
 import { setHarnessFlowLookup } from '../../services/harnesses/apiAccess'
 import errorHandlerMiddleware from '../../middlewares/errors'
 import pinnedQueriesRouter from '../../routes/pinned-queries'
 import { setPinnedQueryDeps } from '../../services/pinned-queries'
+import { recordPinnedQueryTest } from '../../services/chatflows/pinnedQueryAudit'
+
+const GUARD_PARITY = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, '../../../../../scripts/fixtures/pinned/guard-parity.json'), 'utf8')
+)
+// Credentials the flow's workspace may read: its own and one shared into it. Anything else is refused the way
+// getCredentialData refuses it (packages/components/src/pinnedCredentialScope.test.ts runs the real one).
+const READABLE: Record<string, string[]> = { 'team-a': ['cred-demo', 'cred-live'] }
 
 const FLOW = '0b5c3a1e-1111-2222-3333-444455556666'
 const CRED_URL = 'postgres://demo:secret@127.0.0.1:55451/zz_test_sales'
@@ -31,6 +56,7 @@ const calls = {
     stampFields: [] as any[],
     flows: [] as any[],
     creds: [] as any[],
+    limits: [] as any[],
     audits: [] as any[],
     drafts: [] as any[],
     throwQuery: false,
@@ -149,11 +175,20 @@ function sentPair(options: Record<string, unknown>) {
     expect(keys).not.toContain('checkText')
 }
 
-function installDeps() {
+function deepFreeze<T>(value: T): T {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+        Object.freeze(value)
+        for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child)
+    }
+    return value
+}
+
+function installDeps(extra: Record<string, unknown> = {}) {
     setPinnedQueryDeps({
         getChatflowByIdForWorkspace: async (id: string, workspaceId: string) => {
             calls.flows.push([id, workspaceId])
-            return liveFlow()
+            // Frozen, so a write to the loaded flow fails the request.
+            return deepFreeze(liveFlow())
         },
         flowDataForTestChat: async (flow: any) => {
             calls.drafts.push(flow)
@@ -161,17 +196,20 @@ function installDeps() {
         },
         loadCredentialUrl: async (credentialId: string, workspaceId: string) => {
             calls.creds.push([credentialId, workspaceId])
-            if (credentialId !== 'cred-demo' || workspaceId !== 'team-a') throw new Error(`unexpected credential ${credentialId}`)
+            if (!(READABLE[workspaceId] || []).includes(credentialId)) throw new Error(`Credential ${credentialId} not found`)
             return CRED_URL
         },
         resolveAnalystConnection: ({ credentialUrl, analystUrl }: { credentialUrl?: string; analystUrl?: string }) => {
             if (!credentialUrl && !analystUrl) return { kind: 'auto' }
             return { kind: 'url', postgresUrl: credentialUrl || analystUrl || '' }
         },
-        analystCallLimits: (requested: { rowCap?: number; statementTimeoutMs?: number }) => ({
-            rowCap: requested.rowCap || 100,
-            timeoutMs: requested.statementTimeoutMs || 15000
-        }),
+        analystCallLimits: (requested: { rowCap?: number; statementTimeoutMs?: number }) => {
+            calls.limits.push(requested)
+            return {
+                rowCap: Math.floor(requested.rowCap || 100),
+                timeoutMs: requested.statementTimeoutMs || 15000
+            }
+        },
         compilePinned,
         validateArgs: () => {
             throw new Error('compile already returned binds')
@@ -203,7 +241,8 @@ function installDeps() {
         },
         recordTest: async (event: any) => {
             calls.audits.push(event)
-        }
+        },
+        ...extra
     })
 }
 
@@ -226,7 +265,9 @@ function resetCalls() {
     calls.stampFields = []
     calls.flows = []
     calls.creds = []
+    calls.limits = []
     calls.audits = []
+    mockAuditSql.length = 0
     calls.drafts = []
     calls.throwQuery = false
     calls.paramTypes = ['text']
@@ -361,7 +402,7 @@ describe('pinned query test route', () => {
         expect(calls.compile[0].sql).not.toContain('SELECT old')
         expect(calls.query[0].url).toBe(CRED_URL)
         expect(calls.query[0].options.relations).toEqual(['demo_sales'])
-        expect(calls.query[0].options.allowedFunctions).toBe('public.lower(text)')
+        expect(calls.query[0].options.allowedFunctions).toBe('public.lower(text)\n# note')
         expect(calls.query[0].options.rowCap).toBe(20)
         expect(calls.query[0].options.statementTimeoutMs).toBe(8000)
         expect(calls.query[0].sql).toBeUndefined()
@@ -433,6 +474,13 @@ describe('pinned query test route', () => {
     })
 
     it('tests the unsaved canvas values for the node', async () => {
+        // The real audit writer, so the row checked below is the one recordAudit would insert.
+        installDeps({
+            recordTest: async (event: any) => {
+                calls.audits.push(event)
+                await recordPinnedQueryTest(event)
+            }
+        })
         const res = await request(app())
             .post(`/api/v1/pinned-queries/${FLOW}/test`)
             .send({
@@ -449,10 +497,54 @@ describe('pinned query test route', () => {
         expect(calls.creds).toEqual([['cred-demo', 'team-a']])
         expect(calls.query[0].options.relations).toEqual(['demo_sales', 'demo_regions'])
         expect(calls.query[0].options.rowCap).toBe(10)
-        expect(calls.query[0].options.allowedFunctions).toBe('public.lower(text)')
+        expect(calls.query[0].options.allowedFunctions).toBe('public.lower(text)\n# note')
         expect(calls.stampFields[0].relations).toEqual(['demo_sales', 'demo_regions'])
         // The canvas has no saved copy of this pin yet, so the version is the entry's own.
         expect(res.body.entry.version).toBe(2)
+
+        // Nothing from canvas is kept: the only database statements are the audit row (and its retention delete),
+        // the loaded flow is frozen and unchanged, and the returned entry holds no canvas inputs.
+        expect(mockAuditSql.map((call) => call.text.replace(/\s+/g, ' ').split(' ').slice(0, 3).join(' '))).toEqual([
+            'DELETE FROM "audit_event"',
+            'INSERT INTO "audit_event"'
+        ])
+        expect(calls.drafts[0].flowData).toBe(liveFlow().flowData)
+        expect(Object.keys(res.body.entry).sort()).toEqual(
+            [
+                'description',
+                'id',
+                'name',
+                'needsRetest',
+                'params',
+                'purpose',
+                'sql',
+                'testedAt',
+                'testedBy',
+                'testedColumns',
+                'testedStamp',
+                'version'
+            ].sort()
+        )
+        const row = mockAuditSql[1].params
+        expect(row[1]).toBe('pinned_query_change')
+        expect(row[2]).toBe('org-1')
+        expect(row[3]).toBe('team-a')
+        expect(row[6]).toBe('Pinned query pq_revenue_by_region tested')
+        // The route's stand-in hash is not a statement hash, so the writer drops it.
+        expect(JSON.parse(String(row[7]))).toEqual({
+            kind: 'test',
+            flow: FLOW,
+            node: 'pg_0',
+            pin: 'pq_revenue_by_region',
+            version: 2,
+            cred: 'cred-demo',
+            paramNames: ['region'],
+            user: 'user-1'
+        })
+        const written = JSON.stringify(mockAuditSql)
+        for (const value of ['demo_regions', 'demo_sales', 'postgres://', 'secret', 'east', 'lower(text)', 'SELECT']) {
+            expect(written).not.toContain(value)
+        }
 
         const suggest = await request(app())
             .post(`/api/v1/pinned-queries/${FLOW}/suggest`)
@@ -551,5 +643,95 @@ describe('pinned query test route', () => {
             params: [{ name: 'region', type: 'text' }]
         })
         expect(suggestion.options.pinned.args).toBeUndefined()
+    })
+
+    it('ZZ-TEST-reads the guard settings exactly as the node does', async () => {
+        // scripts/fixtures/pinned/guard-parity.json: comma-separated tables, a decimal row cap and timeout, and a
+        // function list with a note and a CRLF. PostgreSQLMCP.pinned.test.ts feeds the same file through the node.
+        const { inputs, expected, pin } = GUARD_PARITY
+        const send = (body: Record<string, unknown>) =>
+            request(app())
+                .post(`/api/v1/pinned-queries/${FLOW}/test`)
+                .send({
+                    nodeId: 'pg_0',
+                    entry: entry(body),
+                    sampleValues: { region: 'east' },
+                    canvas: { inputs: { ...inputs, pinnedQueries: [] } }
+                })
+        const res = await send({})
+        expect(res.status).toBe(200)
+        expect(calls.limits[0]).toEqual(expected.requested)
+        for (const call of calls.query) {
+            expect(call.options.relations).toEqual(expected.relations)
+            expect(call.options.allowedFunctions).toBe(expected.allowedFunctions)
+            expect(call.options.rowCap).toBe(expected.limits.rowCap)
+            expect(call.options.statementTimeoutMs).toBe(expected.limits.timeoutMs)
+        }
+        expect(calls.stampFields[0].relations).toEqual(expected.relations)
+        expect(calls.stampFields[0].allowedFunctions).toEqual(expected.stampFunctions)
+        expect(res.body.guard.join(' ')).toContain('tables and views ticked')
+
+        resetCalls()
+        const capped = await send({ rowCap: pin.rowCap })
+        expect(capped.status).toBe(200)
+        expect(calls.limits[0]).toEqual(pin.requested)
+        expect(calls.query[0].options.rowCap).toBe(pin.limits.rowCap)
+
+        resetCalls()
+        const suggest = await request(app())
+            .post(`/api/v1/pinned-queries/${FLOW}/suggest`)
+            .send({ nodeId: 'pg_0', sql: 'SELECT region FROM demo_sales WHERE region = :region LIMIT 1', canvas: { inputs } })
+        expect(suggest.status).toBe(200)
+        expect(calls.limits[0]).toEqual(expected.requested)
+        expect(calls.query[0].options.relations).toEqual(expected.relations)
+        expect(calls.query[0].options.allowedFunctions).toBe(expected.allowedFunctions)
+    })
+
+    it('ZZ-TEST-refuses a canvas credential from another workspace', async () => {
+        const refused = await request(app())
+            .post(`/api/v1/pinned-queries/${FLOW}/test`)
+            .send({
+                nodeId: 'pg_0',
+                entry: entry(),
+                sampleValues: { region: 'east' },
+                canvas: { credential: 'ZZ-TEST-cred-team-b' }
+            })
+        expect(refused.status).toBe(400)
+        expect(refused.body.message).toBe('Credential ZZ-TEST-cred-team-b not found')
+        // The id is looked up in the flow's workspace, never one the request names.
+        expect(calls.creds).toEqual([['ZZ-TEST-cred-team-b', 'team-a']])
+        expect(calls.query).toHaveLength(0)
+        expect(calls.stamps).toBe(0)
+        expect(calls.audits).toHaveLength(0)
+
+        const suggest = await request(app())
+            .post(`/api/v1/pinned-queries/${FLOW}/suggest`)
+            .send({ nodeId: 'pg_0', sql: 'SELECT 1 FROM demo_sales LIMIT 1', canvas: { credential: 'ZZ-TEST-cred-team-b' } })
+        expect(suggest.status).toBe(400)
+        expect(calls.query).toHaveLength(0)
+    })
+
+    it('ZZ-TEST-refuses unknown keys inside a pin entry and inside a parameter', async () => {
+        const message =
+            'The test uses the node on this canvas and its credential. Do not send a connection URL or settings for other nodes.'
+        const bodies = [
+            entry({ postgresUrl: CRED_URL }),
+            entry({ readOnlySql: false }),
+            entry({ params: [{ name: 'region', type: 'text', required: true, postgresUrl: CRED_URL }] }),
+            entry({ params: [{ name: 'region', type: 'text', required: true, relations: ['public.other'] }] })
+        ]
+        for (const body of bodies) {
+            const refused = await request(app())
+                .post(`/api/v1/pinned-queries/${FLOW}/test`)
+                .send({ nodeId: 'pg_0', entry: body, sampleValues: { region: 'east' } })
+            expect(refused.status).toBe(400)
+            expect(refused.body.message).toBe(message)
+            expect(JSON.stringify(refused.body)).not.toContain(CRED_URL)
+        }
+        expect(calls.flows).toHaveLength(0)
+        expect(calls.creds).toHaveLength(0)
+        expect(calls.query).toHaveLength(0)
+        expect(calls.stamps).toBe(0)
+        expect(calls.audits).toHaveLength(0)
     })
 })

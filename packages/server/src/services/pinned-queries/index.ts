@@ -1,11 +1,11 @@
 import fs from 'fs'
+import { createRequire } from 'module'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { Request } from 'express'
 import { hasAnyPermission } from '../../identity/rbac'
 import {
     CALLER_URL_MESSAGE,
-    functionLines,
     NormalizedEntry,
     PinnedRequestError,
     BODY_KEYS,
@@ -17,15 +17,11 @@ import {
     findPostgresNode,
     flowNodes,
     normalizeEntry,
-    optionalPositive,
     pinnedQueriesEnabled,
     plainGuard,
-    relationNames,
     sampleArgs,
-    savedPins,
     sameSpec,
     scanParamNames,
-    stampAllowedFunctions,
     statementLimit,
     successGuard,
     uncastCompiled,
@@ -111,6 +107,29 @@ function runtimeFile(fileName: string): string {
         dir = path.dirname(dir)
     }
     throw new PinnedRequestError(500, 'Pinned queries could not load the query runner.')
+}
+
+// The node, its pinned query tools and this route read the node's guard settings with the same file, so a test runs
+// under the same scope, functions, row cap and timeout as the agent run and stamps the values the node checks.
+export interface NodeGuardModule {
+    readPinnedEntries: (value: unknown) => { entries: any[]; invalid: boolean }
+    nodeGuardSettings: (
+        inputs: unknown,
+        pin?: unknown
+    ) => {
+        relations: string[]
+        allowedFunctions: string
+        stampFunctions: string[]
+        requested: { rowCap?: number; statementTimeoutMs?: number }
+    }
+}
+
+const nodeRequire = createRequire(__filename)
+let nodeGuardModule: NodeGuardModule | null = null
+
+export function nodeGuard(): NodeGuardModule {
+    if (!nodeGuardModule) nodeGuardModule = nodeRequire(runtimeFile('node-guard.cjs')) as NodeGuardModule
+    return nodeGuardModule
 }
 
 async function loadRuntime(): Promise<any> {
@@ -296,17 +315,19 @@ async function connectionFor(node: any, workspaceId: string, used: PinnedDeps): 
 
 function guardOptions(node: any, entry: NormalizedEntry | null, used: PinnedDeps) {
     const inputs = (node?.data?.inputs || {}) as Record<string, unknown>
-    const relations = relationNames(inputs.analystRelations)
-    const functions = functionLines(inputs.analystAllowedFunctions)
-    const nodeCap = optionalPositive(inputs.analystRowCap)
-    const seconds = optionalPositive(inputs.analystTimeoutSeconds)
-    const queryCap = entry?.rowCap
-    const requestedCap = queryCap ? (nodeCap ? Math.min(queryCap, nodeCap) : queryCap) : nodeCap
-    const limits = used.analystCallLimits(
-        { rowCap: requestedCap, statementTimeoutMs: seconds === undefined ? undefined : seconds * 1000 },
-        process.env
-    )
-    return { inputs, relations, functions, limits, storedCap: entry?.rowCap ? Math.min(entry.rowCap, limits.rowCap) : undefined }
+    const settings = nodeGuard().nodeGuardSettings(inputs, entry)
+    const limits = used.analystCallLimits(settings.requested, process.env)
+    return {
+        relations: settings.relations,
+        allowedFunctions: settings.allowedFunctions,
+        stampFunctions: settings.stampFunctions,
+        limits,
+        storedCap: entry?.rowCap ? Math.min(entry.rowCap, limits.rowCap) : undefined
+    }
+}
+
+function savedPins(inputs: Record<string, unknown>): any[] {
+    return nodeGuard().readPinnedEntries(inputs.pinnedQueries).entries
 }
 
 function rowsOf(value: unknown): { rows: Record<string, unknown>[]; truncated: boolean; total: number | null } {
@@ -349,7 +370,7 @@ export async function suggestPinnedTypes(req: Request): Promise<{ params: { name
     const names = scanParamNames(sql)
     const { node, workspaceId } = await savedNode(req, used)
     const { postgresUrl } = await connectionFor(node, workspaceId, used)
-    const { relations, functions, limits } = guardOptions(node, null, used)
+    const { relations, allowedFunctions, limits } = guardOptions(node, null, used)
     // required stays unset so the store can compile with empty args. The casts are only
     // there so the suggestion text can be compared; the builder still chooses the type.
     const suggestionEntry = {
@@ -375,7 +396,7 @@ export async function suggestPinnedTypes(req: Request): Promise<{ params: { name
             analystOptions({
                 readOnlySql: true,
                 relations,
-                allowedFunctions: functions.join('\n'),
+                allowedFunctions,
                 pinned: { entry: suggestionEntry },
                 suggestTypesSql: suggestion.uncast,
                 rowCap: limits.rowCap,
@@ -417,7 +438,7 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
     const runOptions = {
         readOnlySql: true,
         relations: guard.relations,
-        allowedFunctions: guard.functions.join('\n'),
+        allowedFunctions: guard.allowedFunctions,
         rowCap: guard.limits.rowCap,
         statementTimeoutMs: guard.limits.timeoutMs
     }
@@ -472,7 +493,7 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
         statementHash: compiled!.statementHash,
         params: entry.params,
         relations: guard.relations,
-        allowedFunctions: stampAllowedFunctions(inputs.analystAllowedFunctions),
+        allowedFunctions: guard.stampFunctions,
         testedColumns
     })
     const stamp = used.computeStamp(await used.getPinnedQueryKey(), payload)
@@ -522,7 +543,10 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
     } catch {
         // Audit failure stays off the builder's result.
     }
-    const words = successGuard({ relations: guard.relations, functions: guard.functions })
+    const words = successGuard({
+        relations: guard.relations,
+        functions: guard.stampFunctions.filter((line) => !line.startsWith('#'))
+    })
     if (possiblyTruncated) words.push('The row count equals the statement LIMIT, so the result is possibly truncated.')
     else if (shaped.truncated) words.push('The row cap stopped the result before the statement LIMIT.')
     if (!names.length) words.push('The test returned no rows, so column names and types were not stamped.')

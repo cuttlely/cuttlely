@@ -324,52 +324,6 @@ export function findPostgresNode(nodes: any[], nodeId: string): any | null {
     return null
 }
 
-export function relationNames(value: unknown): string[] {
-    const parsed = readJson(value)
-    const list = Array.isArray(parsed) ? parsed : []
-    const seen = new Set<string>()
-    const out: string[] = []
-    for (const item of list) {
-        const name = typeof item === 'string' ? item.trim() : ''
-        if (!name || seen.has(name)) continue
-        seen.add(name)
-        out.push(name)
-    }
-    return out
-}
-
-export function functionLines(value: unknown): string[] {
-    if (typeof value !== 'string' || /\{\{|\$vars|\$flow/.test(value)) return []
-    const out: string[] = []
-    for (const raw of value.split(/\r?\n/)) {
-        const line = raw.trim()
-        if (!line || line.startsWith('#')) continue
-        out.push(line)
-    }
-    return out
-}
-
-// The node stamps every non-blank line, notes included. The query path above
-// ignores notes. A saved stamp has to match the node, so the test route uses this list.
-export function stampAllowedFunctions(value: unknown): string[] {
-    if (typeof value !== 'string' || /\{\{|\$vars|\$flow/.test(value)) return []
-    return value
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-}
-
-export function optionalPositive(value: unknown): number | undefined {
-    if (value === undefined || value === null || String(value).trim() === '') return undefined
-    const n = Number(value)
-    return Number.isInteger(n) && n > 0 ? n : undefined
-}
-
-export function savedPins(inputs: Record<string, unknown> | undefined): any[] {
-    const parsed = readJson(inputs?.pinnedQueries)
-    return Array.isArray(parsed) ? parsed : []
-}
-
 export function sameSpec(saved: any, entry: NormalizedEntry): boolean {
     if (!saved || typeof saved !== 'object') return false
     if (String(saved.sql || '') !== entry.sql) return false
