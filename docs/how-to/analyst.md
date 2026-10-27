@@ -547,6 +547,8 @@ The next turn in the same chat runs `SELECT * FROM tmp_targets;` and gets `no su
 
 ## Pinned queries
 
+> **Pending integration.** This branch adds the audit rows only. The pinned query runtime, node tools, editor, feature setting and test route arrive with the runtime and editor pull requests; until they land, the behaviour below is not available.
+
 A pinned query is SQL a builder saves on the **PostgreSQL MCP** node. The specialist calls a tool that takes only the named parameters, and the server runs that saved statement with the values bound. The walkthrough, the made-up `demo_sales` seed, and the two example pins are in [Pinned queries](./pinned-queries.md).
 
 This guarantees that the saved statement is what runs. It does not guarantee that the statement is right for the business. **Tested is not approved**, and a passing test is not a compliance sign-off. There is no second-person approval. The read-only guard still runs on every call, including a later page. The tested stamp only labels a statement that passed a test.
