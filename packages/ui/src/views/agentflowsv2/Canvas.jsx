@@ -280,6 +280,14 @@ const AgentflowCanvas = () => {
         getSpecificChatflowApi.request(chatflow.id)
     }
 
+    // The settings panel and the edit dialog hold the card object they opened with. A canvas that replaces every
+    // card closes them, so a later edit cannot go to a card that is no longer on the canvas.
+    const closeCardEditors = () => {
+        setPanelNodeId(null)
+        setPanelProps({})
+        setEditNodeDialogOpen(false)
+    }
+
     // The merged canvas from the conflict review screen. It replaces the cards and stays unsaved, so the
     // next Save sends the hash of the draft the other person saved.
     const applyMergedDraft = (text, theirs) => {
@@ -291,6 +299,7 @@ const AgentflowCanvas = () => {
         } catch {
             return
         }
+        closeCardEditors()
         draftSave.adopt(theirs)
         if (theirs?.status) setDraftStatus(theirs.status)
         draftSave.dismiss()
@@ -750,6 +759,7 @@ const AgentflowCanvas = () => {
         } catch {
             return
         }
+        closeCardEditors()
         dispatch({ type: REMOVE_DIRTY })
         // Discard, Publish and rollback replace the canvas with a saved one, and set the new draft status first.
         // The next save and the review screen build on that canvas, not on the draft that was open before.
