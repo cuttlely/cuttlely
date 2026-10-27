@@ -659,6 +659,18 @@ export const SETTINGS: SettingDef[] = [
         defaultValue: 'true',
         risk: 'medium'
     },
+    {
+        key: 'CUTTLELY_PINNED_QUERIES',
+        section: 'analyst',
+        group: 'Pinned queries',
+        label: 'Pinned queries',
+        help: 'Pinned query tools are on only when this value is exactly 1 or true. false, yes, on, TRUE, and an empty value leave them off. Turning this off removes those tools at the next start.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'Off',
+        defaultValue: '',
+        risk: 'medium'
+    },
 
     // Models & keys
     {
