@@ -28,6 +28,7 @@ const calls = {
     query: [] as any[],
     compile: [] as any[],
     stamps: 0,
+    stampFields: [] as any[],
     flows: [] as any[],
     creds: [] as any[],
     audits: [] as any[],
@@ -124,15 +125,28 @@ function draftCanvas() {
 function compilePinned(value: any, args?: any) {
     calls.compile.push({ sql: value.sql, args, types: (value.params || []).map((param: any) => param.type) })
     const order = (value.params || []).map((param: any) => param.name)
-    const casts = order.map((name: string, index: number) => `$${index + 1}::pg_catalog.${value.params[index].type}`).join(', ')
-    const runText = order.length ? `SELECT ${casts} FROM demo_sales LIMIT 2` : 'SELECT region FROM demo_sales LIMIT 2'
+    const castList = (kind: 'run' | 'check') =>
+        order
+            .map((_name: string, index: number) => {
+                const type = value.params[index].type
+                return kind === 'run' ? `($${index + 1}::pg_catalog.${type})` : `(NULL::pg_catalog.${type})`
+            })
+            .join(', ')
+    const runText = order.length ? `SELECT ${castList('run')} FROM demo_sales LIMIT 2` : 'SELECT region FROM demo_sales LIMIT 2'
+    const checkText = order.length ? `SELECT ${castList('check')} FROM demo_sales LIMIT 2` : runText
     return {
         runText,
-        checkText: runText.replace(/\$(\d+)::pg_catalog\.\w+/g, 'NULL'),
+        checkText,
         binds: args === undefined ? null : order.map((name: string) => (args as any)[name]),
         order,
         statementHash: 'hash-from-server'
     }
+}
+
+function sentPair(options: Record<string, unknown>) {
+    const keys = Object.keys(options || {})
+    expect(keys).not.toContain('binds')
+    expect(keys).not.toContain('checkText')
 }
 
 function installDeps() {
@@ -162,7 +176,10 @@ function installDeps() {
         validateArgs: () => {
             throw new Error('compile already returned binds')
         },
-        stampPayload: (fields: unknown) => JSON.stringify(fields),
+        stampPayload: (fields: unknown) => {
+            calls.stampFields.push(fields)
+            return JSON.stringify(fields)
+        },
         computeStamp: () => {
             calls.stamps += 1
             return 'ab'.repeat(32)
@@ -174,10 +191,14 @@ function installDeps() {
         }),
         getPinnedQueryKey: async () => Buffer.from('zz-test-key'),
         queryAnalystUrl: async (url: string, input: any, options: any) => {
-            calls.query.push({ url, sql: input?.sql, options })
+            const sql = typeof input === 'string' ? input : input?.sql
+            calls.query.push({ url, sql, options })
             if (calls.throwQuery) throw new Error(`Cuttlely refused this query: add a LIMIT to the query, such as LIMIT 100. ${CRED_URL}`)
             if (options?.suggestTypesSql) return { paramTypes: calls.paramTypes }
-            if (String(input?.sql).includes('pg_typeof')) return { rows: [{ region: 'text' }], truncated: false, total: 1 }
+            const entrySql = typeof options?.pinned?.entry?.sql === 'string' ? options.pinned.entry.sql : ''
+            if (entrySql.includes('pg_typeof') || String(sql || '').includes('pg_typeof')) {
+                return { rows: [{ region: 'text' }], truncated: false, total: 1 }
+            }
             return { rows: [{ region: 'east' }, { region: 'west' }], truncated: false, total: 2 }
         },
         recordTest: async (event: any) => {
@@ -202,6 +223,7 @@ function resetCalls() {
     calls.query = []
     calls.compile = []
     calls.stamps = 0
+    calls.stampFields = []
     calls.flows = []
     calls.creds = []
     calls.audits = []
@@ -342,17 +364,35 @@ describe('pinned query test route', () => {
         expect(calls.query[0].options.allowedFunctions).toBe('public.lower(text)')
         expect(calls.query[0].options.rowCap).toBe(20)
         expect(calls.query[0].options.statementTimeoutMs).toBe(8000)
-        expect(calls.query[0].options.binds).toEqual([SAMPLE])
-        expect(calls.query[0].options.checkText).toContain('NULL')
+        expect(calls.query[0].sql).toBeUndefined()
+        sentPair(calls.query[0].options)
+        expect(Object.keys(calls.query[0].options.pinned).sort()).toEqual(['args', 'entry', 'tool'])
         expect(calls.query[0].options.pinned).toEqual({
-            id: 'pin-1',
-            version: 3,
-            statementHash: 'hash-from-server',
+            entry: expect.objectContaining({
+                id: 'pin-1',
+                name: 'pq_revenue_by_region',
+                sql: body.sql,
+                version: 3
+            }),
+            args: { region: SAMPLE },
             tool: 'pq_revenue_by_region'
         })
-        expect(calls.query[0].options.pinned.entry).toBeUndefined()
-        expect(calls.query[1].sql).toContain('pg_typeof')
-        expect(calls.query[1].options.pinned).toBeUndefined()
+        expect(calls.query[0].options.pinned.entry.sql).not.toContain('::pg_catalog')
+        expect(calls.query[1].options.pinned.entry.sql).toContain('pg_typeof')
+        expect(calls.query[1].options.pinned.entry.sql).toContain(':region')
+        expect(calls.query[1].sql).toBeUndefined()
+        sentPair(calls.query[1].options)
+        expect(calls.stampFields).toEqual([
+            {
+                workspaceId: 'team-a',
+                cred: 'cred-demo',
+                statementHash: 'hash-from-server',
+                params: [{ name: 'region', type: 'text', required: true }],
+                relations: ['demo_sales'],
+                allowedFunctions: ['public.lower(text)', '# note'],
+                testedColumns: [{ name: 'region', type: 'text' }]
+            }
+        ])
 
         expect(res.body.statementHash).toBe('hash-from-server')
         expect(res.body.rowCount).toBe(2)
@@ -403,9 +443,13 @@ describe('pinned query test route', () => {
         ])
         expect(calls.compile[0].types).toEqual(['text', 'text'])
         expect(calls.query[0].options.readOnlySql).toBe(true)
-        expect(calls.query[0].options.suggestTypesSql).toBe('SELECT $1, $2 FROM demo_sales LIMIT 2')
-        expect(calls.query[0].options.checkText).toBe('SELECT NULL, NULL FROM demo_sales LIMIT 2')
-        expect(calls.query[0].sql).toContain('$1::pg_catalog.text')
+        expect(calls.query[0].sql).toBeUndefined()
+        expect(calls.query[0].options.suggestTypesSql).toBe('SELECT ($1), ($2) FROM demo_sales LIMIT 2')
+        expect(calls.query[0].options.pinned.entry.params).toEqual([
+            { name: 'region', type: 'text' },
+            { name: 'month', type: 'text' }
+        ])
+        sentPair(calls.query[0].options)
         expect(calls.creds[0]).toEqual(['cred-demo', 'team-a'])
 
         const names = Array.from({ length: 10 }, (_item, index) => `p${index + 1}`)
@@ -415,9 +459,10 @@ describe('pinned query test route', () => {
         expect(ten.status).toBe(200)
         expect(ten.body.params.map((param: { name: string }) => param.name)).toEqual(names)
         const uncast = calls.query.at(-1).options.suggestTypesSql as string
-        expect(uncast).toBe(`SELECT ${names.map((_name, index) => `$${index + 1}`).join(', ')} FROM demo_sales LIMIT 2`)
-        expect(uncast).toContain('$10')
+        expect(uncast).toBe(`SELECT ${names.map((_name, index) => `($${index + 1})`).join(', ')} FROM demo_sales LIMIT 2`)
+        expect(uncast).toContain('($10)')
         expect(uncast).not.toContain('$10::')
+        sentPair(calls.query.at(-1).options)
 
         calls.throwQuery = true
         const failed = await request(app()).post(`/api/v1/pinned-queries/${FLOW}/suggest`).send({ nodeId: 'pg_0', sql })
@@ -426,5 +471,36 @@ describe('pinned query test route', () => {
             { name: 'region', type: null },
             { name: 'month', type: null }
         ])
+    })
+
+    it('ZZ-TEST- never sends binds or checkText', async () => {
+        const tested = await request(app())
+            .post(`/api/v1/pinned-queries/${FLOW}/test`)
+            .send({ nodeId: 'pg_0', entry: entry(), sampleValues: { region: 'east' } })
+        expect(tested.status).toBe(200)
+        const sql = 'SELECT region FROM demo_sales WHERE region = :region LIMIT 5'
+        const suggested = await request(app()).post(`/api/v1/pinned-queries/${FLOW}/suggest`).send({ nodeId: 'pg_0', sql })
+        expect(suggested.status).toBe(200)
+        expect(calls.query.length).toBeGreaterThanOrEqual(3)
+        for (const call of calls.query) {
+            sentPair(call.options)
+            expect(call.options.readOnlySql).toBe(true)
+            expect(call.sql).toBeUndefined()
+        }
+        expect(calls.query[0].options.pinned).toEqual({
+            entry: expect.objectContaining({ id: 'pin-1', sql: entry().sql, version: 3 }),
+            args: { region: 'east' },
+            tool: 'pq_revenue_by_region'
+        })
+        expect(calls.query[0].options.pinned.statementHash).toBeUndefined()
+        expect(calls.query[1].options.pinned.entry.sql).toContain('pg_typeof')
+        expect(calls.query[1].options.suggestTypesSql).toBeUndefined()
+        const suggestion = calls.query.at(-1)
+        expect(suggestion.options.suggestTypesSql).toBe('SELECT ($1) FROM demo_sales LIMIT 2')
+        expect(suggestion.options.pinned.entry).toEqual({
+            sql,
+            params: [{ name: 'region', type: 'text' }]
+        })
+        expect(suggestion.options.pinned.args).toBeUndefined()
     })
 })

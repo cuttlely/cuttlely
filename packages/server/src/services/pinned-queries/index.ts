@@ -23,6 +23,7 @@ import {
     savedPins,
     sameSpec,
     scanParamNames,
+    stampAllowedFunctions,
     statementLimit,
     successGuard,
     uncastCompiled,
@@ -74,14 +75,18 @@ export interface PinnedDeps {
         cred: string
         statementHash: string
         params: unknown
-        tables: string[]
-        functions: string[]
+        relations: string[]
+        allowedFunctions: string[]
         testedColumns: { name: string; type: string }[]
     }) => string
     computeStamp: (key: Buffer, payload: string) => string
     pinnedToolDefinition: (entry: unknown) => { name: string; description: string; inputSchema: unknown }
     getPinnedQueryKey: () => Promise<Buffer>
-    queryAnalystUrl: (postgresUrl: string, input: Record<string, unknown>, options: Record<string, unknown>) => Promise<unknown>
+    queryAnalystUrl: (
+        postgresUrl: string,
+        input: string | Record<string, unknown> | null,
+        options: Record<string, unknown>
+    ) => Promise<unknown>
     recordTest: (event: PinnedTestEvent) => Promise<void>
 }
 
@@ -108,9 +113,10 @@ function runtimeFile(fileName: string): string {
 
 async function loadRuntime(): Promise<any> {
     const pinned = await importEsm(pathToFileURL(runtimeFile('pinned-query.mjs')).href)
+    const stamp = await importEsm(pathToFileURL(runtimeFile('pinned-stamp.mjs')).href)
     const store = await importEsm(pathToFileURL(runtimeFile('analyst-store.mjs')).href)
     const postgres = await importEsm(pathToFileURL(runtimeFile('analyst-postgres.mjs')).href)
-    return { pinned, store, postgres }
+    return { pinned, stamp, store, postgres }
 }
 
 async function defaultLoadCredentialUrl(credentialId: string, workspaceId: string): Promise<string> {
@@ -196,11 +202,18 @@ async function ensureRuntime(target: PinnedDeps): Promise<void> {
             throw error
         })
     }
-    const { pinned, store, postgres } = await runtimeModules
+    const { pinned, stamp, store, postgres } = await runtimeModules
+    if (
+        typeof stamp?.stampPayload !== 'function' ||
+        typeof stamp?.computeStamp !== 'function' ||
+        typeof stamp?.verifyStamp !== 'function'
+    ) {
+        throw new PinnedRequestError(500, 'Pinned queries could not stamp this test.')
+    }
     if (!overrides.compilePinned) target.compilePinned = pinned.compilePinned
     if (!overrides.validateArgs) target.validateArgs = pinned.validateArgs
-    if (!overrides.stampPayload) target.stampPayload = pinned.stampPayload
-    if (!overrides.computeStamp) target.computeStamp = pinned.computeStamp
+    if (!overrides.stampPayload) target.stampPayload = stamp.stampPayload
+    if (!overrides.computeStamp) target.computeStamp = stamp.computeStamp
     if (!overrides.pinnedToolDefinition) target.pinnedToolDefinition = pinned.pinnedToolDefinition
     if (!overrides.queryAnalystUrl) target.queryAnalystUrl = store.queryAnalystUrl
     if (!overrides.resolveAnalystConnection) target.resolveAnalystConnection = postgres.resolveAnalystConnection
@@ -292,6 +305,15 @@ function refuseRunner(error: unknown): never {
     throw new PinnedRequestError(400, plainGuard(error))
 }
 
+// The store compiles pinned.entry itself. A caller-supplied pair is refused before any query runs.
+function analystOptions(options: Record<string, unknown>): Record<string, unknown> {
+    const keys = Object.keys(options)
+    if (keys.includes('binds') || keys.includes('checkText')) {
+        throw new PinnedRequestError(500, 'Pinned queries could not run this test.')
+    }
+    return options
+}
+
 export async function suggestPinnedTypes(req: Request): Promise<{ params: { name: string; type: string | null }[] }> {
     const used = deps()
     await ensureRuntime(used)
@@ -304,35 +326,37 @@ export async function suggestPinnedTypes(req: Request): Promise<{ params: { name
     const { node, workspaceId } = await savedNode(req, used)
     const { postgresUrl } = await connectionFor(node, workspaceId, used)
     const { relations, functions, limits } = guardOptions(node, null, used)
+    // required stays unset so the store can compile with empty args. The casts are only
+    // there so the suggestion text can be compared; the builder still chooses the type.
+    const suggestionEntry = {
+        sql,
+        params: names.map((name) => ({ name, type: 'text' }))
+    }
     let compiled: CompiledPin
     try {
-        compiled = used.compilePinned({
-            sql,
-            params: names.map((name) => ({ name, type: 'text', required: true }))
-        })
+        compiled = used.compilePinned(suggestionEntry)
     } catch (error) {
         refuseRunner(error)
     }
     const order = compiled!.order.length ? compiled!.order : names
     if (!order.length) return { params: [] }
-    // The statement keeps the temporary text casts. suggestParamTypes strips those
-    // spans itself and requires the uncast text to match, so $10 is not eaten by $1.
+    // The store compiles the same entry. suggestTypesSql keeps the parentheses: `region=($1)`.
+    // Highest index first, so `$10` stays whole.
     const suggestion = uncastCompiled(compiled!.runText, order)
     let types: Array<string | null>
     try {
         const result = await used.queryAnalystUrl(
             postgresUrl,
-            { sql: compiled!.runText },
-            {
+            null,
+            analystOptions({
                 readOnlySql: true,
                 relations,
                 allowedFunctions: functions.join('\n'),
-                checkText: suggestion.check,
+                pinned: { entry: suggestionEntry },
                 suggestTypesSql: suggestion.uncast,
-                binds: [],
                 rowCap: limits.rowCap,
                 statementTimeoutMs: limits.timeoutMs
-            }
+            })
         )
         const list = result && typeof result === 'object' ? (result as { paramTypes?: unknown }).paramTypes : undefined
         types = Array.isArray(list) ? list.map((type) => (typeof type === 'string' && type ? type : null)) : order.map(() => null)
@@ -358,29 +382,32 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
     const { postgresUrl, credentialId } = await connectionFor(node, workspaceId, used)
     const guard = guardOptions(node, entry, used)
     let compiled: CompiledPin
-    let binds: unknown[]
     try {
         compiled = used.compilePinned(entry, args)
-        binds = Array.isArray(compiled.binds) ? compiled.binds : used.validateArgs(entry, args)
     } catch (error) {
         refuseRunner(error)
     }
     const saved = savedPins(inputs).find((pin) => pin && pin.id === entry.id)
     const version = saved ? (sameSpec(saved, entry) ? Number(saved.version) || 1 : (Number(saved.version) || 1) + 1) : entry.version
+    const pinnedEntry = { ...entry, version }
     const runOptions = {
         readOnlySql: true,
         relations: guard.relations,
         allowedFunctions: guard.functions.join('\n'),
-        binds,
-        checkText: compiled!.checkText,
         rowCap: guard.limits.rowCap,
-        statementTimeoutMs: guard.limits.timeoutMs,
-        pinned: { id: entry.id, version, statementHash: compiled!.statementHash, tool: entry.name }
+        statementTimeoutMs: guard.limits.timeoutMs
     }
     const started = Date.now()
     let raw: unknown
     try {
-        raw = await used.queryAnalystUrl(postgresUrl, { sql: compiled!.runText }, runOptions)
+        raw = await used.queryAnalystUrl(
+            postgresUrl,
+            null,
+            analystOptions({
+                ...runOptions,
+                pinned: { entry: pinnedEntry, args, tool: entry.name }
+            })
+        )
     } catch (error) {
         refuseRunner(error)
     }
@@ -390,10 +417,23 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
     let columns = names.map((name) => ({ name, type: '' }))
     if (names.length) {
         try {
-            const probeSql = columnProbeSql(compiled!.runText, names)
-            const probeCheck = columnProbeSql(compiled!.checkText, names)
+            // A second pinned entry, so the store compiles and binds this probe. NULL casts would
+            // filter the sample rows away, and a caller checkText pair is refused.
+            const probeEntry = {
+                id: entry.id,
+                version,
+                sql: columnProbeSql(entry.sql, names),
+                params: entry.params
+            }
             const probed = rowsOf(
-                await used.queryAnalystUrl(postgresUrl, { sql: probeSql }, { ...runOptions, checkText: probeCheck, pinned: undefined })
+                await used.queryAnalystUrl(
+                    postgresUrl,
+                    null,
+                    analystOptions({
+                        ...runOptions,
+                        pinned: { entry: probeEntry, args, tool: entry.name }
+                    })
+                )
             )
             const first = probed.rows[0] || {}
             columns = names.map((name) => ({ name, type: typeof first[name] === 'string' ? first[name] : '' }))
@@ -407,8 +447,8 @@ export async function testPinnedQuery(req: Request): Promise<Record<string, unkn
         cred: credentialId,
         statementHash: compiled!.statementHash,
         params: entry.params,
-        tables: guard.relations,
-        functions: guard.functions,
+        relations: guard.relations,
+        allowedFunctions: stampAllowedFunctions(inputs.analystAllowedFunctions),
         testedColumns
     })
     const stamp = used.computeStamp(await used.getPinnedQueryKey(), payload)

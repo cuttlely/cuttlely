@@ -1,17 +1,20 @@
-import { functionLines, pinnedQueriesEnabled, sameSpec, scanParamNames, statementLimit, uncastCompiled } from './sql'
+import { functionLines, pinnedQueriesEnabled, sameSpec, scanParamNames, stampAllowedFunctions, statementLimit, uncastCompiled } from './sql'
 
 describe('pinned query request checks', () => {
-    it('leaves $10 whole when the check copy drops casts', () => {
-        const casts = Array.from({ length: 10 }, (_item, index) => `$${index + 1}::pg_catalog.text`).join(', ')
+    it('leaves ($10) whole when substitutions are parenthesised', () => {
+        const casts = Array.from({ length: 10 }, (_item, index) => `($${index + 1}::pg_catalog.text)`).join(', ')
         const run = `SELECT ${casts}, note || '$1' AS label FROM demo_sales LIMIT 5`
         const { uncast, check } = uncastCompiled(
             run,
             Array.from({ length: 10 }, (_item, index) => `p${index + 1}`)
         )
-        expect(uncast).toBe("SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, note || '$1' AS label FROM demo_sales LIMIT 5")
-        expect(check).toBe(
-            "SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, note || '$1' AS label FROM demo_sales LIMIT 5"
+        expect(uncast).toBe(
+            "SELECT ($1), ($2), ($3), ($4), ($5), ($6), ($7), ($8), ($9), ($10), note || '$1' AS label FROM demo_sales LIMIT 5"
         )
+        expect(check).toBe(
+            "SELECT (NULL::pg_catalog.text), (NULL::pg_catalog.text), (NULL::pg_catalog.text), (NULL::pg_catalog.text), (NULL::pg_catalog.text), (NULL::pg_catalog.text), (NULL::pg_catalog.text), (NULL::pg_catalog.text), (NULL::pg_catalog.text), (NULL::pg_catalog.text), note || '$1' AS label FROM demo_sales LIMIT 5"
+        )
+        expect(uncast).toContain('($10)')
         expect(uncast).not.toContain('$10::')
     })
 
@@ -41,6 +44,9 @@ describe('pinned query request checks', () => {
         expect(functionLines('public.lower(text)\n# note')).toEqual(['public.lower(text)'])
         expect(functionLines('public.lower(text)\n{{secret}}')).toEqual([])
         expect(functionLines('public.lower($vars.fn)')).toEqual([])
+        expect(stampAllowedFunctions('public.lower(text)\n# note')).toEqual(['public.lower(text)', '# note'])
+        expect(stampAllowedFunctions('public.lower(text)\n{{secret}}')).toEqual([])
+        expect(stampAllowedFunctions('public.lower($vars.fn)')).toEqual([])
     })
 
     it('enables the flag only for 1 and true', () => {

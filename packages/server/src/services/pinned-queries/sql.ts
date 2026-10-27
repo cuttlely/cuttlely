@@ -136,16 +136,17 @@ export function quoteIdent(name: string): string {
     return `"${String(name).replace(/"/g, '""')}"`
 }
 
-// Compiler output uses `$n::pg_catalog.<type>`. Replace those whole tokens from
-// the highest index so `$10` is not eaten by `$1`. Bare `$n` inside a literal stays.
+// Compiler output uses `($n::pg_catalog.<type>)`. Replace those whole tokens from
+// the highest index so `$10` is not eaten by `$1`. A short `$n` inside a literal stays.
+// The type suggestion compares the uncast form, for example `region=($1)`.
 export function uncastCompiled(runSql: string, order: string[]): { uncast: string; check: string } {
     let uncast = String(runSql || '')
     let check = String(runSql || '')
     for (let n = order.length; n >= 1; n -= 1) {
         for (const type of PARAM_TYPES) {
-            const token = `$${n}::pg_catalog.${type}`
-            uncast = uncast.split(token).join(`$${n}`)
-            check = check.split(token).join('NULL')
+            const token = `($${n}::pg_catalog.${type})`
+            uncast = uncast.split(token).join(`($${n})`)
+            check = check.split(token).join(`(NULL::pg_catalog.${type})`)
         }
     }
     return { uncast, check }
@@ -337,6 +338,16 @@ export function functionLines(value: unknown): string[] {
         out.push(line)
     }
     return out
+}
+
+// The node stamps every non-blank line, notes included. The query path above
+// ignores notes. A saved stamp has to match the node, so the test route uses this list.
+export function stampAllowedFunctions(value: unknown): string[] {
+    if (typeof value !== 'string' || /\{\{|\$vars|\$flow/.test(value)) return []
+    return value
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
 }
 
 export function optionalPositive(value: unknown): number | undefined {
