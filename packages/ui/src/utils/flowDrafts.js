@@ -237,7 +237,29 @@ export const PIPELINE_RUN_DIRTY =
 export const PIPELINE_RUN_DRAFT =
     'This run uses the published pipeline and writes to the store. The draft is not included until you Publish. Preview uses the draft and does not write.'
 
-export const publishBody = (stale, replaceLiveChanges) => (stale && replaceLiveChanges ? { overwriteLiveChanges: true } : {})
+// The Publish request. draft carries the hash this canvas loaded ({ expectedDraftHash }) and, after the person
+// chose to publish a draft someone else saved, overwriteDraftChanges: true. Only a string or null hash is sent.
+export const publishBody = (stale, replaceLiveChanges, draft = {}) => {
+    const body = stale && replaceLiveChanges ? { overwriteLiveChanges: true } : {}
+    if (draft && Object.prototype.hasOwnProperty.call(draft, 'expectedDraftHash')) {
+        const hash = draft.expectedDraftHash
+        if (typeof hash === 'string' || hash === null) body.expectedDraftHash = hash
+    }
+    if (draft && draft.overwriteDraftChanges === true) body.overwriteDraftChanges = true
+    return body
+}
+
+export const PUBLISH_CONFLICT_REVIEW = 'Review their changes'
+export const PUBLISH_CONFLICT_ANYWAY = 'Publish their draft anyway'
+
+// "Avery saved this draft 3 minutes ago. Publish would put their changes live too. ..."
+export const publishConflictMessage = (conflict, now = Date.now()) => {
+    const raw = conflict?.savedBy?.name
+    const name = typeof raw === 'string' && raw.trim() ? raw.trim() : 'Someone'
+    const when = conflict?.savedAt ? relativeTime(conflict.savedAt, now) : ''
+    const timing = when || 'after you opened it'
+    return `${name} saved this draft ${timing}. Publishing now would put their changes live without you seeing them. Review their changes on your canvas, or publish their saved draft anyway.`
+}
 
 export const publishResultMessage = (data = {}) => {
     if (data.unchanged) return { message: 'Already live. Nothing new to publish.', variant: 'info' }

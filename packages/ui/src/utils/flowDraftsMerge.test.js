@@ -1,0 +1,166 @@
+import { applyDraftMerge, conflictKey, conflictSummary, draftMergePlan, mergeLine, nodeFields } from './flowDraftsMerge'
+import { CREDENTIAL_INPUT } from './canvasSave'
+
+const node = (id, inputs = {}, extra = {}) => ({
+    id,
+    type: 'customNode',
+    position: { x: 0, y: 0 },
+    data: { id, label: `ZZ-TEST-${id}`, name: 'chatOpenAI', inputs, inputParams: [], ...extra.data },
+    ...(extra.node || {})
+})
+const edge = (id, source, target) => ({
+    id,
+    source,
+    target,
+    sourceHandle: `${source}-out`,
+    targetHandle: `${target}-in`,
+    type: 'buttonedge'
+})
+const canvas = (nodes, edges = [], rest = {}) => JSON.stringify({ nodes, edges, viewport: { x: 0, y: 0, zoom: 1 }, ...rest })
+const parse = (text) => JSON.parse(text)
+const byId = (list, id) => list.find((item) => item.id === id)
+
+const BASE = canvas([node('a', { temperature: 0.1 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+
+describe('ZZ-TEST-draft merge', () => {
+    test('changes that do not overlap merge on their own: my edit, their new node and their edit to another node', () => {
+        const mine = canvas([node('a', { temperature: 0.9 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+        const theirs = canvas(
+            [node('a', { temperature: 0.1 }), node('b', { prompt: 'hello' }), node('c', { prompt: 'new' })],
+            [edge('e1', 'a', 'b'), edge('e2', 'b', 'c')]
+        )
+        const plan = draftMergePlan(BASE, mine, theirs)
+        expect(plan.conflicts).toEqual([])
+        expect(plan.merged.map((entry) => mergeLine(entry, 'theirs'))).toEqual([
+            'ZZ-TEST-b changed: prompt',
+            'ZZ-TEST-c added',
+            'Connection ZZ-TEST-b to ZZ-TEST-c added'
+        ])
+        const out = parse(applyDraftMerge(plan))
+        expect(byId(out.nodes, 'a').data.inputs.temperature).toBe(0.9)
+        expect(byId(out.nodes, 'b').data.inputs.prompt).toBe('hello')
+        expect(byId(out.nodes, 'c')).toBeTruthy()
+        expect(out.edges.map((item) => item.id).sort()).toEqual(['e1', 'e2'])
+    })
+
+    test('the same node changed on both sides is a conflict with the changed fields side by side, and the pick decides', () => {
+        const mine = canvas([node('a', { temperature: 0.9 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+        const theirs = canvas([node('a', { temperature: 0.5 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+        const plan = draftMergePlan(BASE, mine, theirs)
+        expect(plan.conflicts).toHaveLength(1)
+        const [conflict] = plan.conflicts
+        expect(conflictKey(conflict)).toBe('node:a')
+        expect(conflictSummary(conflict)).toBe('You both changed it')
+        expect(conflict.fields).toEqual([{ field: 'inputs.temperature', label: 'temperature', mine: '0.9', theirs: '0.5' }])
+        expect(byId(parse(applyDraftMerge(plan)).nodes, 'a').data.inputs.temperature).toBe(0.9)
+        expect(byId(parse(applyDraftMerge(plan, { 'node:a': 'theirs' })).nodes, 'a').data.inputs.temperature).toBe(0.5)
+    })
+
+    test('the same change on both sides is not a conflict', () => {
+        const same = canvas([node('a', { temperature: 0.7 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+        const plan = draftMergePlan(BASE, same, same)
+        expect(plan.conflicts).toEqual([])
+        expect(plan.merged).toEqual([])
+    })
+
+    test('a node I changed and they removed is a conflict; keeping theirs removes it and its connections', () => {
+        const mine = canvas([node('a', { temperature: 0.9 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+        const theirs = canvas([node('b', { prompt: 'hi' })], [])
+        const plan = draftMergePlan(BASE, mine, theirs)
+        expect(plan.conflicts.map(conflictKey)).toEqual(['node:a'])
+        expect(conflictSummary(plan.conflicts[0])).toBe('You changed it, they removed it')
+        expect(plan.conflicts[0].fields).toHaveLength(1)
+        expect(plan.conflicts[0].fields[0]).toEqual({ field: 'inputs.temperature', label: 'temperature', mine: '0.9', theirs: 'Removed' })
+        const kept = parse(applyDraftMerge(plan))
+        expect(kept.nodes.map((item) => item.id)).toEqual(['a', 'b'])
+        const removed = parse(applyDraftMerge(plan, { 'node:a': 'theirs' }))
+        expect(removed.nodes.map((item) => item.id)).toEqual(['b'])
+        expect(removed.edges).toEqual([])
+    })
+
+    test('a node they removed that I did not touch is removed, and so is the connection to it', () => {
+        const theirs = canvas([node('b', { prompt: 'hi' })], [])
+        const plan = draftMergePlan(BASE, BASE, theirs)
+        expect(plan.conflicts).toEqual([])
+        expect(plan.merged.map((entry) => mergeLine(entry, 'theirs'))).toEqual([
+            'ZZ-TEST-a removed',
+            'Connection ZZ-TEST-a to ZZ-TEST-b removed'
+        ])
+        expect(parse(applyDraftMerge(plan)).nodes.map((item) => item.id)).toEqual(['b'])
+    })
+
+    test('an unsaved node of mine is kept, and an edge they added to a node I removed is dropped', () => {
+        const mine = canvas([node('b', { prompt: 'hi' }), node('m', { prompt: 'mine' })], [])
+        const theirs = canvas([node('a', { temperature: 0.1 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b'), edge('e3', 'b', 'a')])
+        const plan = draftMergePlan(BASE, mine, theirs)
+        expect(plan.conflicts).toEqual([])
+        const out = parse(applyDraftMerge(plan))
+        expect(out.nodes.map((item) => item.id).sort()).toEqual(['b', 'm'])
+        expect(out.edges).toEqual([])
+    })
+
+    test('moving a card is not a conflict with their settings edit: their settings and my position are both kept', () => {
+        const mine = canvas(
+            [node('a', { temperature: 0.1 }, { node: { position: { x: 500, y: 40 } } }), node('b', { prompt: 'hi' })],
+            [edge('e1', 'a', 'b')]
+        )
+        const theirs = canvas([node('a', { temperature: 0.4 }), node('b', { prompt: 'hi' })], [edge('e1', 'a', 'b')])
+        const plan = draftMergePlan(BASE, mine, theirs)
+        expect(plan.conflicts).toEqual([])
+        const merged = byId(parse(applyDraftMerge(plan)).nodes, 'a')
+        expect(merged.data.inputs.temperature).toBe(0.4)
+        expect(merged.position).toEqual({ x: 500, y: 40 })
+    })
+
+    test('editor-only fields and the credential input do not count as a change', () => {
+        const editor = node(
+            'a',
+            { temperature: 0.1, [CREDENTIAL_INPUT]: 'cred-1' },
+            { data: { selected: true, inputAnchors: [{ id: 'x' }] } }
+        )
+        const saved = node('a', { temperature: 0.1 }, { data: { credential: 'cred-1' } })
+        expect(nodeFields(editor)).toEqual(nodeFields(saved))
+    })
+
+    test('the canvas load step runs on every side, so defaults it fills in are not a change', () => {
+        const base = canvas([node('a', {})])
+        const mine = canvas([node('a', { temperature: 0.7 })])
+        const theirs = canvas([node('a', {}, { data: { label: 'ZZ-TEST-new label' } })])
+        const fill = (flow) => ({
+            nodes: flow.nodes.map((item) => ({ ...item, data: { ...item.data, inputs: { temperature: 0.7, ...item.data.inputs } } })),
+            edges: flow.edges
+        })
+        expect(draftMergePlan(base, mine, theirs).conflicts).toHaveLength(1)
+        const plan = draftMergePlan(base, mine, theirs, fill)
+        expect(plan.conflicts).toEqual([])
+        expect(byId(parse(applyDraftMerge(plan)).nodes, 'a').data.label).toBe('ZZ-TEST-new label')
+    })
+
+    test('other canvas settings merge one key at a time, and my viewport is kept', () => {
+        const base = canvas([], [], { notes: 'one' })
+        const mine = JSON.stringify({ nodes: [], edges: [], viewport: { x: 9, y: 9, zoom: 2 }, notes: 'one' })
+        const theirs = canvas([], [], { notes: 'two' })
+        const out = parse(applyDraftMerge(draftMergePlan(base, mine, theirs)))
+        expect(out.notes).toBe('two')
+        expect(out.viewport).toEqual({ x: 9, y: 9, zoom: 2 })
+    })
+
+    test('two connections joining the same handles are kept once', () => {
+        const mine = canvas(
+            [node('a', { temperature: 0.1 }), node('b', { prompt: 'hi' })],
+            [edge('e1', 'a', 'b'), edge('mine-ab', 'b', 'a')]
+        )
+        const theirs = canvas(
+            [node('a', { temperature: 0.1 }), node('b', { prompt: 'hi' })],
+            [edge('e1', 'a', 'b'), edge('theirs-ab', 'b', 'a')]
+        )
+        const out = parse(applyDraftMerge(draftMergePlan(BASE, mine, theirs)))
+        expect(out.edges.map((item) => item.id)).toEqual(['e1', 'mine-ab'])
+    })
+
+    test('a side that is not a canvas gives no plan', () => {
+        expect(draftMergePlan(null, BASE, BASE)).toBeNull()
+        expect(draftMergePlan(BASE, '{', BASE)).toBeNull()
+        expect(applyDraftMerge(null)).toBeNull()
+    })
+})

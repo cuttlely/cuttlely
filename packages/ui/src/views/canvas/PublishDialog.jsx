@@ -29,6 +29,10 @@ import {
     canvasAfterPublish,
     datasetGateBlock,
     publishBody,
+    publishConflictMessage,
+    PUBLISH_CONFLICT_ANYWAY,
+    PUBLISH_CONFLICT_REVIEW,
+    draftConflictFrom,
     publishChangeLines,
     publishResultMessage,
     showsPublishCheck
@@ -127,7 +131,18 @@ PublishGateNotice.propTypes = {
     canRun: PropTypes.bool
 }
 
-const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftStatus, onChatflowUpdated, onApplyCanvas }) => {
+const PublishDialog = ({
+    open,
+    chatflow,
+    draftStatus,
+    isDirty,
+    onClose,
+    onDraftStatus,
+    onChatflowUpdated,
+    onApplyCanvas,
+    draftExpected = () => ({}),
+    onDraftConflict = () => undefined
+}) => {
     const dispatch = useDispatch()
     const { confirm } = useConfirm()
     const { hasPermission } = useAuth()
@@ -137,6 +152,8 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
     const [gateBusy, setGateBusy] = useState(false)
     const [runAnyway, setRunAnyway] = useState(false)
     const [error, setError] = useState('')
+    // A 409 DRAFT_CHANGED: someone else saved the draft after this canvas loaded it.
+    const [publishConflict, setPublishConflict] = useState(null)
 
     const stale = Boolean(draftStatus?.draft?.stale)
     const replayCheck = showsPublishCheck(chatflow?.type)
@@ -155,6 +172,7 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
         setReplaceLiveChanges(false)
         setError('')
         setBusy(false)
+        setPublishConflict(null)
     }, [open])
 
     const onStatus = useRef(onDraftStatus)
@@ -276,18 +294,29 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
         }
     }
 
-    const onPublish = async () => {
+    const onPublish = async (overwriteDraftChanges = false) => {
         if (!chatflow?.id || busy) return
         if (stale && !replaceLiveChanges) return
         setBusy(true)
         setError('')
+        setPublishConflict(null)
         try {
-            const res = await flowDraftsApi.publish(chatflow.id, publishBody(stale, replaceLiveChanges))
+            const draft = { ...(draftExpected() || {}), ...(overwriteDraftChanges === true ? { overwriteDraftChanges: true } : {}) }
+            const res = await flowDraftsApi.publish(chatflow.id, publishBody(stale, replaceLiveChanges, draft))
             finish(res.data)
         } catch (err) {
-            setError(apiErrorMessage(err, 'Publish failed.'))
+            const found = draftConflictFrom(err)
+            if (found) setPublishConflict(found)
+            else setError(apiErrorMessage(err, 'Publish failed.'))
             setBusy(false)
         }
+    }
+
+    const onReviewConflict = () => {
+        const found = publishConflict
+        setPublishConflict(null)
+        onClose()
+        if (found) onDraftConflict(found)
     }
 
     const onDiscard = async () => {
@@ -382,6 +411,19 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                         {error}
                     </Alert>
                 )}
+                {publishConflict && (
+                    <Alert severity='warning' data-testid='publish-draft-conflict' sx={{ mt: 1.5 }}>
+                        <Typography variant='body2'>{publishConflictMessage(publishConflict)}</Typography>
+                        <Stack direction='row' spacing={1} sx={{ mt: 1 }} flexWrap='wrap'>
+                            <Button variant='outlined' size='small' onClick={onReviewConflict} disabled={busy}>
+                                {PUBLISH_CONFLICT_REVIEW}
+                            </Button>
+                            <Button size='small' color='warning' onClick={() => onPublish(true)} disabled={busy}>
+                                {PUBLISH_CONFLICT_ANYWAY}
+                            </Button>
+                        </Stack>
+                    </Alert>
+                )}
             </DialogContent>
             <DialogActions sx={{ flexWrap: 'wrap', gap: 1, px: 3, pb: 2 }}>
                 <Button onClick={onDiscard} disabled={busy} color='inherit'>
@@ -393,7 +435,7 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                 </Button>
                 <Button
                     variant='contained'
-                    onClick={onPublish}
+                    onClick={() => onPublish(false)}
                     disabled={busy || gateBusy || Boolean(gateBlock) || (stale && !replaceLiveChanges)}
                 >
                     {busy ? 'Publishing…' : 'Publish'}
@@ -416,7 +458,9 @@ PublishDialog.propTypes = {
     onClose: PropTypes.func,
     onDraftStatus: PropTypes.func,
     onChatflowUpdated: PropTypes.func,
-    onApplyCanvas: PropTypes.func
+    onApplyCanvas: PropTypes.func,
+    draftExpected: PropTypes.func,
+    onDraftConflict: PropTypes.func
 }
 
 export default PublishDialog

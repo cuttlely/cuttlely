@@ -257,6 +257,35 @@ test('a publish gate refusal does not write Live', async () => {
     expect(updateChatflow).not.toHaveBeenCalled()
 })
 
+test('ZZ-TEST-publishing a draft someone else saved is the same 409, and Live is not written', async () => {
+    granted.add('chatflows:update')
+    const { DraftChangedError } = jest.requireActual(
+        '../../services/flow-drafts/draftChanged'
+    ) as typeof import('../../services/flow-drafts/draftChanged')
+    const savedAt = '2026-10-27T12:00:00.000Z'
+    drafts.draftToPublish.mockRejectedValueOnce(new DraftChangedError({ id: 'zz-test-rosa', name: 'ZZ-TEST-Rosa' }, savedAt))
+    const res = response()
+    const next = jest.fn()
+    await controller.publishDraft(request({ expectedDraftHash: 'stale-hash', overwriteDraftChanges: 'true' }), res, next)
+    expect(drafts.draftToPublish).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
+        userId: 'user-1',
+        expectedDraftHash: 'stale-hash',
+        overwriteDraftChanges: 'true'
+    })
+    expect(next).not.toHaveBeenCalled()
+    expect(updateChatflow).not.toHaveBeenCalled()
+    expect(res.status).toHaveBeenCalledWith(409)
+    expect(res.json).toHaveBeenCalledWith({
+        statusCode: 409,
+        success: false,
+        code: 'DRAFT_CHANGED',
+        message:
+            'ZZ-TEST-Rosa saved this draft after you opened it. Reload to see their changes, or send overwriteDraftChanges: true to replace them.',
+        savedBy: { id: 'zz-test-rosa', name: 'ZZ-TEST-Rosa' },
+        savedAt
+    })
+})
+
 test('discards and changes Publish instantly', async () => {
     granted.add('chatflows:update')
     await controller.discardDraft(request(), response(), jest.fn())
@@ -326,7 +355,11 @@ describe('Publish', () => {
         const next = jest.fn()
         await controller.publishDraft(request({ overwriteLiveChanges: true }), res, next)
         expect(next).not.toHaveBeenCalled()
-        expect(drafts.draftToPublish).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), true)
+        expect(drafts.draftToPublish).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), true, {
+            userId: 'user-1',
+            expectedDraftHash: undefined,
+            overwriteDraftChanges: undefined
+        })
         const [current, update, orgId, workspaceId, subscriptionId, options] = updateChatflow.mock.calls[0]
         expect(current.id).toBe(FLOW.id)
         // Only the canvas: the draft holds no name or settings.

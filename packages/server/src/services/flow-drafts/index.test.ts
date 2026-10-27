@@ -1923,4 +1923,58 @@ describe('ZZ-TEST-a shared draft save asks before it replaces someone else', () 
             expect.objectContaining({ statusCode: 400, message: 'expectedDraftHash must be a string or null.' })
         )
     })
+
+    test('ZZ-TEST-publishing a draft another user saved since the loaded hash is a 409 and Live is not handed over', async () => {
+        rememberRosa('zz-test-rosa@example.test')
+        await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        rows[0].draftUpdatedDate = new Date('2026-10-27T12:00:00.000Z')
+        const stored = rows[0].draftFlowData
+        const loaded = canvasHash(canvas('ZZ-TEST-older draft'))
+        const before = writes()
+        let caught: any
+        try {
+            await draftToPublish(flow(), undefined, { userId: other, expectedDraftHash: loaded })
+        } catch (error) {
+            caught = error
+        }
+        expect(caught).toBeInstanceOf(DraftChangedError)
+        expect(caught).toMatchObject({
+            statusCode: 409,
+            code: 'DRAFT_CHANGED',
+            savedBy: { id: rosa, name: 'User zz-test-' },
+            savedAt: '2026-10-27T12:00:00.000Z',
+            message:
+                'User zz-test- saved this draft after you opened it, so nothing was published. Reload to see their changes, or send overwriteDraftChanges: true to publish their draft.'
+        })
+        expect(JSON.stringify(caught)).not.toContain('example.test')
+        expect(rows[0].draftFlowData).toBe(stored)
+        expect(writes()).toBe(before)
+    })
+
+    test('ZZ-TEST-publish passes with the loaded hash, no hash, or overwriteDraftChanges true, and only true skips the check', async () => {
+        rememberRosa()
+        const saved = await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        const stored = rows[0].draftFlowData
+        expect(await draftToPublish(flow(), undefined, { userId: other, expectedDraftHash: saved.draft?.hash })).toBe(stored)
+        expect(await draftToPublish(flow(), undefined, { userId: other })).toBe(stored)
+        expect(await draftToPublish(flow())).toBe(stored)
+        await expect(
+            draftToPublish(flow(), undefined, { userId: other, expectedDraftHash: 'stale', overwriteDraftChanges: 'true' })
+        ).rejects.toBeInstanceOf(DraftChangedError)
+        expect(await draftToPublish(flow(), undefined, { userId: other, expectedDraftHash: 'stale', overwriteDraftChanges: true })).toBe(
+            stored
+        )
+    })
+
+    test('ZZ-TEST-overwriteDraftChanges on publish does not skip the Live changed check or a bad hash', async () => {
+        rememberRosa()
+        await saveDraft(flow(), canvas('ZZ-TEST-Rosa draft'), { ...context, userId: rosa })
+        const changed = flow({ flowData: canvas('ZZ-TEST-changed by API') })
+        await expect(
+            draftToPublish(changed, undefined, { userId: other, expectedDraftHash: 'stale', overwriteDraftChanges: true })
+        ).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('overwriteLiveChanges') })
+        await expect(
+            draftToPublish(flow(), undefined, { userId: other, expectedDraftHash: 5, overwriteDraftChanges: true })
+        ).rejects.toMatchObject({ statusCode: 400, message: 'expectedDraftHash must be a string or null.' })
+    })
 })

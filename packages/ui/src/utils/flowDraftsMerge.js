@@ -1,0 +1,330 @@
+// Three-way merge of a shared draft canvas, for the conflict review screen.
+// base: the draft this canvas loaded or last saved. mine: the open editor, unsaved edits included.
+// theirs: the draft someone else saved since. Nodes and edges are matched by id.
+// A change on one side only is taken as it is. An item changed on both sides, to different content,
+// is a conflict, and the person picks mine or theirs for it. A node's position merges on its own:
+// moving a card is never a conflict with an edit to its settings.
+
+import { parseCanvas } from './flowDrafts'
+import { fieldLabel } from './versionHistory'
+import { CREDENTIAL_INPUT } from './canvasSave'
+
+// Data keys that describe the node type or the editor's state, not what someone typed.
+const NOT_CONTENT_DATA = new Set([
+    'id',
+    'selected',
+    'status',
+    'nodePack',
+    'inputParams',
+    'inputAnchors',
+    'outputAnchors',
+    'baseClasses',
+    'category',
+    'description',
+    'filePath',
+    'icon',
+    'version',
+    'tags',
+    'badge',
+    'documentation',
+    'hideInput',
+    'hideOutput',
+    'loadMethods',
+    'versionChange',
+    'cuttlelyRawNode'
+])
+const NOT_CONTENT_NODE = new Set([
+    'id',
+    'data',
+    'position',
+    'positionAbsolute',
+    'selected',
+    'dragging',
+    'width',
+    'height',
+    'style',
+    'resizing'
+])
+const NOT_CONTENT_EDGE = new Set(['id', 'selected', 'animated', 'style'])
+const CANVAS_ITEMS = new Set(['nodes', 'edges', 'viewport'])
+
+const json = (value) => (value === undefined ? undefined : JSON.stringify(value))
+
+// Field name -> JSON text, for the parts of a node a person edits.
+export const nodeFields = (node) => {
+    const fields = {}
+    if (!node || typeof node !== 'object') return fields
+    for (const [key, value] of Object.entries(node)) {
+        if (NOT_CONTENT_NODE.has(key)) continue
+        fields[`node.${key}`] = json(value)
+    }
+    const data = node.data && typeof node.data === 'object' ? node.data : {}
+    for (const [key, value] of Object.entries(data)) {
+        if (key === 'inputs' || NOT_CONTENT_DATA.has(key)) continue
+        fields[key] = json(value)
+    }
+    const inputs = data.inputs && typeof data.inputs === 'object' ? data.inputs : {}
+    for (const [name, value] of Object.entries(inputs)) {
+        // The editor holds the credential as an input; a saved canvas holds it on data.credential.
+        if (name === CREDENTIAL_INPUT) {
+            if (fields.credential === undefined) fields.credential = json(value)
+            continue
+        }
+        fields[`inputs.${name}`] = json(value)
+    }
+    return fields
+}
+
+export const edgeFields = (edge) => {
+    const fields = {}
+    if (!edge || typeof edge !== 'object') return fields
+    for (const [key, value] of Object.entries(edge)) {
+        if (NOT_CONTENT_EDGE.has(key)) continue
+        fields[key] = json(value)
+    }
+    return fields
+}
+
+const sameFields = (a, b) => {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+    for (const key of keys) if (a[key] !== b[key]) return false
+    return true
+}
+
+const changedFieldNames = (a, b) => {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+    return [...keys].filter((key) => a[key] !== b[key]).sort()
+}
+
+const samePosition = (a, b) => json(a?.position ?? null) === json(b?.position ?? null)
+
+const byId = (list) => {
+    const map = new Map()
+    for (const item of Array.isArray(list) ? list : []) {
+        if (item && typeof item === 'object' && typeof item.id === 'string' && item.id) map.set(item.id, item)
+    }
+    return map
+}
+
+const nodeLabel = (node) => node?.data?.label || node?.data?.name || node?.id || 'Node'
+
+const edgeLabel = (edge, names) => {
+    const from = names.get(edge?.source) || edge?.source || '?'
+    const to = names.get(edge?.target) || edge?.target || '?'
+    return `${from} to ${to}`
+}
+
+// How one side changed an item compared with the base: 'added', 'removed', 'changed', or null.
+const sideChange = (baseItem, item, fieldsOf) => {
+    if (!baseItem && !item) return null
+    if (!baseItem) return 'added'
+    if (!item) return 'removed'
+    return sameFields(fieldsOf(baseItem), fieldsOf(item)) ? null : 'changed'
+}
+
+const shown = (text) => {
+    if (text === undefined) return ''
+    let value
+    try {
+        value = JSON.parse(text)
+    } catch {
+        value = text
+    }
+    const out = typeof value === 'string' ? value : JSON.stringify(value)
+    return out.length > 400 ? `${out.slice(0, 400)}…` : out
+}
+
+// The changed fields of a conflicting item, side by side. When one side removed the item, the rows are
+// what the other side changed, and the removed side reads "Removed".
+export const REMOVED_CELL = 'Removed'
+const fieldRows = (baseItem, mineItem, theirsItem, fieldsOf) => {
+    if (!mineItem || !theirsItem) {
+        const present = mineItem || theirsItem
+        const before = baseItem ? fieldsOf(baseItem) : {}
+        const after = fieldsOf(present)
+        return changedFieldNames(before, after).map((field) => ({
+            field,
+            label: fieldLabel(field) || field,
+            mine: mineItem ? shown(after[field]) : REMOVED_CELL,
+            theirs: theirsItem ? shown(after[field]) : REMOVED_CELL
+        }))
+    }
+    const mine = fieldsOf(mineItem)
+    const theirs = fieldsOf(theirsItem)
+    return changedFieldNames(mine, theirs).map((field) => ({
+        field,
+        label: fieldLabel(field) || field,
+        mine: shown(mine[field]),
+        theirs: shown(theirs[field])
+    }))
+}
+
+function mergeItems(kind, baseList, mineList, theirsList, fieldsOf, labelOf) {
+    const base = byId(baseList)
+    const mine = byId(mineList)
+    const theirs = byId(theirsList)
+    const ids = []
+    const seen = new Set()
+    // Mine first, in the editor's order, then items only they have.
+    for (const map of [mine, theirs, base]) {
+        for (const id of map.keys()) {
+            if (!seen.has(id)) {
+                seen.add(id)
+                ids.push(id)
+            }
+        }
+    }
+    const items = []
+    for (const id of ids) {
+        const b = base.get(id)
+        const m = mine.get(id)
+        const t = theirs.get(id)
+        const mineChange = sideChange(b, m, fieldsOf)
+        const theirChange = sideChange(b, t, fieldsOf)
+        const label = labelOf(m || t || b)
+        const entry = { kind, id, label, mineChange, theirChange, base: b, mine: m, theirs: t }
+        if (!theirChange) {
+            entry.take = 'mine'
+        } else if (!mineChange) {
+            entry.take = 'theirs'
+        } else if (m && t && sameFields(fieldsOf(m), fieldsOf(t))) {
+            entry.take = 'mine'
+        } else if (!m && !t) {
+            entry.take = 'mine'
+        } else {
+            entry.conflict = true
+            entry.fields = fieldRows(b, m, t, fieldsOf)
+        }
+        items.push(entry)
+    }
+    return items
+}
+
+// Picks one item's final shape. A node keeps the other side's move when only that side moved it.
+function resolvedItem(entry, choice) {
+    const take = entry.conflict ? choice : entry.take
+    const picked = take === 'theirs' ? entry.theirs : entry.mine
+    if (!picked || entry.kind !== 'node') return picked || null
+    const other = take === 'theirs' ? entry.mine : entry.theirs
+    const base = entry.base
+    if (other && base && samePosition(picked, base) && !samePosition(other, base)) {
+        const moved = { ...picked, position: other.position }
+        if (other.positionAbsolute) moved.positionAbsolute = other.positionAbsolute
+        return moved
+    }
+    return picked
+}
+
+const edgeEnds = (edge) => json([edge?.source, edge?.sourceHandle ?? null, edge?.target, edge?.targetHandle ?? null])
+
+// The canvas a side holds once the editor's own load steps ran on it, so defaults the editor fills in
+// do not read as someone's change.
+const prepared = (text, normalize) => {
+    const canvas = parseCanvas(text)
+    if (!canvas || typeof normalize !== 'function') return canvas
+    try {
+        const graph = normalize(canvas)
+        if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return canvas
+        return { ...canvas, nodes: graph.nodes, edges: graph.edges }
+    } catch {
+        return parseCanvas(text)
+    }
+}
+
+// Compares the three canvas texts. Null when any of them is not a canvas, so the screen falls back to
+// Reload or Save anyway. normalize, when given, is the canvas's own load step, run on each side.
+export function draftMergePlan(baseText, mineText, theirsText, normalize) {
+    const base = prepared(baseText, normalize)
+    const mine = prepared(mineText, normalize)
+    const theirs = prepared(theirsText, normalize)
+    if (!base || !mine || !theirs) return null
+    const names = new Map()
+    for (const canvas of [base, theirs, mine]) for (const node of canvas.nodes) if (node?.id) names.set(node.id, nodeLabel(node))
+    const nodes = mergeItems('node', base.nodes, mine.nodes, theirs.nodes, nodeFields, nodeLabel)
+    const edges = mergeItems('edge', base.edges, mine.edges, theirs.edges, edgeFields, (edge) => edgeLabel(edge, names))
+    // Other top-level canvas settings merge the same way, one key at a time.
+    const settings = []
+    const keys = new Set([...Object.keys(base), ...Object.keys(mine), ...Object.keys(theirs)])
+    for (const key of keys) {
+        if (CANVAS_ITEMS.has(key)) continue
+        const one = (canvas) => (Object.prototype.hasOwnProperty.call(canvas, key) ? { id: key, value: canvas[key] } : undefined)
+        const valueFields = (item) => ({ [key]: json(item.value) })
+        settings.push(
+            ...mergeItems(
+                'setting',
+                [one(base)].filter(Boolean),
+                [one(mine)].filter(Boolean),
+                [one(theirs)].filter(Boolean),
+                valueFields,
+                () => fieldLabel(key) || key
+            )
+        )
+    }
+    const items = [...nodes, ...edges, ...settings]
+    return {
+        mine,
+        items,
+        conflicts: items.filter((item) => item.conflict),
+        // What their save changed that is taken without asking.
+        merged: items.filter((item) => !item.conflict && item.take === 'theirs' && item.theirChange)
+    }
+}
+
+// The merged canvas text. choices maps a conflict key (kind:id) to 'mine' or 'theirs'; a conflict with
+// no choice keeps mine. Edges that point at a node no longer on the canvas are dropped, and two edges
+// joining the same handles are kept once.
+export function applyDraftMerge(plan, choices = {}) {
+    if (!plan) return null
+    const pick = (entry) => (choices[conflictKey(entry)] === 'theirs' ? 'theirs' : 'mine')
+    const out = { ...plan.mine }
+    for (const entry of plan.items.filter((item) => item.kind === 'setting')) {
+        const kept = resolvedItem(entry, pick(entry))
+        if (kept) out[entry.id] = kept.value
+        else delete out[entry.id]
+    }
+    const nodes = plan.items
+        .filter((item) => item.kind === 'node')
+        .map((entry) => resolvedItem(entry, pick(entry)))
+        .filter(Boolean)
+    const present = new Set(nodes.map((node) => node.id))
+    const ends = new Set()
+    const edges = []
+    for (const entry of plan.items.filter((item) => item.kind === 'edge')) {
+        const edge = resolvedItem(entry, pick(entry))
+        if (!edge || !present.has(edge.source) || !present.has(edge.target)) continue
+        const key = edgeEnds(edge)
+        if (ends.has(key)) continue
+        ends.add(key)
+        edges.push(edge)
+    }
+    out.nodes = nodes
+    out.edges = edges
+    return JSON.stringify(out)
+}
+
+export const conflictKey = (entry) => `${entry.kind}:${entry.id}`
+
+const CHANGE_WORDS = { added: 'added', removed: 'removed', changed: 'changed' }
+const KIND_WORDS = { node: '', edge: 'Connection ', setting: 'Setting ' }
+
+// One plain line for an item: "Added Chat Model", "Connection Prompt to LLM removed".
+export const mergeLine = (entry, side) => {
+    const change = side === 'mine' ? entry.mineChange : entry.theirChange
+    const word = CHANGE_WORDS[change] || 'changed'
+    const prefix = KIND_WORDS[entry.kind] ?? ''
+    if (entry.kind === 'node' && change === 'changed') {
+        const before = entry.base ? nodeFields(entry.base) : {}
+        const after = side === 'mine' ? entry.mine : entry.theirs
+        const fields = after ? changedFieldNames(before, nodeFields(after)).map(fieldLabel).filter(Boolean) : []
+        return `${entry.label} ${word}${fields.length ? `: ${fields.join(', ')}` : ''}`
+    }
+    return `${prefix}${entry.label} ${word}`.trim()
+}
+
+// "Both changed it", "You changed it, they removed it", for a conflict's heading.
+export const conflictSummary = (entry) => {
+    const you = CHANGE_WORDS[entry.mineChange] || 'changed'
+    const they = CHANGE_WORDS[entry.theirChange] || 'changed'
+    if (you === they) return `You both ${you} it`
+    return `You ${you} it, they ${they} it`
+}

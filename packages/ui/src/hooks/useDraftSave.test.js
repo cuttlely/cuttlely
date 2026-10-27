@@ -11,7 +11,7 @@ import useDraftSave from './useDraftSave'
 
 jest.mock('@/api/flowDrafts', () => ({
     __esModule: true,
-    default: { saveDraft: jest.fn() }
+    default: { saveDraft: jest.fn(), getStatus: jest.fn() }
 }))
 
 const FLOW = '{"nodes":[],"edges":[]}'
@@ -47,6 +47,8 @@ describe('ZZ-TEST-useDraftSave sends the recorded draft version', () => {
 
     beforeEach(() => {
         flowDraftsApi.saveDraft.mockReset()
+        flowDraftsApi.getStatus.mockReset()
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { draft: null } })
         apiRef = { current: null }
     })
 
@@ -103,18 +105,59 @@ describe('ZZ-TEST-useDraftSave sends the recorded draft version', () => {
         expect(flowDraftsApi.saveDraft).toHaveBeenLastCalledWith('zz-test-flow', FLOW, { expectedDraftHash: 'h-next' })
     })
 
-    test('ZZ-TEST-a DRAFT_CHANGED 409 returns the conflict and sets it', async () => {
+    test('ZZ-TEST-a DRAFT_CHANGED 409 returns the conflict, then reads their saved draft for the review screen', async () => {
+        const THEIRS = '{"nodes":[{"id":"zz-test-theirs"}],"edges":[]}'
+        const BASE = '{"nodes":[],"edges":[],"base":true}'
         flowDraftsApi.saveDraft.mockRejectedValueOnce(conflictError())
+        flowDraftsApi.getStatus.mockResolvedValueOnce({ data: { draft: { hash: 'h-theirs', flowData: THEIRS } } })
         await mount()
-        apiRef.current.record({ draft: { hash: 'h1' } })
+        apiRef.current.record({ draft: { hash: 'h1', flowData: BASE } })
         const result = await save('zz-test-flow', FLOW)
-        const conflict = {
+        const found = {
             savedBy: { id: 'zz-test-rosa', name: 'ZZ-TEST-Rosa' },
             savedAt: SAVED_AT
         }
-        expect(result).toEqual({ conflict })
-        expect(apiRef.current.conflict).toEqual(conflict)
+        expect(result).toEqual({ conflict: found })
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledWith('zz-test-flow')
+        expect(apiRef.current.conflict).toEqual({
+            ...found,
+            mine: FLOW,
+            base: BASE,
+            loading: false,
+            theirs: { flowData: THEIRS, hash: 'h-theirs', status: { draft: { hash: 'h-theirs', flowData: THEIRS } } }
+        })
         expect(document.body.textContent).toContain('conflict')
+    })
+
+    test('ZZ-TEST-after the merge is applied, the next save and publish send their draft hash', async () => {
+        flowDraftsApi.saveDraft.mockResolvedValue({ data: { draft: { hash: 'h-saved' } } })
+        await mount()
+        expect(apiRef.current.expected()).toEqual({})
+        apiRef.current.record({ draft: { hash: 'h1' } })
+        expect(apiRef.current.expected()).toEqual({ expectedDraftHash: 'h1' })
+        apiRef.current.adopt({ flowData: FLOW, hash: 'h-theirs' })
+        expect(apiRef.current.expected()).toEqual({ expectedDraftHash: 'h-theirs' })
+        await save('zz-test-flow', FLOW)
+        expect(flowDraftsApi.saveDraft).toHaveBeenLastCalledWith('zz-test-flow', FLOW, { expectedDraftHash: 'h-theirs' })
+    })
+
+    test('ZZ-TEST-a review screen closed before their draft arrives stays closed', async () => {
+        let resolve
+        flowDraftsApi.getStatus.mockReturnValueOnce(new Promise((done) => (resolve = done)))
+        await mount()
+        let pending
+        await act(async () => {
+            pending = apiRef.current.openConflict('zz-test-flow', { savedBy: null, savedAt: null }, FLOW)
+        })
+        expect(apiRef.current.conflict.loading).toBe(true)
+        await act(async () => {
+            apiRef.current.dismiss()
+        })
+        await act(async () => {
+            resolve({ data: { draft: { hash: 'late', flowData: FLOW } } })
+            await pending
+        })
+        expect(apiRef.current.conflict).toBeNull()
     })
 
     test('ZZ-TEST-overwriteDraftChanges true is passed only when asked', async () => {

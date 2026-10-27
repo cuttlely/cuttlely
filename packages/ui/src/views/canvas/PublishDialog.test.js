@@ -46,6 +46,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
 import { GATE_RUN_PERMISSION } from '@/utils/publishCheck'
+import { PUBLISH_CONFLICT_ANYWAY, PUBLISH_CONFLICT_REVIEW } from '@/utils/flowDrafts'
 
 const { __setAllow } = jest.requireMock('@/hooks/useAuth')
 import PublishDialog, { PublishChangeList, PublishGateNotice } from './PublishDialog'
@@ -581,6 +582,82 @@ describe('Publish keeps Live on the stored flow', () => {
         await clickButton('Discard draft')
         expect(flowDraftsApi.discardDraft).toHaveBeenCalled()
         expect(view.onApplyCanvas).not.toHaveBeenCalled()
+        act(() => view.root.unmount())
+    })
+})
+
+describe('Publish checks that nobody else saved the draft', () => {
+    afterEach(() => {
+        flowDraftsApi.publish.mockReset()
+        flowDraftsApi.getCheckSetup.mockReset()
+        flowDraftsApi.getStatus.mockReset()
+        document.body.innerHTML = ''
+    })
+
+    const conflict = {
+        response: {
+            status: 409,
+            data: {
+                code: 'DRAFT_CHANGED',
+                message: 'ZZ-TEST-Rosa saved this draft after you opened it.',
+                savedBy: { id: 'zz-test-rosa', name: 'ZZ-TEST-Rosa' },
+                savedAt: null
+            }
+        }
+    }
+
+    const open = async () => {
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        flowDraftsApi.getStatus.mockImplementation(() => new Promise(() => {}))
+        const props = {
+            open: true,
+            chatflow: { id: 'flow-1', name: 'ZZ-TEST-catalog', type: 'ETL', flowData: graph('Streaming Files', 'a.csv') },
+            draftStatus: { mode: 'draft', draft: { flowData: graph('Streaming Files', 'b.csv'), stale: false } },
+            isDirty: false,
+            onClose: jest.fn(),
+            onDraftStatus: jest.fn(),
+            onChatflowUpdated: jest.fn(),
+            onApplyCanvas: jest.fn(),
+            draftExpected: () => ({ expectedDraftHash: 'zz-test-loaded' }),
+            onDraftConflict: jest.fn()
+        }
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(PublishDialog, props)))
+        })
+        return { root, props }
+    }
+
+    test('Publish sends the loaded draft hash, and a DRAFT_CHANGED 409 offers a review or publishing their draft', async () => {
+        const view = await open()
+        flowDraftsApi.publish.mockRejectedValueOnce(conflict).mockResolvedValueOnce({
+            data: { chatflow: { id: 'flow-1', type: 'ETL' }, status: { mode: 'draft', draft: null }, recorded: true }
+        })
+        await clickButton('Publish')
+        expect(flowDraftsApi.publish).toHaveBeenLastCalledWith('flow-1', { expectedDraftHash: 'zz-test-loaded' })
+        const alert = document.querySelector('[data-testid="publish-draft-conflict"]')
+        expect(alert.textContent).toContain('ZZ-TEST-Rosa saved this draft after you opened it.')
+        expect(view.props.onChatflowUpdated).not.toHaveBeenCalled()
+
+        await clickButton(PUBLISH_CONFLICT_ANYWAY)
+        expect(flowDraftsApi.publish).toHaveBeenLastCalledWith('flow-1', {
+            expectedDraftHash: 'zz-test-loaded',
+            overwriteDraftChanges: true
+        })
+        expect(view.props.onChatflowUpdated).toHaveBeenCalledTimes(1)
+        act(() => view.root.unmount())
+    })
+
+    test('Review their changes closes Publish and opens the review screen on the canvas', async () => {
+        const view = await open()
+        flowDraftsApi.publish.mockRejectedValueOnce(conflict)
+        await clickButton('Publish')
+        await clickButton(PUBLISH_CONFLICT_REVIEW)
+        expect(view.props.onClose).toHaveBeenCalled()
+        expect(view.props.onDraftConflict).toHaveBeenCalledWith({ savedBy: { id: 'zz-test-rosa', name: 'ZZ-TEST-Rosa' }, savedAt: null })
+        expect(flowDraftsApi.publish).toHaveBeenCalledTimes(1)
         act(() => view.root.unmount())
     })
 })

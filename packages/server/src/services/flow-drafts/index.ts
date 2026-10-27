@@ -15,6 +15,7 @@ import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { User } from '../../database/entities/identity/User'
 import { AppError } from '../../errors/appError'
 import { DraftChangedError } from './draftChanged'
+import type { DraftChangedAction } from './draftChanged'
 import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fileRepository'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stampNodePack } from '../../utils/nodePacks'
@@ -432,11 +433,22 @@ export function draftChangedBy(
     return { savedById: storedBy, savedAt: state.draftUpdatedDate ?? null }
 }
 
-async function throwIfDraftChanged(state: FlowVersionState | null, context: SaveDraftContext): Promise<void> {
+// What Publish knows about the draft the caller saw. The same fields and rules as a save.
+export interface PublishDraftContext {
+    userId?: string | null
+    expectedDraftHash?: unknown
+    overwriteDraftChanges?: unknown
+}
+
+async function throwIfDraftChanged(
+    state: FlowVersionState | null,
+    context: Pick<SaveDraftContext, 'userId' | 'expectedDraftHash' | 'overwriteDraftChanges'>,
+    action: DraftChangedAction = 'save'
+): Promise<void> {
     const changed = draftChangedBy(state, context.expectedDraftHash, context.userId, context.overwriteDraftChanges)
     if (!changed) return
     const name = await draftSaverName(changed.savedById)
-    throw new DraftChangedError({ id: changed.savedById, name }, savedAtIso(changed.savedAt))
+    throw new DraftChangedError({ id: changed.savedById, name }, savedAtIso(changed.savedAt), action)
 }
 
 // Saves the canvas as this flow's draft. Live is not touched. A canvas that matches Live clears the
@@ -538,11 +550,14 @@ export async function discardDraft(flow: DraftFlow): Promise<DraftStatus> {
 // changed after the draft started (for example through the API) unless the caller chose to replace those
 // changes, so nobody's Live edit is dropped without being asked. A draft left over from before Publish
 // instantly was turned on can still be published, so it is never stranded.
-export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unknown): Promise<string> {
+export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unknown, seen: PublishDraftContext = {}): Promise<string> {
     if (!isDraftsEnabled()) throw new AppError(StatusCodes.CONFLICT, 'Drafts are off on this server.')
     const state = await getState(flow.id)
     const draft = draftInfo(flow, state)
     if (!draft) throw new AppError(StatusCodes.CONFLICT, 'There are no unpublished changes to publish.')
+    // The same check as a save: the canvas sends the draft hash it loaded. The canvas returned here is the one
+    // compared, so a draft saved after this read is not published and is kept.
+    await throwIfDraftChanged(state, { ...seen, userId: seen.userId ?? null }, 'publish')
     // Checked here, whatever the timing of a type change: a draft is only ever published as its own kind of flow.
     if (isOtherType(state?.draftBaseHash, flow)) {
         throw new AppError(

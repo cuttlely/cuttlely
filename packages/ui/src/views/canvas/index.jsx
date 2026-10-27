@@ -415,6 +415,33 @@ const Canvas = () => {
         getSpecificChatflowApi.request(chatflow.id)
     }
 
+    // The merged canvas from the conflict review screen. It replaces the cards and stays unsaved, so the
+    // next Save sends the hash of the draft the other person saved.
+    const applyMergedDraft = (text, theirs) => {
+        if (!canvasTextToApply(text)) return
+        try {
+            const flow = readGraph(text)
+            setNodes(flow.nodes || [])
+            setEdges(flow.edges || [])
+        } catch {
+            return
+        }
+        draftSave.adopt(theirs)
+        if (theirs?.status) setDraftStatus(theirs.status)
+        draftSave.dismiss()
+        setTimeout(() => setDirty(), 0)
+    }
+
+    // Publish answered 409: the open editor is "mine" for the review screen.
+    const reviewPublishConflict = (found) => {
+        if (!chatflow?.id || !reactFlowInstance) return
+        // Save anyway from the review screen keeps the flow's name.
+        pendingSaveNameRef.current = chatflow.name || ''
+        draftSave.openConflict(chatflow.id, found, JSON.stringify(canvasSaveDocument(reactFlowInstance)))
+    }
+
+    const normalizeForMerge = (flow) => normalizeCanvasFlow(flow, canvasSpecs())
+
     const handleSaveFlow = async (chatflowName, saveOptions) => {
         if (typeof chatflowName === 'string') pendingSaveNameRef.current = chatflowName
         if (reactFlowInstance) {
@@ -911,8 +938,8 @@ const Canvas = () => {
             const paint = (status) => {
                 if (cancelled) return
                 setDraftStatus(status)
-                draftSave.record(status)
                 const text = canvasFlowText(loaded, status)
+                draftSave.record(status, text)
                 try {
                     const initialFlow = readGraph(text)
                     setLasUpdatedDateTime(loaded.updatedDate)
@@ -976,7 +1003,7 @@ const Canvas = () => {
                     .getStatus(chatflow.id)
                     .then((res) => {
                         setDraftStatus(res.data)
-                        draftSave.record(res.data)
+                        draftSave.record(res.data, canvasFlowText(chatflow, res.data))
                     })
                     .catch(() => undefined)
             }
@@ -1285,6 +1312,8 @@ const Canvas = () => {
                                 if (next?.updatedDate) setLasUpdatedDateTime(next.updatedDate)
                             }}
                             onApplyCanvas={applyCanvasText}
+                            draftExpected={draftSave.expected}
+                            onDraftConflict={reviewPublishConflict}
                         />
                     </Toolbar>
                 </AppBar>
@@ -1480,7 +1509,9 @@ const Canvas = () => {
                         draftSave.dismiss()
                         handleSaveFlow(pendingSaveNameRef.current, { overwriteDraftChanges: true })
                     }}
+                    onApply={applyMergedDraft}
                     onClose={draftSave.dismiss}
+                    normalize={normalizeForMerge}
                 />
             </Box>
         </>

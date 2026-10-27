@@ -12,6 +12,7 @@ import {
     draftBadge,
     planCanvasSave,
     publishBody,
+    publishConflictMessage,
     PIPELINE_PREVIEW_NOTE,
     PIPELINE_RUN_DIRTY,
     PIPELINE_RUN_DRAFT,
@@ -223,6 +224,14 @@ describe('publish diff', () => {
         expect(publishBody(true, true)).toEqual({ overwriteLiveChanges: true })
         expect(publishBody(true, false)).toEqual({})
         expect(publishBody(false, true)).toEqual({})
+        expect(publishBody(false, false, { expectedDraftHash: 'zz-test-h' })).toEqual({ expectedDraftHash: 'zz-test-h' })
+        expect(publishBody(false, false, { expectedDraftHash: null })).toEqual({ expectedDraftHash: null })
+        expect(publishBody(true, true, { expectedDraftHash: 'zz-test-h', overwriteDraftChanges: true })).toEqual({
+            overwriteLiveChanges: true,
+            expectedDraftHash: 'zz-test-h',
+            overwriteDraftChanges: true
+        })
+        expect(publishBody(false, false, { expectedDraftHash: 7, overwriteDraftChanges: 'true' })).toEqual({})
         expect(publishResultMessage({ version: { title: 'Published: Changed Conversation Chain' }, recorded: true })).toEqual({
             message: 'Published. Published: Changed Conversation Chain',
             variant: 'success'
@@ -437,6 +446,10 @@ describe('ZZ-TEST-shared draft conflict', () => {
             'ZZ-TEST-Rosa saved this draft 3 minutes ago. Reload to see their changes, or save anyway to replace them.'
         )
         expect(relativeTime(savedAt, now)).toBe('3 minutes ago')
+        expect(publishConflictMessage({ savedBy: { name: 'ZZ-TEST-Rosa' }, savedAt }, now)).toBe(
+            'ZZ-TEST-Rosa saved this draft 3 minutes ago. Publishing now would put their changes live without you seeing them. Review their changes on your canvas, or publish their saved draft anyway.'
+        )
+        expect(publishConflictMessage({ savedBy: null }, now)).toContain('Someone saved this draft after you opened it.')
         expect(draftConflictMessage({ savedBy: { name: 'ZZ-TEST-Rosa' }, savedAt: null }, now)).toBe(
             'ZZ-TEST-Rosa saved this draft after you opened it. Reload to see their changes, or save anyway to replace them.'
         )

@@ -51,6 +51,18 @@ const getDraft = async (req: Request, res: Response, next: NextFunction) => {
     }
 }
 
+// The 409 a save or a publish answers when someone else saved the draft after the caller loaded it.
+function sendDraftChanged(res: Response, error: DraftChangedError) {
+    return res.status(StatusCodes.CONFLICT).json({
+        statusCode: StatusCodes.CONFLICT,
+        success: false,
+        code: error.code,
+        message: error.message,
+        savedBy: error.savedBy,
+        savedAt: error.savedAt
+    })
+}
+
 const saveDraft = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
@@ -66,16 +78,7 @@ const saveDraft = async (req: Request, res: Response, next: NextFunction) => {
         })
         return res.json(await shownStatus(req, status))
     } catch (error) {
-        if (error instanceof DraftChangedError) {
-            return res.status(StatusCodes.CONFLICT).json({
-                statusCode: StatusCodes.CONFLICT,
-                success: false,
-                code: error.code,
-                message: error.message,
-                savedBy: error.savedBy,
-                savedAt: error.savedAt
-            })
-        }
+        if (error instanceof DraftChangedError) return sendDraftChanged(res, error)
         next(error)
     }
 }
@@ -117,14 +120,19 @@ function summary(flow: any) {
 
 // Publish: the draft becomes Live through the normal update path (validation, harness sync, file handling),
 // and history gains a "Published" version. A draft whose Live changed underneath needs
-// { overwriteLiveChanges: true }.
+// { overwriteLiveChanges: true }. A draft someone else saved after the caller loaded it is a 409 DRAFT_CHANGED,
+// like a save, unless the body sends overwriteDraftChanges: true.
 const publishDraft = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
         const workspaceId = req.user?.activeWorkspaceId
         const orgId = req.user?.activeOrganizationId
         if (!workspaceId || !orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
-        const draft = await flowDraftsService.draftToPublish(flow, req.body?.overwriteLiveChanges)
+        const draft = await flowDraftsService.draftToPublish(flow, req.body?.overwriteLiveChanges, {
+            userId: req.user?.id || null,
+            expectedDraftHash: req.body?.expectedDraftHash,
+            overwriteDraftChanges: req.body?.overwriteDraftChanges
+        })
         // The Live canvas the stale check above was made against. The save only goes through while Live is
         // still this canvas, so an update that lands meanwhile is never overwritten silently.
         const liveBefore = flow.flowData
@@ -168,6 +176,7 @@ const publishDraft = async (req: Request, res: Response, next: NextFunction) => 
             status
         })
     } catch (error) {
+        if (error instanceof DraftChangedError) return sendDraftChanged(res, error)
         next(error)
     }
 }
