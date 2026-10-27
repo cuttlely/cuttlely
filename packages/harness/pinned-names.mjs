@@ -144,9 +144,10 @@ export function findIsolatedPinnedQuery(specialists, env = process.env) {
     return null
 }
 
-// Refuses a roster that would offer the same pq_ name twice, or a pinned query on isolated storage.
-// A draft save does not call this. Unsetting the flag leaves stored names in place and still rejects duplicates.
+// With the flag on, refuses a roster that would offer the same pq_ name twice, or a pinned query on isolated storage.
+// A draft save does not call this. With the flag off no pq_ tools register, so stored names are left in place and nothing is refused.
 export function assertPinnedQueryRoster(roster, env = process.env) {
+    if (!pinnedQueriesEnabled(env)) return
     const specialists = roster?.specialists || []
     const duplicate = findDuplicatePinnedQuery(specialists)
     if (duplicate) {

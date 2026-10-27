@@ -239,7 +239,7 @@ test('prompts change only when a stamped pin is offered', () => {
     assert.equal(specialistSoul(isolated, sqlite), specialistSoul({ name: 'analyst', mcpServers: [{ nodeName: 'postgreSQLMCP' }] }, sqlite))
 })
 
-test('duplicate pinned names fail at sync', async () => {
+test('duplicate pinned names fail at sync with the flag on and are ignored with it off', async () => {
     const entry = { name: 'pq_revenue', testedStamp: '' }
     const roster = {
         specialists: [
@@ -252,8 +252,11 @@ test('duplicate pinned names fail at sync', async () => {
             }
         ]
     }
+    const on = { CUTTLELY_PINNED_QUERIES: 'true' }
+    assert.doesNotThrow(() => assertPinnedQueryRoster(roster, {}))
+    assert.doesNotThrow(() => assertPinnedQueryRoster(roster, { CUTTLELY_PINNED_QUERIES: '0' }))
     assert.throws(
-        () => assertPinnedQueryRoster(roster, {}),
+        () => assertPinnedQueryRoster(roster, on),
         (error) => {
             assert.equal(error instanceof HarnessError, true)
             assert.equal(error.code, 'duplicate_pinned_query')
@@ -269,7 +272,7 @@ test('duplicate pinned names fail at sync', async () => {
             { name: 'other', mcpServers: [{ nodeName: 'postgreSQLMCP', inputs: { pinnedQueries: [entry] } }] }
         ]
     }
-    assert.doesNotThrow(() => assertPinnedQueryRoster(separate, {}))
+    assert.doesNotThrow(() => assertPinnedQueryRoster(separate, on))
     const pin = JSON.stringify([{ name: 'pq_revenue' }])
     const flowData = {
         nodes: [
@@ -293,6 +296,10 @@ test('duplicate pinned names fail at sync', async () => {
     }
     const name = 'zztestpqdup'
     try {
+        delete process.env.CUTTLELY_PINNED_QUERIES
+        await syncHarnessFromFlow({ name, flowData, caller: { via: 'session' } })
+        deleteHarness(name)
+        process.env.CUTTLELY_PINNED_QUERIES = 'true'
         await assert.rejects(
             () => syncHarnessFromFlow({ name, flowData, caller: { via: 'session' } }),
             (error) => {
