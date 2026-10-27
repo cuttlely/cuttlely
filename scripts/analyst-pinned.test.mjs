@@ -227,13 +227,22 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
                     failed = true
                     return original.call(this, 'SELECT 1 / 0')
                 }
-                if (failed && text === 'ROLLBACK')
-                    this.connection.once('readyForQuery', (message) => {
-                        idle = message.status === 'I'
-                    })
-                const result = await original.apply(this, args)
-                if (failed && text === 'ROLLBACK') rolledBack = true
-                return result
+                if (!failed || text !== 'ROLLBACK') return original.apply(this, args)
+                // The failed page's own ReadyForQuery ('E') can arrive after ROLLBACK is queued,
+                // so read the status from the last ReadyForQuery before ROLLBACK resolves.
+                let status = null
+                const onReady = (message) => {
+                    status = message.status
+                }
+                this.connection.on('readyForQuery', onReady)
+                try {
+                    const result = await original.apply(this, args)
+                    rolledBack = true
+                    idle = status === 'I'
+                    return result
+                } finally {
+                    this.connection.off('readyForQuery', onReady)
+                }
             }
             try {
                 await assert.rejects(queryAnalystUrl(url, null, bound), /division by zero/)
