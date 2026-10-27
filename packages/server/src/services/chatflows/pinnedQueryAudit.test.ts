@@ -252,8 +252,8 @@ afterEach(() => {
     setPinnedQueryHashForTests(null)
 })
 
-describe('pinned query diff', () => {
-    it('reports create, edit, and delete, and ignores sample fields and order', () => {
+describe('ZZ-TEST-pinned query diff', () => {
+    it('ZZ-TEST-reports create, edit, and delete, and ignores sample fields and order', () => {
         const before = canvas([
             pin(),
             pin({ id: 'ZZ-TEST-PIN-2', name: 'pq_top_products', version: 1, sql: 'SELECT product FROM demo_sales LIMIT 20' })
@@ -277,7 +277,7 @@ describe('pinned query diff', () => {
         expect(samples).toEqual([])
     })
 
-    it('diffs every node and treats a move as a delete plus a create', () => {
+    it('ZZ-TEST-diffs every node and treats a move as a delete plus a create', () => {
         const other = {
             id: NODE_B,
             data: {
@@ -304,8 +304,43 @@ describe('pinned query diff', () => {
     })
 })
 
-describe('pinned query audit rows', () => {
-    it('records a test without values, and drops a hash that is not a statement hash', async () => {
+describe('ZZ-TEST-pinned query audit rows', () => {
+    it('ZZ-TEST-keeps secure values out of save and test audit rows', async () => {
+        const secureValue = 'ZZ-TEST-SECURE-VALUE'
+        const entry = pin({
+            params: [{ name: 'month', type: 'date', secure: true, default: secureValue, allowedValues: [secureValue] }],
+            sampleValues: { month: secureValue }
+        })
+        await auditPinnedQuerySave({
+            flowId: FLOW,
+            organizationId: ORG,
+            workspaceId: WS,
+            actor: { id: USER },
+            previousFlowData: canvas([]),
+            nextFlowData: canvas([entry])
+        })
+        await recordPinnedQueryTest({
+            organizationId: ORG,
+            flow: FLOW,
+            node: NODE,
+            pin: entry.name,
+            paramNames: ['month'],
+            ...({ params: entry.params, values: { month: secureValue }, sql: SQL } as object)
+        })
+        expect(audits).toHaveLength(2)
+        expect(JSON.stringify(audits)).not.toContain(secureValue)
+        assertNoValues(JSON.stringify(audits))
+        for (const event of audits) {
+            expect(Object.keys(event.detail).sort()).toEqual(
+                (event.detail.kind === 'create'
+                    ? ['kind', 'flow', 'node', 'pin', 'version', 'hash', 'cred', 'paramNames', 'user']
+                    : ['kind', 'flow', 'node', 'pin', 'paramNames']
+                ).sort()
+            )
+        }
+    })
+
+    it('ZZ-TEST-records a test without values, and drops a hash that is not a statement hash', async () => {
         await recordPinnedQueryTest({
             organizationId: ORG,
             workspaceId: WS,
@@ -361,7 +396,7 @@ describe('pinned query audit rows', () => {
         expect(redacted.detail).toEqual(audits[0].detail)
     })
 
-    it('writes create, edit, and delete from the two live save paths and skips an unchanged save', async () => {
+    it('ZZ-TEST-writes create, edit, and delete from the two live save paths and skips an unchanged save', async () => {
         const created = flow(canvas([pin(), pin({ id: 'ZZ-TEST-PIN-2', name: 'pq_top_products', version: 1 })]))
         await chatflowsService.saveChatflow(created as any, ORG, WS, 'sub', {} as any, { id: USER, name: USER_NAME })
         expect(audits.map((event) => event.detail.kind).sort()).toEqual(['create', 'create'])
@@ -410,7 +445,7 @@ describe('pinned query audit rows', () => {
         expect(audits).toEqual([])
     })
 
-    it('still records the change when the statement hash cannot be computed', async () => {
+    it('ZZ-TEST-still records the change when the statement hash cannot be computed', async () => {
         setPinnedQueryHashForTests(() => {
             throw new Error(SQL)
         })
@@ -429,7 +464,7 @@ describe('pinned query audit rows', () => {
         expect(pinnedAuditDetail({ kind: 'create', flow: FLOW, node: NODE, pin: 'pq_revenue_by_region', hash: SQL }).hash).toBeUndefined()
     })
 
-    it('does not audit a draft save that adds a pin', async () => {
+    it('ZZ-TEST-does not audit a draft save that adds a pin', async () => {
         const live = canvas([])
         const draft = canvas([pin()])
         mockRepo.findOneBy.mockImplementation(async (where: { id?: string }) =>
@@ -443,8 +478,8 @@ describe('pinned query audit rows', () => {
     })
 })
 
-describe('pinned_query_change is a listed audit type', () => {
-    it('fits the type column and is on the audit screen', () => {
+describe('ZZ-TEST-pinned_query_change is a listed audit type', () => {
+    it('ZZ-TEST-fits the type column and is on the audit screen', () => {
         expect(AUDIT_TYPES).toContain('pinned_query_change')
         expect('pinned_query_change'.length).toBeLessThanOrEqual(32)
         const ui = fs.readFileSync(path.resolve(__dirname, '../../../../ui/src/views/audit/query.js'), 'utf8')
