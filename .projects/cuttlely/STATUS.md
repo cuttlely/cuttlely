@@ -193,3 +193,5 @@ Cuttlely 1.3.2. The product version is the root `package.json`, `packages/server
 -   2026-10-25 fix/pg-helper-functions: helper body reader counts array arguments, allows FROM over function calls and subqueries, PL/pgSQL assignments; docs note listed string bodies are not read. Next: review scores, CI.
 -   2026-10-25 fix/pg-helper-functions: FROM ONLY and FROM items that resolve to no function are refused in helper bodies. Next: review scores, CI.
 -   2026-10-25 fix/pg-helper-functions: user types named in helper bodies go through the type closure with a selection. Next: CI, threads.
+
+-   2026-10-27 feat/harness-answer-direct: opt-in Harness Specialist `answerDirect` returns an eligible single-step specialist answer without the Harness Prime write-up (gate in `runRoster` after `runSteps`; off by default, flag-off output unchanged, query guards untouched). Tests: `packages/harness/answer-direct.test.mjs` (49), Harness.test.ts, HarnessRunTrace.test.js, usage lines.test.ts. Next: review score, CI.

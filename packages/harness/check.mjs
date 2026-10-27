@@ -234,6 +234,12 @@ function check(name, ok, detail) {
     console.error(`FAIL ${name}${detail ? `: ${detail}` : ''}`)
 }
 
+const answerDirectTests = spawnSync(process.execPath, ['--test', path.join(root, 'packages/harness/answer-direct.test.mjs')], {
+    encoding: 'utf8',
+    timeout: 60000
+})
+check('answer direct runtime and configuration tests', answerDirectTests.status === 0, answerDirectTests.stdout + answerDirectTests.stderr)
+
 saveHarness(
     {
         name: 'draft-probe',

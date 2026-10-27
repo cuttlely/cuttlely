@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Harness Specialist **Answer direct** can return an eligible single-step answer without a Harness Prime write-up. The option defaults to off.
+
 ### Changed
 
 -   The Harness Specialist **Handoff limit** tooltip now says what each value does: default 4,000, empty or `0` means the default, `-1` means no limit, and other values are kept from 160 to 20,000.

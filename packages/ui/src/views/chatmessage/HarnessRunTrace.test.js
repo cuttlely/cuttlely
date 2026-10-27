@@ -191,6 +191,23 @@ describe('which question the caption uses', () => {
 })
 
 describe('HarnessRunTrace', () => {
+    test('an answer direct skipped handoff identifies the result as the answer', () => {
+        const store = createStore(() => ({ customization: { isDarkMode: false } }))
+        const trace = {
+            harness: 'team',
+            status: 'completed',
+            direct: false,
+            specialists: [{ name: 'analyst', status: 'completed', tools: [] }],
+            route: { status: 'done', steps: [{ specialist: 'analyst' }] },
+            handoff: { status: 'skipped', reason: 'answerDirect' },
+            truncated: []
+        }
+        const html = renderToStaticMarkup(
+            createElement(Provider, { store }, createElement(ThemeProvider, { theme }, createElement(HarnessRunTrace, { trace })))
+        )
+        expect(html).toContain('This result is the answer.')
+    })
+
     test('a closed query step shows the row count and does not link away', () => {
         const store = createStore(() => ({ customization: { isDarkMode: false } }))
         const trace = {

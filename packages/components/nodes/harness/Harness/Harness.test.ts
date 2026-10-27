@@ -1479,6 +1479,71 @@ describe('Harness acceptance', () => {
         expect(result.output).toBe('Both teams answered.')
     })
 
+    it('streams an answer direct reply once through a Tool Agent', async () => {
+        const sse = { ...fakeStreamer(), streamUsedToolsEvent: jest.fn(), streamArtifactsEvent: jest.fn() }
+        queuedRun.mockImplementation(async (opts?: unknown) => {
+            const { onEvent } = opts as { onEvent: (event: unknown) => void }
+            onEvent({ type: 'specialist', phase: 'done', name: 'analyst' })
+            onEvent({ type: 'partial', phase: 'answer', text: 'Two tickets.' })
+            onEvent({ type: 'final', text: 'Two tickets.' })
+            return { text: 'Two tickets.', harness: 'team' }
+        })
+        const harness = new HarnessNode()
+        const options = {
+            chatId: 'chat-direct',
+            workspaceId: 'ws-1',
+            shouldStreamResponse: true,
+            sseStreamer: sse,
+            logger: { verbose: jest.fn(), debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+        }
+        const tool = await harness.init({ inputs: { harnessName: 'team', returnDirect: true } } as never, '', options)
+        const model = new (class extends BaseChatModel {
+            constructor() {
+                super({})
+            }
+            _llmType() {
+                return 'answer-direct-test'
+            }
+            bindTools() {
+                return this
+            }
+            async _generate() {
+                return {
+                    generations: [
+                        {
+                            text: '',
+                            message: new AIMessage({
+                                content: '',
+                                tool_calls: [{ id: 'one', name: tool.name, args: { input: 'Count tickets' }, type: 'tool_call' }]
+                            })
+                        }
+                    ]
+                }
+            }
+        })()
+        await new ToolAgent().run(
+            {
+                inputs: {
+                    model,
+                    tools: [tool],
+                    systemMessage: 'Answer with the team tool.',
+                    memory: {
+                        memoryKey: 'chat_history',
+                        inputKey: 'input',
+                        getChatMessages: async () => [],
+                        addChatMessages: async () => {}
+                    },
+                    maxIterations: 2
+                }
+            } as never,
+            'Count tickets',
+            options
+        )
+        expect(tool.cuttlelyStreamedAnswer).toBe(true)
+        expect(sse.sent.filter((event) => event.kind === 'start')).toHaveLength(1)
+        expect(sse.sent.filter((event) => event.kind === 'token')).toEqual([{ kind: 'token', data: 'Two tickets.' }])
+    })
+
     it('H2: a lone harness with no label keeps the tool name harness', async () => {
         const harness = new HarnessNode()
         for (const label of [undefined, '', '   ']) {
