@@ -230,10 +230,15 @@ export async function listRelations(runner) {
     return (await runner.all(LIST_RELATIONS_SQL)).map(shapeRelation)
 }
 
-export async function resolveRelations(runner, names) {
+export function selectedRelationsRead(names) {
     const valid = parseRelationSelection(names).filter((name) => QUALIFIED.test(name))
-    if (!valid.length) return []
-    return (await runner.all(SELECTED_RELATIONS_SQL, [valid])).map(shapeRelation)
+    return valid.length ? { sql: SELECTED_RELATIONS_SQL, params: [valid] } : null
+}
+
+export async function resolveRelations(runner, names) {
+    const read = selectedRelationsRead(names)
+    if (!read) return []
+    return (await runner.all(read.sql, read.params)).map(shapeRelation)
 }
 
 function clip(text, limit) {
@@ -748,16 +753,16 @@ function regUsesAreDirectConsts(tree, regSet, allowedFnIds) {
 }
 
 // regconfig and regdictionary oids, and the built-in text-search functions that may receive them as a direct Const.
+const REG_TSEARCH_TYPES_SQL = "SELECT 'regconfig'::regtype::oid::int8 AS regconfig, 'regdictionary'::regtype::oid::int8 AS regdictionary"
+const REG_TSEARCH_FUNCTIONS_SQL = `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`
+const REG_TSEARCH_IO_SQL = `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`
+
 async function regTsearchContext(runner) {
-    const typeOids = await runner.get(
-        "SELECT 'regconfig'::regtype::oid::int8 AS regconfig, 'regdictionary'::regtype::oid::int8 AS regdictionary"
-    )
+    const typeOids = await runner.get(REG_TSEARCH_TYPES_SQL)
     const regSet = new Set([Number(typeOids?.regconfig || 0), Number(typeOids?.regdictionary || 0)].filter((oid) => oid > 0))
-    const allowedFnRows = await runner.all(
-        `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-         WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
-        [TEXT_SEARCH_FUNCTIONS]
-    )
+    const allowedFnRows = await runner.all(REG_TSEARCH_FUNCTIONS_SQL, [TEXT_SEARCH_FUNCTIONS])
     return { regSet, allowedFnIds: new Set(allowedFnRows.map((row) => Number(row.oid))) }
 }
 
@@ -892,11 +897,7 @@ export async function checkStatementScope(
     // regconfig and regdictionary oids are removed from the type set. Any other reg* type stays.
     async function filteredTypesWithRegTsearchException(bodyTexts) {
         const { regSet, allowedFnIds } = await regTsearchContext(runner)
-        const ioFnRows = await runner.all(
-            `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-             WHERE n.nspname = 'pg_catalog' AND p.proname = ANY(?::text[])`,
-            [['regconfigin', 'regconfigout', 'regdictionaryin', 'regdictionaryout']]
-        )
+        const ioFnRows = await runner.all(REG_TSEARCH_IO_SQL, [['regconfigin', 'regconfigout', 'regdictionaryin', 'regdictionaryout']])
         const ioFnIds = new Set(ioFnRows.map((row) => Number(row.oid)))
         if ([...ids.functions].some((fn) => ioFnIds.has(Number(fn)))) {
             throw new ScopeRefusal(
@@ -994,6 +995,7 @@ const nodeDenied = (name) => deniedFunction(name) || readOnlySqlDeniedFunction(n
 async function parsedStatementIds(client, runner, statement, cacheKey) {
     const risky = await riskyDomains(runner, cacheKey)
     if (risky.length) throw new ScopeRefusal(scopeRiskyDomains(risky))
+    if (runner.batchedGuard) return parsedStatementIdsBatched(client, runner, statement)
     scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
     const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
     try {
@@ -1028,6 +1030,61 @@ async function parsedStatementIds(client, runner, statement, cacheKey) {
     await client.query(`DROP VIEW pg_temp.${SCOPE_VIEW}`)
     for (const row of depends) ids.relations.add(Number(row.oid))
     ids.relations.delete(Number(rule.view))
+    return ids
+}
+
+const SCOPE_RULE_SQL = `SELECT r.ev_class::int8 AS view, r.ev_action::text AS tree FROM pg_rewrite r WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass`
+const SCOPE_DEPENDS_SQL = `SELECT d.refobjid::int8 AS oid FROM pg_depend d JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid WHERE r.ev_class = 'pg_temp.${SCOPE_VIEW}'::regclass AND d.refclassid = 'pg_class'::regclass`
+
+async function parsedStatementIdsBatched(client, runner, statement) {
+    scopeStatementSeq = (scopeStatementSeq + 1) % 1000000
+    const statementName = `${SCOPE_STATEMENT_NAME}_${scopeStatementSeq}`
+    let parsed = false
+    try {
+        if (runner.pathSetByBatch) runner.pathSetByBatch = false
+        else if (runner.statementSearchPath)
+            await client.query('SELECT pg_catalog.set_config($1, $2, true)', ['search_path', runner.statementSearchPath])
+        // Alone and named: the user text is never sent in a simple-protocol batch.
+        await client.query({
+            name: statementName,
+            text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
+        })
+        parsed = true
+    } catch (error) {
+        if (scopeUncheckable(error)) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
+        throw error
+    } finally {
+        if (!parsed) {
+            // Preserve the legacy swallowing cleanup on an aborted parse transaction.
+            await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
+            if (runner.statementSearchPath)
+                await client.query("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)").catch(() => {})
+        }
+    }
+    await runner.prefetch([
+        { exec: `DEALLOCATE ${statementName}` },
+        ...(runner.statementSearchPath ? [{ exec: "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)" }] : []),
+        { sql: SCOPE_RULE_SQL },
+        { sql: SCOPE_DEPENDS_SQL },
+        { exec: `DROP VIEW pg_temp.${SCOPE_VIEW}` }
+    ])
+    const rule = await runner.get(SCOPE_RULE_SQL)
+    if (!rule?.tree) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
+    const ids = treeObjectIds(rule.tree)
+    ids.tree = String(rule.tree || '')
+    const depends = await runner.all(SCOPE_DEPENDS_SQL)
+    for (const row of depends) ids.relations.add(Number(row.oid))
+    ids.relations.delete(Number(rule.view))
+    // Predictions use the same Set iteration and builders as the eventual JS consumers. If a body adds
+    // ids, or the scoped reg* exception removes types, the later lookup misses the exact key and reads
+    // the catalog normally. JS still decides in order.
+    const reads = []
+    const batch = relationBatch([...ids.relations])
+    if (batch.length) reads.push({ sql: RELATION_BODIES_SQL, params: [batch] })
+    const operators = statementOperatorIds(ids.operators)
+    if (operators.length) reads.push({ sql: STATEMENT_OPERATORS_SQL, params: [operators] })
+    if (ids.types.size) reads.push({ sql: TYPE_CLOSURE_SQL, params: [statementTypeIds(ids.types)] })
+    await runner.prefetch(reads)
     return ids
 }
 
@@ -1114,7 +1171,7 @@ async function followRelations(runner, ids) {
     const seen = new Set()
     let queue = [...ids.relations]
     while (queue.length) {
-        const batch = [...new Set(queue)].filter((oid) => !seen.has(oid))
+        const batch = relationBatch(queue, seen)
         queue = []
         if (!batch.length) break
         for (const oid of batch) seen.add(oid)
@@ -1149,7 +1206,7 @@ async function relationNodeTexts(runner, relationOids) {
     const seen = new Set()
     let queue = [...relationOids]
     while (queue.length) {
-        const batch = [...new Set(queue)].filter((oid) => !seen.has(oid))
+        const batch = relationBatch(queue, seen)
         queue = []
         if (!batch.length) break
         for (const oid of batch) seen.add(oid)
@@ -1172,7 +1229,7 @@ const relationBody = (row) => [row.kind, row.tree || '', ...(row.policies || [])
 
 // A digest of every function, operator and cast outside pg_catalog. A new overload created between the check and
 // the query could change which function a name resolves to, so the query transaction compares it.
-const ROUTINE_STAMP_SQL = `SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) AS stamp FROM (
+export const ROUTINE_STAMP_SQL = `SELECT md5(coalesce(string_agg(x, ',' ORDER BY x), '')) AS stamp FROM (
     SELECT 'p' || p.oid || ':' || p.pronamespace || ':' || n.nspname || ':' || p.proname || ':' || p.proargtypes::text || ':' || p.provolatile::text || ':' || p.pronargdefaults || ':' || coalesce(p.proargdefaults::text, '') || ':' || p.provariadic::oid || ':' || p.prokind::text || ':' || p.prosecdef::text || ':' || coalesce(p.proconfig::text, '') || ':' || p.proowner || ':' || p.prolang || ':' || coalesce(r.rolsuper::text, '-') || ':' || md5(coalesce(p.prosrc, '') || ':' || coalesce(p.probin, '') || ':' || coalesce(pg_catalog.to_jsonb(p) ->> 'prosqlbody', '')) FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace LEFT JOIN pg_roles r ON r.oid = p.proowner WHERE n.nspname <> 'pg_catalog'
     UNION ALL SELECT 'o' || o.oid || ':' || o.oprnamespace || ':' || n.nspname || ':' || o.oprname || ':' || o.oprleft || ':' || o.oprright || ':' || o.oprcode::oid FROM pg_operator o
@@ -1302,21 +1359,27 @@ const NOT_ALLOWED_SCHEMA = "n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'inform
 
 // Function id -> marks, for the entries that resolve now. Runs in the caller's transaction, with only pg_catalog on
 // the search path, so type names in a signature resolve the same way the refusal message prints them.
+export function allowedFunctionsRead(entries) {
+    if (!entries.length) return null
+    const names = entries.filter((entry) => entry.all).map((entry) => entry.name)
+    const signatures = entries.filter((entry) => !entry.all).map((entry) => entry.signature)
+    return {
+        sql: `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+             WHERE p.prokind = 'f' AND ${NOT_ALLOWED_SCHEMA} AND (
+               p.oid IN (SELECT pg_catalog.to_regprocedure(s) FROM pg_catalog.unnest(?::text[]) AS s)
+               OR EXISTS (SELECT 1 FROM pg_catalog.unnest(?::text[]) AS m, pg_catalog.parse_ident(m) AS i
+                          WHERE pg_catalog.array_length(i, 1) = 2 AND n.nspname = i[1] AND p.proname = i[2]))`,
+        params: [signatures, names]
+    }
+}
+
 async function resolveAllowedFunctions(runner) {
     const entries = runner.allowedFunctions || []
     const allowed = new Set()
     if (!entries.length) return allowed
     if (!runner.legacyRoundTrips) {
-        const names = entries.filter((entry) => entry.all).map((entry) => entry.name)
-        const signatures = entries.filter((entry) => !entry.all).map((entry) => entry.signature)
-        const rows = await runner.all(
-            `SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-             WHERE p.prokind = 'f' AND ${NOT_ALLOWED_SCHEMA} AND (
-               p.oid IN (SELECT pg_catalog.to_regprocedure(s) FROM pg_catalog.unnest(?::text[]) AS s)
-               OR EXISTS (SELECT 1 FROM pg_catalog.unnest(?::text[]) AS m, pg_catalog.parse_ident(m) AS i
-                          WHERE pg_catalog.array_length(i, 1) = 2 AND n.nspname = i[1] AND p.proname = i[2]))`,
-            [signatures, names]
-        )
+        const read = allowedFunctionsRead(entries)
+        const rows = await runner.all(read.sql, read.params)
         for (const row of rows) allowed.add(Number(row.oid))
         return allowed
     }
@@ -1569,6 +1632,12 @@ export function scanFunctionBody(source, language, { backslashLiteral = false } 
 const NOT_BUILT_IN = 'is not built in. Only built-in functions, operators and types run.'
 
 // Functions and operators outside pg_catalog, and denied built-ins.
+const STATEMENT_OPERATORS_SQL =
+    'SELECT o.oprname AS name, n.nspname AS schema, o.oprcode::oid::int8 AS code FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = ANY(?::oid[])'
+const relationBatch = (queue, seen = new Set()) => [...new Set(queue)].filter((oid) => !seen.has(oid))
+const statementOperatorIds = (ids) => [...ids]
+const statementTypeIds = (ids) => [...ids]
+
 async function refuseRoutines(
     runner,
     functionSet,
@@ -1585,12 +1654,9 @@ async function refuseRoutines(
     } = {}
 ) {
     const functionIds = new Set(functionSet)
-    const operatorIds = [...operatorSet]
+    const operatorIds = statementOperatorIds(operatorSet)
     if (operatorIds.length) {
-        const rows = await runner.all(
-            'SELECT o.oprname AS name, n.nspname AS schema, o.oprcode::oid::int8 AS code FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = ANY(?::oid[])',
-            [operatorIds]
-        )
+        const rows = await runner.all(STATEMENT_OPERATORS_SQL, [operatorIds])
         const foreign = rows.filter((row) => !builtIn(row)).map((row) => `${row.schema}.${row.name}`)
         if (foreign.length) throw new ScopeRefusal(`Cuttlely refused this query: operator ${refusedList(foreign)} ${NOT_BUILT_IN}`)
         for (const row of rows) if (Number(row.code) > 0) functionIds.add(Number(row.code))
@@ -2019,6 +2085,60 @@ FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE p.oid = ANY(?
 const OPERATORS_SQL = `SELECT o.oid::int8 AS oid, n.nspname AS schema, o.oprcode::oid::int8 AS code
 FROM pg_operator o JOIN pg_namespace n ON n.oid = o.oprnamespace WHERE o.oid = ANY(?::oid[])`
 
+// Only riskyDomains consumes supersets: it builds oid maps and sorts names. The numeric runs are a
+// conservative superset of treeObjectIds; JS must verify coverage, filter to its exact ids and still decide.
+const DOMAIN_DIGITS_SQL = `SELECT DISTINCT digit[1]::int8 AS id FROM (${ALL_DOMAIN_CHECKS_SQL}) checks
+    CROSS JOIN LATERAL pg_catalog.regexp_matches(checks.tree, '\\d+', 'g') AS digit
+    WHERE CASE WHEN length(digit[1]) <= 10 THEN digit[1]::int8 BETWEEN 1 AND 4294967295 ELSE false END`
+function domainSuperset(sql, routines = false) {
+    const requested = routines
+        ? `${DOMAIN_DIGITS_SQL}
+        UNION SELECT unnest(checks.depends) FROM (${ALL_DOMAIN_CHECKS_SQL}) checks
+        UNION SELECT o.oprcode::oid::int8 FROM pg_operator o WHERE o.oid::int8 IN (${DOMAIN_DIGITS_SQL})`
+        : DOMAIN_DIGITS_SQL
+    return {
+        superset: sql,
+        sql: `WITH req AS MATERIALIZED (SELECT ARRAY(SELECT id FROM (${requested}) requested_ids) AS a)
+        SELECT req.a AS requested, x.* FROM req LEFT JOIN LATERAL (${sql.replace('?', 'req.a')}) x ON true`
+    }
+}
+
+async function idRows(runner, sql, ids) {
+    // A closure cannot be filtered by root: domain types always take the exact real read.
+    const entry = runner.batchedGuard && sql !== TYPE_CLOSURE_SQL ? runner.takeSuperset?.(sql) : null
+    if (entry && [...ids].every((id) => entry.requested.has(Number(id)))) {
+        runner.logicalRead?.(sql, [[...ids]])
+        return entry.rows.filter((row) => ids.has(Number(row.oid)))
+    }
+    return runner.all(sql, [[...ids]])
+}
+
+export function guardCheckReads({ names = [], readOnlySql = false, allowedFunctions = [] } = {}) {
+    return [
+        ...(readOnlySql ? [{ sql: RISKY_TYPES_SQL }] : []),
+        selectedRelationsRead(names),
+        ...(readOnlySql ? [{ sql: ROUTINE_STAMP_SQL }] : []),
+        { sql: ALL_DOMAIN_CHECKS_SQL },
+        domainSuperset(OPERATORS_SQL),
+        domainSuperset(ROUTINES_SQL, true),
+        allowedFunctionsRead(allowedFunctions),
+        { sql: REG_TSEARCH_TYPES_SQL },
+        { sql: REG_TSEARCH_FUNCTIONS_SQL, params: [TEXT_SEARCH_FUNCTIONS] },
+        { sql: REG_TSEARCH_IO_SQL, params: [['regconfigin', 'regconfigout', 'regdictionaryin', 'regdictionaryout']] }
+    ].filter(Boolean)
+}
+
+export function guardDefinitionReads(checked) {
+    return [
+        { sql: RISKY_TYPES_SQL },
+        { sql: ALL_DOMAIN_CHECKS_SQL },
+        domainSuperset(OPERATORS_SQL),
+        domainSuperset(ROUTINES_SQL, true),
+        ...(checked.bodies.size ? [{ sql: RELATION_BODIES_SQL, params: [[...checked.bodies.keys()]] }] : []),
+        { sql: ROUTINE_STAMP_SQL }
+    ]
+}
+
 export const RISKY_DOMAIN_TTL_MS = 60 * 1000
 const riskyDomainCache = new Map()
 
@@ -2045,7 +2165,7 @@ async function riskyDomains(runner, cacheKey = '') {
     const checks = await runner.all(ALL_DOMAIN_CHECKS_SQL)
     const trees = checks.map((check) => ({ check, ids: treeObjectIds(check.tree) }))
     const operatorIds = new Set(trees.flatMap(({ ids }) => [...ids.operators]))
-    const operators = operatorIds.size ? await runner.all(OPERATORS_SQL, [[...operatorIds]]) : []
+    const operators = operatorIds.size ? await idRows(runner, OPERATORS_SQL, operatorIds) : []
     const operatorById = new Map(operators.map((row) => [Number(row.oid), row]))
     const functionIds = new Set()
     for (const { check, ids } of trees) {
@@ -2053,12 +2173,12 @@ async function riskyDomains(runner, cacheKey = '') {
         for (const id of check.depends || []) functionIds.add(Number(id))
         for (const id of ids.operators) if (Number(operatorById.get(id)?.code) > 0) functionIds.add(Number(operatorById.get(id).code))
     }
-    const routines = functionIds.size ? await runner.all(ROUTINES_SQL, [[...functionIds]]) : []
+    const routines = functionIds.size ? await idRows(runner, ROUTINES_SQL, functionIds) : []
     const routineById = new Map(routines.map((row) => [Number(row.oid), row]))
     const typeIds = new Set(trees.flatMap(({ ids }) => [...ids.types]))
     const badTypes = new Set()
     if (typeIds.size) {
-        for (const type of await runner.all(TYPE_CLOSURE_SQL, [[...typeIds]])) {
+        for (const type of await idRows(runner, TYPE_CLOSURE_SQL, typeIds)) {
             const denied = type.schema === 'pg_catalog' && DENIED_TYPES.has(type.typname)
             if (denied || (type.foreign_io || []).length) badTypes.add(Number(type.oid))
         }
@@ -2087,7 +2207,7 @@ async function riskyDomains(runner, cacheKey = '') {
 // a regconfig or regdictionary Const passed directly to a built-in text-search function.
 // Domains with a risky CHECK never get this far: riskyDomains refuses every statement in that database.
 async function refuseTypes(runner, typeSet, { scoped }) {
-    const ids = [...typeSet]
+    const ids = statementTypeIds(typeSet)
     if (!ids.length) return
     const types = await runner.all(TYPE_CLOSURE_SQL, [ids])
     const oidTypes = !scoped

@@ -3,8 +3,20 @@ import { randomBytes } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
 import { after, before, describe, it } from 'node:test'
-import { parseAllowedFunctions } from '../packages/harness/runtime/analyst-relations.mjs'
-import { queryAnalystUrl, setGuardLegacyRoundTripsForTests, withAnalystScope } from '../packages/harness/runtime/analyst-store.mjs'
+import {
+    checkStatementScope,
+    parseAllowedFunctions,
+    resetRiskyDomainCacheForTests
+} from '../packages/harness/runtime/analyst-relations.mjs'
+import {
+    queryAnalystUrl,
+    setGuardLegacyRoundTripsForTests,
+    withAnalystScope,
+    setGuardBatchHookForTests,
+    setGuardReadHookForTests,
+    GUARD_BATCH_MESSAGE,
+    postgresRunner
+} from '../packages/harness/runtime/analyst-store.mjs'
 
 const baseline = process.env.CUTTLELY_TEST_GUARD_BASELINE_STORE
     ? await import(pathToFileURL(process.env.CUTTLELY_TEST_GUARD_BASELINE_STORE).href)
@@ -575,10 +587,13 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
                 if (/^BEGIN/.test(text)) begins++
                 // CREATE TEMP VIEW parses the statement without executing it during the check transaction.
                 const user = !/^CREATE TEMP VIEW/.test(text) && text.includes(statement)
+                const parts = text.split('\n;\n')
+                const index = parts.findIndex(
+                    (part) => fault.match.test(part) && (!fault.params || fault.params.test(JSON.stringify(args[1] ?? []) + part))
+                )
                 const matches =
                     !hit &&
-                    fault.match.test(text) &&
-                    (!fault.params || fault.params.test(JSON.stringify(args[1] ?? []))) &&
+                    index >= 0 &&
                     (!fault.checkTransaction || begins === 1) &&
                     (!fault.queryTransaction || begins === 2) &&
                     (!fault.postStatement || userSent)
@@ -591,9 +606,14 @@ describe('analyst guard fails closed on failed or incomplete catalog reads', () 
                 const result = await original.apply(this, args)
                 if (!matches) return result
                 hit = true
-                const altered = fault.alter(result)
+                const entry = Array.isArray(result) ? result[index] : result
+                const altered = fault.alter(entry)
                 if (/^(empty|short) /.test(fault.name))
-                    assert.ok(altered.rows.length < result.rows.length, 'Short-result injection must remove a real row')
+                    assert.ok(altered.rows.length < entry.rows.length, 'Short-result injection must remove a real row')
+                if (Array.isArray(result)) {
+                    result[index] = altered
+                    return result
+                }
                 return altered
             }
             try {
@@ -628,7 +648,7 @@ function isAllowlistLookup(text) {
 }
 
 function lockStatements(text) {
-    const statements = text.split('; ')
+    const statements = text.split(/\n;\n|; /)
     if (!statements.every((part) => /^(LOCK TABLE ONLY .+ IN ACCESS SHARE MODE|SELECT 1 FROM ONLY .+ LIMIT 0)$/.test(part))) return [text]
     return statements.flatMap((part) => {
         const lock = /^LOCK TABLE ONLY (.+) IN ACCESS SHARE MODE$/.exec(part)
@@ -636,14 +656,30 @@ function lockStatements(text) {
     })
 }
 
-function catalogLookups(texts) {
-    return texts
-        .filter((text) => !/^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT)\b/.test(text))
-        .flatMap(lockStatements)
-        .map((text) =>
-            isAllowlistLookup(text) ? 'ALLOWED FUNCTIONS' : text.replace(/cuttlely_scope_check_\d+/g, 'cuttlely_scope_check_N')
-        )
-        .filter((text, index, all) => text !== 'ALLOWED FUNCTIONS' || all[index - 1] !== text)
+function catalogLookups(reads) {
+    const normalized = []
+    for (const { sql, params, transaction } of reads) {
+        if (/^(SELECT pg_backend_pid|SHOW transaction_read_only|SELECT pg_catalog.current_setting)/.test(sql)) continue
+        if (isAllowlistLookup(sql)) {
+            const entries = Array.isArray(params[0])
+                ? [...params[0].map((s) => `signature:${s}`), ...params[1].map((s) => `name:${s}`)]
+                : [`${sql.includes('to_regprocedure') ? 'signature' : 'name'}:${params[0]}`]
+            let previous = normalized.at(-1)
+            if (!previous?.allowlist || previous.transaction !== transaction) {
+                previous = { transaction, allowlist: [] }
+                normalized.push(previous)
+            }
+            previous.allowlist.push(...entries)
+        } else if (/SELECT d.refobjid::int8 AS oid FROM pg_depend d JOIN pg_rewrite/.test(sql)) {
+            // The view oid and view name resolve the same dependency rows.
+            normalized.push({ transaction, sql: 'SCOPE DEPENDS' })
+        } else normalized.push({ transaction, sql, params })
+    }
+    return normalized.map((entry) => JSON.stringify(entry.allowlist ? { ...entry, allowlist: entry.allowlist.sort() } : entry))
+}
+
+function captureReads(reads, getTransaction) {
+    setGuardReadHookForTests((sql, params) => reads.push({ sql, params: structuredClone(params), transaction: getTransaction() }))
 }
 
 describe('analyst guard sends every catalog lookup', () => {
@@ -655,40 +691,45 @@ describe('analyst guard sends every catalog lookup', () => {
             'SELECT o.id FROM orders o JOIN customers c ON c.id = o.customer_id JOIN items i ON i.order_id = o.id ORDER BY o.id LIMIT 50'
         const original = Client.prototype.query
         const captures = []
+        const logical = []
         try {
             for (const legacy of [true, false]) {
                 const texts = []
+                const reads = []
+                let transaction = 0
+                captureReads(reads, () => transaction)
                 Client.prototype.query = function (...args) {
+                    const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
+                    if (text.startsWith('BEGIN')) transaction++
                     texts.push(typeof args[0] === 'string' ? args[0] : args[0]?.text || '')
                     return original.apply(this, args)
                 }
                 const result = await decision(state.url, sql, config, legacy)
                 assert.equal(result.ok, true, result.message)
                 captures.push(texts)
+                logical.push(catalogLookups(reads))
             }
         } finally {
             Client.prototype.query = original
+            setGuardReadHookForTests(null)
             setGuardLegacyRoundTripsForTests(false)
         }
-        const batches = captures[1].filter((text) => {
-            const statements = text.split('; ')
-            return (
-                statements.every((part) => /^(LOCK TABLE ONLY .+ IN ACCESS SHARE MODE|SELECT 1 FROM ONLY .+ LIMIT 0)$/.test(part)) &&
-                statements.some((part) => part.startsWith('LOCK TABLE ONLY'))
-            )
-        })
+        const batches = captures[1].filter((text) => text.split(/\n;\n|; /).some((part) => part.startsWith('LOCK TABLE ONLY')))
         assert.equal(batches.length, 1)
         const relationNames = (texts) =>
-            texts.flatMap(lockStatements).flatMap((text) => {
-                const match = /^(?:LOCK TABLE ONLY (.+) IN ACCESS SHARE MODE|SELECT 1 FROM ONLY (.+) LIMIT 0)$/.exec(text)
-                return match ? [match[1] || match[2]] : []
-            })
+            texts
+                .flatMap((text) => text.split(/\n;\n|; /))
+                .flatMap(lockStatements)
+                .flatMap((text) => {
+                    const match = /^(?:LOCK TABLE ONLY (.+) IN ACCESS SHARE MODE|SELECT 1 FROM ONLY (.+) LIMIT 0)$/.exec(text)
+                    return match ? [match[1] || match[2]] : []
+                })
         const legacyNames = relationNames(captures[0])
         assert.ok(legacyNames.length > 1)
         assert.deepEqual(relationNames(batches), legacyNames)
         assert.equal(captures[1].filter(isAllowlistLookup).length, 1)
         assert.equal(captures[0].filter(isAllowlistLookup).length, parseAllowedFunctions(config.allowedFunctions).length)
-        assert.deepEqual(catalogLookups(captures[1]), catalogLookups(captures[0]))
+        assert.deepEqual(logical[1], logical[0])
     })
     const entries = [
         { config: configurations[0], sql: 'SELECT id FROM orders ORDER BY id LIMIT 50' },
@@ -704,18 +745,529 @@ describe('analyst guard sends every catalog lookup', () => {
             try {
                 for (const legacy of [true, false]) {
                     const texts = []
+                    const reads = []
+                    let transaction = 0
+                    captureReads(reads, () => transaction)
                     Client.prototype.query = function (...args) {
+                        const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
+                        if (text.startsWith('BEGIN')) transaction++
                         texts.push(typeof args[0] === 'string' ? args[0] : args[0]?.text || '')
                         return original.apply(this, args)
                     }
                     const result = await decision(state.url, sql, config, legacy)
                     assert.equal(result.ok, true, result.message)
-                    captures.push(catalogLookups(texts))
+                    captures.push(catalogLookups(reads))
                 }
             } finally {
                 Client.prototype.query = original
+                setGuardReadHookForTests(null)
                 setGuardLegacyRoundTripsForTests(false)
             }
             assert.deepEqual(captures[1], captures[0])
         })
+})
+
+describe('analyst guard batch transport (offline)', () => {
+    function mockedRunner() {
+        const calls = []
+        const client = {
+            escapeLiteral: Client.prototype.escapeLiteral,
+            async query(text, params) {
+                calls.push({ text, params })
+                const results = text.split('\n;\n').map((sql) => ({ rows: [{ sql, params }] }))
+                return results.length === 1 ? results[0] : results
+            }
+        }
+        return { runner: postgresRunner(client), calls, client }
+    }
+    after(() => {
+        setGuardBatchHookForTests(null)
+        setGuardReadHookForTests(null)
+    })
+    it('inlines pg array text and scalars as inert literals at the same placeholder positions', async () => {
+        const { runner, calls, client } = mockedRunner()
+        const payload = "quote'\\'); DROP TABLE x; --"
+        const params = [null, undefined, 1.25, true, false, payload, [payload, null, ['a', 'b']]]
+        const { prepareValue } = createRequire(new URL('../packages/components/package.json', import.meta.url))('pg/lib/utils.js')
+        await runner.prefetch([
+            { sql: "SELECT '?' AS mark, ?, ?, ?, ?, ?, ?, ? -- comment", params },
+            { exec: 'SET LOCAL standard_conforming_strings = on' }
+        ])
+        assert.equal(calls.length, 1)
+        assert.equal(calls[0].params, undefined, 'The batch uses simple protocol')
+        assert.equal(
+            calls[0].text,
+            `SELECT '?' AS mark, NULL, NULL, 1.25, TRUE, FALSE, ${client.escapeLiteral(payload)}, ${client.escapeLiteral(
+                prepareValue(params[6])
+            )} -- comment\n;\nSET LOCAL standard_conforming_strings = on`
+        )
+        for (const value of [NaN, Infinity, -Infinity, {}, new Date(), 1n, [Infinity], [{ bad: true }]])
+            await assert.rejects(runner.prefetch([{ sql: 'SELECT ?', params: [value] }]), { message: GUARD_BATCH_MESSAGE })
+        assert.equal(calls.length, 1, 'Invalid parameters are refused before sending')
+    })
+    it('consumes exact keys once, retains duplicate reads and clears all stored results', async () => {
+        const { runner, calls } = mockedRunner()
+        await runner.prefetch([
+            { sql: 'SELECT ?', params: [1] },
+            { sql: 'SELECT ?', params: [1] }
+        ])
+        await runner.all('SELECT ?', [1])
+        await runner.get('SELECT ?', [1])
+        assert.equal(calls.length, 1)
+        await runner.all('SELECT ?', [2])
+        await runner.all('SELECT ?', [1])
+        assert.equal(calls.length, 3)
+        assert.equal(calls[1].text, 'SELECT $1')
+        await runner.prefetch([{ sql: 'SELECT 3' }])
+        runner.clearPrefetch()
+        await runner.all('SELECT 3')
+        assert.equal(calls.length, 5)
+    })
+    it('normalizes a single result and refuses short or failed batches without publishing results', async () => {
+        const { runner, calls } = mockedRunner()
+        await runner.prefetch([{ sql: 'SELECT 1' }])
+        assert.equal((await runner.all('SELECT 1')).length, 1)
+        try {
+            setGuardBatchHookForTests((text, results) => results.slice(0, -1))
+            await assert.rejects(runner.prefetch([{ sql: 'SELECT 2' }, { sql: 'SELECT 3' }]), { message: GUARD_BATCH_MESSAGE })
+            setGuardBatchHookForTests(() => {
+                throw new Error('injected failure')
+            })
+            await assert.rejects(runner.prefetch([{ sql: 'SELECT 4' }]), /injected failure/)
+        } finally {
+            setGuardBatchHookForTests(null)
+        }
+        await runner.all('SELECT 2')
+        await runner.all('SELECT 4')
+        assert.equal(calls.length, 5)
+    })
+    it('keeps supersets call-local and drops only the empty lateral row', async () => {
+        const { runner, client } = mockedRunner()
+        client.query = async () => ({ rows: [{ requested: ['1', '2'], oid: null, code: null }] })
+        await runner.prefetchSuperset([{ superset: 'KEY', sql: 'SELECT 1' }])
+        assert.deepEqual(runner.takeSuperset('KEY'), { requested: new Set([1, 2]), rows: [] })
+        assert.equal(runner.takeSuperset('KEY'), undefined)
+        client.query = async () => ({ rows: [{ requested: ['1', '2'], oid: '2', code: null }] })
+        await runner.prefetchSuperset([{ superset: 'KEY', sql: 'SELECT 1' }])
+        assert.deepEqual(runner.takeSuperset('KEY').rows, [{ oid: '2', code: null }])
+        await runner.prefetchSuperset([{ superset: 'KEY', sql: 'SELECT 1' }])
+        runner.clearPrefetch()
+        assert.equal(runner.takeSuperset('KEY'), undefined)
+    })
+    it('runs a prediction miss under pg_catalog and restores the statement path last', async () => {
+        const { runner, calls } = mockedRunner()
+        runner.batchedGuard = true
+        runner.pathSetByBatch = true
+        runner.statementPathSql = "SELECT pg_catalog.set_config('search_path', 'pg_catalog, public', true)"
+        await runner.all('SELECT ?', [42])
+        assert.equal(calls.length, 1)
+        assert.deepEqual(calls[0].text.split('\n;\n'), [
+            "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)",
+            'SELECT 42',
+            runner.statementPathSql
+        ])
+        assert.equal(runner.pathSetByBatch, true)
+    })
+})
+
+describe('analyst guard catalog batch failures', () => {
+    const state = fixture()
+    const statement = `SELECT o.id FROM ${schema}.orders o JOIN ${schema}.customers c ON c.id = o.customer_id ORDER BY o.id LIMIT 50`
+    const options = { readOnlySql: true, relations: selection, allowedFunctions: allowlist, rowCap: 50 }
+    const batches = [
+        { name: 'B2', match: (text) => text.startsWith('SELECT DISTINCT format_type') },
+        { name: 'B3', match: (text) => text.startsWith('SELECT c.oid::int8 AS oid, c.relkind AS kind') },
+        { name: 'B4', match: (text) => text.startsWith('BEGIN TRANSACTION READ ONLY') },
+        {
+            name: 'B5',
+            match: (text) => text.startsWith("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)\n;\nSELECT md5"),
+            post: true
+        }
+    ]
+    for (const batch of batches)
+        for (const short of [false, true])
+            it(`${batch.name} ${short ? 'short result' : 'failure'} refuses`, async (t) => {
+                if (!state.url) return t.skip('Local Postgres admin is unavailable')
+                let hit = false
+                let userSent = false
+                const original = Client.prototype.query
+                Client.prototype.query = function (...args) {
+                    const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
+                    if (!text.startsWith('CREATE TEMP VIEW') && text.includes(statement)) userSent = true
+                    return original.apply(this, args)
+                }
+                setGuardBatchHookForTests((text, results) => {
+                    if (!hit && batch.match(text)) {
+                        hit = true
+                        if (short) return results.slice(0, -1)
+                        throw new Error('Injected batch failure')
+                    }
+                })
+                try {
+                    await assert.rejects(queryAnalystUrl(state.url, statement, options), (error) => {
+                        if (batch.post) assert.match(error.message, /changed while it was being checked/)
+                        else if (short) assert.equal(error.message, GUARD_BATCH_MESSAGE)
+                        return true
+                    })
+                    assert.ok(hit)
+                    // B5 necessarily follows execution; its failure discards the page. Earlier failures never send it.
+                    assert.equal(userSent, Boolean(batch.post))
+                } finally {
+                    setGuardBatchHookForTests(null)
+                    Client.prototype.query = original
+                }
+                await noEffects(state)
+            })
+    it('falls through when domain superset coverage misses a needed id and still refuses risky CHECKs', async (t) => {
+        if (!state.url) return t.skip('Local Postgres admin is unavailable')
+        await state.owner.query(`CREATE DOMAIN ${schema}.unsafe AS int CHECK (${schema}.bump() > 0)`)
+        const legacy = await decision(state.url, statement, options, true)
+        let misses = 0
+        setGuardBatchHookForTests((text, results) =>
+            results.map((result) => ({
+                ...result,
+                rows: result.rows.map((row) => {
+                    if (!('requested' in row)) return row
+                    misses++
+                    return { ...row, requested: [] }
+                })
+            }))
+        )
+        try {
+            const current = await decision(state.url, statement, options, false)
+            assert.equal(current.ok, false)
+            assert.deepEqual(current, legacy)
+            assert.ok(misses > 0)
+            await noEffects(state)
+        } finally {
+            setGuardBatchHookForTests(null)
+            await state.owner.query(`DROP DOMAIN ${schema}.unsafe`)
+        }
+    })
+    it('falls through when a view adds operator ids after the B3 prediction and still refuses its write function', async (t) => {
+        if (!state.url) return t.skip('Local Postgres admin is unavailable')
+        await state.owner.query(
+            `CREATE VIEW ${schema}.prediction_miss AS SELECT ${etl}.write_probe() AS id FROM ${schema}.orders WHERE id = 1; GRANT SELECT ON ${schema}.prediction_miss TO "${state.writer}"`
+        )
+        const sql = `SELECT v.id FROM ${schema}.prediction_miss v CROSS JOIN ${schema}.orders o WHERE o.id > 0 LIMIT 50`
+        const config = { ...options, relations: [...selection, `${schema}.prediction_miss`] }
+        const original = Client.prototype.query
+        let fallback = false
+        let userSent = false
+        try {
+            const legacy = await decision(state.url, sql, config, true)
+            Client.prototype.query = function (...args) {
+                const text = typeof args[0] === 'string' ? args[0] : args[0]?.text || ''
+                if (text.startsWith('SELECT o.oprname AS name') && args[1]?.[0]?.length > 1) fallback = true
+                if (!text.startsWith('CREATE TEMP VIEW') && text.includes(sql)) userSent = true
+                return original.apply(this, args)
+            }
+            const current = await decision(state.url, sql, config, false)
+            assert.equal(current.ok, false)
+            assert.deepEqual(current, legacy)
+            assert.equal(fallback, true)
+            assert.equal(userSent, false)
+        } finally {
+            Client.prototype.query = original
+            await state.owner.query(`DROP VIEW ${schema}.prediction_miss`)
+        }
+        await noEffects(state)
+    })
+    it('keeps quote, backslash and SQL-looking allowlist names and relation names inert', async (t) => {
+        if (!state.url) return t.skip('Local Postgres admin is unavailable')
+        const name = `inert'\\'); DROP TABLE x; --`
+        const quoted = '"' + name.replaceAll('"', '""') + '"'
+        await state.owner.query(
+            `CREATE TABLE ${schema}.${quoted}(id int); CREATE FUNCTION ${schema}.${quoted}(int) RETURNS int IMMUTABLE LANGUAGE sql AS 'SELECT $1'; GRANT SELECT ON ${schema}.${quoted} TO "${state.writer}"`
+        )
+        try {
+            const sql = `SELECT ${schema}.${quoted}(1) FROM ${schema}.${quoted} LIMIT 50`
+            const config = {
+                relations: [...selection, `${schema}.${quoted}`],
+                allowedFunctions: `${allowlist}\n${schema}.${quoted}(integer)`
+            }
+            const legacy = await decision(state.url, sql, config, true)
+            const current = await decision(state.url, sql, config, false)
+            assert.equal(legacy.ok, true, legacy.message)
+            assert.deepEqual(current, legacy)
+            await noEffects(state)
+        } finally {
+            await state.owner.query(`DROP TABLE ${schema}.${quoted}; DROP FUNCTION ${schema}.${quoted}(int)`)
+        }
+    })
+})
+
+describe('analyst guard benchmark catalog shape', () => {
+    const state = fixture()
+    it('uses at most 20 client queries with 19 selections and five CHECK domains', async (t) => {
+        if (!state.url) return t.skip('Local Postgres admin is unavailable')
+        const extra = Array.from({ length: 12 }, (_, i) => `${schema}.bench_${i}`)
+        for (const name of extra) await state.owner.query(`CREATE TABLE ${name}(id int); GRANT SELECT ON ${name} TO "${state.writer}"`)
+        for (let i = 0; i < 5; i++) await state.owner.query(`CREATE DOMAIN ${schema}.bench_domain_${i} AS int CHECK (VALUE >= ${i})`)
+        const timings = []
+        const original = Client.prototype.query
+        const calls = []
+        Client.prototype.query = function (...args) {
+            calls.push(typeof args[0] === 'string' ? args[0] : args[0]?.text || '')
+            return original.apply(this, args)
+        }
+        try {
+            await withAnalystScope(
+                'guard-benchmark',
+                () =>
+                    queryAnalystUrl(
+                        state.url,
+                        'SELECT o.id, c.name FROM orders o JOIN customers c ON c.id = o.customer_id ORDER BY o.id LIMIT 50',
+                        { readOnlySql: true, relations: [...selection, ...extra], allowedFunctions: allowlist, rowCap: 50 }
+                    ),
+                { timings }
+            )
+        } finally {
+            Client.prototype.query = original
+        }
+        t.diagnostic(`19 selections, 5 CHECK domains: ${calls.length} round trips`)
+        assert.equal(calls.length, timings[0].roundTrips)
+        assert.ok(calls.length <= 20, calls.map((text, i) => `${i + 1}: ${text.slice(0, 100)}`).join('\n'))
+        assert.equal(calls.at(-1), 'ROLLBACK', 'Final rollback remains a standalone query')
+        const create = calls.find((text) => text.startsWith('CREATE TEMP VIEW'))
+        assert.ok(create && !create.includes('\n;\n'))
+        await noEffects(state)
+    })
+})
+
+// Exercises transaction orchestration without a socket. Live tests above remain the SQL/decision oracle.
+async function withCatalogClient(fn, { scoped = true, policy = false } = {}) {
+    const saved = { query: Client.prototype.query, connect: Client.prototype.connect, end: Client.prototype.end }
+    const calls = []
+    const reads = []
+    const names = [...selection, ...Array.from({ length: 12 }, (_, i) => `${schema}.bench_${i}`)]
+    const selected = names.map((name, i) => ({ name, oid: String(101 + i), relkind: 'r', columns: 1, column_names: ['id'], comment: '' }))
+    const tree = '{QUERY :relid 101 :relid 102 :opno 96 :opfuncid 65 :vartype 23}'
+    const domainTree = '{OPEXPR :opno 96 :opfuncid 65 :opresulttype 16 :consttype 23}'
+    let transaction = 0
+    const rows = (sql, params) => {
+        if (sql.startsWith('SELECT pg_catalog.current_setting')) return [{ p: schema }]
+        if (sql.startsWith('SELECT pg_backend_pid')) return [{ pid: 777 }]
+        if (sql === 'SHOW transaction_read_only') return [{ transaction_read_only: 'on' }]
+        if (/^SELECT DISTINCT format_type/.test(sql)) return []
+        if (sql.startsWith('SELECT md5')) return [{ stamp: 'stable' }]
+        if (sql.startsWith('WITH req AS MATERIALIZED')) {
+            const requested = ['96', '65', '16', '23']
+            return /p.provolatile AS volatility/.test(sql)
+                ? [{ requested, oid: '65', name: 'int4eq', schema: 'pg_catalog', volatility: 'i' }]
+                : [{ requested, oid: '96', schema: 'pg_catalog', code: '65' }]
+        }
+        if (sql.startsWith('SELECT c.contypid'))
+            return Array.from({ length: 5 }, (_, i) => ({
+                domain_oid: String(500 + i),
+                domain: `domain_${i}`,
+                tree: domainTree,
+                depends: ['65']
+            }))
+        if (/FROM unnest\(.*::text\[\]\) WITH ORDINALITY/s.test(sql)) return selected
+        if (/^SELECT r.ev_class/.test(sql)) return [{ view: '999', tree }]
+        if (/^SELECT d.refobjid.*pg_rewrite/.test(sql)) return [{ oid: '101' }, { oid: '102' }]
+        if (sql.startsWith('SELECT c.relkind AS kind'))
+            return [
+                { kind: 'r', name: names[0] },
+                { kind: 'r', name: names[1] }
+            ]
+        if (sql.startsWith('SELECT c.oid::int8 AS oid, c.relkind AS kind')) {
+            const ids = params?.[0] || [...sql.matchAll(/"(\d+)"/g)].map((m) => Number(m[1]))
+            return ids.map((oid) => ({
+                oid: String(oid),
+                kind: 'r',
+                name: names[oid - 101],
+                tree: null,
+                policies: policy && Number(oid) === 101 ? ['{QUERY :relid 102}'] : []
+            }))
+        }
+        if (sql.startsWith('SELECT o.oprname AS name')) return [{ name: '=', schema: 'pg_catalog', code: '65' }]
+        if (sql.startsWith('SELECT o.oid::int8 AS oid')) return [{ oid: '96', schema: 'pg_catalog', code: '65' }]
+        if (sql.startsWith('SELECT p.oid::int8 AS oid, p.proname AS name'))
+            return [{ oid: '65', name: 'int4eq', schema: 'pg_catalog', volatility: 'i' }]
+        if (/^WITH RECURSIVE t\(oid\)/.test(sql))
+            return [{ oid: '23', name: 'integer', typname: 'int4', typtype: 'b', schema: 'pg_catalog', foreign_io: [] }]
+        if (sql.startsWith("SELECT 'regconfig'")) return [{ regconfig: '3734', regdictionary: '3769' }]
+        if (isAllowlistLookup(sql)) return [{ oid: '501' }]
+        if (sql.startsWith('SELECT p.oid::int8 AS oid FROM pg_catalog.pg_proc')) return []
+        if (sql.includes('guard_mock_user')) return [{ id: 1 }]
+        if (
+            /^(BEGIN|SET LOCAL|SELECT pg_catalog.set_config|DEALLOCATE|DROP VIEW|LOCK TABLE|CREATE TEMP VIEW|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK|SELECT 1 FROM ONLY)/.test(
+                sql
+            )
+        )
+            return []
+        throw new Error(`Unmodelled catalog read: ${sql}`)
+    }
+    Client.prototype.connect = async function () {}
+    Client.prototype.end = async function () {}
+    Client.prototype.query = async function (query, params) {
+        const text = typeof query === 'string' ? query : query.text
+        calls.push({ text, named: typeof query === 'object' && Boolean(query.name) })
+        if (text.startsWith('BEGIN')) transaction++
+        const parts = text.split(text.includes('\n;\n') ? '\n;\n' : text.startsWith('BEGIN') ? '; ' : /$^/)
+        const results = parts.map((sql) => ({ rows: rows(sql, params) }))
+        return results.length === 1 ? results[0] : results
+    }
+    captureReads(reads, () => transaction)
+    try {
+        return await fn({
+            calls,
+            reads,
+            options: { readOnlySql: true, ...(scoped ? { relations: names } : {}), allowedFunctions: allowlist, rowCap: 50 },
+            statement: `SELECT o.id AS guard_mock_user FROM ${schema}.orders o JOIN ${schema}.customers c ON c.id = o.customer_id LIMIT 50`
+        })
+    } finally {
+        Object.assign(Client.prototype, saved)
+        setGuardReadHookForTests(null)
+        setGuardBatchHookForTests(null)
+        setGuardLegacyRoundTripsForTests(false)
+    }
+}
+
+describe('analyst guard transaction orchestration (offline)', () => {
+    for (const scoped of [true, false])
+        for (const policy of [false, true])
+            it(`keeps logical read order with scoped=${scoped}, policy=${policy}`, async (t) => {
+                const captures = []
+                for (const legacy of [true, false])
+                    await withCatalogClient(
+                        async ({ calls, reads, options, statement }) => {
+                            const result = await decision('postgresql://127.0.0.1:55440/mock', statement, options, legacy)
+                            assert.equal(result.ok, true, result.message)
+                            captures.push(catalogLookups(reads))
+                            assert.equal(calls.at(-1).text, 'ROLLBACK')
+                            const creates = calls.filter(({ text }) => text.startsWith('CREATE TEMP VIEW'))
+                            assert.equal(creates.length, 1)
+                            assert.equal(creates[0].named, true)
+                            assert.ok(!creates[0].text.includes('\n;\n'))
+                            if (!legacy) {
+                                t.diagnostic(`mock 19 selections, 5 domains: ${calls.length} queries`)
+                                assert.ok(calls.length <= 20)
+                                if (policy) {
+                                    // Policy locks remain a separate error boundary before definition reads.
+                                    const definitionBatch = calls.findIndex(
+                                        ({ text }) =>
+                                            text.startsWith('SELECT DISTINCT format_type') &&
+                                            !text.includes('WITH ORDINALITY') &&
+                                            !text.includes('regconfigin')
+                                    )
+                                    const policyLock = calls.findLastIndex(({ text }) => text.startsWith('LOCK TABLE'))
+                                    assert.ok(policyLock >= 0 && policyLock < definitionBatch)
+                                }
+                            }
+                        },
+                        { scoped, policy }
+                    )
+                assert.deepEqual(captures[1], captures[0])
+            })
+})
+
+describe('analyst guard broader callers (offline)', () => {
+    it('keeps the separate parse queries for a runner without batchedGuard', async () => {
+        const calls = []
+        const client = {
+            async query(query, params) {
+                const text = typeof query === 'string' ? query : query.text
+                calls.push({ query, text, params })
+                return { rows: text.startsWith('SELECT r.ev_class') ? [{ view: '999', tree: '{QUERY}' }] : [] }
+            }
+        }
+        const runner = postgresRunner(client)
+        const reads = []
+        runner.logicalRead = (sql, params) => reads.push({ sql, params })
+        runner.statementSearchPath = 'pg_catalog, public'
+        assert.equal(runner.batchedGuard, undefined)
+        assert.equal(runner.legacyRoundTrips, undefined)
+        await checkStatementScope(client, runner, 'SELECT 1', [{ oid: 101 }], () => true)
+        const start = calls.findIndex(({ text }) => text.startsWith('CREATE TEMP VIEW'))
+        const parse = calls.slice(start, start + 6)
+        assert.equal(parse.length, 6)
+        assert.ok(parse[0].query.name, 'CREATE TEMP VIEW uses a named statement')
+        assert.equal(parse[1].text, `DEALLOCATE ${parse[0].query.name}`)
+        assert.equal(parse[2].text, "SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)")
+        assert.match(parse[3].text, /^SELECT r.ev_class.*FROM pg_rewrite/)
+        assert.match(parse[4].text, /^SELECT d.refobjid.*WHERE r.ev_class = \$1::oid/)
+        assert.deepEqual(parse[4].params, ['999'])
+        const depend = reads.find(({ sql }) => sql.startsWith('SELECT d.refobjid'))
+        assert.match(depend.sql, /WHERE r.ev_class = \?::oid/)
+        assert.deepEqual(depend.params, ['999'])
+        assert.match(parse[5].text, /^DROP VIEW pg_temp\./)
+        assert.ok(
+            calls.every(({ text }) => !text.includes('\n;\n')),
+            'no catalog queries are batched'
+        )
+    })
+    for (const scoped of [true, false])
+        it(`retains logical reads without readOnlySql, scoped=${scoped}`, async () => {
+            const captures = []
+            for (const legacy of [true, false])
+                await withCatalogClient(
+                    async ({ reads, options, statement }) => {
+                        resetRiskyDomainCacheForTests()
+                        const result = await decision(
+                            'postgresql://127.0.0.1:55440/mock',
+                            statement,
+                            { ...options, readOnlySql: false },
+                            legacy
+                        )
+                        assert.equal(result.ok, true, result.message)
+                        captures.push(catalogLookups(reads))
+                    },
+                    { scoped }
+                )
+            assert.deepEqual(captures[1], captures[0])
+        })
+})
+
+describe('analyst guard failure orchestration (offline)', () => {
+    const batchMatchers = {
+        B2: (text) => text.startsWith('SELECT DISTINCT format_type'),
+        B3: (text) => text.startsWith('SELECT c.oid::int8 AS oid, c.relkind AS kind'),
+        B4: (text) => text.startsWith('BEGIN TRANSACTION READ ONLY'),
+        B5: (text) => text.startsWith("SELECT pg_catalog.set_config('search_path', 'pg_catalog', true)\n;\nSELECT md5")
+    }
+    for (const [batch, match] of Object.entries(batchMatchers))
+        for (const short of [true, false])
+            it(`${batch}: ${short ? 'short' : 'thrown'} batch refuses the page`, async () => {
+                await withCatalogClient(async ({ calls, options, statement }) => {
+                    let hit = false
+                    setGuardBatchHookForTests((text, results) => {
+                        if (hit || !match(text)) return
+                        hit = true
+                        if (short) return results.slice(0, -1)
+                        throw new Error('Injected batch failure')
+                    })
+                    const result = await decision('postgresql://127.0.0.1:55440/mock', statement, options, false)
+                    assert.equal(result.ok, false)
+                    assert.ok(hit)
+                    if (batch === 'B5') assert.match(result.message, /changed while it was being checked/)
+                    else if (short) assert.equal(result.message, GUARD_BATCH_MESSAGE)
+                    assert.equal(
+                        calls.some(({ text }) => !text.startsWith('CREATE TEMP VIEW') && text.includes(statement)),
+                        batch === 'B5'
+                    )
+                    assert.equal(calls.at(-1).text, 'ROLLBACK')
+                })
+            })
+    it('retains POLICY_UNLOCKED for a failed policy lock', async () => {
+        await withCatalogClient(
+            async ({ calls, options, statement }) => {
+                const original = Client.prototype.query
+                Client.prototype.query = function (query, ...args) {
+                    if (typeof query === 'string' && query.startsWith('LOCK TABLE')) throw new Error('policy lock failed')
+                    return original.call(this, query, ...args)
+                }
+                const result = await decision('postgresql://127.0.0.1:55440/mock', statement, options, false)
+                assert.equal(result.ok, false)
+                assert.match(result.message, /row-security policy reads could not be locked/)
+                assert.equal(
+                    calls.some(({ text }) => !text.startsWith('CREATE TEMP VIEW') && text.includes(statement)),
+                    false
+                )
+            },
+            { policy: true }
+        )
+    })
 })
