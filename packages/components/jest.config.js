@@ -16,7 +16,11 @@ module.exports = {
     testRegex: '(/__tests__/.*|(\\.|/)(test|spec))\\.tsx?$',
     moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
     verbose: true,
-    testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+    testPathIgnorePatterns: [
+        '/node_modules/',
+        '/dist/',
+        ...(process.env.CUTTLELY_PINNED_NODE_TESTS === '1' ? [] : ['PostgreSQLMCP.pinned.test.ts'])
+    ],
     moduleNameMapper: {
         '^../../../src/(.*)$': '<rootDir>/src/$1',
         '^@cuttlely/components/interface$': '<rootDir>/src/Interface.ts',

@@ -58,7 +58,12 @@ beforeAll(async () => {
         saved[key] = process.env[key]
     }
     process.env[OVERWRITE] = SECRET
-    pq = (await importEsm(pathToFileURL(path.join(root, 'packages/harness/runtime/pinned-query.mjs')).href)) as PinnedModule
+    pq = Object.assign(
+        {},
+        await importEsm(pathToFileURL(path.join(root, 'packages/harness/runtime/pinned-query.mjs')).href),
+        await importEsm(pathToFileURL(path.join(root, 'packages/harness/runtime/pinned-stamp.mjs')).href),
+        await importEsm(pathToFileURL(path.join(root, 'packages/harness/analyst-capture.mjs')).href)
+    ) as PinnedModule
     const store = (await importEsm(pathToFileURL(path.join(root, 'packages/harness/runtime/analyst-store.mjs')).href)) as {
         withAnalystScope: typeof withAnalystScope
     }
@@ -120,8 +125,8 @@ async function stamped(entry: Record<string, unknown>, { relations = [] as strin
         cred,
         statementHash: compiled.statementHash,
         params: Array.isArray(entry.params) ? entry.params : [],
-        tables: relations,
-        functions,
+        relations,
+        allowedFunctions: functions,
         testedColumns: entry.testedColumns
     })
     const key = await getPinnedQueryKey()
@@ -409,17 +414,25 @@ describe('PostgreSQL MCP pinned queries', () => {
     })
 })
 
-describe('PostgreSQL MCP pinned queries against a fixture database', () => {
+// The fixture database comes from CUTTLELY_TEST_PG_URL (an admin login that may create a database).
+// Without it these tests are skipped, unless CUTTLELY_TEST_PG_REQUIRED=1 says the database must be there.
+const fixtureAdminUrl = process.env.CUTTLELY_TEST_PG_URL || ''
+const describeFixture = fixtureAdminUrl || process.env.CUTTLELY_TEST_PG_REQUIRED === '1' ? describe : describe.skip
+
+describeFixture('PostgreSQL MCP pinned queries against a fixture database', () => {
     let url = ''
     let admin: Client | undefined
     let database = ''
 
     beforeAll(async () => {
-        admin = new Client({ host: '127.0.0.1', port: 55451, user: 'postgres', database: 'postgres' })
+        if (!fixtureAdminUrl) throw new Error('CUTTLELY_TEST_PG_URL is required when CUTTLELY_TEST_PG_REQUIRED=1.')
+        admin = new Client({ connectionString: fixtureAdminUrl })
         await admin.connect()
         database = `zz_test_node_${crypto.randomBytes(4).toString('hex')}`
         await admin.query(`CREATE DATABASE ${database}`)
-        url = `postgres://postgres@127.0.0.1:55451/${database}`
+        const connection = new URL(fixtureAdminUrl)
+        connection.pathname = `/${database}`
+        url = connection.href
         const db = new Client({ connectionString: url })
         await db.connect()
         await db.query('CREATE TABLE public.demo_sales (region text NOT NULL, revenue integer NOT NULL)')
