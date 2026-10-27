@@ -255,10 +255,10 @@ test('ZZ-TEST- pinned PostgreSQL runtime', async (t) => {
             )
             assert.equal(times[0].roundTrips, freeTimes[0].roundTrips)
         })
-        await t.test('free SQL page, count, probe, length and replay match the ae8394e7 golden', async () => {
-            // Generated from the unmodified ae8394e7 runner, including SQL bytes and values.
+        await t.test('free SQL page, count, probe, length and replay match the main golden', async () => {
+            // Generated from the unmodified main runner at 59621182 (after the guard read change in #325), including SQL bytes and values.
             // Only disposable relation/view OIDs and the prepared statement sequence vary per run.
-            const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-ae8394e7.json', import.meta.url)))
+            const golden = JSON.parse(fs.readFileSync(new URL('./fixtures/pinned/free-sql-59621182.json', import.meta.url)))
             const oid = (await setup.query("SELECT 'demo_sales'::regclass::oid AS oid")).rows[0].oid
             const original = pg.Client.prototype.query
             let sent = []
