@@ -16,7 +16,7 @@ const { analystStartCapture, beginAnalystCalls, endAnalystCalls, resetAnalystCap
 )
 
 const { chiefInstructions, specialistSoul, hermesToolsetsFor } = await import('../../profile.mjs')
-const { hermesToolEvent } = await import('../../run.mjs')
+const { hermesToolEvent, logToolEvent } = await import('../../run.mjs')
 // Captured from ae8394e7 gateway, profile and run modules with the same in-process node stub.
 const golden = JSON.parse(fs.readFileSync(new URL('./no-pins-golden.json', import.meta.url)))
 
@@ -172,4 +172,47 @@ test('gateway captures refused, failed and paged statements before execution on 
         deleteHarness(`${name}-refused`)
         fs.rmSync(dataDir, { recursive: true, force: true })
     }
+})
+
+const start = (callId, sql, sqlHash) => ({ phase: 'start', specialist: 'data', name: 'query', callId, sql, sqlHash })
+
+test('ZZ-TEST- parallel calls to one tool close their own chips by call id', () => {
+    const log = []
+    logToolEvent(log, start('call-a', 'SELECT 1 FROM demo_sales LIMIT 1', 'hash-a'))
+    logToolEvent(log, start('call-b', 'SELECT 2 FROM demo_sales LIMIT 1', 'hash-b'))
+    logToolEvent(log, { phase: 'done', specialist: 'data', name: 'query', callId: 'call-a', error: true }, 'ZZ-TEST-failed')
+    assert.equal(log[1].status, 'running')
+    logToolEvent(log, { phase: 'done', specialist: 'data', name: 'query', callId: 'call-b' })
+    assert.deepEqual(log, [
+        {
+            specialist: 'data',
+            name: 'query',
+            status: 'failed',
+            sqlHash: 'hash-a',
+            sql: 'SELECT 1 FROM demo_sales LIMIT 1',
+            callId: 'call-a',
+            detail: 'ZZ-TEST-failed'
+        },
+        { specialist: 'data', name: 'query', status: 'done', sqlHash: 'hash-b', sql: 'SELECT 2 FROM demo_sales LIMIT 1', callId: 'call-b' }
+    ])
+})
+
+test('ZZ-TEST- an end without a call id still closes the newest running chip of that name', () => {
+    const log = []
+    logToolEvent(log, { phase: 'start', specialist: 'data', name: 'query' })
+    logToolEvent(log, { phase: 'start', specialist: 'data', name: 'query' })
+    logToolEvent(log, { phase: 'done', specialist: 'data', name: 'query' })
+    assert.deepEqual(
+        log.map((item) => item.status),
+        ['running', 'done']
+    )
+})
+
+test('ZZ-TEST- an end with an unknown call id does not close another call', () => {
+    const log = []
+    logToolEvent(log, start('call-a', 'SELECT 1 FROM demo_sales LIMIT 1', 'hash-a'))
+    logToolEvent(log, { phase: 'done', specialist: 'data', name: 'query', callId: 'call-z' })
+    assert.equal(log[0].status, 'running')
+    assert.equal(log[1].status, 'done')
+    assert.equal(log[1].sqlHash, undefined)
 })
