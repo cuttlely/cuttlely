@@ -34,4 +34,30 @@ describe('flowDrafts api', () => {
         flowDrafts.publish('id')
         expect(client.post).toHaveBeenCalledWith('/flow-drafts/id/publish', {})
     })
+
+    test('ZZ-TEST-save sends the loaded draft hash and overwrite only when asked', () => {
+        const flowData = '{"nodes":[],"edges":[]}'
+        client.put.mockClear()
+        flowDrafts.saveDraft('id', flowData)
+        flowDrafts.saveDraft('id', flowData, {})
+        flowDrafts.saveDraft('id', flowData, { overwriteDraftChanges: false })
+        flowDrafts.saveDraft('id', flowData, { overwriteDraftChanges: 'true' })
+        expect(client.put).toHaveBeenCalledTimes(4)
+        for (const call of client.put.mock.calls) {
+            expect(call).toEqual(['/flow-drafts/id', { flowData }])
+        }
+        client.put.mockClear()
+        flowDrafts.saveDraft('id', flowData, { expectedDraftHash: 'abc123' })
+        expect(client.put).toHaveBeenCalledWith('/flow-drafts/id', { flowData, expectedDraftHash: 'abc123' })
+        flowDrafts.saveDraft('id', flowData, { expectedDraftHash: null })
+        expect(client.put).toHaveBeenCalledWith('/flow-drafts/id', { flowData, expectedDraftHash: null })
+        flowDrafts.saveDraft('id', flowData, { expectedDraftHash: 'abc123', overwriteDraftChanges: true })
+        expect(client.put).toHaveBeenCalledWith('/flow-drafts/id', {
+            flowData,
+            expectedDraftHash: 'abc123',
+            overwriteDraftChanges: true
+        })
+        flowDrafts.saveDraft('id', flowData, { expectedDraftHash: 5, overwriteDraftChanges: 1 })
+        expect(client.put).toHaveBeenLastCalledWith('/flow-drafts/id', { flowData })
+    })
 })
