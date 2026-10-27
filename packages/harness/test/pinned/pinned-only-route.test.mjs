@@ -123,6 +123,14 @@ test("a call by the node's own name in mixed mode runs the free query tool, even
     assert.deepEqual(calls.at(-1), ['pq_sales_by_region', { region: 'north' }])
 })
 
+test('an inline specialist runs the pin it was shown when no tool name is passed', async () => {
+    const calls = []
+    const pin = pinTool(calls)
+    const raw = await callPrepared({ runs: false, ready: [pin], tool: pin }, { region: 'north' })
+    assert.deepEqual(JSON.parse(raw), { rows: [] })
+    assert.deepEqual(calls, [['pq_sales_by_region', { region: 'north' }]])
+})
+
 test("the gateway answers a pinned-only node's own name with the expected refusal", async () => {
     const { saveHarness, deleteHarness } = await import('../../store.mjs')
     const { registerProfileToken, forgetProfileToken, setGatewayContext, startGateway } = await import('../../gateway.mjs')

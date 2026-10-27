@@ -98,7 +98,8 @@ async function initBinding(binding, ctx, cache, input) {
 // nothing awaited in between, so a revocation during an attempt stops the retries.
 export async function callPrepared(prepared, input, assertCall) {
     if (prepared.runs) return prepared.instance.run(prepared.nodeData, textInput(input), prepared.flowOptions)
-    return readyRaw(prepared.ready, input, prepared.toolName, assertCall)
+    // With no called name (inline and direct specialists), run the tool whose name and schema the model was shown.
+    return readyRaw(prepared.ready, input, prepared.toolName ?? prepared.tool?.name, assertCall)
 }
 
 export function preparedKind(prepared) {
