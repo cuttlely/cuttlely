@@ -160,3 +160,57 @@ export function assertPinnedQueryRoster(roster, env = process.env) {
         throw new HarnessError('pinned_query_auto', PINNED_AUTO_ERROR)
     }
 }
+
+// A pin parameter as a model passes it: int8 and numeric take a number, bool a boolean, anything else a string.
+function hintType(type) {
+    if (type === 'int8' || type === 'numeric' || type === 'number' || type === 'integer') return 'number'
+    if (type === 'bool' || type === 'boolean') return 'boolean'
+    return 'string'
+}
+
+// "pq_name(param: type, ...)", so a model can call a pin by its own name with named arguments.
+export function pinnedToolHint(name, params = []) {
+    const list = (params || [])
+        .filter((param) => param && typeof param.name === 'string' && param.name)
+        .map((param) => `${param.name}: ${hintType(param.type)}`)
+    return `${name}(${list.join(', ')})`
+}
+
+function offersFreeQuery(binding) {
+    let actions = binding?.inputs?.mcpActions
+    if (typeof actions === 'string') {
+        try {
+            actions = JSON.parse(actions)
+        } catch {
+            actions = []
+        }
+    }
+    return Array.isArray(actions) && actions.includes('query')
+}
+
+// The pins a specialist offers when none of its PostgreSQL MCP nodes offers the free query tool. Empty when the
+// flag is off, when any node offers query, or when no stamped pin is configured.
+export function pinnedOnlyTools(specialist, env = process.env) {
+    if (!pinnedQueriesEnabled(env)) return []
+    const bindings = analystBindings(specialist)
+    if (bindings.some(offersFreeQuery)) return []
+    const pins = []
+    for (const binding of bindings) {
+        for (const entry of parsePinnedQueries(binding?.inputs?.pinnedQueries)) {
+            if (!validPinnedQueryName(entry?.name) || !String(entry?.testedStamp || '').trim()) continue
+            if (pins.some((pin) => pin.name === entry.name)) continue
+            pins.push({ name: entry.name, params: Array.isArray(entry.params) ? entry.params : [] })
+        }
+    }
+    return pins
+}
+
+// A call by a node's own name on a node that offers only pinned queries. A pin never stands in for another name.
+export function pinnedOnlyRefusal(hints) {
+    return {
+        error: `This node offers pinned queries only, with no free SQL tool. Call ${hints.join(
+            ' or '
+        )} by its own name, with its parameters as named arguments, not SQL.`,
+        cuttlelyOutcome: 'expected'
+    }
+}

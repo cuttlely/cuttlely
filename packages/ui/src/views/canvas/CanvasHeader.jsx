@@ -155,7 +155,9 @@ const CanvasHeader = ({
     draftStatus = null,
     onDraftStatus = () => undefined,
     onChatflowUpdated = () => undefined,
-    onApplyCanvas = () => undefined
+    onApplyCanvas = () => undefined,
+    draftExpected = () => ({}),
+    onDraftConflict = () => undefined
 }) => {
     const theme = useTheme()
     // Below md the actions sit on a second row. Below sm the draft label uses the short word.
@@ -1031,6 +1033,8 @@ const CanvasHeader = ({
                 onDraftStatus={onDraftStatus}
                 onChatflowUpdated={onChatflowUpdated}
                 onApplyCanvas={onApplyCanvas}
+                draftExpected={draftExpected}
+                onDraftConflict={onDraftConflict}
             />
             <ChatflowConfigurationDialog
                 key='chatflowConfiguration'
@@ -1056,7 +1060,9 @@ CanvasHeader.propTypes = {
     draftStatus: PropTypes.object,
     onDraftStatus: PropTypes.func,
     onChatflowUpdated: PropTypes.func,
-    onApplyCanvas: PropTypes.func
+    onApplyCanvas: PropTypes.func,
+    draftExpected: PropTypes.func,
+    onDraftConflict: PropTypes.func
 }
 
 export default CanvasHeader

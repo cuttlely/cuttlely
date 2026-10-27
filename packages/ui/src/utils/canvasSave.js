@@ -2,7 +2,7 @@ import { cloneDeep, omit } from 'lodash'
 import { stripRawCanvasMarker } from './normalizeCanvasFlow'
 
 // The credential input key the canvas already moves onto node.data.credential when it saves.
-const CREDENTIAL_INPUT = 'FLOWISE_CREDENTIAL_ID'
+export const CREDENTIAL_INPUT = 'FLOWISE_CREDENTIAL_ID'
 
 // The document handleSaveFlow persists. Draft save and a save that goes live both send this string.
 export function canvasSaveDocument(instance, { workflow = false } = {}) {

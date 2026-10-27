@@ -7,6 +7,29 @@ import { describeDiff, relativeTime } from './versionHistory'
 export const STALE_DRAFT_WARNING =
     'Live changed after you started these edits (for example through the API). Publishing replaces those changes.'
 
+export const DRAFT_CONFLICT_TITLE = 'Someone else saved this draft'
+export const DRAFT_CONFLICT_RELOAD = 'Reload'
+export const DRAFT_CONFLICT_SAVE_ANYWAY = 'Save anyway'
+
+// The draft version the canvas loaded. Null when the status has no draft.
+export const draftVersion = (status) => status?.draft?.hash ?? null
+
+// The 409 body when a save would replace a draft saved since this canvas opened. Null for every other error.
+export const draftConflictFrom = (error) => {
+    const data = error?.response?.data
+    if (error?.response?.status !== 409 || !data || data.code !== 'DRAFT_CHANGED') return null
+    return { savedBy: data.savedBy ?? null, savedAt: data.savedAt ?? null }
+}
+
+// "Avery saved this draft 3 minutes ago. Reload to see their changes, or save anyway to replace them."
+export const draftConflictMessage = (conflict, now = Date.now()) => {
+    const raw = conflict?.savedBy?.name
+    const name = typeof raw === 'string' && raw.trim() ? raw.trim() : 'Someone'
+    const when = conflict?.savedAt ? relativeTime(conflict.savedAt, now) : ''
+    const timing = when || 'after you opened it'
+    return `${name} saved this draft ${timing}. Reload to see their changes, or save anyway to replace them.`
+}
+
 export const PUBLISH_INSTANTLY_HELP = 'Every save goes live immediately, like before drafts.'
 export const PUBLISH_INSTANTLY_LOCKED = 'Publish or discard the draft before changing this.'
 
@@ -214,7 +237,29 @@ export const PIPELINE_RUN_DIRTY =
 export const PIPELINE_RUN_DRAFT =
     'This run uses the published pipeline and writes to the store. The draft is not included until you Publish. Preview uses the draft and does not write.'
 
-export const publishBody = (stale, replaceLiveChanges) => (stale && replaceLiveChanges ? { overwriteLiveChanges: true } : {})
+// The Publish request. draft carries the hash this canvas loaded ({ expectedDraftHash }) and, after the person
+// chose to publish a draft someone else saved, overwriteDraftChanges: true. Only a string or null hash is sent.
+export const publishBody = (stale, replaceLiveChanges, draft = {}) => {
+    const body = stale && replaceLiveChanges ? { overwriteLiveChanges: true } : {}
+    if (draft && Object.prototype.hasOwnProperty.call(draft, 'expectedDraftHash')) {
+        const hash = draft.expectedDraftHash
+        if (typeof hash === 'string' || hash === null) body.expectedDraftHash = hash
+    }
+    if (draft && draft.overwriteDraftChanges === true) body.overwriteDraftChanges = true
+    return body
+}
+
+export const PUBLISH_CONFLICT_REVIEW = 'Review their changes'
+export const PUBLISH_CONFLICT_ANYWAY = 'Publish their draft anyway'
+
+// "Avery saved this draft 3 minutes ago. Publish would put their changes live too. ..."
+export const publishConflictMessage = (conflict, now = Date.now()) => {
+    const raw = conflict?.savedBy?.name
+    const name = typeof raw === 'string' && raw.trim() ? raw.trim() : 'Someone'
+    const when = conflict?.savedAt ? relativeTime(conflict.savedAt, now) : ''
+    const timing = when || 'after you opened it'
+    return `${name} saved this draft ${timing}. Publishing now would put their changes live without you seeing them. Review their changes on your canvas, or publish their saved draft anyway.`
+}
 
 export const publishResultMessage = (data = {}) => {
     if (data.unchanged) return { message: 'Already live. Nothing new to publish.', variant: 'info' }
