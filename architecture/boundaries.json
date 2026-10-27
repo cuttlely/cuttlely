@@ -103,6 +103,7 @@
             "packages/server/src/database/identitySchema.ts",
             "packages/server/src/database/entities/identity/**",
             "packages/ui/src/utils/roleLabel.js",
+            "packages/ui/src/utils/roleLabel.test.js",
             "packages/ui/src/views/auth/resolveLogin.js",
             "packages/ui/src/views/auth/resolveLogin.test.js",
             "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
