@@ -536,6 +536,27 @@ test('ZZ-TEST- exported stores refuse caller pairs before any query executes', a
         pg.Client.prototype.query = original
     }
 })
+test('ZZ-TEST- a pinned call without a saved entry fails closed before any query executes', async () => {
+    const original = pg.Client.prototype.query
+    let calls = 0
+    pg.Client.prototype.query = function () {
+        calls++
+        throw new Error('unexpected query')
+    }
+    try {
+        const env = { CUTTLELY_PINNED_QUERIES: '1' }
+        for (const pinned of [true, { tool: 'pq_demo' }, { id: 'demo', version: 1, statementHash: 'a'.repeat(64), tool: 'pq_demo' }]) {
+            await assert.rejects(queryAnalystUrl('unused', 'SELECT 1 LIMIT 1', { readOnlySql: true, env, pinned }), /pinned\.entry/)
+            await assert.rejects(
+                queryUrlPostgres('unused', 'SELECT 1 LIMIT 1', null, undefined, env, [], { readOnlySql: true, pinned }),
+                /pinned\.entry/
+            )
+        }
+        assert.equal(calls, 0)
+    } finally {
+        pg.Client.prototype.query = original
+    }
+})
 test('ZZ-TEST- flag off refuses pins and suggestions before connecting', async () => {
     for (const value of [undefined, '0', 'TRUE', 'false', ' true '])
         for (const extra of [{ pinned: { entry: { sql: 'SELECT 1 LIMIT 1' } } }, { suggestTypesSql: 'SELECT $1 LIMIT 1' }])

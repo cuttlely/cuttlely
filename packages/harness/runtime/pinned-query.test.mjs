@@ -193,6 +193,21 @@ test('ZZ-TEST- T1 generated compiler pairs preserve all bytes outside typed span
     assert.throws(() => assertCheckRunPair('SELECT $1', 'SELECT $1', []))
     assert.throws(() => compilePinned({ sql: 'SELECT :v LIMIT 1', params: [{ name: 'v', type: 'text(10)' }] }))
     assert.deepEqual(compilePinned(entry(), { Value: 'demo' }).binds, ['demo'])
+    // order is the bind order: $n is the position of the name in order, by first use.
+    const ordered = compilePinned(
+        {
+            sql: 'SELECT 1 AS n WHERE :b = :b AND :a IS NOT NULL LIMIT 1',
+            params: [
+                { name: 'a', type: 'int8' },
+                { name: 'b', type: 'text' }
+            ]
+        },
+        { a: 7, b: 'demo' }
+    )
+    assert.deepEqual(ordered.order, ['b', 'a'])
+    assert.deepEqual(ordered.binds, ['demo', '7'])
+    assert.match(ordered.runText, /\(\$1::pg_catalog\.text\) = \(\$1::pg_catalog\.text\) AND \(\$2::pg_catalog\.int8\)/)
+    assert.ok(assertCheckRunPair(ordered.runText, ordered.checkText, ordered.spans))
 })
 
 test('ZZ-TEST- placeholder followed by a cast preserves the typed check/run pair', async () => {
