@@ -89,7 +89,9 @@ const {
     ROUTE_AFTER,
     HANDOFF_GROUNDING,
     ANALYST_DID_NOT_RUN,
+    ANALYST_DID_NOT_RUN_PINNED,
     ANALYST_TOOL_RETRY,
+    PINNED_MISS_STEP,
     ANALYST_TOOL_UNAVAILABLE,
     isAnalystDataTask,
     expandSingleSpecialistTask,
@@ -12762,6 +12764,77 @@ check(
         status: missedRow?.status,
         tools: missed.trace?.specialists?.[0]?.tools
     })
+)
+// A specialist whose node offers only pinned queries: the retry names the pin and its parameters, not a query tool
+// it does not have, and the miss step is not named after that tool either.
+const pinsOnlyEnv = process.env.CUTTLELY_PINNED_QUERIES
+process.env.CUTTLELY_PINNED_QUERIES = '1'
+saveHarness(
+    {
+        name: 'analyst-pins-only',
+        chief: {
+            instructions: 'Database questions go to the analyst.',
+            model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team Chat', inputs: { modelName: 'gpt-4.1' } })
+        },
+        specialists: [
+            {
+                name: 'analyst',
+                instructions: 'Query the analyst database.',
+                mcpServers: [
+                    {
+                        nodeName: 'postgreSQLMCP',
+                        label: 'PostgreSQL MCP',
+                        category: 'Tools (MCP)',
+                        credential: 'cred-demo',
+                        inputs: {
+                            mcpActions: '[]',
+                            pinnedQueries: JSON.stringify([
+                                {
+                                    name: 'pq_sales_by_region',
+                                    testedStamp: 'ab'.repeat(32),
+                                    params: [
+                                        { name: 'region', type: 'text' },
+                                        { name: 'min_total', type: 'numeric' }
+                                    ]
+                                }
+                            ])
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    { overwrite: true }
+)
+const pinsOnlyInputs = []
+const pinsOnlyMissed = await runHarness({
+    name: 'analyst-pins-only',
+    chatId: 'pins-miss-1',
+    input: 'Show sales by region from the database',
+    baseUrl: 'http://127.0.0.1:9',
+    fetchImpl: analystHermesFetch((n, body) => {
+        pinsOnlyInputs.push(body.input)
+        return { output: 'returned no rows.', events: [] }
+    }),
+    loadNode: analystGroundNodes
+})
+if (pinsOnlyEnv === undefined) delete process.env.CUTTLELY_PINNED_QUERIES
+else process.env.CUTTLELY_PINNED_QUERIES = pinsOnlyEnv
+const pinsOnlyTools = pinsOnlyMissed.trace?.specialists?.[0]?.tools || []
+check(
+    'a pinned-only analyst retry names its pinned tools and parameters, not the query tool',
+    pinsOnlyInputs.length === 2 &&
+        !pinsOnlyInputs[1].includes(ANALYST_TOOL_RETRY) &&
+        pinsOnlyInputs[1].includes('pq_sales_by_region(region: string, min_total: number)') &&
+        !/call the query tool/i.test(pinsOnlyInputs[1]),
+    JSON.stringify({ inputs: pinsOnlyInputs })
+)
+check(
+    'a pinned-only analyst miss is recorded as a pinned query step, not a query step',
+    pinsOnlyMissed.text === ANALYST_DID_NOT_RUN_PINNED &&
+        pinsOnlyTools.some((tool) => tool.name === PINNED_MISS_STEP && tool.status === 'failed') &&
+        !pinsOnlyTools.some((tool) => tool.name === 'query'),
+    JSON.stringify({ text: pinsOnlyMissed.text, tools: pinsOnlyTools })
 )
 const ssePartials = []
 await runHarness({

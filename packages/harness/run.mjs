@@ -25,7 +25,7 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
-import { isPinnedToolName } from './pinned-names.mjs'
+import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
@@ -1273,6 +1273,18 @@ export const ANALYST_TOOL_UNAVAILABLE =
     'The analyst tool is unavailable. Hermes has not registered it. Wait a few seconds and send the prompt again, or restart Cuttlely.'
 export const ANALYST_TOOL_RETRY =
     'Call the query tool now for the SQL above. Do not answer until that tool returns. Never predict, simulate, or paraphrase a database result or error.'
+export const ANALYST_DID_NOT_RUN_PINNED = 'The analyst did not run a pinned query.'
+// The step name for that miss. It has a space, so it can never be an offered tool's name.
+export const PINNED_MISS_STEP = 'pinned query'
+
+// A specialist whose nodes offer only pinned queries has no query tool to call; the retry names the pins instead.
+export function analystToolRetry(pins) {
+    if (!pins?.length) return ANALYST_TOOL_RETRY
+    const hints = pins.map((pin) => pinnedToolHint(pin.name, pin.params))
+    return `This analyst has no free SQL tool, only pinned queries. Call the pinned query tool that fits the task now (its tool name ends with the name shown): ${hints.join(
+        '; '
+    )}. Pass its parameters as named arguments, not SQL. Do not answer until that tool returns. Never predict, simulate, or paraphrase a database result or error.`
+}
 
 const ANALYST_DATA_TASK =
     /\b(select|insert|update|delete|drop|create|alter|vacuum|attach|detach|pragma|truncate|table|tables|database|schema|sql|query|rows?)\b/i
@@ -1771,17 +1783,18 @@ async function runStep(context, step) {
         let out = await runSpecialistOnce(context, specialist, task)
         throwIfClient(context)
         const dataTask = hasAnalystTool(specialist) && (analystDataTask(context, task) || analystDataTask(context, context.userText))
+        const pinsOnly = dataTask ? pinnedOnlyTools(specialist) : []
         if (dataTask && analystQueryCount(context, specialist.name) === 0) {
-            out = await runSpecialistOnce(context, specialist, `${task}\n\n${ANALYST_TOOL_RETRY}`)
+            out = await runSpecialistOnce(context, specialist, `${task}\n\n${analystToolRetry(pinsOnly)}`)
             throwIfClient(context)
         }
         if (dataTask && analystQueryCount(context, specialist.name) === 0) {
             const unavailable = analystToolsMissing()
-            const detail = unavailable ? ANALYST_TOOL_UNAVAILABLE : ANALYST_DID_NOT_RUN
+            const detail = unavailable ? ANALYST_TOOL_UNAVAILABLE : pinsOnly.length ? ANALYST_DID_NOT_RUN_PINNED : ANALYST_DID_NOT_RUN
             emitTool(context, {
                 phase: 'done',
                 specialist: specialist.name,
-                name: 'query',
+                name: pinsOnly.length ? PINNED_MISS_STEP : 'query',
                 error: true,
                 detail
             })

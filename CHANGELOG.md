@@ -16,6 +16,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   On a PostgreSQL MCP node that offers only pinned queries, a call by the node's own name no longer runs the first pin with the wrong arguments and pauses the tool; it returns an expected error naming the pins and their parameters. The analyst retry names the pins instead of the query tool, and a miss is logged as a `pinned query` step that says the analyst did not run a pinned query.
+
 -   A harness specialist with the PostgreSQL MCP node that is not named `analyst` (its query tool is `mcp__<name>__query`) now gets its chat scope on every query call, so the run trace and the saved run keep that query step's row preview and `timings`, and its "show more" cursor stays with its chat.
 
 ## [1.4.7] - 2026-10-26

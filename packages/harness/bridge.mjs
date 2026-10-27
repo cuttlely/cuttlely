@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { HarnessError } from './errors.mjs'
 import { repoRoot } from './paths.mjs'
 import { getHarness } from './store.mjs'
-import { isPinnedToolName, pinnedToolRefusal } from './pinned-names.mjs'
+import { isPinnedToolName, pinnedOnlyRefusal, pinnedToolHint, pinnedToolRefusal } from './pinned-names.mjs'
 
 export async function executeModule(binding, input, options = {}) {
     const prepared = await prepareModule(binding, input, options)
@@ -236,6 +236,17 @@ function queryText(input) {
     return textInput(input)
 }
 
+// A pin's parameters from its tool schema. cursor and page are paging fields, not parameters.
+function pinParams(tool) {
+    const properties = tool?.schema?.type === 'object' && tool.schema.properties ? tool.schema.properties : {}
+    return Object.entries(properties)
+        .filter(([name]) => name !== 'cursor' && name !== 'page')
+        .map(([name, spec]) => {
+            const types = Array.isArray(spec?.type) ? spec.type : [spec?.type]
+            return { name, type: types.includes('number') ? 'number' : types.includes('boolean') ? 'boolean' : 'string' }
+        })
+}
+
 function toolsOf(ready) {
     if (Array.isArray(ready)) return ready.filter((item) => item && typeof item.invoke === 'function')
     if (ready && typeof ready.invoke === 'function') return [ready]
@@ -249,8 +260,14 @@ async function readyRaw(ready, input, toolName, assertCall) {
         if (toolName && isPinnedToolName(toolName) && !tools.some((item) => item.name === toolName)) {
             return JSON.stringify(pinnedToolRefusal(toolName))
         }
-        const tool = (toolName && tools.find((item) => item.name === toolName)) || tools[0]
-        if (!tool) return ready
+        // Any other name (the node's own name, an alias) runs the node's first tool that is not a pin. A pin takes
+        // only its own name: its schema is not the one the model was shown for the name it called.
+        const tool = (toolName && tools.find((item) => item.name === toolName)) || tools.find((item) => !isPinnedToolName(item.name))
+        if (!tool) {
+            const pins = tools.filter((item) => isPinnedToolName(item.name))
+            if (pins.length) return JSON.stringify(pinnedOnlyRefusal(pins.map((pin) => pinnedToolHint(pin.name, pinParams(pin)))))
+            return ready
+        }
         return readyRaw(tool, input, '', assertCall)
     }
     if (typeof ready.invoke === 'function') return invokeTool(ready, input, assertCall)
