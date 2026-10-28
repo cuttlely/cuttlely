@@ -720,3 +720,23 @@ test('a paged how-many result keeps the rendered table, escaping, author columns
     assert.match(text, /Source: demo\n\nConfidence: tested$/)
     assert.equal(out.stored.at(-1).content, text)
 })
+
+test('a page with more rows than the renderer shows says how many rows it shows', () => {
+    const rows = Array.from({ length: 150 }, (_, index) => ({ family: `f${index}`, count: index }))
+    const text = renderPinResult(
+        { rows, summary: 'rows 1-150 of 300 (page 1 of 2, say "show more" for the next page)' },
+        rule,
+        { threshold_pp: '50' },
+        { rowCap: 200 }
+    )
+    assert.ok(text.includes('| f99 | 99 |'))
+    assert.ok(!text.includes('| f100 | 100 |'))
+    assert.match(text, /Showing the first 100 of the 150 rows returned on this page\./)
+    const small = renderPinResult(
+        { rows: rows.slice(0, 3), summary: 'returned 3 of 3 rows' },
+        rule,
+        { threshold_pp: '50' },
+        { rowCap: 200 }
+    )
+    assert.doesNotMatch(small, /Showing the first/)
+})

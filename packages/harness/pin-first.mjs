@@ -186,6 +186,7 @@ export function renderPinResult(body, rule, args, { rowCap = 100, defaults = {} 
     const rows = Array.isArray(body.rows) ? body.rows : []
     const columns = (answer.columns || Object.getOwnPropertyNames(rows[0] || {}).map((key) => ({ key, header: key }))).slice(0, 16)
     const cell = (value) => escapePinText(String(value ?? '').slice(0, 200))
+    const shownRows = Math.max(1, Math.min(100, rowCap))
     const lines = []
     if (!rows.length && answer.emptyText?.trim()) lines.push(authored(answer.emptyText))
     else {
@@ -195,7 +196,7 @@ export function renderPinResult(body, rule, args, { rowCap = 100, defaults = {} 
             const table = []
             table.push(`| ${columns.map((col) => cell(col.header || col.key)).join(' | ')} |`)
             table.push(`| ${columns.map(() => '---').join(' | ')} |`)
-            for (const row of rows.slice(0, Math.max(1, Math.min(100, rowCap)))) {
+            for (const row of rows.slice(0, shownRows)) {
                 table.push(
                     `| ${columns
                         .map((col) =>
@@ -209,6 +210,7 @@ export function renderPinResult(body, rule, args, { rowCap = 100, defaults = {} 
                 )
             }
             lines.push(table.join('\n'))
+            if (rows.length > shownRows) lines.push(`Showing the first ${shownRows} of the ${rows.length} rows returned on this page.`)
         }
     }
     if (answer.thresholdLine) {
