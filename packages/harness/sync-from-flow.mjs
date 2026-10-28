@@ -1,3 +1,4 @@
+import { parsePinFirstRules } from './pin-first.mjs'
 import { SAVE_CALLERS, assertHarnessCaller } from './caller.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
@@ -204,6 +205,8 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
                 instructions: inputs.instructions || '',
                 ...(routingSummaryText(inputs.routingSummary) ? { summary: routingSummaryText(inputs.routingSummary) } : {}),
                 ...(playbookList(inputs.playbooks).length ? { playbooks: playbookList(inputs.playbooks) } : {}),
+                ...(boolInput(inputs.pinFirst) ? { pinFirst: true } : {}),
+                ...(inputs.pinFirstRules ? { pinFirstRules: parsePinFirstRules(inputs.pinFirstRules) } : {}),
                 ...(boolInput(inputs.answerDirect) ? { answerDirect: true } : {}),
                 ...(specialistHandoffChars(inputs.handoffChars) ? { handoffChars: specialistHandoffChars(inputs.handoffChars) } : {}),
                 ...(models.model ? { model: models.model } : {}),

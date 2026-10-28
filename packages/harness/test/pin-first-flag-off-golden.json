@@ -1,0 +1,866 @@
+[
+    {
+        "text": "Chief reply.",
+        "trace": {
+            "harness": "flag-off-0",
+            "status": "completed",
+            "direct": false,
+            "wallMs": 25,
+            "error": "",
+            "timings": {
+                "routeMs": 5,
+                "specialistsMs": 10,
+                "handoffMs": 9,
+                "profileMs": 1,
+                "profileSkipped": false
+            },
+            "tokens": {
+                "prompt": null,
+                "completion": null,
+                "cached": null
+            },
+            "truncated": [],
+            "route": {
+                "status": "done",
+                "ms": 5,
+                "model": "",
+                "fallback": "",
+                "tokens": null,
+                "steps": [
+                    {
+                        "specialist": "data",
+                        "task": "How many units dropped more than 30 points?"
+                    }
+                ]
+            },
+            "specialists": [
+                {
+                    "name": "data",
+                    "task": "How many units dropped more than 30 points?",
+                    "status": "completed",
+                    "model": "scriptedChat",
+                    "fallback": "",
+                    "ms": 7,
+                    "tokens": null,
+                    "tools": [],
+                    "sources": [],
+                    "error": ""
+                }
+            ],
+            "handoff": {
+                "status": "done",
+                "ms": 9,
+                "model": "scriptedChat",
+                "fallback": "",
+                "tokens": null
+            },
+            "question": "How many units dropped more than 30 points?"
+        },
+        "events": [
+            {
+                "type": "route",
+                "harness": "flag-off-0",
+                "chatId": "chat",
+                "phase": "done",
+                "steps": [
+                    {
+                        "specialist": "data",
+                        "task": "How many units dropped more than 30 points?"
+                    }
+                ],
+                "ms": 2,
+                "at": 0
+            },
+            {
+                "type": "specialist",
+                "harness": "flag-off-0",
+                "chatId": "chat",
+                "phase": "start",
+                "name": "data",
+                "task": "How many units dropped more than 30 points?",
+                "model": "scriptedChat",
+                "at": 0
+            },
+            {
+                "type": "specialist",
+                "harness": "flag-off-0",
+                "chatId": "chat",
+                "phase": "done",
+                "name": "data",
+                "status": "completed",
+                "ms": 7,
+                "task": "How many units dropped more than 30 points?",
+                "model": "scriptedChat",
+                "at": 0
+            },
+            {
+                "type": "handoff",
+                "harness": "flag-off-0",
+                "chatId": "chat",
+                "phase": "start",
+                "model": "scriptedChat",
+                "at": 0
+            },
+            {
+                "type": "partial",
+                "harness": "flag-off-0",
+                "chatId": "chat",
+                "phase": "answer",
+                "text": "Chief ",
+                "at": 0
+            },
+            {
+                "type": "partial",
+                "harness": "flag-off-0",
+                "chatId": "chat",
+                "phase": "answer",
+                "text": "reply.",
+                "at": 0
+            },
+            {
+                "type": "handoff",
+                "harness": "flag-off-0",
+                "chatId": "chat",
+                "phase": "done",
+                "ms": 6,
+                "model": "scriptedChat",
+                "calls": [
+                    {
+                        "model": "scriptedChat",
+                        "startedAt": 0,
+                        "endedAt": 1800000000025
+                    }
+                ],
+                "at": 0
+            },
+            {
+                "type": "final",
+                "harness": "flag-off-0",
+                "chatId": "chat",
+                "text": "Chief reply.",
+                "agents": [
+                    {
+                        "name": "data",
+                        "status": "completed",
+                        "ms": 7,
+                        "task": "How many units dropped more than 30 points?",
+                        "model": "scriptedChat"
+                    }
+                ],
+                "sources": [],
+                "artifacts": [],
+                "timings": {
+                    "routeMs": 5,
+                    "specialistsMs": 10,
+                    "handoffMs": 9
+                },
+                "report": {
+                    "tokens": {
+                        "prompt": null,
+                        "completion": null,
+                        "cached": null
+                    },
+                    "timings": {
+                        "routeMs": 5,
+                        "specialistsMs": 10,
+                        "handoffMs": 9,
+                        "profileMs": 1
+                    },
+                    "truncated": []
+                },
+                "trace": {
+                    "harness": "flag-off-0",
+                    "status": "completed",
+                    "direct": false,
+                    "wallMs": 25,
+                    "error": "",
+                    "timings": {
+                        "routeMs": 5,
+                        "specialistsMs": 10,
+                        "handoffMs": 9,
+                        "profileMs": 1,
+                        "profileSkipped": false
+                    },
+                    "tokens": {
+                        "prompt": null,
+                        "completion": null,
+                        "cached": null
+                    },
+                    "truncated": [],
+                    "route": {
+                        "status": "done",
+                        "ms": 5,
+                        "model": "",
+                        "fallback": "",
+                        "tokens": null,
+                        "steps": [
+                            {
+                                "specialist": "data",
+                                "task": "How many units dropped more than 30 points?"
+                            }
+                        ]
+                    },
+                    "specialists": [
+                        {
+                            "name": "data",
+                            "task": "How many units dropped more than 30 points?",
+                            "status": "completed",
+                            "model": "scriptedChat",
+                            "fallback": "",
+                            "ms": 7,
+                            "tokens": null,
+                            "tools": [],
+                            "sources": [],
+                            "error": ""
+                        }
+                    ],
+                    "handoff": {
+                        "status": "done",
+                        "ms": 9,
+                        "model": "scriptedChat",
+                        "fallback": "",
+                        "tokens": null
+                    },
+                    "question": "How many units dropped more than 30 points?"
+                },
+                "at": 0
+            }
+        ],
+        "prompts": [
+            [
+                {
+                    "lc": 1,
+                    "type": "constructor",
+                    "id": ["langchain_core", "messages", "SystemMessage"],
+                    "kwargs": {
+                        "content": "You are Harness Prime for the \"flag-off-0\" harness.\nInstructions: Chief persona.\nYour specialists already did the work below. Answer the user from their results. Keep numbers, URLs, and script output exactly as given. Files the specialists made are attached to the chat as downloads already: refer to a file by its name only, and do not list the files again or include folder paths. If the results answer the request, do not mention steps or specialists that failed along the way. Only when a needed result is missing, say in one line which part could not be done. State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with \"rows \", or a summary that starts with \"returned \", keep that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. A database change is plain words such as \"Dropped table\", \"Created table\", or \"Inserted 3 rows\". When a specialist result ends with a source, citation or reference line, such as a line that starts with \"Source:\", end your answer with that line exactly as written. The Tools line is the tool status for this turn. A step with no tool result did not run.",
+                        "additional_kwargs": {},
+                        "response_metadata": {}
+                    }
+                },
+                {
+                    "lc": 1,
+                    "type": "constructor",
+                    "id": ["langchain_core", "messages", "HumanMessage"],
+                    "kwargs": {
+                        "content": "Request: How many units dropped more than 30 points?\n\nSpecialist results:\n### data (completed)\nTask: How many units dropped more than 30 points?\nTools: none\nModel fallback.",
+                        "additional_kwargs": {},
+                        "response_metadata": {}
+                    }
+                }
+            ]
+        ],
+        "requests": [
+            {
+                "input": "How many units dropped more than 30 points?",
+                "session_id": "flag-off-0--data:chat#turn-00000000-0000-4000-8000-000000000001",
+                "provider": "custom",
+                "model": "flag-off-0--data"
+            }
+        ],
+        "calls": [],
+        "stored": [
+            {
+                "role": "user",
+                "content": "How many units dropped more than 30 points?",
+                "created_at": "TIME"
+            },
+            {
+                "role": "assistant",
+                "content": "Chief reply.",
+                "created_at": "TIME"
+            }
+        ]
+    },
+    {
+        "text": "Chief reply.",
+        "trace": {
+            "harness": "flag-off-1",
+            "status": "completed",
+            "direct": false,
+            "wallMs": 32,
+            "error": "",
+            "timings": {
+                "routeMs": 5,
+                "specialistsMs": 17,
+                "handoffMs": 9,
+                "profileMs": 1,
+                "profileSkipped": false
+            },
+            "tokens": {
+                "prompt": null,
+                "completion": null,
+                "cached": null
+            },
+            "truncated": [],
+            "route": {
+                "status": "done",
+                "ms": 5,
+                "model": "",
+                "fallback": "",
+                "tokens": null,
+                "steps": [
+                    {
+                        "specialist": "data",
+                        "task": "How many units dropped more than 30 points?"
+                    }
+                ]
+            },
+            "specialists": [
+                {
+                    "name": "data",
+                    "task": "How many units dropped more than 30 points?",
+                    "status": "completed",
+                    "model": "scriptedChat",
+                    "fallback": "",
+                    "ms": 14,
+                    "tokens": null,
+                    "tools": [
+                        {
+                            "name": "mcp__data__pq_mom_change_by_family",
+                            "status": "done",
+                            "detail": "{\"rows\":[{\"family\":\"alpha\",\"count\":2},{\"family\":\"beta\",\"count\":0}],\"summary\":\"returned 2 of 2 rows\",\"pinned\":{\"id\":\"family-change\",\"name\":\"pq_mom_change_by_family\",\"version\":1,\"statementHash\":\"221a69f3c10307caa84bca9ece4354f840ef873e7271bcf33f01fa3ea1237515\",\"tool\":\"pq_mom_change_by_family\"}}"
+                        }
+                    ],
+                    "sources": [],
+                    "error": ""
+                }
+            ],
+            "handoff": {
+                "status": "done",
+                "ms": 9,
+                "model": "scriptedChat",
+                "fallback": "",
+                "tokens": null
+            },
+            "question": "How many units dropped more than 30 points?"
+        },
+        "events": [
+            {
+                "type": "route",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "done",
+                "steps": [
+                    {
+                        "specialist": "data",
+                        "task": "How many units dropped more than 30 points?"
+                    }
+                ],
+                "ms": 2,
+                "at": 0
+            },
+            {
+                "type": "specialist",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "start",
+                "name": "data",
+                "task": "How many units dropped more than 30 points?",
+                "model": "scriptedChat",
+                "at": 0
+            },
+            {
+                "type": "tool",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "start",
+                "specialist": "data",
+                "name": "mcp__data__pq_mom_change_by_family",
+                "at": 0
+            },
+            {
+                "type": "tool",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "done",
+                "specialist": "data",
+                "name": "mcp__data__pq_mom_change_by_family",
+                "detail": "{\"rows\":[{\"family\":\"alpha\",\"count\":2},{\"family\":\"beta\",\"count\":0}],\"summary\":\"returned 2 of 2 rows\",\"pinned\":{\"id\":\"family-change\",\"name\":\"pq_mom_change_by_family\",\"version\":1,\"statementHash\":\"221a69f3c10307caa84bca9ece4354f840ef873e7271bcf33f01fa3ea1237515\",\"tool\":\"pq_mom_change_by_family\"}}",
+                "at": 0
+            },
+            {
+                "type": "specialist",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "done",
+                "name": "data",
+                "status": "completed",
+                "ms": 14,
+                "task": "How many units dropped more than 30 points?",
+                "model": "scriptedChat",
+                "tools": [
+                    {
+                        "name": "mcp__data__pq_mom_change_by_family",
+                        "status": "done",
+                        "detail": "{\"rows\":[{\"family\":\"alpha\",\"count\":2},{\"family\":\"beta\",\"count\":0}],\"summary\":\"returned 2 of 2 rows\",\"pinned\":{\"id\":\"family-change\",\"name\":\"pq_mom_change_by_family\",\"version\":1,\"statementHash\":\"221a69f3c10307caa84bca9ece4354f840ef873e7271bcf33f01fa3ea1237515\",\"tool\":\"pq_mom_change_by_family\"}}"
+                    }
+                ],
+                "at": 0
+            },
+            {
+                "type": "handoff",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "start",
+                "model": "scriptedChat",
+                "at": 0
+            },
+            {
+                "type": "partial",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "answer",
+                "text": "Chief ",
+                "at": 0
+            },
+            {
+                "type": "partial",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "answer",
+                "text": "reply.",
+                "at": 0
+            },
+            {
+                "type": "handoff",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "phase": "done",
+                "ms": 6,
+                "model": "scriptedChat",
+                "calls": [
+                    {
+                        "model": "scriptedChat",
+                        "startedAt": 0,
+                        "endedAt": 1800000000064
+                    }
+                ],
+                "at": 0
+            },
+            {
+                "type": "final",
+                "harness": "flag-off-1",
+                "chatId": "chat",
+                "text": "Chief reply.",
+                "agents": [
+                    {
+                        "name": "data",
+                        "status": "completed",
+                        "ms": 14,
+                        "task": "How many units dropped more than 30 points?",
+                        "model": "scriptedChat",
+                        "tools": [
+                            {
+                                "name": "mcp__data__pq_mom_change_by_family",
+                                "status": "done",
+                                "detail": "{\"rows\":[{\"family\":\"alpha\",\"count\":2},{\"family\":\"beta\",\"count\":0}],\"summary\":\"returned 2 of 2 rows\",\"pinned\":{\"id\":\"family-change\",\"name\":\"pq_mom_change_by_family\",\"version\":1,\"statementHash\":\"221a69f3c10307caa84bca9ece4354f840ef873e7271bcf33f01fa3ea1237515\",\"tool\":\"pq_mom_change_by_family\"}}"
+                            }
+                        ]
+                    }
+                ],
+                "sources": [],
+                "artifacts": [],
+                "timings": {
+                    "routeMs": 5,
+                    "specialistsMs": 17,
+                    "handoffMs": 9
+                },
+                "report": {
+                    "tokens": {
+                        "prompt": null,
+                        "completion": null,
+                        "cached": null
+                    },
+                    "timings": {
+                        "routeMs": 5,
+                        "specialistsMs": 17,
+                        "handoffMs": 9,
+                        "profileMs": 1
+                    },
+                    "truncated": []
+                },
+                "trace": {
+                    "harness": "flag-off-1",
+                    "status": "completed",
+                    "direct": false,
+                    "wallMs": 32,
+                    "error": "",
+                    "timings": {
+                        "routeMs": 5,
+                        "specialistsMs": 17,
+                        "handoffMs": 9,
+                        "profileMs": 1,
+                        "profileSkipped": false
+                    },
+                    "tokens": {
+                        "prompt": null,
+                        "completion": null,
+                        "cached": null
+                    },
+                    "truncated": [],
+                    "route": {
+                        "status": "done",
+                        "ms": 5,
+                        "model": "",
+                        "fallback": "",
+                        "tokens": null,
+                        "steps": [
+                            {
+                                "specialist": "data",
+                                "task": "How many units dropped more than 30 points?"
+                            }
+                        ]
+                    },
+                    "specialists": [
+                        {
+                            "name": "data",
+                            "task": "How many units dropped more than 30 points?",
+                            "status": "completed",
+                            "model": "scriptedChat",
+                            "fallback": "",
+                            "ms": 14,
+                            "tokens": null,
+                            "tools": [
+                                {
+                                    "name": "mcp__data__pq_mom_change_by_family",
+                                    "status": "done",
+                                    "detail": "{\"rows\":[{\"family\":\"alpha\",\"count\":2},{\"family\":\"beta\",\"count\":0}],\"summary\":\"returned 2 of 2 rows\",\"pinned\":{\"id\":\"family-change\",\"name\":\"pq_mom_change_by_family\",\"version\":1,\"statementHash\":\"221a69f3c10307caa84bca9ece4354f840ef873e7271bcf33f01fa3ea1237515\",\"tool\":\"pq_mom_change_by_family\"}}"
+                                }
+                            ],
+                            "sources": [],
+                            "error": ""
+                        }
+                    ],
+                    "handoff": {
+                        "status": "done",
+                        "ms": 9,
+                        "model": "scriptedChat",
+                        "fallback": "",
+                        "tokens": null
+                    },
+                    "question": "How many units dropped more than 30 points?"
+                },
+                "at": 0
+            }
+        ],
+        "prompts": [
+            [
+                {
+                    "lc": 1,
+                    "type": "constructor",
+                    "id": ["langchain_core", "messages", "SystemMessage"],
+                    "kwargs": {
+                        "content": "You are Harness Prime for the \"flag-off-1\" harness.\nInstructions: Chief persona.\nYour specialists already did the work below. Answer the user from their results. Keep numbers, URLs, and script output exactly as given. Files the specialists made are attached to the chat as downloads already: refer to a file by its name only, and do not list the files again or include folder paths. If the results answer the request, do not mention steps or specialists that failed along the way. Only when a needed result is missing, say in one line which part could not be done. State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with \"rows \", or a summary that starts with \"returned \", keep that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. A database change is plain words such as \"Dropped table\", \"Created table\", or \"Inserted 3 rows\". When a specialist result ends with a source, citation or reference line, such as a line that starts with \"Source:\", end your answer with that line exactly as written. The Tools line is the tool status for this turn. A step with no tool result did not run.",
+                        "additional_kwargs": {},
+                        "response_metadata": {}
+                    }
+                },
+                {
+                    "lc": 1,
+                    "type": "constructor",
+                    "id": ["langchain_core", "messages", "HumanMessage"],
+                    "kwargs": {
+                        "content": "Request: How many units dropped more than 30 points?\n\nSpecialist results:\n### data (completed)\nTask: How many units dropped more than 30 points?\nTools: mcp__data__pq_mom_change_by_family done\nTwo families.",
+                        "additional_kwargs": {},
+                        "response_metadata": {}
+                    }
+                }
+            ]
+        ],
+        "requests": [
+            {
+                "input": "How many units dropped more than 30 points?",
+                "session_id": "flag-off-1--data:chat#turn-00000000-0000-4000-8000-000000000002",
+                "provider": "custom",
+                "model": "flag-off-1--data"
+            }
+        ],
+        "calls": [],
+        "stored": [
+            {
+                "role": "user",
+                "content": "How many units dropped more than 30 points?",
+                "created_at": "TIME"
+            },
+            {
+                "role": "assistant",
+                "content": "Chief reply.",
+                "created_at": "TIME"
+            }
+        ]
+    },
+    {
+        "text": "Chief reply.",
+        "trace": {
+            "harness": "flag-off-2",
+            "status": "completed",
+            "direct": false,
+            "wallMs": 25,
+            "error": "",
+            "timings": {
+                "routeMs": 5,
+                "specialistsMs": 10,
+                "handoffMs": 9,
+                "profileMs": 1,
+                "profileSkipped": false
+            },
+            "tokens": {
+                "prompt": null,
+                "completion": null,
+                "cached": null
+            },
+            "truncated": [],
+            "route": {
+                "status": "done",
+                "ms": 5,
+                "model": "",
+                "fallback": "",
+                "tokens": null,
+                "steps": [
+                    {
+                        "specialist": "data",
+                        "task": "Summarize last week for the team."
+                    }
+                ]
+            },
+            "specialists": [
+                {
+                    "name": "data",
+                    "task": "Summarize last week for the team.",
+                    "status": "completed",
+                    "model": "scriptedChat",
+                    "fallback": "",
+                    "ms": 7,
+                    "tokens": null,
+                    "tools": [],
+                    "sources": [],
+                    "error": ""
+                }
+            ],
+            "handoff": {
+                "status": "done",
+                "ms": 9,
+                "model": "scriptedChat",
+                "fallback": "",
+                "tokens": null
+            },
+            "question": "Summarize last week for the team."
+        },
+        "events": [
+            {
+                "type": "route",
+                "harness": "flag-off-2",
+                "chatId": "chat",
+                "phase": "done",
+                "steps": [
+                    {
+                        "specialist": "data",
+                        "task": "Summarize last week for the team."
+                    }
+                ],
+                "ms": 2,
+                "at": 0
+            },
+            {
+                "type": "specialist",
+                "harness": "flag-off-2",
+                "chatId": "chat",
+                "phase": "start",
+                "name": "data",
+                "task": "Summarize last week for the team.",
+                "model": "scriptedChat",
+                "at": 0
+            },
+            {
+                "type": "specialist",
+                "harness": "flag-off-2",
+                "chatId": "chat",
+                "phase": "done",
+                "name": "data",
+                "status": "completed",
+                "ms": 7,
+                "task": "Summarize last week for the team.",
+                "model": "scriptedChat",
+                "at": 0
+            },
+            {
+                "type": "handoff",
+                "harness": "flag-off-2",
+                "chatId": "chat",
+                "phase": "start",
+                "model": "scriptedChat",
+                "at": 0
+            },
+            {
+                "type": "partial",
+                "harness": "flag-off-2",
+                "chatId": "chat",
+                "phase": "answer",
+                "text": "Chief ",
+                "at": 0
+            },
+            {
+                "type": "partial",
+                "harness": "flag-off-2",
+                "chatId": "chat",
+                "phase": "answer",
+                "text": "reply.",
+                "at": 0
+            },
+            {
+                "type": "handoff",
+                "harness": "flag-off-2",
+                "chatId": "chat",
+                "phase": "done",
+                "ms": 6,
+                "model": "scriptedChat",
+                "calls": [
+                    {
+                        "model": "scriptedChat",
+                        "startedAt": 0,
+                        "endedAt": 1800000000096
+                    }
+                ],
+                "at": 0
+            },
+            {
+                "type": "final",
+                "harness": "flag-off-2",
+                "chatId": "chat",
+                "text": "Chief reply.",
+                "agents": [
+                    {
+                        "name": "data",
+                        "status": "completed",
+                        "ms": 7,
+                        "task": "Summarize last week for the team.",
+                        "model": "scriptedChat"
+                    }
+                ],
+                "sources": [],
+                "artifacts": [],
+                "timings": {
+                    "routeMs": 5,
+                    "specialistsMs": 10,
+                    "handoffMs": 9
+                },
+                "report": {
+                    "tokens": {
+                        "prompt": null,
+                        "completion": null,
+                        "cached": null
+                    },
+                    "timings": {
+                        "routeMs": 5,
+                        "specialistsMs": 10,
+                        "handoffMs": 9,
+                        "profileMs": 1
+                    },
+                    "truncated": []
+                },
+                "trace": {
+                    "harness": "flag-off-2",
+                    "status": "completed",
+                    "direct": false,
+                    "wallMs": 25,
+                    "error": "",
+                    "timings": {
+                        "routeMs": 5,
+                        "specialistsMs": 10,
+                        "handoffMs": 9,
+                        "profileMs": 1,
+                        "profileSkipped": false
+                    },
+                    "tokens": {
+                        "prompt": null,
+                        "completion": null,
+                        "cached": null
+                    },
+                    "truncated": [],
+                    "route": {
+                        "status": "done",
+                        "ms": 5,
+                        "model": "",
+                        "fallback": "",
+                        "tokens": null,
+                        "steps": [
+                            {
+                                "specialist": "data",
+                                "task": "Summarize last week for the team."
+                            }
+                        ]
+                    },
+                    "specialists": [
+                        {
+                            "name": "data",
+                            "task": "Summarize last week for the team.",
+                            "status": "completed",
+                            "model": "scriptedChat",
+                            "fallback": "",
+                            "ms": 7,
+                            "tokens": null,
+                            "tools": [],
+                            "sources": [],
+                            "error": ""
+                        }
+                    ],
+                    "handoff": {
+                        "status": "done",
+                        "ms": 9,
+                        "model": "scriptedChat",
+                        "fallback": "",
+                        "tokens": null
+                    },
+                    "question": "Summarize last week for the team."
+                },
+                "at": 0
+            }
+        ],
+        "prompts": [
+            [
+                {
+                    "lc": 1,
+                    "type": "constructor",
+                    "id": ["langchain_core", "messages", "SystemMessage"],
+                    "kwargs": {
+                        "content": "You are Harness Prime for the \"flag-off-2\" harness.\nInstructions: Chief persona.\nYour specialists already did the work below. Answer the user from their results. Keep numbers, URLs, and script output exactly as given. Files the specialists made are attached to the chat as downloads already: refer to a file by its name only, and do not list the files again or include folder paths. If the results answer the request, do not mention steps or specialists that failed along the way. Only when a needed result is missing, say in one line which part could not be done. State only rows, counts, amounts, and other data that appear in the specialist results below. If a step did not run, say that plainly. Do not invent a table or a number, and do not ask whether to continue. When a specialist result includes rows, pass those rows through as a table or a list. When it also includes a page line that starts with \"rows \", or a summary that starts with \"returned \", keep that line after the rows. Never answer with only that count line. Do not echo raw tool JSON. A database change is plain words such as \"Dropped table\", \"Created table\", or \"Inserted 3 rows\". When a specialist result ends with a source, citation or reference line, such as a line that starts with \"Source:\", end your answer with that line exactly as written. The Tools line is the tool status for this turn. A step with no tool result did not run.",
+                        "additional_kwargs": {},
+                        "response_metadata": {}
+                    }
+                },
+                {
+                    "lc": 1,
+                    "type": "constructor",
+                    "id": ["langchain_core", "messages", "HumanMessage"],
+                    "kwargs": {
+                        "content": "Request: Summarize last week for the team.\n\nSpecialist results:\n### data (completed)\nTask: Summarize last week for the team.\nTools: none\nA short summary.",
+                        "additional_kwargs": {},
+                        "response_metadata": {}
+                    }
+                }
+            ]
+        ],
+        "requests": [
+            {
+                "input": "Summarize last week for the team.",
+                "session_id": "flag-off-2--data:chat#turn-00000000-0000-4000-8000-000000000003",
+                "provider": "custom",
+                "model": "flag-off-2--data"
+            }
+        ],
+        "calls": [],
+        "stored": [
+            {
+                "role": "user",
+                "content": "Summarize last week for the team.",
+                "created_at": "TIME"
+            },
+            {
+                "role": "assistant",
+                "content": "Chief reply.",
+                "created_at": "TIME"
+            }
+        ]
+    }
+]

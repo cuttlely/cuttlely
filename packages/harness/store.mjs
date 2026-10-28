@@ -3,6 +3,7 @@ import path from 'node:path'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { specialistHandoffChars } from './context.mjs'
 import { harnessStoreDir } from './paths.mjs'
+import { validatePinFirstRules } from './pin-first.mjs'
 import { normalizePresetSpecialist } from './presets.mjs'
 
 // A specialist's routing summary: what Harness Prime reads to choose it, so the router does not carry every
@@ -233,6 +234,14 @@ export function saveHarness(record, { overwrite = false } = {}) {
         if (playbooks.length) specialist.playbooks = playbooks
         else delete specialist.playbooks
         if (specialist.answerDirect !== true) delete specialist.answerDirect
+        if (specialist.pinFirst !== true) delete specialist.pinFirst
+        try {
+            const rules = validatePinFirstRules(specialist.pinFirstRules)
+            if (rules.length) specialist.pinFirstRules = rules
+            else delete specialist.pinFirstRules
+        } catch (error) {
+            throw new HarnessError('bad_roster', error.message)
+        }
         const handoffChars = specialistHandoffChars(specialist.handoffChars)
         if (handoffChars) specialist.handoffChars = handoffChars
         else delete specialist.handoffChars

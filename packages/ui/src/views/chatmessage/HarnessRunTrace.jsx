@@ -39,6 +39,8 @@ function routeLine(trace) {
 }
 
 function handoffLine(trace, specialist) {
+    if (trace.handoff?.status === 'skipped' && trace.handoff.reason === 'pinFirst' && trace.handoff.rule?.pin)
+        return `Pinned query ${trace.handoff.rule?.pin} ran first (${trace.handoff.rule?.id}). This result is the answer.`
     if (trace.direct || trace.handoff?.status === 'skipped') return 'This result is the answer.'
     if (specialist.status === 'failed') return 'Harness Prime was told this specialist failed.'
     if (trace.handoff?.status === 'running') return 'Harness Prime is combining this result.'
