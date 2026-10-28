@@ -54,6 +54,20 @@ describe('server settings resolver', () => {
         expect(effectiveValue({ key: 'CUTTLELY_HARNESS_TURN_BUDGET_MS', value: '60000', source: 'file' })).toBe('60000')
     })
 
+    it('keeps an unlimited specialist wait, with the usual host lock and restart precedence', () => {
+        const key = 'CUTTLELY_HARNESS_RUN_TIMEOUT_MS'
+        expect(effectiveValue(pick(resolveSettings({ env: {}, file: {} }), key))).toBe('240000')
+        expect(pick(resolveSettings({ env: {}, file: { [key]: '0' } }), key)).toEqual({ key, value: '0', source: 'file' })
+        expect(pick(resolveSettings({ env: { [key]: '300000' }, file: { [key]: '0' } }), key)).toEqual({
+            key,
+            value: '300000',
+            source: 'host'
+        })
+        expect(hostSetKeys({ [key]: '0' }).has(key)).toBe(true)
+        expect(fileValuesToApply({ [key]: '0' }, { [key]: '300000' })).toEqual({})
+        expect(fileValuesToApply({}, { [key]: '0' })).toEqual({ [key]: '0' })
+    })
+
     it('shows dependent fields only when their condition holds', () => {
         const host = settingFor('DATABASE_HOST')!
         expect(isShown(host, new Map([['DATABASE_TYPE', 'sqlite']]))).toBe(false)

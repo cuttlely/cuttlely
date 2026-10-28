@@ -100,10 +100,11 @@ export async function createRun({
     const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessName)}/v1/runs`
     const deadline = Date.now() + startWaitMs
     let response
+    let payload
     for (;;) {
         const controller = new AbortController()
         const unlink = linkSignal(controller, signal)
-        const timer = setTimeout(() => controller.abort(), timeoutMs)
+        const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined
         try {
             response = await fetchImpl(url, {
                 method: 'POST',
@@ -111,6 +112,7 @@ export async function createRun({
                 body: JSON.stringify(body),
                 signal: controller.signal
             })
+            payload = await readJson(response)
             break
         } catch (error) {
             if (signal?.aborted) throw error
@@ -128,7 +130,6 @@ export async function createRun({
             unlink()
         }
     }
-    const payload = await readJson(response)
     if (!response.ok) {
         const detail = payload?.error?.message || payload?.message || payload?.error || response.statusText
         throw new HarnessError('run_failed', `Harness "${harnessName}" cannot run: ${detail}`)
@@ -166,19 +167,31 @@ export async function waitForRun({
     const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessName)}/v1/runs/${encodeURIComponent(runId)}`
     const headers = runHeaders(harnessName, env.API_SERVER_KEY)
     const started = Date.now()
-    await waitForRunEnd(`${url}/events`, headers, fetchImpl, started + timeoutMs, onEvent, signal)
-    let delay = POLL_START_MS
-    while (Date.now() - started < timeoutMs) {
-        if (signal?.aborted) throw Object.assign(new Error('The harness run was aborted.'), { name: 'AbortError' })
-        const response = await fetchImpl(url, { headers, signal })
-        const payload = await readJson(response)
-        if (!response.ok) {
-            const detail = payload?.error?.message || payload?.message || response.statusText
-            throw new HarnessError('run_failed', `Harness "${harnessName}" cannot run: ${detail}`)
+    const deadline = timeoutMs > 0 ? started + timeoutMs : Infinity
+    const controller = new AbortController()
+    const unlink = linkSignal(controller, signal)
+    const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined
+    try {
+        await waitForRunEnd(`${url}/events`, headers, fetchImpl, deadline, onEvent, controller.signal)
+        let delay = POLL_START_MS
+        while (Date.now() < deadline) {
+            if (controller.signal.aborted) throw Object.assign(new Error('The harness run was aborted.'), { name: 'AbortError' })
+            const response = await fetchImpl(url, { headers, signal: controller.signal })
+            const payload = await readJson(response)
+            if (!response.ok) {
+                const detail = payload?.error?.message || payload?.message || response.statusText
+                throw new HarnessError('run_failed', `Harness "${harnessName}" cannot run: ${detail}`)
+            }
+            if (!payload.status || ['completed', 'failed', 'error', 'cancelled'].includes(payload.status)) return payload
+            await sleep(delay, controller.signal)
+            delay = Math.min(delay * 2, POLL_MAX_MS)
         }
-        if (!payload.status || ['completed', 'failed', 'error', 'cancelled'].includes(payload.status)) return payload
-        await sleep(delay, signal)
-        delay = Math.min(delay * 2, POLL_MAX_MS)
+    } catch (error) {
+        if (signal?.aborted || !controller.signal.aborted) throw error
+        // The caller can still cancel an unlimited run. Only our own deadline becomes run_timeout.
+    } finally {
+        clearTimeout(timer)
+        unlink()
     }
     throw new HarnessError('run_timeout', `Harness "${harnessName}" did not finish the Hermes run in time.`)
 }
@@ -220,7 +233,7 @@ function sseJson(frame) {
 async function waitForRunEnd(url, headers, fetchImpl, deadline, onEvent, callerSignal) {
     const controller = new AbortController()
     const unlink = linkSignal(controller, callerSignal)
-    const timer = setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()))
+    const timer = Number.isFinite(deadline) ? setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now())) : undefined
     let endStream = () => {}
     try {
         const response = await fetchImpl(url, { headers: { ...headers, accept: 'text/event-stream' }, signal: controller.signal })

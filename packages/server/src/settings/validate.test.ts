@@ -60,6 +60,16 @@ describe('checking values from the page', () => {
         expect(checkValue(queryTimeout, '500').ok).toBe(false)
     })
 
+    it('accepts an unlimited agent run or five minutes, in raw milliseconds', () => {
+        const runTime = def('CUTTLELY_HARNESS_RUN_TIMEOUT_MS')
+        expect(runTime).toMatchObject({ section: 'runtime', group: 'Limits', unit: 'ms-as-seconds', defaultValue: '240000' })
+        expect(runTime.runtime).toBeUndefined()
+        expect(checkValue(runTime, '0')).toEqual({ ok: true, value: '0' })
+        expect(checkValue(runTime, '300000')).toEqual({ ok: true, value: '300000' })
+        expect(checkValue(runTime, '3600000').ok).toBe(true)
+        for (const value of ['-1', '1.5', '3600001', 'Infinity', 'NaN', 'soon']) expect(checkValue(runTime, value).ok).toBe(false)
+    })
+
     it('tidies lists and refuses multi-line text', () => {
         expect(checkValue(def('CORS_ORIGINS'), 'https://a.example.com\n https://a.example.com, https://b.example.com')).toEqual({
             ok: true,

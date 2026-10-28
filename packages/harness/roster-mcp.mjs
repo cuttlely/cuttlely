@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createRun, hermesBaseUrl, waitForRun } from './client.mjs'
+import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
 import { profileDir } from './paths.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
+import { agentRunTimeoutMs } from './budget.mjs'
 
 const harnessName = flag('--harness')
 const roster = readRoster(harnessName)
@@ -47,9 +48,16 @@ const tools = [
 ]
 
 let buffer = Buffer.alloc(0)
+const activeRequests = new Map()
+let shuttingDown = false
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
-if (isMain)
+if (isMain) {
+    process.stdin.on('end', () => void shutdown())
+    process.stdin.on('close', () => void shutdown())
+    process.on('SIGTERM', () => void shutdown())
+    process.on('SIGINT', () => void shutdown())
     process.stdin.on('data', (chunk) => {
+        if (shuttingDown) return
         buffer = Buffer.concat([buffer, chunk])
         while (true) {
             const headerEnd = buffer.indexOf('\r\n\r\n')
@@ -70,6 +78,19 @@ if (isMain)
             })
         }
     })
+}
+
+async function shutdown() {
+    if (shuttingDown) return
+    shuttingDown = true
+    const active = [...activeRequests.values()]
+    for (const request of active) request.controller.abort()
+    // stopRun has its own two-second HTTP deadline. Never keep a stopped parent waiting on cleanup.
+    const timer = setTimeout(() => process.exit(0), 2500)
+    await Promise.allSettled(active.map((request) => request.done))
+    clearTimeout(timer)
+    process.exit(0)
+}
 
 async function handle(body) {
     let message
@@ -78,7 +99,11 @@ async function handle(body) {
     } catch {
         return
     }
-    if (!message.id && message.method) return
+    if (message.method === 'notifications/cancelled') {
+        activeRequests.get(message.params?.requestId)?.controller.abort()
+        return
+    }
+    if (message.id == null || shuttingDown) return
     if (message.method === 'initialize') {
         return send(message.id, {
             protocolVersion: '2024-11-05',
@@ -92,47 +117,70 @@ async function handle(body) {
         if (params.name !== 'run_specialist') {
             return send(message.id, { content: [{ type: 'text', text: `Unknown tool ${params.name}` }], isError: true })
         }
+        let finish
+        const request = { controller: new AbortController(), done: new Promise((resolve) => (finish = resolve)) }
+        activeRequests.set(message.id, request)
         try {
-            const text = await runSpecialist(params.arguments || {})
+            const text = await runSpecialist(params.arguments || {}, request.controller.signal)
             return send(message.id, { content: [{ type: 'text', text }], isError: false })
         } catch (error) {
             return send(message.id, { content: [{ type: 'text', text: error.message }], isError: true })
+        } finally {
+            activeRequests.delete(message.id)
+            finish()
         }
     }
-    if (message.id) send(message.id, {})
+    send(message.id, {})
 }
 
-async function runSpecialist(args) {
+async function runSpecialist(args, signal) {
     const name = String(args.name || '').trim()
     const task = String(args.task || '').trim()
     if (!name || !task) throw new Error('run_specialist needs a specialist name and a task.')
     const specialist = (roster?.specialists || []).find((item) => item.name === name)
     if (!specialist?.profileName) throw new Error(`Specialist "${name}" is not on this roster.`)
     const body = rosterSpecialistBody(specialist, task)
-    const created = await createRun({
-        harnessName: specialist.profileName,
-        body,
-        baseUrl: hermesBaseUrl(),
-        timeoutMs: 90000
-    })
-    const status =
-        created.output || created.error
-            ? created
-            : await waitForRun({
-                  harnessName: specialist.profileName,
-                  runId: created.run_id,
-                  timeoutMs: 90000
-              })
-    if (status.status === 'failed' || status.status === 'error') {
-        throw new Error(status.error || status.message || `Specialist "${name}" failed.`)
+    const timeoutMs = agentRunTimeoutMs()
+    const baseUrl = hermesBaseUrl()
+    let runId
+    let stopping
+    const stop = () => {
+        if (!runId || stopping) return
+        stopping = stopRun({ harnessName: specialist.profileName, runId, baseUrl }).catch(() => {})
     }
-    const text = status.output || status.text || ''
-    if (!text) throw new Error(`Specialist "${name}" returned an empty answer.`)
-    return text
+    signal.addEventListener('abort', stop, { once: true })
+    try {
+        const created = await createRun({ harnessName: specialist.profileName, body, baseUrl, timeoutMs, signal })
+        runId = created.run_id
+        if (signal.aborted) throw Object.assign(new Error('The specialist task was cancelled.'), { name: 'AbortError' })
+        const status =
+            created.output || created.error
+                ? created
+                : await waitForRun({ harnessName: specialist.profileName, runId, baseUrl, timeoutMs, signal })
+        if (['failed', 'error', 'cancelled'].includes(status.status)) {
+            throw new Error(status.error || status.message || `Specialist "${name}" failed.`)
+        }
+        const text = status.output || status.text || ''
+        if (!text) throw new Error(`Specialist "${name}" returned an empty answer.`)
+        return text
+    } catch (error) {
+        if (error.code === 'run_timeout') stop()
+        throw error
+    } finally {
+        signal.removeEventListener('abort', stop)
+        if (signal.aborted) stop()
+        await stopping
+    }
 }
 
 function send(id, result) {
+    if (shuttingDown) return
     const payload = JSON.stringify({ jsonrpc: '2.0', id, result })
     const packet = `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`
-    fs.writeSync(1, packet)
+    try {
+        fs.writeSync(1, packet)
+    } catch (error) {
+        if (error.code === 'EPIPE' || error.code === 'EBADF') void shutdown()
+        else throw error
+    }
 }

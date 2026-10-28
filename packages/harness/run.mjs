@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { readClientSignal } from './abort.mjs'
-import { turnBudgetMs } from './budget.mjs'
+import { agentRunTimeoutMs, turnBudgetMs } from './budget.mjs'
 import {
     ANALYST_SUMMARY_LINE,
     analystPayloadsFor,
@@ -449,7 +449,7 @@ async function runTurnBody(
         modelBaseUrl,
         metadata,
         forceSpecialistFailure,
-        limit: timeoutMs ?? 240000,
+        limit: timeoutMs ?? agentRunTimeoutMs(),
         modelCache: new Map(),
         moduleOptions: { componentNodes, loadNode, nodeCache: new Map(), flowOptions },
         onEvent,
@@ -1200,7 +1200,7 @@ async function invokeOne(context, model, request, windowMs, controlSignal) {
             messages: request.messages,
             tools: request.tools,
             json: request.json,
-            timeoutMs: Math.min(context.limit, 120000),
+            timeoutMs: Math.min(context.limit || 120000, 120000),
             onDelta: request.onDelta,
             signal,
             callbacks: context.traceCallbacks
@@ -2262,9 +2262,10 @@ async function runHermesSpecialist(context, specialist, task) {
     }
     let runId
     const stops = []
-    const cancel = () => {
-        abortGatewayProfile(specialist.profileName)
-        if (!runId) return
+    let stopping = false
+    const stopCurrentRun = () => {
+        if (!runId || stopping) return
+        stopping = true
         stops.push(
             stopRun({
                 harnessName: specialist.profileName,
@@ -2273,6 +2274,10 @@ async function runHermesSpecialist(context, specialist, task) {
                 fetchImpl: context.fetchImpl
             }).catch(() => {})
         )
+    }
+    const cancel = () => {
+        abortGatewayProfile(specialist.profileName)
+        stopCurrentRun()
     }
     if (context.workSignal?.aborted) cancel()
     const onAbort = () => cancel()
@@ -2314,6 +2319,10 @@ async function runHermesSpecialist(context, specialist, task) {
         const text = typeof status.output === 'string' ? hideTurnImageDir(status.output, imageDir, specialistWorkspaceRoot()) : ''
         if (!text.trim()) throw new HarnessError('empty_output', `Specialist "${specialist.name}" returned nothing.`)
         return { text }
+    } catch (error) {
+        // The wait's own deadline stops only this remote run, leaving other chats on the same profile alone.
+        if (error.code === 'run_timeout') stopCurrentRun()
+        throw error
     } finally {
         startCapture.flush()
         context.analystStarts.delete(specialist.name)

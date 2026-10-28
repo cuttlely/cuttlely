@@ -16,6 +16,7 @@ import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
 import { installPresetKit, normalizePresetSpecialist, presetInstructions, presetSummary } from './presets.mjs'
 import { parseRelationSelection } from './runtime/analyst-relations.mjs'
 import { PINNED_QUERY_GUIDANCE, pinnedQueriesEnabled, specialistHasStampedPin } from './pinned-names.mjs'
+import { agentRunTimeoutMs } from './budget.mjs'
 
 const require = createRequire(import.meta.url)
 
@@ -1354,6 +1355,8 @@ function pushMcpServers(yaml, blocks) {
     for (const block of blocks) {
         yaml.push(`  ${block.name}:`)
         yaml.push(`    command: ${yamlQuote(block.command)}`)
+        // Only the owned roster wrapper sets this. Its Cuttlely client enforces the configured deadline.
+        if (block.timeout === Infinity) yaml.push('    timeout: .inf')
         yaml.push('    args:')
         for (const arg of block.args) yaml.push(`      - ${yamlQuote(arg)}`)
         const envEntries = Object.entries(block.env || {})
@@ -2217,7 +2220,8 @@ function compileProfileFiles(record, options = {}) {
         chief: { ...record.chief, model: resolved.chiefModel },
         specialists: resolved.specialists,
         chiefToolsets: CHIEF_TOOLSETS,
-        dispatch: resolved.mixed ? 'roster' : 'delegation'
+        dispatch: resolved.mixed ? 'roster' : 'delegation',
+        agentRunTimeoutMs: agentRunTimeoutMs()
     }
     writeIfChanged(path.join(dir, 'harness-roster.json'), JSON.stringify(compiled, null, 2))
     writeIfChanged(path.join(dir, 'SOUL.md'), chiefPrompt(compiled, { specialists: resolved.specialists, mixed: resolved.mixed }))
@@ -2236,7 +2240,15 @@ function compileProfileFiles(record, options = {}) {
         mcpBlocks.push({
             name: 'roster',
             command: process.execPath,
-            args: [path.join(repoRoot(), 'packages', 'harness', 'roster-mcp.mjs'), '--harness', profileName]
+            args: [path.join(repoRoot(), 'packages', 'harness', 'roster-mcp.mjs'), '--harness', profileName],
+            // Avoid the runtime's generic 300s MCP ceiling. Its infinite wait still polls user interrupts.
+            timeout: Infinity,
+            // The runtime filters inherited stdio environments. Pass only these nonsecret settings explicitly.
+            env: {
+                CUTTLELY_HARNESS_RUN_TIMEOUT_MS: String(compiled.agentRunTimeoutMs),
+                CUTTLELY_DATA_DIR: dataRoot(),
+                CUTTLELY_HERMES_HOME: hermesHome()
+            }
         })
     }
     for (const block of mcpBlocks) {
@@ -2617,7 +2629,7 @@ const compiledProfiles = new Map()
 // Raise this whenever compileProfile writes a different shape, so profiles already on disk are compiled again
 // at boot. Hermes reads config.yaml from disk, and the compile cache above lives only in memory, so a profile
 // compiled by an older server (for example a parent that still lists specialist bridges) would otherwise stay.
-export const PROFILE_COMPILER_VERSION = '2'
+export const PROFILE_COMPILER_VERSION = '3'
 
 function compilerVersionOf(dir) {
     try {
@@ -2675,6 +2687,8 @@ export function profileOutdated(record) {
     }
     if (compilerVersionOf(dir) !== PROFILE_COMPILER_VERSION || profileTreeBlocked(dir)) return true
     const roster = onDiskRoster(dir)
+    // The stdio child gets a compiled env, so an Admin restart must refresh a changed run timeout before loading it.
+    if (roster?.dispatch === 'roster' && roster.agentRunTimeoutMs !== agentRunTimeoutMs()) return true
     for (const specialist of roster?.specialists || []) {
         const childName = String(specialist?.profileName || '')
         // A name that leaves the profiles tree is not a profile directory. Leave that path where it is.
@@ -2801,7 +2815,7 @@ function credentialIdsIn(record) {
 
 // Recompiling writes several files and decrypts credentials; on a Windows-mounted drive
 // that is most of a single-tool turn. The key covers the record, the home it compiles
-// into, and each model credential's updatedDate, so a saved roster or a rotated key recompiles.
+// into, the specialist timeout passed to stdio children, and each model credential's updatedDate.
 export function forgetCompiledProfile(name) {
     compiledProfiles.delete(name)
 }
@@ -3039,7 +3053,7 @@ function recheckCached(compiled) {
 }
 
 export function compileProfileCached(record) {
-    const key = [hermesHome(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
+    const key = [hermesHome(), agentRunTimeoutMs(), JSON.stringify(record), credentialStamp(credentialIdsIn(record))].join('\0')
     const cached = compiledProfiles.get(record.name)
     if (cached?.key === key && cached.compiled) {
         try {

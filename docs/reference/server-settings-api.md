@@ -60,6 +60,20 @@ A refusal is 400:
 
 `code` is `OUT_OF_RANGE` for a number outside the range, `INVALID` for a value that is not a whole number, and `CROSS_FIELD` for a pair. `min` and `max` are the bounds that apply to that save. `errors` lists the same problem by key. A host value that is not a usable number is ignored on read: the saved value is used when it is in range, and otherwise the default. The read does not fail. An in-range host value on a pair always wins and is not loosened. The other setting falls back through its saved value and then its default. If none fit, that setting is bounded by the host value. Its `source` is `bounded`, and `boundedBy` names the host key. It is not `host`. `locked` stays false unless that same variable is also set on the host, so the field can still be edited. A host `CUTTLELY_CHECK_COUNT_MAX` of 1 makes the effective question default 1, bounded by `CUTTLELY_CHECK_COUNT_MAX`. A host `CUTTLELY_RATING_SCAN_CAP` of 300 makes the effective import cap 300, bounded by `CUTTLELY_RATING_SCAN_CAP`. When both sides are host values and they conflict, the host cap is kept and the other side uses the first saved or default candidate that fits. `bounded` applies only when no candidate fits. The warning names the key only. A settings file that is not valid JSON is ignored the same way, and `GET` still returns 200. `range.max` for `CUTTLELY_CHECK_COUNT_DEFAULT` is the question cap in effect, not the static 500. `range.max` for `CUTTLELY_RATING_IMPORT_CAP` is the rating scan cap in effect. `range.min` for `CUTTLELY_RATING_SCAN_CAP` is the import cap in effect.
 
+## Agent run time
+
+`CUTTLELY_HARNESS_RUN_TIMEOUT_MS` appears under **Agent runtime** > **Limits** as **Agent run time**. It controls the wait for specialist agent runtime runs, including nested `run_specialist` tasks. The default is `240000` milliseconds (four minutes); the accepted range is `0` to `3600000`. `0` means unlimited. Nested tasks now share this setting instead of their separate 90-second wait. The generated roster MCP tool delegates its deadline and cancellation to the Cuttlely client, with no separate five-minute wrapper limit.
+
+The page shows seconds (`unit: "ms-as-seconds"`), but API values are milliseconds. For five minutes, send:
+
+```json
+{ "values": { "CUTTLELY_HARNESS_RUN_TIMEOUT_MS": "300000" } }
+```
+
+Send `"0"` for unlimited waiting. An empty string removes the saved value. The host value takes precedence and locks the setting. This setting has no `runtime: true` flag: save, then restart Cuttlely to apply it to the server and agent runtime processes.
+
+The whole-turn budget (`CUTTLELY_HARNESS_TURN_BUDGET_MS`, default `45000`, `0` to disable) still stops unfinished work when it expires sooner. Cancellation and independent model, provider, other MCP tool, SQL query, and HTTP request limits remain in effect. [Agent run time guide](../how-to/server-settings.md#agent-run-time).
+
 ## Runtime limits
 
 | Variable                         | Default | Range                                      | Unit    |

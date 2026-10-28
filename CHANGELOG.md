@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   **Agent run time** in **Admin** > **Server Settings** > **Agent runtime** configures specialist and nested-task waits. It defaults to four minutes; set 300 seconds for five minutes or `0` for unlimited, then restart. The whole-turn budget and cancellation still apply.
+
 -   Harness Specialist **Pin first** can run one matching pinned query and render its answer before any specialist model call. Rule patterns match with a 50 ms limit per pass, and a pattern that runs longer is a miss. The option defaults to off.
 
 -   Harness Specialist **Answer direct** can return an eligible single-step answer without a Harness Prime write-up. The option defaults to off.
