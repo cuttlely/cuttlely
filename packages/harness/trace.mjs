@@ -880,6 +880,7 @@ export function buildRunTrace({
     handoffFallback = '',
     handoffStatus = '',
     handoffReason = '',
+    pinFirstRule,
     answerDirect = '',
     directDetail = null,
     routeParse = null,
@@ -951,7 +952,9 @@ export function buildRunTrace({
                       model: '',
                       fallback: '',
                       tokens: null,
-                      ...(handoffReason === 'answerDirect' ? { reason: handoffReason } : {})
+                      ...(['answerDirect', 'pinFirst'].includes(handoffReason)
+                          ? { reason: handoffReason, ...(handoffReason === 'pinFirst' && pinFirstRule ? { rule: pinFirstRule } : {}) }
+                          : {})
                   }
                 : {
                       status: 'done',

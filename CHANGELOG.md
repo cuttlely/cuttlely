@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Harness Specialist **Pin first** can run one matching pinned query and render its answer before any specialist model call. Rule patterns match with a 50 ms limit per pass, and a pattern that runs longer is a miss. The option defaults to off.
+
 -   Harness Specialist **Answer direct** can return an eligible single-step answer without a Harness Prime write-up. The option defaults to off.
 
 ### Changed

@@ -1014,8 +1014,30 @@ async function callTool(req, res, meta) {
     if (meta.profileName && (!refusedSqlTools.has(refusalKey(meta.profileName)) || !toolRoutes.has(refusalKey(meta.profileName)))) {
         await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
     }
+    if (isPinnedToolName(body.name)) {
+        const result = await invokeOfferedPinnedTool({
+            record,
+            specialistName: meta.specialistName,
+            toolName: body.name,
+            args,
+            callId,
+            chatId,
+            profileName: meta.profileName,
+            scope,
+            moduleOptions: {
+                componentNodes: ctx.componentNodes,
+                loadNode: ctx.loadNode,
+                flowOptions: ctx.flowOptions,
+                nodeCache: ctx.nodeCache,
+                // Checked once the tool's node is prepared, right before the tool itself runs.
+                beforeCall: () => readyToRun(meta),
+                assertCall: () => assertStillValid(meta)
+            }
+        })
+        sendJson(res, 200, { result })
+        return
+    }
     const secureNames = secretNamesFor(meta.profileName, body.name)
-    const capturedParams = isPinnedToolName(body.name) ? capturePinnedParams(args, secureNames, analystTracePreviewsEnabled()) : null
     const captureId = isAnalystQueryTool(body.name)
         ? noteAnalystGatewayCall({
               harness: record.name,
@@ -1023,22 +1045,11 @@ async function callTool(req, res, meta) {
               chatId,
               callId,
               ...analystStatement(args),
-              toolName: body.name,
-              ...(capturedParams ? { pinned: { params: capturedParams } } : {})
+              toolName: body.name
           })
         : ''
     if (isRefusedSqlTool(meta.profileName, body.name)) {
         const result = JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' })
-        sendJson(res, 200, { result })
-        return
-    }
-    if (isPinnedToolName(body.name) && !pinnedQueriesEnabled()) {
-        const result = JSON.stringify({ error: PINNED_OFF_ERROR, cuttlelyOutcome: 'expected' })
-        sendJson(res, 200, { result })
-        return
-    }
-    if (isPinnedToolName(body.name) && meta.profileName && !toolRoutes.get(refusalKey(meta.profileName))?.has(body.name)) {
-        const result = JSON.stringify({ error: PINNED_MISSING_ERROR, cuttlelyOutcome: 'expected' })
         sendJson(res, 200, { result })
         return
     }
@@ -1073,6 +1084,74 @@ async function callTool(req, res, meta) {
         pinnedCall: isPinnedToolName(body.name)
     })
     sendJson(res, 200, { result: shown.result })
+}
+
+// The tools a specialist's nodes offer this turn, from the same discovery a Hermes tool list uses.
+export async function offeredPinnedTools(record, specialistName, moduleOptions, profileName) {
+    return toolSpecs(record, specialistName, moduleOptions, profileName)
+}
+
+// The node context a model-issued tool call runs with. Without the server context (offline tests), the run's own.
+export async function pinnedCallContext(record, fallback) {
+    if (typeof contextFor !== 'function') return fallback
+    const ctx = await ownerContext(record)
+    return { componentNodes: ctx.componentNodes, loadNode: ctx.loadNode, flowOptions: ctx.flowOptions, nodeCache: ctx.nodeCache }
+}
+
+// One pinned (pq_) call, the same way for a model-issued call and a harness pre-run: the same checks in the same order,
+// then the node's own invoke. Callers pass named pin arguments only; the node compiles the statement.
+export async function invokeOfferedPinnedTool({
+    record,
+    specialistName,
+    toolName,
+    args,
+    callId,
+    chatId,
+    profileName,
+    scope,
+    moduleOptions = {}
+}) {
+    const secureNames = secretNamesFor(profileName, toolName)
+    const capturedParams = capturePinnedParams(args, secureNames, analystTracePreviewsEnabled())
+    const captureId = noteAnalystGatewayCall({
+        harness: record.name,
+        specialist: specialistName,
+        chatId,
+        callId,
+        ...analystStatement(args),
+        toolName,
+        ...(capturedParams ? { pinned: { params: capturedParams } } : {})
+    })
+    if (isRefusedSqlTool(profileName, toolName)) return JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' })
+    if (!pinnedQueriesEnabled()) return JSON.stringify({ error: PINNED_OFF_ERROR, cuttlelyOutcome: 'expected' })
+    if (profileName && !toolRoutes.get(refusalKey(profileName))?.has(toolName)) {
+        return JSON.stringify({ error: PINNED_MISSING_ERROR, cuttlelyOutcome: 'expected' })
+    }
+    // Tool discovery awaits: a delete may have revoked the token meanwhile, and then no tool runs.
+    moduleOptions.assertCall?.()
+    // Step timings for the run trace. The tool result itself is unchanged.
+    const timings = []
+    const callStarted = performance.now()
+    const result = await withAnalystScope(
+        scope,
+        () =>
+            executeSpecialistTool(record.name, specialistName, toolName, args, {
+                ...routeFor(profileName, toolName),
+                harness: record,
+                ...moduleOptions
+            }),
+        { workspace: record.workspaceId, timings }
+    )
+    finishAnalystCallTimings(timings, performance.now() - callStarted)
+    moduleOptions.assertCall?.()
+    const shown = modelToolResult(result)
+    rememberAnalystResult(record.name, specialistName, shown.result, scope, args, captureId, timings.at(-1), {
+        executedSql: shown.traceSql,
+        freeSqlWithPin: freePinsFor(profileName, toolName),
+        secureNames,
+        pinnedCall: true
+    })
+    return shown.result
 }
 
 function modelToolResult(result) {

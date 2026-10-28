@@ -14,7 +14,7 @@ class HarnessSpecialist_Harness implements INode {
     constructor() {
         this.label = 'Harness Specialist'
         this.name = 'harnessSpecialist'
-        this.version = 2.2
+        this.version = 2.3
         this.type = 'HarnessSpecialist'
         this.icon = 'harness.svg'
         this.category = 'Harness'
@@ -109,6 +109,24 @@ class HarnessSpecialist_Harness implements INode {
                 additionalParams: true,
                 description:
                     "Return this specialist's answer as the reply when it is the only step and it succeeded. Harness Prime's instructions, persona and Handoff limit do not apply to that reply."
+            },
+            {
+                label: 'Pin first',
+                name: 'pinFirst',
+                type: 'boolean',
+                default: false,
+                optional: true,
+                additionalParams: true,
+                description:
+                    "Run one matching pinned query before the specialist model. A matching success is shown as written; Harness Prime's persona and Handoff limit do not apply to that reply."
+            },
+            {
+                label: 'Pin first rules',
+                name: 'pinFirstRules',
+                type: 'json',
+                optional: true,
+                additionalParams: true,
+                description: 'Optional array of rules with id, pin, when, params and answer. Rules contain named parameter values only.'
             },
             {
                 label: 'Handoff limit',

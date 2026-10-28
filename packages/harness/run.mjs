@@ -25,6 +25,7 @@ import { withModelFallback } from './fallback.mjs'
 import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSchema, splitToolOutput } from './bridge.mjs'
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
+import { matchPinFirst, renderPinResult, renderPinError } from './pin-first.mjs'
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
@@ -38,7 +39,15 @@ import {
     latestAnalystCursor,
     takeAnalystResults
 } from './analyst-capture.mjs'
-import { abortGatewayProfile, clearCallerWorkspace, noteCallerWorkspace, setGatewayContext } from './gateway.mjs'
+import {
+    abortGatewayProfile,
+    clearCallerWorkspace,
+    noteCallerWorkspace,
+    setGatewayContext,
+    offeredPinnedTools,
+    invokeOfferedPinnedTool,
+    pinnedCallContext
+} from './gateway.mjs'
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
@@ -52,6 +61,7 @@ import {
     analystTablesNote,
     analystBridgeQueryName,
     hasAnalystTool,
+    hermesMcpToolName,
     needsAgentLoop,
     routerDialectNote,
     specialistSoul,
@@ -664,13 +674,20 @@ async function runRoster(context, input) {
     } else {
         results = await runSteps(context, steps)
         finished = Date.now()
-        const direct = steps[0]?.specialist?.answerDirect === true ? answerDirectDecision(context, steps, results, question) : null
-        if (direct && 'text' in direct) {
-            text = direct.text
-            context.handoffSkipped = 'answerDirect'
+        if (results[0]?.pinFirst && results[0].status === 'completed' && !results[0].ungrounded && results[0].analystOk) {
+            // The renderer already printed every returned row and the page line, so the text is used as rendered.
+            text = results[0].text
+            context.handoffSkipped = 'pinFirst'
+            context.pinFirstRule = results[0].pinFirst
         } else {
-            if (direct) context.answerDirectIneligible = direct.reason
-            text = await chiefHandoff(context, question, history, results)
+            const direct = steps[0]?.specialist?.answerDirect === true ? answerDirectDecision(context, steps, results, question) : null
+            if (direct && 'text' in direct) {
+                text = direct.text
+                context.handoffSkipped = 'answerDirect'
+            } else {
+                if (direct) context.answerDirectIneligible = direct.reason
+                text = await chiefHandoff(context, question, history, results)
+            }
         }
     }
     if (!text.trim()) {
@@ -678,7 +695,7 @@ async function runRoster(context, input) {
     }
     // The stored turn feeds the next prompt and the chat history; it holds file names, never workspace paths.
     text = maskWorkspacePaths(text)
-    if (context.handoffSkipped === 'answerDirect') emit(context, 'partial', { phase: 'answer', text })
+    if (['answerDirect', 'pinFirst'].includes(context.handoffSkipped)) emit(context, 'partial', { phase: 'answer', text })
     if (!context.replay) {
         appendTurn(
             context.name,
@@ -714,6 +731,7 @@ async function runRoster(context, input) {
         handoffFallback: handoffLast?.fallback || '',
         handoffStatus: handoffCalls.length ? 'done' : 'skipped',
         handoffReason: context.handoffSkipped,
+        pinFirstRule: context.pinFirstRule,
         answerDirect: context.answerDirectIneligible,
         routeParse: context.routeParse,
         question
@@ -722,7 +740,8 @@ async function runRoster(context, input) {
         `[harness] ${context.name} route ${timings.routeMs}ms, specialists ${timings.specialistsMs}ms (` +
             agents.map((agent) => `${agent.name} ${agent.status} ${agent.ms}ms`).join(', ') +
             `), handoff ${timings.handoffMs}ms, profile ${profileNote(context)}, ${reportNote(context)}` +
-            (context.answerDirectIneligible ? `, answerDirect:${context.answerDirectIneligible}` : '')
+            (context.answerDirectIneligible ? `, answerDirect:${context.answerDirectIneligible}` : '') +
+            (context.pinFirstRule ? `, pinFirst:${context.pinFirstRule.id}:${context.pinFirstRule.pin}` : '')
     )
     const sources = [...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])]
     // Image and file bytes ride on the returned payload only; the Harness node stores them for the chat. Events carry
@@ -1779,6 +1798,7 @@ function routeErrorKind(error) {
 
 // Steps without "after" start together. A step with "after" starts when that step finishes, with its result.
 export function runSteps(context, steps, run = runStep) {
+    context.pinFirstSingleStep = steps?.length === 1
     const started = new Map()
     const runs = (steps || []).map((step) => {
         const earlier = step.after ? started.get(step.after) : null
@@ -1803,6 +1823,88 @@ export function withEarlierResult(step, result) {
     return { ...step, input: `${step.task}\n\n${note}` }
 }
 
+async function runPinFirst(context, specialist, match, moduleOptions) {
+    const { rule, args, binding, defaults } = match
+    const callId = `pinfirst:${context.turnId}:${(context.pinFirstCounter = (context.pinFirstCounter || 0) + 1)}`
+    const started = Date.now()
+    const logStart = context.toolLog?.length || 0
+    const toolName = rule.pin
+    const name = hermesMcpToolName(specialist.name, toolName)
+    const startCapture = analystStartCapture((data) => emitTool(context, data), { gatewayName: name })
+    beginAnalystCalls(context.name, specialist.name, context.chatId, startCapture.gatewayStarted)
+    startCapture.hermesStarted({ phase: 'start', specialist: specialist.name, name, callId })
+    try {
+        throwIfClient(context)
+        const raw = await raceSignal(context.workSignal, () =>
+            invokeOfferedPinnedTool({
+                record: context.roster,
+                specialistName: specialist.name,
+                profileName: specialist.profileName,
+                toolName,
+                args,
+                callId,
+                chatId: context.chatId,
+                scope: analystScopeKey(context.name, context.chatId),
+                moduleOptions: {
+                    ...moduleOptions,
+                    beforeCall: () => {
+                        throwIfClient(context)
+                        if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
+                    }
+                }
+            })
+        )
+        startCapture.flush()
+        throwIfClient(context)
+        if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
+        const body = typeof raw === 'string' ? JSON.parse(raw) : raw
+        const error =
+            typeof body?.error === 'string'
+                ? body.error
+                : body?.status === 'error' || !Array.isArray(body?.rows)
+                ? 'Pinned tool failed.'
+                : ''
+        emitTool(context, {
+            phase: 'done',
+            specialist: specialist.name,
+            name,
+            callId,
+            ...(error ? { error: true } : {}),
+            detail: JSON.stringify({ result: JSON.stringify(maskWorkspacePaths(body)) })
+        })
+        attachCapturedAnalystResults(context, specialist, started, logStart)
+        return {
+            text: error
+                ? renderPinError(rule, error)
+                : renderPinResult(body, rule, args, {
+                      defaults,
+                      rowCap: Number(binding.inputs?.analystRowCap) || 100
+                  }),
+            ...(error ? { pinFirstError: true } : { pinFirst: { id: rule.id, pin: rule.pin } })
+        }
+    } catch (error) {
+        startCapture.flush()
+        // A stopped or out-of-time turn stops here like any other step; only an execution failure becomes the answer text.
+        const stopped = context.clientSignal?.aborted || overBudget(context)
+        emitTool(context, {
+            phase: 'failed',
+            specialist: specialist.name,
+            name,
+            callId,
+            error: true,
+            detail: JSON.stringify({ error: maskWorkspacePaths(String(error.message || error)) })
+        })
+        if (stopped) {
+            throwIfClient(context)
+            throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
+        }
+        return { text: renderPinError(rule, error.message || error), pinFirstError: true }
+    } finally {
+        startCapture.flush()
+        endAnalystCalls(context.name, specialist.name, context.chatId)
+    }
+}
+
 async function runStep(context, step) {
     const { specialist } = step
     const note = context.stagedNotes?.get(specialist.name)
@@ -1822,9 +1924,39 @@ async function runStep(context, step) {
             throw new HarnessError('specialist_failed', `Specialist "${specialist.name}" failed.`)
         }
         context._stepTask = task
-        let out = await runSpecialistOnce(context, specialist, task)
+        const match =
+            context.pinFirstSingleStep &&
+            !step.after &&
+            !step.paging &&
+            !context.images?.length &&
+            specialist.profileName &&
+            needsAgentLoop(specialist)
+                ? matchPinFirst(specialist, context.userText)
+                : { reason: 'step' }
+        let pinOptions = null
+        let offered = []
+        if (match.rule) {
+            // A pin the node does not offer this turn (auto storage, a stale stamp, another team) is a miss; today's path
+            // then reports it the usual way.
+            try {
+                pinOptions = await pinnedCallContext(context.roster, context.moduleOptions)
+                offered = await offeredPinnedTools(context.roster, specialist.name, pinOptions, specialist.profileName)
+            } catch {
+                offered = []
+            }
+        }
         throwIfClient(context)
-        const dataTask = hasAnalystTool(specialist) && (analystDataTask(context, task) || analystDataTask(context, context.userText))
+        const preRun =
+            match.rule && offered.some((tool) => tool.name === match.rule.pin)
+                ? await runPinFirst(context, specialist, match, pinOptions)
+                : null
+        let out = preRun || (await runSpecialistOnce(context, specialist, task))
+        throwIfClient(context)
+        const dataTask =
+            hasAnalystTool(specialist) &&
+            ((preRun && analystQueryCount(context, specialist.name) > 0) ||
+                analystDataTask(context, task) ||
+                analystDataTask(context, context.userText))
         const pinsOnly = dataTask ? pinnedOnlyTools(specialist) : []
         if (dataTask && analystQueryCount(context, specialist.name) === 0) {
             out = await runSpecialistOnce(context, specialist, `${task}\n\n${analystToolRetry(pinsOnly)}`)
@@ -1844,7 +1976,9 @@ async function runStep(context, step) {
         } else if (dataTask) {
             out = {
                 ...out,
-                text: groundAnalystSpecialistText(out.text, context.toolLog, specialist.name),
+                // Pin-first text is the harness's own rendering of the logged result (escaped cells, author columns), so
+                // it is not rewritten from the raw payload; the payloads still ride along for the answer checks.
+                text: preRun ? out.text : groundAnalystSpecialistText(out.text, context.toolLog, specialist.name),
                 analystPayloads: analystPayloadsFor(context.toolLog, specialist.name)
             }
         }
@@ -1865,6 +1999,7 @@ async function runStep(context, step) {
             task,
             publicTask: step.task,
             text: out.text,
+            ...(out.pinFirst ? { pinFirst: out.pinFirst } : {}),
             ...(out.finishReason ? { finishReason: out.finishReason } : {}),
             tools: toolsFor(context, specialist.name),
             sources: out.sources || [],
