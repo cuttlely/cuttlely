@@ -9,6 +9,8 @@
 //      does not record. A relation that is not ticked, a function or operator outside pg_catalog, or a built-in
 //      that runs SQL from text or reads data outside a relation is refused.
 //   3. The view is dropped and that transaction rolls back. The statement then runs in a new BEGIN READ ONLY transaction.
+// The check transaction opens READ WRITE, so a login whose role defaults to read-only transactions can still create the
+// view. It only creates the view and reads the catalog, never runs the statement, and always rolls back.
 // A ticked view is the gate: it may read relations that are not ticked. For the PostgreSQL MCP node, the functions,
 // operators and types inside every view it reads are checked too.
 
@@ -21,7 +23,11 @@ export const RELATION_KINDS = { r: 'table', p: 'table', f: 'foreign table', v: '
 export const SCOPE_ONLY_SELECT =
     'This node limits the analyst to selected tables and views, so it runs only SELECT, WITH, VALUES and TABLE queries.'
 export const SCOPE_UNCHECKABLE =
-    'Cuttlely could not check this query against the table selection: this database login cannot create a temporary view (a read replica, or no TEMP privilege). Queries are refused while a selection is set.'
+    'Cuttlely could not check this query against the table selection: the temporary view the check uses could not be read. Queries are refused while a selection is set.'
+export const SCOPE_NO_TEMP =
+    'Cuttlely could not check this query against the table selection: this database login has no TEMP privilege on the database, so it cannot create the temporary view the check uses. Run GRANT TEMPORARY ON DATABASE <database> TO <role>. Queries are refused while a selection is set.'
+export const VALIDATION_STANDBY =
+    'Cuttlely could not check this query: the database is a read-only standby (in recovery), and the check needs a server where it can create a temporary view, which it always rolls back. Point the credential at the primary. The query did not run.'
 export function scopeRiskyDomains(names) {
     return `Cuttlely refused this query: this database has domains whose CHECK could run other code or change data while a query is checked: ${refusedList(
         names
@@ -406,6 +412,9 @@ export async function sampleRelationValues(client, runner, relation, relations, 
     if (!checked.length) return null
     await client.query('SET LOCAL transaction_read_only = on')
     await client.query(`SET LOCAL statement_timeout = ${SAMPLE_TIMEOUT_MS}`)
+    // The samples run only once the transaction reads back as read only.
+    const mode = await client.query('SHOW transaction_read_only')
+    if (mode.rows?.[0]?.transaction_read_only !== 'on') return null
     const values = {}
     for (const { column, statement } of checked) {
         const sample = await inSavepoint(client, 'cuttlely_sample', () => client.query(statement))
@@ -851,9 +860,22 @@ function refusedList(names) {
     return names.length > REFUSED_LIST ? `${shown}, and ${names.length - REFUSED_LIST} more` : shown
 }
 
-function scopeUncheckable(error) {
+// Why the check could not create its temporary view: 'standby' for a server in recovery (the check transaction is
+// READ WRITE, so a read-only refusal there means the server itself is read only), 'no-temp' for a login without the
+// TEMP privilege, '' for anything else.
+export function validationFailure(error, { inRecovery = false } = {}) {
     const code = String(error?.code || '')
-    return code === '25006' || (code === '42501' && /temporary/i.test(String(error?.message || '')))
+    const message = String(error?.message || '')
+    if (inRecovery || code === '25006' || (code === '0A000' && /during recovery/i.test(message))) return 'standby'
+    if (code === '42501' && /temporary/i.test(message)) return 'no-temp'
+    return ''
+}
+
+function uncheckableRefusal(error) {
+    const failure = validationFailure(error)
+    if (failure === 'standby') return new ScopeRefusal(VALIDATION_STANDBY)
+    if (failure === 'no-temp') return new ScopeRefusal(SCOPE_NO_TEMP)
+    return null
 }
 
 // Runs inside a read-write transaction that the caller rolls back. The statement runs later, in its own read-only one.
@@ -991,8 +1013,7 @@ async function parsedStatementIds(client, runner, statement, cacheKey) {
             text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
         })
     } catch (error) {
-        if (scopeUncheckable(error)) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-        throw error
+        throw uncheckableRefusal(error) ?? error
     } finally {
         await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
         // After a failed parse the transaction is aborted and rolls back, which resets the path anyway.
@@ -1034,8 +1055,7 @@ async function parsedStatementIdsBatched(client, runner, statement) {
         })
         parsed = true
     } catch (error) {
-        if (scopeUncheckable(error)) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-        throw error
+        throw uncheckableRefusal(error) ?? error
     } finally {
         if (!parsed) {
             // Preserve the legacy swallowing cleanup on an aborted parse transaction.
@@ -1083,8 +1103,7 @@ async function statementTree(client, runner, statement) {
             text: `CREATE TEMP VIEW ${SCOPE_VIEW} AS SELECT 1 FROM (\n${statement}\n) AS cuttlely_scope_q`
         })
     } catch (error) {
-        if (scopeUncheckable(error)) throw new ScopeRefusal(SCOPE_UNCHECKABLE)
-        throw error
+        throw uncheckableRefusal(error) ?? error
     } finally {
         await client.query(`DEALLOCATE ${statementName}`).catch(() => {})
         if (runner.statementSearchPath)
@@ -1100,7 +1119,9 @@ async function statementTree(client, runner, statement) {
 // ALLOWED_ROUTINES, any denied built-in, and any type whose input or output is not built in.
 export const ALLOWED_ROUTINES = new Set()
 export const SCOPE_UNCHECKABLE_ANY =
-    'Cuttlely could not check which functions this query calls: this database login cannot create a temporary view (a read replica, or no TEMP privilege). The query did not run.'
+    'Cuttlely could not check which functions this query calls: the temporary view the check uses could not be read. The query did not run.'
+export const SCOPE_NO_TEMP_ANY =
+    'Cuttlely could not check which functions this query calls: this database login has no TEMP privilege on the database, so it cannot create the temporary view the check uses. Run GRANT TEMPORARY ON DATABASE <database> TO <role>. The query did not run.'
 
 export async function checkStatementRoutines(client, runner, statement, isRowQuery, cacheKey = '') {
     if (!isRowQuery(statement)) throw new ScopeRefusal(SCOPE_ONLY_SELECT)
@@ -1110,6 +1131,7 @@ export async function checkStatementRoutines(client, runner, statement, isRowQue
         ids = await parsedStatementIds(client, runner, statement, cacheKey)
     } catch (error) {
         if (error instanceof ScopeRefusal && error.message === SCOPE_UNCHECKABLE) throw new ScopeRefusal(SCOPE_UNCHECKABLE_ANY)
+        if (error instanceof ScopeRefusal && error.message === SCOPE_NO_TEMP) throw new ScopeRefusal(SCOPE_NO_TEMP_ANY)
         throw error
     }
     const bodies = await followRelations(runner, ids)
