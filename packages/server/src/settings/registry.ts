@@ -57,6 +57,8 @@ export interface SettingDef {
     unit?: 'seconds' | 'minutes' | 'hours' | 'days' | 'tokens' | 'bytes' | 'ms-as-seconds' | 'ms' | 'count'
     min?: number
     max?: number
+    /** Require a whole raw value, before any display-unit conversion. */
+    integer?: boolean
     /** Read on each use: host, then the settings file, then the default. No restart. */
     runtime?: boolean
     /** A saved value overrides the host. Read on each use. The field stays editable. */
@@ -470,6 +472,21 @@ export const SETTINGS: SettingDef[] = [
     },
 
     // Agent runtime
+    {
+        key: 'CUTTLELY_HARNESS_RUN_TIMEOUT_MS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Agent run time',
+        help: 'How long to wait for one specialist run, including a nested specialist task. 0 means unlimited. A shorter turn time limit still applies. Restart to apply.',
+        type: 'number',
+        integer: true,
+        unit: 'ms-as-seconds',
+        min: 0,
+        max: 3600,
+        defaultLabel: '4 minutes',
+        defaultValue: '240000',
+        risk: 'medium'
+    },
     {
         key: 'CUTTLELY_HARNESS_TURN_BUDGET_MS',
         section: 'runtime',

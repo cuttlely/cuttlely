@@ -91,6 +91,8 @@ When the code-scanning alert API is not readable (an agent token gets 403), repr
 
 ## Run the one server
 
+Specialist waits are configurable in **Admin** > **Server Settings** > **Agent runtime** > **Limits** > **Agent run time**. The page uses seconds (0 to 3600), while `CUTTLELY_HARNESS_RUN_TIMEOUT_MS` and API values use milliseconds (0 to 3600000). The default is 240000 ms; 300000 allows five minutes; 0 means unlimited. Save and restart to apply, including to nested `run_specialist` tasks. A host value locks the setting. The whole-turn budget (`CUTTLELY_HARNESS_TURN_BUDGET_MS`, default 45000, 0 off) can still stop the turn sooner. Cancellation and model, provider, MCP, SQL and HTTP limits remain independent. See [Agent run time](../../docs/how-to/server-settings.md#agent-run-time).
+
 ```bash
 bash scripts/setup-hermes.sh          # once: the agent runtime's Python environment (hermes/.venv, with aiohttp and the mcp extra)
 pnpm build

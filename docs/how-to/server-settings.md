@@ -75,6 +75,14 @@ Errors come back in plain words, never with a secret in them. Model keys themsel
 
 ![The end of the Analyst section: Query timeout, Query previews in the run trace set to On, and the test card. Test the analyst database failed: Could not connect to the analyst database. Not the application database has a green dot, and Connect and sign in has a red dot: The analyst database refused the connection. Check the address and port, and that the service is running. The button is Test again. The bar at the bottom says 1 unsaved change.](../images/server-settings/test-connection-analyst-failed.png)
 
+## Agent run time
+
+Under **Agent runtime** > **Limits**, **Agent run time** controls how long Cuttlely waits for a specialist's agent runtime run, including a nested `run_specialist` task. The default is **240 seconds** (four minutes). Enter **300** for five minutes, or **0** for unlimited waiting. The field accepts 0 to 3600 seconds. Review and save, then restart Cuttlely to apply it. A value set on the host locks the field.
+
+The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use milliseconds: `300000` for five minutes, `0` for unlimited, and `240000` for the default. Its range is 0 to 3600000 milliseconds. Nested specialist tasks use this same setting; their previous separate 90-second wait is replaced by the four-minute default. They have no additional five-minute MCP wrapper limit.
+
+**Turn time limit** separately bounds the whole team turn and defaults to 45 seconds. A shorter turn limit still stops unfinished work, so raise it too when a turn needs longer, or set it to `0` to turn that limit off. Unlimited agent run time still permits cancellation and does not remove model, provider, other MCP tool, SQL query, or HTTP request limits. [How long a turn should take](./harnesses.md#how-long-a-turn-should-take) explains the whole-turn budget.
+
 ## Analyst limits
 
 **Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host value above the maximum is treated as the maximum. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number counts as unset, so the default applies, and the server logs that once.

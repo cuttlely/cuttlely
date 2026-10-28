@@ -146,6 +146,7 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
             if (setting.runtime) return runtimeInteger(setting, value)
             if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: `${setting.label}: enter a number.` }
             const raw = Number(value)
+            if (setting.integer && !Number.isSafeInteger(raw)) return { ok: false, error: `${setting.label}: enter a whole number.` }
             const shown = setting.unit === 'ms-as-seconds' ? raw / 1000 : raw
             if (setting.min !== undefined && shown < setting.min)
                 return { ok: false, error: `${setting.label}: the smallest value is ${setting.min}.` }
