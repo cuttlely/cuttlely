@@ -242,6 +242,12 @@ const answerDirectTests = spawnSync(process.execPath, ['--test', path.join(root,
 })
 check('answer direct runtime and configuration tests', answerDirectTests.status === 0, answerDirectTests.stdout + answerDirectTests.stderr)
 
+const pinFirstTests = spawnSync(process.execPath, ['--test', path.join(root, 'packages/harness/pin-first.test.mjs')], {
+    encoding: 'utf8',
+    timeout: 60000
+})
+check('pin first runtime and configuration tests', pinFirstTests.status === 0, pinFirstTests.stdout + pinFirstTests.stderr)
+
 saveHarness(
     {
         name: 'draft-probe',

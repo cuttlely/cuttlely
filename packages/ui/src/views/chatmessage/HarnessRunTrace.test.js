@@ -208,6 +208,23 @@ describe('HarnessRunTrace', () => {
         expect(html).toContain('This result is the answer.')
     })
 
+    test('a pin first skipped handoff identifies the pin and rule', () => {
+        const store = createStore(() => ({ customization: { isDarkMode: false } }))
+        const trace = {
+            harness: 'team',
+            status: 'completed',
+            direct: false,
+            specialists: [{ name: 'analyst', status: 'completed', tools: [] }],
+            route: { status: 'done', steps: [{ specialist: 'analyst' }] },
+            handoff: { status: 'skipped', reason: 'pinFirst', rule: { id: 'mom-drop', pin: 'pq_mom_change_by_family' } },
+            truncated: []
+        }
+        const html = renderToStaticMarkup(
+            createElement(Provider, { store }, createElement(ThemeProvider, { theme }, createElement(HarnessRunTrace, { trace })))
+        )
+        expect(html).toContain('Pinned query pq_mom_change_by_family ran first (mom-drop). This result is the answer.')
+    })
+
     test('a closed query step shows the row count and does not link away', () => {
         const store = createStore(() => ({ customization: { isDarkMode: false } }))
         const trace = {

@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Harness Specialist **Pin first** can run one matching pinned query and render its answer before any specialist model call. The option defaults to off.
+
 -   Harness Specialist **Answer direct** can return an eligible single-step answer without a Harness Prime write-up. The option defaults to off.
 
 ### Changed
