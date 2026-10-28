@@ -1835,24 +1835,28 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
     startCapture.hermesStarted({ phase: 'start', specialist: specialist.name, name, callId })
     try {
         throwIfClient(context)
-        const raw = await invokeOfferedPinnedTool({
-            record: context.roster,
-            specialistName: specialist.name,
-            profileName: specialist.profileName,
-            toolName,
-            args,
-            callId,
-            chatId: context.chatId,
-            scope: analystScopeKey(context.name, context.chatId),
-            moduleOptions: {
-                ...moduleOptions,
-                beforeCall: () => {
-                    throwIfClient(context)
-                    if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
+        const raw = await raceSignal(context.workSignal, () =>
+            invokeOfferedPinnedTool({
+                record: context.roster,
+                specialistName: specialist.name,
+                profileName: specialist.profileName,
+                toolName,
+                args,
+                callId,
+                chatId: context.chatId,
+                scope: analystScopeKey(context.name, context.chatId),
+                moduleOptions: {
+                    ...moduleOptions,
+                    beforeCall: () => {
+                        throwIfClient(context)
+                        if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
+                    }
                 }
-            }
-        })
+            })
+        )
         startCapture.flush()
+        throwIfClient(context)
+        if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
         const body = typeof raw === 'string' ? JSON.parse(raw) : raw
         const error =
             typeof body?.error === 'string'
@@ -1880,6 +1884,8 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
         }
     } catch (error) {
         startCapture.flush()
+        // A stopped or out-of-time turn stops here like any other step; only an execution failure becomes the answer text.
+        const stopped = context.clientSignal?.aborted || overBudget(context)
         emitTool(context, {
             phase: 'failed',
             specialist: specialist.name,
@@ -1888,6 +1894,10 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
             error: true,
             detail: JSON.stringify({ error: maskWorkspacePaths(String(error.message || error)) })
         })
+        if (stopped) {
+            throwIfClient(context)
+            throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
+        }
         return { text: renderPinError(rule, error.message || error), pinFirstError: true }
     } finally {
         startCapture.flush()

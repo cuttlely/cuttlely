@@ -740,3 +740,52 @@ test('a page with more rows than the renderer shows says how many rows it shows'
     )
     assert.doesNotMatch(small, /Showing the first/)
 })
+
+test('a turn budget that runs out while the pin runs fails the step instead of answering', async () => {
+    const { runSteps } = await import('./run.mjs')
+    const fixture = await run()
+    const roster = getHarness(fixture.name)
+    const person = { ...roster.specialists[0], profileName: `${fixture.name}--data` }
+    const budget = new AbortController()
+    let invoked = 0
+    const loadNode = async (nodeName) =>
+        nodeName === 'postgreSQLMCP'
+            ? class {
+                  async init() {
+                      return [
+                          {
+                              name: entry.name,
+                              schema: { type: 'object', properties: { threshold_pp: { type: 'string' } } },
+                              invoke: async () => {
+                                  invoked++
+                                  budget.abort()
+                                  await new Promise((resolve) => setTimeout(resolve, 20))
+                                  return JSON.stringify(body)
+                              }
+                          }
+                      ]
+                  }
+              }
+            : fixture.moduleOptions.loadNode(nodeName)
+    const events = []
+    const context = {
+        name: fixture.name,
+        chatId: 'budget',
+        turnId: 'budget-turn',
+        roster,
+        userText: question,
+        calls: [],
+        budgetMs: 5,
+        budgetSignal: budget.signal,
+        workSignal: budget.signal,
+        moduleOptions: { ...fixture.moduleOptions, loadNode },
+        onEvent: (event) => events.push(event)
+    }
+    const results = await runSteps(context, [{ specialist: person, task: question }])
+    assert.equal(invoked, 1)
+    assert.equal(results[0].status, 'failed')
+    assert.match(results[0].error, /turn budget/)
+    assert.equal(results[0].pinFirst, undefined)
+    assert.ok(events.some((event) => event.type === 'tool' && event.phase === 'failed'))
+    assert.deepEqual(context.calls, [])
+})
