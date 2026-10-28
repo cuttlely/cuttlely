@@ -675,7 +675,8 @@ async function runRoster(context, input) {
         results = await runSteps(context, steps)
         finished = Date.now()
         if (results[0]?.pinFirst && results[0].status === 'completed' && !results[0].ungrounded && results[0].analystOk) {
-            text = keepClosingLines(preserveAnalystRows(results[0].text, results, question), results)
+            // The renderer already printed every returned row and the page line, so the text is used as rendered.
+            text = results[0].text
             context.handoffSkipped = 'pinFirst'
             context.pinFirstRule = results[0].pinFirst
         } else {
@@ -1965,7 +1966,9 @@ async function runStep(context, step) {
         } else if (dataTask) {
             out = {
                 ...out,
-                text: out.pinFirstError ? out.text : groundAnalystSpecialistText(out.text, context.toolLog, specialist.name),
+                // Pin-first text is the harness's own rendering of the logged result (escaped cells, author columns), so
+                // it is not rewritten from the raw payload; the payloads still ride along for the answer checks.
+                text: preRun ? out.text : groundAnalystSpecialistText(out.text, context.toolLog, specialist.name),
                 analystPayloads: analystPayloadsFor(context.toolLog, specialist.name)
             }
         }

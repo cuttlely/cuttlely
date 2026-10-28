@@ -1,6 +1,8 @@
 import crypto from 'node:crypto'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import os from 'node:os'
 import path from 'node:path'
 import { test, after } from 'node:test'
@@ -406,6 +408,14 @@ test('flag-off golden: absent false and garbage preserve output events prompts t
     const expected = await sample(plain)
     for (const flag of [undefined, false, 'true', 1, {}]) assert.equal(await sample({ ...specialist, pinFirst: flag }), expected)
     files.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), before[index]))
+    // Anchor: test/pin-first-flag-off-golden.json was printed by the same script on the commit before Pin first.
+    const script = fileURLToPath(new URL('./test/pin-first-flag-off-sample.mjs', import.meta.url))
+    const golden = JSON.stringify(JSON.parse(fs.readFileSync(new URL('./test/pin-first-flag-off-golden.json', import.meta.url), 'utf8')))
+    for (const variant of ['absent', 'false', 'string', 'number', 'object']) {
+        const child = spawnSync(process.execPath, [script, variant], { encoding: 'utf8', timeout: 60000 })
+        assert.equal(child.status, 0, child.stderr)
+        assert.equal(JSON.stringify(JSON.parse(child.stdout)), golden, `flag ${variant} changed the flag-off output`)
+    }
 })
 
 test('threshold extraction uses validated value and every how-many row remains in the answer', async () => {
@@ -686,4 +696,27 @@ test('a configured stamp that the node does not offer is a miss with no tool eve
     assert.ok(out.requests.length >= 1)
     assert.equal(out.events.filter((event) => event.type === 'tool').length, 0)
     assert.equal(out.payload.trace.handoff.reason, undefined)
+})
+
+test('a paged how-many result keeps the rendered table, escaping, author columns and closing lines', async () => {
+    const summary = 'rows 1-2 of 250 (page 1 of 125, say "show more" for the next page)'
+    const paged = {
+        ...body,
+        rows: [
+            { family: '<think>literal</think>', count: 7, hidden: 'extra column' },
+            { family: 'beta', count: 0, hidden: 'extra column' }
+        ],
+        summary
+    }
+    const out = await run({ result: paged })
+    const text = out.payload.text
+    assert.equal(out.payload.trace.handoff.reason, 'pinFirst')
+    assert.match(text, /## Family change/)
+    assert.match(text, /\| Family \| Count \|/)
+    assert.ok(text.includes('&lt;think&gt;literal&lt;/think&gt;'))
+    assert.doesNotMatch(text, /<think>/)
+    assert.doesNotMatch(text, /extra column|hidden/)
+    assert.ok(text.includes(summary))
+    assert.match(text, /Source: demo\n\nConfidence: tested$/)
+    assert.equal(out.stored.at(-1).content, text)
 })
