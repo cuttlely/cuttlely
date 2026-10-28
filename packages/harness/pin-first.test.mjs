@@ -789,3 +789,25 @@ test('a turn budget that runs out while the pin runs fails the step instead of a
     assert.ok(events.some((event) => event.type === 'tool' && event.phase === 'failed'))
     assert.deepEqual(context.calls, [])
 })
+
+test('a backtracking author pattern is cut off at the time limit and the question takes the usual specialist path', async () => {
+    const slow = 'a'.repeat(40) + '!'
+    for (const person of [
+        { ...specialist, pinFirstRules: [{ ...rule, when: ['(a+)+$'] }] },
+        {
+            ...specialist,
+            pinFirstRules: [
+                { ...rule, when: ['a'], params: { threshold_pp: { source: 'extract', pattern: '((a+)+)$', fallback: 'default' } } }
+            ]
+        }
+    ]) {
+        const started = Date.now()
+        assert.equal(matchPinFirst(person, slow).reason, 'pattern-timeout')
+        assert.ok(Date.now() - started < 1000)
+    }
+    const out = await run({ person: { ...specialist, pinFirstRules: [{ ...rule, when: ['(a+)+$'] }] }, input: slow })
+    assert.equal(out.calls.length, 0)
+    assert.ok(out.requests.length)
+    assert.equal(out.payload.trace.handoff.reason, undefined)
+    assert.equal(matchPinFirst(specialist, question).rule.id, 'mom-drop')
+})

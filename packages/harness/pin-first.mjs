@@ -1,3 +1,4 @@
+import vm from 'node:vm'
 import { validateArgs, compilePinned } from './runtime/pinned-query.mjs'
 import { pinnedQueriesEnabled, parsePinnedQueries, validPinnedQueryName, findIsolatedPinnedQuery } from './pinned-names.mjs'
 
@@ -6,6 +7,40 @@ const object = (value) => value && typeof value === 'object' && !Array.isArray(v
 function regex(pattern) {
     if (typeof pattern !== 'string' || !pattern.length || pattern.length > 200) throw Error('Invalid pin-first pattern.')
     return new RegExp(pattern, 'i')
+}
+// Author patterns run on the server's event loop, so each matching pass runs in its own context with a time limit.
+// V8 interrupts a backtracking match at the limit; the pass then counts as a miss and the usual specialist path runs.
+export const PIN_FIRST_REGEX_MS = 50
+function anyWhenMatches(rules, question) {
+    return rules.map((patterns) => patterns.some((pattern) => new RegExp(pattern, 'i').test(question)))
+}
+function extractCaptures(pattern, question) {
+    const re = new RegExp(pattern, 'i')
+    const captures = []
+    const text = String(question)
+    let offset = 0
+    let matched = false
+    while (offset <= text.length) {
+        // Keep anchors and lookarounds relative to the whole question.
+        const search = offset ? new RegExp(`^[\\s\\S]{${offset}}[\\s\\S]*?(?:${re.source})`, 'i') : re
+        const hit = search.exec(text)
+        if (!hit) break
+        matched = true
+        if (hit.length < 2 || hit[1] === undefined) return { bad: true }
+        if (!captures.includes(hit[1])) captures.push(hit[1])
+        if (captures.length > 1) return { ambiguous: true }
+        const end = offset ? hit[0].length : hit.index + hit[0].length
+        offset = Math.max(offset + 1, end)
+    }
+    return { matched, captures }
+}
+function boundedRegex(fn, ...args) {
+    const code = `JSON.stringify((${fn.toString()})(...JSON.parse(input)))`
+    try {
+        return JSON.parse(vm.runInNewContext(code, { input: JSON.stringify(args) }, { timeout: PIN_FIRST_REGEX_MS }))
+    } catch {
+        return null
+    }
 }
 function hasCapture(pattern) {
     let bracket = false
@@ -94,7 +129,13 @@ export function matchPinFirst(specialist, question, env = process.env) {
     try {
         if (findIsolatedPinnedQuery([specialist], env)) return { reason: 'isolated' }
         const rules = validatePinFirstRules(specialist.pinFirstRules)
-        const matches = rules.filter((rule) => rule.when.some((pattern) => regex(pattern).test(question)))
+        const hits = boundedRegex(
+            anyWhenMatches,
+            rules.map((rule) => rule.when),
+            String(question)
+        )
+        if (!hits) return { reason: 'pattern-timeout' }
+        const matches = rules.filter((_, index) => hits[index] === true)
         if (matches.length !== 1) return { reason: matches.length ? 'ambiguous' : 'no-match' }
         const rule = matches[0]
         const bindings = [...(specialist.modules || []), ...(specialist.mcpServers || [])]
@@ -116,25 +157,14 @@ export function matchPinFirst(specialist, question, env = process.env) {
             if (param.source === 'fixed') raw[name] = param.value
             else if (param.source === 'default') raw[name] = spec.default
             else {
-                const re = regex(param.pattern)
+                regex(param.pattern)
                 if (!hasCapture(param.pattern)) return { reason: 'bad-param' }
-                const captures = new Set()
-                const text = String(question)
-                let offset = 0
-                let matched = false
-                while (offset <= text.length) {
-                    // Keep anchors and lookarounds relative to the whole question.
-                    const search = offset ? new RegExp(`^[\\s\\S]{${offset}}[\\s\\S]*?(?:${re.source})`, 'i') : re
-                    const hit = search.exec(text)
-                    if (!hit) break
-                    matched = true
-                    if (hit.length < 2 || hit[1] === undefined) return { reason: 'bad-param' }
-                    captures.add(hit[1])
-                    if (captures.size > 1) return { reason: 'ambiguous-param' }
-                    const end = offset ? hit[0].length : hit.index + hit[0].length
-                    offset = Math.max(offset + 1, end)
-                }
-                if (matched) raw[name] = [...captures][0]
+                const found = boundedRegex(extractCaptures, param.pattern, String(question))
+                if (!found) return { reason: 'pattern-timeout' }
+                if (found.bad) return { reason: 'bad-param' }
+                if (found.ambiguous) return { reason: 'ambiguous-param' }
+                const { matched, captures } = found
+                if (matched) raw[name] = captures[0]
                 else if (param.fallback === 'default') raw[name] = spec.default
                 else return { reason: 'bad-param' }
             }
