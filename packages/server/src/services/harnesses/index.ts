@@ -1193,10 +1193,12 @@ const assertRunRequest = async (
     name: string,
     body: Record<string, unknown>,
     workspaceId: string | null | undefined,
-    caller: IHarnessCaller | undefined
+    caller: IHarnessCaller | undefined,
+    access: { allowFlow?: boolean } = {}
 ) => {
-    assertRouteCaller(name, caller)
-    const scope: CallerScope = { apiKeyId: callerKeyId(caller) }
+    // A canvas run may act for a flow that has no list of its own. Named harness routes still refuse that caller.
+    if (!(access.allowFlow && caller?.via === 'flow')) assertRouteCaller(name, caller)
+    const scope: CallerScope = { apiKeyId: callerKeyId(caller as IHarnessCaller) }
     const harness = await requireHarness(name, workspaceId)
     const question = questionOf(body || {})
     if (!question.trim()) {
@@ -1248,10 +1250,12 @@ const startRun = async (
         runId?: string
         // Who the run acts for. An API key's id is stored on the history row.
         caller: IHarnessCaller
+        // Set by the canvas run. A flow with no list of its own may start that canvas.
+        allowFlow?: boolean
     }
 ) => {
     assertHarnessAvailable(name)
-    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller)
+    const prepared = await assertRunRequest(name, body, opts.workspaceId, opts.caller, { allowFlow: opts.allowFlow === true })
     const apiKeyId = callerKeyId(opts.caller)
     await configureRuntime()
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
@@ -1559,14 +1563,22 @@ const deleteHarnessSchedule = async (name: string, workspaceId?: string | null) 
     return { harness: harness.name, deleted: true }
 }
 
-// Canvas chat and Try it. The draft canvas when one exists, otherwise the Live canvas. The saved harness and its
-// profile are not written. The try compiles under its own id and is removed when the run ends.
+// Canvas chat and Try it run the draft canvas when one exists, otherwise the Live canvas. The public prediction
+// route passes canvas 'live', so a saved draft does not change it before Publish. The saved harness and its profile
+// are not written. The try compiles under its own id and is removed when the run ends.
 const startCanvasRun = async (
     chatflow: { id: string; name: string; type?: string | null; flowData: string; workspaceId: string },
     body: Record<string, unknown>,
-    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void; caller: IHarnessCaller }
+    opts: {
+        canvas?: 'live' | 'draft'
+        source?: string
+        signal?: AbortSignal
+        onEvent?: (event: { type: string }) => void
+        caller: IHarnessCaller
+    }
 ) => {
-    const flowData = await flowDraftsService.flowDataForTestChat(chatflow)
+    const { canvas, ...runOpts } = opts
+    const flowData = canvas === 'live' ? chatflow.flowData : await flowDraftsService.flowDataForTestChat(chatflow)
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
@@ -1577,7 +1589,8 @@ const startCanvasRun = async (
         componentNodes: appServer.nodesPool?.componentNodes
     })
     return await startRun(chatflow.name, body, {
-        ...opts,
+        ...runOpts,
+        allowFlow: true,
         workspaceId: chatflow.workspaceId,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })
