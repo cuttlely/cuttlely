@@ -83,6 +83,8 @@ export interface HarnessRunReport {
 }
 
 export interface HarnessRunResult {
+    /** Original turn deadline retained through queued output delivery. */
+    trustedOutputDeadlineAt?: number
     text?: string
     harness?: string
     agents?: unknown

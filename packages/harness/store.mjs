@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { trustedOutputContracts, normalizeTrustedPolicy } from './trusted-output.mjs'
 import path from 'node:path'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { specialistHandoffChars } from './context.mjs'
@@ -142,7 +143,11 @@ export function assertAnalystRules(record, specialist) {
 // Size limits on what a harness record carries. A full save and a canvas draft save both run it, so a limit
 // added here holds for both.
 export function assertRosterLimits(record) {
-    for (const specialist of record?.specialists || []) assertAnalystRules(record, specialist)
+    for (const specialist of record?.specialists || []) {
+        assertAnalystRules(record, specialist)
+        trustedOutputContracts(specialist.trustedOutputs)
+        normalizeTrustedPolicy(specialist.trustedOutputPolicy)
+    }
 }
 
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
@@ -234,6 +239,12 @@ export function saveHarness(record, { overwrite = false } = {}) {
         if (playbooks.length) specialist.playbooks = playbooks
         else delete specialist.playbooks
         if (specialist.answerDirect !== true) delete specialist.answerDirect
+        const outputs = trustedOutputContracts(specialist.trustedOutputs)
+        if (outputs.length) specialist.trustedOutputs = outputs
+        else delete specialist.trustedOutputs
+        const policy = normalizeTrustedPolicy(specialist.trustedOutputPolicy)
+        if (outputs.length && policy === 'verified-passthrough') specialist.trustedOutputPolicy = policy
+        else delete specialist.trustedOutputPolicy
         if (specialist.pinFirst !== true) delete specialist.pinFirst
         try {
             const rules = validatePinFirstRules(specialist.pinFirstRules)

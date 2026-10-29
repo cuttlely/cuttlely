@@ -318,7 +318,7 @@ test('answer direct config round trip and soul are opt in', async () => {
     assert.ok(!specialistSoul({ ...analyst, answerDirect: false }).includes('Your reply is shown to the user as written'))
     assert.equal(specialistSoul({ name: 'writer', answerDirect: false }), specialistSoul({ name: 'writer' }))
     const source = fs.readFileSync(new URL('../components/nodes/harness/HarnessSpecialist/HarnessSpecialist.ts', import.meta.url), 'utf8')
-    assert.ok(source.includes('this.version = 2.3'))
+    assert.ok(source.includes('this.version = 2.4'))
     assert.ok(source.includes('persona and Handoff limit do not apply'))
 })
 

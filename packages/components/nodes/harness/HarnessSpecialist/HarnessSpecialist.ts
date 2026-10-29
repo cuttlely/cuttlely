@@ -14,7 +14,7 @@ class HarnessSpecialist_Harness implements INode {
     constructor() {
         this.label = 'Harness Specialist'
         this.name = 'harnessSpecialist'
-        this.version = 2.3
+        this.version = 2.4
         this.type = 'HarnessSpecialist'
         this.icon = 'harness.svg'
         this.category = 'Harness'
@@ -109,6 +109,29 @@ class HarnessSpecialist_Harness implements INode {
                 additionalParams: true,
                 description:
                     "Return this specialist's answer as the reply when it is the only step and it succeeded. Harness Prime's instructions, persona and Handoff limit do not apply to that reply."
+            },
+            {
+                label: 'Trusted outputs',
+                name: 'trustedOutputs',
+                type: 'json',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'Optional pin-to-output contracts. Each names a tested pin and hash, with mode markdown (source field paths) or monthly-utilization-png. Consumes the actual server result, replaces model output/files and skips Harness Prime rewriting. Empty is off.'
+            },
+            {
+                label: 'Unmapped output policy',
+                name: 'trustedOutputPolicy',
+                type: 'options',
+                options: [
+                    { label: 'Require a trusted contract', name: 'strict' },
+                    { label: 'Allow other verified pinned queries', name: 'verified-passthrough' }
+                ],
+                default: 'strict',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'Applies only with Trusted outputs. Passthrough keeps ordinary answers/files for independently stamped unmapped queries, or non-data clarifications without files. A mapped query can never fall back to model output.'
             },
             {
                 label: 'Pin first',

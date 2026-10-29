@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Optional per-specialist **Trusted outputs** bind a tested query hash to exact source Markdown fields or a verified monthly-utilization PNG. The server uses the actual captured result and native attachment transport, replaces conflicting model output, preserves source section captions and reference blocks, and skips Harness Prime rewriting. Empty remains off; failures and unsupported sections are explicit. See [Trusted pinned-query outputs](./docs/reference/trusted-outputs.md).
+
 -   **Agent run time** in **Admin** > **Server Settings** > **Agent runtime** configures specialist and nested-task waits. It defaults to four minutes; set 300 seconds for five minutes or `0` for unlimited, then restart. The whole-turn budget and cancellation still apply.
 
 -   Harness Specialist **Pin first** can run one matching pinned query and render its answer before any specialist model call. Rule patterns match with a 50 ms limit per pass, and a pattern that runs longer is a miss. The option defaults to off.

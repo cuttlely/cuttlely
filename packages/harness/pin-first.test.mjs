@@ -364,7 +364,7 @@ test('config normalization retains true and refuses invalid rules on full save; 
     assert.equal(specialistSoul(plain), specialistSoul(specialist))
     assert.match(
         fs.readFileSync(new URL('../components/nodes/harness/HarnessSpecialist/HarnessSpecialist.ts', import.meta.url), 'utf8'),
-        /this.version = 2\.3/
+        /this.version = 2\.4/
     )
 })
 

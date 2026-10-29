@@ -1,3 +1,6 @@
+import path from 'path'
+import { execFileSync } from 'child_process'
+
 const mockHarnessRuns: { current: Record<string, unknown> | null } = { current: null }
 const listedHarnesses: Array<{ name: string; description?: string; workspaceId?: string }> = []
 const assertHarnessWorkspace = jest.fn()
@@ -52,6 +55,21 @@ const {
 } = require('./Harness')
 const { addSingleFileToStorage, getFileFromStorage } = require('../../../src/storageUtils')
 
+it('stores real verified-renderer PNG bytes through the native attachment path', async () => {
+    const fixture = path.resolve(__dirname, '../../../../harness/test/trusted-output-fixture.mjs')
+    const artifact = JSON.parse(
+        execFileSync(process.execPath, [fixture, '--artifact'], { encoding: 'utf8', timeout: 15000, maxBuffer: 5 * 1024 * 1024 })
+    )
+    const before = addSingleFileToStorage.mock.calls.length
+    const stored = await storeHarnessImages([artifact], { chatflowid: 'fixture-flow', chatId: 'fixture-chat', orgId: 'fixture-org' })
+    const call = addSingleFileToStorage.mock.calls[before]
+    expect(call[0]).toBe('image/png')
+    expect(call[1]).toEqual(Buffer.from(artifact.base64, 'base64'))
+    expect(call[1].subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+    expect(call[2]).toMatch(new RegExp(artifact.name.replace('.', '\\.')))
+    expect(stored).toEqual([{ type: 'png', data: `FILE-STORAGE::${call[2]}` }])
+}, 20000)
+
 type Sent = { kind: string; name?: string; data: unknown }
 
 function fakeStreamer() {
@@ -64,6 +82,121 @@ function fakeStreamer() {
         streamSourceDocumentsEvent: (_chatId: string, data: unknown) => sent.push({ kind: 'sources', data })
     }
 }
+
+describe('verified native output delivery', () => {
+    const text = 'Attached file: verified.png\n\nScope: exact source.\n\n[r1]: https://example.org/record/1\n'
+    const artifact = { name: 'verified.png', type: 'png', mime: 'image/png', specialist: 'data', base64: 'iVBORw0KGgo=' }
+    const payload = () => ({ text, trustedOutput: true, artifacts: [artifact], trace: { handoff: { reason: 'trustedOutput' } } })
+    function events(opts: any) {
+        opts.onEvent({ type: 'partial', phase: 'answer', text, trustedOutput: true })
+        opts.onEvent({ type: 'final', text, trustedOutput: true, artifacts: [{ name: artifact.name, type: 'png' }] })
+    }
+    afterEach(() => {
+        mockHarnessRuns.current = null
+    })
+
+    it('persists native bytes before sending exact answer tokens or final events', async () => {
+        const stream = fakeStreamer()
+        const sse = { ...stream, streamArtifactsEvent: (_chat: string, data: unknown) => stream.sent.push({ kind: 'artifacts', data }) }
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            events(opts)
+            return payload()
+        })
+        addSingleFileToStorage.mockImplementationOnce(async (_mime: string, _bytes: Buffer, name: string) => {
+            expect(stream.sent).toEqual([])
+            return { path: `FILE-STORAGE::${name}` }
+        })
+        const out = await new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Make the chart', {
+            chatId: 'verified-chat',
+            chatflowid: 'verified-flow',
+            orgId: 'verified-org',
+            sseStreamer: sse
+        })
+        expect(out.text).toBe(text)
+        expect(out.artifacts).toHaveLength(1)
+        expect(stream.sent[0].kind).toBe('artifacts')
+        expect(stream.sent.find((item) => item.kind === 'token')?.data).toBe(text)
+        expect(stream.sent.find((item) => item.name === 'harness.final')).toBeDefined()
+    })
+
+    it('storage failure never streams or returns an acknowledgment with empty attachments', async () => {
+        const stream = fakeStreamer()
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            events(opts)
+            return payload()
+        })
+        addSingleFileToStorage.mockRejectedValueOnce(new Error('synthetic storage failure'))
+        const quiet = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+            await expect(
+                new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Make the chart', {
+                    chatId: 'verified-chat',
+                    chatflowid: 'verified-flow',
+                    orgId: 'verified-org',
+                    sseStreamer: stream
+                })
+            ).rejects.toMatchObject({ code: 'trusted_output' })
+        } finally {
+            quiet.mockRestore()
+        }
+        expect(stream.sent).toEqual([])
+    })
+
+    it.each(['before storage', 'during storage'])('expired budget %s suppresses verified delivery', async (phase) => {
+        const stream = fakeStreamer()
+        let now = Date.now()
+        const deadline = now + 1000
+        const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            events(opts)
+            if (phase === 'before storage') now = deadline
+            return { ...payload(), trustedOutputDeadlineAt: deadline }
+        })
+        const before = addSingleFileToStorage.mock.calls.length
+        if (phase === 'during storage')
+            addSingleFileToStorage.mockImplementationOnce(async () => {
+                now = deadline
+                return { path: 'FILE-STORAGE::expired.png' }
+            })
+        try {
+            await expect(
+                new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Make the chart', {
+                    chatId: 'verified-chat',
+                    chatflowid: 'verified-flow',
+                    orgId: 'verified-org',
+                    sseStreamer: stream
+                })
+            ).rejects.toMatchObject({ code: 'over_budget' })
+            expect(stream.sent).toEqual([])
+            expect(addSingleFileToStorage.mock.calls.length - before).toBe(phase === 'before storage' ? 0 : 1)
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it('cancellation during persistence suppresses final and native delivery', async () => {
+        const stream = fakeStreamer(),
+            controller = new AbortController()
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            events(opts)
+            return payload()
+        })
+        addSingleFileToStorage.mockImplementationOnce(async () => {
+            controller.abort()
+            return { path: 'FILE-STORAGE::cancelled.png' }
+        })
+        await expect(
+            new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Make the chart', {
+                chatId: 'verified-chat',
+                chatflowid: 'verified-flow',
+                orgId: 'verified-org',
+                sseStreamer: stream,
+                signal: controller.signal
+            })
+        ).rejects.toMatchObject({ code: 'aborted' })
+        expect(stream.sent).toEqual([])
+    })
+})
 
 describe('Harness node team list', () => {
     it('lists only the active workspace', async () => {
