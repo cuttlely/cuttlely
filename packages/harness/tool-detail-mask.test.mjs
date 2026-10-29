@@ -207,6 +207,80 @@ test('plain-text Markdown links and parenthesized paths are masked through strea
     }
 })
 
+test('Markdown dotted and slash labels hide link and image destinations, including titles', () => {
+    const root = path.dirname(specialistWorkspace('_'))
+    for (const label of ['x...', 'More...', 'Q3..Q4', 'a//b']) {
+        for (const image of ['', '!']) {
+            for (const destination of [secret, `"${secret}"`, `<${secret}>`, `${secret} "t"`]) {
+                const text = `${image}[${label}](${destination})`
+                const shown = hideWorkspacePaths(text, root)
+                assert.equal(shown.includes('zz-secret-path.csv'), false)
+                if (!label.includes('//')) assert.equal(shown, text.replace(secret, 'the workspace'))
+                for (const length of [0, 1500]) {
+                    const body = { safe: 'ready', value: text, padding: 'x'.repeat(length) }
+                    const expected = JSON.stringify({ ...body, value: shown })
+                    const json = JSON.stringify(body)
+                    for (const [answer, masked] of [
+                        [text, shown],
+                        [json, expected],
+                        [`Here: ${json}`, `Here: ${expected}`],
+                        [`- ${json}`, `- ${expected}`],
+                        ['```json\n' + json + '\n```', '```json\n' + expected + '\n```'],
+                        [JSON.stringify({ result: json }), JSON.stringify({ result: expected })]
+                    ]) {
+                        assert.equal(hideWorkspacePaths(answer, root), masked)
+                        assert.equal(maskWorkspacePaths(answer), masked)
+                        for (const width of [1, 7, 1024]) {
+                            const context = {}
+                            let sent = ''
+                            const send = (chunk) => {
+                                sent += chunk
+                                assert.ok(masked.startsWith(sent), 'must release only a safe incremental prefix')
+                            }
+                            for (let at = 0; at < answer.length; at += width)
+                                bufferStream(context, 'answer', answer.slice(at, at + width), false, send)
+                            bufferStream(context, 'answer', '', true, send)
+                            assert.equal(sent, masked)
+                        }
+                    }
+                }
+            }
+        }
+    }
+})
+
+test('quoted Markdown and unfinished JSON hide dotted-label destinations', () => {
+    for (const text of [`[More...](${secret})`, `![x...](${secret} "t")`, `[Q3..Q4]("${secret}")`, `details..(${secret})`]) {
+        const quoted = JSON.stringify(text)
+        const partial = `{"safe":"ready","value":${quoted}`
+        const cut = partial.indexOf(secret) + secret.length
+        for (const answer of [quoted, `${partial},"tail":"`, partial.slice(0, cut)]) {
+            const expected = answer.replace(secret, 'the workspace')
+            assert.equal(maskWorkspacePaths(answer), expected)
+            assert.equal(streamedAnswer(answer), expected)
+        }
+        for (const length of [1, 2]) {
+            const answer = partial.slice(0, cut + length)
+            const shown = maskWorkspacePaths(answer)
+            assert.equal(shown.includes('zz-secret-path.csv'), false)
+            assert.equal(streamedAnswer(answer), shown)
+        }
+    }
+})
+
+test('parentheses within real paths keep the path whole and preserve existing deliverable names', () => {
+    const root = path.dirname(specialistWorkspace('_'))
+    const file = path.join(root, 'report(1)', 'parenthesized.csv')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, 'a,b\n1,2\n')
+    for (const text of [file, JSON.stringify(file), `[More...](${file})`, `![x...](${file} "t")`]) {
+        const expected = text.replace(file, 'the workspace file parenthesized.csv')
+        assert.equal(maskWorkspacePaths(text), expected)
+        assert.equal(streamedAnswer(text), expected)
+    }
+    assert.equal(hideWorkspacePaths('/tmp/report(1)/x.csv', root), 'a server path')
+})
+
 test('short, long and nested JSON masks Markdown paths in keys and values', () => {
     for (const length of [0, 1500]) {
         const body = {

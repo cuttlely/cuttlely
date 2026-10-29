@@ -247,7 +247,32 @@ function tokenMask(raw, root, continued) {
     const numeric = !candidate && continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
     // A number kept after a lone slash still passes the soft continuation on, so a path piece after it is hidden.
     if (numeric) return { text: raw, masked: 'soft' }
-    if (!candidate && !(continued && slash)) return { text: raw, masked: false }
+    if (!candidate && !(continued && slash)) {
+        // Quoted prose can contain Markdown destinations too, including in the ordinary
+        // scanner fallback for unfinished JSON. Keep quoted paths with spaces whole.
+        const quoteAt = raw.slice(0, start).search(/["'`]/)
+        if (quoteAt >= 0 && quoteAt < raw.length - 1) {
+            const quote = raw[quoteAt]
+            let backslashes = 0
+            for (let at = raw.length - (raw.at(-1) === quote ? 2 : 1); raw[at] === '\\'; at--) backslashes++
+            const closed = raw.at(-1) === quote && backslashes % 2 === 0
+            let body = raw.slice(quoteAt + 1, closed ? -1 : undefined)
+            let json = false
+            if (quote === '"') {
+                try {
+                    const ending = closed ? '' : raw.endsWith('\\') && backslashes % 2 ? '\\"' : '"'
+                    body = JSON.parse(raw.slice(quoteAt) + ending)
+                    json = true
+                } catch {}
+            }
+            const shown = hideWorkspacePaths(body, root)
+            if (shown !== body) {
+                const literal = json ? JSON.stringify(shown).slice(0, closed ? undefined : -1) : quote + shown + (closed ? quote : '')
+                return { text: raw.slice(0, quoteAt) + literal, masked: true }
+            }
+        }
+        return { text: raw, masked: false }
+    }
     let local = token.replace(/^file:\/\/[^/\\\s]*/i, '')
     try {
         local = decodeURIComponent(local)
@@ -398,7 +423,8 @@ export function scanWorkspaceText(state, text, root, flush = false) {
     const scanChar = (char) => {
         // Parentheses open a new token, including Markdown link destinations. Once a
         // path has started, keep parentheses inside it so directory names still resolve.
-        if (char === '(' && !state.quote && !state.json && !state.capCandidate) {
+        // The cap heuristic also matches labels such as More...; only an actual path stays whole.
+        if (char === '(' && !state.quote && !state.json && !state.overflow && !tokenMask(state.token, root, state.continued).masked) {
             finish()
             out.push(char)
             return
