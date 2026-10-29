@@ -6,6 +6,7 @@ import { specialistHandoffChars } from './context.mjs'
 import { harnessStoreDir } from './paths.mjs'
 import { validatePinFirstRules } from './pin-first.mjs'
 import { normalizePresetSpecialist } from './presets.mjs'
+import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
 // A specialist's routing summary: what Harness Prime reads to choose it, so the router does not carry every
 // specialist's full instructions.
@@ -245,6 +246,10 @@ export function saveHarness(record, { overwrite = false } = {}) {
         const policy = normalizeTrustedPolicy(specialist.trustedOutputPolicy)
         if (outputs.length && policy === 'verified-passthrough') specialist.trustedOutputPolicy = policy
         else delete specialist.trustedOutputPolicy
+
+        const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
+        if (capacityWaitSeconds) specialist.capacityWaitSeconds = capacityWaitSeconds
+        else delete specialist.capacityWaitSeconds
         if (specialist.pinFirst !== true) delete specialist.pinFirst
         try {
             const rules = validatePinFirstRules(specialist.pinFirstRules)

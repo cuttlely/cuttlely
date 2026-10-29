@@ -31,6 +31,7 @@ import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-name
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
+import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
     analystStartCapture,
@@ -2437,7 +2438,20 @@ async function runHermesSpecialist(context, specialist, task) {
     context.analystStarts.set(specialist.name, startCapture)
     beginAnalystCalls(context.name, specialist.name, context.chatId, startCapture.gatewayStarted)
     try {
-        const created = await createRun({ ...request, body })
+        const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
+        const created = await createRun({
+            ...request,
+            body,
+            ...(capacityWaitSeconds
+                ? {
+                      capacityWaitSeconds,
+                      onCapacityWait: ({ attempt, delayMs }) =>
+                          console.info(
+                              `[harness] ${context.name} ${specialist.name} waits for runtime capacity: admission retry ${attempt} in ${delayMs}ms`
+                          )
+                  }
+                : {})
+        })
         runId = created.run_id
         if (context.workSignal?.aborted) {
             cancel()
@@ -2448,6 +2462,9 @@ async function runHermesSpecialist(context, specialist, task) {
                 ? created
                 : await waitForRun({
                       ...request,
+                      ...(capacityWaitSeconds && context.limit > 0
+                          ? { timeoutMs: Math.max(1, context.limit - (Date.now() - specialistStarted)) }
+                          : {}),
                       runId: created.run_id,
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })

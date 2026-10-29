@@ -152,6 +152,16 @@ class HarnessSpecialist_Harness implements INode {
                 description: 'Optional array of rules with id, pin, when, params and answer. Rules contain named parameter values only.'
             },
             {
+                label: 'Capacity wait (seconds)',
+                name: 'capacityWaitSeconds',
+                type: 'number',
+                optional: true,
+                additionalParams: true,
+                default: 0,
+                description:
+                    'Optional. Wait up to 60 seconds when the agent runtime rejects a new run because all slots are busy. Default 0, off. Honors Retry-After and the existing turn time limit. Never retries a run that was accepted or a tool that already ran.'
+            },
+            {
                 label: 'Handoff limit',
                 name: 'handoffChars',
                 type: 'number',

@@ -252,7 +252,8 @@ async function runFixture({
     input = 'Please query the database and create the requested chart and evidence.',
     copies = 1,
     csv = false,
-    mixedCsv = false
+    mixedCsv = false,
+    capacityBusyOnce = false
 } = {}) {
     const invocation = ++serial
     const name = harnessName || `trusted-test-${invocation}`,
@@ -293,6 +294,7 @@ async function runFixture({
                 instructions: 'Use the source.',
                 codeExecution: true,
                 fileAccess: true,
+                ...(capacityBusyOnce ? { capacityWaitSeconds: 5 } : {}),
                 ...(policy ? { trustedOutputPolicy: policy } : {}),
                 ...(enabled && !(mixedUnprotected && person.name === 'report') ? { trustedOutputs: [person.contract] } : {}),
                 mcpServers: [
@@ -357,6 +359,11 @@ async function runFixture({
         if (init.method === 'POST' && pathname.endsWith('/v1/runs')) {
             const request = JSON.parse(init.body)
             requests.push(request)
+            if (capacityBusyOnce && requests.length === 1)
+                return json(
+                    { error: { message: 'Too many concurrent runs (max 10)', type: 'rate_limit_error', code: 'rate_limit_exceeded' } },
+                    429
+                )
             const imageDir = /folder: ([^\n]+)/.exec(request.input)?.[1]
             assert.ok(imageDir)
             if (createModelFile) {
@@ -776,4 +783,15 @@ test('CSV acknowledgment preserves optional source metric, calendar and freshnes
     assert.match(text, /Source as of: unavailable/)
     source.rows[0].table_payload.metric_label = 123
     assert.throws(() => tablePayloadCsv(source), { code: 'trusted_output' })
+})
+
+test('capacity admission wait and trusted CSV admit work once, run one source query and deliver one exact native file', async () => {
+    const out = await runFixture({ csv: true, capacityBusyOnce: true, budgetMs: 5000 })
+    assert.equal(out.requests.length, 2)
+    assert.deepEqual(out.requests[0], out.requests[1])
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.payload.artifacts.length, 1)
+    assert.equal(out.payload.artifacts[0].type, 'csv')
+    assert.match(out.payload.text, /75 source rows/)
+    assert.equal(out.payload.trace.handoff.reason, 'trustedOutput')
 })
