@@ -1006,12 +1006,26 @@ function toolsFor(context, name) {
         .map((item) => `${item.name} ${item.status}`)
 }
 
+// JSON details are masked on their parsed values before they are encoded. Masking the
+// encoded text again cuts a long result, and the detail no longer parses.
+function maskedToolDetail(detail) {
+    const text = String(detail)
+    try {
+        const parsed = JSON.parse(text)
+        if (parsed && typeof parsed === 'object') return text
+    } catch {
+        // A preview that is not JSON is masked as text.
+    }
+    return hideTurnImageDir(text, '', specialistWorkspaceRoot())
+}
+
 function emitTool(context, data) {
     if (!context.toolLog) context.toolLog = []
     // A tool's detail (a preview, an error) can quote a workspace path; it is masked before the log, events and trace.
     // A pinned tool's start carries no detail: its arguments can hold secure parameter values.
+    // A detail that is already JSON was masked on its values. It is not masked again.
     const pinnedStart = data.phase === 'start' && isPinnedToolName(data.name)
-    const detail = data.detail && !pinnedStart ? hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot()) : ''
+    const detail = data.detail && !pinnedStart ? maskedToolDetail(data.detail) : ''
     const emitted = { ...data, ...(detail ? { detail } : {}) }
     if (pinnedStart) delete emitted.detail
     delete emitted.callId
@@ -1880,7 +1894,9 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
                       defaults,
                       rowCap: Number(binding.inputs?.analystRowCap) || 100
                   }),
-            ...(error ? { pinFirstError: true } : { pinFirst: { id: rule.id, pin: rule.pin } })
+            ...(error ? { pinFirstError: true } : { pinFirst: { id: rule.id, pin: rule.pin } }),
+            // No error and an array of rows: the direct answer can use this result.
+            ...(!error && Array.isArray(body?.rows) ? { pinFormed: true } : {})
         }
     } catch (error) {
         startCapture.flush()
@@ -2006,10 +2022,13 @@ async function runStep(context, step) {
             ms,
             soul: specialistSoul(specialist),
             dataTask,
-            analystOk: analystPayloadsFor(
-                (context.toolLog || []).filter((tool) => tool.specialist === specialist.name && tool.status === 'done'),
-                specialist.name
-            ).some((body) => typeof body.error !== 'string'),
+            // A well-formed pin (no error, rows is an array) is a successful analyst result.
+            analystOk:
+                Boolean(out.pinFormed) ||
+                analystPayloadsFor(
+                    (context.toolLog || []).filter((tool) => tool.specialist === specialist.name && tool.status === 'done'),
+                    specialist.name
+                ).some((body) => typeof body.error !== 'string'),
             ...(specialist.handoffChars ? { handoffChars: specialist.handoffChars } : {}),
             ...(out.analystPayloads ? { analystPayloads: out.analystPayloads } : {}),
             ...(out.ungrounded ? { ungrounded: true, error: out.text } : {})
@@ -2365,7 +2384,7 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         const slotIndex = slots.findIndex((tool, index) => !used.has(index) && tool.callId === callId)
         if (slotIndex < 0) continue
         used.add(slotIndex)
-        slots[slotIndex].detail = maskWorkspacePaths(JSON.stringify({ result: JSON.stringify(item.result) }))
+        slots[slotIndex].detail = JSON.stringify({ result: JSON.stringify(maskWorkspacePaths(item.result)) })
         const fields = item.traceFields || {}
         if (typeof fields.sqlHash === 'string') slots[slotIndex].sqlHash = fields.sqlHash
         if (typeof fields.sql === 'string') slots[slotIndex].sql = fields.sql

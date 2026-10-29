@@ -187,6 +187,8 @@ function tokenMask(raw, root, continued) {
     }
     const token = raw.slice(start, end)
     if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
+    // ".." is a path only as its own segment (docs/../secret). A label such as Q3..Q4 is not.
+    const dotDot = /(?:^|[/\\])\.\.(?:$|[/\\])/.test(token)
     // A lone separator such as the '/' in 'A / B' or 'used / entitled' names no location.
     // It is shown as is but starts or keeps a rule 5 continuation, so a following token with a separator
     // (the rest of '/ Reports/private.txt' or '/tmp/My / Reports/x') is still hidden.
@@ -194,7 +196,7 @@ function tokenMask(raw, root, continued) {
     // date such as 3/4 or 10/24/2026 through.
     if (/^[\/\\~]$/.test(token)) return { text: raw, masked: continued === true ? true : 'soft' }
     const slash = /[\/\\]/.test(token)
-    const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
+    const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || dotDot || /\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
     const numeric = !candidate && continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
     // A number kept after a lone slash still passes the soft continuation on, so a path piece after it is hidden.
     if (numeric) return { text: raw, masked: 'soft' }
@@ -254,24 +256,32 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             // Rule 5: continuation also covers a quoted next token (fail closed).
             const held = state.token
             const validJson = state.allowJson && (jsonSpan(held) || escapedJsonSpan(held))
-            const retry = state.allowJson && /^[\[{]/.test(held) && !validJson
-            // JSON-like syntax only defers quote handling. Invalid spans must go through
-            // the ordinary scanner before any of their text can leave the buffer.
-            let result
-            if (retry) {
-                const normal = workspaceMaskState()
-                normal.allowJson = false
-                normal.continued = state.continued
-                result = { text: scanWorkspaceText(normal, held, root, true), masked: normal.continued }
-            } else result = validJson ? { text: held, masked: false } : tokenMask(held, root, state.continued)
-            // A released prefix was final under the ordinary rules as well as the
-            // JSON exemption. Only the still-held suffix can need replacement.
-            out.push(
-                result.text.startsWith(held.slice(0, state.emitted))
-                    ? result.text.slice(state.emitted)
-                    : tokenMask(held.slice(state.emitted), root, state.continued).text
-            )
-            state.continued = result.masked
+            // A JSON span is not cut at 1024 while it can still parse. An unfinished span
+            // still gets one fallback here, after the same prefix a live cut would have kept.
+            const jsonCap = state.json && !validJson && held.length > 1024 && state.capCandidate && !/^https?:\/\//i.test(state.prefix)
+            if (jsonCap) {
+                out.push('a server path')
+                state.continued = true
+            } else {
+                const retry = state.allowJson && /^[\[{]/.test(held) && !validJson
+                // JSON-like syntax only defers quote handling. Invalid spans must go through
+                // the ordinary scanner before any of their text can leave the buffer.
+                let result
+                if (retry) {
+                    const normal = workspaceMaskState()
+                    normal.allowJson = false
+                    normal.continued = state.continued
+                    result = { text: scanWorkspaceText(normal, held, root, true), masked: normal.continued }
+                } else result = validJson ? { text: held, masked: false } : tokenMask(held, root, state.continued)
+                // A released prefix was final under the ordinary rules as well as the
+                // JSON exemption. Only the still-held suffix can need replacement.
+                out.push(
+                    result.text.startsWith(held.slice(0, state.emitted))
+                        ? result.text.slice(state.emitted)
+                        : tokenMask(held.slice(state.emitted), root, state.continued).text
+                )
+                state.continued = result.masked
+            }
         }
         state.token = ''
         state.overflow = false
@@ -355,7 +365,9 @@ export function scanWorkspaceText(state, text, root, flush = false) {
                 (state.continued && /[\/\\]/.test(char))
             )
                 state.capCandidate = true
-            if (state.token.length > 1024 && state.capCandidate && !/^https?:\/\//i.test(state.prefix)) {
+            // Leave a JSON span whole. Cutting it here replaces the tail with a placeholder
+            // and the span stops parsing. The fallback for an unfinished span is in finish().
+            if (state.token.length > 1024 && state.capCandidate && !state.json && !/^https?:\/\//i.test(state.prefix)) {
                 out.push('a server path')
                 state.token = ''
                 if (state.json && state.jstr) state.quote = '"'
