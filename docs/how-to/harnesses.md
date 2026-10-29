@@ -396,9 +396,11 @@ At startup Cuttlely looks for profiles whose harness no longer exists, for examp
 
 `POST /api/v1/prediction/:id` on a chatflow that runs a harness returns `text`, `harness`, `agents`, `sources`, and `artifacts`. Streaming (`true` or `"true"`) sends harness events on that response. The event names are `route`, `specialist`, `tool`, `partial`, `handoff`, and `final`.
 
+A HARNESS canvas id also works on `POST /api/v1/prediction/:id`. It runs the Live (published) canvas, not the saved draft. The answer includes a `sessionToken` (in the JSON body, or in the streamed `harness.recorded` event); send it with the same `chatId` to continue that chat. The API key bound to the canvas must list the harness under **Harnesses this key may run**. File uploads on a HARNESS canvas id are refused with 400.
+
 The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key goes through a chatflow bound to that key, or calls `POST /api/v1/harnesses/:name/runs` and `POST /api/v1/harnesses/:name/runs/async` when the harness is on that key's list. Both stay on Live.
 
-Chat uploads on `POST /api/v1/prediction/:id` use multipart field `files` with `question`. Turn on file uploads for that chatflow first (**Configuration**, **File Upload**, **Enable Full File Upload**); with them off the file is refused with 403 and not stored. A file over 25 MB is refused. A large file is a path the harness can read. The sample roster is `samples/harnesses/upload.canvas.json`.
+Chat uploads on `POST /api/v1/prediction/:id` use multipart field `files` with `question`. Turn on file uploads for that chatflow first (**Configuration**, **File Upload**, **Enable Full File Upload**); with them off the file is refused with 403 and not stored. A file over 25 MB is refused. A large file is a path the harness can read. Send uploads to a chatflow that holds a Harness card, such as `samples/chatflows/upload.chatflow.json`, which runs the `upload` harness (roster in `samples/harnesses/upload.canvas.json`). A HARNESS canvas id refuses uploads with 400.
 
 ## Profiles at startup
 
