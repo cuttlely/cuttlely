@@ -198,6 +198,98 @@ describe('verified native output delivery', () => {
     })
 })
 
+describe('verified CSV native delivery', () => {
+    let csv: { name: string; type: string; mime: string; base64: string; specialist: string }
+    let png: typeof csv
+    const options = { chatId: 'csv-chat', chatflowid: 'csv-flow', orgId: 'csv-org' }
+    beforeAll(() => {
+        const fixture = path.resolve(__dirname, '../../../../harness/test/trusted-output-fixture.mjs')
+        const readArtifact = (flag: string) =>
+            JSON.parse(
+                execFileSync(process.execPath, [fixture, flag], {
+                    encoding: 'utf8',
+                    timeout: 15000,
+                    maxBuffer: 5 * 1024 * 1024
+                })
+            )
+        csv = readArtifact('--csv-artifact')
+        png = readArtifact('--artifact')
+    }, 30000)
+    const sourcePayload = (artifacts: Array<typeof csv>) => ({
+        text: artifacts.map((artifact) => `Attached file: ${artifact.name}`).join('\n'),
+        trustedOutput: true,
+        artifacts,
+        trace: { handoff: { reason: 'trustedOutput' } }
+    })
+    const runPayload = (artifacts: Array<typeof csv>, deadline?: number) => {
+        const payload = { ...sourcePayload(artifacts), ...(deadline ? { trustedOutputDeadlineAt: deadline } : {}) }
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            opts.onEvent({ type: 'partial', phase: 'answer', text: payload.text, trustedOutput: true })
+            opts.onEvent({ type: 'final', text: payload.text, trustedOutput: true })
+            return payload
+        })
+        return payload
+    }
+    it.each([false, true])('persists exact CSV bytes before acknowledgment (mixed PNG %s)', async (mixed) => {
+        const artifacts = mixed ? [png, csv] : [csv]
+        const payload = runPayload(artifacts)
+        const stream = fakeStreamer()
+        const sse = { ...stream, streamArtifactsEvent: (_chat: string, data: unknown) => stream.sent.push({ kind: 'artifacts', data }) }
+        const callsBefore = addSingleFileToStorage.mock.calls.length
+        for (const artifact of artifacts)
+            addSingleFileToStorage.mockImplementationOnce(async (mime: string, bytes: Buffer, name: string) => {
+                expect(stream.sent).toEqual([])
+                expect(mime).toBe(artifact.mime)
+                expect(bytes).toEqual(Buffer.from(artifact.base64, 'base64'))
+                return { path: `FILE-STORAGE::${name}` }
+            })
+        const out = await new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Export the table', {
+            ...options,
+            sseStreamer: sse
+        })
+        expect(out.text).toBe(payload.text)
+        expect(out.artifacts.map((artifact: any) => artifact.type)).toEqual(artifacts.map((artifact) => artifact.type))
+        expect(out.artifacts.find((artifact: any) => artifact.type === 'csv').name).toBe(csv.name)
+        expect(addSingleFileToStorage.mock.calls.length - callsBefore).toBe(artifacts.length)
+        expect(stream.sent[0].kind).toBe('artifacts')
+        expect(stream.sent.find((item) => item.kind === 'token')?.data).toBe(payload.text)
+        expect(stream.sent.find((item) => item.name === 'harness.final')).toBeDefined()
+    })
+    it('CSV storage failure suppresses file acknowledgment', async () => {
+        runPayload([csv])
+        const stream = fakeStreamer()
+        addSingleFileToStorage.mockRejectedValueOnce(new Error('synthetic CSV storage failure'))
+        const quiet = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+            await expect(
+                new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Export the table', { ...options, sseStreamer: stream })
+            ).rejects.toMatchObject({ code: 'trusted_output' })
+        } finally {
+            quiet.mockRestore()
+        }
+        expect(stream.sent).toEqual([])
+    })
+    it('CSV deadline expiry during storage suppresses file acknowledgment', async () => {
+        let now = Date.now()
+        const deadline = now + 1000
+        const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+        runPayload([csv], deadline)
+        const stream = fakeStreamer()
+        addSingleFileToStorage.mockImplementationOnce(async () => {
+            now = deadline
+            return { path: 'FILE-STORAGE::expired.csv' }
+        })
+        try {
+            await expect(
+                new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Export the table', { ...options, sseStreamer: stream })
+            ).rejects.toMatchObject({ code: 'over_budget' })
+        } finally {
+            clock.mockRestore()
+        }
+        expect(stream.sent).toEqual([])
+    })
+})
+
 describe('Harness node team list', () => {
     it('lists only the active workspace', async () => {
         listedHarnesses.splice(

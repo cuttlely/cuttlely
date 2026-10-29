@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { HarnessError } from './errors.mjs'
-import { matchesTurnType, TURN_IMAGE_LIMITS } from './images.mjs'
+import { matchesTurnType, TURN_IMAGE_LIMITS, TURN_FILE_LIMITS } from './images.mjs'
 
 const own = (value, key) => value != null && Object.hasOwn(value, key)
 const fail = (message) => {
@@ -33,7 +33,7 @@ export function trustedOutputContracts(value) {
             pins.has(entry.pin) ||
             !/^pq_[a-z0-9_]{1,77}$/.test(entry.pin || '') ||
             !/^[a-f0-9]{64}$/.test(entry.hash || '') ||
-            !['markdown', 'monthly-utilization-png'].includes(entry.mode)
+            !['markdown', 'monthly-utilization-png', 'table-payload-csv'].includes(entry.mode)
         )
             fail('A trusted output needs a unique pin, its tested hash and a supported mode.')
         pins.add(entry.pin)
@@ -63,6 +63,16 @@ export function trustedOutputContracts(value) {
                 return { path: field.path, ...(field.heading ? { heading: field.heading } : {}) }
             })
         } else {
+            if (entry.mode === 'table-payload-csv') {
+                const payloadPath = entry.payloadPath || 'rows.0.table_payload'
+                if (
+                    typeof payloadPath !== 'string' ||
+                    payloadPath.length > 300 ||
+                    !payloadPath.split('.').every((part) => /^(?:[a-zA-Z_][a-zA-Z0-9_]*|[0-9]+)$/.test(part) && !badPath.has(part))
+                )
+                    fail('Invalid trusted CSV payload path.')
+                if (entry.payloadPath) contract.payloadPath = payloadPath
+            }
             if (
                 entry.sourceLabel != null &&
                 (typeof entry.sourceLabel !== 'string' || entry.sourceLabel.length > 200 || /[\r\n]/.test(entry.sourceLabel))
@@ -423,6 +433,99 @@ export async function utilizationPng(body, contract, { specialist = '', signal }
     return { text, artifact, plan }
 }
 
+// CSV consumes an author-owned complete table payload, never model arguments or renderer code.
+export function tablePayloadCsv(body, contract = {}, { specialist = '', signal } = {}) {
+    check(signal)
+    completeResult(body)
+    let payload = body
+    for (const key of (contract.payloadPath || 'rows.0.table_payload').split('.')) {
+        if (typeof payload === 'string') {
+            try {
+                payload = JSON.parse(payload)
+            } catch {
+                fail('Verified CSV source payload is invalid.')
+            }
+        }
+        if (!own(payload, key) || badPath.has(key)) fail('Verified CSV source payload is missing.')
+        payload = payload[key]
+    }
+    if (typeof payload === 'string') {
+        try {
+            payload = JSON.parse(payload)
+        } catch {
+            fail('Verified CSV source payload is invalid.')
+        }
+    }
+    const headers = payload?.headers,
+        rows = payload?.complete_rows
+    if (
+        payload?.complete !== true ||
+        payload?.truncated !== false ||
+        !Number.isInteger(payload?.total_rows) ||
+        payload.total_rows < 0 ||
+        payload.total_rows > 100 ||
+        !Array.isArray(rows) ||
+        rows.length !== payload.total_rows ||
+        !Array.isArray(headers) ||
+        !headers.length ||
+        headers.length > 100 ||
+        headers.some((header) => typeof header !== 'string' || !header.length || header.length > 500) ||
+        new Set(headers).size !== headers.length
+    )
+        fail('Verified CSV requires a complete table with exact headers and at most 100 rows.')
+    let bytesUsed = 0
+    const encode = (value) => {
+        if (value === null) {
+            bytesUsed++
+            return ''
+        }
+        if (typeof value !== 'string' || value.includes('\0') || Buffer.from(value, 'utf8').toString('utf8') !== value)
+            fail('Verified CSV cells must be exact UTF-8 strings or NULL; numeric coercion is refused.')
+        bytesUsed += Buffer.byteLength(value) + 2
+        if (bytesUsed > TURN_FILE_LIMITS.bytes) fail('Verified CSV exceeds native attachment limits.')
+        return '"' + value.replaceAll('"', '""') + '"'
+    }
+    const lines = [headers.map(encode).join(',')]
+    for (const row of rows) {
+        check(signal)
+        if (!Array.isArray(row) || row.length !== headers.length) fail('Verified CSV row does not match its source headers.')
+        lines.push(row.map(encode).join(','))
+    }
+    const bytes = Buffer.from(lines.join('\r\n') + '\r\n', 'utf8')
+    if (bytes.length > TURN_FILE_LIMITS.bytes || !matchesTurnType('csv', bytes)) fail('Verified CSV exceeds native attachment limits.')
+    check(signal)
+    const name = `verified-table-${hash(bytes).slice(0, 12)}.csv`
+    const sourceFields = {
+        metric_label: 'Metric',
+        metric_definition: 'Metric definition',
+        date_basis: 'Date basis',
+        calendar_start_inclusive: 'Calendar start (inclusive)',
+        calendar_end_exclusive: 'Calendar end (exclusive)',
+        source: 'Source',
+        source_as_of: 'Source as of',
+        source_freshness: 'Source freshness'
+    }
+    const captions = []
+    for (const [key, label] of Object.entries(sourceFields)) {
+        if (!own(payload, key)) continue
+        const value = payload[key]
+        if (
+            value !== null &&
+            (typeof value !== 'string' || value.length > 4000 || value.includes('\0') || Buffer.from(value).toString('utf8') !== value)
+        )
+            fail('Verified CSV source metadata must be bounded exact UTF-8 text or NULL.')
+        captions.push(`${label}: ${value === null ? 'unavailable' : value}`)
+    }
+    if (!own(payload, 'source_as_of') && !own(payload, 'source_freshness')) captions.push('Source freshness: unavailable')
+    if (contract.sourceLabel) captions.push('Source label: ' + contract.sourceLabel)
+    return {
+        text: `Attached file: ${name}\n\n${
+            rows.length
+        } source rows exported in source order with exact string values. NULL values are empty CSV fields.\n\n${captions.join('\n')}`,
+        artifact: { name, type: 'csv', mime: 'text/csv', base64: bytes.toString('base64'), specialist, mtime: Date.now() }
+    }
+}
+
 export async function renderTrustedOutputs(specialist, captured, { signal } = {}) {
     const contracts = specialist.trustedOutputs || []
     if (!contracts.length) return null
@@ -447,14 +550,21 @@ export async function renderTrustedOutputs(specialist, captured, { signal } = {}
         seen.add(id)
         if (contract.mode === 'markdown') sections.push(sourceMarkdown(item.result, contract))
         else {
-            const rendered = await utilizationPng(item.result, contract, { specialist: specialist.name, signal })
+            const rendered =
+                contract.mode === 'table-payload-csv'
+                    ? tablePayloadCsv(item.result, contract, { specialist: specialist.name, signal })
+                    : await utilizationPng(item.result, contract, { specialist: specialist.name, signal })
             sections.push(rendered.text)
             artifacts.push(rendered.artifact)
         }
     }
     check(signal)
     const text = sections.join('\n\n')
-    if (Buffer.byteLength(text) > TRUSTED_OUTPUT_LIMIT || artifacts.length > TURN_IMAGE_LIMITS.count)
+    if (
+        Buffer.byteLength(text) > TRUSTED_OUTPUT_LIMIT ||
+        artifacts.filter((item) => item.type === 'png').length > TURN_IMAGE_LIMITS.count ||
+        artifacts.filter((item) => item.type === 'csv').length > TURN_FILE_LIMITS.count
+    )
         fail('Verified output exceeds turn limits.')
     return { text, artifacts }
 }

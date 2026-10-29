@@ -117,7 +117,7 @@ class HarnessSpecialist_Harness implements INode {
                 optional: true,
                 additionalParams: true,
                 description:
-                    'Optional pin-to-output contracts. Each names a tested pin and hash, with mode markdown (source field paths) or monthly-utilization-png. Consumes the actual server result, replaces model output/files and skips Harness Prime rewriting. Empty is off.'
+                    'Optional pin-to-output contracts. Each names a tested pin and hash, with mode markdown (source field paths), monthly-utilization-png or table-payload-csv. Consumes the actual server result, replaces model output/files and skips Harness Prime rewriting. Empty is off.'
             },
             {
                 label: 'Unmapped output policy',

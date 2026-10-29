@@ -63,3 +63,25 @@ if (process.argv.includes('--artifact')) {
     const { artifact } = await utilizationPng(body, { sourceLabel: 'Example source' }, { specialist: 'data' })
     process.stdout.write(JSON.stringify(artifact))
 }
+
+export function csvPayload(count = 75) {
+    return {
+        headers: ['account_id', 'amount', 'note', 'nullable'],
+        complete_rows: Array.from({ length: count }, (_, index) => [
+            `example-${index + 1}`,
+            index ? '0' : '9007199254740993.1250',
+            index % 2 ? 'Comma, quote " and café — Ω\r\nSecond line' : '',
+            null
+        ]),
+        total_rows: count,
+        complete: true,
+        truncated: false
+    }
+}
+export function csvBody(count = 75) {
+    return { rows: [{ table_payload: csvPayload(count) }] }
+}
+if (process.argv.includes('--csv-artifact')) {
+    const { tablePayloadCsv } = await import('../trusted-output.mjs')
+    process.stdout.write(JSON.stringify(tablePayloadCsv(csvBody(), {}, { specialist: 'data' }).artifact))
+}

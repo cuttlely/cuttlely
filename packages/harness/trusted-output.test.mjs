@@ -3,11 +3,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { after, test } from 'node:test'
-import { months, body, bodyFor, originalPayload } from './test/trusted-output-fixture.mjs'
+import { spawnSync } from 'node:child_process'
+import { months, body, bodyFor, originalPayload, csvPayload, csvBody } from './test/trusted-output-fixture.mjs'
 import {
     trustedOutputContracts,
     utilizationPlan,
     utilizationPng,
+    tablePayloadCsv,
     renderTrustedOutputs,
     sourceMarkdown,
     composeTrustedOutputs,
@@ -248,7 +250,9 @@ async function runFixture({
     createModelFile = true,
     noToolEvents = false,
     input = 'Please query the database and create the requested chart and evidence.',
-    copies = 1
+    copies = 1,
+    csv = false,
+    mixedCsv = false
 } = {}) {
     const invocation = ++serial
     const name = harnessName || `trusted-test-${invocation}`,
@@ -259,13 +263,16 @@ async function runFixture({
         receipts = []
     const mdEntry = { ...entry, id: 'report', name: 'pq_report' }
     const mdHash = compilePinned(mdEntry).statementHash
+    const csvEntry = { ...entry, id: 'table-export', name: 'pq_table_export' }
+    const csvContract = { pin: csvEntry.name, hash: compilePinned(csvEntry).statementHash, mode: 'table-payload-csv' }
     const people = [
         ...Array.from({ length: copies }, (_, index) => ({
             name: index ? `data${index}` : 'data',
-            entry: unmapped ? { ...entry, name: 'pq_other_metric' } : entry,
-            result,
-            contract
+            entry: unmapped ? { ...entry, name: 'pq_other_metric' } : csv ? csvEntry : entry,
+            result: csv && result === body ? csvBody() : result,
+            contract: csv ? csvContract : contract
         })),
+        ...(mixedCsv ? [{ name: 'export', entry: csvEntry, result: csvBody(), contract: csvContract }] : []),
         ...(multi
             ? [
                   {
@@ -670,4 +677,103 @@ test('protected delivery carries the existing turn deadline and expired budget d
     assert.ok(out.payload.trustedOutputDeadlineAt >= before + 5000)
     assert.ok(out.payload.trustedOutputDeadlineAt <= Date.now() + 5000)
     await assert.rejects(runFixture({ failWorker: true, budgetMs: 100, afterCaptureMs: 200 }), { code: 'over_budget' })
+})
+
+test('native CSV exports 75 and 100 rows with exact large decimals, UTF-8, quotes, embedded line breaks and NULL blanks', () => {
+    for (const count of [0, 75, 100]) {
+        const source = csvBody(count)
+        const out = tablePayloadCsv(source)
+        const bytes = Buffer.from(out.artifact.base64, 'base64')
+        assert.equal(out.artifact.type, 'csv')
+        assert.equal(out.artifact.mime, 'text/csv')
+        assert.ok(matchesTurnType('csv', bytes))
+        assert.match(out.text, new RegExp(`${count} source rows`))
+        const parsed = spawnSync(
+            'python3',
+            ['-c', 'import csv,io,json,sys; rows=list(csv.reader(io.StringIO(sys.stdin.read(),newline=""))); print(json.dumps(rows))'],
+            { input: bytes, encoding: 'utf8' }
+        )
+        assert.equal(parsed.status, 0, parsed.stderr)
+        assert.deepEqual(JSON.parse(parsed.stdout), [
+            source.rows[0].table_payload.headers,
+            ...source.rows[0].table_payload.complete_rows.map((row) => row.map((value) => (value === null ? '' : value)))
+        ])
+    }
+    const custom = { rows: [{ nested: JSON.stringify(csvPayload(1)) }] }
+    assert.match(tablePayloadCsv(custom, { payloadPath: 'rows.0.nested' }).text, /1 source rows/)
+})
+
+test('CSV rejects incomplete, over-cap, malformed or imprecise table sources and cancelled rendering', () => {
+    for (const mutate of [
+        (p) => {
+            p.complete = false
+        },
+        (p) => {
+            p.truncated = true
+        },
+        (p) => {
+            p.total_rows++
+        },
+        (p) => {
+            p.headers.push(p.headers[0])
+        },
+        (p) => {
+            p.complete_rows[0].pop()
+        },
+        (p) => {
+            p.complete_rows[0][1] = 9007199254740993
+        },
+        (p) => {
+            p.complete_rows[0][1] = false
+        },
+        (p) => {
+            p.complete_rows[0][2] = 'bad\0value'
+        },
+        (p) => {
+            p.complete_rows[0][2] = '\ud800'
+        }
+    ]) {
+        const payload = csvPayload(1)
+        mutate(payload)
+        assert.throws(() => tablePayloadCsv({ rows: [{ table_payload: payload }] }), { code: 'trusted_output' })
+    }
+    assert.throws(() => tablePayloadCsv(csvBody(101)), { code: 'trusted_output' })
+    assert.throws(() => tablePayloadCsv({ rows: [] }), { code: 'trusted_output' })
+    assert.throws(() => trustedOutputContracts([{ ...contract, mode: 'table-payload-csv', payloadPath: 'rows.__proto__.payload' }]))
+    assert.throws(() => tablePayloadCsv(csvBody(), {}, { signal: AbortSignal.abort() }), { code: 'aborted' })
+})
+
+test('actual captured CSV and mixed PNG/CSV replace model artifacts, preserve native types, and recover final model failure', async () => {
+    const out = await runFixture({ csv: true, failWorker: true })
+    assert.equal(out.calls.length, 1)
+    assert.equal(out.payload.artifacts.length, 1)
+    assert.equal(out.payload.artifacts[0].type, 'csv')
+    assert.match(out.payload.text, /75 source rows/)
+    assert.ok(!out.payload.text.includes('MODEL'))
+    const mixed = await runFixture({ mixedCsv: true })
+    assert.deepEqual(mixed.payload.artifacts.map((item) => item.type).sort(), ['csv', 'png'])
+    assert.equal(mixed.calls.length, 2)
+    assert.match(mixed.payload.text, /13 source observations/)
+    assert.match(mixed.payload.text, /75 source rows/)
+    await assert.rejects(runFixture({ csv: true, cancel: new AbortController() }), { code: 'aborted' })
+})
+
+test('CSV acknowledgment preserves optional source metric, calendar and freshness strings and rejects typed metadata drift', () => {
+    const source = csvBody(1)
+    Object.assign(source.rows[0].table_payload, {
+        metric_label: 'Direct booked renewal amount',
+        metric_definition: 'Marketplace-transacted dollars are excluded.',
+        calendar_start_inclusive: '2026-01-01',
+        calendar_end_exclusive: '2027-01-01',
+        date_basis: 'UTC calendar close date',
+        source: 'Example source',
+        source_as_of: null,
+        source_freshness: 'Unavailable: source has no refresh timestamp'
+    })
+    const text = tablePayloadCsv(source).text
+    for (const value of Object.values(source.rows[0].table_payload).filter((value) => typeof value === 'string'))
+        assert.ok(text.includes(value))
+    assert.match(text, /Source as of: unavailable/)
+    source.rows[0].table_payload.metric_label = 123
+    assert.throws(() => tablePayloadCsv(source), { code: 'trusted_output' })
 })

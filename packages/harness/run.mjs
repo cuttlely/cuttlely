@@ -1967,9 +1967,11 @@ function replaceTrustedArtifacts(context, name, artifacts = []) {
     }
     if (artifacts.length) {
         if (!context.turnImages) context.turnImages = []
+        if (!context.turnFiles) context.turnFiles = []
         if (!context.trustedArtifactObjects) context.trustedArtifactObjects = new Set()
         for (const artifact of artifacts) context.trustedArtifactObjects.add(artifact)
-        context.turnImages.push(artifacts)
+        context.turnImages.push(artifacts.filter((artifact) => artifact.type !== 'csv'))
+        context.turnFiles.push(artifacts.filter((artifact) => artifact.type === 'csv'))
     }
 }
 
