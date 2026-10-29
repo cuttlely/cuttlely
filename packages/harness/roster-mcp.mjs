@@ -5,6 +5,7 @@ import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
 import { profileDir } from './paths.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
 import { agentRunTimeoutMs } from './budget.mjs'
+import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
 const harnessName = flag('--harness')
 const roster = readRoster(harnessName)
@@ -141,6 +142,8 @@ async function runSpecialist(args, signal) {
     if (!specialist?.profileName) throw new Error(`Specialist "${name}" is not on this roster.`)
     const body = rosterSpecialistBody(specialist, task)
     const timeoutMs = agentRunTimeoutMs()
+    const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
+    const startedAt = capacityWaitSeconds ? Date.now() : 0
     const baseUrl = hermesBaseUrl()
     let runId
     let stopping
@@ -150,13 +153,34 @@ async function runSpecialist(args, signal) {
     }
     signal.addEventListener('abort', stop, { once: true })
     try {
-        const created = await createRun({ harnessName: specialist.profileName, body, baseUrl, timeoutMs, signal })
+        const created = await createRun({
+            harnessName: specialist.profileName,
+            body,
+            baseUrl,
+            timeoutMs,
+            signal,
+            ...(capacityWaitSeconds
+                ? {
+                      capacityWaitSeconds,
+                      onCapacityWait: ({ attempt, delayMs }) =>
+                          console.error(
+                              `[harness] ${harnessName} ${name} waits for runtime capacity: admission retry ${attempt} in ${delayMs}ms`
+                          )
+                  }
+                : {})
+        })
         runId = created.run_id
         if (signal.aborted) throw Object.assign(new Error('The specialist task was cancelled.'), { name: 'AbortError' })
         const status =
             created.output || created.error
                 ? created
-                : await waitForRun({ harnessName: specialist.profileName, runId, baseUrl, timeoutMs, signal })
+                : await waitForRun({
+                      harnessName: specialist.profileName,
+                      runId,
+                      baseUrl,
+                      timeoutMs: capacityWaitSeconds && timeoutMs > 0 ? Math.max(1, timeoutMs - (Date.now() - startedAt)) : timeoutMs,
+                      signal
+                  })
         if (['failed', 'error', 'cancelled'].includes(status.status)) {
             throw new Error(status.error || status.message || `Specialist "${name}" failed.`)
         }

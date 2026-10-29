@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import http from 'node:http'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { after, test } from 'node:test'
 import { capacityRetryDelayMs, isRejectedCapacityAdmission, specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
@@ -11,6 +14,7 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'runtime')
 delete process.env.HERMES_API_URL
 const { createRun } = await import('./client.mjs')
 const { profileEnvPath } = await import('./profile.mjs')
+const { profileDir } = await import('./paths.mjs')
 const { rosterFromFlow } = await import('./sync-from-flow.mjs')
 const { saveHarness, getHarness } = await import('./store.mjs')
 const { runHarness } = await import('./run.mjs')
@@ -277,3 +281,107 @@ test('an opted-in harness recovers admission without executing a second accepted
     assert.equal(result.agents[0].status, 'completed')
     assert.equal(result.text, 'Processed the fixture rows once.')
 })
+
+for (const capacityWaitSeconds of [0, 3]) {
+    test(
+        `nested specialist admission keeps capacity wait ${capacityWaitSeconds ? 'opted in' : 'off by default'}`,
+        { timeout: 15000 },
+        async (t) => {
+            const parentName = `capacity-nested-${capacityWaitSeconds}`
+            fs.mkdirSync(profileDir(parentName), { recursive: true })
+            fs.writeFileSync(
+                path.join(profileDir(parentName), 'harness-roster.json'),
+                JSON.stringify({
+                    specialists: [{ name: 'worker', profileName: profile, ...(capacityWaitSeconds ? { capacityWaitSeconds } : {}) }]
+                })
+            )
+            const bodies = []
+            let accepted = 0,
+                queries = 0,
+                artifacts = 0
+            const server = http.createServer(async (req, res) => {
+                let body = ''
+                for await (const chunk of req) body += chunk
+                if (req.method === 'POST' && req.url.endsWith('/v1/runs')) {
+                    bodies.push(body)
+                    if (bodies.length === 1) {
+                        res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '0' })
+                        return res.end(JSON.stringify(limited))
+                    }
+                    // Stand in for the one accepted runtime turn and its side effects.
+                    accepted += 1
+                    queries += 1
+                    artifacts += 1
+                    res.writeHead(202, { 'content-type': 'application/json' })
+                    return res.end(JSON.stringify({ run_id: 'nested_once', status: 'running' }))
+                }
+                if (req.url.endsWith('/events')) {
+                    res.writeHead(200, { 'content-type': 'text/event-stream' })
+                    return res.end(': stream closed\n\n')
+                }
+                res.writeHead(200, { 'content-type': 'application/json' })
+                res.end(JSON.stringify({ status: 'completed', output: 'Created fixture.csv once.' }))
+            })
+            await new Promise((resolve, reject) => {
+                server.once('error', reject)
+                server.listen(0, '127.0.0.1', resolve)
+            })
+            const child = spawn(process.execPath, [fileURLToPath(new URL('./roster-mcp.mjs', import.meta.url)), '--harness', parentName], {
+                env: {
+                    ...process.env,
+                    HERMES_API_URL: `http://127.0.0.1:${server.address().port}`,
+                    CUTTLELY_HARNESS_RUN_TIMEOUT_MS: '5000'
+                },
+                stdio: ['pipe', 'pipe', 'pipe']
+            })
+            let stderr = ''
+            child.stderr.on('data', (chunk) => (stderr += chunk))
+            const exited = new Promise((resolve) => child.once('exit', resolve))
+            t.after(async () => {
+                if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+                const timer = setTimeout(() => child.kill('SIGKILL'), 2000)
+                await exited
+                clearTimeout(timer)
+                server.closeAllConnections()
+                await new Promise((resolve) => server.close(resolve))
+            })
+            const reply = new Promise((resolve, reject) => {
+                let buffer = Buffer.alloc(0)
+                child.once('error', reject)
+                child.once('exit', () => reject(new Error(`Roster exited before its reply: ${stderr}`)))
+                child.stdout.on('data', (chunk) => {
+                    buffer = Buffer.concat([buffer, chunk])
+                    const headerEnd = buffer.indexOf('\r\n\r\n')
+                    if (headerEnd < 0) return
+                    const length = Number(
+                        buffer
+                            .subarray(0, headerEnd)
+                            .toString()
+                            .match(/Content-Length:\s*(\d+)/i)?.[1]
+                    )
+                    if (!Number.isFinite(length) || buffer.length < headerEnd + 4 + length) return
+                    resolve(JSON.parse(buffer.subarray(headerEnd + 4, headerEnd + 4 + length).toString()))
+                })
+            })
+            const message = JSON.stringify({
+                jsonrpc: '2.0',
+                id: 7,
+                method: 'tools/call',
+                params: { name: 'run_specialist', arguments: { name: 'worker', task: 'Process supplied fixture rows.' } }
+            })
+            child.stdin.write(`Content-Length: ${Buffer.byteLength(message)}\r\n\r\n${message}`)
+            const response = await reply
+            assert.equal(response.id, 7)
+            assert.equal(response.result.isError, !capacityWaitSeconds)
+            assert.equal(bodies.length, capacityWaitSeconds ? 2 : 1)
+            assert.equal(accepted, capacityWaitSeconds ? 1 : 0)
+            assert.equal(queries, accepted)
+            assert.equal(artifacts, accepted)
+            if (capacityWaitSeconds) {
+                assert.equal(bodies[0], bodies[1])
+                assert.equal(response.result.content[0].text, 'Created fixture.csv once.')
+                assert.match(stderr, /admission retry 1 in 1000ms/)
+            }
+        }
+    )
+}
