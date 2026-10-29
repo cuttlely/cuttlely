@@ -10396,8 +10396,8 @@ check(
             [3, '/var/cuttlely/workspaces/a/x:"private folder" done', 'the workspace" done'],
             [1, '{note:"/var/cuttlely/workspaces/a/private file.txt"}', '{note:"the workspace"}'],
             [6, '{"a":true,"b":null,"c":[1,2]}', '{"a":true,"b":null,"c":[1,2]}'],
-            [6, '{"path": "/tmp/private file.txt"}', '{"path": "/tmp/private file.txt"}'],
-            [6, '[ {"path":"/tmp/private file.txt"} ]', '[ {"path":"/tmp/private file.txt"} ]'],
+            [3, '{"path": "/tmp/private file.txt"}', '{"path": "a server path file.txt"}'],
+            [3, '[ {"path":"/tmp/private file.txt"} ]', '[ {"path":"a server path file.txt"} ]'],
             [6, 'README requires checking docs/report.md', 'README requires checking docs/report.md'],
             [6, 'README requires checking docs/../../report.md', 'README requires checking a server path'],
             [7, '/' + 'x'.repeat(1024), 'a server path'],
@@ -10476,11 +10476,10 @@ check(
             ['a lone \\n or \\t stays', 'a lone \\n or \\t stays'],
             ['{\\"rows\\":[{\\"id\\":1}]}', '{\\"rows\\":[{\\"id\\":1}]}'],
             ['\\u0041\\tmp\\x', '\\u0041\\tmp\\x'],
-            ['["\\\\tmp\\\\x"]', '["\\\\tmp\\\\x"]'],
+            ['["\\\\tmp\\\\x"]', '["a server path"]'],
             ['{"rows":[1]} then \\tmp\\x', '{"rows":[1]} then a server path'],
             ['"C:\\\\Users\\\\x\\\\deck.pptx"', '"a server path"'],
-            // Accepted residual for 1.4.1: a Windows path inside an escaped JSON object stays as JSON.
-            ['{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}', '{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}']
+            ['{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}', '{"path":"a server path"}']
         ])
             cases.push([3, text, expected])
         for (const text of prose) cases.push([6, text, text])

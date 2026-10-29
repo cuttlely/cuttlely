@@ -959,14 +959,17 @@ function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, s
     return false
 }
 
-function emit(context, type, data = {}) {
+function emit(context, type, data = {}, detailMasked = false) {
     if (context?.clientSignal?.aborted) return
+    // emitTool has already masked the detail. Keep it out of the generic event pass.
+    const fields = detailMasked ? { ...data, detail: undefined } : data
     // `at` is the event's own clock. The server builds trace spans from these events and does not send a tracer into this process.
     emitHarnessEvent(context?.onEvent, {
         type,
         harness: context?.name,
         chatId: context?.chatId,
-        ...maskWorkspacePaths(data),
+        ...maskWorkspacePaths(fields),
+        ...(detailMasked ? { detail: data.detail } : {}),
         at: Date.now()
     })
 }
@@ -1006,31 +1009,24 @@ function toolsFor(context, name) {
         .map((item) => `${item.name} ${item.status}`)
 }
 
-// JSON details are masked on their parsed values before they are encoded. Masking the
-// encoded text again cuts a long result, and the detail no longer parses.
-function maskedToolDetail(detail) {
-    const text = String(detail)
-    try {
-        const parsed = JSON.parse(text)
-        if (parsed && typeof parsed === 'object') return text
-    } catch {
-        // A preview that is not JSON is masked as text.
-    }
-    return hideTurnImageDir(text, '', specialistWorkspaceRoot())
-}
-
-function emitTool(context, data) {
+function emitTool(context, data, detailMasked = false) {
     if (!context.toolLog) context.toolLog = []
     // A tool's detail (a preview, an error) can quote a workspace path; it is masked before the log, events and trace.
     // A pinned tool's start carries no detail: its arguments can hold secure parameter values.
-    // A detail that is already JSON was masked on its values. It is not masked again.
+    // Harness-generated JSON details were masked on their values before encoding.
+    // Raw previews still need masking, including previews that are valid JSON.
     const pinnedStart = data.phase === 'start' && isPinnedToolName(data.name)
-    const detail = data.detail && !pinnedStart ? maskedToolDetail(data.detail) : ''
+    const detail =
+        data.detail && !pinnedStart
+            ? detailMasked
+                ? String(data.detail)
+                : hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot())
+            : ''
     const emitted = { ...data, ...(detail ? { detail } : {}) }
     if (pinnedStart) delete emitted.detail
     delete emitted.callId
     logToolEvent(context.toolLog, data, detail)
-    emit(context, 'tool', emitted)
+    emit(context, 'tool', emitted, Boolean(detail))
 }
 
 // Records a tool start or end on the run's tool log. An end closes the running chip with its own call id when it has
@@ -1878,14 +1874,18 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
                 : body?.status === 'error' || !Array.isArray(body?.rows)
                 ? 'Pinned tool failed.'
                 : ''
-        emitTool(context, {
-            phase: 'done',
-            specialist: specialist.name,
-            name,
-            callId,
-            ...(error ? { error: true } : {}),
-            detail: JSON.stringify({ result: JSON.stringify(maskWorkspacePaths(body)) })
-        })
+        emitTool(
+            context,
+            {
+                phase: 'done',
+                specialist: specialist.name,
+                name,
+                callId,
+                ...(error ? { error: true } : {}),
+                detail: JSON.stringify({ result: JSON.stringify(maskWorkspacePaths(body)) })
+            },
+            true
+        )
         attachCapturedAnalystResults(context, specialist, started, logStart)
         return {
             text: error
@@ -1902,14 +1902,18 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
         startCapture.flush()
         // A stopped or out-of-time turn stops here like any other step; only an execution failure becomes the answer text.
         const stopped = context.clientSignal?.aborted || overBudget(context)
-        emitTool(context, {
-            phase: 'failed',
-            specialist: specialist.name,
-            name,
-            callId,
-            error: true,
-            detail: JSON.stringify({ error: maskWorkspacePaths(String(error.message || error)) })
-        })
+        emitTool(
+            context,
+            {
+                phase: 'failed',
+                specialist: specialist.name,
+                name,
+                callId,
+                error: true,
+                detail: JSON.stringify({ error: maskWorkspacePaths(String(error.message || error)) })
+            },
+            true
+        )
         if (stopped) {
             throwIfClient(context)
             throw new HarnessError('over_budget', budgetFailure(context, specialist.name))

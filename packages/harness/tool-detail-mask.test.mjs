@@ -10,7 +10,8 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'hermes')
 process.env.CUTTLELY_PINNED_QUERIES = '1'
 delete process.env.HERMES_API_URL
 
-const { answerDirectDecision, maskWorkspacePaths, runHarness, runSteps } = await import('./run.mjs')
+const { answerDirectDecision, bufferStream, maskWorkspacePaths, runHarness, runSteps } = await import('./run.mjs')
+const { hideTurnImageDir } = await import('./images.mjs')
 const { saveHarness, getHarness } = await import('./store.mjs')
 const { parseAnalystToolDetail } = await import('./context.mjs')
 const { recordAnalystResult } = await import('./analyst-capture.mjs')
@@ -169,8 +170,191 @@ test('labels with dot dot stay, and a workspace path is still masked', () => {
     assert.equal(JSON.stringify(masked).includes(secret), false)
 })
 
+function streamedAnswer(text) {
+    const context = {}
+    const chunks = []
+    for (const char of text) bufferStream(context, 'answer', char, false, (chunk) => chunks.push(chunk))
+    bufferStream(context, 'answer', '', true, (chunk) => chunks.push(chunk))
+    return chunks.join('')
+}
+
+test('JSON route prefixes stream before the plan closes', () => {
+    const context = {}
+    const chunks = []
+    const send = (chunk) => chunks.push(chunk)
+    bufferStream(context, 'route', '{"steps":[{"task":"check', false, send)
+    assert.equal(chunks.join(''), '{"steps":[{"task"')
+    bufferStream(context, 'route', ' routes"}]}', true, send)
+    assert.ok(chunks.length >= 2)
+    assert.equal(chunks.join(''), '{"steps":[{"task":"check routes"}]}')
+})
+
+test('the harness emits route tokens before the model finishes and the route is applied', async () => {
+    const name = `mask-route-${++sequence}`
+    saveHarness(
+        {
+            name,
+            chief: { model },
+            specialists: [
+                { name: 'writer', model },
+                { name: 'reviewer', model }
+            ]
+        },
+        { overwrite: true }
+    )
+    const plan = '{"steps":[{"specialist":"writer","task":"check routes"}]}'
+    const events = []
+    let modelFinished = false
+    let streamedBeforeDone = false
+    const reply = (messages) => (String(messages[0]?.content).includes('You route work') ? plan : 'Route complete.')
+    await runHarness({
+        name,
+        input: 'Check the routes.',
+        chatId: 'route',
+        flowOptions: { appDataSource: {}, harnessCaller: { via: 'session' } },
+        loadNode: async () =>
+            class {
+                async init() {
+                    return {
+                        invoke: async (messages) => ({ content: reply(messages) }),
+                        async *stream(messages) {
+                            const content = reply(messages)
+                            for (const char of content) yield { content: char }
+                            if (content === plan) modelFinished = true
+                        }
+                    }
+                }
+            },
+        onEvent(event) {
+            if (event.type === 'partial' && event.phase === 'route' && !modelFinished) streamedBeforeDone = true
+            events.push(event)
+        }
+    })
+    assert.equal(streamedBeforeDone, true)
+    const partials = events.filter((event) => event.type === 'partial' && event.phase === 'route')
+    assert.ok(partials.length >= 2)
+    assert.equal(partials.map((event) => event.text).join(''), plan)
+    const done = events.findIndex((event) => event.type === 'route' && event.phase === 'done')
+    const specialist = events.findIndex((event) => event.type === 'specialist')
+    assert.ok(done >= 0 && done < specialist)
+    assert.ok(events.indexOf(partials[0]) < done)
+})
+
+test('JSON masking changes only value literals and preserves all other bytes', () => {
+    const literal = JSON.stringify(secret)
+    const answer = `{\n  "keep\\u005fkey" : "\\u0041", "number":9007199254740993, "rate":1e+006,\n  "file" : ${literal}\n}`
+    const expected = answer.replace(literal, '"the workspace"')
+    assert.equal(maskWorkspacePaths(answer), expected)
+    assert.equal(streamedAnswer(answer), expected)
+    assert.equal(JSON.parse(expected).file, 'the workspace')
+})
+
+test('incremental JSON prefixes never release a literal that needs masking', () => {
+    const nested = ` { "file" : ${JSON.stringify(secret)} } `
+    for (const [literal, replacement] of [
+        [JSON.stringify(secret), '"the workspace"'],
+        [JSON.stringify(secret).replaceAll('/', '\\u002f'), '"the workspace"'],
+        [JSON.stringify(secret).replaceAll('/', '\\/'), '"the workspace"'],
+        [JSON.stringify(nested), JSON.stringify(' { "file" : "the workspace" } ')]
+    ]) {
+        const prefix = '{ "safe": "ready", "file": '
+        const suffix = ', "tail": true }'
+        const answer = prefix + literal + suffix
+        const expected = prefix + replacement + suffix
+        const context = {}
+        let sent = ''
+        const send = (chunk) => {
+            sent += chunk
+            assert.ok(expected.startsWith(sent), `released unsafe prefix: ${sent}`)
+        }
+        for (const char of answer) bufferStream(context, 'answer', char, false, send)
+        assert.ok(sent.length > 0, 'safe prefix must stream before flush')
+        bufferStream(context, 'answer', '', true, send)
+        assert.equal(sent, expected)
+        assert.equal(JSON.parse(sent).file.includes('zz-secret-path.csv'), false)
+    }
+})
+
+test('long JSON answers mask values and stay valid through character streaming', () => {
+    for (const spaces of [undefined, 2]) {
+        const answer = JSON.stringify(longBody(), null, spaces)
+        assert.ok(answer.length > 1024)
+        for (const shown of [
+            hideTurnImageDir(answer, '', path.dirname(specialistWorkspace('_'))),
+            maskWorkspacePaths(answer),
+            streamedAnswer(answer)
+        ]) {
+            assertLongDetail(shown)
+            assert.equal(shown, answer.replace(JSON.stringify(secret), '"the workspace"'))
+        }
+    }
+    const short = JSON.stringify({ file: secret, url: crmUrl })
+    assert.ok(short.length < 1024)
+    assert.deepEqual(JSON.parse(streamedAnswer(short)), { file: 'the workspace', url: crmUrl })
+    const unchanged = JSON.stringify({ url: crmUrl, label: 'Q3..Q4', note: 'customer said...', padding: 'x'.repeat(1500) }, null, 2)
+    assert.equal(streamedAnswer(unchanged), unchanged)
+})
+
+test('JSON string values containing JSON are masked and re-encoded', () => {
+    const answer = JSON.stringify({ result: JSON.stringify(longBody()) })
+    for (const shown of [maskWorkspacePaths(answer), streamedAnswer(answer)]) {
+        assertLongDetail(JSON.parse(shown).result)
+        assert.equal(shown.includes('zz-secret-path.csv'), false)
+    }
+    const short = JSON.stringify({ result: JSON.stringify({ file: secret }) })
+    assert.deepEqual(JSON.parse(JSON.parse(streamedAnswer(short)).result), { file: 'the workspace' })
+})
+
+test('long JSON tool previews mask values in the log and emitted event', async () => {
+    const name = `mask-preview-${++sequence}`
+    saveHarness(
+        {
+            name,
+            chief: { model },
+            specialists: [{ name: 'writer', model, mcpServers: [{ nodeName: 'fixtureMCP', category: 'Tools (MCP)' }] }]
+        },
+        { overwrite: true }
+    )
+    const compiled = compileProfile(getHarness(name))
+    for (const nested of [false, true]) {
+        const preview = nested ? JSON.stringify({ result: JSON.stringify(longBody()) }) : JSON.stringify(longBody(), null, 2)
+        const events = []
+        const context = {
+            name,
+            chatId: `preview-${nested}`,
+            roster: compiled.roster,
+            userText: 'Summarize the report.',
+            calls: [],
+            baseUrl: 'http://127.0.0.1:9',
+            fetchImpl: async (url, init = {}) => {
+                const pathname = new URL(url).pathname
+                if (init.method === 'POST' && pathname.endsWith('/v1/runs')) return json({ run_id: 'preview', status: 'started' }, 202)
+                if (pathname.endsWith('/events')) {
+                    const frame = { event: 'tool.completed', tool: 'fixture_tool', preview }
+                    return new Response(`data: ${JSON.stringify(frame)}\n\n: closed\n\n`, {
+                        headers: { 'content-type': 'text/event-stream' }
+                    })
+                }
+                return json({ status: 'completed', output: 'Report ready.' })
+            },
+            onEvent: (event) => events.push(event)
+        }
+        const results = await runSteps(context, [{ specialist: compiled.roster.specialists[0], task: context.userText }])
+        assert.equal(results[0].status, 'completed', results[0].error)
+        assert.equal(context.toolLog.length, 1)
+        const done = events.filter((event) => event.type === 'tool' && event.phase === 'done')
+        assert.equal(done.length, 1)
+        for (const detail of [context.toolLog[0].detail, done[0].detail]) {
+            assertLongDetail(nested ? JSON.parse(detail).result : detail)
+            assert.equal(detail.includes('zz-secret-path.csv'), false)
+        }
+    }
+})
+
 test('pin-first long result stays valid JSON and skips the slower handoff', async () => {
     const body = longBody()
+    // Byte fields survive parsed-value masking and must not be masked again as JSON text.
+    body.base64 = '/' + 'A'.repeat(1500) + '//x'
     const name = `mask-pin-${++sequence}`
     saveHarness({ name, chief: { model, instructions: 'Chief persona.' }, specialists: [pinSpecialist()] }, { overwrite: true })
     const prompts = []
@@ -200,6 +384,7 @@ test('pin-first long result stays valid JSON and skips the slower handoff', asyn
     const done = events.filter((event) => event.type === 'tool' && event.phase === 'done')
     assert.equal(done.length, 1)
     assertLongDetail(done[0].detail)
+    assert.equal(parseAnalystToolDetail(done[0].detail).base64, body.base64)
     assert.equal(JSON.stringify(events).includes(secret), false)
 
     const roster = getHarness(name)
@@ -219,6 +404,7 @@ test('pin-first long result stays valid JSON and skips the slower handoff', asyn
     assert.equal(results[0].pinFirst?.pin, entry.name)
     assert.equal(context.toolLog.length, 1)
     assertLongDetail(context.toolLog[0].detail)
+    assert.equal(parseAnalystToolDetail(context.toolLog[0].detail).base64, body.base64)
     assert.equal(JSON.stringify(results).includes(secret), false)
     assert.equal(JSON.stringify(results).includes('zz-secret-path.csv'), false)
 })

@@ -165,6 +165,39 @@ const escapedJsonSpan = (value) => {
         return false
     }
 }
+const maskJsonLiteral = (raw, root) => {
+    const value = JSON.parse(raw)
+    const shown = hideWorkspacePaths(value, root)
+    return shown === value ? raw : JSON.stringify(shown)
+}
+// Rewrite only changed value literals. All other bytes remain safe to stream unchanged.
+function maskJsonSpan(raw, root) {
+    const escaped = !jsonSpan(raw)
+    const text = escaped ? JSON.parse('"' + raw + '"') : raw
+    const parts = []
+    let from = 0
+    for (let at = 0; at < text.length; at++) {
+        if (text[at] !== '"') continue
+        const start = at++
+        while (at < text.length && text[at] !== '"') {
+            if (text[at] === '\\') at++
+            at++
+        }
+        let next = at + 1
+        while (next < text.length && /\s/u.test(text[next])) next++
+        if (text[next] === ':') continue // Object keys are not values.
+        const literal = text.slice(start, at + 1)
+        const shown = maskJsonLiteral(literal, root)
+        if (shown !== literal) {
+            parts.push(text.slice(from, start), shown)
+            from = at + 1
+        }
+    }
+    if (!from) return raw
+    parts.push(text.slice(from))
+    const shown = parts.join('')
+    return escaped ? JSON.stringify(shown).slice(1, -1) : shown
+}
 const backslashPath = (token, raw) => BACKSLASH_START.test(token) && !/\\"|\\u[0-9a-f]{4}/i.test(raw) && !jsonSpan(raw) && !jsonSpan(token)
 // The deliverable basename is kept only for a file that exists under the root at mask time.
 const isFile = (value) => {
@@ -240,6 +273,8 @@ export function workspaceMaskState() {
         jdepth: 0,
         jstr: false,
         jesc: false,
+        jstart: 0,
+        jsonSafe: true,
         normal: null,
         normalText: '',
         emitted: 0,
@@ -272,9 +307,9 @@ export function scanWorkspaceText(state, text, root, flush = false) {
                     normal.allowJson = false
                     normal.continued = state.continued
                     result = { text: scanWorkspaceText(normal, held, root, true), masked: normal.continued }
-                } else result = validJson ? { text: held, masked: false } : tokenMask(held, root, state.continued)
-                // A released prefix was final under the ordinary rules as well as the
-                // JSON exemption. Only the still-held suffix can need replacement.
+                } else result = validJson ? { text: maskJsonSpan(held, root), masked: false } : tokenMask(held, root, state.continued)
+                // A released prefix is unchanged under both JSON value masking and
+                // ordinary quote rules. Only the still-held suffix can need replacement.
                 out.push(
                     result.text.startsWith(held.slice(0, state.emitted))
                         ? result.text.slice(state.emitted)
@@ -294,6 +329,8 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         state.jdepth = 0
         state.jstr = false
         state.jesc = false
+        state.jstart = 0
+        state.jsonSafe = true
         state.normal = null
         state.normalText = ''
         state.emitted = 0
@@ -305,9 +342,22 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         if (state.jstr) {
             if (state.jesc) state.jesc = false
             else if (char === '\\') state.jesc = true
-            else if (char === '"') state.jstr = false
+            else if (char === '"') {
+                state.jstr = false
+                // Even JSON escapes or nested JSON can decode to a path. Never release
+                // a literal that value masking would later rewrite, including its quotes.
+                if (state.jsonSafe) {
+                    const literal = state.token.slice(state.jstart) + char
+                    try {
+                        if (maskJsonLiteral(literal, root) !== literal) state.jsonSafe = false
+                    } catch {
+                        state.jsonSafe = false
+                    }
+                }
+            }
         } else if (char === '"') {
             state.jstr = true
+            state.jstart = state.token.length
             state.word = ''
         } else if (char === '{' || char === '[') state.jdepth++
         else if (char === '}' || char === ']') state.jdepth--
@@ -375,10 +425,12 @@ export function scanWorkspaceText(state, text, root, flush = false) {
                 state.jstr = false
                 state.overflow = true
             }
-            // No open ordinary token/quote can be extended by later input. Its
-            // unchanged output is therefore final even if JSON validation fails.
+            // Release only a prefix shared by ordinary quote rules and JSON masking.
+            // An open or changed literal holds the suffix until the whole span is judged.
             if (
                 state.json &&
+                state.jsonSafe &&
+                !state.jstr &&
                 state.normal &&
                 !state.normal.token &&
                 !state.normal.quote &&
