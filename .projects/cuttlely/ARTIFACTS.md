@@ -59,3 +59,5 @@ Analyst SQL trace capture: `packages/harness/analyst-capture.mjs` exports `sqlTr
 -   PR1 SQL trace review: saved traces budget SQL previews against the shared history limit, cutting or omitting the last previews first while keeping every SQL hash and timing. The pinned SQL regression covers many long previews, JSON escaping and multibyte text.
 
 PR #324 review corrections reserve the trace question before fitting SQL previews, pair gateway starts by call id, and emit raw MCP starts immediately. The pinned harness tests include main-behavior golden data for tool definitions, instructions, executed SQL, start events and saved traces. The accepted contract permits only the added `sqlHash`, `sql` and `sqlTruncated` fields on free-SQL traces.
+
+Trusted pinned-query outputs: `docs/reference/trusted-outputs.md` documents the optional contracts. `packages/harness/trusted-output.test.mjs` covers source integrity and composition; `trusted-output-bridge.test.mjs` exercises the real local bridge/runtime-scope protocol. `packages/harness/test/trusted-output-fixture.mjs` provides only synthetic PNG data for native storage tests.
