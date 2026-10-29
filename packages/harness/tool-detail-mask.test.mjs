@@ -10,7 +10,7 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'hermes')
 process.env.CUTTLELY_PINNED_QUERIES = '1'
 delete process.env.HERMES_API_URL
 
-const { answerDirectDecision, maskDetailValues, maskWorkspacePaths, runHarness, runSteps } = await import('./run.mjs')
+const { answerDirectDecision, maskDetail, maskDetailValues, maskWorkspacePaths, runHarness, runSteps } = await import('./run.mjs')
 const { saveHarness, getHarness } = await import('./store.mjs')
 const { parseAnalystToolDetail } = await import('./context.mjs')
 const { recordAnalystResult } = await import('./analyst-capture.mjs')
@@ -123,7 +123,7 @@ function pinSpecialist() {
     }
 }
 
-function pinLoadNode(result, prompts) {
+function pinLoadNode(result, prompts, failure = null) {
     return async (nodeName) =>
         class {
             async init() {
@@ -133,7 +133,10 @@ function pinLoadNode(result, prompts) {
                             name: entry.name,
                             description: 'Family fixture',
                             schema: { type: 'object', properties: { threshold_pp: { type: 'string' } } },
-                            invoke: async () => JSON.stringify({ ...result, _cuttlelyTraceSql: compilePinned(entry).runText })
+                            invoke: async () => {
+                                if (failure) throw failure
+                                return JSON.stringify({ ...result, _cuttlelyTraceSql: compilePinned(entry).runText })
+                            }
                         }
                     ]
                 }
@@ -351,4 +354,46 @@ test('free-sql long result stays valid JSON and answers directly', async () => {
     assert.equal(payload.text.includes(crmUrl), true)
     assert.equal(payload.text.includes('Q3..Q4'), true)
     assert.equal(payload.text.includes(secret), false)
+})
+
+test('a long pinned tool error stays valid JSON with no path in every event and the returned payload', async () => {
+    const message = `Query failed... see ${crmUrl} and https://docs.example.com/errors?code=42 for Q3..Q4. ${'More... '.repeat(
+        200
+    )}read ${secret} and 3/4|/tmp/private.csv`
+    const name = `mask-pin-error-${++sequence}`
+    saveHarness({ name, chief: { model, instructions: 'Chief persona.' }, specialists: [pinSpecialist()] }, { overwrite: true })
+    const events = []
+    const payload = await runHarness({
+        name,
+        input: pinQuestion,
+        chatId: 'chat',
+        baseUrl: 'http://127.0.0.1:9',
+        flowOptions: { appDataSource: {}, harnessCaller: { via: 'session' } },
+        fetchImpl: async () => json({ output: 'Model fallback.', status: 'completed' }),
+        loadNode: pinLoadNode({}, [], new Error(message)),
+        onEvent: (event) => events.push(event)
+    })
+    const details = []
+    const collect = (value, where) => {
+        if (Array.isArray(value)) value.forEach((item) => collect(item, where))
+        else if (value && typeof value === 'object') {
+            for (const [key, item] of Object.entries(value)) {
+                if (key === 'detail' && typeof item === 'string') details.push([where, item])
+                else collect(item, where)
+            }
+        }
+    }
+    for (const event of events) collect(event, event.type)
+    collect(payload, 'payload')
+    const places = new Set(details.map(([where]) => where))
+    for (const where of ['tool', 'specialist', 'final', 'payload']) assert.ok(places.has(where), `no detail in ${where}`)
+    for (const [where, detail] of details) {
+        const error = JSON.parse(detail).error
+        assert.equal(typeof error, 'string', where)
+        assert.equal(maskDetail(detail), detail, where)
+        assert.equal(/zz-secret-path|\/tmp\/private|mask-unit/.test(detail), false, where)
+    }
+    const all = JSON.stringify({ events, payload })
+    assert.equal(all.includes(secret), false)
+    assert.equal(all.includes('/tmp/private.csv'), false)
 })

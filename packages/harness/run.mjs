@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { readClientSignal } from './abort.mjs'
@@ -780,44 +781,113 @@ const serializerOf = (value) => {
     }
 }
 const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
-// A string in a harness-built tool detail, such as a row cell, is masked as text and then again with no JSON
-// exemption: the detail is re-encoded, so an embedded JSON span (for example '{"path":"/srv/a.csv"}') need not stay
-// as written. Both passes only replace text, so the string hides at least what the text mask hides.
-// Any workspace path still left (for example after an escaped quote) is then cut up to the next quote, backslash,
-// '<', '>', '|' or line break, so a folder name with spaces is cut too.
+// A tool detail is masked by maskDetail, at every place it leaves: the tool event, the specialist and final events,
+// the returned payload and the trace. It is idempotent, so a detail that was already masked passes unchanged, and a
+// detail that is JSON stays JSON. Text that parses as JSON (an object, an array or a string) is masked on every string
+// value and key, a string that is itself JSON the same way down to DETAIL_JSON_DEPTH encodings, and then re-encoded.
+// Other text gets the text mask, and then a backstop: if the workspace root, its real path, or an absolute path that
+// starts after a character other than a letter, digit, '<' or '.' (as in 'a|/srv/x.csv') is still there, the whole
+// string becomes 'a server path'. Text with nothing to mask keeps its bytes.
+const DETAIL_JSON_DEPTH = 6
+const DETAIL_PHRASE = 'a server path'
+const realRoots = new Map()
+function workspaceRoots() {
+    const root = specialistWorkspaceRoot()
+    if (!realRoots.has(root)) {
+        let real = root
+        try {
+            real = fs.realpathSync(root)
+        } catch {
+            // A root that does not exist yet has no other spelling.
+        }
+        realRoots.clear()
+        realRoots.set(root, [...new Set([root, real].filter(Boolean))])
+    }
+    return realRoots.get(root)
+}
+// The look-behind starts a match only at the start of a word, so a long word is read once.
+const URL_SPAN = /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/[^\s"'`<>|,;]*/gi
+const PATH_START = /(?:^|[^A-Za-z0-9<.])(?:\/[A-Za-z0-9._~$%@+-]|~[/\\]|[A-Za-z]:[/\\]|\\\\[A-Za-z0-9])/
+// The backstop test. Escaped and percent-encoded slashes count as slashes; URLs are skipped unless they hold the root.
+function pathLeft(text) {
+    const probe = text
+        .replace(/\\+\//g, '/')
+        .replace(/\\u002f/gi, '/')
+        .replace(/%2f/gi, '/')
+    if (workspaceRoots().some((root) => probe.includes(root)) || /file:\/\//i.test(probe)) return true
+    return PATH_START.test(probe.replace(URL_SPAN, ' '))
+}
+// A JSON span inside other text is masked as text here; where the detail parses, it is masked as JSON instead.
 function maskDetailText(text) {
     const root = specialistWorkspaceRoot()
-    const out = scanWorkspaceText({ ...workspaceMaskState(), allowJson: false }, maskText(text), root, true)
-    if (!out.includes(root)) return out
-    return out
-        .split(root)
-        .map((part, index) => (index ? part.replace(/^[^\r\n"'`<>|\\]*/, '') : part))
-        .join('the workspace')
+    return root ? scanWorkspaceText({ ...workspaceMaskState(), allowJson: false }, text, root, true) : text
 }
-// A cell that is itself JSON (an object, an array or an encoded string) is masked on its values and re-encoded, only
-// when masking changed something, so other cells keep their bytes.
-function maskJsonString(text, depth, open) {
-    if (depth >= MASK_DEPTH || !/^\s*["[{]/.test(text)) return maskDetailText(text)
-    let parsed
+function maskDetailString(text) {
+    const shown = maskDetailText(text)
+    return pathLeft(shown) ? DETAIL_PHRASE : shown
+}
+function maskDetailJson(value, level, depth) {
+    if (typeof value === 'string') return maskDetailAt(value, level + 1)
+    if (!value || typeof value !== 'object') return value
+    if (depth >= MASK_DEPTH) return '[nested data]'
+    if (Array.isArray(value)) return value.map((item) => maskDetailJson(item, level, depth + 1))
+    const out = {}
+    const next = new Map()
+    for (const [key, item] of Object.entries(value)) {
+        const shown = maskDetailAt(key, level + 1)
+        let name = shown
+        // Two keys that end up with the same name keep both values; the counter keeps many repeats linear.
+        for (let n = next.get(shown) || 2; Object.hasOwn(out, name); n += 1) {
+            name = `${shown} (${n})`
+            next.set(shown, n + 1)
+        }
+        Object.defineProperty(out, name, {
+            value: maskDetailJson(item, level, depth + 1),
+            enumerable: true,
+            writable: true,
+            configurable: true
+        })
+    }
+    return out
+}
+function maskDetailAt(text, level) {
+    if (level < DETAIL_JSON_DEPTH && /^\s*["[{]/.test(text)) {
+        let parsed
+        try {
+            parsed = JSON.parse(text)
+        } catch {
+            parsed = undefined
+        }
+        if (parsed !== undefined) {
+            try {
+                const masked = JSON.stringify(maskDetailJson(parsed, level, 0))
+                // Nothing to mask: the text keeps its bytes (a repeated key that JSON.parse drops counts as a change).
+                return masked === JSON.stringify(parsed) && !pathLeft(text) ? text : masked
+            } catch {
+                return DETAIL_PHRASE
+            }
+        }
+    }
+    return maskDetailString(text)
+}
+export function maskDetail(text) {
+    return typeof text === 'string' ? maskDetailAt(text, 0) : text
+}
+// A value that becomes a tool detail is encoded first and then masked as one detail.
+export function encodeDetail(value) {
+    let text
     try {
-        parsed = JSON.parse(text)
+        text = JSON.stringify(value)
     } catch {
-        return maskDetailText(text)
+        return JSON.stringify('[data]')
     }
-    if (typeof parsed === 'string') {
-        const inner = maskJsonString(parsed, depth + 1, open)
-        return inner === parsed ? maskDetailText(text) : JSON.stringify(inner)
-    }
-    if (!parsed || typeof parsed !== 'object') return maskDetailText(text)
-    const masked = JSON.stringify(maskWorkspacePaths(parsed, depth + 1, open, true))
-    // The raw text is kept only when it hides nothing the parsed value drops (such as a repeated key).
-    return masked === JSON.stringify(parsed) && maskDetailText(text) === text ? text : masked
+    return maskDetail(text ?? 'null')
 }
 export function maskDetailValues(value) {
-    return maskWorkspacePaths(value, 0, new WeakSet(), true)
+    return JSON.parse(encodeDetail(value))
 }
-export function maskWorkspacePaths(value, depth = 0, open = new WeakSet(), jsonStrings = false) {
-    if (typeof value === 'string') return jsonStrings ? maskJsonString(value, depth, open) : maskText(value)
+export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
+    if (typeof value === 'string') return maskText(value)
     if (!value || typeof value !== 'object') return value
     // Raw bytes hold no text to mask.
     if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value
@@ -833,7 +903,7 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet(), jsonS
         } catch {
             return '[data]'
         }
-        return plain === value ? '[data]' : maskWorkspacePaths(plain, depth + 1, open, jsonStrings)
+        return plain === value ? '[data]' : maskWorkspacePaths(plain, depth + 1, open)
     }
     open.add(value)
     try {
@@ -851,7 +921,7 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet(), jsonS
                 } catch {
                     item = '[data]'
                 }
-                out[index] = maskWorkspacePaths(item, depth + 1, open, jsonStrings)
+                out[index] = maskWorkspacePaths(item, depth + 1, open)
             }
             return out
         }
@@ -871,13 +941,17 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet(), jsonS
             } catch {
                 item = '[data]'
             }
-            const shown = jsonStrings ? maskDetailText(key) : maskText(key)
+            const shown = maskText(key)
             let name = shown
             // Two keys that end up with the same name keep both values, in either order.
             for (let n = 2; Object.hasOwn(out, name); n += 1) name = `${shown} (${n})`
             // A key such as "__proto__" stays a plain field.
             Object.defineProperty(out, name, {
-                value: fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1, open, jsonStrings),
+                value: fileBytes(key, item)
+                    ? item
+                    : key === 'detail' && typeof item === 'string'
+                    ? maskDetail(item)
+                    : maskWorkspacePaths(item, depth + 1, open),
                 enumerable: true,
                 writable: true,
                 configurable: true
@@ -995,17 +1069,15 @@ function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, s
     return false
 }
 
-function emit(context, type, data = {}, maskedField = '') {
+function emit(context, type, data = {}) {
     if (context?.clientSignal?.aborted) return
-    // A tool detail masked on its values must not go through the text mask again.
-    const fields = maskedField ? { ...data, [maskedField]: undefined } : data
     // `at` is the event's own clock. The server builds trace spans from these events and does not send a tracer into this process.
+    // maskWorkspacePaths masks a "detail" field with maskDetail, so an encoded tool detail stays valid JSON.
     emitHarnessEvent(context?.onEvent, {
         type,
         harness: context?.name,
         chatId: context?.chatId,
-        ...maskWorkspacePaths(fields),
-        ...(maskedField ? { [maskedField]: data[maskedField] } : {}),
+        ...maskWorkspacePaths(data),
         at: Date.now()
     })
 }
@@ -1045,24 +1117,18 @@ function toolsFor(context, name) {
         .map((item) => `${item.name} ${item.status}`)
 }
 
-function emitTool(context, data, detailMasked = false) {
+function emitTool(context, data) {
     if (!context.toolLog) context.toolLog = []
     // A tool's detail (a preview, an error) can quote a workspace path; it is masked before the log, events and trace.
     // A pinned tool's start carries no detail: its arguments can hold secure parameter values.
-    // Harness-generated JSON details were masked on their values before encoding.
-    // Raw previews still need masking, including previews that are valid JSON.
+    // maskDetail is idempotent and keeps JSON valid, so a detail the harness already masked passes unchanged.
     const pinnedStart = data.phase === 'start' && isPinnedToolName(data.name)
-    const detail =
-        data.detail && !pinnedStart
-            ? detailMasked
-                ? String(data.detail)
-                : hideTurnImageDir(String(data.detail), '', specialistWorkspaceRoot())
-            : ''
+    const detail = data.detail && !pinnedStart ? maskDetail(String(data.detail)) : ''
     const emitted = { ...data, ...(detail ? { detail } : {}) }
     if (pinnedStart) delete emitted.detail
     delete emitted.callId
     logToolEvent(context.toolLog, data, detail)
-    emit(context, 'tool', emitted, detailMasked && detail ? 'detail' : '')
+    emit(context, 'tool', emitted)
 }
 
 // Records a tool start or end on the run's tool log. An end closes the running chip with its own call id when it has
@@ -1910,18 +1976,14 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
                 : body?.status === 'error' || !Array.isArray(body?.rows)
                 ? 'Pinned tool failed.'
                 : ''
-        emitTool(
-            context,
-            {
-                phase: 'done',
-                specialist: specialist.name,
-                name,
-                callId,
-                ...(error ? { error: true } : {}),
-                detail: JSON.stringify({ result: JSON.stringify(maskDetailValues(body)) })
-            },
-            true
-        )
+        emitTool(context, {
+            phase: 'done',
+            specialist: specialist.name,
+            name,
+            callId,
+            ...(error ? { error: true } : {}),
+            detail: encodeDetail({ result: encodeDetail(body) })
+        })
         attachCapturedAnalystResults(context, specialist, started, logStart)
         return {
             text: error
@@ -1938,23 +2000,19 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
         startCapture.flush()
         // A stopped or out-of-time turn stops here like any other step; only an execution failure becomes the answer text.
         const stopped = context.clientSignal?.aborted || overBudget(context)
-        emitTool(
-            context,
-            {
-                phase: 'failed',
-                specialist: specialist.name,
-                name,
-                callId,
-                error: true,
-                detail: JSON.stringify({ error: maskDetailValues(String(error.message || error)) })
-            },
-            true
-        )
+        emitTool(context, {
+            phase: 'failed',
+            specialist: specialist.name,
+            name,
+            callId,
+            error: true,
+            detail: encodeDetail({ error: maskDetail(String(error.message || error)) })
+        })
         if (stopped) {
             throwIfClient(context)
             throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
         }
-        return { text: renderPinError(rule, error.message || error), pinFirstError: true }
+        return { text: renderPinError(rule, maskDetail(String(error.message || error))), pinFirstError: true }
     } finally {
         startCapture.flush()
         endAnalystCalls(context.name, specialist.name, context.chatId)
@@ -2424,7 +2482,7 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         const slotIndex = slots.findIndex((tool, index) => !used.has(index) && tool.callId === callId)
         if (slotIndex < 0) continue
         used.add(slotIndex)
-        slots[slotIndex].detail = JSON.stringify({ result: JSON.stringify(maskDetailValues(item.result)) })
+        slots[slotIndex].detail = encodeDetail({ result: encodeDetail(item.result) })
         const fields = item.traceFields || {}
         if (typeof fields.sqlHash === 'string') slots[slotIndex].sqlHash = fields.sqlHash
         if (typeof fields.sql === 'string') slots[slotIndex].sql = fields.sql

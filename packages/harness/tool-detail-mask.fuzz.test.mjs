@@ -7,7 +7,7 @@ import { after, test } from 'node:test'
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-detail-mask-fuzz-'))
 process.env.CUTTLELY_DATA_DIR = dir
 after(() => fs.rmSync(dir, { recursive: true, force: true }))
-const { maskDetailValues } = await import('./run.mjs')
+const { maskDetail, maskDetailValues } = await import('./run.mjs')
 const { hideWorkspacePaths } = await import('./images.mjs')
 const { specialistWorkspace } = await import('./profile.mjs')
 
@@ -77,4 +77,33 @@ test('masking stays linear at twice the check size', () => {
     hideWorkspacePaths(`"${root}/${'a b/'.repeat(32000)}"`, root)
     hideWorkspacePaths(`'${`${root}/x `.repeat(8000)}'`, root)
     assert.ok(performance.now() - started < 2000)
+})
+
+test('maskDetail is idempotent, keeps JSON valid, leaves no path and keeps text without one', () => {
+    const parses = (text) => {
+        try {
+            JSON.parse(text)
+            return true
+        } catch {
+            return false
+        }
+    }
+    const wraps = [
+        (t) => t,
+        (t) => JSON.stringify(t),
+        (t) => JSON.stringify({ [t]: t }),
+        (t) => JSON.stringify([{ cell: JSON.stringify({ v: t }) }])
+    ]
+    for (let round = 0; round < 150; round++) {
+        const withPath = next() < 0.5
+        const text = pick(wraps)(
+            compose(withPath ? ['path', 'url', 'benign', 'plain'] : ['url', 'benign', 'plain']) +
+                (withPath ? ` ${pick(separators)}${pick(pools.path)}` : '')
+        )
+        const once = maskDetail(text)
+        assert.equal(maskDetail(once), once, text.slice(0, 120))
+        if (parses(text)) assert.ok(parses(once), text.slice(0, 120))
+        assert.equal(once.includes(root) || /fuzz-private|fuzz\/private/.test(once), false, text.slice(0, 120))
+        if (!withPath) assert.equal(once, text, text.slice(0, 120))
+    }
 })
