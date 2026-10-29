@@ -249,6 +249,143 @@ test('Markdown dotted and slash labels hide link and image destinations, includi
     }
 })
 
+test('ordinary slash and dotted labels stay unchanged in plain text, JSON values and streams', () => {
+    const prose = [
+        'and/or',
+        '1/2',
+        'Q3/Q4',
+        '1.5/2.0',
+        'v1.2/v1.3',
+        'Q3.1/Q4.2',
+        'input/output',
+        '10/24/2026',
+        'fraction 3/4 (approx)',
+        'Revenue (Q3/Q4) rose'
+    ]
+    const links = []
+    for (const label of [
+        'and/or',
+        '1/2',
+        'Q3/Q4',
+        '1.5/2.0',
+        'v1.2/v1.3',
+        'Q3.1/Q4.2',
+        'input/output',
+        '10/24/2026',
+        'Q3..Q4',
+        'a.b',
+        'More...',
+        '"and/or"',
+        "'1/2'",
+        '`Q3/Q4`'
+    ]) {
+        for (const image of ['', '!']) {
+            for (const destination of ['#x', 'x', 'docs/guide.md', './docs/guide.md', crmUrl]) {
+                links.push(`${image}[${label}](${destination})`)
+            }
+        }
+    }
+    for (const text of [...prose, 'Ratio [1/2](x) ok', ...links]) {
+        for (const length of [0, 1500]) {
+            const body = { value: text, padding: 'x'.repeat(length) }
+            const json = JSON.stringify(body)
+            for (const answer of [text, json, JSON.stringify([text, ...prose]), JSON.stringify({ result: json })]) {
+                assert.equal(maskWorkspacePaths(answer), answer)
+                for (const width of [1, 7, 1024]) {
+                    const context = {}
+                    let sent = ''
+                    const send = (chunk) => {
+                        sent += chunk
+                        assert.ok(answer.startsWith(sent), 'must release only an unchanged prefix')
+                    }
+                    for (let at = 0; at < answer.length; at += width)
+                        bufferStream(context, 'answer', answer.slice(at, at + width), false, send)
+                    bufferStream(context, 'answer', '', true, send)
+                    assert.equal(sent, answer)
+                }
+            }
+        }
+    }
+})
+
+test('Markdown path labels stay hidden in plain text, JSON values and character streams', () => {
+    const root = path.dirname(specialistWorkspace('_'))
+    for (const label of [
+        secret,
+        `file://${secret}`,
+        `"${secret}"`,
+        `'${secret}'`,
+        '`' + secret + '`',
+        `${root}/my reports/zz-secret-path.csv`,
+        `"${root}/my reports/zz-secret-path.csv"`,
+        '../analyst/zz-secret-path.csv',
+        '~/analyst/zz-secret-path.csv',
+        '"./analyst/zz-secret-path.csv"',
+        "'analyst/zz-secret-path.csv'",
+        '"./my reports/zz-secret-path.csv"',
+        `see ${secret}`,
+        `see "${secret}"`,
+        `see file://${secret}`,
+        `${root}/report(1)/zz-secret-path.csv`
+    ]) {
+        for (const image of ['', '!']) {
+            for (const destination of [secret, `file://${secret}`, crmUrl]) {
+                const text = `${image}[${label}](${destination})`
+                const shown = hideWorkspacePaths(text, root)
+                assert.equal(shown.includes('zz-secret-path.csv'), false, text)
+                for (const length of [0, 1500]) {
+                    const body = { safe: 'ready', value: text, padding: 'x'.repeat(length) }
+                    const json = JSON.stringify(body)
+                    const masked = JSON.stringify({ ...body, value: shown })
+                    for (const [answer, expected] of [
+                        [text, shown],
+                        [json, masked],
+                        ['```json\n' + json + '\n```', '```json\n' + masked + '\n```'],
+                        [JSON.stringify({ result: json }), JSON.stringify({ result: masked })]
+                    ]) {
+                        assert.equal(maskWorkspacePaths(answer), expected)
+                        const context = {}
+                        let sent = ''
+                        const send = (chunk) => {
+                            sent += chunk
+                            assert.ok(expected.startsWith(sent), 'must release only a safe prefix')
+                        }
+                        for (const char of answer) bufferStream(context, 'answer', char, false, send)
+                        bufferStream(context, 'answer', '', true, send)
+                        assert.equal(sent, expected)
+                    }
+                }
+            }
+        }
+    }
+})
+
+test('relative path labels keep the whole token for masking and JSON arrays keep their syntax', () => {
+    for (const label of [
+        'analyst/zz-secret-path.csv',
+        './analyst/zz-secret-path.csv',
+        'see analyst/zz-secret-path.csv',
+        './report(1)/zz-secret-path.csv'
+    ]) {
+        for (const image of ['', '!']) {
+            for (const destination of [secret, `file://${secret}`, crmUrl]) {
+                const text = `${image}[${label}](${destination})`
+                const shown = maskWorkspacePaths(text)
+                assert.equal(shown.includes('zz-secret-path.csv'), false, text)
+                assert.equal(streamedAnswer(text), shown)
+                const json = JSON.stringify({ value: text, padding: 'x'.repeat(1500) })
+                assert.deepEqual(JSON.parse(streamedAnswer(json)), { value: shown, padding: 'x'.repeat(1500) })
+            }
+        }
+    }
+    for (const value of [[secret], [1, 2], ['./analyst/private.csv'], ['ready', secret, { value: secret }]]) {
+        const json = JSON.stringify(value)
+        const expected = JSON.stringify(maskWorkspacePaths(value))
+        assert.equal(maskWorkspacePaths(json), expected)
+        assert.equal(streamedAnswer(json), expected)
+    }
+})
+
 test('quoted Markdown and unfinished JSON hide dotted-label destinations', () => {
     for (const text of [`[More...](${secret})`, `![x...](${secret} "t")`, `[Q3..Q4]("${secret}")`, `details..(${secret})`]) {
         const quoted = JSON.stringify(text)

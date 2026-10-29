@@ -142,7 +142,8 @@ export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirna
 }
 
 // Rules 1–8 share this state machine, including the bounded-token fallback.
-const EDGE = /[\]\)}|<>"`,;:!?]/
+// Opening brackets also trim path labels before any Markdown destination split.
+const EDGE = /[\[\]\)}|<>"`,;:!?]/
 const QUOTES = '"\'`'
 const LEAD = /^[\]\)}|<>,;:!?]*$/
 // Rule 3a: \name\name..., UNC \\host\share, or a drive letter. JSON-escaped data is left alone.
@@ -243,7 +244,14 @@ function tokenMask(raw, root, continued) {
     // date such as 3/4 or 10/24/2026 through.
     if (/^[\/\\~]$/.test(token)) return { text: raw, masked: continued === true ? true : 'soft' }
     const slash = /[\/\\]/.test(token)
-    const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || dotDot || /\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
+    // A slash within a Markdown label (and/or, 1/2) is ordinary prose unless
+    // the label or the whole token qualifies under the path rules.
+    const labelEnd = token.indexOf(']')
+    const labelPath =
+        (raw.slice(0, start).includes('[') && /^\.\//.test(token)) ||
+        (labelEnd >= 0 && /[\/\\]/.test(token.slice(0, labelEnd)) && /\]\(["'`<]?\//.test(token))
+    const candidate =
+        /^(?:[\/~]|file:\/\/)/i.test(token) || dotDot || labelPath || /\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
     const numeric = !candidate && continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
     // A number kept after a lone slash still passes the soft continuation on, so a path piece after it is hidden.
     if (numeric) return { text: raw, masked: 'soft' }
@@ -423,8 +431,16 @@ export function scanWorkspaceText(state, text, root, flush = false) {
     const scanChar = (char) => {
         // Parentheses open a new token, including Markdown link destinations. Once a
         // path has started, keep parentheses inside it so directory names still resolve.
-        // The cap heuristic also matches labels such as More...; only an actual path stays whole.
-        if (char === '(' && !state.quote && !state.json && !state.overflow && !tokenMask(state.token, root, state.continued).masked) {
+        // A relative filename label can become a path candidate with its destination.
+        // Slash words such as and/or still end here, preserving ordinary links.
+        if (
+            char === '(' &&
+            !state.quote &&
+            !state.json &&
+            !state.overflow &&
+            !/[\/\\][^\/\\\]\s]+\.[A-Za-z][A-Za-z0-9]*["'`]?\]$/.test(state.token) &&
+            !tokenMask(state.token, root, state.continued).masked
+        ) {
             finish()
             out.push(char)
             return
@@ -443,7 +459,8 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             else if (!state.json && /[^A-Za-z0-9_.~%\/\\-]$/.test(state.token)) {
                 // A token that is already a path candidate reads on through the quoted span and is
                 // masked whole at its boundary; only other text is judged on its own first.
-                if (!state.capCandidate) finish()
+                const label = state.token.endsWith('[')
+                if (!state.capCandidate && !label) finish()
                 state.quote = char
             }
         }
@@ -502,7 +519,12 @@ export function scanWorkspaceText(state, text, root, flush = false) {
                 state.emitted = state.token.length
             }
         }
-        if (closing) finish()
+        if (closing) {
+            // Keep a quoted label with its destination so a later path candidate
+            // can hide both. Quoting a slash word alone does not make it a path.
+            if (/^!?\[["'`]/.test(state.token)) state.quote = ''
+            else finish()
+        }
     }
     const finishFence = () => {
         const marker = state.fence
