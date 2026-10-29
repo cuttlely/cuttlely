@@ -11,7 +11,7 @@ process.env.CUTTLELY_PINNED_QUERIES = '1'
 delete process.env.HERMES_API_URL
 
 const { answerDirectDecision, bufferStream, maskWorkspacePaths, runHarness, runSteps } = await import('./run.mjs')
-const { hideTurnImageDir } = await import('./images.mjs')
+const { hideTurnImageDir, hideWorkspacePaths, scanWorkspaceText, workspaceMaskState } = await import('./images.mjs')
 const { saveHarness, getHarness } = await import('./store.mjs')
 const { parseAnalystToolDetail } = await import('./context.mjs')
 const { recordAnalystResult } = await import('./analyst-capture.mjs')
@@ -252,6 +252,52 @@ test('JSON masking changes only value literals and preserves all other bytes', (
     const unchanged = '{ "safe": 1, "s\\u0061fe": 2 }'
     assert.equal(maskWorkspacePaths(unchanged), unchanged)
     assert.equal(streamedAnswer(unchanged), unchanged)
+})
+
+function assertEmbeddedJson(prefix, suffix) {
+    const root = path.dirname(specialistWorkspace('_'))
+    for (const length of [0, 1500]) {
+        for (const literal of [JSON.stringify(secret), JSON.stringify(secret).replaceAll('/', '\\u002f')]) {
+            const answer = `{ "safe\\u005fkey" : "\\u0041", "n":1e+006, "url":${JSON.stringify(crmUrl)},
+  ${literal}: {"file":${literal}}, "padding":"${'x'.repeat(length)}" }`
+            assert.equal(answer.length > 1024, length > 0)
+            for (const body of [answer, `[${answer}]`]) {
+                for (const json of [body, body.replaceAll(literal, '"safe"')]) {
+                    const text = prefix + json + suffix
+                    const expected = prefix + json.replaceAll(literal, '"the workspace"') + suffix
+                    assert.equal(hideWorkspacePaths(text, root), expected)
+                    assert.equal(maskWorkspacePaths(text), expected)
+                    for (const width of [1, 7, 1024]) {
+                        const state = workspaceMaskState()
+                        let sent = ''
+                        for (let at = 0; at < text.length; at += width) {
+                            sent += scanWorkspaceText(state, text.slice(at, at + width), root)
+                            assert.ok(expected.startsWith(sent), 'must release only a safe incremental prefix')
+                        }
+                        sent += scanWorkspaceText(state, '', root, true)
+                        assert.equal(sent, expected)
+                    }
+                    assert.equal(streamedAnswer(text), expected)
+                }
+            }
+        }
+    }
+}
+
+test('short and long fenced JSON masks keys and values while preserving Markdown and JSON bytes', () => {
+    for (const fence of ['```', '````', '~~~']) {
+        for (const tag of ['', 'json']) {
+            assertEmbeddedJson(`${fence}${tag}\n`, `\n${fence}`)
+        }
+    }
+    assertEmbeddedJson('Here is the result:\n\n  ```json\r\n', '\r\n  ```\nDone.')
+    assert.equal(streamedAnswer('```json\n{"safe":true}\n```\n~~~\n[]\n~~~'), '```json\n{"safe":true}\n```\n~~~\n[]\n~~~')
+})
+
+test('short and long JSON after a same-line lead-in or list marker masks keys and values', () => {
+    for (const prefix of ['Here is the result: ', '- ', '* ', '1. ', 'Results:\n- ']) {
+        assertEmbeddedJson(prefix, '\nDone.')
+    }
 })
 
 test('incremental JSON prefixes never release a literal that needs masking', () => {

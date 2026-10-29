@@ -275,6 +275,7 @@ function tokenMask(raw, root, continued) {
 export function workspaceMaskState() {
     return {
         token: '',
+        fence: '',
         quote: '',
         overflow: false,
         continued: false,
@@ -394,11 +395,11 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         } else if (/[0-9+\-.{}\[\],:]/.test(char)) state.word = ''
         else state.json = false
     }
-    for (const char of text) {
+    const scanChar = (char) => {
         if (!state.quote && !(state.json && state.jdepth > 0) && /\s/u.test(char)) {
             finish()
             out.push(char)
-            continue
+            return
         }
         const closing = state.quote === char && !state.slash
         // Rule 1: a quote opens after leading trim characters, or after any delimiter inside a
@@ -470,6 +471,26 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         }
         if (closing) finish()
     }
+    const finishFence = () => {
+        const marker = state.fence
+        state.fence = ''
+        // Fence runs are Markdown delimiters, not backtick quotes or tilde paths.
+        // Hold short runs until their length is known, including across chunks.
+        if (marker.length >= 3) out.push(marker)
+        else for (const char of marker) scanChar(char)
+    }
+    for (const char of text) {
+        if (state.fence) {
+            if (char === state.fence[0]) {
+                state.fence += char
+                continue
+            }
+            finishFence()
+        }
+        if (!state.token && !state.quote && !state.overflow && (char === '`' || char === '~')) state.fence = char
+        else scanChar(char)
+    }
+    if (flush && state.fence) finishFence()
     if (flush) finish()
     return out.join('')
 }
