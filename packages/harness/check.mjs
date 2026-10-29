@@ -248,6 +248,12 @@ const pinFirstTests = spawnSync(process.execPath, ['--test', path.join(root, 'pa
 })
 check('pin first runtime and configuration tests', pinFirstTests.status === 0, pinFirstTests.stdout + pinFirstTests.stderr)
 
+const capacityWaitTests = spawnSync(process.execPath, ['--test', path.join(root, 'packages/harness/capacity-wait.test.mjs')], {
+    encoding: 'utf8',
+    timeout: 60000
+})
+check('opt-in admission capacity wait tests', capacityWaitTests.status === 0, capacityWaitTests.stdout + capacityWaitTests.stderr)
+
 saveHarness(
     {
         name: 'draft-probe',

@@ -8,6 +8,7 @@ import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, r
 import { toolCallingWarnings } from './tool-fallback.mjs'
 import { SPECIALIST_PRESETS, presetName } from './presets.mjs'
 import { assertPinnedQueryRoster } from './pinned-names.mjs'
+import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
 function boolInput(value) {
     return value === true || value === 'true'
@@ -208,6 +209,9 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
                 ...(boolInput(inputs.pinFirst) ? { pinFirst: true } : {}),
                 ...(inputs.pinFirstRules ? { pinFirstRules: parsePinFirstRules(inputs.pinFirstRules) } : {}),
                 ...(boolInput(inputs.answerDirect) ? { answerDirect: true } : {}),
+                ...(specialistCapacityWaitSeconds(inputs.capacityWaitSeconds)
+                    ? { capacityWaitSeconds: specialistCapacityWaitSeconds(inputs.capacityWaitSeconds) }
+                    : {}),
                 ...(specialistHandoffChars(inputs.handoffChars) ? { handoffChars: specialistHandoffChars(inputs.handoffChars) } : {}),
                 ...(models.model ? { model: models.model } : {}),
                 ...(models.fallback ? { fallbackModel: models.fallback } : {}),

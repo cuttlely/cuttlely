@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Harness Specialist **Capacity wait (seconds)** can wait up to 60 seconds when the agent runtime rejects a new run because all concurrent-run slots are busy. It defaults to `0`, off, honors `Retry-After` and the turn budget, and does not rerun accepted turns or tools.
+
 -   **Agent run time** in **Admin** > **Server Settings** > **Agent runtime** configures specialist and nested-task waits. It defaults to four minutes; set 300 seconds for five minutes or `0` for unlimited, then restart. The whole-turn budget and cancellation still apply.
 
 -   Harness Specialist **Pin first** can run one matching pinned query and render its answer before any specialist model call. Rule patterns match with a 50 ms limit per pass, and a pattern that runs longer is a miss. The option defaults to off.
