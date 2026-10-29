@@ -154,6 +154,89 @@ function pinLoadNode(result, prompts) {
         }
 }
 
+test('stateless boundaries mask server paths and preserve escaped URLs and labels', () => {
+    const root = '/var/cuttlely/workspaces'
+    const masked = [
+        ['[https://example.com](/tmp/private.csv)', '[https://example.com](a server path)'],
+        ['|report|/tmp/p.csv|', '|report|a server path|'],
+        ['|report|/var//cuttlely/workspaces/analyst/private.csv|', '|report|the workspace|'],
+        [String.raw`{"x":"\/tmp\/private.csv"}`, '{"x":"a server path"}'],
+        [String.raw`{"x":"\u002ftmp\u002fprivate.csv"}`, '{"x":"a server path"}'],
+        ['**/var/cuttlely/workspaces/analyst/private.csv**', '**the workspace**'],
+        ...['var', 'home', 'tmp', 'Users', 'opt', 'srv', 'app', 'data', 'etc', 'root', 'mnt'].flatMap((top) =>
+            [']', ')', '|', '=', ':', ',', '*'].map((boundary) => [`row${boundary}/${top}/private.csv`, `row${boundary}a server path`])
+        ),
+        [String.raw`row]C:\private.csv`, 'row]a server path']
+    ]
+    const benign = [
+        String.raw`{"label":"and\/or","url":"https:\/\/example.com\/a"}`,
+        String.raw`{"label":"and\u002for"}`,
+        '[https://example.com](https://example.com/a)',
+        '|report|ready|',
+        '_x_/_y_',
+        'Q3..Q4',
+        'and/or',
+        '3/4',
+        '[./README.md](#overview)',
+        '[docs/report.csv](https://example.com/report.csv)',
+        'web/app/config',
+        'big/data/x',
+        'src/tmp/file.ts',
+        'my/home/page',
+        'https://en.wikipedia.org/wiki/Foo_(bar)'
+    ]
+    for (const [input, expected] of [...masked, ...benign.map((text) => [text, text])]) {
+        assert.equal(hideWorkspacePaths(input, root), expected, input)
+        for (const width of [1, 7, 1024]) {
+            const state = workspaceMaskState()
+            let shown = ''
+            for (let at = 0; at < input.length; at += width) {
+                shown += scanWorkspaceText(state, input.slice(at, at + width), root)
+                assert.ok(expected.startsWith(shown), input)
+                assert.deepEqual(Object.keys(state).sort(), ['buffer', 'url'])
+            }
+            shown += scanWorkspaceText(state, '', root, true)
+            assert.equal(shown, expected, input)
+        }
+    }
+})
+
+test('normalized configured and real roots are masked inside otherwise ordinary runs', () => {
+    const actual = path.join(dir, 'normalized-root')
+    const alias = path.join(dir, 'normalized-alias')
+    fs.mkdirSync(actual)
+    fs.symlinkSync(actual, alias, 'dir')
+    for (const root of [alias, '/var/cuttlely/workspaces']) {
+        for (const value of root === alias ? [alias, actual] : [root]) {
+            for (const spelling of [
+                value,
+                value.replaceAll('/', '//'),
+                value.replaceAll('/', '/./'),
+                value.replaceAll('/', '/'),
+                value.replaceAll('/', '\u002f'),
+                value.replaceAll('/', '%2f'),
+                encodeURIComponent(value),
+                value.replaceAll('/', '/./').replaceAll('/', '%2f')
+            ]) {
+                for (const input of [`prefix${spelling}/private.csv`, `https://example.com${spelling}/private.csv`]) {
+                    const expected = hideWorkspacePaths(input, root)
+                    assert.equal(expected.includes('private.csv'), false, input)
+                    assert.equal(expected.includes(value), false, input)
+                    for (const width of [1, 7, 1024]) {
+                        const state = workspaceMaskState()
+                        let shown = ''
+                        for (let at = 0; at < input.length; at += width) {
+                            shown += scanWorkspaceText(state, input.slice(at, at + width), root)
+                            assert.ok(expected.startsWith(shown), input)
+                        }
+                        assert.equal(shown + scanWorkspaceText(state, '', root, true), expected, input)
+                    }
+                }
+            }
+        }
+    }
+})
+
 test('labels with dot dot stay, and a workspace path is still masked', () => {
     const body = longBody()
     assert.ok(JSON.stringify(body).length > 1024)
@@ -690,7 +773,7 @@ test('JSON path keys are held through character streaming, including escaped and
     }
 })
 
-test('JSON key collisions keep both values with the same suffixes as parsed object masking', () => {
+test('parsed objects keep colliding values and raw text masks each key independently', () => {
     const entries = [
         [secret, 'first'],
         [path.join(path.dirname(secret), 'another.csv'), 'second'],
@@ -701,10 +784,17 @@ test('JSON key collisions keep both values with the same suffixes as parsed obje
     for (const ordered of [entries, entries.toReversed()]) {
         const body = Object.fromEntries(ordered)
         const answer = JSON.stringify({ ...body, nested: [body, { [secret]: 'separate object' }] }, null, 2)
-        const expected = maskWorkspacePaths(JSON.parse(answer))
-        for (const shown of [maskWorkspacePaths(answer), streamedAnswer(answer)]) {
-            assert.deepEqual(JSON.parse(shown), expected)
-            assert.equal(shown.includes('zz-secret-path.csv'), false)
+        const parsed = maskWorkspacePaths(JSON.parse(answer))
+        assert.equal(Object.values(parsed).includes('first'), true)
+        assert.equal(Object.values(parsed).includes('second'), true)
+        const expected = answer.replaceAll(secret, 'the workspace').replaceAll(entries[1][0], 'the workspace')
+        for (const input of [answer, JSON.stringify({ result: answer })]) {
+            const masked = input === answer ? expected : JSON.stringify({ result: expected })
+            for (const shown of [maskWorkspacePaths(input), streamedAnswer(input)]) {
+                assert.equal(shown, masked)
+                assert.equal(shown.includes('zz-secret-path.csv'), false)
+                assert.doesNotThrow(() => JSON.parse(shown))
+            }
         }
     }
 })

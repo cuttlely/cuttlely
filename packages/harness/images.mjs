@@ -144,7 +144,10 @@ export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirna
 // Paths are recognized in every segment, independently of Markdown or JSON grammar.
 // Backslashes preceding quotes belong to JSON escapes; leave an even number in the match.
 const PATH_CHARS = String.raw`[^\s"'\x60<>()\[\]*|]`
-const PATH_START = String.raw`(?:file:\/\/[^/\\\s]*|(?<![A-Za-z0-9])(?:[a-z]:[\\/]|\\\\[a-z0-9])|(?<=[\s(<"'\x60*_~=:,;\[])~?\/|^~?\/|%2f|\\+(?:/|u002f))`
+const START_BOUNDARY = String.raw`(?:^|(?<=[\s(<"'\x60*_~=:,;\[|])(?<![A-Za-z0-9]_))`
+const SYSTEM_BOUNDARY = String.raw`(?:^|(?<=[\s"'\x60\[\]()|=:,*])|(?<=\\/))`
+const SLASH = String.raw`(?:/|\\+(?:/|u002f)|%2f)`
+const PATH_START = String.raw`(?:${SYSTEM_BOUNDARY}(?:file:\/\/[^/\\\s]*|[a-z]:[\\/]|/(?:var|home|tmp|Users|opt|srv|app|data|etc|root|mnt)(?=/|$))|${START_BOUNDARY}(?:[a-z]:[\\/]|\\{2,}[a-z0-9]|~?${SLASH}))`
 const MASK_HOLD = 8192
 const rootCache = new Map()
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -181,15 +184,16 @@ function workspaceRoots(root) {
     const variants = [...literals].filter(Boolean).sort((a, b) => b.length - a.length)
     const info = {
         roots,
+        normalizedRoots: roots.map(normalizePath),
         variants,
         boundaryPrefixes: variants
             .flatMap((value) => [...value.matchAll(/[\s"]/g)].map((match) => value.slice(0, match.index + 1)))
             .filter((prefix) => !variants.includes(prefix)),
-        backstop: new RegExp(`(?:${variants.map(escapeRegex).join('|')})${PATH_CHARS}*`, 'g'),
+        backstop: new RegExp(`(?:${variants.map(escapeRegex).join('|')})${PATH_CHARS}*|${PATH_CHARS}+`, 'g'),
         overlap: Math.max(0, ...variants.map((value) => value.length - 1)),
         // URL and relative Markdown targets win over generic path starts.
         regex: new RegExp(
-            String.raw`(?:<|&lt;)\/[a-z][a-z0-9:-]*(?=\s|>|&gt;)|https?:\/\/[^\s"'\x60<>*|]+|(?<=\()(?:#[^\s)"']*|\.\.?\/[^\s)"']*)|(?:${variants
+            String.raw`(?:<|&lt;)\/[a-z][a-z0-9:-]*(?=\s|>|&gt;)|https?:\/\/[^\s"'\x60<>*|\[\]]+|https?:(?:\\/){2}[^\s"\[\]]+|(?<=\()(?:#[^\s)"']*|\.\.?\/[^\s)"']*)|(?:${variants
                 .map(escapeRegex)
                 .join('|')}|${PATH_START})${PATH_CHARS}*`,
             'gi'
@@ -198,6 +202,21 @@ function workspaceRoots(root) {
     if (rootCache.size >= 64) rootCache.delete(rootCache.keys().next().value)
     rootCache.set(root, info)
     return info
+}
+
+function normalizePath(value) {
+    let decoded = value
+    try {
+        decoded = decodeURIComponent(decoded)
+    } catch {
+        decoded = decoded.replace(/%[0-9a-f]{2}/gi, (hex) => String.fromCharCode(Number.parseInt(hex.slice(1), 16)))
+    }
+    return decoded
+        .replace(/\\+u002f/gi, '/')
+        .replace(/\\+\//g, '/')
+        .replace(/\\+/g, '/')
+        .replace(/\/+/g, '/')
+        .replace(/\/\.(?=\/|$)/g, '')
 }
 
 function maskPath(raw, info) {
@@ -232,55 +251,19 @@ function maskSegment(text, info, url = false) {
     const prefix = url ? 'https://' : ''
     const shown = (prefix + text)
         .replace(info.regex, (raw) => {
-            if (/^(?:(?:<|&lt;)\/|https?:\/\/|#|\.\.?\/)/i.test(raw)) return raw
+            if (/^(?:(?:<|&lt;)\/|https?:(?:\/\/|(?:\\\/){2})|#|\.\.?\/)/i.test(raw)) return raw
             return maskPath(raw, info)
         })
         .slice(prefix.length)
-    // Literal configured and real roots are hidden even inside URLs or relative targets.
-    return shown.replace(info.backstop, (raw) => maskPath(raw, info))
+    // Check the whole run, including roots embedded in URLs and relative targets.
+    return shown.replace(info.backstop, (raw) => {
+        const normalized = normalizePath(raw)
+        return info.normalizedRoots.some((root) => normalized.includes(root)) ? maskPath(raw, info) : raw
+    })
 }
 
 export function workspaceMaskState() {
-    return { buffer: '', url: false, containers: [], quoted: false, escaped: false, key: null }
-}
-
-// Masked JSON keys can collide with another path or a literal placeholder. Keep the
-// same encounter-order suffixes as parsed object masking, without holding the JSON
-// document or changing its formatting. Values and array strings pass through.
-function keepJsonKeys(text, state, info) {
-    const out = []
-    for (const char of text) {
-        if (state.quoted) {
-            if (char === '"' && !state.escaped) {
-                if (state.key !== null) {
-                    const names = state.containers.at(-1).names
-                    try {
-                        const original = JSON.parse('"' + state.key + '"')
-                        const key = JSON.parse('"' + maskSegment(state.key, info) + '"')
-                        let name = key
-                        for (let n = 2; names.has(name) && names.get(name) !== original; n++) name = `${key} (${n})`
-                        names.set(name, original)
-                        if (name !== key) out.push(name.slice(key.length))
-                    } catch {
-                        // An unfinished or non-JSON literal still uses the text masker.
-                    }
-                    state.key = null
-                }
-                state.quoted = false
-            } else if (state.key !== null) state.key += char
-            state.escaped = char === '\\' && !state.escaped
-        } else if (char === '"') {
-            state.quoted = true
-            state.escaped = false
-            if (state.containers.at(-1)?.key) state.key = ''
-        } else if (char === '{' || char === '[') {
-            state.containers.push(char === '{' ? { key: true, names: new Map() } : { key: false })
-        } else if (char === '}' || char === ']') state.containers.pop()
-        else if (char === ':' && state.containers.at(-1)?.names) state.containers.at(-1).key = false
-        else if (char === ',' && state.containers.at(-1)?.names) state.containers.at(-1).key = true
-        out.push(char)
-    }
-    return out.join('')
+    return { buffer: '', url: false }
 }
 
 export function scanWorkspaceText(state, text, root, flush = false) {
@@ -295,7 +278,7 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             // A configured root can itself contain spaces. Hold a possible literal prefix.
             const partial = info.boundaryPrefixes.some((prefix) => state.buffer.endsWith(prefix))
             if (!partial) {
-                out.push(maskSegment(keepJsonKeys(state.buffer, state, info), info, state.url))
+                out.push(maskSegment(state.buffer, info, state.url))
                 state.url = false
                 state.buffer = ''
             }
@@ -310,20 +293,29 @@ export function scanWorkspaceText(state, text, root, flush = false) {
             if ((state.buffer.slice(0, cut).match(/\\+$/)?.[0].length || 0) % 2) cut--
             if (cut) {
                 const prefix = state.url ? 'https://' : ''
-                const crossingUrl = [...(prefix + state.buffer).matchAll(info.regex)].some(
-                    (match) =>
-                        /^https?:\/\//i.test(match[0]) &&
-                        match.index < prefix.length + cut &&
-                        match.index + match[0].length > prefix.length + cut
+                const crossing = [...(prefix + state.buffer).matchAll(info.regex)].find(
+                    (match) => match.index < prefix.length + cut && match.index + match[0].length > prefix.length + cut
                 )
-                out.push(maskSegment(keepJsonKeys(state.buffer.slice(0, cut), state, info), info, state.url))
-                state.url = crossingUrl
-                state.buffer = state.buffer.slice(cut)
+                const rooted = [...state.buffer.matchAll(info.backstop)].find(
+                    (match) =>
+                        match.index < cut &&
+                        match.index + match[0].length > cut &&
+                        info.normalizedRoots.some((root) => normalizePath(match[0]).includes(root))
+                )
+                const crossingUrl = crossing && /^https?:(?:\/\/|(?:\\\/){2})/i.test(crossing[0])
+                const crossingPath = crossing && !/^(?:(?:<|&lt;)\/|https?:|#|\.\.?\/)/i.test(crossing[0])
+                if (rooted) {
+                    out.push(maskSegment(state.buffer.slice(0, rooted.index), info, state.url))
+                    out.push(maskPath(state.buffer.slice(rooted.index, cut), info))
+                } else out.push(maskSegment(state.buffer.slice(0, cut), info, state.url))
+                state.url = Boolean(crossingUrl && !rooted)
+                // Re-anchor a continued path at the next bounded segment, without syntax state.
+                state.buffer = (rooted || crossingPath ? '/' : '') + state.buffer.slice(cut)
             }
         }
     }
     if (flush) {
-        out.push(maskSegment(keepJsonKeys(state.buffer, state, info), info, state.url))
+        out.push(maskSegment(state.buffer, info, state.url))
         state.url = false
         state.buffer = ''
     }

@@ -33,6 +33,10 @@ const encodings = (text) => [
         jsonBody(text),
         jsonBody(jsonBody(text)),
         text.replaceAll('/', '\\/'),
+        text.replaceAll('/', '\\u002f'),
+        text.replaceAll('/', '//'),
+        text.replaceAll('/', '/./'),
+        text.replaceAll('/', '/./').replaceAll('/', '%2f'),
         encodeURI(text),
         encodeURIComponent(text),
         text.replaceAll('/', '%2f'),
@@ -41,6 +45,12 @@ const encodings = (text) => [
 ]
 const forms = [
     ['posix', file],
+    ['tmp', `/tmp/private.csv`],
+    ['srv', `/srv/data/x.csv`],
+    ['app', `/app/y.json`],
+    ['repeated-slashes', file.replaceAll('/', '//')],
+    ['dot-segments', file.replaceAll('/', '/./')],
+    ['unicode-slashes', file.replaceAll('/', '\\u002f')],
     ['file-uri', `file://${file}`],
     ['home', `~/secret/${filename}`],
     ['drive', `C:\\secret\\${filename}`],
@@ -73,6 +83,8 @@ const positions = [
     ['colon', (p) => `path:${p}`],
     ['comma', (p) => `path,${p}`],
     ['semicolon', (p) => `path;${p}`],
+    ['table', (p) => `|report|${p}|`],
+    ['url-label', (p) => `[https://example.com](${p})`],
     ['equals', (p) => `path=${p}`],
     ['json-key', (p) => JSON.stringify({ [p]: 'ready' })],
     ['json-value', (p) => JSON.stringify({ value: p })],
@@ -81,6 +93,16 @@ const positions = [
     ['prose', (p) => `See ${p} for details.`]
 ]
 const benign = [
+    String.raw`{"label":"and\/or","url":"https:\/\/example.com\/a"}`,
+    String.raw`{"label":"and\u002for"}`,
+    '[https://example.com](https://example.com/a)',
+    '|report|ready|',
+    '_x_/_y_',
+    'web/app/config',
+    'big/data/x',
+    'src/tmp/file.ts',
+    'my/home/page',
+    'https://en.wikipedia.org/wiki/Foo_(bar)',
     'https://example.com/a/b?q=3/4#anchor',
     'http://example.com/a_b',
     '[docs/x.md](#a)',
@@ -101,7 +123,7 @@ function stream(input, width, workspace) {
     for (let at = 0; at < input.length; ) {
         const size = width || 1 + Math.floor(next() * 97)
         shown += scanWorkspaceText(state, input.slice(at, at + size), workspace)
-        peak = Math.max(peak, state.token?.length || 0, state.buffer?.length || 0)
+        peak = Math.max(peak, state.buffer.length)
         at += size
     }
     return { shown: shown + scanWorkspaceText(state, '', workspace, true), peak }
@@ -118,7 +140,16 @@ test('seeded path masking oracles across syntax, encodings and chunk splits', ()
         failures.set(key, (failures.get(key) || 0) + 1)
         if (examples.length < 8) examples.push({ class: key, input: input.slice(0, 180), output: output.slice(0, 180) })
     }
-    const exercise = (input, position, form, workspace = root, residual = false, unchanged = false, roots = [workspace]) => {
+    const exercise = (
+        input,
+        position,
+        form,
+        workspace = root,
+        residual = false,
+        unchanged = false,
+        roots = [workspace],
+        protectedPath = ''
+    ) => {
         const whole = stream(input, input.length || 1, workspace).shown
         const buffered = hideWorkspacePaths(input, workspace)
         let validJson = false
@@ -126,14 +157,28 @@ test('seeded path masking oracles across syntax, encodings and chunk splits', ()
             JSON.parse(input)
             validJson = true
         } catch {}
-        const forbidden = [...roots.flatMap(encodings), ...(!residual && !unchanged ? encodings(filename) : [])]
+        // Protect each generated absolute path and its directory chain, independently of the workspace.
+        let decodedPath = protectedPath
+            .replace(/\\+u002f/gi, '/')
+            .replace(/\\+\//g, '/')
+            .replace(/\\+/g, '/')
+        try {
+            decodedPath = decodeURIComponent(decodedPath)
+        } catch {}
+        const directory = decodedPath.slice(0, decodedPath.lastIndexOf('/'))
+        const forbidden = [
+            ...roots.flatMap(encodings),
+            ...(!residual && !unchanged ? encodings(filename) : []),
+            ...(protectedPath ? [...encodings(protectedPath), ...encodings(decodedPath)] : []),
+            ...(directory && directory !== '/' ? encodings(directory) : [])
+        ]
         for (const width of [1, 2, 3, 7, 64, 1024, 0]) {
             total++
             const { shown, peak } = stream(input, width, workspace)
             const outputs = [shown, buffered]
             checks++
             if (outputs.some((out) => forbidden.some((secret) => out.toLowerCase().includes(secret.toLowerCase()))))
-                fail('no-leak', position, form, input, shown)
+                fail('hidden-path', position, form, input, shown)
             checks++
             if (validJson)
                 for (const output of outputs) {
@@ -153,8 +198,27 @@ test('seeded path masking oracles across syntax, encodings and chunk splits', ()
         }
     }
     for (const [form, value, residual] of forms)
-        for (const [position, wrap] of positions) exercise(wrap(value), position, form, root, residual)
+        for (const [position, wrap] of positions)
+            exercise(wrap(value), position, form, root, residual, false, [root], value.split(/[ ()\[\]']/)[0])
     for (const text of benign) exercise(text, 'benign', 'prose', root, false, true)
+    for (const [input, absolute] of [
+        ['[https://example.com](/tmp/private.csv)', '/tmp/private.csv'],
+        ['|report|/tmp/p.csv|', '/tmp/p.csv'],
+        ['|report|/var//cuttlely/workspaces/analyst/private.csv|', '/var//cuttlely/workspaces/analyst/private.csv'],
+        [String.raw`{"x":"\/tmp\/private.csv"}`, '/tmp/private.csv'],
+        ['**/var/cuttlely/workspaces/analyst/private.csv**', '/var/cuttlely/workspaces/analyst/private.csv']
+    ])
+        exercise(input, 'regression', 'absolute', root, false, false, [root], absolute)
+    for (const start of ['/tmp/', '/srv/data/', '/app/']) {
+        const absolute = start + 'x'.repeat(17000) + '/sentinel-directory/' + filename
+        exercise(absolute, 'long-absolute', 'cap', root, false, false, [root], start.slice(0, -1))
+    }
+    for (const width of [8150, 8180, 8200]) {
+        for (const start of ['https://example.com/', String.raw`https:\/\/example.com\/`]) {
+            const input = start + 'x'.repeat(width) + String.raw`\/end` + 'y'.repeat(9000)
+            exercise(input, 'long-url', 'cap', root, false, true)
+        }
+    }
     for (const workspace of [root, alias]) {
         const roots = workspace === alias ? [alias, real] : [root]
         for (const actual of roots)
