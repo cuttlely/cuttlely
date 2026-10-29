@@ -180,6 +180,125 @@ function streamedAnswer(text) {
     return chunks.join('')
 }
 
+test('plain-text Markdown links and parenthesized paths are masked through streaming', () => {
+    const root = '/var/cuttlely/workspaces'
+    for (const file of [root + '/analyst/private.csv', secret]) {
+        const fileRoot = file === secret ? path.dirname(specialistWorkspace('_')) : root
+        for (const [text, expected] of [
+            [`[report](${file})`, '[report](the workspace)'],
+            [`See (${file}).`, 'See (the workspace).'],
+            [`[report]("${file}")`, '[report]("the workspace")'],
+            [`[report](${crmUrl})`, `[report](${crmUrl})`]
+        ]) {
+            assert.equal(hideWorkspacePaths(text, fileRoot), expected)
+            for (const width of [1, text.length]) {
+                const context = {}
+                let sent = ''
+                const send = (chunk) => {
+                    sent += chunk
+                    assert.ok(expected.startsWith(sent), 'must release only a safe prefix')
+                }
+                for (let at = 0; at < text.length; at += width)
+                    bufferStream(context, 'answer', text.slice(at, at + width), false, send, fileRoot)
+                bufferStream(context, 'answer', '', true, send, fileRoot)
+                assert.equal(sent, expected)
+            }
+        }
+    }
+})
+
+test('short, long and nested JSON masks Markdown paths in keys and values', () => {
+    for (const length of [0, 1500]) {
+        const body = {
+            [`[report](${secret})`]: `[report](${secret}) ${'x'.repeat(length)}`,
+            note: `See (${secret}).`,
+            quoted: `note:"${secret}"`,
+            url: `[report](${crmUrl})`
+        }
+        const expected = {
+            '[report](the workspace)': `[report](the workspace) ${'x'.repeat(length)}`,
+            note: 'See (the workspace).',
+            quoted: 'note:"the workspace"',
+            url: `[report](${crmUrl})`
+        }
+        const answer = JSON.stringify(body)
+        assert.equal(answer.length > 1024, length > 0)
+        assert.deepEqual(maskWorkspacePaths(body), expected)
+        for (const nested of [false, true]) {
+            const text = nested ? JSON.stringify({ result: answer }) : answer
+            for (const shown of [maskWorkspacePaths(text), streamedAnswer(text)]) {
+                assert.equal(shown.includes('zz-secret-path.csv'), false)
+                const parsed = JSON.parse(shown)
+                assert.deepEqual(nested ? JSON.parse(parsed.result) : parsed, expected)
+            }
+        }
+    }
+})
+
+test('JSON partial events stay valid for complete-reply and character deltas', async () => {
+    const name = `mask-events-${++sequence}`
+    saveHarness(
+        {
+            name,
+            chief: { model },
+            specialists: [
+                { name: 'writer', model },
+                { name: 'reviewer', model }
+            ]
+        },
+        { overwrite: true }
+    )
+    const plan = JSON.stringify({ steps: [{ specialist: 'writer', task: 'Report the rows.' }] })
+    for (const markdown of [false, true]) {
+        const body = {
+            url: crmUrl,
+            rows: Array.from({ length: 40 }, (_, index) => deal(index)),
+            ...(markdown ? { [`[report](${secret})`]: `[report](${secret})` } : {})
+        }
+        const answer = JSON.stringify(body)
+        const expected = markdown ? answer.replaceAll(secret, 'the workspace') : answer
+        for (const characters of [false, true]) {
+            const events = []
+            const reply = (messages) => (String(messages[0]?.content).includes('You route work') ? plan : answer)
+            const payload = await runHarness({
+                name,
+                input: 'Report the rows.',
+                chatId: `events-${markdown}-${characters}`,
+                flowOptions: { appDataSource: {}, harnessCaller: { via: 'session' } },
+                loadNode: async () =>
+                    class {
+                        async init() {
+                            return {
+                                invoke: async (messages) => ({ content: reply(messages) }),
+                                ...(characters
+                                    ? {
+                                          async *stream(messages) {
+                                              for (const char of reply(messages)) yield { content: char }
+                                          }
+                                      }
+                                    : {})
+                            }
+                        }
+                    },
+                onEvent: (event) => events.push(event)
+            })
+            assert.equal(payload.text, expected)
+            for (const phase of ['route', 'specialist', 'answer']) {
+                let sent = ''
+                const final = phase === 'route' ? plan : expected
+                const partials = events.filter((event) => event.type === 'partial' && event.phase === phase)
+                assert.ok(partials.length > 0, `missing ${phase} partials`)
+                for (const event of partials) {
+                    sent += event.text
+                    assert.ok(final.startsWith(sent), `unsafe ${phase} prefix`)
+                }
+                assert.equal(sent, final)
+                assert.deepEqual(JSON.parse(sent), JSON.parse(final))
+            }
+        }
+    }
+})
+
 test('JSON route prefixes stream before the plan closes', () => {
     const context = {}
     const chunks = []

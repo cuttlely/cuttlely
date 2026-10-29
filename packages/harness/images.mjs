@@ -396,6 +396,13 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         else state.json = false
     }
     const scanChar = (char) => {
+        // Parentheses open a new token, including Markdown link destinations. Once a
+        // path has started, keep parentheses inside it so directory names still resolve.
+        if (char === '(' && !state.quote && !state.json && !state.capCandidate) {
+            finish()
+            out.push(char)
+            return
+        }
         if (!state.quote && !(state.json && state.jdepth > 0) && /\s/u.test(char)) {
             finish()
             out.push(char)
