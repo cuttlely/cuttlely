@@ -170,14 +170,19 @@ const maskJsonLiteral = (raw, root) => {
     const shown = hideWorkspacePaths(value, root)
     return shown === value ? raw : JSON.stringify(shown)
 }
-// Rewrite only changed value literals. All other bytes remain safe to stream unchanged.
+// Rewrite only changed string literals. All other bytes remain safe to stream unchanged.
 function maskJsonSpan(raw, root) {
     const escaped = !jsonSpan(raw)
     const text = escaped ? JSON.parse('"' + raw + '"') : raw
     const parts = []
+    const keys = []
     let from = 0
     for (let at = 0; at < text.length; at++) {
-        if (text[at] !== '"') continue
+        if (text[at] !== '"') {
+            if (text[at] === '{' || text[at] === '[') keys.push(text[at] === '{' ? new Map() : null)
+            else if (text[at] === '}' || text[at] === ']') keys.pop()
+            continue
+        }
         const start = at++
         while (at < text.length && text[at] !== '"') {
             if (text[at] === '\\') at++
@@ -185,9 +190,18 @@ function maskJsonSpan(raw, root) {
         }
         let next = at + 1
         while (next < text.length && /\s/u.test(text[next])) next++
-        if (text[next] === ':') continue // Object keys are not values.
         const literal = text.slice(start, at + 1)
-        const shown = maskJsonLiteral(literal, root)
+        let shown = maskJsonLiteral(literal, root)
+        if (text[next] === ':') {
+            const names = keys.at(-1)
+            const original = JSON.parse(literal)
+            const key = JSON.parse(shown)
+            let name = key
+            // Match maskWorkspacePaths: keep both values when masked keys collide.
+            for (let n = 2; names.has(name) && names.get(name) !== original; n++) name = `${key} (${n})`
+            names.set(name, original)
+            if (name !== key) shown = JSON.stringify(name)
+        }
         if (shown !== literal) {
             parts.push(text.slice(from, start), shown)
             from = at + 1
@@ -274,6 +288,7 @@ export function workspaceMaskState() {
         jstr: false,
         jesc: false,
         jstart: 0,
+        jnumber: '',
         jsonSafe: true,
         normal: null,
         normalText: '',
@@ -330,6 +345,7 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         state.jstr = false
         state.jesc = false
         state.jstart = 0
+        state.jnumber = ''
         state.jsonSafe = true
         state.normal = null
         state.normalText = ''
@@ -339,13 +355,15 @@ export function scanWorkspaceText(state, text, root, flush = false) {
     }
     // A {/[ token stays whole only while it could still be valid JSON (rule 3a exemption).
     const trackJson = (char) => {
+        const number = state.jnumber
+        state.jnumber = ''
         if (state.jstr) {
             if (state.jesc) state.jesc = false
             else if (char === '\\') state.jesc = true
             else if (char === '"') {
                 state.jstr = false
                 // Even JSON escapes or nested JSON can decode to a path. Never release
-                // a literal that value masking would later rewrite, including its quotes.
+                // a key or value literal that masking would later rewrite, including its quotes.
                 if (state.jsonSafe) {
                     const literal = state.token.slice(state.jstart) + char
                     try {
@@ -362,6 +380,14 @@ export function scanWorkspaceText(state, text, root, flush = false) {
         } else if (char === '{' || char === '[') state.jdepth++
         else if (char === '}' || char === ']') state.jdepth--
         else if (/\s/u.test(char)) return
+        else if (/[0-9]/.test(char)) {
+            state.jnumber = number.startsWith('exponent') ? 'exponent-digits' : 'mantissa'
+            state.word = ''
+        } else if ((char === 'e' || char === 'E') && number === 'mantissa') {
+            // Only a digit in the mantissa can introduce an exponent, never a bare word.
+            state.jnumber = 'exponent'
+            state.word = ''
+        } else if ((char === '+' || char === '-') && number === 'exponent') state.jnumber = 'exponent-sign'
         else if (/[a-z]/i.test(char)) {
             state.word += char
             if (!['true', 'false', 'null'].some((word) => word.startsWith(state.word))) state.json = false

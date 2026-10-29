@@ -50,7 +50,8 @@ function longBody() {
                 file: secret
             })
         ],
-        summary: 'returned 13 of 13 rows for period_start..period_end'
+        summary: 'returned 13 of 13 rows for period_start..period_end',
+        files: { [secret]: 'x'.repeat(1500) }
     }
 }
 
@@ -69,6 +70,7 @@ function assertLongDetail(detail) {
     assert.equal(row.span, 'period_start..period_end')
     assert.equal(row.range, '2026-07-01..2026-09-30')
     assert.equal(parsed.summary, 'returned 13 of 13 rows for period_start..period_end')
+    assert.deepEqual(parsed.files, { 'the workspace': 'x'.repeat(1500) })
     assert.equal(row.file, 'the workspace')
     assert.equal(detail.includes(crmUrl), true)
     assert.equal(detail.includes('Q3..Q4'), true)
@@ -247,6 +249,9 @@ test('JSON masking changes only value literals and preserves all other bytes', (
     assert.equal(maskWorkspacePaths(answer), expected)
     assert.equal(streamedAnswer(answer), expected)
     assert.equal(JSON.parse(expected).file, 'the workspace')
+    const unchanged = '{ "safe": 1, "s\\u0061fe": 2 }'
+    assert.equal(maskWorkspacePaths(unchanged), unchanged)
+    assert.equal(streamedAnswer(unchanged), unchanged)
 })
 
 test('incremental JSON prefixes never release a literal that needs masking', () => {
@@ -275,7 +280,66 @@ test('incremental JSON prefixes never release a literal that needs masking', () 
     }
 })
 
-test('long JSON answers mask values and stay valid through character streaming', () => {
+test('JSON path keys are held through character streaming, including escaped and nested keys', () => {
+    for (const literal of [
+        JSON.stringify(secret),
+        JSON.stringify(secret).replaceAll('/', '\\u002f'),
+        JSON.stringify(secret).replaceAll('/', '\\/')
+    ]) {
+        const answer = `{ "safe": "ready", ${literal} : "${'x'.repeat(1500)}", "nested": [{${literal}: 1}] }`
+        const expected = answer.replaceAll(literal, '"the workspace"')
+        assert.equal(maskWorkspacePaths(answer), expected)
+        const context = {}
+        let sent = ''
+        const send = (chunk) => {
+            sent += chunk
+            assert.ok(expected.startsWith(sent), `released unsafe key prefix: ${sent}`)
+        }
+        for (const char of answer) bufferStream(context, 'answer', char, false, send)
+        assert.ok(sent.length > 0, 'safe prefix must stream before flush')
+        bufferStream(context, 'answer', '', true, send)
+        assert.equal(sent, expected)
+        assert.deepEqual(JSON.parse(sent), maskWorkspacePaths(JSON.parse(answer)))
+        const nested = JSON.stringify({ result: answer })
+        assert.equal(JSON.parse(maskWorkspacePaths(nested)).result, expected)
+        assert.equal(JSON.parse(streamedAnswer(nested)).result, expected)
+    }
+})
+
+test('JSON key collisions keep both values with the same suffixes as parsed object masking', () => {
+    const entries = [
+        [secret, 'first'],
+        [path.join(path.dirname(secret), 'another.csv'), 'second'],
+        ['the workspace', 'literal'],
+        ['the workspace (2)', 'suffix'],
+        ['__proto__', 'plain field']
+    ]
+    for (const ordered of [entries, entries.toReversed()]) {
+        const body = Object.fromEntries(ordered)
+        const answer = JSON.stringify({ ...body, nested: [body, { [secret]: 'separate object' }] }, null, 2)
+        const expected = maskWorkspacePaths(JSON.parse(answer))
+        for (const shown of [maskWorkspacePaths(answer), streamedAnswer(answer)]) {
+            assert.deepEqual(JSON.parse(shown), expected)
+            assert.equal(shown.includes('zz-secret-path.csv'), false)
+        }
+    }
+})
+
+test('long JSON with exponent numbers preserves URLs and masks paths through character streaming', () => {
+    for (const number of ['1e-7', '2E+10', '-1.25e-7', '0E0', '1e7', '1E-7']) {
+        for (const gap of ['', '\n  ']) {
+            const text = crmUrl + 'x'.repeat(1500)
+            const answer = `{${gap}"n":${number},${gap}"text":${JSON.stringify(text)},${gap}"file":${JSON.stringify(secret)}}`
+            const expected = answer.replace(JSON.stringify(secret), '"the workspace"')
+            for (const shown of [maskWorkspacePaths(answer), streamedAnswer(answer)]) {
+                assert.equal(shown, expected)
+                assert.deepEqual(JSON.parse(shown), { n: Number(number), text, file: 'the workspace' })
+            }
+        }
+    }
+})
+
+test('long JSON answers mask keys and values and stay valid through character streaming', () => {
     for (const spaces of [undefined, 2]) {
         const answer = JSON.stringify(longBody(), null, spaces)
         assert.ok(answer.length > 1024)
@@ -285,7 +349,7 @@ test('long JSON answers mask values and stay valid through character streaming',
             streamedAnswer(answer)
         ]) {
             assertLongDetail(shown)
-            assert.equal(shown, answer.replace(JSON.stringify(secret), '"the workspace"'))
+            assert.equal(shown, answer.replaceAll(JSON.stringify(secret), '"the workspace"'))
         }
     }
     const short = JSON.stringify({ file: secret, url: crmUrl })
@@ -305,7 +369,7 @@ test('JSON string values containing JSON are masked and re-encoded', () => {
     assert.deepEqual(JSON.parse(JSON.parse(streamedAnswer(short)).result), { file: 'the workspace' })
 })
 
-test('long JSON tool previews mask values in the log and emitted event', async () => {
+test('long JSON tool previews mask keys and values in the log and emitted event', async () => {
     const name = `mask-preview-${++sequence}`
     saveHarness(
         {
