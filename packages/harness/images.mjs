@@ -144,10 +144,19 @@ export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirna
 // Paths are recognized in every segment, independently of Markdown or JSON grammar.
 // Backslashes preceding quotes belong to JSON escapes; leave an even number in the match.
 const PATH_CHARS = String.raw`[^\s"'\x60<>()\[\]*|]`
-const START_BOUNDARY = String.raw`(?:^|(?<=[\s(<"'\x60*_~=:,;\[|])(?<![A-Za-z0-9]_))`
-const SYSTEM_BOUNDARY = String.raw`(?:^|(?<=[\s"'\x60\[\]()|=:,*])|(?<=\\/))`
+const EMPHASIS_BOUNDARY = String.raw`(?<=(?:^|[^A-Za-z0-9*_])[*_]+)`
+const START_BOUNDARY = String.raw`(?:^|(?<=[\s(<>"'\x60~=:,;\[|])|(?<=\\[ntr])|${EMPHASIS_BOUNDARY})`
+const SYSTEM_BOUNDARY = String.raw`(?:^|(?<=[\s"'\x60\[\]()|=:,;<>])|(?<=\\[ntr])|${EMPHASIS_BOUNDARY})`
 const SLASH = String.raw`(?:/|\\+(?:/|u002f)|%2f)`
-const PATH_START = String.raw`(?:${SYSTEM_BOUNDARY}(?:file:\/\/[^/\\\s]*|[a-z]:[\\/]|/(?:var|home|tmp|Users|opt|srv|app|data|etc|root|mnt)(?=/|$))|${START_BOUNDARY}(?:[a-z]:[\\/]|\\{2,}[a-z0-9]|~?${SLASH}))`
+const URL_START = String.raw`https?:(?:/|\\+/){2}`
+const URL = String.raw`${URL_START}(?:\[[0-9a-f:.]+\])?[^\s"'\x60<>*|\[\]]*`
+const SYSTEM_DIR = String.raw`(?:var|home|tmp|Users|opt|srv|app|data|etc|root|mnt)`
+const PATH_BREAK = /[\s"'\x60<>()\[\]*|]/
+const ROOT_START = String.raw`(?:[/%]|(?<!\\)\\(?!\\*"))`
+const ROOT_RUN = String.raw`[^\s'()\[\]*]`
+const BACKSLASH_COMPONENT = String.raw`[^\\\s"'\x60<>()\[\]*|]+\\`
+const BACKSLASH_START = String.raw`(?:\\{2,}(?!u[0-9a-f]{4})(?=${BACKSLASH_COMPONENT})[a-z0-9]|\\(?![bfnrtu])(?=[a-z0-9])|\\(?!u[0-9a-f]{4})(?=${BACKSLASH_COMPONENT}))`
+const PATH_START = String.raw`(?=[a-z]:|file:|[\\/~%.])(?:${SYSTEM_BOUNDARY}(?:file:\/\/[^/\\\s]*|[a-z]:[\\/]|[\\/]${SYSTEM_DIR}(?=[\\/]|$))|${START_BOUNDARY}(?:[a-z]:[\\/]|${BACKSLASH_START}|(?:\.\.\\+)+${SYSTEM_DIR}(?=\\)|~?${SLASH}))`
 const MASK_HOLD = 8192
 const rootCache = new Map()
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -189,11 +198,11 @@ function workspaceRoots(root) {
         boundaryPrefixes: variants
             .flatMap((value) => [...value.matchAll(/[\s"]/g)].map((match) => value.slice(0, match.index + 1)))
             .filter((prefix) => !variants.includes(prefix)),
-        backstop: new RegExp(`(?:${variants.map(escapeRegex).join('|')})${PATH_CHARS}*|${PATH_CHARS}+`, 'g'),
+        backstop: new RegExp(String.raw`(?:${variants.map(escapeRegex).join('|')}|${PATH_START}|${ROOT_START})${ROOT_RUN}*`, 'gi'),
         overlap: Math.max(0, ...variants.map((value) => value.length - 1)),
         // URL and relative Markdown targets win over generic path starts.
         regex: new RegExp(
-            String.raw`(?:<|&lt;)\/[a-z][a-z0-9:-]*(?=\s|>|&gt;)|https?:\/\/[^\s"'\x60<>*|\[\]]+|https?:(?:\\/){2}[^\s"\[\]]+|(?<=\()(?:#[^\s)"']*|\.\.?\/[^\s)"']*)|(?:${variants
+            String.raw`(?:<|&lt;)\/[a-z][a-z0-9:-]*(?=\s|>|&gt;)|${URL}|(?<=\()(?:#[^\s)"']*|\.\.?\/[^\s)"']*)|(?:${variants
                 .map(escapeRegex)
                 .join('|')}|${PATH_START})${PATH_CHARS}*`,
             'gi'
@@ -204,6 +213,28 @@ function workspaceRoots(root) {
     return info
 }
 
+function pathSeparators(value) {
+    let out = ''
+    for (let at = 0; at < value.length; at++) {
+        if (value[at] !== '\\') {
+            out += value[at]
+            continue
+        }
+        while (value[at + 1] === '\\') at++
+        if (value[at + 1] === '"') continue
+        if (value.slice(at + 1, at + 6).toLowerCase() === 'u002f') at += 5
+        else if (value[at + 1] === '/') at++
+        out += '/'
+    }
+    return out
+}
+
+function trailingBackslashes(value, end = value.length) {
+    let at = end
+    while (at > 0 && value[at - 1] === '\\') at--
+    return end - at
+}
+
 function normalizePath(value) {
     let decoded = value
     try {
@@ -211,27 +242,32 @@ function normalizePath(value) {
     } catch {
         decoded = decoded.replace(/%[0-9a-f]{2}/gi, (hex) => String.fromCharCode(Number.parseInt(hex.slice(1), 16)))
     }
-    return decoded
-        .replace(/\\+u002f/gi, '/')
-        .replace(/\\+\//g, '/')
-        .replace(/\\+/g, '/')
+    return pathSeparators(decoded)
         .replace(/\/+/g, '/')
         .replace(/\/\.(?=\/|$)/g, '')
 }
 
 function maskPath(raw, info) {
     // Preserve punctuation, emphasis and JSON escape prefixes at the end of a path.
-    const suffix = raw.match(/(?:[._,;:!?]+|~~)+$/)?.[0] || ''
-    let token = suffix ? raw.slice(0, -suffix.length) : raw
-    const slashes = token.match(/\\+$/)?.[0].length || 0
+    const quoteSlashes = trailingBackslashes(raw)
+    const quoteEscape = quoteSlashes % 2 ? raw.slice(-quoteSlashes) : ''
+    const body = quoteEscape ? raw.slice(0, -quoteSlashes) : raw
+    let end = body.length
+    while (end > 0) {
+        if ('._,;:!?'.includes(body[end - 1])) end--
+        else if (body[end - 1] === '~' && body[end - 2] === '~') end -= 2
+        else break
+    }
+    // A final dot segment participates in resolution rather than sentence punctuation.
+    if ((body[end - 1] === '/' || body[end - 1] === '\\') && /^\.{1,2}$/.test(body.slice(end))) end = body.length
+    const suffix = body.slice(end)
+    let token = body.slice(0, end)
+    const slashes = trailingBackslashes(token)
     const escape = slashes % 2 ? token.slice(-slashes) : ''
     if (escape) token = token.slice(0, -slashes)
     if (/^[\/~]$/.test(token)) return raw
     let local = token.replace(/^file:\/\/[^/\\\s]*/i, '')
-    local = local
-        .replace(/\\+u002f/gi, '/')
-        .replace(/\\+\//g, '/')
-        .replace(/\\+/g, '/')
+    local = pathSeparators(local)
     try {
         local = decodeURIComponent(local)
     } catch {}
@@ -243,23 +279,43 @@ function maskPath(raw, info) {
             if (fs.statSync(resolved).isFile()) shown = `the workspace file ${path.basename(resolved)}`
         } catch {}
     }
-    return shown + escape + suffix
+    return shown + escape + suffix + quoteEscape
+}
+
+function namesWorkspace(raw, info) {
+    const normalized = normalizePath(raw)
+    const resolved = path.posix.normalize(normalized)
+    return info.normalizedRoots.some((root) => normalized.includes(root) || resolved.includes(root))
+}
+
+// Resolve parent segments before the ordinary matcher separates punctuation in a folder name.
+function maskRootRuns(text, info, parentsOnly = false) {
+    return text.replace(info.backstop, (raw) => {
+        let from = 0
+        if (parentsOnly) {
+            const parents = [...raw.matchAll(/(?:\.|%2e){2}(?:\/|\\|%2f)/gi)]
+            if (!parents.length) return raw
+            const last = parents.at(-1)
+            from = last.index + last[0].length
+        }
+        const boundary = raw.slice(from).search(PATH_BREAK)
+        const end = boundary < 0 ? raw.length : from + boundary
+        const token = raw.slice(0, end)
+        return namesWorkspace(token, info) ? maskPath(token, info) + raw.slice(end) : raw
+    })
 }
 
 function maskSegment(text, info, url = false) {
     // A forced cap can split a URL; the synthetic prefix preserves its remaining bytes.
     const prefix = url ? 'https://' : ''
-    const shown = (prefix + text)
+    const shown = maskRootRuns(prefix + text, info, true)
         .replace(info.regex, (raw) => {
-            if (/^(?:(?:<|&lt;)\/|https?:(?:\/\/|(?:\\\/){2})|#|\.\.?\/)/i.test(raw)) return raw
+            if (/^(?:(?:<|&lt;)\/|https?:(?:\/|\\+\/){2}|#|\.\.?\/)/i.test(raw)) return raw
             return maskPath(raw, info)
         })
         .slice(prefix.length)
     // Check the whole run, including roots embedded in URLs and relative targets.
-    return shown.replace(info.backstop, (raw) => {
-        const normalized = normalizePath(raw)
-        return info.normalizedRoots.some((root) => normalized.includes(root)) ? maskPath(raw, info) : raw
-    })
+    return maskRootRuns(shown, info)
 }
 
 export function workspaceMaskState() {
@@ -274,7 +330,7 @@ export function scanWorkspaceText(state, text, root, flush = false) {
     for (let at = 0; at < text.length; at++) {
         const char = text[at]
         state.buffer += char
-        if (/[\s"]/.test(char)) {
+        if (/\s/.test(char) || (char === '"' && !/[\\/%]/.test(state.buffer))) {
             // A configured root can itself contain spaces. Hold a possible literal prefix.
             const partial = info.boundaryPrefixes.some((prefix) => state.buffer.endsWith(prefix))
             if (!partial) {
@@ -290,19 +346,16 @@ export function scanWorkspaceText(state, text, root, flush = false) {
                 if (at >= 0 && at < cut && at + value.length > cut) cut = at
             }
             // Do not split an escape pair at a forced boundary.
-            if ((state.buffer.slice(0, cut).match(/\\+$/)?.[0].length || 0) % 2) cut--
+            if (trailingBackslashes(state.buffer, cut) % 2) cut--
             if (cut) {
                 const prefix = state.url ? 'https://' : ''
                 const crossing = [...(prefix + state.buffer).matchAll(info.regex)].find(
                     (match) => match.index < prefix.length + cut && match.index + match[0].length > prefix.length + cut
                 )
                 const rooted = [...state.buffer.matchAll(info.backstop)].find(
-                    (match) =>
-                        match.index < cut &&
-                        match.index + match[0].length > cut &&
-                        info.normalizedRoots.some((root) => normalizePath(match[0]).includes(root))
+                    (match) => match.index < cut && match.index + match[0].length > cut && namesWorkspace(match[0], info)
                 )
-                const crossingUrl = crossing && /^https?:(?:\/\/|(?:\\\/){2})/i.test(crossing[0])
+                const crossingUrl = crossing && /^https?:(?:\/|\\+\/){2}/i.test(crossing[0])
                 const crossingPath = crossing && !/^(?:(?:<|&lt;)\/|https?:|#|\.\.?\/)/i.test(crossing[0])
                 if (rooted) {
                     out.push(maskSegment(state.buffer.slice(0, rooted.index), info, state.url))

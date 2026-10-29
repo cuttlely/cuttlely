@@ -45,7 +45,15 @@ const encodings = (text) => [
 ]
 const forms = [
     ['posix', file],
+    ['generic', '/sentinel-generic-dir/private.csv'],
     ['tmp', `/tmp/private.csv`],
+    ['backslash-tmp', String.raw`\tmp\private.csv`],
+    ['backslash-root', String.raw`\root\private.csv`],
+    ['backslash-users', String.raw`\Users\x\private.csv`],
+    ['backslash-parents', String.raw`..\..\etc\passwd`],
+    ...['|', '<', '>', '"', '`'].flatMap((delimiter) =>
+        ['', 'file://host'].map((prefix) => ['parent-folder', `${prefix}/var/cache${delimiter}old/../sentinel-workspace-root/${filename}`])
+    ),
     ['srv', `/srv/data/x.csv`],
     ['app', `/app/y.json`],
     ['repeated-slashes', file.replaceAll('/', '//')],
@@ -64,6 +72,11 @@ const forms = [
 ]
 const positions = [
     ['bare', (p) => p],
+    ['blockquote', (p) => `>${p}`],
+    ['spaced-blockquote', (p) => `> ${p}`],
+    ['html-text', (p) => `<b>${p}</b>`],
+    ['html-entity', (p) => `&gt;${p}`],
+    ...['n', 't', 'r'].map((escape) => [`json-${escape}`, (p) => `"See${'\\' + escape}${p}"`]),
     ['bold', (p) => `**${p}**`],
     ['underscore', (p) => `_${p}_`],
     ['strike', (p) => `~~${p}~~`],
@@ -95,9 +108,20 @@ const positions = [
 const benign = [
     String.raw`{"label":"and\/or","url":"https:\/\/example.com\/a"}`,
     String.raw`{"label":"and\u002for"}`,
+    String.raw`https:\\/\\/example.com\\/a`,
+    '[**1**/2](#anchor)',
+    '*input*/output',
+    'http://[::1]:3000/api',
+    'https://[2001:db8::1]/x',
     '[https://example.com](https://example.com/a)',
     '|report|ready|',
     '_x_/_y_',
+    'docs/../../report.md',
+    'docs/..',
+    String.raw`docs\..`,
+    'README requires checking docs/../../report.md',
+    String.raw`a lone \n or \t stays`,
+    String.raw`\u0041\tmp\x`,
     'web/app/config',
     'big/data/x',
     'src/tmp/file.ts',
@@ -203,18 +227,22 @@ test('seeded path masking oracles across syntax, encodings and chunk splits', ()
     for (const text of benign) exercise(text, 'benign', 'prose', root, false, true)
     for (const [input, absolute] of [
         ['[https://example.com](/tmp/private.csv)', '/tmp/private.csv'],
+        ['>/tmp/private.csv', '/tmp/private.csv'],
+        ['<b>/tmp/private.csv</b>', '/tmp/private.csv'],
+        ['&gt;/tmp/private.csv', '/tmp/private.csv'],
+        ...['n', 't', 'r'].map((escape) => [`"See${'\\' + escape}/tmp/private.csv"`, '/tmp/private.csv']),
         ['|report|/tmp/p.csv|', '/tmp/p.csv'],
         ['|report|/var//cuttlely/workspaces/analyst/private.csv|', '/var//cuttlely/workspaces/analyst/private.csv'],
         [String.raw`{"x":"\/tmp\/private.csv"}`, '/tmp/private.csv'],
         ['**/var/cuttlely/workspaces/analyst/private.csv**', '/var/cuttlely/workspaces/analyst/private.csv']
     ])
         exercise(input, 'regression', 'absolute', root, false, false, [root], absolute)
-    for (const start of ['/tmp/', '/srv/data/', '/app/']) {
+    for (const start of ['/tmp/', '/srv/data/', '/app/', '\\tmp\\', '\\Users\\x\\', '\\' + 'a'.repeat(9000) + '\\']) {
         const absolute = start + 'x'.repeat(17000) + '/sentinel-directory/' + filename
         exercise(absolute, 'long-absolute', 'cap', root, false, false, [root], start.slice(0, -1))
     }
     for (const width of [8150, 8180, 8200]) {
-        for (const start of ['https://example.com/', String.raw`https:\/\/example.com\/`]) {
+        for (const start of ['https://example.com/', String.raw`https:\/\/example.com\/`, String.raw`https:\\/\\/example.com\\/`]) {
             const input = start + 'x'.repeat(width) + String.raw`\/end` + 'y'.repeat(9000)
             exercise(input, 'long-url', 'cap', root, false, true)
         }

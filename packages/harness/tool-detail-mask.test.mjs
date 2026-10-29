@@ -157,20 +157,53 @@ function pinLoadNode(result, prompts) {
 test('stateless boundaries mask server paths and preserve escaped URLs and labels', () => {
     const root = '/var/cuttlely/workspaces'
     const masked = [
+        ['/x/private.csv', 'a server path'],
+        ['>/x/private.csv', '>a server path'],
         ['[https://example.com](/tmp/private.csv)', '[https://example.com](a server path)'],
         ['|report|/tmp/p.csv|', '|report|a server path|'],
         ['|report|/var//cuttlely/workspaces/analyst/private.csv|', '|report|the workspace|'],
         [String.raw`{"x":"\/tmp\/private.csv"}`, '{"x":"a server path"}'],
         [String.raw`{"x":"\u002ftmp\u002fprivate.csv"}`, '{"x":"a server path"}'],
         ['**/var/cuttlely/workspaces/analyst/private.csv**', '**the workspace**'],
+        ['_/tmp/x_', '_a server path_'],
+        ['****/tmp/x****', '****a server path****'],
+        ['____/tmp/x____', '____a server path____'],
+        ...['>', '> ', '<b>', '&gt;'].map((before) => [`${before}/tmp/private.csv`, `${before}a server path`]),
+        ['<b>/tmp/private.csv</b>', '<b>a server path</b>'],
+        ...['n', 't', 'r'].map((escape) => [`"See${'\\' + escape}/tmp/private.csv"`, `"See${'\\' + escape}a server path"`]),
         ...['var', 'home', 'tmp', 'Users', 'opt', 'srv', 'app', 'data', 'etc', 'root', 'mnt'].flatMap((top) =>
-            [']', ')', '|', '=', ':', ',', '*'].map((boundary) => [`row${boundary}/${top}/private.csv`, `row${boundary}a server path`])
+            [']', ')', '|', '=', ':', ',', '>'].map((boundary) => [`row${boundary}/${top}/private.csv`, `row${boundary}a server path`])
+        ),
+        ...[String.raw`\tmp\notes`, String.raw`\root\file`, String.raw`\Users\x\a.pptx`, String.raw`..\..\etc\passwd`].map((value) => [
+            value,
+            'a server path'
+        ]),
+        [String.raw`see \tmp\notes, then retry`, 'see a server path, then retry'],
+        [String.raw`{"rows":[1]} then \tmp\x`, '{"rows":[1]} then a server path'],
+        ...['|', '<', '>', '"', '`'].flatMap((delimiter) =>
+            ['', 'file://host'].map((prefix) => [
+                `${prefix}/var/cuttlely/cache${delimiter}old/../workspaces/a/private/deck.pptx`,
+                'the workspace'
+            ])
         ),
         [String.raw`row]C:\private.csv`, 'row]a server path']
     ]
     const benign = [
+        ...['var', 'home', 'tmp', 'Users', 'opt', 'srv', 'app', 'data', 'etc', 'root', 'mnt'].flatMap((top) => [
+            `row*/${top}/private.csv`,
+            `row_/${top}/private.csv`
+        ]),
         String.raw`{"label":"and\/or","url":"https:\/\/example.com\/a"}`,
         String.raw`{"label":"and\u002for"}`,
+        String.raw`https:\\/\\/example.com\\/a`,
+        '[**1**/2](#anchor)',
+        '*input*/output',
+        'word**/tmp/file',
+        'word_/tmp/file',
+        'word****/tmp/file',
+        'word____/tmp/file',
+        'http://[::1]:3000/api',
+        'https://[2001:db8::1]/x',
         '[https://example.com](https://example.com/a)',
         '|report|ready|',
         '_x_/_y_',
@@ -179,13 +212,28 @@ test('stateless boundaries mask server paths and preserve escaped URLs and label
         '3/4',
         '[./README.md](#overview)',
         '[docs/report.csv](https://example.com/report.csv)',
+        String.raw`a lone \n or \t stays`,
+        String.raw`\u0041\tmp\x`,
+        'docs/../../report.md',
+        'docs/..',
+        String.raw`docs\..`,
+        'README requires checking docs/../../report.md',
         'web/app/config',
         'big/data/x',
         'src/tmp/file.ts',
         'my/home/page',
         'https://en.wikipedia.org/wiki/Foo_(bar)'
     ]
-    for (const [input, expected] of [...masked, ...benign.map((text) => [text, text])]) {
+    for (let count = 1; count <= 8; count++) {
+        const slash = '\\'.repeat(count) + '/'
+        benign.push(`https:${slash}${slash}example.com${slash}a`)
+    }
+    const cases = [...masked, ...benign.map((text) => [text, text])]
+    for (const [input, expected] of cases.flatMap(([input, expected]) => [
+        [input, expected],
+        [JSON.stringify({ value: input }), JSON.stringify({ value: expected })],
+        [JSON.stringify({ result: JSON.stringify({ value: input }) }), JSON.stringify({ result: JSON.stringify({ value: expected }) })]
+    ])) {
         assert.equal(hideWorkspacePaths(input, root), expected, input)
         for (const width of [1, 7, 1024]) {
             const state = workspaceMaskState()
@@ -201,6 +249,32 @@ test('stateless boundaries mask server paths and preserve escaped URLs and label
     }
 })
 
+test('100k character adversarial runs complete within two seconds per masking mode', () => {
+    const root = '/var/cuttlely/workspaces'
+    for (const input of [
+        '/tmp/' + '.'.repeat(100000) + '~',
+        '/tmp/' + '~'.repeat(100000) + '.',
+        '\\'.repeat(100000),
+        '/'.repeat(100000),
+        '*_'.repeat(50000),
+        '*'.repeat(100000) + '/tmp/x',
+        'word' + '_'.repeat(100000) + '/tmp/x',
+        'https:' + '\\'.repeat(100000),
+        'prefix' + '\\'.repeat(100000)
+    ]) {
+        let started = performance.now()
+        const expected = hideWorkspacePaths(input, root)
+        assert.ok(performance.now() - started < 2000, `buffered ${input.slice(0, 20)}`)
+        started = performance.now()
+        const state = workspaceMaskState()
+        let shown = ''
+        for (let at = 0; at < input.length; at += 7) shown += scanWorkspaceText(state, input.slice(at, at + 7), root)
+        shown += scanWorkspaceText(state, '', root, true)
+        assert.ok(performance.now() - started < 2000, `streamed ${input.slice(0, 20)}`)
+        assert.equal(shown, expected)
+    }
+})
+
 test('normalized configured and real roots are masked inside otherwise ordinary runs', () => {
     const actual = path.join(dir, 'normalized-root')
     const alias = path.join(dir, 'normalized-alias')
@@ -212,13 +286,17 @@ test('normalized configured and real roots are masked inside otherwise ordinary 
                 value,
                 value.replaceAll('/', '//'),
                 value.replaceAll('/', '/./'),
-                value.replaceAll('/', '/'),
-                value.replaceAll('/', '\u002f'),
+                value.replaceAll('/', '\\/'),
+                value.replaceAll('/', '\\u002f'),
                 value.replaceAll('/', '%2f'),
                 encodeURIComponent(value),
                 value.replaceAll('/', '/./').replaceAll('/', '%2f')
             ]) {
-                for (const input of [`prefix${spelling}/private.csv`, `https://example.com${spelling}/private.csv`]) {
+                for (const input of [
+                    `prefix${spelling}/private.csv`,
+                    `https://example.com${spelling}/private.csv`,
+                    `https://example.com${spelling}/a/../../../../other/private.csv`
+                ]) {
                     const expected = hideWorkspacePaths(input, root)
                     assert.equal(expected.includes('private.csv'), false, input)
                     assert.equal(expected.includes(value), false, input)
