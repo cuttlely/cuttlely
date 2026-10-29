@@ -10,7 +10,7 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dir, 'hermes')
 process.env.CUTTLELY_PINNED_QUERIES = '1'
 delete process.env.HERMES_API_URL
 
-const { answerDirectDecision, maskWorkspacePaths, runHarness, runSteps } = await import('./run.mjs')
+const { answerDirectDecision, maskDetailValues, maskWorkspacePaths, runHarness, runSteps } = await import('./run.mjs')
 const { saveHarness, getHarness } = await import('./store.mjs')
 const { parseAnalystToolDetail } = await import('./context.mjs')
 const { recordAnalystResult } = await import('./analyst-capture.mjs')
@@ -167,6 +167,32 @@ test('labels with dot dot stay, and a workspace path is still masked', () => {
     assert.equal(masked.rows.at(-1).window, 'Q3..Q4')
     assert.equal(masked.rows.at(-1).file, 'the workspace')
     assert.equal(JSON.stringify(masked).includes(secret), false)
+})
+
+test('a JSON string cell in a tool detail is masked inside and stays valid JSON', () => {
+    const metadata = JSON.stringify({ path: '/srv/reports/private.csv', file: secret, owner: 'Kim Lee', link: crmUrl })
+    const plain = '{"kept": "a/b", "n": 1}'
+    const summary = `Loaded from {"path":"${secret}"} today`
+    const encoded = JSON.stringify(metadata)
+    const body = { rows: [{ id: 'D-1', metadata, plain, summary, encoded, note: `See ${crmUrl} and Q3..Q4`, blob: 'z'.repeat(9000) }] }
+    // The shape run.mjs sends for a pinned or captured result.
+    const detail = JSON.stringify({ result: JSON.stringify(maskDetailValues(body)) })
+    const row = JSON.parse(JSON.parse(detail).result).rows[0]
+    const inner = JSON.parse(row.metadata)
+    assert.equal(detail.includes('/srv/reports'), false)
+    assert.equal(detail.includes('zz-secret-path'), false)
+    assert.equal(inner.owner, 'Kim Lee')
+    assert.equal(inner.link, crmUrl)
+    // JSON inside text and JSON encoded as a string are masked too.
+    assert.equal(row.summary, 'Loaded from {"path":"the workspace"} today')
+    assert.equal(JSON.parse(JSON.parse(row.encoded)).owner, 'Kim Lee')
+    // A JSON cell with nothing to mask keeps its bytes, and the other cells are unchanged.
+    assert.equal(row.plain, plain)
+    // A repeated key that JSON.parse drops does not keep its path in the raw text.
+    const repeated = maskDetailValues({ cell: `{"path":"/srv/reports/private.csv","path":"x"}` }).cell
+    assert.equal(repeated.includes('/srv/reports'), false)
+    assert.deepEqual(JSON.parse(repeated), { path: 'x' })
+    for (const key of ['id', 'note', 'blob']) assert.equal(row[key], body.rows[0][key], key)
 })
 
 test('pin-first long result stays valid JSON and skips the slower handoff', async () => {

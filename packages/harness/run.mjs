@@ -780,8 +780,44 @@ const serializerOf = (value) => {
     }
 }
 const maskText = (text) => hideTurnImageDir(text, '', specialistWorkspaceRoot())
-export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
-    if (typeof value === 'string') return maskText(value)
+// A string in a harness-built tool detail, such as a row cell, is masked as text and then again with no JSON
+// exemption: the detail is re-encoded, so an embedded JSON span (for example '{"path":"/srv/a.csv"}') need not stay
+// as written. Both passes only replace text, so the string hides at least what the text mask hides.
+// Any workspace path still left (for example after an escaped quote) is then cut up to the next quote, backslash,
+// '<', '>', '|' or line break, so a folder name with spaces is cut too.
+function maskDetailText(text) {
+    const root = specialistWorkspaceRoot()
+    const out = scanWorkspaceText({ ...workspaceMaskState(), allowJson: false }, maskText(text), root, true)
+    if (!out.includes(root)) return out
+    return out
+        .split(root)
+        .map((part, index) => (index ? part.replace(/^[^\r\n"'`<>|\\]*/, '') : part))
+        .join('the workspace')
+}
+// A cell that is itself JSON (an object, an array or an encoded string) is masked on its values and re-encoded, only
+// when masking changed something, so other cells keep their bytes.
+function maskJsonString(text, depth, open) {
+    if (depth >= MASK_DEPTH || !/^\s*["[{]/.test(text)) return maskDetailText(text)
+    let parsed
+    try {
+        parsed = JSON.parse(text)
+    } catch {
+        return maskDetailText(text)
+    }
+    if (typeof parsed === 'string') {
+        const inner = maskJsonString(parsed, depth + 1, open)
+        return inner === parsed ? maskDetailText(text) : JSON.stringify(inner)
+    }
+    if (!parsed || typeof parsed !== 'object') return maskDetailText(text)
+    const masked = JSON.stringify(maskWorkspacePaths(parsed, depth + 1, open, true))
+    // The raw text is kept only when it hides nothing the parsed value drops (such as a repeated key).
+    return masked === JSON.stringify(parsed) && maskDetailText(text) === text ? text : masked
+}
+export function maskDetailValues(value) {
+    return maskWorkspacePaths(value, 0, new WeakSet(), true)
+}
+export function maskWorkspacePaths(value, depth = 0, open = new WeakSet(), jsonStrings = false) {
+    if (typeof value === 'string') return jsonStrings ? maskJsonString(value, depth, open) : maskText(value)
     if (!value || typeof value !== 'object') return value
     // Raw bytes hold no text to mask.
     if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value
@@ -797,7 +833,7 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
         } catch {
             return '[data]'
         }
-        return plain === value ? '[data]' : maskWorkspacePaths(plain, depth + 1, open)
+        return plain === value ? '[data]' : maskWorkspacePaths(plain, depth + 1, open, jsonStrings)
     }
     open.add(value)
     try {
@@ -815,7 +851,7 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
                 } catch {
                     item = '[data]'
                 }
-                out[index] = maskWorkspacePaths(item, depth + 1, open)
+                out[index] = maskWorkspacePaths(item, depth + 1, open, jsonStrings)
             }
             return out
         }
@@ -835,13 +871,13 @@ export function maskWorkspacePaths(value, depth = 0, open = new WeakSet()) {
             } catch {
                 item = '[data]'
             }
-            const shown = maskText(key)
+            const shown = jsonStrings ? maskDetailText(key) : maskText(key)
             let name = shown
             // Two keys that end up with the same name keep both values, in either order.
             for (let n = 2; Object.hasOwn(out, name); n += 1) name = `${shown} (${n})`
             // A key such as "__proto__" stays a plain field.
             Object.defineProperty(out, name, {
-                value: fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1, open),
+                value: fileBytes(key, item) ? item : maskWorkspacePaths(item, depth + 1, open, jsonStrings),
                 enumerable: true,
                 writable: true,
                 configurable: true
@@ -1882,7 +1918,7 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
                 name,
                 callId,
                 ...(error ? { error: true } : {}),
-                detail: JSON.stringify({ result: JSON.stringify(maskWorkspacePaths(body)) })
+                detail: JSON.stringify({ result: JSON.stringify(maskDetailValues(body)) })
             },
             true
         )
@@ -1910,7 +1946,7 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
                 name,
                 callId,
                 error: true,
-                detail: JSON.stringify({ error: maskWorkspacePaths(String(error.message || error)) })
+                detail: JSON.stringify({ error: maskDetailValues(String(error.message || error)) })
             },
             true
         )
@@ -2388,7 +2424,7 @@ function attachCapturedAnalystResults(context, specialist, since, logStart = 0) 
         const slotIndex = slots.findIndex((tool, index) => !used.has(index) && tool.callId === callId)
         if (slotIndex < 0) continue
         used.add(slotIndex)
-        slots[slotIndex].detail = JSON.stringify({ result: JSON.stringify(maskWorkspacePaths(item.result)) })
+        slots[slotIndex].detail = JSON.stringify({ result: JSON.stringify(maskDetailValues(item.result)) })
         const fields = item.traceFields || {}
         if (typeof fields.sqlHash === 'string') slots[slotIndex].sqlHash = fields.sqlHash
         if (typeof fields.sql === 'string') slots[slotIndex].sql = fields.sql

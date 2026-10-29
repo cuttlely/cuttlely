@@ -7,7 +7,7 @@ import { after, test } from 'node:test'
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-detail-mask-fuzz-'))
 process.env.CUTTLELY_DATA_DIR = dir
 after(() => fs.rmSync(dir, { recursive: true, force: true }))
-const { maskWorkspacePaths } = await import('./run.mjs')
+const { maskDetailValues } = await import('./run.mjs')
 const { hideWorkspacePaths } = await import('./images.mjs')
 const { specialistWorkspace } = await import('./profile.mjs')
 
@@ -38,7 +38,7 @@ function compose(kinds) {
     })
     return text
 }
-const rootOrStart = (text) => text.includes(root) || /(?:^|[\s"'|,(\[<>=])(?:[\/~\\]|file:)/.test(text)
+const rootOrStart = (text) => text.includes(root) || /(?:^|[\s"'|,([<>=])(?:[/~\\]|file:)/.test(text)
 
 test('composed rows keep valid JSON and unchanged siblings; text without a path is unchanged', () => {
     for (let round = 0; round < 150; round++) {
@@ -46,15 +46,25 @@ test('composed rows keep valid JSON and unchanged siblings; text without a path 
             file: compose(['path', 'url', 'benign', 'plain']).replace(/^/, pick(pools.path) + ' '),
             note: compose(['url', 'benign', 'plain']),
             blob: 'y'.repeat(8192 + Math.floor(next() * 4096)),
-            count: Math.floor(next() * 1000)
+            count: Math.floor(next() * 1000),
+            // A cell that holds serialized JSON, sometimes nested one level deeper.
+            metadata: JSON.stringify({
+                path: pick(pools.path),
+                note: compose(['url', 'benign', 'plain']),
+                ...(next() < 0.5 ? { inner: JSON.stringify({ path: pick(pools.path), id: round }) } : {})
+            }),
+            summary: `${pick(pools.plain).slice(0, 40)} ${JSON.stringify({ path: pick(pools.path) })} ${pick(pools.benign)}`
         }))
         // The run.mjs shape: values are masked, then encoded twice.
-        const detail = JSON.stringify({ result: JSON.stringify(maskWorkspacePaths({ rows })) })
+        const detail = JSON.stringify({ result: JSON.stringify(maskDetailValues({ rows })) })
         const parsed = JSON.parse(JSON.parse(detail).result).rows
         assert.equal(detail.includes(root), false)
         assert.equal(detail.includes('fuzz-private'), false)
         rows.forEach((row, index) => {
             for (const key of ['note', 'blob', 'count']) assert.equal(parsed[index][key], row[key], key)
+            const inner = JSON.parse(parsed[index].metadata)
+            assert.equal(inner.note, JSON.parse(row.metadata).note)
+            if (inner.inner) assert.equal(JSON.parse(inner.inner).id, round)
         })
         const text = compose(['url', 'benign', 'plain'])
         if (!rootOrStart(text)) assert.equal(hideWorkspacePaths(text, root), text, text.slice(0, 120))
