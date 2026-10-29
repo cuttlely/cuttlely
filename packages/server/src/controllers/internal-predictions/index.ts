@@ -34,7 +34,7 @@ const createInternalPrediction = async (req: Request, res: Response, next: NextF
         // A harness canvas is not a chatflow. Building it looks for node.init and throws.
         // The same draft path as a chatflow test chat: this route runs the draft, the public runs route stays on Live.
         if (chatflow.type === 'HARNESS') {
-            await runHarnessCanvasChat(req, res, chatflow, caller)
+            await runHarnessCanvasChat(req, res, chatflow, caller, { canvas: 'draft' })
             return
         }
 

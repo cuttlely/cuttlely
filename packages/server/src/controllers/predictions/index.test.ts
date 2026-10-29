@@ -3,6 +3,7 @@
 import express from 'express'
 import request from 'supertest'
 import { generateSecretHash } from '../../utils/apiKey'
+import { configureSessionOwnershipForTests, createMemoryGrantStore, resetSessionOwnershipForTests } from '../../utils/sessionOwnership'
 
 jest.setTimeout(30_000)
 
@@ -114,15 +115,18 @@ beforeAll(() => {
     mockDb.chatflows.set(CHAT_ID, canvas(CHAT_ID, 'greeter', 'CHATFLOW', ''))
 })
 
+afterEach(() => resetSessionOwnershipForTests())
+
 beforeEach(() => {
+    configureSessionOwnershipForTests({ secret: 'prediction-test-secret', grants: createMemoryGrantStore() })
     mockBuildChatflow.mockClear()
     mockStartCanvasRun.mockClear()
     mockChatImages.mockClear()
     mockStreamingChecks.length = 0
     mockStartCanvasRun.mockImplementation(
-        async (_flow: unknown, _body: unknown, opts?: { onEvent?: (event: { type: string }) => void }) => {
+        async (_flow: unknown, _body: { chatId: string }, opts?: { onEvent?: (event: { type: string }) => void }) => {
             opts?.onEvent?.({ type: 'route' })
-            return { chatId: 'c1', run: { id: 'run-1' }, payload: { text: 'from the harness', artifacts: [] } }
+            return { chatId: _body.chatId, run: { id: 'run-1' }, payload: { text: 'from the harness', artifacts: [] } }
         }
     )
 })
@@ -134,12 +138,19 @@ describe('POST /api/v1/prediction/:id', () => {
             .set('Authorization', `Bearer ${PRESENTED}`)
             .send({ question: 'hi' })
         expect(res.status).toBe(200)
-        expect(res.body).toEqual({ chatId: 'c1', run: { id: 'run-1' }, text: 'from the harness', artifacts: [] })
+        expect(res.body).toEqual({
+            chatId: expect.any(String),
+            sessionToken: expect.any(String),
+            run: { id: 'run-1' },
+            text: 'from the harness',
+            artifacts: []
+        })
         expect(mockStartCanvasRun).toHaveBeenCalledWith(
             expect.objectContaining({ id: HARNESS_ID, name: 'bakery-team', type: 'HARNESS' }),
-            { question: 'hi' },
+            { question: 'hi', chatId: res.body.chatId },
             {
                 source: 'playground',
+                canvas: 'live',
                 caller: { via: 'api_key', apiKeyId: STORED_ID, harnesses: ['bakery-team'] }
             }
         )
@@ -150,13 +161,35 @@ describe('POST /api/v1/prediction/:id', () => {
     test('a HARNESS canvas with nothing bound uses the flow caller and the harness path', async () => {
         const res = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'hi' })
         expect(res.status).toBe(200)
-        expect(res.body).toEqual(expect.objectContaining({ text: 'from the harness', chatId: 'c1' }))
+        expect(res.body).toEqual(
+            expect.objectContaining({ text: 'from the harness', chatId: expect.any(String), sessionToken: expect.any(String) })
+        )
         expect(mockStartCanvasRun).toHaveBeenCalledWith(
             expect.objectContaining({ id: OPEN_ID, name: 'bakery-open', type: 'HARNESS' }),
-            { question: 'hi' },
-            { source: 'playground', caller: { via: 'flow' } }
+            { question: 'hi', chatId: res.body.chatId },
+            { source: 'playground', canvas: 'live', caller: { via: 'flow' } }
         )
         expect(mockBuildChatflow).not.toHaveBeenCalled()
+    })
+
+    test('public harness sessions require their token to continue the bound chat id', async () => {
+        const first = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'hi' })
+        const { chatId, sessionToken } = first.body
+        expect(chatId).toMatch(/^[0-9a-f-]{36}$/)
+        expect(sessionToken).toEqual(expect.any(String))
+        expect(sessionToken.length).toBeGreaterThan(0)
+        for (const token of [sessionToken, undefined, 'wrong-token']) {
+            const res = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'again', chatId, sessionToken: token })
+            expect(res.status).toBe(200)
+            if (token === sessionToken) {
+                expect(res.body.chatId).toBe(chatId)
+                expect(res.body.sessionToken).toBe(sessionToken)
+            } else {
+                expect(res.body.chatId).not.toBe(chatId)
+                expect(res.body.chatId).toMatch(/^[0-9a-f-]{36}$/)
+            }
+            expect(mockStartCanvasRun.mock.calls.at(-1)?.[1].chatId).toBe(res.body.chatId)
+        }
     })
 
     test('a protected HARNESS canvas is refused before the harness run', async () => {
@@ -177,17 +210,21 @@ describe('POST /api/v1/prediction/:id', () => {
     })
 
     test('a streamed HARNESS canvas uses the same events as the in-app route', async () => {
-        const res = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'hi', streaming: true })
+        const first = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'hi' })
+        const { chatId, sessionToken } = first.body
+        mockStartCanvasRun.mockClear()
+        const res = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'hi', streaming: true, chatId, sessionToken })
         expect(res.status).toBe(200)
         expect(res.headers['content-type']).toMatch(/text\/event-stream/)
         expect(res.text).toContain(`message:\ndata:${JSON.stringify({ event: 'harness.route', data: { type: 'route' } })}\n\n`)
         expect(res.text).toContain(
-            `message:\ndata:${JSON.stringify({ event: 'harness.recorded', data: { run: { id: 'run-1' }, chatId: 'c1' } })}\n\n`
+            `message:\ndata:${JSON.stringify({ event: 'harness.recorded', data: { run: { id: 'run-1' }, chatId, sessionToken } })}\n\n`
         )
         expect(res.text).toContain(`message:\ndata:${JSON.stringify({ event: 'end', data: {} })}\n\n`)
         expect(mockBuildChatflow).not.toHaveBeenCalled()
         const opts = mockStartCanvasRun.mock.calls[0][2] as { source: string; caller: unknown; onEvent: unknown; signal: unknown }
         expect(opts.source).toBe('playground')
+        expect(mockStartCanvasRun.mock.calls[0][2].canvas).toBe('live')
         expect(opts.caller).toEqual({ via: 'flow' })
         expect(typeof opts.onEvent).toBe('function')
         expect(opts.signal).toBeInstanceOf(AbortSignal)

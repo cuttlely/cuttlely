@@ -44,7 +44,11 @@ const createPrediction = async (req: Request, res: Response, next: NextFunction)
             // A harness canvas has no node.init. The in-app chat already hands it to the harness runtime.
             // Rate limit, origin and flow authorization above stay as they are.
             if (chatflow.type === 'HARNESS') {
-                await runHarnessCanvasChat(req, res, chatflow, await flowHarnessCaller(chatflow.apikeyid, chatflow.workspaceId))
+                const { sessionToken } = bindRequestSession(req, { chatflow, isInternal: false })
+                await runHarnessCanvasChat(req, res, chatflow, await flowHarnessCaller(chatflow.apikeyid, chatflow.workspaceId), {
+                    canvas: 'live',
+                    sessionToken
+                })
                 return
             }
             const streamable = await chatflowsService.checkIfChatflowIsValidForStreaming(req.params.id)

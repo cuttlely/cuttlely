@@ -1563,14 +1563,22 @@ const deleteHarnessSchedule = async (name: string, workspaceId?: string | null) 
     return { harness: harness.name, deleted: true }
 }
 
-// Canvas chat and Try it. The draft canvas when one exists, otherwise the Live canvas. The saved harness and its
-// profile are not written. The try compiles under its own id and is removed when the run ends.
+// Canvas chat and Try it run the draft canvas when one exists, otherwise the Live canvas. The public prediction
+// route passes canvas 'live', so a saved draft does not change it before Publish. The saved harness and its profile
+// are not written. The try compiles under its own id and is removed when the run ends.
 const startCanvasRun = async (
     chatflow: { id: string; name: string; type?: string | null; flowData: string; workspaceId: string },
     body: Record<string, unknown>,
-    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void; caller: IHarnessCaller }
+    opts: {
+        canvas?: 'live' | 'draft'
+        source?: string
+        signal?: AbortSignal
+        onEvent?: (event: { type: string }) => void
+        caller: IHarnessCaller
+    }
 ) => {
-    const flowData = await flowDraftsService.flowDataForTestChat(chatflow)
+    const { canvas, ...runOpts } = opts
+    const flowData = canvas === 'live' ? chatflow.flowData : await flowDraftsService.flowDataForTestChat(chatflow)
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
@@ -1581,7 +1589,7 @@ const startCanvasRun = async (
         componentNodes: appServer.nodesPool?.componentNodes
     })
     return await startRun(chatflow.name, body, {
-        ...opts,
+        ...runOpts,
         allowFlow: true,
         workspaceId: chatflow.workspaceId,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }

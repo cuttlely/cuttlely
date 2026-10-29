@@ -52,7 +52,7 @@ test('a harness canvas run uses the draft path', async () => {
     expect(startCanvasRun).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'flow-1', name: 'bakery-team', type: 'HARNESS' }),
         { question: 'hi' },
-        { source: 'playground', caller: { via: 'session' } }
+        { source: 'playground', canvas: 'draft', caller: { via: 'session' } }
     )
     expect(utilBuildChatflow).not.toHaveBeenCalled()
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'from the draft' }))

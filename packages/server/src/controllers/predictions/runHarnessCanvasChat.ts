@@ -12,15 +12,21 @@ export async function runHarnessCanvasChat(
     req: Request,
     res: Response,
     chatflow: { id: string; name: string; flowData: string; workspaceId: string },
-    caller: IHarnessCaller
+    caller: IHarnessCaller,
+    options: { canvas: 'live' | 'draft'; sessionToken?: string }
 ) {
     const streaming = isStreamingRequest(req)
     const source = 'playground'
     const run = (extra: { signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}) =>
-        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, caller, ...extra })
+        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, caller, canvas: options.canvas, ...extra })
     if (!streaming) {
         const outcome = await run()
-        return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
+        return res.json({
+            chatId: outcome.chatId,
+            run: outcome.run,
+            ...outcome.payload,
+            ...(options.sessionToken ? { sessionToken: options.sessionToken } : {})
+        })
     }
     const signal = watchClientDisconnect(res)
     res.status(StatusCodes.OK)
@@ -40,7 +46,11 @@ export async function runHarnessCanvasChat(
         })
         const images = harnessesService.chatImages((outcome.payload as { artifacts?: unknown } | undefined)?.artifacts)
         if (images.length) write('artifacts', images)
-        write('harness.recorded', { run: outcome.run, chatId: outcome.chatId })
+        write('harness.recorded', {
+            run: outcome.run,
+            chatId: outcome.chatId,
+            ...(options.sessionToken ? { sessionToken: options.sessionToken } : {})
+        })
         write('end', {})
         res.end()
     } catch (error) {
