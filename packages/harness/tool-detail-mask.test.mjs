@@ -164,7 +164,7 @@ test('labels with dot dot stay, and a workspace path is still masked', () => {
     assert.equal(maskWorkspacePaths('2026-07-01..2026-09-30'), '2026-07-01..2026-09-30')
     assert.equal(maskWorkspacePaths(crmUrl), crmUrl)
     assert.equal(maskWorkspacePaths(secret), 'the workspace')
-    assert.equal(maskWorkspacePaths('docs/../../report.md'), 'a server path')
+    assert.equal(maskWorkspacePaths('docs/../../report.md'), 'docs/../../report.md')
     const masked = maskWorkspacePaths(body)
     assert.equal(masked.rows.at(-1).crm_url, crmUrl)
     assert.equal(masked.rows.at(-1).window, 'Q3..Q4')
@@ -332,7 +332,10 @@ test('Markdown path labels stay hidden in plain text, JSON values and character 
             for (const destination of [secret, `file://${secret}`, crmUrl]) {
                 const text = `${image}[${label}](${destination})`
                 const shown = hideWorkspacePaths(text, root)
-                assert.equal(shown.includes('zz-secret-path.csv'), false, text)
+                const keepsTail = /my reports\/|report\(1\)\/|^["']?(?:\.\.?\/|analyst\/)/.test(label)
+                assert.equal(shown.includes('zz-secret-path.csv'), keepsTail, text)
+                assert.equal(shown.includes(root), false, text)
+                assert.equal(shown.includes(secret), false, text)
                 for (const length of [0, 1500]) {
                     const body = { safe: 'ready', value: text, padding: 'x'.repeat(length) }
                     const json = JSON.stringify(body)
@@ -371,7 +374,9 @@ test('relative path labels keep the whole token for masking and JSON arrays keep
             for (const destination of [secret, `file://${secret}`, crmUrl]) {
                 const text = `${image}[${label}](${destination})`
                 const shown = maskWorkspacePaths(text)
-                assert.equal(shown.includes('zz-secret-path.csv'), false, text)
+                assert.ok(shown.startsWith(`${image}[${label}](`), text)
+                assert.equal(shown.includes(secret), false, text)
+                assert.equal(shown.includes(path.dirname(specialistWorkspace('_'))), false, text)
                 assert.equal(streamedAnswer(text), shown)
                 const json = JSON.stringify({ value: text, padding: 'x'.repeat(1500) })
                 assert.deepEqual(JSON.parse(streamedAnswer(json)), { value: shown, padding: 'x'.repeat(1500) })
@@ -411,11 +416,14 @@ test('parentheses within real paths keep the path whole and preserve existing de
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, 'a,b\n1,2\n')
     for (const text of [file, JSON.stringify(file), `[More...](${file})`, `![x...](${file} "t")`]) {
-        const expected = text.replace(file, 'the workspace file parenthesized.csv')
-        assert.equal(maskWorkspacePaths(text), expected)
+        const expected = text.replace(path.join(root, 'report'), 'the workspace')
+        const shown = maskWorkspacePaths(text)
+        assert.equal(shown, expected)
         assert.equal(streamedAnswer(text), expected)
+        assert.equal(shown.includes(root), false)
+        assert.equal(shown.includes(file), false)
     }
-    assert.equal(hideWorkspacePaths('/tmp/report(1)/x.csv', root), 'a server path')
+    assert.equal(hideWorkspacePaths('/tmp/report(1)/x.csv', root), 'a server path(1)/x.csv')
 })
 
 test('short, long and nested JSON masks Markdown paths in keys and values', () => {
@@ -515,7 +523,7 @@ test('JSON route prefixes stream before the plan closes', () => {
     const chunks = []
     const send = (chunk) => chunks.push(chunk)
     bufferStream(context, 'route', '{"steps":[{"task":"check', false, send)
-    assert.equal(chunks.join(''), '{"steps":[{"task"')
+    assert.equal(chunks.join(''), '{"steps":[{"task":"')
     bufferStream(context, 'route', ' routes"}]}', true, send)
     assert.ok(chunks.length >= 2)
     assert.equal(chunks.join(''), '{"steps":[{"task":"check routes"}]}')
