@@ -26,6 +26,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
+-   A HARNESS canvas id now works on the public `POST /api/v1/prediction/:id` route. It runs the Live (published) canvas, returns a `sessionToken` bound to the chat id, and needs the bound API key to list the harness. File uploads there are refused with 400; send them to a chatflow with a Harness card.
+
 -   Guarded PostgreSQL queries, pins and `describe` samples work for a login whose role sets `default_transaction_read_only = on`. Validation opens a short read-write transaction only to create a temporary view, which is always rolled back; queries run in a read-only transaction. A read-only standby and a login without `TEMP` now get separate, plain messages instead of one shared one.
 
 -   On a PostgreSQL MCP node that offers only pinned queries, a call by the node's own name no longer runs the first pin with the wrong arguments and pauses the tool; it returns an expected error naming the pins and their parameters. The analyst retry names the pins instead of the query tool, and a miss is logged as a `pinned query` step that says the analyst did not run a pinned query.

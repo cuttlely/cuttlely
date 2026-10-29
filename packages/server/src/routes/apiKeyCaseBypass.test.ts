@@ -181,6 +181,6 @@ describe('the in-app prediction route refuses an API key on its own', () => {
         expect(canvasRuns).toEqual([])
         const res = await app({ blacklist: [] }).post(`/api/v1/internal-prediction/${HARNESS_ID}`).set(SESSION).send({ question: 'Hi' })
         expect(res.status).toBe(200)
-        expect(canvasRuns).toEqual([{ source: 'playground', caller: { via: 'session' } }])
+        expect(canvasRuns).toEqual([{ source: 'playground', canvas: 'draft', caller: { via: 'session' } }])
     })
 })

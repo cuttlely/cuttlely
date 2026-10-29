@@ -241,6 +241,8 @@
             "packages/server/src/commands/base.test.ts",
             "packages/server/src/controllers/chatflows/apikey.test.ts",
             "packages/server/src/controllers/internal-predictions/index.test.ts",
+            "packages/server/src/controllers/predictions/index.test.ts",
+            "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts",
             "packages/server/src/controllers/nodes/iconCache.test.ts",
             "packages/server/src/controllers/ping/index.test.ts",
             "packages/server/src/controllers/text-to-speech/index.test.ts",
@@ -430,6 +432,8 @@
                 "packages/server/src/utils/buildChatflow.harnessCaller.test.ts",
                 "packages/server/src/routes/harnessCanvasKeyAccess.test.ts",
                 "packages/server/src/routes/internal-predictions/auth.test.ts",
+                "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts",
+                "packages/server/src/controllers/predictions/index.test.ts",
                 "packages/server/src/routes/apiKeyCaseBypass.test.ts",
                 "packages/server/src/routes/harnessNamesForKey.test.ts",
                 "packages/server/src/routes/export-import/index.test.ts",
@@ -458,7 +462,8 @@
                 "packages/ui/src/views/chatmessage/HarnessRunTrace.jsx",
                 "packages/ui/src/views/harnesses/HarnessHome.jsx",
                 "packages/ui/src/views/harnesses/index.jsx",
-                "packages/server/src/utils/harnessToolPayload.ts"
+                "packages/server/src/utils/harnessToolPayload.ts",
+                "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts"
             ]
         },
         {
