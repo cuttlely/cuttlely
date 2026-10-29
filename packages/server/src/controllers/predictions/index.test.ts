@@ -52,7 +52,7 @@ jest.mock('../../services/chatflows', () => {
     }
 })
 
-const mockBuildChatflow = jest.fn(async () => ({ text: 'ok', chatId: 'chat-1' }))
+const mockBuildChatflow = jest.fn(async (..._args: unknown[]) => ({ text: 'ok', chatId: 'chat-1' }))
 jest.mock('../../services/predictions', () => ({
     __esModule: true,
     default: {
@@ -61,7 +61,7 @@ jest.mock('../../services/predictions', () => ({
 }))
 
 const mockStartCanvasRun = jest.fn()
-const mockChatImages = jest.fn(() => [])
+const mockChatImages = jest.fn((..._args: unknown[]) => [] as unknown[])
 jest.mock('../../services/harnesses', () => ({
     __esModule: true,
     default: {

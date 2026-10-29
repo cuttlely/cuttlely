@@ -432,6 +432,31 @@
             "to": "packages/server/src/controllers/ping/index.ts"
         },
         {
+            "from": "packages/server/src/controllers/predictions/index.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts",
+            "reason": "The public prediction route runs HARNESS canvases through the shared canvas chat runner, which takes the server error helper and caller types; its test drives the inherited prediction route"
+        },
+        {
+            "from": "packages/server/src/controllers/predictions/index.test.ts",
+            "to": "packages/server/src/routes/predictions/index.ts",
+            "reason": "The public prediction route runs HARNESS canvases through the shared canvas chat runner, which takes the server error helper and caller types; its test drives the inherited prediction route"
+        },
+        {
+            "from": "packages/server/src/controllers/predictions/index.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts",
+            "reason": "The public prediction route runs HARNESS canvases through the shared canvas chat runner, which takes the server error helper and caller types; its test drives the inherited prediction route"
+        },
+        {
+            "from": "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts",
+            "to": "packages/server/src/errors/utils.ts",
+            "reason": "The public prediction route runs HARNESS canvases through the shared canvas chat runner, which takes the server error helper and caller types; its test drives the inherited prediction route"
+        },
+        {
+            "from": "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts",
+            "to": "packages/server/src/Interface.ts",
+            "reason": "The public prediction route runs HARNESS canvases through the shared canvas chat runner, which takes the server error helper and caller types; its test drives the inherited prediction route"
+        },
+        {
             "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
             "to": "packages/components/src/index.ts"
         },
