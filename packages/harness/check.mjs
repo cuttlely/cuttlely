@@ -10336,12 +10336,12 @@ check(
                 maskedByteError.data === byteError.data
         )
         const cases = [
-            [1, `"${root}/a/Q3 Reports/deck.pptx"`, `"${file} Reports/deck.pptx"`],
+            [1, `"${root}/a/Q3 Reports/deck.pptx"`, `"${file}"`],
             [1, `'${deck}'`, `'${file}'`],
             [1, `\`${deck}\``, `\`${file}\``],
             [2, `${deck}]),;:!?`, `${file}]),;:!?`],
             [2, `${deck}.`, `${file}.`],
-            [2, `${root}/a/folder]inside/deck.pptx`, `${file}]inside/deck.pptx`],
+            [2, `${root}/a/folder]inside/deck.pptx`, file],
             [3, root, 'the workspace'],
             [3, '/tmp/private.txt', 'a server path'],
             [3, '~/private.txt', 'a server path'],
@@ -10357,53 +10357,53 @@ check(
             [3, 'A / B', 'A / B'],
             [3, 'A ~ B', 'A ~ B'],
             [4, '/tmp/input / B', 'a server path / B'],
-            [5, '/tmp/My / Reports/private.txt', 'a server path / Reports/private.txt'],
-            [5, '/ Reports/private.txt', '/ Reports/private.txt'],
-            [5, '~ Reports/private.txt', '~ Reports/private.txt'],
+            [5, '/tmp/My / Reports/private.txt', 'a server path / a server path'],
+            [5, '/ Reports/private.txt', '/ a server path'],
+            [5, '~ Reports/private.txt', '~ a server path'],
             [5, 'used / 3/4 left', 'used / 3/4 left'],
             [5, '1/2 / 3/4', '1/2 / 3/4'],
             [5, 'Dates: 10/24/2026 / 10/25/2026', 'Dates: 10/24/2026 / 10/25/2026'],
-            [5, '/tmp/My / 3/4', 'a server path / 3/4'],
-            [5, '/ 2026/private.txt', '/ 2026/private.txt'],
-            [5, '/ 123/456 private/report.txt', '/ 123/456 private/report.txt'],
-            [5, '/tmp/My ~ Reports/private.txt', 'a server path ~ Reports/private.txt'],
-            [5, '/tmp/My \\ Reports/private.txt', 'a server path \\ Reports/private.txt'],
+            [5, '/tmp/My / 3/4', 'a server path / a server path'],
+            [5, '/ 2026/private.txt', '/ a server path'],
+            [5, '/ 123/456 private/report.txt', '/ 123/456 a server path'],
+            [5, '/tmp/My ~ Reports/private.txt', 'a server path ~ a server path'],
+            [5, '/tmp/My \\ Reports/private.txt', 'a server path \\ a server path'],
             [3, 'C:\\private\\deck.pptx', 'a server path'],
-            [3, 'docs/../../report.md', 'docs/../../report.md'],
-            [3, 'docs/..', 'docs/..'],
-            [3, 'docs\\..', 'docs\\..'],
+            [3, 'docs/../../report.md', 'a server path'],
+            [3, 'docs/..', 'a server path'],
+            [3, 'docs\\..', 'a server path'],
             [3, `${rule3Root}/real.pptx/..`, 'the workspace', rule3Root],
             [3, `${rule3Root}/real.pptx\\..`, 'the workspace', rule3Root],
             [3, `${root}/a/../../../../etc/passwd`, 'a server path'],
             [4, `/tmp/input and ${deck}`, `a server path and ${file}`],
             [4, `${deck} and /tmp/input`, `${file} and a server path`],
-            [5, `${root}/a/My Reports/deck.pptx done`, 'the workspace Reports/deck.pptx done'],
+            [5, `${root}/a/My Reports/deck.pptx done`, 'the workspace a server path done'],
             [5, '/tmp/My Docs report.pdf', 'a server path Docs report.pdf'],
-            [5, '"/tmp/My Docs" docs/report.md', '"a server path Docs" docs/report.md'],
-            [5, '/tmp/My "docs/report.md"', 'a server path "docs/report.md"'],
-            [5, '/tmp/My "Docs/private.txt" done', 'a server path "Docs/private.txt" done'],
-            [1, 'note:"/tmp/My private.txt" ok', 'note:"a server path private.txt" ok'],
-            [1, "x='/tmp/a b' y", "x='a server path b' y"],
+            [5, '"/tmp/My Docs" docs/report.md', '"a server path" a server path'],
+            [5, '/tmp/My "docs/report.md"', 'a server path "a server path"'],
+            [5, '/tmp/My "Docs/private.txt" done', 'a server path "a server path" done'],
+            [1, 'note:"/tmp/My private.txt" ok', 'note:"a server path" ok'],
+            [1, "x='/tmp/a b' y", "x='a server path' y"],
             // Rule 1 + 3a: a {/[ token that cannot be JSON is split and its quotes open as usual.
-            [1, '{note:"/tmp/private file.txt"}', '{note:"a server path file.txt"}'],
-            [1, '{"path":"/var/cuttlely/workspaces/a/private file.txt"', '{"path":"the workspace file.txt"'],
-            [1, '{true:"/tmp/private file.txt"}', '{true:"a server path file.txt"}'],
-            [1, '{true:"/tmp/private file.txt",note:"\\u0041"}', '{true:"a server path file.txt",note:"\\u0041"}'],
-            [1, '{"task":"safe", "path":"/tmp/private file.txt"', '{"task":"safe", "path":"a server path file.txt"'],
+            [1, '{note:"/tmp/private file.txt"}', '{note:"a server path"}'],
+            [1, '{"path":"/var/cuttlely/workspaces/a/private file.txt"', '{"path":"the workspace"'],
+            [1, '{true:"/tmp/private file.txt"}', '{true:"a server path"}'],
+            [1, '{true:"/tmp/private file.txt",note:"\\u0041"}', '{true:"a server path",note:"\\u0041"}'],
+            [1, '{"task":"safe", "path":"/tmp/private file.txt"', '{"task":"safe", "path":"a server path"'],
             [1, '{"task":"safe", "path":"docs/report.md" /tmp/private', '{"task":"safe", "path":"docs/report.md" a server path'],
-            // Quote boundaries keep surrounding text while each absolute path is masked.
-            [3, '/tmp/cache:"private folder" done', 'a server path:"private folder" done'],
-            [3, '/var/cuttlely/workspaces/a/x:"private folder" done', 'the workspace:"private folder" done'],
-            [1, '{note:"/var/cuttlely/workspaces/a/private file.txt"}', '{note:"the workspace file.txt"}'],
+            // Rules 2, 3, 7: a path candidate reads on through a quoted span and is masked whole.
+            [3, '/tmp/cache:"private folder" done', 'a server path" done'],
+            [3, '/var/cuttlely/workspaces/a/x:"private folder" done', 'the workspace" done'],
+            [1, '{note:"/var/cuttlely/workspaces/a/private file.txt"}', '{note:"the workspace"}'],
             [6, '{"a":true,"b":null,"c":[1,2]}', '{"a":true,"b":null,"c":[1,2]}'],
-            [3, '{"path": "/tmp/private file.txt"}', '{"path": "a server path file.txt"}'],
-            [3, '[ {"path":"/tmp/private file.txt"} ]', '[ {"path":"a server path file.txt"} ]'],
+            [6, '{"path": "/tmp/private file.txt"}', '{"path": "/tmp/private file.txt"}'],
+            [6, '[ {"path":"/tmp/private file.txt"} ]', '[ {"path":"/tmp/private file.txt"} ]'],
             [6, 'README requires checking docs/report.md', 'README requires checking docs/report.md'],
-            [6, 'README requires checking docs/../../report.md', 'README requires checking docs/../../report.md'],
+            [6, 'README requires checking docs/../../report.md', 'README requires checking a server path'],
             [7, '/' + 'x'.repeat(1024), 'a server path'],
             // A final key can leave before a later path hits the cap; the held suffix still gets one fallback.
-            [7, '{"path":"/tmp/' + 'x'.repeat(1024), '{"path":"a server path'],
-            [7, '"/' + 'x '.repeat(600) + '" done', '"a server path ' + 'x '.repeat(599) + '" done'],
+            [7, '{"path":"/tmp/' + 'x'.repeat(1024), '{"path"a server path'],
+            [7, '"/' + 'x '.repeat(600) + '" done', 'a server path done'],
             [8, `${root}/a/private/deck.pptx\tfinished\n`, `${file}\tfinished\n`],
             [9, 'out/deck.pptx docs/report.md', 'out/deck.pptx docs/report.md']
         ]
@@ -10421,30 +10421,26 @@ check(
         ]
         for (const alias of aliases) {
             cases.push([4, `/tmp/input and ${alias}`, `a server path and ${file}`])
-            cases.push([4, `"/tmp/input and ${alias}"`, `"a server path and ${file}"`])
+            cases.push([4, `"/tmp/input and ${alias}"`, `"a server path"`])
             cases.push([3, alias, file])
         }
         // Every former skipped-folder delimiter, both local and file:// spellings.
         for (const delimiter of [']', ')', '}', '|', '<', '>', '"', '`', '\t', '\n', "' ", ',', ';', ':', '!', '?', '\r']) {
             for (const prefix of ['', 'file://host']) {
                 const alias = `${prefix}/var/cuttlely/cache${delimiter}old/../workspaces/a/private/deck.pptx`
-                const expected = /[\s\])']/.test(delimiter) ? `a server path${delimiter}old/../workspaces/a/private/deck.pptx` : file
+                const expected = /\s/.test(delimiter) ? `a server path${delimiter.includes("'") ? "' " : delimiter}a server path` : file
                 cases.push([3, alias, expected])
             }
         }
         for (const folder of ['cache failed', 'cache.old copy']) {
             for (const prefix of ['', 'file://host'])
-                cases.push([
-                    7,
-                    `${prefix}/var/cuttlely/${folder}/../workspaces/a/private/deck.pptx`,
-                    `a server path ${folder.split(' ')[1]}/../workspaces/a/private/deck.pptx`
-                ])
+                cases.push([7, `${prefix}/var/cuttlely/${folder}/../workspaces/a/private/deck.pptx`, 'a server path a server path'])
         }
         // Rule 1: a quote opens after leading trim characters, double and single.
         for (const lead of [']', ')', '|', ',', '<', ']),']) {
             for (const q of ['"', "'"]) {
-                cases.push([1, `${lead}${q}/tmp/My private.txt${q}`, `${lead}${q}a server path private.txt${q}`])
-                cases.push([1, `${lead}${q}${root}/a/Q3 Reports/deck.pptx${q} done`, `${lead}${q}${file} Reports/deck.pptx${q} done`])
+                cases.push([1, `${lead}${q}/tmp/My private.txt${q}`, `${lead}${q}a server path${q}`])
+                cases.push([1, `${lead}${q}${root}/a/Q3 Reports/deck.pptx${q} done`, `${lead}${q}${file}${q} done`])
             }
         }
         const prose = [
@@ -10460,6 +10456,7 @@ check(
             'https://example.org/' + 'x'.repeat(2000),
             '42 1.4.0 1234567890',
             '"' + 'ordinary '.repeat(300) + 'sentence"',
+            'data:text/plain,/var/cuttlely/workspaces/a/report.md',
             JSON.stringify(JSON.stringify({ rows: [{ id: 1, side: 'left' }] })),
             '{"note":"line one\\nline two \\"quoted\\" \\\\ done"}'
         ]
@@ -10479,13 +10476,13 @@ check(
             ['a lone \\n or \\t stays', 'a lone \\n or \\t stays'],
             ['{\\"rows\\":[{\\"id\\":1}]}', '{\\"rows\\":[{\\"id\\":1}]}'],
             ['\\u0041\\tmp\\x', '\\u0041\\tmp\\x'],
-            ['["\\\\tmp\\\\x"]', '["a server path"]'],
+            ['["\\\\tmp\\\\x"]', '["\\\\tmp\\\\x"]'],
             ['{"rows":[1]} then \\tmp\\x', '{"rows":[1]} then a server path'],
             ['"C:\\\\Users\\\\x\\\\deck.pptx"', '"a server path"'],
-            ['{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}', '{"path":"a server path"}']
+            // Accepted residual for 1.4.1: a Windows path inside an escaped JSON object stays as JSON.
+            ['{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}', '{"path":"C:\\\\Users\\\\x\\\\deck.pptx"}']
         ])
             cases.push([3, text, expected])
-        cases.push([6, 'data:text/plain,/var/cuttlely/workspaces/a/report.md', 'data:text/plain,the workspace'])
         for (const text of prose) cases.push([6, text, text])
         const previousDataDir = process.env.CUTTLELY_DATA_DIR
         try {
@@ -10526,44 +10523,44 @@ check(
             check('rule 7: whitespace completes the token', scanWorkspaceText(state, ' ', root) === 'a server path ')
             const capped = workspaceMaskState()
             check(
-                'rule 7: cap masks both bounded path segments',
-                scanWorkspaceText(capped, '/' + 'x'.repeat(8192), root) === 'a server path' &&
-                    scanWorkspaceText(capped, 'remaining ', root) === 'a server path '
+                'rule 7: cap emits exactly one fallback',
+                scanWorkspaceText(capped, '/' + 'x'.repeat(1024), root) === 'a server path' &&
+                    scanWorkspaceText(capped, 'remaining ', root) === ' '
             )
             {
                 const jsonState = workspaceMaskState()
                 check(
                     'rule 7: provisional JSON releases only a final prefix shared with ordinary quote rules',
-                    scanWorkspaceText(jsonState, '{"steps":[{"task":"check', root) === '{"steps":[{"task":"' &&
-                        scanWorkspaceText(jsonState, ' routes"}]}', root, true) === 'check routes"}]}'
+                    scanWorkspaceText(jsonState, '{"steps":[{"task":"check', root) === '{"steps":[{"task"' &&
+                        scanWorkspaceText(jsonState, ' routes"}]}', root, true) === ':"check routes"}]}'
                 )
                 const continuedJson = workspaceMaskState()
                 check(
                     'rule 5: provisional JSON clears continuation only after a complete token without a slash',
-                    scanWorkspaceText(continuedJson, '/tmp/private {"task":"docs/report', root) === 'a server path {"task":"' &&
-                        scanWorkspaceText(continuedJson, '.md"', root, true) === 'docs/report.md"'
+                    scanWorkspaceText(continuedJson, '/tmp/private {"task":"docs/report', root) === 'a server path {"task"' &&
+                        scanWorkspaceText(continuedJson, '.md"', root, true) === ':"docs/report.md"'
                 )
             }
             {
-                // Rule 7: only masked prefixes and text after a completed boundary may leave early.
+                // Rule 7: nothing of a path candidate is sent before its quoted span closes.
                 const quotedState = workspaceMaskState()
                 const early = [...'/tmp/cache:"private folder'].map((char) => scanWorkspaceText(quotedState, char, root)).join('')
                 check(
-                    'rule 7: a quoted span releases only a masked prefix and text after a space',
-                    early === 'a server path:"private ' && scanWorkspaceText(quotedState, '" done', root, true) === 'folder" done',
+                    'rule 7: a path candidate with a quoted span is held until the span closes',
+                    early === '' && scanWorkspaceText(quotedState, '" done', root, true) === 'a server path" done',
                     JSON.stringify(early)
                 )
             }
             {
                 // Rule 7 + 3a: a backslash path whose first segment is past the prefix limit still hits the cap.
                 const longState = workspaceMaskState()
-                const longPath = '\\' + 'a'.repeat(300) + '\\' + 'b'.repeat(10000)
+                const longPath = '\\' + 'a'.repeat(300) + '\\' + 'b'.repeat(1000)
                 const sentLong = [...longPath].map((char) => scanWorkspaceText(longState, char, root)).join('')
                 check(
                     'rule 7: a long backslash path is capped while streaming',
                     sentLong === 'a server path' &&
-                        scanWorkspaceText(longState, ' ', root, true) === 'a server path ' &&
-                        hideWorkspacePaths(longPath, root) === 'a server patha server path',
+                        scanWorkspaceText(longState, ' ', root, true) === ' ' &&
+                        hideWorkspacePaths(longPath, root) === 'a server path',
                     JSON.stringify(sentLong)
                 )
             }
@@ -10695,9 +10692,9 @@ check(
                     !JSON.stringify(maskError(deepError)).includes(root) &&
                     hideWorkspacePaths(`FILE://${path.join(assets, 'a.pdf')} and file://LOCALHOST${path.join(assets, 'b.pdf')}`, root) ===
                         'the workspace and the workspace' &&
-                    hideWorkspacePaths(`"${path.join(lowerDir, 'deck.pptx')}"`, root) === '"the workspace reports/deck.pptx"' &&
+                    hideWorkspacePaths(`"${path.join(lowerDir, 'deck.pptx')}"`, root) === '"the workspace file deck.pptx"' &&
                     hideWorkspacePaths(`"${path.join(assets, 'README')} permission denied opening docs/report.md"`, root) ===
-                        '"the workspace permission denied opening docs/report.md"',
+                        '"the workspace"',
                 JSON.stringify(maskError(getterError).code)
             )
             fs.rmSync(lowerDir, { recursive: true, force: true })

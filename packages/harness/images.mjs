@@ -133,7 +133,7 @@ export function turnImageNote(dir) {
         : ''
 }
 
-// All text uses the segment masker. Deliverables name their basename; other paths use a workspace or server placeholder.
+// All text uses the token scanner. Deliverables name their basename; other paths use a workspace or server placeholder.
 export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirname(path.dirname(dir))) : '') {
     if (typeof text !== 'string') return text
     const out = hideWorkspacePaths(text, root, dir)
@@ -141,237 +141,249 @@ export function hideTurnImageDir(text, dir, root = dir ? path.dirname(path.dirna
     return dir ? hideWorkspacePaths(out, dir, dir) : out
 }
 
-// Paths are recognized in every segment, independently of Markdown or JSON grammar.
-// Backslashes preceding quotes belong to JSON escapes; leave an even number in the match.
-const PATH_CHARS = String.raw`[^\s"'\x60<>()\[\]*|]`
-const EMPHASIS_BOUNDARY = String.raw`(?<=(?:^|[^A-Za-z0-9*_])[*_]+)`
-const START_BOUNDARY = String.raw`(?:^|(?<=[\s(<>"'\x60~=:,;\[|])|(?<=\\[ntr])|${EMPHASIS_BOUNDARY})`
-const SYSTEM_BOUNDARY = String.raw`(?:^|(?<=[\s"'\x60\[\]()|=:,;<>])|(?<=\\[ntr])|${EMPHASIS_BOUNDARY})`
-const SLASH = String.raw`(?:/|\\+(?:/|u002f)|%2f)`
-const URL_START = String.raw`https?:(?:/|\\+/){2}`
-const URL = String.raw`${URL_START}(?:\[[0-9a-f:.]+\])?[^\s"'\x60<>*|\[\]]*`
-const SYSTEM_DIR = String.raw`(?:var|home|tmp|Users|opt|srv|app|data|etc|root|mnt)`
-const PATH_BREAK = /[\s"'\x60<>()\[\]*|]/
-const ROOT_START = String.raw`(?:[/%]|(?<!\\)\\(?!\\*"))`
-const ROOT_RUN = String.raw`[^\s'()\[\]*]`
-const BACKSLASH_COMPONENT = String.raw`[^\\\s"'\x60<>()\[\]*|]+\\`
-const BACKSLASH_START = String.raw`(?:\\{2,}(?!u[0-9a-f]{4})(?=${BACKSLASH_COMPONENT})[a-z0-9]|\\(?![bfnrtu])(?=[a-z0-9])|\\(?!u[0-9a-f]{4})(?=${BACKSLASH_COMPONENT}))`
-const PATH_START = String.raw`(?=[a-z]:|file:|[\\/~%.])(?:${SYSTEM_BOUNDARY}(?:file:\/\/[^/\\\s]*|[a-z]:[\\/]|[\\/]${SYSTEM_DIR}(?=[\\/]|$))|${START_BOUNDARY}(?:[a-z]:[\\/]|${BACKSLASH_START}|(?:\.\.\\+)+${SYSTEM_DIR}(?=\\)|~?${SLASH}))`
-const MASK_HOLD = 8192
-const rootCache = new Map()
-const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-function workspaceRoots(root) {
-    if (rootCache.has(root)) return rootCache.get(root)
-    const roots = [root]
+// Rules 1–8 share this state machine, including the bounded-token fallback.
+const EDGE = /[\]\)}|<>"`,;:!?]/
+const QUOTES = '"\'`'
+const LEAD = /^[\]\)}|<>,;:!?]*$/
+// Rule 3a: \name\name..., UNC \\host\share, or a drive letter. JSON-escaped data is left alone.
+const BACKSLASH_START = /^(?:\\[A-Za-z0-9._$~-]+\\[A-Za-z0-9._$~-]+|\\\\[^\\\s]+\\|[a-z]:[\\/])/i
+const jsonSpan = (value) => {
+    if (!/^[\[{]/.test(value)) return false
     try {
-        const real = fs.realpathSync(root)
-        if (real !== root) roots.push(real)
+        JSON.parse(value)
+        return true
     } catch {
-        // Error previews may name a workspace that has already been removed.
+        return false
     }
-    const literals = new Set()
-    for (const value of roots) {
-        let escaped = value
-        for (let depth = 0; depth < 4; depth++) {
-            literals.add(escaped)
-            escaped = JSON.stringify(escaped).slice(1, -1)
-        }
-        for (const slash of ['\\/', '\\u002f']) {
-            escaped = value.replaceAll('/', slash)
-            for (let depth = 0; depth < 3; depth++) {
-                literals.add(escaped)
-                escaped = JSON.stringify(escaped).slice(1, -1)
-            }
-        }
-        for (const encoded of [encodeURI(value), encodeFilePath(value), encodeURIComponent(value), value.replaceAll('/', '%2f')]) {
-            literals.add(encoded)
-            literals.add(encoded.replace(/%[0-9a-f]{2}/gi, (hex) => hex.toLowerCase()))
-        }
-        literals.add(`file://${value}`)
-    }
-    const variants = [...literals].filter(Boolean).sort((a, b) => b.length - a.length)
-    const info = {
-        roots,
-        normalizedRoots: roots.map(normalizePath),
-        variants,
-        boundaryPrefixes: variants
-            .flatMap((value) => [...value.matchAll(/[\s"]/g)].map((match) => value.slice(0, match.index + 1)))
-            .filter((prefix) => !variants.includes(prefix)),
-        backstop: new RegExp(String.raw`(?:${variants.map(escapeRegex).join('|')}|${PATH_START}|${ROOT_START})${ROOT_RUN}*`, 'gi'),
-        overlap: Math.max(0, ...variants.map((value) => value.length - 1)),
-        // URL and relative Markdown targets win over generic path starts.
-        regex: new RegExp(
-            String.raw`(?:<|&lt;)\/[a-z][a-z0-9:-]*(?=\s|>|&gt;)|${URL}|(?<=\()(?:#[^\s)"']*|\.\.?\/[^\s)"']*)|(?:${variants
-                .map(escapeRegex)
-                .join('|')}|${PATH_START})${PATH_CHARS}*`,
-            'gi'
-        )
-    }
-    if (rootCache.size >= 64) rootCache.delete(rootCache.keys().next().value)
-    rootCache.set(root, info)
-    return info
 }
-
-function pathSeparators(value) {
-    let out = ''
-    for (let at = 0; at < value.length; at++) {
-        if (value[at] !== '\\') {
-            out += value[at]
-            continue
-        }
-        while (value[at + 1] === '\\') at++
-        if (value[at + 1] === '"') continue
-        if (value.slice(at + 1, at + 6).toLowerCase() === 'u002f') at += 5
-        else if (value[at + 1] === '/') at++
-        out += '/'
-    }
-    return out
-}
-
-function trailingBackslashes(value, end = value.length) {
-    let at = end
-    while (at > 0 && value[at - 1] === '\\') at--
-    return end - at
-}
-
-function normalizePath(value) {
-    let decoded = value
+// An escape anywhere in a malformed span is not enough: its entire decoded
+// string body must itself be a valid JSON object or array.
+const escapedJsonSpan = (value) => {
     try {
-        decoded = decodeURIComponent(decoded)
+        return jsonSpan(JSON.parse('"' + value + '"'))
     } catch {
-        decoded = decoded.replace(/%[0-9a-f]{2}/gi, (hex) => String.fromCharCode(Number.parseInt(hex.slice(1), 16)))
+        return false
     }
-    return pathSeparators(decoded)
-        .replace(/\/+/g, '/')
-        .replace(/\/\.(?=\/|$)/g, '')
 }
-
-function maskPath(raw, info) {
-    // Preserve punctuation, emphasis and JSON escape prefixes at the end of a path.
-    const quoteSlashes = trailingBackslashes(raw)
-    const quoteEscape = quoteSlashes % 2 ? raw.slice(-quoteSlashes) : ''
-    const body = quoteEscape ? raw.slice(0, -quoteSlashes) : raw
-    let end = body.length
-    while (end > 0) {
-        if ('._,;:!?'.includes(body[end - 1])) end--
-        else if (body[end - 1] === '~' && body[end - 2] === '~') end -= 2
-        else break
+const backslashPath = (token, raw) => BACKSLASH_START.test(token) && !/\\"|\\u[0-9a-f]{4}/i.test(raw) && !jsonSpan(raw) && !jsonSpan(token)
+// The deliverable basename is kept only for a file that exists under the root at mask time.
+const isFile = (value) => {
+    try {
+        return fs.statSync(value).isFile()
+    } catch {
+        return false
     }
-    // A final dot segment participates in resolution rather than sentence punctuation.
-    if ((body[end - 1] === '/' || body[end - 1] === '\\') && /^\.{1,2}$/.test(body.slice(end))) end = body.length
-    const suffix = body.slice(end)
-    let token = body.slice(0, end)
-    const slashes = trailingBackslashes(token)
-    const escape = slashes % 2 ? token.slice(-slashes) : ''
-    if (escape) token = token.slice(0, -slashes)
-    if (/^[\/~]$/.test(token)) return raw
+}
+const trimSep = (value) => (value.length > 1 && value.endsWith(path.sep) ? value.slice(0, -1) : value)
+
+function tokenMask(raw, root, continued) {
+    let start = 0,
+        end = raw.length
+    while (start < end && (EDGE.test(raw[start]) || raw[start] === "'")) start++
+    while (end > start && (EDGE.test(raw[end - 1]) || raw[end - 1] === "'" || raw[end - 1] === '.')) {
+        // A final . or .. after a separator is a path segment, not sentence punctuation.
+        if (/[\/\\]\.{1,2}$/.test(raw.slice(Math.max(start, end - 3), end))) break
+        end--
+    }
+    const token = raw.slice(start, end)
+    if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
+    // ".." marks a path when the token also has a separator (docs/../secret, More..."/tmp/x).
+    // A label without one, such as Q3..Q4 or 2026-07-01..2026-09-30, is not a path.
+    const dotDot = /\.\./.test(token) && (/[\/\\]/.test(token) || token === '..')
+    // A lone separator such as the '/' in 'A / B' or 'used / entitled' names no location.
+    // It is shown as is but starts or keeps a rule 5 continuation, so a following token with a separator
+    // (the rest of '/ Reports/private.txt' or '/tmp/My / Reports/x') is still hidden.
+    // Without an open path it only starts a 'soft' continuation, which lets a number, fraction or
+    // date such as 3/4 or 10/24/2026 through.
+    if (/^[\/\\~]$/.test(token)) return { text: raw, masked: continued === true ? true : 'soft' }
+    const slash = /[\/\\]/.test(token)
+    const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || dotDot || /\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
+    const numeric = !candidate && continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
+    // A number kept after a lone slash still passes the soft continuation on, so a path piece after it is hidden.
+    if (numeric) return { text: raw, masked: 'soft' }
+    if (!candidate && !(continued && slash)) return { text: raw, masked: false }
     let local = token.replace(/^file:\/\/[^/\\\s]*/i, '')
-    local = pathSeparators(local)
     try {
         local = decodeURIComponent(local)
-    } catch {}
-    const resolved = path.resolve(local)
-    const inside = info.roots.some((root) => resolved === root || resolved.startsWith(root + path.sep))
-    let shown = inside ? 'the workspace' : 'a server path'
-    if (inside && !local.split('/').includes('..') && /\.(?:pdf|docx|xlsx|pptx|csv|png|jpe?g)$/i.test(local)) {
-        try {
-            if (fs.statSync(resolved).isFile()) shown = `the workspace file ${path.basename(resolved)}`
-        } catch {}
+    } catch {
+        local = local.replace(/%([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     }
-    return shown + escape + suffix + quoteEscape
-}
-
-function namesWorkspace(raw, info) {
-    const normalized = normalizePath(raw)
-    const resolved = path.posix.normalize(normalized)
-    return info.normalizedRoots.some((root) => normalized.includes(root) || resolved.includes(root))
-}
-
-// Resolve parent segments before the ordinary matcher separates punctuation in a folder name.
-function maskRootRuns(text, info, parentsOnly = false) {
-    return text.replace(info.backstop, (raw) => {
-        let from = 0
-        if (parentsOnly) {
-            const parents = [...raw.matchAll(/(?:\.|%2e){2}(?:\/|\\|%2f)/gi)]
-            if (!parents.length) return raw
-            const last = parents.at(-1)
-            from = last.index + last[0].length
-        }
-        const boundary = raw.slice(from).search(PATH_BREAK)
-        const end = boundary < 0 ? raw.length : from + boundary
-        const token = raw.slice(0, end)
-        return namesWorkspace(token, info) ? maskPath(token, info) + raw.slice(end) : raw
-    })
-}
-
-function maskSegment(text, info, url = false) {
-    // A forced cap can split a URL; the synthetic prefix preserves its remaining bytes.
-    const prefix = url ? 'https://' : ''
-    const shown = maskRootRuns(prefix + text, info, true)
-        .replace(info.regex, (raw) => {
-            if (/^(?:(?:<|&lt;)\/|https?:(?:\/|\\+\/){2}|#|\.\.?\/)/i.test(raw)) return raw
-            return maskPath(raw, info)
-        })
-        .slice(prefix.length)
-    // Check the whole run, including roots embedded in URLs and relative targets.
-    return maskRootRuns(shown, info)
+    local = local.replace(/\\/g, '/')
+    const traversal = local.split('/').includes('..')
+    const absolute = trimSep(path.resolve(root))
+    const resolved = trimSep(path.resolve(local))
+    const inside = resolved === absolute || resolved.startsWith(absolute + path.sep)
+    let shown = 'a server path'
+    if (inside) {
+        const base = path.basename(resolved)
+        const deliverable =
+            !traversal &&
+            /^(?:[\/~]|file:|[a-z]:|%2f)/i.test(token) &&
+            /\.(?:pdf|docx|xlsx|pptx|csv|png|jpe?g)$/i.test(base) &&
+            isFile(resolved)
+        shown = deliverable ? `the workspace file ${base}` : 'the workspace'
+    }
+    return { text: raw.slice(0, start) + shown + raw.slice(end), masked: true }
 }
 
 export function workspaceMaskState() {
-    return { buffer: '', url: false }
+    return {
+        token: '',
+        quote: '',
+        overflow: false,
+        continued: false,
+        capCandidate: false,
+        slash: false,
+        tail: '',
+        prefix: '',
+        allowJson: true,
+        json: false,
+        jdepth: 0,
+        jstr: false,
+        jesc: false,
+        normal: null,
+        normalText: '',
+        emitted: 0,
+        word: '',
+        bs: 0
+    }
 }
 
 export function scanWorkspaceText(state, text, root, flush = false) {
-    if (!root || typeof text !== 'string') return text
-    const info = workspaceRoots(root)
     const out = []
-    // Process the same boundaries and cap offsets even when all text arrives in one chunk.
-    for (let at = 0; at < text.length; at++) {
-        const char = text[at]
-        state.buffer += char
-        if (/\s/.test(char) || (char === '"' && !/[\\/%]/.test(state.buffer))) {
-            // A configured root can itself contain spaces. Hold a possible literal prefix.
-            const partial = info.boundaryPrefixes.some((prefix) => state.buffer.endsWith(prefix))
-            if (!partial) {
-                out.push(maskSegment(state.buffer, info, state.url))
-                state.url = false
-                state.buffer = ''
+    const finish = () => {
+        if (state.overflow) state.continued = true
+        else if (state.token) {
+            // Rule 5: continuation also covers a quoted next token (fail closed).
+            const held = state.token
+            const validJson = state.allowJson && (jsonSpan(held) || escapedJsonSpan(held))
+            const retry = state.allowJson && /^[\[{]/.test(held) && !validJson
+            // JSON-like syntax only defers quote handling. Invalid spans must go through
+            // the ordinary scanner before any of their text can leave the buffer.
+            let result
+            if (retry) {
+                const normal = workspaceMaskState()
+                normal.allowJson = false
+                normal.continued = state.continued
+                result = { text: scanWorkspaceText(normal, held, root, true), masked: normal.continued }
+            } else result = validJson ? { text: held, masked: false } : tokenMask(held, root, state.continued)
+            // A released prefix was final under the ordinary rules as well as the
+            // JSON exemption. Only the still-held suffix can need replacement.
+            out.push(
+                result.text.startsWith(held.slice(0, state.emitted))
+                    ? result.text.slice(state.emitted)
+                    : tokenMask(held.slice(state.emitted), root, state.continued).text
+            )
+            state.continued = result.masked
+        }
+        state.token = ''
+        state.overflow = false
+        state.capCandidate = false
+        state.slash = false
+        state.tail = ''
+        state.prefix = ''
+        state.quote = ''
+        state.json = false
+        state.jdepth = 0
+        state.jstr = false
+        state.jesc = false
+        state.normal = null
+        state.normalText = ''
+        state.emitted = 0
+        state.word = ''
+        state.bs = 0
+    }
+    // A {/[ token stays whole only while it could still be valid JSON (rule 3a exemption).
+    const trackJson = (char) => {
+        if (state.jstr) {
+            if (state.jesc) state.jesc = false
+            else if (char === '\\') state.jesc = true
+            else if (char === '"') state.jstr = false
+        } else if (char === '"') {
+            state.jstr = true
+            state.word = ''
+        } else if (char === '{' || char === '[') state.jdepth++
+        else if (char === '}' || char === ']') state.jdepth--
+        else if (/\s/u.test(char)) return
+        else if (/[a-z]/i.test(char)) {
+            state.word += char
+            if (!['true', 'false', 'null'].some((word) => word.startsWith(state.word))) state.json = false
+        } else if (/[0-9+\-.{}\[\],:]/.test(char)) state.word = ''
+        else state.json = false
+    }
+    for (const char of text) {
+        if (!state.quote && !(state.json && state.jdepth > 0) && /\s/u.test(char)) {
+            finish()
+            out.push(char)
+            continue
+        }
+        const closing = state.quote === char && !state.slash
+        // Rule 1: a quote opens after leading trim characters, or after any delimiter inside a
+        // populated token (note:"/tmp/a b"); the text before it is judged as its own token.
+        // A token that starts like JSON stays whole so rule 3a can see the JSON span.
+        if (!state.quote && !state.overflow && QUOTES.includes(char) && !state.slash) {
+            if (LEAD.test(state.token)) state.quote = char
+            else if (!state.json && /[^A-Za-z0-9_.~%\/\\-]$/.test(state.token)) {
+                // A token that is already a path candidate reads on through the quoted span and is
+                // masked whole at its boundary; only other text is judged on its own first.
+                if (!state.capCandidate) finish()
+                state.quote = char
             }
         }
-        if (state.buffer.length > MASK_HOLD) {
-            let cut = state.buffer.length - info.overlap
-            for (const value of info.variants) {
-                const at = state.buffer.lastIndexOf(value, cut)
-                if (at >= 0 && at < cut && at + value.length > cut) cut = at
+        if (!state.overflow) {
+            if (state.allowJson && !state.token && (char === '{' || char === '[')) {
+                state.json = true
+                state.jdepth = 1
+                state.normal = workspaceMaskState()
+                state.normal.allowJson = false
+                state.normal.continued = state.continued
+            } else if (state.json) trackJson(char)
+            if (state.json && state.jstr && state.token.endsWith('"') && /[\/~]/.test(char)) state.capCandidate = true
+            state.token += char
+            if (state.normal) {
+                state.normalText += scanWorkspaceText(state.normal, char, root)
             }
-            // Do not split an escape pair at a forced boundary.
-            if (trailingBackslashes(state.buffer, cut) % 2) cut--
-            if (cut) {
-                const prefix = state.url ? 'https://' : ''
-                const crossing = [...(prefix + state.buffer).matchAll(info.regex)].find(
-                    (match) => match.index < prefix.length + cut && match.index + match[0].length > prefix.length + cut
-                )
-                const rooted = [...state.buffer.matchAll(info.backstop)].find(
-                    (match) => match.index < cut && match.index + match[0].length > cut && namesWorkspace(match[0], info)
-                )
-                const crossingUrl = crossing && /^https?:(?:\/|\\+\/){2}/i.test(crossing[0])
-                const crossingPath = crossing && !/^(?:(?:<|&lt;)\/|https?:|#|\.\.?\/)/i.test(crossing[0])
-                if (rooted) {
-                    out.push(maskSegment(state.buffer.slice(0, rooted.index), info, state.url))
-                    out.push(maskPath(state.buffer.slice(rooted.index, cut), info))
-                } else out.push(maskSegment(state.buffer.slice(0, cut), info, state.url))
-                state.url = Boolean(crossingUrl && !rooted)
-                // Re-anchor a continued path at the next bounded segment, without syntax state.
-                state.buffer = (rooted || crossingPath ? '/' : '') + state.buffer.slice(cut)
+            // Rule 6 keeps ordinary data intact, even when a JSON value or word is long.
+            // Track candidate syntax incrementally so long plain text stays linear.
+            const tail = (state.tail = (state.tail + char).slice(-6))
+            if (state.prefix.length < 256 && (state.prefix || !(EDGE.test(char) || char === "'"))) state.prefix += char
+            state.slash = char === '\\' ? !state.slash : false
+            // Rule 3a past the prefix limit: count separators of a token that starts with a backslash.
+            if (char === '\\' && state.prefix[0] === '\\') state.bs++
+            if (
+                /\.\.|\/\/|%2f|%2e%2e/i.test(tail) ||
+                /^[\/~]/.test(state.prefix) ||
+                BACKSLASH_START.test(state.prefix) ||
+                (state.bs >= 2 && /[A-Za-z0-9._$~-]/.test(char)) ||
+                (state.continued && /[\/\\]/.test(char))
+            )
+                state.capCandidate = true
+            if (state.token.length > 1024 && state.capCandidate && !/^https?:\/\//i.test(state.prefix)) {
+                out.push('a server path')
+                state.token = ''
+                if (state.json && state.jstr) state.quote = '"'
+                state.json = false
+                state.jstr = false
+                state.overflow = true
+            }
+            // No open ordinary token/quote can be extended by later input. Its
+            // unchanged output is therefore final even if JSON validation fails.
+            if (
+                state.json &&
+                state.normal &&
+                !state.normal.token &&
+                !state.normal.quote &&
+                !state.normal.overflow &&
+                !state.normal.continued &&
+                state.normalText === state.token
+            ) {
+                out.push(state.token.slice(state.emitted))
+                state.emitted = state.token.length
             }
         }
+        if (closing) finish()
     }
-    if (flush) {
-        out.push(maskSegment(state.buffer, info, state.url))
-        state.url = false
-        state.buffer = ''
-    }
+    if (flush) finish()
     return out.join('')
 }
 
@@ -384,20 +396,19 @@ export function namesRoot(text, root) {
     return hideWorkspacePaths(text, root) !== text
 }
 
-// Compatibility helpers for callers asking where an unfinished path begins.
+// Compatibility helpers use the same token boundaries; streaming itself keeps scanner state.
 export function rootStarts(text, root, partial = false) {
-    const info = workspaceRoots(root)
-    const starts = []
-    for (const match of text.matchAll(info.regex)) {
-        if (maskSegment(match[0], info) !== match[0]) starts.push(match.index)
+    const state = workspaceMaskState()
+    const found = []
+    let start = 0
+    for (let at = 0; at < text.length; at++) {
+        const before = state.token.length
+        scanWorkspaceText(state, text[at], root)
+        if (!before && state.token) start = at
+        if (before && !state.token && namesRoot(text.slice(start, at + 1), root)) found.push(start)
     }
-    if (partial)
-        for (const value of info.variants) {
-            for (let length = 1; length < value.length && length <= text.length; length++) {
-                if (text.endsWith(value.slice(0, length))) starts.push(text.length - length)
-            }
-        }
-    return starts
+    if (state.token && (partial || namesRoot(state.token, root))) found.push(start)
+    return found
 }
 
 // How a file:// link spells a path: percent-encoded, including "#" and "?".

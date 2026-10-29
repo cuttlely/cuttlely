@@ -26,7 +26,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Harness tool details and streamed text use stateless path masking, including normalized workspace paths, escaped slashes and compact tables. The workspace root (configured path and realpath, in every encoding), every absolute path start, and the directory chain up to the break character (space, parenthesis, bracket or apostrophe) are always hidden; only a relative tail after that character may remain.
+-   Pinned and SQL fast-path answers no longer fall back to the slower handoff on long results that contain URLs or ellipses. The harness masks each string in its JSON tool details before it encodes them, so the details stay valid JSON, and a label such as `Q3..Q4` is no longer read as a path. Raw previews and answer text keep the existing masking.
 
 -   A HARNESS canvas id now works on the public `POST /api/v1/prediction/:id` route. It runs the Live (published) canvas, returns a `sessionToken` bound to the chat id, and needs the bound API key to list the harness. File uploads there are refused with 400; send them to a chatflow with a Harness card.
 

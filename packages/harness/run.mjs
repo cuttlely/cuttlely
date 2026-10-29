@@ -961,7 +961,7 @@ function mentionsWorkspace(value, root = specialistWorkspaceRoot(), depth = 0, s
 
 function emit(context, type, data = {}, maskedField = '') {
     if (context?.clientSignal?.aborted) return
-    // Tool details and scanned stream fragments must not go through the generic mask again.
+    // A tool detail masked on its values must not go through the text mask again.
     const fields = maskedField ? { ...data, [maskedField]: undefined } : data
     // `at` is the event's own clock. The server builds trace spans from these events and does not send a tracer into this process.
     emitHarnessEvent(context?.onEvent, {
@@ -1026,7 +1026,7 @@ function emitTool(context, data, detailMasked = false) {
     if (pinnedStart) delete emitted.detail
     delete emitted.callId
     logToolEvent(context.toolLog, data, detail)
-    emit(context, 'tool', emitted, detail ? 'detail' : '')
+    emit(context, 'tool', emitted, detailMasked && detail ? 'detail' : '')
 }
 
 // Records a tool start or end on the run's tool log. An end closes the running chip with its own call id when it has
@@ -2078,9 +2078,9 @@ function holdAnalystPartial(context, specialist) {
     return analystQueryCount(context, specialist.name) === 0
 }
 
-function emitSpecialistPartial(context, specialist, text, textMasked = false) {
+function emitSpecialistPartial(context, specialist, text) {
     if (!text || holdAnalystPartial(context, specialist)) return
-    emit(context, 'partial', { phase: 'specialist', specialist: specialist.name, text }, textMasked ? 'text' : '')
+    emit(context, 'partial', { phase: 'specialist', specialist: specialist.name, text })
 }
 
 function hermesEventCallId(event) {
@@ -2130,11 +2130,11 @@ function pathContextAt(text, at) {
 const QUOTE_CHARS = '"\'`'
 
 function forwardDelta(context, specialist, delta, flush = false) {
-    bufferStream(context, `specialist:${specialist.name}`, delta, flush, (text) => emitSpecialistPartial(context, specialist, text, true))
+    bufferStream(context, `specialist:${specialist.name}`, delta, flush, (text) => emitSpecialistPartial(context, specialist, text))
 }
 
 function chiefStream(context, phase) {
-    const send = (text) => emit(context, 'partial', { phase, text }, 'text')
+    const send = (text) => emit(context, 'partial', { phase, text })
     return {
         onDelta: (text) => bufferStream(context, `chief:${phase}`, String(text ?? ''), false, send),
         flush: () => bufferStream(context, `chief:${phase}`, '', true, send)
