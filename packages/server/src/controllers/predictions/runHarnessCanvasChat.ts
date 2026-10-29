@@ -1,10 +1,32 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
+import { removeSpecificFileFromUpload } from '@cuttlely/components'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import type { IHarnessCaller } from '../../Interface'
 import harnessesService from '../../services/harnesses'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
+
+const hasBodyUploads = (uploads: unknown) =>
+    uploads !== undefined && uploads !== null && uploads !== '' && !(Array.isArray(uploads) && uploads.length === 0)
+
+// A harness canvas run takes the question as text and does not read attachments. A request with files or uploads is
+// refused with 400 before the run, and the multipart files multer already stored are removed.
+async function refuseUploads(req: Request) {
+    const files = Array.isArray(req.files) ? (req.files as Array<{ path?: string; key?: string }>) : []
+    if (!files.length && !hasBodyUploads((req.body as { uploads?: unknown } | undefined)?.uploads)) return
+    for (const file of files) {
+        const tempPath = file.path ?? file.key
+        if (!tempPath) continue
+        try {
+            await removeSpecificFileFromUpload(tempPath)
+        } catch {
+            // Already gone.
+        }
+    }
+    throw new AppError(StatusCodes.BAD_REQUEST, 'A harness canvas does not take file uploads. Send the question as text.')
+}
 
 // A harness canvas is not a chatflow. Building it looks for node.init and throws.
 // The in-app chat and the public prediction route both hand the run here.
@@ -15,6 +37,7 @@ export async function runHarnessCanvasChat(
     caller: IHarnessCaller,
     options: { canvas: 'live' | 'draft'; sessionToken?: string }
 ) {
+    await refuseUploads(req)
     const streaming = isStreamingRequest(req)
     const source = 'playground'
     const run = (extra: { signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}) =>

@@ -12,10 +12,18 @@ jest.mock('../../utils/logger', () => ({
     default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }
 }))
 
+// Multipart files land on disk with a path, as in a deployment, so a refused upload can be checked for removal.
 jest.mock('../../utils', () => {
     const multer = require('multer')
-    return { getMulterStorage: () => multer({ storage: multer.memoryStorage() }) }
+    const os = require('os')
+    return { getMulterStorage: () => multer({ dest: os.tmpdir() }) }
 })
+
+const mockRemoveUpload = jest.fn(async (path: string) => require('fs').rmSync(path, { force: true }))
+jest.mock('@cuttlely/components', () => ({
+    ...jest.requireActual('@cuttlely/components'),
+    removeSpecificFileFromUpload: (path: string) => mockRemoveUpload(path)
+}))
 
 const mockDb = { chatflows: new Map<string, Record<string, unknown>>() }
 const mockStreamingChecks: string[] = []
@@ -120,6 +128,7 @@ afterEach(() => resetSessionOwnershipForTests())
 beforeEach(() => {
     configureSessionOwnershipForTests({ secret: 'prediction-test-secret', grants: createMemoryGrantStore() })
     mockBuildChatflow.mockClear()
+    mockRemoveUpload.mockClear()
     mockStartCanvasRun.mockClear()
     mockChatImages.mockClear()
     mockStreamingChecks.length = 0
@@ -190,6 +199,26 @@ describe('POST /api/v1/prediction/:id', () => {
             }
             expect(mockStartCanvasRun.mock.calls.at(-1)?.[1].chatId).toBe(res.body.chatId)
         }
+    })
+
+    test('a HARNESS canvas refuses a multipart file before the run and removes the stored file', async () => {
+        const res = await request(app)
+            .post(`/api/v1/prediction/${OPEN_ID}`)
+            .field('question', 'hi')
+            .attach('files', Buffer.from('flour,price\nrye,4\n'), { filename: 'prices.csv', contentType: 'text/csv' })
+        expect(res.status).toBe(400)
+        expect(res.body.message).toBe('A harness canvas does not take file uploads. Send the question as text.')
+        expect(mockStartCanvasRun).not.toHaveBeenCalled()
+        expect(mockRemoveUpload).toHaveBeenCalledTimes(1)
+        expect(require('fs').existsSync(mockRemoveUpload.mock.calls[0][0])).toBe(false)
+    })
+
+    test('a HARNESS canvas refuses body uploads before the run', async () => {
+        const res = await request(app)
+            .post(`/api/v1/prediction/${OPEN_ID}`)
+            .send({ question: 'hi', uploads: [{ type: 'file', name: 'a.txt', mime: 'text/plain', data: 'data:text/plain;base64,aGk=' }] })
+        expect(res.status).toBe(400)
+        expect(mockStartCanvasRun).not.toHaveBeenCalled()
     })
 
     test('a protected HARNESS canvas is refused before the harness run', async () => {

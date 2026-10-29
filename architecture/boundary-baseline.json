@@ -448,6 +448,16 @@
         },
         {
             "from": "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts",
+            "to": "packages/components/src/index.ts",
+            "reason": "A harness canvas run refuses file uploads with the server error type and removes the stored multipart files with the components upload helper"
+        },
+        {
+            "from": "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "A harness canvas run refuses file uploads with the server error type and removes the stored multipart files with the components upload helper"
+        },
+        {
+            "from": "packages/server/src/controllers/predictions/runHarnessCanvasChat.ts",
             "to": "packages/server/src/errors/utils.ts",
             "reason": "The public prediction route runs HARNESS canvases through the shared canvas chat runner, which takes the server error helper and caller types; its test drives the inherited prediction route"
         },
