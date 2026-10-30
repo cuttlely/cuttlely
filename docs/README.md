@@ -13,6 +13,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 
 ## Build
 
+-   [Tune and publish an agent team](./how-to/tune-agent-team.md). Choose tested SQL, direct answers, pin-first rules or source-preserved reports and files, coordinate limits, call Live through the API, and check a draft before publishing.
 -   [Harnesses](./how-to/harnesses.md). A team of specialists that Harness Prime sends work to. Build one from a description, try it, and call it from a chatflow.
 -   [How the customer care demo works](./how-to/customer-care-demo.md). Specialists that each own one system, a step that waits for another's finding, and amounts that come from code, so you can build the same kind of team on your own data.
 -   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, where a run shows the tokens it used, and [usage over time](./how-to/context-and-tokens.md#usage-over-time).
@@ -35,7 +36,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Docker](./how-to/docker.md). The install most people want. SQLite, one container. [npm](./how-to/docker.md#install-with-npm) starts that image with `npx cuttlely`.
 -   [Build from source and run the dev server](./how-to/from-source.md). Build Cuttlely yourself, run it, change the code with live reload, and run the tests and `pnpm verify`.
 -   [Render](./how-to/render.md). A hosted install with Postgres.
--   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server Settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History. Runtime limits apply on the next use. The routes are the [Server settings API](./reference/server-settings-api.md).
+-   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server Settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History. Testing and security runtime limits apply on the next use; Agent run time and startup settings need the restart described in the guide. The routes are the [Server settings API](./reference/server-settings-api.md).
 -   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Users without AuthKit](./how-to/users-without-authkit.md) is email and password, including one-time invite and reset links. An invited person joins only through their own invite link: [Invite people](./how-to/sign-in.md#invite-people). [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
 -   [Roles and permissions](./how-to/roles-and-permissions.md). Teams, the built-in roles, how to add a role and assign it, and every permission key with the pages and API routes that check it.
 -   [Audit log](./how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, settings changes, and pinned query changes. Passwords, tokens, secret values, and question text are not stored.
@@ -51,6 +52,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Datasets API](./reference/datasets-api.md). Save the questions ticked in Choose questions as a dataset with empty expected answers. A hand-picked check does not unblock Publish.
 -   [Startup options](./reference/startup-options.md). Every option the settings API exposes, with the default, the range, where it can be set, and whether a restart is needed. Secret values are not shown.
 -   [LangSmith tracing](./reference/langsmith-tracing.md). A flow credential with no API key turns that flow's LangSmith tracing off; it never falls back to the server's LangSmith key or profile.
+-   [Trusted pinned-query outputs](./reference/trusted-outputs.md). Bind a tested query to exact source Markdown, a monthly utilization PNG or a complete table CSV, with native attachment delivery and explicit source limits.
 -   [Analyst tools](./reference/analyst-tools.md). The PostgreSQL MCP node fields, the `query` and `describe` tools, the one-line relation summary, and the refusals a table selection returns.
 -   [Current date and time](./reference/current-date-time.md). The CurrentDateTime tool's IANA timezone: the node field, `CUTTLELY_DEFAULT_TIMEZONE`, and the per-call `timezone` that wins.
 -   [FAQ](./faq.md). Common questions, including enabling local (stdio) MCP servers safely.

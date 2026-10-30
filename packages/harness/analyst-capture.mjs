@@ -161,6 +161,8 @@ export function recordAnalystResult({
     sql = '',
     cursor = '',
     pinned = null,
+    toolName = '',
+    sourceTurn = '',
     freeSqlWithPin = null,
     executedSql = ''
 } = {}) {
@@ -185,6 +187,8 @@ export function recordAnalystResult({
         chatId: String(chatId || ''),
         callId: String(callId || '').trim(),
         result,
+        ...(toolName ? { toolName } : {}),
+        ...(sourceTurn ? { sourceTurn } : {}),
         ...(timings && typeof timings === 'object' ? { timings } : {}),
         at,
         claimed: false
@@ -215,17 +219,26 @@ export function latestAnalystCursor({ harness, chatId, now = Date.now(), ttlMs =
     return null
 }
 
-export function takeAnalystResults({ harness, specialist, chatId = '', since = 0 } = {}) {
+export function takeAnalystResults({ harness, specialist, chatId = '', since = 0, callIds, sourceTurn } = {}) {
     const name = String(harness || '')
     const who = String(specialist || '')
     const chat = String(chatId || '')
     const rows = pending.filter(
-        (item) => !item.claimed && item.harness === name && item.specialist === who && item.chatId === chat && item.at >= since
+        (item) =>
+            !item.claimed &&
+            item.harness === name &&
+            item.specialist === who &&
+            item.chatId === chat &&
+            item.at >= since &&
+            (!Array.isArray(callIds) || callIds.includes(item.callId)) &&
+            (sourceTurn === undefined || item.sourceTurn === sourceTurn)
     )
     for (const item of rows) item.claimed = true
     return rows.map((item) => ({
         traceFields: item.traceFields,
         result: item.result,
+        ...(item.toolName ? { toolName: item.toolName } : {}),
+        ...(item.sourceTurn ? { sourceTurn: item.sourceTurn } : {}),
         callId: item.callId || '',
         ...(item.timings ? { timings: item.timings } : {}),
         ...(item.pinned ? { pinned: item.pinned } : {}),

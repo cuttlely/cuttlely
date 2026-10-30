@@ -26,10 +26,12 @@ import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSch
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { matchPinFirst, renderPinResult, renderPinError } from './pin-first.mjs'
+import { renderTrustedOutputs, composeTrustedOutputs, verifiedUnmappedOutput } from './trusted-output.mjs'
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
+import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 import {
     analystCallsFor,
     analystStartCapture,
@@ -231,7 +233,9 @@ async function runHarnessBody(args = {}) {
     if (tryName) noteLiveTry(tryName)
     try {
         // The answer, the trace and every record of the turn leave without workspace paths, whichever path ran.
-        result = maskWorkspacePaths(await runHarnessTurn({ ...args, turnFolders }))
+        const rawResult = await runHarnessTurn({ ...args, turnFolders })
+        result = maskWorkspacePaths(rawResult)
+        if (rawResult.trace?.handoff?.reason === 'trustedOutput') result.text = rawResult.text
         return result
     } catch (error) {
         const masked = maskError(error)
@@ -285,6 +289,7 @@ async function runHarnessTurn({
     images,
     record,
     replay,
+    trustedOutputPreview,
     turnFolders
 } = {}) {
     const harness = harnessForTurn(name, record)
@@ -316,6 +321,7 @@ async function runHarnessTurn({
                     budgetMs,
                     images,
                     replay,
+                    trustedOutputPreview,
                     turnFolders
                 }),
             { workspace: harness.workspaceId }
@@ -366,6 +372,7 @@ async function runTurn(
         budgetMs,
         images,
         replay,
+        trustedOutputPreview,
         turnFolders
     }
 ) {
@@ -392,6 +399,7 @@ async function runTurn(
             budgetMs,
             images,
             replay,
+            trustedOutputPreview,
             turnFolders
         })
     } finally {
@@ -420,6 +428,7 @@ async function runTurnBody(
         budgetMs,
         images,
         replay,
+        trustedOutputPreview,
         turnFolders
     }
 ) {
@@ -456,6 +465,9 @@ async function runTurnBody(
         clientSignal,
         budgetSignal,
         budgetMs: budget,
+        // Do not add a clock read to the default-off path; its deterministic trace remains unchanged.
+        deliveryDeadlineAt:
+            budget > 0 && roster.specialists?.some((specialist) => specialist.trustedOutputs?.length) ? Date.now() + budget : 0,
         workSignal: combineSignals(clientSignal, budgetSignal),
         // In-process LangSmith tracer callbacks from the calling tool run, so model steps appear as its child runs.
         traceCallbacks: callbacks,
@@ -472,7 +484,8 @@ async function runTurnBody(
         images: promptImages(images),
         turnFolders,
         // Publish-check replay: do not read or write the harness session.
-        replay: replay === true
+        replay: replay === true,
+        trustedOutputPreview: trustedOutputPreview === true
     }
     try {
         // With images, Harness Prime routes even a one-tool roster so it can write what the image shows into the task.
@@ -674,7 +687,11 @@ async function runRoster(context, input) {
     } else {
         results = await runSteps(context, steps)
         finished = Date.now()
-        if (results[0]?.pinFirst && results[0].status === 'completed' && !results[0].ungrounded && results[0].analystOk) {
+        const protectedText = composeTrustedOutputs(results)
+        if (protectedText !== null) {
+            text = protectedText
+            context.handoffSkipped = 'trustedOutput'
+        } else if (results[0]?.pinFirst && results[0].status === 'completed' && !results[0].ungrounded && results[0].analystOk) {
             // The renderer already printed every returned row and the page line, so the text is used as rendered.
             text = results[0].text
             context.handoffSkipped = 'pinFirst'
@@ -693,9 +710,12 @@ async function runRoster(context, input) {
     if (!text.trim()) {
         throw new HarnessError('empty_output', `Harness "${context.name}" finished without a Harness Prime answer.`)
     }
+    const trustedArtifacts = context.handoffSkipped === 'trustedOutput' ? validatedTrustedArtifacts(context) : null
+    if (context.handoffSkipped === 'trustedOutput') assertTrustedDeliveryActive(context)
     // The stored turn feeds the next prompt and the chat history; it holds file names, never workspace paths.
-    text = maskWorkspacePaths(text)
-    if (['answerDirect', 'pinFirst'].includes(context.handoffSkipped)) emit(context, 'partial', { phase: 'answer', text })
+    if (context.handoffSkipped !== 'trustedOutput') text = maskWorkspacePaths(text)
+    if (['answerDirect', 'pinFirst', 'trustedOutput'].includes(context.handoffSkipped))
+        emit(context, 'partial', { phase: 'answer', text, ...(context.handoffSkipped === 'trustedOutput' ? { trustedOutput: true } : {}) })
     if (!context.replay) {
         appendTurn(
             context.name,
@@ -746,11 +766,25 @@ async function runRoster(context, input) {
     const sources = [...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])]
     // Image and file bytes ride on the returned payload only; the Harness node stores them for the chat. Events carry
     // the names.
-    const { artifacts, skipped } = mergeTurnArtifacts(context.turnImages || [], context.turnFiles || [])
+    const { artifacts, skipped } = trustedArtifacts || mergeTurnArtifacts(context.turnImages || [], context.turnFiles || [])
     if (skipped.length) console.info(`[harness] ${context.name} left out ${skipped.length} file(s) over the per-turn size limit`)
-    const payload = { text, harness: context.name, agents, sources, artifacts, timings, report, trace }
+    const payload = {
+        text,
+        harness: context.name,
+        agents,
+        sources,
+        artifacts,
+        timings,
+        report,
+        trace,
+        ...(context.handoffSkipped === 'trustedOutput'
+            ? { trustedOutput: true, ...(context.deliveryDeadlineAt ? { trustedOutputDeadlineAt: context.deliveryDeadlineAt } : {}) }
+            : {})
+    }
+    if (context.handoffSkipped === 'trustedOutput') assertTrustedDeliveryActive(context)
     emit(context, 'final', {
         text,
+        ...(context.handoffSkipped === 'trustedOutput' ? { trustedOutput: true } : {}),
         agents,
         sources,
         artifacts: artifacts.map(({ type, name, specialist }) => ({ type, name, specialist })),
@@ -1098,7 +1132,8 @@ function publicAgent(context, specialist, result) {
         ...(fields.tokens ? { tokens: fields.tokens } : {}),
         ...(fields.tools ? { tools: fields.tools } : {}),
         ...(fields.sources?.length ? { sources: fields.sources } : {}),
-        ...(result.error ? { error: result.error } : {})
+        ...(result.error ? { error: result.error } : {}),
+        ...(result.recovery ? { recovery: result.recovery } : {})
     }
 }
 
@@ -1110,6 +1145,12 @@ function combineSignals(clientSignal, budgetSignal) {
 function throwIfClient(context) {
     if (!context?.clientSignal?.aborted) return
     throw new HarnessError('aborted', 'Client disconnected')
+}
+
+function assertTrustedDeliveryActive(context) {
+    throwIfClient(context)
+    if (overBudget(context) || (context.deliveryDeadlineAt && Date.now() >= context.deliveryDeadlineAt))
+        throw new HarnessError('over_budget', `Harness "${context.name}" exceeded the ${context.budgetMs}ms turn budget.`)
 }
 
 function budgetFailure(context, name) {
@@ -1845,6 +1886,7 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
                 callId,
                 chatId: context.chatId,
                 scope: analystScopeKey(context.name, context.chatId),
+                sourceTurn: specialistSessionId(specialist.profileName, context.chatId, context.turnId),
                 moduleOptions: {
                     ...moduleOptions,
                     beforeCall: () => {
@@ -1905,6 +1947,78 @@ async function runPinFirst(context, specialist, match, moduleOptions) {
     }
 }
 
+function validatedTrustedArtifacts(context) {
+    for (const key of ['turnImages', 'turnFiles']) {
+        if (context[key])
+            context[key] = context[key].map((items) =>
+                items.filter((item) => context.trustedArtifactObjects?.has(item) || context.passthroughArtifactObjects?.has(item))
+            )
+    }
+    const merged = mergeTurnArtifacts(context.turnImages || [], context.turnFiles || [])
+    const required = [...(context.turnImages || []), ...(context.turnFiles || [])]
+        .flat()
+        .filter((item) => context.trustedArtifactObjects?.has(item))
+    if (
+        required.some(
+            (item) =>
+                !merged.artifacts.some(
+                    (artifact) => artifact.name === item.name && artifact.specialist === item.specialist && artifact.base64 === item.base64
+                )
+        )
+    )
+        throw new HarnessError('trusted_output', 'Verified attachments exceed the combined turn limits.')
+    return merged
+}
+
+function replaceTrustedArtifacts(context, name, artifacts = []) {
+    for (const key of ['turnImages', 'turnFiles']) {
+        if (context[key]) context[key] = context[key].map((items) => items.filter((item) => item.specialist !== name))
+    }
+    if (artifacts.length) {
+        if (!context.turnImages) context.turnImages = []
+        if (!context.turnFiles) context.turnFiles = []
+        if (!context.trustedArtifactObjects) context.trustedArtifactObjects = new Set()
+        for (const artifact of artifacts) context.trustedArtifactObjects.add(artifact)
+        context.turnImages.push(artifacts.filter((artifact) => artifact.type !== 'csv'))
+        context.turnFiles.push(artifacts.filter((artifact) => artifact.type === 'csv'))
+    }
+}
+
+async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
+    if (!specialist.trustedOutputs?.length) return null
+    const captured = context.trustedCaptures?.get(specialist.name) || []
+    const mapped = (name) => specialist.trustedOutputs.some((contract) => name === contract.pin || name?.endsWith(`__${contract.pin}`))
+    const mappedAttempt =
+        captured.some((item) => mapped(item.toolName)) ||
+        (context.toolLog || []).some((tool) => tool.specialist === specialist.name && mapped(tool.name))
+    if (!mappedAttempt) {
+        const ownArtifacts = [...(context.turnImages || []), ...(context.turnFiles || [])]
+            .flat()
+            .filter((item) => item.specialist === specialist.name)
+        if (
+            verifiedUnmappedOutput(specialist, captured, {
+                dataTask,
+                hasArtifacts: ownArtifacts.length > 0,
+                clarification: typeof text === 'string' && text.length <= 2000 && /\?\s*$/.test(text)
+            })
+        ) {
+            if (!context.passthroughArtifactObjects) context.passthroughArtifactObjects = new Set()
+            for (const artifact of ownArtifacts) context.passthroughArtifactObjects.add(artifact)
+            return { passthrough: true }
+        }
+    }
+    replaceTrustedArtifacts(context, specialist.name)
+    const rendered = await renderTrustedOutputs(specialist, captured, {
+        signal: context.workSignal,
+        preview: context.replay || context.trustedOutputPreview
+    })
+    if (!rendered) throw new HarnessError('trusted_output', 'No configured verified source output was produced for this requested section.')
+    throwIfClient(context)
+    if (overBudget(context)) throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
+    replaceTrustedArtifacts(context, specialist.name, rendered.artifacts)
+    return rendered
+}
+
 async function runStep(context, step) {
     const { specialist } = step
     const note = context.stagedNotes?.get(specialist.name)
@@ -1950,7 +2064,30 @@ async function runStep(context, step) {
             match.rule && offered.some((tool) => tool.name === match.rule.pin)
                 ? await runPinFirst(context, specialist, match, pinOptions)
                 : null
-        let out = preRun || (await runSpecialistOnce(context, specialist, task))
+        let out = preRun
+        let protectedOutput
+        if (!out) {
+            try {
+                out = await runSpecialistOnce(context, specialist, task)
+            } catch (error) {
+                throwIfClient(context)
+                if (overBudget(context)) throw error
+                // A completed stamped source survives a failure in the model's final reply. Do not rerun SQL or
+                // the model, and never recover a missing/failed source or an ordinary unmapped response.
+                if (!specialist.trustedOutputs?.length || !['specialist_failed', 'empty_output'].includes(error?.code)) throw error
+                protectedOutput = await protectStepOutput(context, specialist, { dataTask: true, text: '' })
+                if (!protectedOutput || protectedOutput.passthrough) throw error
+                out = {
+                    text: protectedOutput.text,
+                    recovery: {
+                        reason: 'verifiedSourceAfterModelFailure',
+                        error: maskWorkspacePaths(
+                            hideTurnImageDir(String(error?.message || 'Specialist completion failed.'), '', specialistWorkspaceRoot())
+                        ).slice(0, 1000)
+                    }
+                }
+            }
+        }
         throwIfClient(context)
         const dataTask =
             hasAnalystTool(specialist) &&
@@ -1958,11 +2095,11 @@ async function runStep(context, step) {
                 analystDataTask(context, task) ||
                 analystDataTask(context, context.userText))
         const pinsOnly = dataTask ? pinnedOnlyTools(specialist) : []
-        if (dataTask && analystQueryCount(context, specialist.name) === 0) {
+        if (dataTask && !protectedOutput && analystQueryCount(context, specialist.name) === 0) {
             out = await runSpecialistOnce(context, specialist, `${task}\n\n${analystToolRetry(pinsOnly)}`)
             throwIfClient(context)
         }
-        if (dataTask && analystQueryCount(context, specialist.name) === 0) {
+        if (dataTask && !protectedOutput && analystQueryCount(context, specialist.name) === 0) {
             const unavailable = analystToolsMissing()
             const detail = unavailable ? ANALYST_TOOL_UNAVAILABLE : pinsOnly.length ? ANALYST_DID_NOT_RUN_PINNED : ANALYST_DID_NOT_RUN
             emitTool(context, {
@@ -1982,6 +2119,15 @@ async function runStep(context, step) {
                 analystPayloads: analystPayloadsFor(context.toolLog, specialist.name)
             }
         }
+        protectedOutput ||= await protectStepOutput(context, specialist, { dataTask, text: out.text })
+        if (protectedOutput?.passthrough) out = { ...out, trustedPassthrough: true }
+        else if (protectedOutput)
+            out = {
+                ...out,
+                text: protectedOutput.text,
+                trustedOutput: true,
+                trustedArtifactNames: protectedOutput.artifacts.map((item) => item.name)
+            }
         const ms = Date.now() - started
         emit(context, 'specialist', {
             phase: 'done',
@@ -1989,17 +2135,21 @@ async function runStep(context, step) {
             status: 'completed',
             ms,
             task: publicTask(step.task),
+            ...(out.recovery ? { recovery: out.recovery } : {}),
             ...specialistEventFields(context, specialist, out.sources),
             ...phaseCalls(context, 'specialist', specialist.name)
         })
         // Grounding adds analyst payloads after the specialist's own result was masked; the step result is masked whole.
-        return maskWorkspacePaths({
+        const completed = maskWorkspacePaths({
             name: specialist.name,
             status: 'completed',
             task,
             publicTask: step.task,
             text: out.text,
             ...(out.pinFirst ? { pinFirst: out.pinFirst } : {}),
+            ...(out.trustedOutput ? { trustedOutput: true, trustedArtifactNames: out.trustedArtifactNames } : {}),
+            ...(out.trustedPassthrough ? { trustedPassthrough: true } : {}),
+            ...(out.recovery ? { recovery: out.recovery } : {}),
             ...(out.finishReason ? { finishReason: out.finishReason } : {}),
             tools: toolsFor(context, specialist.name),
             sources: out.sources || [],
@@ -2014,6 +2164,8 @@ async function runStep(context, step) {
             ...(out.analystPayloads ? { analystPayloads: out.analystPayloads } : {}),
             ...(out.ungrounded ? { ungrounded: true, error: out.text } : {})
         })
+        if (out.trustedOutput) completed.text = out.text
+        return completed
     } catch (error) {
         throwIfClient(context)
         const ms = Date.now() - started
@@ -2033,6 +2185,8 @@ async function runStep(context, step) {
             ...phaseCalls(context, 'specialist', specialist.name)
         })
         // The task can hold staged upload paths; the failed step goes to Prime's prompt masked whole.
+        const protectedFailure = Boolean(specialist.trustedOutputs?.length)
+        if (protectedFailure) replaceTrustedArtifacts(context, specialist.name)
         return maskWorkspacePaths({
             name: specialist.name,
             status: 'failed',
@@ -2040,6 +2194,7 @@ async function runStep(context, step) {
             publicTask: step.task,
             text: '',
             error: message,
+            ...(protectedFailure ? { trustedOutput: true } : {}),
             tools: toolsFor(context, specialist.name),
             sources: [],
             ms,
@@ -2056,6 +2211,7 @@ function holdAnalystPartial(context, specialist) {
 }
 
 function emitSpecialistPartial(context, specialist, text) {
+    if (specialist.trustedOutputs?.length) return
     if (!text || holdAnalystPartial(context, specialist)) return
     emit(context, 'partial', { phase: 'specialist', specialist: specialist.name, text })
 }
@@ -2291,7 +2447,20 @@ async function runHermesSpecialist(context, specialist, task) {
     context.analystStarts.set(specialist.name, startCapture)
     beginAnalystCalls(context.name, specialist.name, context.chatId, startCapture.gatewayStarted)
     try {
-        const created = await createRun({ ...request, body })
+        const capacityWaitSeconds = specialistCapacityWaitSeconds(specialist.capacityWaitSeconds)
+        const created = await createRun({
+            ...request,
+            body,
+            ...(capacityWaitSeconds
+                ? {
+                      capacityWaitSeconds,
+                      onCapacityWait: ({ attempt, delayMs }) =>
+                          console.info(
+                              `[harness] ${context.name} ${specialist.name} waits for runtime capacity: admission retry ${attempt} in ${delayMs}ms`
+                          )
+                  }
+                : {})
+        })
         runId = created.run_id
         if (context.workSignal?.aborted) {
             cancel()
@@ -2302,6 +2471,9 @@ async function runHermesSpecialist(context, specialist, task) {
                 ? created
                 : await waitForRun({
                       ...request,
+                      ...(capacityWaitSeconds && context.limit > 0
+                          ? { timeoutMs: Math.max(1, context.limit - (Date.now() - specialistStarted)) }
+                          : {}),
                       runId: created.run_id,
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })
@@ -2325,6 +2497,8 @@ async function runHermesSpecialist(context, specialist, task) {
         throw error
     } finally {
         startCapture.flush()
+        // Capture source failures too; they must not fall back to conflicting model output.
+        if (specialist.trustedOutputs?.length) attachCapturedAnalystResults(context, specialist, specialistStarted, toolLogStart)
         context.analystStarts.delete(specialist.name)
         endAnalystCalls(context.name, specialist.name, context.chatId)
         context.workSignal?.removeEventListener('abort', onAbort)
@@ -2342,8 +2516,16 @@ async function runHermesSpecialist(context, specialist, task) {
 }
 
 function attachCapturedAnalystResults(context, specialist, since, logStart = 0) {
-    const captured = takeAnalystResults({ harness: context.name, specialist: specialist.name, chatId: context.chatId, since })
+    const sourceTurn = specialist.trustedOutputs?.length
+        ? specialistSessionId(specialist.profileName, context.chatId, context.turnId)
+        : undefined
+    const captured = takeAnalystResults({ harness: context.name, specialist: specialist.name, chatId: context.chatId, since, sourceTurn })
     if (!captured.length) return
+    if (specialist.trustedOutputs?.length) {
+        if (!context.trustedCaptures) context.trustedCaptures = new Map()
+        const earlier = context.trustedCaptures.get(specialist.name) || []
+        context.trustedCaptures.set(specialist.name, [...earlier, ...captured])
+    }
     if (!context.toolLog) context.toolLog = []
     const slots = []
     for (let index = logStart; index < context.toolLog.length; index += 1) {
@@ -2773,6 +2955,7 @@ function directToolSpecialist(harness) {
     const specialists = harness?.specialists || []
     if (specialists.length !== 1) return null
     const specialist = specialists[0]
+    if (specialist.trustedOutputs?.length) return null
     const modules = specialist.modules || []
     if (modules.length !== 1 || (specialist.mcpServers || []).length) return null
     if (needsAgentLoop(specialist)) return null

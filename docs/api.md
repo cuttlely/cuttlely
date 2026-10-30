@@ -250,6 +250,25 @@ curl -s "$CUTTLELY_URL/api/v1/prediction/$AGENTFLOW_ID" \
 
 You can also call a HARNESS canvas id on `/api/v1/prediction/:id`. It runs the Live (published) canvas, and the response includes a `sessionToken` to send with the same `chatId` on the next turn. The API key bound to the canvas must list the harness. File uploads there are refused with `400`; send uploads to a chatflow that holds a Harness card instead, such as `samples/chatflows/upload.chatflow.json`.
 
+For a direct canvas call, set `HARNESS_CANVAS_ID` to that canvas's flow id. This non-streaming example uses `jq` to keep the server-issued conversation values for a follow-up:
+
+```bash
+response=$(curl --fail-with-body -s "$CUTTLELY_URL/api/v1/prediction/$HARNESS_CANVAS_ID" \
+  -H "Authorization: Bearer $CUTTLELY_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What was revenue by region in January 2026?","streaming":false}')
+chat_id=$(printf '%s' "$response" | jq -r .chatId)
+session_token=$(printf '%s' "$response" | jq -r .sessionToken)
+
+jq -n --arg chatId "$chat_id" --arg sessionToken "$session_token" \
+  '{question:"And in February?",chatId:$chatId,sessionToken:$sessionToken,streaming:false}' \
+  | curl --fail-with-body -s "$CUTTLELY_URL/api/v1/prediction/$HARNESS_CANVAS_ID" \
+      -H "Authorization: Bearer $CUTTLELY_API_KEY" \
+      -H 'Content-Type: application/json' --data-binary @-
+```
+
+The token belongs to this flow and chat. Keep it on your server; do not continue a different chat with it. The canvas test chat uses a signed-in session and the draft, while this public prediction route keeps using Live. [Which version answers](#which-version-answers-live-draft-dev-and-prod) covers the other entry points.
+
 ```bash
 curl -s "$CUTTLELY_URL/api/v1/prediction/$HARNESS_CHATFLOW_ID" \
   -H "Authorization: Bearer $CUTTLELY_API_KEY" \
@@ -458,17 +477,20 @@ data:{"event":"end","data":"[DONE]"}
 
 Join the `token` events for the answer ("Yes, we have rye bread today since it's Wednesday."). The events each kind of flow sends:
 
-| Flow      | Events, in order                                                                                                                                            |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chatflow  | `start`, `token` (many), `metadata`, `end`                                                                                                                  |
-| Agentflow | `agentFlowEvent`, `nextAgentFlow` and `agentFlowExecutedData` as steps run, `token`, `calledTools`, `usageMetadata`, `metadata`, `end`                      |
-| Harness   | `harness.route`, `harness.specialist` and `harness.partial` while specialists work, `harness.handoff`, `start`, `token`, `harness.final`, `metadata`, `end` |
+| Flow                       | Events, in order                                                                                                                                            |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chatflow                   | `start`, `token` (many), `metadata`, `end`                                                                                                                  |
+| Agentflow                  | `agentFlowEvent`, `nextAgentFlow` and `agentFlowExecutedData` as steps run, `token`, `calledTools`, `usageMetadata`, `metadata`, `end`                      |
+| Harness card in a chatflow | `harness.route`, `harness.specialist` and `harness.partial` while specialists work, `harness.handoff`, `start`, `token`, `harness.final`, `metadata`, `end` |
+| Direct HARNESS canvas      | `harness.*` progress and final events, optional `artifacts`, then `harness.recorded`, `end`                                                                 |
+
+For a direct HARNESS canvas, read the completed answer from `harness.final` and conversation values from `harness.recorded`. Native files arrive in `artifacts`. Protected-output delivery sends its verified artifacts before the deferred final acknowledgment; other progress events can interleave.
 
 An `error` event carries a message when the run fails after streaming started. Ignore events you do not use; new ones can be added.
 
 ### JavaScript (fetch)
 
-This runs in Node 18 or newer, or in a browser page served by your own server:
+Run this on your server with Node 18 or newer. A browser should call your server instead of receiving your Cuttlely API key:
 
 ```js
 const res = await fetch(`${process.env.CUTTLELY_URL}/api/v1/prediction/${process.env.FLOW_ID}`, {
@@ -481,6 +503,8 @@ const reader = res.body.getReader()
 const decoder = new TextDecoder()
 let buffer = ''
 let answer = ''
+let chatId
+let sessionToken
 for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -492,7 +516,11 @@ for (;;) {
         if (!line) continue
         const { event, data } = JSON.parse(line.slice(5))
         if (event === 'token') answer += data
-        if (event === 'metadata') console.info('chatId:', data.chatId)
+        if (event === 'metadata') {
+            chatId = data.chatId
+            sessionToken = data.sessionToken // keep on your server for a follow-up
+            console.info('chatId:', chatId)
+        }
         if (event === 'error') throw new Error(data)
     }
 }
@@ -518,6 +546,8 @@ req = urllib.request.Request(
     method="POST",
 )
 answer = ""
+chat_id = None
+session_token = None
 with urllib.request.urlopen(req) as res:
     for raw in res:  # one line at a time
         line = raw.decode().strip()
@@ -529,6 +559,7 @@ with urllib.request.urlopen(req) as res:
             print(event["data"], end="", flush=True)
         elif event["event"] == "metadata":
             chat_id = event["data"]["chatId"]
+            session_token = event["data"].get("sessionToken")  # keep for a follow-up
 print("\nchatId:", chat_id)
 ```
 
@@ -575,7 +606,7 @@ The same `chatId` without its token, or an id your app made up, starts a new con
 "chatId": "7c915f06-ac82-4002-a5e3-776b73cda2f2"
 ```
 
-You can send the token in the body (`sessionToken`) or in the `x-cuttlely-session-token` header. A streamed answer does not include the token in its events. It comes in a cookie instead: `Set-Cookie: cuttlely_session=<chat id>.<token>; Path=/api/v1; HttpOnly; SameSite=Lax`. Either send that cookie back (curl `-c jar -b jar`), or read the token from it and send it in the header. Both were run:
+You can send the token in the body (`sessionToken`) or in the `x-cuttlely-session-token` header. A public chatflow prediction stream includes the token with `chatId` in its `metadata` event. You can also continue with the session cookie: `Set-Cookie: cuttlely_session=<chat id>.<token>; Path=/api/v1; HttpOnly; SameSite=Lax`. Either send that cookie back (curl `-c jar -b jar`), or read the token from it and send it in the header. Both were run:
 
 ```bash
 # first question, streamed: keep the cookie
@@ -590,6 +621,8 @@ curl -sN -c jar -b jar "$CUTTLELY_URL/api/v1/prediction/$FLOW_ID" -H "Authorizat
 Hi Priya, please place your custom cake order by Thursday to allow the required 48 hours notice.
 Your name is Priya, and you asked for a cake for Saturday.
 ```
+
+A direct HARNESS canvas stream also returns `chatId` and `sessionToken` in its `harness.recorded` event. Send those together on its next request. Its progress events use the `harness.` prefix; they are not chatflow `token` events.
 
 Keep the token on your server, next to your own session for that visitor, as the [example web app](#the-example-web-app) does.
 

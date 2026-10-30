@@ -258,4 +258,64 @@ describe('POST /api/v1/prediction/:id', () => {
         expect(typeof opts.onEvent).toBe('function')
         expect(opts.signal).toBeInstanceOf(AbortSignal)
     })
+
+    test('verified SSE emits native bytes before the exact protected answer', async () => {
+        const text = 'Attached file: verified.png\n\nScope: exact source.\n\n[r1]: https://example.org/record/1\n'
+        mockStartCanvasRun.mockImplementationOnce(async (_flow: unknown, body: { chatId: string }, opts: any) => {
+            opts.onEvent({ type: 'partial', phase: 'answer', text, trustedOutput: true })
+            opts.onEvent({ type: 'final', text, trustedOutput: true })
+            return {
+                chatId: body.chatId,
+                run: { id: 'verified-run' },
+                payload: { text, trustedOutput: true, artifacts: [{ type: 'png', base64: 'iVBO' }] }
+            }
+        })
+        mockChatImages.mockReturnValueOnce([{ type: 'png', data: 'data:image/png;base64,iVBO' }])
+        const res = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'chart', streaming: true })
+        const frames = res.text
+            .split('\n\n')
+            .filter((frame: string) => frame.includes('data:'))
+            .map((frame: string) => JSON.parse(frame.slice(frame.indexOf('data:') + 5)))
+        expect(frames.findIndex((frame: any) => frame.event === 'artifacts')).toBeLessThan(
+            frames.findIndex((frame: any) => frame.event === 'harness.partial')
+        )
+        expect(frames.find((frame: any) => frame.event === 'harness.partial').data.text).toBe(text)
+    })
+
+    test.each([true, false])('verified response refuses expired delivery deadline (streaming %s)', async (streaming) => {
+        const text = 'Attached file: expired.png'
+        mockStartCanvasRun.mockImplementationOnce(async (_flow: unknown, body: { chatId: string }, opts: any) => {
+            opts.onEvent?.({ type: 'partial', phase: 'answer', text, trustedOutput: true })
+            opts.onEvent?.({ type: 'final', text, trustedOutput: true })
+            return {
+                chatId: body.chatId,
+                run: { id: 'verified-run' },
+                payload: { text, trustedOutput: true, trustedOutputDeadlineAt: Date.now() - 1, artifacts: [] }
+            }
+        })
+        const res = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'chart', streaming })
+        expect(res.text).toContain('turn budget expired')
+        expect(res.text).not.toContain(text)
+        expect(res.text).not.toContain('harness.partial')
+        expect(res.text).not.toContain('harness.final')
+    })
+
+    test('verified SSE refuses missing native bytes before acknowledging a file', async () => {
+        const text = 'Attached file: undelivered.png'
+        mockStartCanvasRun.mockImplementationOnce(async (_flow: unknown, body: { chatId: string }, opts: any) => {
+            opts.onEvent({ type: 'partial', phase: 'answer', text, trustedOutput: true })
+            opts.onEvent({ type: 'final', text, trustedOutput: true })
+            return {
+                chatId: body.chatId,
+                run: { id: 'verified-run' },
+                payload: { text, trustedOutput: true, artifacts: [{ type: 'png' }] }
+            }
+        })
+        mockChatImages.mockReturnValueOnce([])
+        const res = await request(app).post(`/api/v1/prediction/${OPEN_ID}`).send({ question: 'chart', streaming: true })
+        expect(res.text).toContain('Verified attachments could not be delivered')
+        expect(res.text).not.toContain(text)
+        expect(res.text).not.toContain('harness.partial')
+        expect(res.text).not.toContain('harness.final')
+    })
 })

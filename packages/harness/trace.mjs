@@ -821,7 +821,8 @@ function reduceHarnessStep(trace, event) {
             tools: Array.isArray(event.tools) ? settleToolChips(event.tools) : undefined,
             sources: event.sources || undefined,
             error: event.error || '',
-            task: event.task || undefined
+            task: event.task || undefined,
+            ...(event.recovery ? { recovery: event.recovery } : {})
         })
         return next
     }
@@ -942,7 +943,8 @@ export function buildRunTrace({
             tokens: agent.tokens || null,
             tools: settleToolChips(agent.tools || []),
             sources: agent.sources || [],
-            error: agent.error || ''
+            error: agent.error || '',
+            ...(agent.recovery ? { recovery: agent.recovery } : {})
         })),
         handoff:
             direct || handoffStatus === 'skipped'
@@ -952,7 +954,7 @@ export function buildRunTrace({
                       model: '',
                       fallback: '',
                       tokens: null,
-                      ...(['answerDirect', 'pinFirst'].includes(handoffReason)
+                      ...(['answerDirect', 'pinFirst', 'trustedOutput'].includes(handoffReason)
                           ? { reason: handoffReason, ...(handoffReason === 'pinFirst' && pinFirstRule ? { rule: pinFirstRule } : {}) }
                           : {})
                   }

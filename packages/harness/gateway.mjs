@@ -26,6 +26,7 @@ import { dataRoot, harnessStoreDir, hermesHome } from './paths.mjs'
 import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { getHarness } from './store.mjs'
+import { trustedOutputReceipt } from './trusted-output.mjs'
 
 const DEFAULT_PORT = 43118
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/
@@ -1024,6 +1025,8 @@ async function callTool(req, res, meta) {
             chatId,
             profileName: meta.profileName,
             scope,
+            sourceReceipt: true,
+            sourceTurn: typeof body.scope === 'string' && body.scope.length <= 4096 ? body.scope : '',
             moduleOptions: {
                 componentNodes: ctx.componentNodes,
                 loadNode: ctx.loadNode,
@@ -1081,7 +1084,11 @@ async function callTool(req, res, meta) {
         executedSql: shown.traceSql,
         freeSqlWithPin: freePinsFor(meta.profileName, body.name),
         secureNames,
-        pinnedCall: isPinnedToolName(body.name)
+        pinnedCall: isPinnedToolName(body.name),
+        toolName: body.name,
+        captureTrusted: record.specialists
+            ?.find((item) => item.name === meta.specialistName)
+            ?.trustedOutputs?.some((contract) => contract.pin === body.name)
     })
     sendJson(res, 200, { result: shown.result })
 }
@@ -1109,8 +1116,20 @@ export async function invokeOfferedPinnedTool({
     chatId,
     profileName,
     scope,
+    sourceReceipt = false,
+    sourceTurn = '',
     moduleOptions = {}
 }) {
+    const protectedWorker = record.specialists?.find((item) => item.name === specialistName)?.trustedOutputs?.length
+    if (
+        protectedWorker &&
+        (typeof sourceTurn !== 'string' ||
+            sourceTurn.length > 4096 ||
+            !profileName ||
+            !sourceTurn.startsWith(`${profileName}:`) ||
+            !/#turn-[A-Za-z0-9_-]{1,80}$/.test(sourceTurn))
+    )
+        return JSON.stringify({ error: 'Verified output requires a turn-scoped source call.', cuttlelyOutcome: 'expected' })
     const secureNames = secretNamesFor(profileName, toolName)
     const capturedParams = capturePinnedParams(args, secureNames, analystTracePreviewsEnabled())
     const captureId = noteAnalystGatewayCall({
@@ -1149,9 +1168,21 @@ export async function invokeOfferedPinnedTool({
         executedSql: shown.traceSql,
         freeSqlWithPin: freePinsFor(profileName, toolName),
         secureNames,
-        pinnedCall: true
+        pinnedCall: true,
+        toolName,
+        captureTrusted: Boolean(protectedWorker),
+        sourceTurn
     })
-    return shown.result
+    return (
+        (sourceReceipt
+            ? trustedOutputReceipt(
+                  record.specialists?.find((item) => item.name === specialistName),
+                  toolName,
+                  shown.result,
+                  captureId
+              )
+            : null) || shown.result
+    )
 }
 
 function modelToolResult(result) {
@@ -1233,7 +1264,9 @@ function rememberAnalystResult(savedName, specialistName, result, scope, args, c
         return
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
-    if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor) return
+    const protectedPin = extra.pinnedCall && extra.captureTrusted
+    if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor && !protectedPin)
+        return
     const params = extra.pinnedCall ? capturePinnedParams(args, extra.secureNames || [], analystTracePreviewsEnabled()) : null
     recordAnalystResult({
         harness: savedName,
@@ -1241,6 +1274,8 @@ function rememberAnalystResult(savedName, specialistName, result, scope, args, c
         chatId,
         callId: id,
         result: parsed,
+        ...(protectedPin ? { toolName: extra.toolName } : {}),
+        ...(protectedPin && extra.sourceTurn ? { sourceTurn: extra.sourceTurn } : {}),
         timings,
         ...statement,
         executedSql: extra.executedSql || '',

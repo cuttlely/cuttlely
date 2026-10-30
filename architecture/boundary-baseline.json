@@ -4,6 +4,10 @@
             "name": "@langchain/core"
         },
         {
+            "name": "@napi-rs/canvas",
+            "reason": "Trusted pinned outputs render validated monthly utilization source data as native PNG bytes without model code."
+        },
+        {
             "name": "@pinecone-database/pinecone"
         },
         {
@@ -11,6 +15,10 @@
         },
         {
             "name": "dotenv"
+        },
+        {
+            "name": "mdast-util-from-markdown",
+            "reason": "Trusted pinned reports parse exact source Markdown to refuse conflicting reference-link destinations before composition."
         },
         {
             "name": "pg",

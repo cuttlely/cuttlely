@@ -3,6 +3,7 @@ import path from 'node:path'
 import { HarnessError } from './errors.mjs'
 import { readProfileEnv } from './profile.mjs'
 import { beginHermesStream } from './runtime/hermes-stream.mjs'
+import { capacityRetryDelayMs, isRejectedCapacityAdmission, specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1'])
 // Several specialists poll one Hermes gateway at once; back off so status reads do not crowd its event loop.
@@ -89,7 +90,9 @@ export async function createRun({
     signal,
     startWaitMs = hermesStartWaitMs(),
     isStarting = hermesStarting,
-    retryEveryMs = 1000
+    retryEveryMs = 1000,
+    capacityWaitSeconds = 0,
+    onCapacityWait
 } = {}) {
     assertLoopback(baseUrl)
     const env = readProfileEnv(harnessName)
@@ -99,24 +102,39 @@ export async function createRun({
     }
     const url = `${baseUrl.replace(/\/$/, '')}/p/${encodeURIComponent(harnessName)}/v1/runs`
     const deadline = Date.now() + startWaitMs
+    const capacityWaitMs = specialistCapacityWaitSeconds(capacityWaitSeconds) * 1000
+    const capacityDeadline = capacityWaitMs > 0 ? Date.now() + Math.min(capacityWaitMs, timeoutMs > 0 ? timeoutMs : Infinity) : 0
+    let capacityAttempt = 0
+    let capacityBody
     let response
     let payload
     for (;;) {
         const controller = new AbortController()
         const unlink = linkSignal(controller, signal)
-        const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined
+        const requestTimeout =
+            capacityAttempt > 0 ? Math.min(timeoutMs > 0 ? timeoutMs : Infinity, capacityDeadline - Date.now()) : timeoutMs
+        if (capacityAttempt > 0 && requestTimeout <= 0) {
+            unlink()
+            break
+        }
+        const timer = requestTimeout > 0 ? setTimeout(() => controller.abort(), requestTimeout) : undefined
         try {
+            const serializedBody = capacityWaitMs > 0 && capacityBody !== undefined ? capacityBody : JSON.stringify(body)
+            if (capacityWaitMs > 0) capacityBody = serializedBody
             response = await fetchImpl(url, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json', ...runHeaders(harnessName, apiKey) },
-                body: JSON.stringify(body),
+                body: serializedBody,
                 signal: controller.signal
             })
             payload = await readJson(response)
-            break
         } catch (error) {
             if (signal?.aborted) throw error
-            if (refused(error) && Date.now() + retryEveryMs <= deadline && isStarting()) {
+            if (
+                refused(error) &&
+                Date.now() + retryEveryMs <= Math.min(deadline, capacityAttempt > 0 ? capacityDeadline : Infinity) &&
+                isStarting()
+            ) {
                 await pause(retryEveryMs, signal)
                 if (signal?.aborted) throw error
                 continue
@@ -129,6 +147,16 @@ export async function createRun({
             clearTimeout(timer)
             unlink()
         }
+        if (capacityWaitMs > 0 && isRejectedCapacityAdmission(response, payload)) {
+            const delayMs = capacityRetryDelayMs(response, capacityAttempt + 1)
+            if (Date.now() + delayMs < capacityDeadline) {
+                capacityAttempt += 1
+                onCapacityWait?.({ attempt: capacityAttempt, delayMs })
+                await sleep(delayMs, signal)
+                continue
+            }
+        }
+        break
     }
     if (!response.ok) {
         const detail = payload?.error?.message || payload?.message || payload?.error || response.statusText
