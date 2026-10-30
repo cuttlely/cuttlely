@@ -68,6 +68,15 @@ describe('server settings resolver', () => {
         expect(fileValuesToApply({}, { [key]: '0' })).toEqual({ [key]: '0' })
     })
 
+    it('passes the agent runtime concurrency limit to the start script, with the host winning', () => {
+        const key = 'CUTTLELY_HERMES_MAX_CONCURRENT_RUNS'
+        expect(effectiveValue(pick(resolveSettings({ env: {}, file: {} }), key))).toBe('10')
+        expect(pick(resolveSettings({ env: {}, file: { [key]: '25' } }), key)).toEqual({ key, value: '25', source: 'file' })
+        expect(pick(resolveSettings({ env: { [key]: '4' }, file: { [key]: '25' } }), key)).toEqual({ key, value: '4', source: 'host' })
+        expect(fileValuesToApply({}, { [key]: '0' })).toEqual({ [key]: '0' })
+        expect(fileValuesToApply({ [key]: '4' }, { [key]: '25' })).toEqual({})
+    })
+
     it('shows dependent fields only when their condition holds', () => {
         const host = settingFor('DATABASE_HOST')!
         expect(isShown(host, new Map([['DATABASE_TYPE', 'sqlite']]))).toBe(false)

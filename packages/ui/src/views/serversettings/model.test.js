@@ -7,6 +7,7 @@ import {
     historyLine,
     isShown,
     matchesQuery,
+    numberWarning,
     limitedByLabel,
     reviewApplyNote,
     reviewRows,
@@ -208,5 +209,38 @@ describe('visibleProblems', () => {
     it('keeps every notice when safe boot did not run', () => {
         expect(visibleProblems({ rolledBack: false, file: { problems } })).toEqual(problems)
         expect(visibleProblems(undefined)).toEqual([])
+    })
+})
+
+describe('number warnings and the zero label', () => {
+    const runs = {
+        key: 'CUTTLELY_HERMES_MAX_CONCURRENT_RUNS',
+        type: 'number',
+        min: 0,
+        max: 50,
+        defaultLabel: '10',
+        defaultValue: '10',
+        zeroLabel: 'Unlimited',
+        warnings: {
+            zero: 'Unlimited can use all the memory and CPU.',
+            above: { value: 25, message: 'More than 25 uses more memory and CPU.' }
+        },
+        value: ''
+    }
+
+    it('says Unlimited for 0 with the strong warning, warns above 25, and is quiet at the default and at 25', () => {
+        const at = (draft) => numberWarning(runs, { [runs.key]: draft })
+        expect(at('0')).toEqual({ strong: true, message: 'Unlimited can use all the memory and CPU.' })
+        expect(at('26')).toEqual({ strong: false, message: 'More than 25 uses more memory and CPU.' })
+        expect(at('50')).toEqual({ strong: false, message: 'More than 25 uses more memory and CPU.' })
+        expect(at('25')).toBeNull()
+        expect(at('1')).toBeNull()
+        expect(numberWarning(runs, {})).toBeNull()
+        expect(numberWarning({ ...runs, value: '0' }, {})).toMatchObject({ strong: true })
+        expect(at('')).toBeNull()
+        expect(at('abc')).toBeNull()
+        expect(describeValue(runs, '0')).toBe('Unlimited')
+        expect(describeValue(runs, '26')).toBe('26')
+        expect(numberWarning({ ...runs, warnings: undefined }, { [runs.key]: '0' })).toBeNull()
     })
 })

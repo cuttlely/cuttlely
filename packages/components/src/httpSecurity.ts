@@ -20,6 +20,7 @@ const DEFAULT_DENY_LIST = [
     '224.0.0.0/4',
     '240.0.0.0/4',
     '255.255.255.255/32',
+    '::',
     '::1',
     'fc00::/7',
     'fd00:ec2::254',
@@ -30,9 +31,47 @@ const DEFAULT_DENY_LIST = [
 ]
 
 /**
+ * The loopback entries HTTP_ALLOW_LOCALHOST takes out of the default list. Nothing else is opened:
+ * 0.0.0.0, ::, link-local and metadata addresses, private ranges and HTTP_DENY_LIST entries stay blocked.
+ */
+const LOCALHOST_ENTRIES = new Set(['localhost', 'ip6-localhost', '127.0.0.0/8', '::1'])
+
+export const HTTP_ALLOW_LOCALHOST = 'HTTP_ALLOW_LOCALHOST'
+
+type AllowLocalhostReader = () => boolean
+
+// The server installs a reader that resolves the Server settings value (host, then the saved file, then off) on each call.
+// The slot is on globalThis so a node pack that loads its own copy of this module reads the same setting.
+const READER_SLOT = Symbol.for('cuttlely.httpAllowLocalhostReader')
+
+/** The server calls this at start with a reader for the live Server settings value. Undefined removes it. */
+export function setHttpAllowLocalhostReader(reader: AllowLocalhostReader | undefined): void {
+    ;(globalThis as Record<symbol, unknown>)[READER_SLOT] = reader
+}
+
+/**
+ * True when HTTP building blocks may call the server's own loopback addresses.
+ * Read on each request. Without a reader (no server, for example a script), only the environment value exactly 'true' turns it on.
+ * A reader that throws counts as off.
+ */
+export function httpAllowLocalhost(): boolean {
+    const reader = (globalThis as Record<symbol, unknown>)[READER_SLOT] as AllowLocalhostReader | undefined
+    if (typeof reader === 'function') {
+        try {
+            return reader() === true
+        } catch {
+            return false
+        }
+    }
+    return process.env[HTTP_ALLOW_LOCALHOST] === 'true'
+}
+
+/**
  * Gets the HTTP deny list.
  * When HTTP_SECURITY_CHECK=false, the default deny list is omitted and only
  * HTTP_DENY_LIST entries are used. Defaults to true (secure).
+ * When HTTP_ALLOW_LOCALHOST is on, the loopback entries are left out of the default list only.
+ * HTTP_DENY_LIST entries always apply.
  * @returns Array of denied IP addresses, hostnames, or CIDR ranges
  */
 function getHttpDenyList(): string[] {
@@ -46,9 +85,29 @@ function getHttpDenyList(): string[] {
         : []
 
     if (securityCheckEnabled) {
-        return [...new Set([...DEFAULT_DENY_LIST, ...customList])]
+        const defaults = httpAllowLocalhost() ? DEFAULT_DENY_LIST.filter((entry) => !LOCALHOST_ENTRIES.has(entry)) : DEFAULT_DENY_LIST
+        return [...new Set([...defaults, ...customList])]
     }
     return customList
+}
+
+function normalizeHostname(name: string): string {
+    return name.toLowerCase().replace(/\.+$/, '')
+}
+
+/**
+ * Checks a requested host name against the name entries of the deny list (for example localhost).
+ * Addresses and ranges are checked against the resolved address by isDeniedIP.
+ * @throws Error if the name is in the deny list
+ */
+function isDeniedHostname(hostname: string, denyList: string[]): void {
+    const name = normalizeHostname(hostname)
+    for (const entry of denyList) {
+        if (entry.includes('/') || ipaddr.isValid(entry)) continue
+        if (normalizeHostname(entry) === name) {
+            throw new Error('Access to this host is denied by policy.')
+        }
+    }
 }
 
 /**
@@ -134,6 +193,7 @@ export async function checkDenyList(url: string): Promise<void> {
     if (ipaddr.isValid(hostname)) {
         isDeniedIP(hostname, httpDenyList)
     } else {
+        isDeniedHostname(hostname, httpDenyList)
         const addresses = await dns.lookup(hostname, { all: true })
         for (const address of addresses) {
             isDeniedIP(address.address, httpDenyList)
@@ -316,6 +376,8 @@ async function resolveAndValidate(url: string): Promise<ResolvedTarget> {
         }
     }
 
+    isDeniedHostname(hostname, denyList)
+
     const records = await dns.lookup(hostname, { all: true })
     if (records.length === 0) {
         throw new Error(`DNS resolution failed for ${hostname}`)
@@ -338,10 +400,15 @@ async function resolveAndValidate(url: string): Promise<ResolvedTarget> {
 function createPinnedAgent(target: ResolvedTarget, options?: { ca?: string | string[] | Buffer }): http.Agent | https.Agent {
     const Agent = target.protocol === 'https' ? https.Agent : http.Agent
 
+    // Every connection goes to the address that was checked. Node 20 and later ask for all addresses
+    // ({ all: true }) when they try IPv4 and IPv6 in turn, and expect a list back.
+    const lookup = (_host: string, opts: { all?: boolean } | undefined, cb: (...args: any[]) => void): void => {
+        if (opts?.all) cb(null, [{ address: target.ip, family: target.family }])
+        else cb(null, target.ip, target.family)
+    }
+
     return new Agent({
-        lookup: (_host, _opts, cb) => {
-            cb(null, target.ip, target.family)
-        },
+        lookup: lookup as any,
         ...options
     })
 }
