@@ -1137,6 +1137,19 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
+        key: 'HTTP_ALLOW_LOCALHOST',
+        section: 'security',
+        group: 'Building blocks',
+        label: 'Allow HTTP building blocks to call localhost',
+        help: 'When on, any flow author can reach any service listening on this server\u2019s own localhost (127.0.0.0/8 and ::1) from HTTP building blocks such as HTTP and Execute Flow. Private ranges, link-local and cloud metadata addresses stay blocked, and so does every address in Blocked addresses. Off by default. Applies on the next request, no restart. A host value of true or false wins, and this page cannot change it while that value is set. When HTTP_SECURITY_CHECK is false on the host, the built-in block list is off and this switch changes nothing.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'Off',
+        defaultValue: 'false',
+        runtime: true,
+        risk: 'high'
+    },
+    {
         key: 'OAUTH2_ALLOWED_TOKEN_DOMAINS',
         section: 'security',
         group: 'Building blocks',

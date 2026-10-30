@@ -6,6 +6,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   **Allow HTTP building blocks to call localhost** (`HTTP_ALLOW_LOCALHOST`) in **Admin** > **Server Settings** > **Security & network** > **Building blocks** lets HTTP building blocks, such as **HTTP** and **Execute Flow**, call `127.0.0.0/8`, `::1` and `localhost`. It is off by default and applies on the next request without a restart. When on, any flow author can reach any service listening on the server's own localhost. Private ranges, link-local and cloud metadata addresses, `0.0.0.0`, `::`, and every `HTTP_DENY_LIST` entry stay blocked. With `HTTP_SECURITY_CHECK=false` the switch changes nothing. See [Server settings](./docs/how-to/server-settings.md#let-http-building-blocks-call-localhost).
+
 -   Optional per-specialist **Trusted outputs** bind a tested query hash to exact source Markdown fields, a verified monthly-utilization PNG or an exact source table CSV (up to 100 rows). The server uses the actual captured result and native attachment transport, replaces conflicting model output, preserves source section captions and reference blocks, and skips Harness Prime rewriting. Empty remains off; failures and unsupported sections are explicit. See [Trusted pinned-query outputs](./docs/reference/trusted-outputs.md).
 
 -   Harness Specialist **Capacity wait (seconds)** can wait up to 60 seconds when the agent runtime rejects a new run because all concurrent-run slots are busy. It defaults to `0`, off, honors `Retry-After` and the turn budget, and does not rerun accepted turns or tools.
@@ -22,6 +24,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   HTTP building blocks also refuse the unspecified IPv6 address `::`, like `0.0.0.0`, and a host name listed in `HTTP_DENY_LIST` is now refused by name as well as by the addresses it resolves to.
+
 -   Guarded PostgreSQL queries run faster with fewer database round trips and JIT disabled for catalog checks; user statements retain the login JIT setting.
 
 -   The Harness Specialist **Handoff limit** tooltip now says what each value does: default 4,000, empty or `0` means the default, `-1` means no limit, and other values are kept from 160 to 20,000.
@@ -33,6 +37,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Analyst Postgres queries (a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the PostgreSQL MCP node and auto storage on Postgres) whose first page holds every row run their statement once instead of four times: the row count, the column type probe and the row length pass now run only when the first page is full or cut, and a result that pages is unchanged. Each transaction the query opens starts in one round trip, the PostgreSQL MCP node reuses its table selection summary for 30 seconds instead of opening a connection on every call, and the run trace's query step records per-step timings (`timings`), with the database's share (`dbMs`, every round trip to Postgres) apart from the connect (`connectMs`) and Cuttlely's own time (`cuttlelyMs`).
 
 ### Fixed
+
+-   HTTP building blocks that call a host name, such as **HTTP**, **Execute Flow**, the API loader and the request tools, connect again on Node 20 and later. The connection still goes only to the address that was checked; it failed with `Invalid IP address: undefined` before.
 
 -   Trusted PNG/CSV replay through a Harness card returns real in-memory previews without persistent storage or successful chat-download events. Compare remains text-only; normal delivery still requires storage success within the turn deadline.
 
