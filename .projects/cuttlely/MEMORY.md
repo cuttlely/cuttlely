@@ -1,5 +1,7 @@
 # Memory
 
+Tool-schema refresh needs both identities: a bridge's tool-binding content must change its persistent MCP schema fingerprint, and discovery must retire an old same-profile live/lazy registration before reusing its name. Updating profile files or only adding revision args is insufficient when a connected server remains in the registry. Keep the public tool namespace stable and preserve profile/credential scope isolation. Do not replay an accepted query to recover from a schema change.
+
 Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a lesson only when one was actually learned.
 
 ## Conventions
