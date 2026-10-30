@@ -60,4 +60,6 @@ Analyst SQL trace capture: `packages/harness/analyst-capture.mjs` exports `sqlTr
 
 PR #324 review corrections reserve the trace question before fitting SQL previews, pair gateway starts by call id, and emit raw MCP starts immediately. The pinned harness tests include main-behavior golden data for tool definitions, instructions, executed SQL, start events and saved traces. The accepted contract permits only the added `sqlHash`, `sql` and `sqlTruncated` fields on free-SQL traces.
 
-Trusted pinned-query outputs: `docs/reference/trusted-outputs.md` documents the optional contracts. `packages/harness/trusted-output.test.mjs` covers source integrity and composition; `trusted-output-bridge.test.mjs` exercises the real local bridge/runtime-scope protocol. `packages/harness/test/trusted-output-fixture.mjs` provides only synthetic PNG data for native storage tests.
+Trusted pinned-query outputs: `docs/reference/trusted-outputs.md` documents the optional contracts. `packages/harness/trusted-output.test.mjs` covers source integrity and composition; `trusted-output-bridge.test.mjs` exercises the real local bridge/runtime-scope protocol. `packages/harness/test/trusted-output-fixture.mjs` provides only synthetic PNG and CSV data for native storage tests.
+
+Agent team tuning: `docs/how-to/tune-agent-team.md` compares answer paths and connects row caps, native files, run limits, scoped capacity waiting, Live API sessions and source-backed QA.
