@@ -3,7 +3,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import YAML from 'yaml'
 
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-mcp-revision-'))
 process.env.CUTTLELY_DATA_DIR = data
@@ -44,13 +43,15 @@ test('compiled MCP bridge revision tracks tool definitions, not model or answer 
     const revision = (value) => {
         const compiled = compileProfile(value)
         const profile = compiled.roster.specialists[0].profileName
-        const config = YAML.parse(fs.readFileSync(path.join(data, 'hermes/profiles', profile, 'config.yaml'), 'utf8'))
-        const bridge = config.mcp_servers.data
-        assert.equal(Object.keys(config.mcp_servers)[0], 'data', 'Public MCP namespace stays unchanged')
-        const index = bridge.args.indexOf('--tool-revision')
+        const config = fs.readFileSync(path.join(data, 'hermes/profiles', profile, 'config.yaml'), 'utf8')
+        assert.match(config, /^mcp_servers:\n  data:\n/m, 'Public MCP namespace stays unchanged')
+        // Compiler argv values are JSON-quoted YAML scalars; parse the saved argv,
+        // rather than duplicating the revision hashing implementation under test.
+        const args = [...config.matchAll(/^      - (".*")$/gm)].map((match) => JSON.parse(match[1]))
+        const index = args.indexOf('--tool-revision')
         assert.ok(index >= 0, 'Compiled bridge must version its tool schema cache identity')
-        assert.match(bridge.args[index + 1], /^[a-f0-9]{64}$/)
-        return bridge.args[index + 1]
+        assert.match(args[index + 1], /^[a-f0-9]{64}$/)
+        return args[index + 1]
     }
     try {
         const original = revision(record)
