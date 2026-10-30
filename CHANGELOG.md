@@ -24,7 +24,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Upgraded WorkOS installations now warn administrators on **Auth / SSO** and in an application banner until `CUTTLELY_LOCAL_ADMIN` is enabled and `pnpm user --email` has created an active owner recovery credential. Phase A does not enable recovery or change sign-in behavior, and panel activation of WorkOS still refuses the switch until recovery is ready.
 
--   Every sign-in method switch increments the authentication epoch. Sealed WorkOS sessions are epoch-bound, and staged switches are durable, expiring, single-use database records that can be applied by another server process.
+-   Every sign-in method switch increments the authentication epoch. Valid existing sealed WorkOS sessions remain accepted until the first method switch and gain an epoch cookie after successful validation; epoch-bound sessions become invalid after a switch. Staged switches are durable, expiring, single-use database records that can be applied by another server process.
 
 -   Guarded PostgreSQL queries run faster with fewer database round trips and JIT disabled for catalog checks; user statements retain the login JIT setting.
 

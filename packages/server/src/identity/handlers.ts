@@ -109,9 +109,18 @@ async function authenticationEpochCurrent(ctx: AuthContext): Promise<boolean> {
 async function sealedSessionEpochCurrent(ctx: AuthContext, sealed: string): Promise<boolean> {
     if (ctx.authenticationEpoch === undefined) return true
     if (!(await authenticationEpochCurrent(ctx))) return false
+    const { selectedAuthenticationBaselineEpoch } = require('./authenticationState') as typeof import('./authenticationState')
+    if (!ctx.cookies[WOS_EPOCH_COOKIE]) {
+        return Boolean(ctx.cookiePassword && ctx.authenticationEpoch === selectedAuthenticationBaselineEpoch())
+    }
     return Boolean(
         ctx.cookiePassword && workosEpochCookieValid(ctx.cookies[WOS_EPOCH_COOKIE], sealed, ctx.authenticationEpoch, ctx.cookiePassword)
     )
+}
+
+function missingEpochCookie(ctx: AuthContext, sealed: string): SetCookie[] | undefined {
+    if (ctx.cookies[WOS_EPOCH_COOKIE] || ctx.authenticationEpoch === undefined || !ctx.cookiePassword) return undefined
+    return [workosEpochCookie(sealed, ctx.authenticationEpoch, ctx.cookiePassword, ctx.secure)]
 }
 
 function sealedCookies(ctx: AuthContext, sealed: string): SetCookie[] {
@@ -731,7 +740,7 @@ export async function establishSession(
                         return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
                     }
                     const user = await ctx.store.sessionFor(row.id)
-                    return { user }
+                    return { user, cookies: user ? missingEpochCookie(ctx, sealed) : undefined }
                 }
                 return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
             }

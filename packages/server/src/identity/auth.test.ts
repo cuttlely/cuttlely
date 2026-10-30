@@ -77,6 +77,9 @@ import {
     WorkosPort
 } from './types'
 import { createHmac } from 'crypto'
+import type { DataSource } from 'typeorm'
+import * as authenticationState from './authenticationState'
+import { workosEpochCookie } from './cookies'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -1019,6 +1022,58 @@ describe('identity auth', () => {
         )
         expect(cleared.user).toBeNull()
         expect(cleared.clearCookies).toContain('wos-session')
+    })
+
+    it('binds an epoch-less sealed session only before the first method switch', async () => {
+        const store = new MemoryStore()
+        store.add(
+            { id: 'user-1', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: 'wos-1', credential: null },
+            true
+        )
+        const sealed = 'legacy-sealed'
+        const password = 'p'.repeat(44)
+        const authenticateSession = jest.fn(async () => ({
+            authenticated: true as const,
+            sessionId: 'session-1',
+            user: { id: 'wos-1', email: 'owner@example.com', emailVerified: true, name: 'Owner' }
+        }))
+        jest.spyOn(authenticationState, 'refreshAuthenticationState').mockResolvedValue(null)
+        jest.spyOn(authenticationState, 'selectedAuthenticationBaselineEpoch').mockReturnValue(4)
+        const current = jest.spyOn(authenticationState, 'selectedAuthenticationEpoch').mockReturnValue(4)
+        const base = {
+            dataSource: {} as DataSource,
+            authenticationEpoch: 4,
+            workosConfigured: true,
+            cookiePassword: password,
+            store,
+            workos: workos({ authenticateSession })
+        }
+
+        const accepted = await establishSession(ctx({ ...base, cookies: { 'wos-session': sealed } }))
+        expect(accepted.user?.id).toBe('user-1')
+        expect(accepted.cookies).toEqual([
+            expect.objectContaining({ name: 'cuttlely-workos-epoch', value: workosEpochCookie(sealed, 4, password, false).value })
+        ])
+
+        current.mockReturnValue(5)
+        const afterSwitch = await establishSession(
+            ctx({ ...base, authenticationEpoch: 5, cookies: { 'wos-session': sealed }, workos: workos({ authenticateSession }) })
+        )
+        expect(afterSwitch.user).toBeNull()
+        expect(afterSwitch.clearCookies).toEqual(['wos-session', 'cuttlely-workos-epoch'])
+
+        const stale = workosEpochCookie(sealed, 4, password, false).value
+        const staleBound = await establishSession(
+            ctx({
+                ...base,
+                authenticationEpoch: 5,
+                cookies: { 'wos-session': sealed, 'cuttlely-workos-epoch': stale },
+                workos: workos({ authenticateSession })
+            })
+        )
+        expect(staleBound.user).toBeNull()
+        expect(staleBound.clearCookies).toEqual(['wos-session', 'cuttlely-workos-epoch'])
+        expect(authenticateSession).toHaveBeenCalledTimes(1)
     })
 
     it('pnpm user lists emails, resets only the super user when the flag is off, and bootstraps when it is on', async () => {

@@ -541,6 +541,7 @@ function authenticationStateSql(dialect: Dialect): string {
         ${q(dialect, 'installationId')} varchar(64) NOT NULL,
         ${q(dialect, 'activeMethod')} varchar(32) NULL,
         ${q(dialect, 'authenticationEpoch')} integer NOT NULL,
+        ${q(dialect, 'authenticationBaselineEpoch')} integer NOT NULL,
         ${q(dialect, 'configurationFingerprint')} varchar(64) NULL,
         ${q(dialect, 'providerKey')} varchar(64) NULL,
         ${q(dialect, 'warning')} varchar(255) NULL,

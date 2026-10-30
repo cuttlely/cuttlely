@@ -21,6 +21,7 @@ const WORKOS_CLIENT_MISMATCH_WARNING =
     'The WorkOS client identity differs from the saved installation. Review this database before linking accounts.'
 let effectiveMethod: AuthenticationMethod | null | undefined
 let effectiveEpoch: number | undefined
+let effectiveBaselineEpoch: number | undefined
 let stateRefreshedAt = 0
 const STATE_CACHE_MS = 2_000
 
@@ -32,10 +33,15 @@ export function selectedAuthenticationEpoch(): number | undefined {
     return effectiveEpoch
 }
 
+export function selectedAuthenticationBaselineEpoch(): number | undefined {
+    return effectiveBaselineEpoch
+}
+
 export interface AuthenticationState {
     installationId: string
     activeMethod: AuthenticationMethod | null
     authenticationEpoch: number
+    authenticationBaselineEpoch: number
     configurationFingerprint: string | null
     providerKey: string | null
     warning: string | null
@@ -58,6 +64,7 @@ export interface AuthenticationSwitchStage {
 function publishState(state: AuthenticationState): AuthenticationState {
     effectiveMethod = state.activeMethod
     effectiveEpoch = state.authenticationEpoch
+    effectiveBaselineEpoch = state.authenticationBaselineEpoch
     stateRefreshedAt = Date.now()
     return state
 }
@@ -105,6 +112,7 @@ function fromRow(row: Record<string, unknown>): AuthenticationState {
         installationId: String(value(row, 'installationId')),
         activeMethod: method === 'local' || method === 'workos' ? method : null,
         authenticationEpoch: Number(value(row, 'authenticationEpoch') || 0),
+        authenticationBaselineEpoch: Number(value(row, 'authenticationBaselineEpoch') || 0),
         configurationFingerprint: value(row, 'configurationFingerprint') ? String(value(row, 'configurationFingerprint')) : null,
         providerKey: value(row, 'providerKey') ? String(value(row, 'providerKey')) : null,
         warning,
@@ -250,10 +258,13 @@ export async function initializeAuthenticationState(
             `INSERT INTO ${q(d, 'identity_authentication_state')} (${q(d, 'id')}, ${q(d, 'installationId')}, ${q(d, 'activeMethod')}, ${q(
                 d,
                 'authenticationEpoch'
-            )}, ${q(d, 'configurationFingerprint')}, ${q(d, 'providerKey')}, ${q(d, 'warning')}, ${q(d, 'sessionsEnded')}, ${q(
+            )}, ${q(d, 'authenticationBaselineEpoch')}, ${q(d, 'configurationFingerprint')}, ${q(d, 'providerKey')}, ${q(
                 d,
-                'changedAt'
-            )}, ${q(d, 'inferredAt')}, ${q(d, 'version')}) VALUES (1, ?, ?, 0, ?, ?, ?, ?, ?, ?, 1)`,
+                'warning'
+            )}, ${q(d, 'sessionsEnded')}, ${q(d, 'changedAt')}, ${q(d, 'inferredAt')}, ${q(
+                d,
+                'version'
+            )}) VALUES (1, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, 1)`,
             [
                 installationId,
                 inferred.method,

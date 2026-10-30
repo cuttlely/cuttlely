@@ -81,6 +81,7 @@ describe('local directory schema on postgres', () => {
         expect(creates).toHaveLength(1)
         expect(creates[0].sql).toContain('"installationId" varchar(64) NOT NULL')
         expect(creates[0].sql).toContain('"authenticationEpoch" integer NOT NULL')
+        expect(creates[0].sql).toContain('"authenticationBaselineEpoch" integer NOT NULL')
         expect(creates[0].sql).toContain('"activeMethod" varchar(32) NULL')
         expect(calls.filter((call) => call.sql.startsWith('CREATE TABLE "identity_recent_authentication"'))).toHaveLength(1)
     })

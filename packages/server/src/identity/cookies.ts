@@ -53,8 +53,7 @@ export function workosEpochCookie(sealed: string, epoch: number, password: strin
 }
 
 export function workosEpochCookieValid(value: string | undefined, sealed: string, epoch: number, password: string): boolean {
-    // Cookies issued before Phase A are accepted only before the first method switch.
-    if (!value) return epoch === 0
+    if (!value) return false
     const [stored, digest] = value.split('.')
     if (Number(stored) !== epoch || !digest) return false
     const expected = epochDigest(sealed, epoch, password)

@@ -127,6 +127,7 @@ describe('authentication provider foundation', () => {
                 actorId: 'user'
             })
             expect(after.authenticationEpoch).toBe(before.authenticationEpoch + 1)
+            expect(after.authenticationBaselineEpoch).toBe(before.authenticationEpoch)
             expect(await db.query('SELECT * FROM "identity_local_session"')).toHaveLength(0)
             expect(await db.query('SELECT * FROM "api_key"')).toHaveLength(1)
             const audit = await db.query('SELECT "detail" FROM "audit_event"')
