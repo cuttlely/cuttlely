@@ -16,13 +16,23 @@
 
 import { randomUUID } from 'crypto'
 import type { DataSource } from 'typeorm'
-import { expiredInviteCookie, inviteCookie, localCookie, sealedCookie, workosEpochCookie, workosEpochCookieValid } from './cookies'
+import {
+    expiredInviteCookie,
+    expiredReauthenticationStateCookie,
+    inviteCookie,
+    localCookie,
+    reauthenticationStateCookie,
+    sealedCookie,
+    workosEpochCookie,
+    workosEpochCookieValid
+} from './cookies'
 import {
     EMAIL_MAX_LENGTH,
     INVITE_COOKIE,
     INVITE_TOKEN_MAX_LENGTH,
     LOCAL_SESSION_COOKIE,
     PASSWORD_MAX_LENGTH,
+    REAUTH_STATE_COOKIE,
     WOS_SESSION_COOKIE,
     WOS_EPOCH_COOKIE,
     signOutReturnTo,
@@ -80,6 +90,7 @@ export interface AuthContext {
     socketAddress: string
     internal: boolean
     code?: string
+    state?: string
     body: Record<string, unknown>
     cookies: Record<string, string | undefined>
     bootstrapEmail?: string
@@ -305,6 +316,24 @@ export async function handleLoginGet(ctx: AuthContext): Promise<HandlerResult> {
     }
 }
 
+export async function handleReauthenticationGet(ctx: AuthContext): Promise<HandlerResult> {
+    if (!ctx.workosConfigured) return json(404, { message: 'Not Found' })
+    if (!ctx.redirectUri) return textUnavailable()
+    const reauthorizationUrl = ctx.workos.reauthorizationUrl
+    if (!reauthorizationUrl) return textUnavailable()
+    try {
+        const state = randomUUID()
+        return {
+            type: 'redirect',
+            status: 302,
+            url: reauthorizationUrl(ctx.redirectUri, state),
+            cookies: [reauthenticationStateCookie(state, ctx.secure)]
+        }
+    } catch {
+        return textUnavailable()
+    }
+}
+
 function inviteTokenFrom(ctx: AuthContext): string | undefined {
     const raw = ctx.cookies[INVITE_COOKIE]
     if (typeof raw !== 'string' || !raw || raw.length > INVITE_TOKEN_MAX_LENGTH) return undefined
@@ -325,8 +354,11 @@ export async function handleInviteStart(ctx: AuthContext): Promise<HandlerResult
 
 export async function handleCallback(ctx: AuthContext): Promise<HandlerResult> {
     const result = await callbackResult(ctx)
-    if (ctx.cookies[INVITE_COOKIE] === undefined || result.type === 'next') return result
-    return { ...result, cookies: [...(result.cookies || []), expiredInviteCookie(ctx.secure)] }
+    if (result.type === 'next') return result
+    const cookies = [...(result.cookies || [])]
+    if (ctx.cookies[INVITE_COOKIE] !== undefined) cookies.push(expiredInviteCookie(ctx.secure))
+    if (ctx.cookies[REAUTH_STATE_COOKIE] !== undefined) cookies.push(expiredReauthenticationStateCookie(ctx.secure))
+    return cookies.length === (result.cookies || []).length ? result : { ...result, cookies }
 }
 
 async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
@@ -360,13 +392,14 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
             return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
         }
         await noteSignIn(ctx, 'sign_in_success', linked.user.id, 'authkit')
+        const reauthenticated = Boolean(ctx.state && ctx.state === ctx.cookies[REAUTH_STATE_COOKIE])
         return {
             type: 'redirect',
             status: 302,
             url: '/',
             cookies: [
                 ...sealedCookies(ctx, authenticated.sealedSession),
-                ...(ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(linked.user.id)] : [])
+                ...(reauthenticated && ctx.recordRecentAuthentication ? [await ctx.recordRecentAuthentication(linked.user.id)] : [])
             ],
             ...cleared(ctx, [LOCAL_SESSION_COOKIE])
         }

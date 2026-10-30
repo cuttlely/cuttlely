@@ -87,6 +87,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
     await refreshAuthenticationState(getDataSource())
     const redirectUri = process.env.WORKOS_REDIRECT_URI
     const code = req.query?.code
+    const state = req.query?.state
     return {
         dataSource: getDataSource(),
         authenticationEpoch: selectedAuthenticationEpoch(),
@@ -103,6 +104,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
         socketAddress: socketAddress(req.socket?.remoteAddress),
         internal: req.headers['x-request-from'] === 'internal',
         code: typeof code === 'string' ? code : Array.isArray(code) ? String(code[0] || '') : undefined,
+        state: typeof state === 'string' ? state : Array.isArray(state) ? String(state[0] || '') : undefined,
         body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {},
         cookies: (req.cookies || {}) as Record<string, string | undefined>,
         store: identityStore(),

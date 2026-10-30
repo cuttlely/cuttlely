@@ -29,6 +29,7 @@ import {
     handleLocalLogout,
     handleLocalPassword,
     handleLoginGet,
+    handleReauthenticationGet,
     handleLoginPost,
     handleLogout,
     handlePasswordRecoveryGone,
@@ -184,6 +185,7 @@ identityAuthRouter.get('/permissions/:type', (_req, res) => {
     res.status(404).json({ message: 'Not Found' })
 })
 identityAuthRouter.get('/login', (req, res, next) => void dispatch(req, res, next, handleLoginGet))
+identityAuthRouter.get('/reauthenticate', (req, res, next) => void dispatch(req, res, next, handleReauthenticationGet))
 identityAuthRouter.get('/callback', (req, res, next) => {
     // A test sign-in from Server settings, Set up AuthKit. It never signs anyone in. Loaded on use, so this
     // router never pulls in the settings start-up code.

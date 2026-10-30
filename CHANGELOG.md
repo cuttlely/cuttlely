@@ -10,6 +10,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Every sign-in method switch increments the authentication epoch. Valid existing sealed WorkOS sessions remain accepted until the first method switch and gain an epoch cookie after successful validation; epoch-bound sessions become invalid after a switch. Staged switches are durable, expiring, single-use database records that can be applied by another server process.
 
+-   **Sign in again** on **Auth / SSO** now starts a distinct WorkOS reauthentication request that requires active authentication. Only its state-bound callback records the ten-minute recent-authentication evidence; an ordinary WorkOS sign-in does not.
+
 ## [1.4.8] - 2026-10-30
 
 ### Added

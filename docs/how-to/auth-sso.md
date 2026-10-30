@@ -14,7 +14,7 @@ This release supports **Local login** and **WorkOS**. Their existing environment
 ## Change the method
 
 1. Configure the candidate method through the existing server settings.
-2. Choose **Sign in again** and complete a fresh sign-in. A local password sign-in, WorkOS callback, or owner recovery sign-in records fresh authentication on the server for 10 minutes. A valid older session does not satisfy this requirement. Both staging and applying the change require it, so sign in again if more than 10 minutes pass before you apply.
+2. Choose **Sign in again** and complete a fresh sign-in. A local password sign-in, the dedicated WorkOS reauthentication callback, or owner recovery sign-in records fresh authentication on the server for 10 minutes. An ordinary WorkOS sign-in and a valid older session do not satisfy this requirement. Both staging and applying the change require it, so sign in again if more than 10 minutes pass before you apply.
 3. Select the method and choose **Review change**.
 4. Read the impact statement, type `END SESSIONS`, and apply the change.
 

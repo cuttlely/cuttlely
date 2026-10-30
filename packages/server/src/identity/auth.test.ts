@@ -17,6 +17,7 @@ import {
     handleCallback,
     handleInviteStart,
     handleLoginGet,
+    handleReauthenticationGet,
     handleLoginPost,
     handleLogout,
     handleRefresh,
@@ -80,6 +81,7 @@ import { createHmac } from 'crypto'
 import type { DataSource } from 'typeorm'
 import * as authenticationState from './authenticationState'
 import { workosEpochCookie } from './cookies'
+import { workosPort } from './workosAdapter'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -287,6 +289,10 @@ function workos(overrides: Partial<WorkosPort> = {}): WorkosPort & { externalIds
         externalIds,
         authorizationUrl: (redirectUri: string) =>
             `https://authkit.example/authorize?redirect=${encodeURIComponent(redirectUri)}&provider=authkit`,
+        reauthorizationUrl: (redirectUri: string, state: string) =>
+            `https://authkit.example/authorize?redirect=${encodeURIComponent(
+                redirectUri
+            )}&provider=authkit&max_age=0&prompt=login&state=${state}`,
         authenticate: async () => ({
             user: { id: 'wos-1', email: 'owner@example.com', emailVerified: true, name: 'Owner' },
             sealedSession: 'sealed-1'
@@ -402,6 +408,43 @@ describe('identity auth', () => {
         if (result.type === 'redirect') expect(result.url).toContain('provider=authkit')
     })
 
+    it('GET /auth/reauthenticate requests active authentication and binds callback state in a cookie', async () => {
+        const result = await handleReauthenticationGet(ctx({ workosConfigured: true }))
+        expect(result).toMatchObject({ type: 'redirect', status: 302 })
+        if (result.type !== 'redirect') return
+        expect(result.url).toContain('max_age=0')
+        expect(result.url).toContain('prompt=login')
+        const state = new URL(result.url).searchParams.get('state')
+        expect(state).toBeTruthy()
+        expect(result.cookies?.[0]).toMatchObject({
+            name: 'cuttlely-reauth-state',
+            value: state,
+            options: { httpOnly: true, sameSite: 'lax', path: '/api/v1/auth/callback', maxAge: 600000 }
+        })
+    })
+
+    it('WorkOS adapter adds fresh-authentication options only to reauthentication', () => {
+        const apiKey = process.env.WORKOS_API_KEY
+        const clientId = process.env.WORKOS_CLIENT_ID
+        process.env.WORKOS_API_KEY = 'test_value'
+        process.env.WORKOS_CLIENT_ID = 'client_test'
+        try {
+            const redirectUri = 'https://app.example/api/v1/auth/callback'
+            const ordinary = new URL(workosPort.authorizationUrl(redirectUri))
+            const reauthentication = new URL(workosPort.reauthorizationUrl!(redirectUri, 'bound-state'))
+            expect(ordinary.searchParams.has('max_age')).toBe(false)
+            expect(ordinary.searchParams.has('prompt')).toBe(false)
+            expect(reauthentication.searchParams.get('max_age')).toBe('0')
+            expect(reauthentication.searchParams.get('prompt')).toBe('login')
+            expect(reauthentication.searchParams.get('state')).toBe('bound-state')
+        } finally {
+            if (apiKey === undefined) delete process.env.WORKOS_API_KEY
+            else process.env.WORKOS_API_KEY = apiKey
+            if (clientId === undefined) delete process.env.WORKOS_CLIENT_ID
+            else process.env.WORKOS_CLIENT_ID = clientId
+        }
+    })
+
     it('GET /auth/login is 404 when WorkOS is unset', async () => {
         const result = await handleLoginGet(ctx())
         expect(result).toMatchObject({ type: 'json', status: 404 })
@@ -461,6 +504,36 @@ describe('identity auth', () => {
         expect(store.users[0].externalId).toBe('wos-1')
         expect(store.users[0].credential).toBe('old-hash')
         expect(port.externalIds).toEqual([{ workosUserId: 'wos-1', ourUserId: 'user-9' }])
+    })
+
+    it('ordinary callback records no recent-authentication evidence', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'user-9', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential: null }, true)
+        const recordRecentAuthentication = jest.fn()
+        await handleCallback(ctx({ workosConfigured: true, code: 'code', store, recordRecentAuthentication }))
+        expect(recordRecentAuthentication).not.toHaveBeenCalled()
+    })
+
+    it('state-bound reauthentication callback records recent-authentication evidence', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'user-9', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential: null }, true)
+        const recordRecentAuthentication = jest.fn(async () => ({
+            name: 'cuttlely-recent-auth',
+            value: 'recent',
+            options: { httpOnly: true as const, sameSite: 'lax' as const, path: '/', secure: false }
+        }))
+        const result = await handleCallback(
+            ctx({
+                workosConfigured: true,
+                code: 'code',
+                state: 'reauth-state',
+                cookies: { 'cuttlely-reauth-state': 'reauth-state' },
+                store,
+                recordRecentAuthentication
+            })
+        )
+        expect(recordRecentAuthentication).toHaveBeenCalledWith('user-9')
+        if (result.type === 'redirect') expect(result.cookies?.some((cookie) => cookie.name === 'cuttlely-recent-auth')).toBe(true)
     })
 
     it('callback uses the existing external id and does not rebind a different one', async () => {

@@ -135,6 +135,7 @@ export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { 
 
 export interface WorkosPort {
     authorizationUrl(redirectUri: string): string
+    reauthorizationUrl?(redirectUri: string, state: string): string
     authenticate(code: string): Promise<{ user: WorkosIdentity; sealedSession: string }>
     authenticateSession(
         sealed: string

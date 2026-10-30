@@ -20,6 +20,8 @@ import {
     INVITE_COOKIE_MS,
     INVITE_COOKIE_PATH,
     LOCAL_SESSION_COOKIE,
+    REAUTH_STATE_COOKIE,
+    REAUTH_STATE_COOKIE_MS,
     RECENT_AUTH_COOKIE,
     WOS_EPOCH_COOKIE,
     WOS_SESSION_COOKIE
@@ -85,4 +87,20 @@ export function localCookie(value: string, secure: boolean, maxAge: number): Set
 
 export function recentAuthenticationCookie(value: string, secure: boolean, maxAge: number): SetCookie {
     return { name: RECENT_AUTH_COOKIE, value, options: { httpOnly: true, sameSite: 'lax', path: '/', secure, maxAge } }
+}
+
+export function reauthenticationStateCookie(value: string, secure: boolean): SetCookie {
+    return {
+        name: REAUTH_STATE_COOKIE,
+        value,
+        options: { httpOnly: true, sameSite: 'lax', path: INVITE_COOKIE_PATH, secure, maxAge: REAUTH_STATE_COOKIE_MS }
+    }
+}
+
+export function expiredReauthenticationStateCookie(secure: boolean): SetCookie {
+    return {
+        name: REAUTH_STATE_COOKIE,
+        value: '',
+        options: { httpOnly: true, sameSite: 'lax', path: INVITE_COOKIE_PATH, secure, maxAge: 0 }
+    }
 }

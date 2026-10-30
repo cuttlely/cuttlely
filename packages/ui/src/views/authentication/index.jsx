@@ -57,7 +57,7 @@ export default function AuthenticationSettings() {
         }
     }
     const reauthenticate = () => {
-        window.location.assign(data?.activeMethod === 'workos' ? '/api/v1/auth/login' : '/signin?reauth=1')
+        window.location.assign(data?.activeMethod === 'workos' ? '/api/v1/auth/reauthenticate' : '/signin?reauth=1')
     }
     const acknowledgeWarning = async () => {
         setError('')
