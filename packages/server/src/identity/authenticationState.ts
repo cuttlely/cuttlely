@@ -10,6 +10,7 @@
 
 import { createHash, randomBytes, randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
+import { isUsablePasswordHash } from './password'
 import { localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
 
 export type AuthenticationMethod = 'local' | 'workos'
@@ -429,17 +430,16 @@ async function usableLocalOwnerExists(runner: QueryRunner): Promise<boolean> {
     const d = dialect(runner)
     const rows = await query(
         runner,
-        `SELECT u.${q(d, 'id')} FROM ${q(d, 'user')} u
+        `SELECT u.${q(d, 'credential')} AS ${q(d, 'credential')} FROM ${q(d, 'user')} u
          INNER JOIN ${q(d, 'organization_user')} ou ON ou.${q(d, 'userId')} = u.${q(d, 'id')}
          INNER JOIN ${q(d, 'role')} r ON r.${q(d, 'id')} = ou.${q(d, 'roleId')}
          WHERE LOWER(r.${q(d, 'name')}) = 'owner'
            AND LOWER(u.${q(d, 'status')}) = 'active'
            AND LOWER(ou.${q(d, 'status')}) = 'active'
            AND u.${q(d, 'credential')} IS NOT NULL
-           AND u.${q(d, 'credential')} <> ''
-         LIMIT 1`
+           AND u.${q(d, 'credential')} <> ''`
     )
-    return rows.length > 0
+    return rows.some((row) => isUsablePasswordHash(String(value(row, 'credential') ?? '')))
 }
 
 export async function switchAuthenticationMethod(

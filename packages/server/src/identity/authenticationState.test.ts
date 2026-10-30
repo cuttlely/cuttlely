@@ -1,6 +1,7 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { workosConfigurationFingerprint, stableWorkosProviderKey } from './authenticationState'
 import { workosProvider } from './provider'
+import { DUMMY_PASSWORD_HASH } from './password'
 import { WorkosPort } from './types'
 import fs from 'fs'
 import path from 'path'
@@ -188,7 +189,10 @@ describe('authentication provider foundation', () => {
         await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['first-owner', null, 'active'])
         await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['first-owner', 'owner-role', 'active'])
         expect(await usableLocalOwnerReady(db)).toBe(false)
-        await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['second-owner', 'password-hash', 'active'])
+        await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['placeholder-owner', 'not-a-password-hash', 'active'])
+        await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['placeholder-owner', 'owner-role', 'active'])
+        expect(await usableLocalOwnerReady(db)).toBe(false)
+        await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['second-owner', DUMMY_PASSWORD_HASH, 'active'])
         await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['second-owner', 'owner-role', 'active'])
         expect(await usableLocalOwnerReady(db)).toBe(true)
         await db.destroy()
@@ -198,7 +202,7 @@ describe('authentication provider foundation', () => {
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
             const db = await database()
             const first = await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client' })
-            await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', 'password-hash', 'active'])
+            await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
             await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
             await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
             const password = 'p'.repeat(44)
@@ -216,7 +220,7 @@ describe('authentication provider foundation', () => {
         await withEnvironment({ WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_USERS: 'true' }, async () => {
             const db = await database()
             const before = await initializeAuthenticationState(db, { WORKOS_API_KEY: 'set', WORKOS_CLIENT_ID: 'client' })
-            await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', 'password-hash', 'active'])
+            await db.query('INSERT INTO "user" VALUES (?, ?, ?)', ['owner', DUMMY_PASSWORD_HASH, 'active'])
             await db.query('INSERT INTO "role" VALUES (?, ?)', ['owner-role', 'owner'])
             await db.query('INSERT INTO "organization_user" VALUES (?, ?, ?)', ['owner', 'owner-role', 'active'])
             await db.query('INSERT INTO "identity_local_session" VALUES (?, ?, ?)', ['session', 'owner', 'token'])
