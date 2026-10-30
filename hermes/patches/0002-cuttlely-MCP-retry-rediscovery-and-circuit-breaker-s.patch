@@ -7,12 +7,12 @@ What: tools/mcp_tool_cuttlely.py holds the logic; tools/mcp_tool.py, mcp_tool_di
 
 Why: Cuttlely's MCP bridge starts alongside Hermes, so the first tools/list can be empty, and an expected analyst refusal must not take the analyst tool away for every chat.
 ---
- tests/tools/test_cuttlely_mcp_retry.py | 105 +++++++++++++++++++++++
- tools/mcp_tool.py                      |  38 +++++++--
- tools/mcp_tool_cuttlely.py             | 101 ++++++++++++++++++++++
- tools/mcp_tool_discovery.py            | 111 ++++++++++++++++++++++++-
- tools/mcp_tool_handlers.py             |  61 ++++++++++++--
- 5 files changed, 399 insertions(+), 17 deletions(-)
+ tests/tools/test_cuttlely_mcp_retry.py | 105 ++++++++++++++++++++
+ tools/mcp_tool.py                      |  38 ++++++--
+ tools/mcp_tool_cuttlely.py             | 101 +++++++++++++++++++
+ tools/mcp_tool_discovery.py            | 130 +++++++++++++++++++++++--
+ tools/mcp_tool_handlers.py             |  61 ++++++++++--
+ 5 files changed, 414 insertions(+), 21 deletions(-)
  create mode 100644 tests/tools/test_cuttlely_mcp_retry.py
  create mode 100644 tools/mcp_tool_cuttlely.py
 
@@ -303,7 +303,7 @@ index 0000000000000000000000000000000000000000..a885ee542f0c97545e4596b0cea59798
 +            return tools
 +    return []
 diff --git a/tools/mcp_tool_discovery.py b/tools/mcp_tool_discovery.py
-index d113a8f6e622c25bda662ac19a19ec6026c2bd04..c038f8d4929d385b8febbbe346428d828f3aa7fe 100644
+index d113a8f6e622c25bda662ac19a19ec6026c2bd04..dd45b5e27e94560a88435d45c01560761a8cc277 100644
 --- a/tools/mcp_tool_discovery.py
 +++ b/tools/mcp_tool_discovery.py
 @@ -308,6 +308,60 @@ def _get_connected_server_for_call(server_name: str) -> Optional[_core.MCPServer
@@ -467,6 +467,35 @@ index d113a8f6e622c25bda662ac19a19ec6026c2bd04..c038f8d4929d385b8febbbe346428d82
              "pending": sorted(connecting - wanted)}
  
  
+@@ -681,13 +786,24 @@ def _awaiting_connect(wanted: Set[str], scope) -> List[str]:
+ 
+ def mcp_servers_awaiting_connect() -> List[str]:
+     """Enabled ``mcp_servers`` entries the current registry scope has no live, connecting or lazy
+-    registration for, whose connect cooldown has lapsed: added to config since the last discovery
+-    run, or one whose earlier connect failed. Read-only — what the next :func:`discover_mcp_tools`
+-    would connect."""
++    registration for, whose connect cooldown has lapsed, plus registrations whose connection
++    identity changed. The API agent-build gate uses this read-only probe to start discovery even
++    when a same-named old server is connected; waiting for housekeeping would expose stale schemas
++    on the next request. No agent tool snapshot is changed by this probe."""
+     with _owner_secret_scope():
+         servers = _config._load_mcp_config()
+     wanted = {name for name, cfg in servers.items() if mcp_server_enabled(cfg)}
+-    return _awaiting_connect(wanted, _core._mcp_registry_scope())
++    scope = _core._mcp_registry_scope()
++    changed = set()
++    with _core._lock:
++        for name in wanted:
++            key = _resolve_server_key(name, scope, current=False)
++            server = _core._servers.get(key)
++            previous = getattr(server, "_config", None) if server is not None else _core._lazy_server_configs.get(key)
++            if previous is not None and _registration._connection_identity(
++                    previous) != _registration._connection_identity(servers[name]):
++                changed.add(name)
++    return sorted(set(_awaiting_connect(wanted, scope)) | changed)
+ 
+ 
+ def _forget_lazy_server(key) -> None:
 diff --git a/tools/mcp_tool_handlers.py b/tools/mcp_tool_handlers.py
 index dd8b8e649191e3683aaef3bd9c2f1c6599d7e140..fdc50473f827cf7e06197c4ac9d0c0f6acf03337 100644
 --- a/tools/mcp_tool_handlers.py

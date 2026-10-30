@@ -1,6 +1,7 @@
 """Real Hermes imports, connections and A -> B -> A profile scopes; no model calls."""
 import copy
 import json
+import logging
 import os
 from pathlib import Path
 import sys
@@ -10,8 +11,9 @@ home = Path(sys.argv[2])
 os.environ["HERMES_HOME"] = str(home)
 sys.path.insert(0, str(root / "hermes"))
 from gateway.run import _profile_runtime_scope
+from hermes_cli.mcp_startup import ensure_mcp_discovery_before_agent_build
 from tools import mcp_tool as core
-from tools.mcp_tool_discovery import register_mcp_servers, reconcile_mcp_servers_with_config
+from tools.mcp_tool_discovery import register_mcp_servers, reconcile_mcp_servers_with_config, mcp_servers_awaiting_connect
 from tools.mcp_tool_scope import _server_key
 from tools.mcp_tool_lifecycle import shutdown_mcp_servers
 from tools.mcp_schema_cache import config_fingerprint, write_cache_entry
@@ -44,26 +46,34 @@ name = "mcp__data__monthly"
 
 try:
     with _profile_runtime_scope(a):
-        register_mcp_servers({"data": cfg})
+        ensure_mcp_discovery_before_agent_build(logger=logging.getLogger(__name__), single_query=True)
         assert set(registry.get_schema(name)["parameters"]["properties"]) == {"start_date", "end_date"}
+        old_snapshot = registry.get_definitions({name}, quiet=True)
+        old_snapshot_bytes = json.dumps(old_snapshot, sort_keys=True)
     with _profile_runtime_scope(b):
         register_mcp_servers({"data": bcfg})
         assert registry.get_schema("mcp__data__private_b") is not None
         assert registry.get_schema(name) is None
     with _profile_runtime_scope(a):
-        register_mcp_servers({"data": cfg})
+        ensure_mcp_discovery_before_agent_build(logger=logging.getLogger(__name__), single_query=True)
         assert starts.read_text() == "1", "Unchanged profile must reuse its live connection"
         manifest.write_text(json.dumps([new, tool("explicit", {})]))
         updated = copy.deepcopy(cfg)
         updated["args"][-1] = "new"
         write_config(a, updated)
-        register_mcp_servers({"data": updated})
+        assert mcp_servers_awaiting_connect() == ["data"]
+        # This is the actual API adapter's startup chain, including its already-
+        # started discovery gate. Calling register directly would miss a stale
+        # connection hidden behind that gate.
+        ensure_mcp_discovery_before_agent_build(logger=logging.getLogger(__name__), single_query=True)
         refreshed = registry.get_schema(name)
         assert refreshed is not None, "Changed own connection left the profile tool-less"
         assert set(refreshed["parameters"]["properties"]) == {"month_count", "include_current"}, "Changed same-name query still exposes stale parameters"
         assert registry.get_schema("mcp__data__old_alias") is None, "Removed alias survived refresh"
         assert registry.get_schema("mcp__data__explicit") is not None
         assert starts.read_text() == "2"
+        assert mcp_servers_awaiting_connect() == []
+        assert json.dumps(old_snapshot, sort_keys=True) == old_snapshot_bytes, "An existing conversation's tool snapshot was mutated"
         register_mcp_servers({"data": updated})
         assert starts.read_text() == "2"
         # Housekeeping reconciliation must also notice an edited, already-connected server.

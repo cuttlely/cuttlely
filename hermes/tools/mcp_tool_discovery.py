@@ -786,13 +786,24 @@ def _awaiting_connect(wanted: Set[str], scope) -> List[str]:
 
 def mcp_servers_awaiting_connect() -> List[str]:
     """Enabled ``mcp_servers`` entries the current registry scope has no live, connecting or lazy
-    registration for, whose connect cooldown has lapsed: added to config since the last discovery
-    run, or one whose earlier connect failed. Read-only — what the next :func:`discover_mcp_tools`
-    would connect."""
+    registration for, whose connect cooldown has lapsed, plus registrations whose connection
+    identity changed. The API agent-build gate uses this read-only probe to start discovery even
+    when a same-named old server is connected; waiting for housekeeping would expose stale schemas
+    on the next request. No agent tool snapshot is changed by this probe."""
     with _owner_secret_scope():
         servers = _config._load_mcp_config()
     wanted = {name for name, cfg in servers.items() if mcp_server_enabled(cfg)}
-    return _awaiting_connect(wanted, _core._mcp_registry_scope())
+    scope = _core._mcp_registry_scope()
+    changed = set()
+    with _core._lock:
+        for name in wanted:
+            key = _resolve_server_key(name, scope, current=False)
+            server = _core._servers.get(key)
+            previous = getattr(server, "_config", None) if server is not None else _core._lazy_server_configs.get(key)
+            if previous is not None and _registration._connection_identity(
+                    previous) != _registration._connection_identity(servers[name]):
+                changed.add(name)
+    return sorted(set(_awaiting_connect(wanted, scope)) | changed)
 
 
 def _forget_lazy_server(key) -> None:
