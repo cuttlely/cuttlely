@@ -14,7 +14,7 @@ class HarnessSpecialist_Harness implements INode {
     constructor() {
         this.label = 'Harness Specialist'
         this.name = 'harnessSpecialist'
-        this.version = 2.4
+        this.version = 2.5
         this.type = 'HarnessSpecialist'
         this.icon = 'harness.svg'
         this.category = 'Harness'
@@ -117,7 +117,7 @@ class HarnessSpecialist_Harness implements INode {
                 optional: true,
                 additionalParams: true,
                 description:
-                    'Optional pin-to-output contracts. Each names a tested pin and hash, with mode markdown (source field paths), monthly-utilization-png or table-payload-csv. Consumes the actual server result, replaces model output/files and skips Harness Prime rewriting. Empty is off.'
+                    'Optional pin-to-output contracts. Each names a tested pin and hash, with mode markdown (source field paths), monthly-utilization-png or table-payload-csv. Consumes the actual server result for exact factual output/files and skips Harness Prime rewriting. Interpret protected evidence can add a separate source-grounded readout before those facts. Empty is off.'
             },
             {
                 label: 'Unmapped output policy',
@@ -125,13 +125,33 @@ class HarnessSpecialist_Harness implements INode {
                 type: 'options',
                 options: [
                     { label: 'Require a trusted contract', name: 'strict' },
-                    { label: 'Allow other verified pinned queries', name: 'verified-passthrough' }
+                    { label: 'Allow other verified pinned queries', name: 'verified-passthrough' },
+                    { label: 'Allow verified read-only SQL fallback', name: 'verified-query-passthrough' }
                 ],
                 default: 'strict',
                 optional: true,
                 additionalParams: true,
                 description:
-                    'Applies only with Trusted outputs. Passthrough keeps ordinary answers/files for independently stamped unmapped queries, or non-data clarifications without files. A mapped query can never fall back to model output.'
+                    'Applies only with Trusted outputs. Passthrough keeps ordinary answers/files for independently stamped unmapped queries, or non-data clarifications without files. The guarded SQL option also accepts native, read-only query evidence with turn identity and statement hash, with at most two query calls per turn. Mapped factual output is never replaced by model output.'
+            },
+            {
+                label: 'Interpret protected evidence',
+                name: 'trustedInterpretation',
+                type: 'boolean',
+                default: false,
+                optional: true,
+                additionalParams: true,
+                description:
+                    'Let the specialist read bounded source evidence and lead with a labeled interpretation. Source-owned factual output remains unchanged. Unsupported numeric, date or currency claims suppress the interpretation.'
+            },
+            {
+                label: 'Interpretation evidence paths',
+                name: 'trustedInterpretationPaths',
+                type: 'json',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'Optional JSON array of source-result paths, in priority order, such as ["rows.0.report", "rows.0.notes"]. Missing optional paths are disclosed; source context is bounded and never a source completeness claim.'
             },
             {
                 label: 'Pin first',
@@ -141,7 +161,7 @@ class HarnessSpecialist_Harness implements INode {
                 optional: true,
                 additionalParams: true,
                 description:
-                    "Run one matching pinned query before the specialist model. A matching success is shown as written; Harness Prime's persona and Handoff limit do not apply to that reply."
+                    "Run one matching pinned query before the specialist model. A matching success is shown as written; Harness Prime's persona and Handoff limit do not apply to that reply. Interpret protected evidence takes precedence: the specialist model runs the matching source and explains it instead of using this model-free shortcut."
             },
             {
                 label: 'Pin first rules',

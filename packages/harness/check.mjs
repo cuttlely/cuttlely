@@ -268,6 +268,22 @@ check(
     trustedBridgeTests.stdout + trustedBridgeTests.stderr
 )
 
+const adaptiveEvidenceTests = spawnSync(
+    process.execPath,
+    [
+        '--test',
+        path.join(root, 'packages/harness/verified-query-output.test.mjs'),
+        path.join(root, 'packages/harness/protected-interpretation.test.mjs'),
+        path.join(root, 'packages/harness/source-answer-fallback.test.mjs')
+    ],
+    { encoding: 'utf8', timeout: 60000 }
+)
+check(
+    'opt-in guarded SQL and protected interpretation evidence tests',
+    adaptiveEvidenceTests.status === 0,
+    adaptiveEvidenceTests.stdout + adaptiveEvidenceTests.stderr
+)
+
 const capacityWaitTests = spawnSync(process.execPath, ['--test', path.join(root, 'packages/harness/capacity-wait.test.mjs')], {
     encoding: 'utf8',
     timeout: 60000
@@ -957,7 +973,7 @@ check(
             wide.preview.rows.every((row) => row.every((cell) => cell.length <= TRACE_PREVIEW_CELL_CHARS)),
         JSON.stringify({ rows: wide.preview.rows.length, bytes: wideBytes })
     )
-    function previewStep(body) {
+    const previewStep = (body) => {
         return analystStepView(
             publicToolStep({ name: 'mcp__analyst__query', status: 'done', detail: JSON.stringify({ result: JSON.stringify(body) }) }, {})
         )
@@ -1035,7 +1051,7 @@ check(
             oddCaption === bareCaption,
         JSON.stringify({ bareCaption, oddCaption })
     )
-    function legacyView(body) {
+    const legacyView = (body) => {
         return analystStepView({
             name: 'mcp__analyst__query',
             status: 'done',

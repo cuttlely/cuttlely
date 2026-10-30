@@ -683,3 +683,16 @@ Encode the password, restart, and select **QUERY** again.
 **Analyst mode refused to open the application SQLite file.** The tool will not open `database.sqlite`. Leave it on `analyst.db`.
 
 **Analyst mode could not read the credential encryption key.** `encryption.key` under `SECRETKEY_PATH` is missing or unreadable. **Analyst mode could not store the credential encryption key.** Cuttlely could not write that file. [From source](./from-source.md#where-your-data-lives) says where that directory is. Do not replace the key if you still need the credentials it already encrypted.
+
+## Use a tested query first, then a bounded fallback
+
+A tested pinned query is the first choice when it covers the business question. For a broader specialist that also uses trusted output contracts, a deliberate opt-in can handle a missing filter, grain or period without inventing a result:
+
+1. On PostgreSQL MCP, keep the selected relations and read-only limits, select **query**, and enable **Expose pinned SQL definitions**.
+2. On its specialist, choose **Allow verified read-only SQL fallback** for the unmapped output policy.
+3. Give the specialist rules to inspect `pin_definition` for the relevant tested SQL and preserve its metric, joins, dates, status, NULL and freshness semantics when adapting the query. Use `describe` only for unknown fields.
+4. Test the derived question and rewordings against independent SQL. Keep a matching pin on the direct path and keep explicit source restrictions binding.
+
+The native query guard, not a model assertion, supplies execution provenance. Free SQL remains read-only and subject to the selected relations, functions, row cap and timeout. Two query calls per specialist turn are the hard maximum, including a correction or page. This does not prove that a derived query has the correct business meaning. A validation failure or missing account identity is not permission to bypass the source's rules.
+
+For reports that need explanation, enable **Interpret protected evidence**, prioritize actual source notes and measurement context, and keep exact factual tables in the trusted contract. The accepted readout leads; facts retain their source bytes. Missing history is not an improving or worsening trend, and unknown currency does not mean dollars. [Trusted outputs](../reference/trusted-outputs.md#interpretation-before-protected-facts) describes the context bounds, safeguards and fallback behavior.

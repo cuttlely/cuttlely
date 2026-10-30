@@ -211,6 +211,8 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
                 ...(inputs.pinFirstRules ? { pinFirstRules: parsePinFirstRules(inputs.pinFirstRules) } : {}),
                 ...(inputs.trustedOutputs ? { trustedOutputs: trustedOutputContracts(inputs.trustedOutputs) } : {}),
                 ...(inputs.trustedOutputPolicy ? { trustedOutputPolicy: inputs.trustedOutputPolicy } : {}),
+                ...(boolInput(inputs.trustedInterpretation) ? { trustedInterpretation: true } : {}),
+                ...(inputs.trustedInterpretationPaths ? { trustedInterpretationPaths: inputs.trustedInterpretationPaths } : {}),
                 ...(boolInput(inputs.answerDirect) ? { answerDirect: true } : {}),
                 ...(specialistCapacityWaitSeconds(inputs.capacityWaitSeconds)
                     ? { capacityWaitSeconds: specialistCapacityWaitSeconds(inputs.capacityWaitSeconds) }
@@ -254,6 +256,8 @@ export function assertFlowLimits({ name, flowData }) {
                 modules: parseMaybeJson(inputs.modules),
                 ...(inputs.trustedOutputs ? { trustedOutputs: inputs.trustedOutputs } : {}),
                 ...(inputs.trustedOutputPolicy ? { trustedOutputPolicy: inputs.trustedOutputPolicy } : {}),
+                ...(boolInput(inputs.trustedInterpretation) ? { trustedInterpretation: true } : {}),
+                ...(inputs.trustedInterpretationPaths ? { trustedInterpretationPaths: inputs.trustedInterpretationPaths } : {}),
                 mcpServers: [...bindings, ...parseMaybeJson(inputs.mcpServers)]
             }
         })

@@ -4,6 +4,8 @@ import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { HarnessError } from './errors.mjs'
+import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-output.mjs'
+import { protectedInterpretationEvidence } from './protected-interpretation.mjs'
 import { matchesTurnType, TURN_IMAGE_LIMITS, TURN_FILE_LIMITS } from './images.mjs'
 
 const own = (value, key) => value != null && Object.hasOwn(value, key)
@@ -597,8 +599,13 @@ export function trustedOutputReceipt(specialist, pin, raw, callId) {
         hash: contract.hash,
         callId,
         outputMode: contract.mode,
+        ...(specialist.trustedInterpretation === true
+            ? { interpretationEvidence: protectedInterpretationEvidence(body, specialist.trustedInterpretationPaths) }
+            : {}),
         message:
-            'The server captured the exact source for verified output. Finish without copying rows, rewriting source sections or creating files. Rendering is validated before delivery.'
+            specialist.trustedInterpretation === true
+                ? 'The server captured the exact source for factual delivery. Read the bounded interpretationEvidence and write the requested business interpretation; do not copy or reconstruct source tables. The server presents your qualified interpretation before the unchanged factual sections.'
+                : 'The server captured the exact source for verified output. Finish without copying rows, rewriting source sections or creating files. Rendering is validated before delivery.'
     })
 }
 
@@ -620,26 +627,27 @@ function validateReferenceDefinitions(text) {
 
 export function normalizeTrustedPolicy(value) {
     if (value == null || value === '' || value === 'strict') return 'strict'
-    if (value === 'verified-passthrough') return value
+    if (value === 'verified-passthrough' || value === VERIFIED_QUERY_POLICY) return value
     fail('Invalid trusted output policy.')
 }
 
 export function verifiedUnmappedOutput(specialist, captured, { dataTask, hasArtifacts, clarification } = {}) {
-    if (specialist.trustedOutputPolicy !== 'verified-passthrough') return false
+    if (!['verified-passthrough', VERIFIED_QUERY_POLICY].includes(specialist.trustedOutputPolicy)) return false
     if (!captured.length) return !dataTask && !hasArtifacts && clarification === true
     return captured.every(
         (item) =>
-            item.callId &&
-            item.sourceTurn &&
-            item.toolName === item.pinned?.name &&
-            /^pq_[a-z0-9_]+$/.test(item.toolName || '') &&
-            /^[a-f0-9]{64}$/.test(item.pinned?.hash || '') &&
-            Number.isInteger(item.pinned?.version) &&
-            item.pinned.version > 0 &&
-            Array.isArray(item.result?.rows) &&
-            !item.result.error &&
-            item.result.status !== 'error' &&
-            !item.result.columnsChanged
+            (specialist.trustedOutputPolicy === VERIFIED_QUERY_POLICY && verifiedQueryCapture(item)) ||
+            (item.callId &&
+                item.sourceTurn &&
+                item.toolName === item.pinned?.name &&
+                /^pq_[a-z0-9_]+$/.test(item.toolName || '') &&
+                /^[a-f0-9]{64}$/.test(item.pinned?.hash || '') &&
+                Number.isInteger(item.pinned?.version) &&
+                item.pinned.version > 0 &&
+                Array.isArray(item.result?.rows) &&
+                !item.result.error &&
+                item.result.status !== 'error' &&
+                !item.result.columnsChanged)
     )
 }
 
