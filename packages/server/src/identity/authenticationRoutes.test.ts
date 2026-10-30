@@ -124,6 +124,20 @@ describe('authentication settings routes', () => {
         expect(switchAuthenticationMethod).not.toHaveBeenCalled()
     })
 
+    it('requires a fresh authentication again when applying a staged change', async () => {
+        findLocalSession.mockResolvedValue({ issuedAt: new Date(Date.now() - 11 * 60 * 1000) })
+        const response = await request(app('old')).post('/api/v1/authentication/apply').send({
+            stage: 'stage-1',
+            stageVersion: 1,
+            method: 'workos',
+            stateVersion: 4,
+            confirm: 'END SESSIONS'
+        })
+        expect(response.status).toBe(409)
+        expect(response.body.code).toBe('REAUTH_REQUIRED')
+        expect(switchAuthenticationMethod).not.toHaveBeenCalled()
+    })
+
     it('applies a staged change and reports stale state', async () => {
         const body = {
             stage: 'stage-1',

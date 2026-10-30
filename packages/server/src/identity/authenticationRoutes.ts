@@ -133,6 +133,10 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
         await auditAttempt(who, { newMethod: body.method, outcome: 'refused', reason: 'confirmation_missing' })
         return void res.status(400).json({ message: 'Type END SESSIONS to apply this change.' })
     }
+    if (!(await recentlyAuthenticated(req))) {
+        await auditAttempt(who, { newMethod: body.method, outcome: 'refused', reason: 'reauth_required' })
+        return void res.status(409).json({ code: 'REAUTH_REQUIRED', message: 'Sign in again before changing the sign-in method.' })
+    }
     try {
         const after = await switchAuthenticationMethod(
             applicationDataSource(),
