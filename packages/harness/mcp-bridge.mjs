@@ -16,6 +16,8 @@ function analystStatusDir() {
 
 const harnessName = flag('--harness')
 const specialistName = flag('--specialist')
+// Optional --tool-revision is a cache identity for Hermes, not a gateway argument.
+// Older callers without it continue to list/call the current specialist's tools.
 
 function flag(name) {
     const index = process.argv.indexOf(name)

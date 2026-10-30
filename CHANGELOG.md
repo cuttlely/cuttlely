@@ -38,11 +38,15 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Analyst Postgres queries (a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the PostgreSQL MCP node and auto storage on Postgres) whose first page holds every row run their statement once instead of four times: the row count, the column type probe and the row length pass now run only when the first page is full or cut, and a result that pages is unchanged. Each transaction the query opens starts in one round trip, the PostgreSQL MCP node reuses its table selection summary for 30 seconds instead of opening a connection on every call, and the run trace's query step records per-step timings (`timings`), with the database's share (`dbMs`, every round trip to Postgres) apart from the connect (`connectMs`) and Cuttlely's own time (`cuttlelyMs`).
 
+-   The UI HTML sanitizer uses dompurify 3.4.17.
+
 ### Fixed
 
 -   HTTP building blocks that call a host name, such as **HTTP**, **Execute Flow**, the API loader and the request tools, connect again on Node 20 and later. The connection still goes only to the address that was checked; it failed with `Invalid IP address: undefined` before.
 
 -   Trusted PNG/CSV replay through a Harness card returns real in-memory previews without persistent storage or successful chat-download events. Compare remains text-only; normal delivery still requires storage success within the turn deadline.
+
+-   Pinned and SQL fast-path answers no longer fall back to the slower handoff on long results that contain URLs or ellipses. Tool details are masked by one JSON-aware step in every event, the returned payload and the trace, so they stay valid JSON, including a string that is itself JSON. A string in a tool detail that still holds an absolute path after text masking, such as `a|/srv/x.csv`, is replaced as a whole; a URL keeps `,` and `;` in its query or fragment, and the workspace folder or a `file://` address after it is still replaced. A label such as `Q3..Q4` is no longer read as a path. Answer text keeps the existing masking.
 
 -   A HARNESS canvas id now works on the public `POST /api/v1/prediction/:id` route. It runs the Live (published) canvas, returns a `sessionToken` bound to the chat id, and needs the bound API key to list the harness. File uploads there are refused with 400; send them to a chatflow with a Harness card.
 

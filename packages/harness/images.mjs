@@ -187,6 +187,9 @@ function tokenMask(raw, root, continued) {
     }
     const token = raw.slice(start, end)
     if (/^https?:\/\//i.test(token)) return { text: raw, masked: false }
+    // ".." marks a path when the token also has a separator (docs/../secret, More..."/tmp/x).
+    // A label without one, such as Q3..Q4 or 2026-07-01..2026-09-30, is not a path.
+    const dotDot = /\.\./.test(token) && (/[\/\\]/.test(token) || token === '..')
     // A lone separator such as the '/' in 'A / B' or 'used / entitled' names no location.
     // It is shown as is but starts or keeps a rule 5 continuation, so a following token with a separator
     // (the rest of '/ Reports/private.txt' or '/tmp/My / Reports/x') is still hidden.
@@ -194,7 +197,7 @@ function tokenMask(raw, root, continued) {
     // date such as 3/4 or 10/24/2026 through.
     if (/^[\/\\~]$/.test(token)) return { text: raw, masked: continued === true ? true : 'soft' }
     const slash = /[\/\\]/.test(token)
-    const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || /\.\.|\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
+    const candidate = /^(?:[\/~]|file:\/\/)/i.test(token) || dotDot || /\/\/|%2f|%2e%2e/i.test(token) || backslashPath(token, raw)
     const numeric = !candidate && continued === 'soft' && /^[0-9$€£%.,:+-]+(?:[\/\\][0-9$€£%.,:+-]+)+$/.test(token)
     // A number kept after a lone slash still passes the soft continuation on, so a path piece after it is hidden.
     if (numeric) return { text: raw, masked: 'soft' }
