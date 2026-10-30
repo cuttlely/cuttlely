@@ -60,6 +60,15 @@ export const OPEN_SOURCE_FEATURES = {
 } as const
 
 export function workosConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+    const configured = Boolean(env.WORKOS_API_KEY && env.WORKOS_CLIENT_ID)
+    if (env !== process.env) return configured
+    const { selectedAuthenticationMethod } = require('./authenticationState') as typeof import('./authenticationState')
+    const selected = selectedAuthenticationMethod()
+    return selected === undefined ? configured : selected === 'workos' && configured
+}
+
+/** Provider configuration presence, independent of the selected ordinary sign-in method. */
+export function workosEnvironmentConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
     return Boolean(env.WORKOS_API_KEY && env.WORKOS_CLIENT_ID)
 }
 
@@ -77,7 +86,10 @@ export function localUsersSetting(env: NodeJS.ProcessEnv = process.env): boolean
  * AuthKit turns this off. The owner break-glass route is separate and stays on its own flag.
  */
 export function localUsersMode(env: NodeJS.ProcessEnv = process.env): boolean {
-    return localUsersSetting(env) && !workosConfigured(env)
+    if (env !== process.env) return localUsersSetting(env) && !workosConfigured(env)
+    const { selectedAuthenticationMethod } = require('./authenticationState') as typeof import('./authenticationState')
+    const selected = selectedAuthenticationMethod()
+    return selected === undefined ? localUsersSetting(env) && !workosConfigured(env) : selected === 'local' && localUsersSetting(env)
 }
 
 export function cookiePasswordOk(value: string | undefined): value is string {

@@ -15,7 +15,7 @@
  */
 
 import type { QueryRunner } from 'typeorm'
-import { addLocalDirectory, removeLocalDirectory } from './schemaMigration'
+import { addAuthenticationState, addLocalDirectory, removeLocalDirectory } from './schemaMigration'
 
 interface Call {
     sql: string
@@ -29,6 +29,7 @@ function postgresRunner(present: Set<string>, existingRoles: Set<string> = new S
         async query(sql: string, params?: unknown[]) {
             calls.push({ sql, params })
             if (sql.includes('information_schema.tables')) return present.has(String(params?.[0])) ? [{ name: params?.[0] }] : []
+            if (sql.startsWith('CREATE TABLE "identity_authentication_state"')) present.add('identity_authentication_state')
             if (sql.includes('information_schema.columns')) return []
             if (sql.includes('FROM "role"') && sql.includes('SELECT')) {
                 return existingRoles.has(String(params?.[0] || '').toLowerCase()) ? [{ id: 'existing' }] : []
@@ -67,5 +68,17 @@ describe('local directory schema on postgres', () => {
         const deleted = removed.calls.find((call) => call.sql.startsWith('DELETE FROM "role"'))
         expect(deleted?.sql).toContain('WHERE "id" = $1')
         expect(deleted?.sql).not.toContain('?')
+    })
+
+    it('adds the authentication state once with installation and epoch fields', async () => {
+        const present = new Set<string>()
+        const { runner, calls } = postgresRunner(present)
+        await addAuthenticationState(runner)
+        await addAuthenticationState(runner)
+        const creates = calls.filter((call) => call.sql.startsWith('CREATE TABLE "identity_authentication_state"'))
+        expect(creates).toHaveLength(1)
+        expect(creates[0].sql).toContain('"installationId" varchar(64) NOT NULL')
+        expect(creates[0].sql).toContain('"authenticationEpoch" integer NOT NULL')
+        expect(creates[0].sql).toContain('"activeMethod" varchar(32) NULL')
     })
 })

@@ -189,6 +189,8 @@ Cuttlely 1.4.7. The product version is the root `package.json`, `packages/server
 
 ## Not done
 
+-   Auth / SSO Phase A is on branch `feat/auth-sso-phase-a` (draft pull request, not on `main`): provider boundary, durable method and epoch state, compatibility inference, staged session-ending switch, permission, audit entry, Admin Panel page, and operator guide. Generic OIDC, SCIM, and session convergence remain later phases.
+
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
 -   Hardened public config endpoints and template sanitizing are on `main` (#238).
 -   Chatflow import checks (model and tool credentials, sticky notes, tool files, older card names, custom tools by id) are on `main` ([#245](https://github.com/cuttlely/cuttlely/pull/245)). Refreshing every imported card from the current spec and partial import of unsupported cards are still open.

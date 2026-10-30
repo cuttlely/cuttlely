@@ -61,6 +61,8 @@ import {
 } from './types'
 
 export interface AuthContext {
+    /** Captured at request start so a concurrent method switch can stop completion. */
+    authenticationEpoch?: number
     workosConfigured: boolean
     localAdmin: boolean
     /** CUTTLELY_LOCAL_USERS is on and AuthKit is not configured. */
@@ -89,6 +91,11 @@ export interface AuthContext {
 }
 
 const INVALID_LOGIN = 'Invalid email or password.'
+function authenticationEpochCurrent(ctx: AuthContext): boolean {
+    if (ctx.authenticationEpoch === undefined) return true
+    const { selectedAuthenticationEpoch } = require('./authenticationState') as typeof import('./authenticationState')
+    return selectedAuthenticationEpoch() === ctx.authenticationEpoch
+}
 export function setupLinkNeeded(env: NodeJS.ProcessEnv = process.env): string {
     const service = setupServiceName(env)
     return `Open the setup link from the server log to create the first account. With Docker, run: docker compose logs ${service} | grep 'Setup code'`
@@ -202,6 +209,7 @@ async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' |
 }
 
 async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
+    if (!authenticationEpochCurrent(ctx)) return null
     const token = randomToken()
     const limits = sessionLimitsMs()
     const at = new Date(ctx.now)
@@ -285,6 +293,7 @@ async function callbackResult(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.cookiePasswordOk) return textUnavailable()
     try {
         const authenticated = await ctx.workos.authenticate(ctx.code)
+        if (!authenticationEpochCurrent(ctx)) return { type: 'redirect', status: 302, url: '/signin' }
         const linked = await linkWorkosUser(ctx.store, authenticated.user, {
             bootstrapEmail: ctx.bootstrapEmail,
             inviteToken: inviteTokenFrom(ctx),
@@ -350,6 +359,7 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     if (!(await verifyPassword(password, hashForLoginCompare(true, owner.credential, bcryptPresent), bcryptPresent))) return fail()
     await rehashBcryptAfterLogin(ctx.store, owner.id, owner.credential, password)
 
+    if (!authenticationEpochCurrent(ctx)) return json(409, { message: 'Sign-in settings changed. Sign in again.' })
     const token = randomToken()
     const limits = sessionLimitsMs()
     const at = new Date(ctx.now)

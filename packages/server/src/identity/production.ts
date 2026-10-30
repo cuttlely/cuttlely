@@ -26,6 +26,8 @@ import { socketAddress } from './setupLimit'
 import { bindSetupCodeStore } from './setupCode'
 import { SqlIdentityStore, SqlLoginRateLimit, SqlSetupCodeStore } from './sqlStore'
 import { workosPort } from './workosAdapter'
+import { workosProvider } from './provider'
+import { initializeAuthenticationState, selectedAuthenticationEpoch } from './authenticationState'
 
 let store: SqlIdentityStore | undefined
 let limiter: SqlLoginRateLimit | undefined
@@ -45,6 +47,7 @@ export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<
     const configured = workosConfigured()
     // recordOff is this process: the web server. A queue worker does not call this.
     const after = await switchStore.applyAuthKitSwitch(configured, new Date(), { recordOff: !configured })
+    await initializeAuthenticationState(dataSource)
     if (after.configured && !before?.configured) return { ended: after.sessionsEnded }
     return null
 }
@@ -67,6 +70,7 @@ export function buildAuthContext(req: Request): AuthContext {
     const redirectUri = process.env.WORKOS_REDIRECT_URI
     const code = req.query?.code
     return {
+        authenticationEpoch: selectedAuthenticationEpoch(),
         workosConfigured: workosConfigured(),
         localAdmin: localAdminEnabled(),
         localUsers: localUsersMode(),
@@ -82,7 +86,7 @@ export function buildAuthContext(req: Request): AuthContext {
         body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {},
         cookies: (req.cookies || {}) as Record<string, string | undefined>,
         store: identityStore(),
-        workos: workosPort,
+        workos: workosProvider(workosPort, () => workosConfigured()).compatibility,
         rateLimit: loginLimiter(),
         noteAudit: noteSignIn
     }

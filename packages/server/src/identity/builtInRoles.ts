@@ -50,7 +50,7 @@ const BUILD_ACTIONS = new Set([
 ])
 
 /** Builder does not administer people, roles, teams, server logs, or the audit log. */
-const BUILD_EXCLUDED = new Set(['users', 'roles', 'workspace', 'logs', 'audit'])
+const BUILD_EXCLUDED = new Set(['users', 'roles', 'workspace', 'logs', 'audit', 'authentication'])
 
 export interface SeededBuiltInRole {
     id: string

@@ -69,6 +69,7 @@ import { AddAuditLog1800400000000 } from './1800400000000-AddAuditLog'
 import { AddApiKeyHarnesses1800500000000 } from './1800500000000-AddApiKeyHarnesses'
 import { AddSetupCode1800600000000 } from './1800600000000-AddSetupCode'
 import { AddSetupCodePrevious1800700000000 } from './1800700000000-AddSetupCodePrevious'
+import { AddAuthenticationState1800800000000 } from './1800800000000-AddAuthenticationState'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -164,5 +165,6 @@ export const mysqlMigrations = [
     AddAuditLog1800400000000,
     AddApiKeyHarnesses1800500000000,
     AddSetupCode1800600000000,
-    AddSetupCodePrevious1800700000000
+    AddSetupCodePrevious1800700000000,
+    AddAuthenticationState1800800000000
 ]
