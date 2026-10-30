@@ -15,6 +15,7 @@
  */
 
 import { randomUUID } from 'crypto'
+import type { DataSource } from 'typeorm'
 import { expiredInviteCookie, inviteCookie, localCookie, sealedCookie } from './cookies'
 import {
     EMAIL_MAX_LENGTH,
@@ -61,6 +62,7 @@ import {
 } from './types'
 
 export interface AuthContext {
+    dataSource?: DataSource
     /** Captured at request start so a concurrent method switch can stop completion. */
     authenticationEpoch?: number
     workosConfigured: boolean
@@ -95,10 +97,10 @@ export interface AuthContext {
 const INVALID_LOGIN = 'Invalid email or password.'
 async function authenticationEpochCurrent(ctx: AuthContext): Promise<boolean> {
     if (ctx.authenticationEpoch === undefined) return true
+    if (!ctx.dataSource) return true
     const { refreshAuthenticationState, selectedAuthenticationEpoch } =
         require('./authenticationState') as typeof import('./authenticationState')
-    const { getDataSource } = require('../DataSource') as typeof import('../DataSource')
-    await refreshAuthenticationState(getDataSource(), true)
+    await refreshAuthenticationState(ctx.dataSource, true)
     return selectedAuthenticationEpoch() === ctx.authenticationEpoch
 }
 export function setupLinkNeeded(env: NodeJS.ProcessEnv = process.env): string {

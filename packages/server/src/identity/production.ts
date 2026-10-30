@@ -42,6 +42,10 @@ export function applicationSql(): Sql {
     return sqlFromDataSource(getDataSource())
 }
 
+export function applicationDataSource(): DataSource {
+    return getDataSource()
+}
+
 /**
  * Runs after migrations, before the server listens.
  * Returns the number of local sessions deleted when AuthKit has just become configured.
@@ -79,6 +83,7 @@ export async function buildAuthContext(req: Request): Promise<AuthContext> {
     const redirectUri = process.env.WORKOS_REDIRECT_URI
     const code = req.query?.code
     return {
+        dataSource: getDataSource(),
         authenticationEpoch: selectedAuthenticationEpoch(),
         workosConfigured: workosConfigured(),
         localAdmin: localAdminEnabled(),

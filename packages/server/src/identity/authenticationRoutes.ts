@@ -1,7 +1,6 @@
 /** Copyright 2026 The Cuttlely Authors. Licensed under the Apache License, Version 2.0. */
 import { randomUUID } from 'crypto'
 import { Request, Response, Router } from 'express'
-import { getDataSource } from '../DataSource'
 import {
     AuthenticationMethod,
     acknowledgeAuthenticationWarning,
@@ -13,7 +12,7 @@ import {
 } from './authenticationState'
 import { LOCAL_SESSION_COOKIE, RECENT_AUTH_COOKIE, localAdminEnabled, localUsersSetting, workosEnvironmentConfigured } from './constants'
 import { hashSessionToken } from './password'
-import { applicationSql, identityStore } from './production'
+import { applicationDataSource, applicationSql, identityStore } from './production'
 import { requirePermission } from './rbac'
 import { safeRecordAudit } from './auditLog'
 
@@ -38,7 +37,7 @@ async function recentlyAuthenticated(req: Request): Promise<boolean> {
     }
     const who = actor(req)
     const recent = cookies[RECENT_AUTH_COOKIE]
-    return Boolean(who && recent && (await hasRecentAuthentication(getDataSource(), who.id, recent)))
+    return Boolean(who && recent && (await hasRecentAuthentication(applicationDataSource(), who.id, recent)))
 }
 
 async function ownerRecoveryReady(): Promise<boolean> {
@@ -63,7 +62,8 @@ identityAuthenticationRouter.use(requirePermission('authentication:manage'))
 
 identityAuthenticationRouter.get('/', async (_req: Request, res: Response) => {
     try {
-        const state = (await readAuthenticationState(getDataSource())) || (await initializeAuthenticationState(getDataSource()))
+        const state =
+            (await readAuthenticationState(applicationDataSource())) || (await initializeAuthenticationState(applicationDataSource()))
         res.set('Cache-Control', 'no-store')
             .status(200)
             .json({
@@ -102,7 +102,7 @@ identityAuthenticationRouter.post('/stage', async (req: Request, res: Response) 
         }
         if (!(await recentlyAuthenticated(req)))
             return void res.status(409).json({ code: 'REAUTH_REQUIRED', message: 'Sign in again before changing the sign-in method.' })
-        const state = await readAuthenticationState(getDataSource())
+        const state = await readAuthenticationState(applicationDataSource())
         if (!state || state.version !== version)
             return void res.status(409).json({ code: 'STATE_CHANGED', message: 'Authentication settings changed. Reload and try again.' })
         const id = randomUUID()
@@ -134,7 +134,7 @@ identityAuthenticationRouter.post('/apply', async (req: Request, res: Response) 
     }
     stages.delete(body.stage as string)
     try {
-        const after = await switchAuthenticationMethod(getDataSource(), staged.method, staged.version, {
+        const after = await switchAuthenticationMethod(applicationDataSource(), staged.method, staged.version, {
             organizationId: who.organizationId,
             actorId: who.id
         })
@@ -163,7 +163,7 @@ identityAuthenticationRouter.post('/acknowledge-warning', async (req: Request, r
     if (!(await recentlyAuthenticated(req)))
         return void res.status(409).json({ code: 'REAUTH_REQUIRED', message: 'Sign in again before acknowledging this warning.' })
     try {
-        const state = await acknowledgeAuthenticationWarning(getDataSource(), Number((req.body as { version?: unknown }).version), {
+        const state = await acknowledgeAuthenticationWarning(applicationDataSource(), Number((req.body as { version?: unknown }).version), {
             organizationId: who.organizationId,
             actorId: who.id
         })
