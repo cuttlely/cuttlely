@@ -6,6 +6,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Optional per-specialist **Trusted outputs** bind a tested query hash to exact source Markdown fields, a verified monthly-utilization PNG or an exact source table CSV (up to 100 rows). The server uses the actual captured result and native attachment transport, replaces conflicting model output, preserves source section captions and reference blocks, and skips Harness Prime rewriting. Empty remains off; failures and unsupported sections are explicit. See [Trusted pinned-query outputs](./docs/reference/trusted-outputs.md).
+
+-   Harness Specialist **Capacity wait (seconds)** can wait up to 60 seconds when the agent runtime rejects a new run because all concurrent-run slots are busy. It defaults to `0`, off, honors `Retry-After` and the turn budget, and does not rerun accepted turns or tools.
+
+-   The PostgreSQL MCP pinned-query editor adds typed parameters, **Test & save** stamps, and best-effort audit entries for query changes and successful tests.
+
+-   Agent Team lists have card and table views, model/tool/MCP icons, category chips and editing, sorting, and search by name or category.
+
 -   **Agent run time** in **Admin** > **Server Settings** > **Agent runtime** configures specialist and nested-task waits. It defaults to four minutes; set 300 seconds for five minutes or `0` for unlimited, then restart. The whole-turn budget and cancellation still apply.
 
 -   Harness Specialist **Pin first** can run one matching pinned query and render its answer before any specialist model call. Rule patterns match with a 50 ms limit per pass, and a pattern that runs longer is a miss. The option defaults to off.
@@ -25,6 +33,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Analyst Postgres queries (a Postgres URL credential, `CUTTLELY_POSTGRES_URL`, the PostgreSQL MCP node and auto storage on Postgres) whose first page holds every row run their statement once instead of four times: the row count, the column type probe and the row length pass now run only when the first page is full or cut, and a result that pages is unchanged. Each transaction the query opens starts in one round trip, the PostgreSQL MCP node reuses its table selection summary for 30 seconds instead of opening a connection on every call, and the run trace's query step records per-step timings (`timings`), with the database's share (`dbMs`, every round trip to Postgres) apart from the connect (`connectMs`) and Cuttlely's own time (`cuttlelyMs`).
 
 ### Fixed
+
+-   Trusted PNG/CSV replay through a Harness card returns real in-memory previews without persistent storage or successful chat-download events. Compare remains text-only; normal delivery still requires storage success within the turn deadline.
 
 -   Pinned and SQL fast-path answers no longer fall back to the slower handoff on long results that contain URLs or ellipses. Tool details are masked by one JSON-aware step in every event, the returned payload and the trace, so they stay valid JSON, including a string that is itself JSON. A string in a tool detail that still holds an absolute path after text masking, such as `a|/srv/x.csv`, is replaced as a whole; a URL keeps `,` and `;` in its query or fragment, and the workspace folder or a `file://` address after it is still replaced. A label such as `Q3..Q4` is no longer read as a path. Answer text keeps the existing masking.
 

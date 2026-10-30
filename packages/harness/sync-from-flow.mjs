@@ -1,4 +1,5 @@
 import { parsePinFirstRules } from './pin-first.mjs'
+import { trustedOutputContracts } from './trusted-output.mjs'
 import { SAVE_CALLERS, assertHarnessCaller } from './caller.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
@@ -8,6 +9,7 @@ import { assertRosterLimits, assertSavedHarnessName, getHarness, playbookList, r
 import { toolCallingWarnings } from './tool-fallback.mjs'
 import { SPECIALIST_PRESETS, presetName } from './presets.mjs'
 import { assertPinnedQueryRoster } from './pinned-names.mjs'
+import { specialistCapacityWaitSeconds } from './capacity-wait.mjs'
 
 function boolInput(value) {
     return value === true || value === 'true'
@@ -207,7 +209,12 @@ export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, wor
                 ...(playbookList(inputs.playbooks).length ? { playbooks: playbookList(inputs.playbooks) } : {}),
                 ...(boolInput(inputs.pinFirst) ? { pinFirst: true } : {}),
                 ...(inputs.pinFirstRules ? { pinFirstRules: parsePinFirstRules(inputs.pinFirstRules) } : {}),
+                ...(inputs.trustedOutputs ? { trustedOutputs: trustedOutputContracts(inputs.trustedOutputs) } : {}),
+                ...(inputs.trustedOutputPolicy ? { trustedOutputPolicy: inputs.trustedOutputPolicy } : {}),
                 ...(boolInput(inputs.answerDirect) ? { answerDirect: true } : {}),
+                ...(specialistCapacityWaitSeconds(inputs.capacityWaitSeconds)
+                    ? { capacityWaitSeconds: specialistCapacityWaitSeconds(inputs.capacityWaitSeconds) }
+                    : {}),
                 ...(specialistHandoffChars(inputs.handoffChars) ? { handoffChars: specialistHandoffChars(inputs.handoffChars) } : {}),
                 ...(models.model ? { model: models.model } : {}),
                 ...(models.fallback ? { fallbackModel: models.fallback } : {}),
@@ -245,6 +252,8 @@ export function assertFlowLimits({ name, flowData }) {
             return {
                 name: inputs.specialistName || inputs.name || specialist.data?.label || specialist.id,
                 modules: parseMaybeJson(inputs.modules),
+                ...(inputs.trustedOutputs ? { trustedOutputs: inputs.trustedOutputs } : {}),
+                ...(inputs.trustedOutputPolicy ? { trustedOutputPolicy: inputs.trustedOutputPolicy } : {}),
                 mcpServers: [...bindings, ...parseMaybeJson(inputs.mcpServers)]
             }
         })

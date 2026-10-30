@@ -1,6 +1,6 @@
 # Harnesses
 
-A harness is an agent team, the part of Cuttlely that does the work for your app. **Harness Prime** reads each message, splits it among the specialists that should handle it, and writes the final answer. Your app reaches the team through a chatflow's prediction API, and people reach it through that chatflow's chat, share link or website embed. Each **Harness Specialist** has a name, its own instructions, and its own tools, such as a document store or a database. In the app the sidebar calls this **Harness · Agent Team**. The canvas node id stays `harnessChief`, so a saved flow still loads.
+A harness is an agent team, the part of Cuttlely that does the work for your app. **Harness Prime** reads each message, splits it among the specialists that should handle it, and writes the final answer. Your app reaches the published team through its HARNESS canvas prediction API or through a chatflow with a Harness card. People can also reach it through that chatflow's chat, share link or website embed. Each **Harness Specialist** has a name, its own instructions, and its own tools, such as a document store or a database. In the app the sidebar calls this **Harness · Agent Team**. The canvas node id stays `harnessChief`, so a saved flow still loads.
 
 Use a harness when one chat has to do several different jobs and each job needs its own tools. A support desk that looks things up in documents and also answers questions from a database is one example. For a single chat model with one prompt, a chatflow is enough. For a fixed series of steps, use an agentflow. For loading documents into a store, use [ETL](./etl.md).
 
@@ -11,6 +11,10 @@ The steps below build the **Chief of Staff Harness** template with an OpenAI mod
 ## Open the agent team page
 
 Select **Harness · Agent Team** in the sidebar. The page lists the saved harnesses in the active team. A harness and its runs belong to that team. Opening a harness from another team looks the same as a missing harness. A saved harness that is not in a team yet cannot be taken over by saving that name, and that save does not keep the canvas. A chat, share link, embed, webhook, or schedule does not run it until the server has assigned its team. A run from another team is refused the same way, including when harness jobs run in this process or in a separate worker, and that refusal does not store the question on the other team's runs. A chatflow that names that harness is not saved. With none saved, it says `No agent teams yet` and offers **Start from template** and **New agent team**.
+
+Switch between **Card View** and **List View** with the buttons above the saved teams. In List View, select **Name** or **Last Modified Date** to sort; select the same heading again to reverse the order. The browser remembers your view and list sort. Search matches the team's name or its categories. Both views show category chips and icons for the team's models, tools and MCP nodes; the list groups the icons under **Nodes**.
+
+To organize a team, select its **Update Category** tag icon. Type a tag under **Add a tag**, press Enter to add it, and select **Submit**. Repeat for more tags, or remove a chip to remove a tag. This action needs `chatflows:update` or `agentflows:update`. Categories stay with the team when you save its canvas.
 
 ![The Harness · Agent Team page with no harnesses. A Try the demo card is at the top with Add a model key, Try the demo, and Or start with the bakery quickstart. Below it, a What are you building? card with the mascot offers Agent team, Chat / simple AI app, Workflow / automation, and Knowledge / data pipeline. Below that the empty state reads No agent teams yet and Start one from a template or with Build with AI, then call it from your app, with Start from template and New agent team buttons.](../images/harnesses/agent-team-empty.png)
 
@@ -159,6 +163,8 @@ The model writes its own wording, so your answer will differ. What should match 
 
 ## Read the run card
 
+[Tune and publish an agent team](./tune-agent-team.md) walks through the answer settings, tested SQL, limits, API calls and a draft regression check.
+
 The same card shows in the canvas chat, in a chatflow chat, and on the harness page.
 
 | Part                                      | Meaning                                                                                                                                                                                                        |
@@ -190,6 +196,10 @@ Select a specialist row to open it. It shows the task Harness Prime gave that sp
 Those same steps can be sent as an OpenTelemetry trace: the run, the route, each specialist, each tool call, and the handoff. See [Harness runs](./observability.md#harness-runs).
 
 Each chip is the tool name and `done`, `retried`, or `failed`. A specialist's tools are offered to it directly, so the first chip is the tool itself, such as `mcp__analyst__query`, not a `tool_search` and `tool_call` lookup first. A failed chip is red. Hold the pointer over a `retried` chip for the reason. An analyst query chip that returned rows also says how many, such as `mcp__analyst__query · done · 100 rows`. Select it to open a short preview of those rows, never more than the configured row cap (at most 1000). The table starts closed. It shows the first few rows and columns, with long values cut short. When the preview is shorter than a finished page with no page line, the caption says the answer can show fewer rows than the query returned. When the result has a page line and the question asks for the rows, the caption says the rest of these rows are in the answer in this chat. A count or a total does not. It says to say `show more` only when another page exists. Select the chip again to close it. The preview is saved with the run trace. It is only rows that query already returned. Harness Prime gets a short handoff, and the answer can show only the top rows. A database result that stopped at the row cap ends with a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The cap is 100 rows unless you change it, and never more than 1000. Say `show more` for the next page. See [Query preview on the run card](./analyst.md#query-preview-on-the-run-card).
+
+For source-defined reports, monthly-utilization PNGs and exact table CSVs that must bypass model transcription, see [Trusted pinned-query outputs](../reference/trusted-outputs.md). This optional per-specialist setting consumes actual captured pin results; empty remains off.
+
+**Capacity wait (seconds)** is an optional specialist setting under **Additional Parameters**. It defaults to `0`, off. A positive value waits up to that many seconds, at most 60, if the agent runtime rejects a new run because its concurrent-run slots are busy. It honors `Retry-After` and backs off between admission attempts. The existing turn cancellation and time limits still apply. This setting affects only specialists where it is enabled: it does not raise the shared runtime limit. Accepted runs, tool calls, provider quotas, and ambiguous connection failures are never rerun by this setting. Capacity waits are recorded in the server log.
 
 ### How long a turn should take
 
@@ -243,7 +253,7 @@ Back on **Harness · Agent Team**, the harness has a card with its name, `Update
 
 ![The Harness · Agent Team page with one card, chief-of-staff, 2 specialists, under the What are you building? card.](../images/harnesses/harness-list.png)
 
-Select the card. The harness page is `/harnesses/chief-of-staff`. **Open Canvas** at the top right goes back to the canvas.
+Select the card or the team's name in List View. The harness page is `/harnesses/chief-of-staff`. **Open Canvas** at the top right goes back to the canvas.
 
 1. Type a prompt under **Try it**, for example `Use the analyst database. How many tasks are open, and what are their titles?`
 2. Select **Run**.

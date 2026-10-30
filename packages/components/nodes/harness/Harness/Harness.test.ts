@@ -1,3 +1,6 @@
+import path from 'path'
+import { execFileSync } from 'child_process'
+
 const mockHarnessRuns: { current: Record<string, unknown> | null } = { current: null }
 const listedHarnesses: Array<{ name: string; description?: string; workspaceId?: string }> = []
 const assertHarnessWorkspace = jest.fn()
@@ -52,6 +55,21 @@ const {
 } = require('./Harness')
 const { addSingleFileToStorage, getFileFromStorage } = require('../../../src/storageUtils')
 
+it('stores real verified-renderer PNG bytes through the native attachment path', async () => {
+    const fixture = path.resolve(__dirname, '../../../../harness/test/trusted-output-fixture.mjs')
+    const artifact = JSON.parse(
+        execFileSync(process.execPath, [fixture, '--artifact'], { encoding: 'utf8', timeout: 15000, maxBuffer: 5 * 1024 * 1024 })
+    )
+    const before = addSingleFileToStorage.mock.calls.length
+    const stored = await storeHarnessImages([artifact], { chatflowid: 'fixture-flow', chatId: 'fixture-chat', orgId: 'fixture-org' })
+    const call = addSingleFileToStorage.mock.calls[before]
+    expect(call[0]).toBe('image/png')
+    expect(call[1]).toEqual(Buffer.from(artifact.base64, 'base64'))
+    expect(call[1].subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+    expect(call[2]).toMatch(new RegExp(artifact.name.replace('.', '\\.')))
+    expect(stored).toEqual([{ type: 'png', data: `FILE-STORAGE::${call[2]}` }])
+}, 20000)
+
 type Sent = { kind: string; name?: string; data: unknown }
 
 function fakeStreamer() {
@@ -64,6 +82,213 @@ function fakeStreamer() {
         streamSourceDocumentsEvent: (_chatId: string, data: unknown) => sent.push({ kind: 'sources', data })
     }
 }
+
+describe('verified native output delivery', () => {
+    const text = 'Attached file: verified.png\n\nScope: exact source.\n\n[r1]: https://example.org/record/1\n'
+    const artifact = { name: 'verified.png', type: 'png', mime: 'image/png', specialist: 'data', base64: 'iVBORw0KGgo=' }
+    const payload = () => ({ text, trustedOutput: true, artifacts: [artifact], trace: { handoff: { reason: 'trustedOutput' } } })
+    function events(opts: any) {
+        opts.onEvent({ type: 'partial', phase: 'answer', text, trustedOutput: true })
+        opts.onEvent({ type: 'final', text, trustedOutput: true, artifacts: [{ name: artifact.name, type: 'png' }] })
+    }
+    afterEach(() => {
+        mockHarnessRuns.current = null
+    })
+
+    it('persists native bytes before sending exact answer tokens or final events', async () => {
+        const stream = fakeStreamer()
+        const sse = { ...stream, streamArtifactsEvent: (_chat: string, data: unknown) => stream.sent.push({ kind: 'artifacts', data }) }
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            events(opts)
+            return payload()
+        })
+        addSingleFileToStorage.mockImplementationOnce(async (_mime: string, _bytes: Buffer, name: string) => {
+            expect(stream.sent).toEqual([])
+            return { path: `FILE-STORAGE::${name}` }
+        })
+        const out = await new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Make the chart', {
+            chatId: 'verified-chat',
+            chatflowid: 'verified-flow',
+            orgId: 'verified-org',
+            sseStreamer: sse
+        })
+        expect(out.text).toBe(text)
+        expect(out.artifacts).toHaveLength(1)
+        expect(stream.sent[0].kind).toBe('artifacts')
+        expect(stream.sent.find((item) => item.kind === 'token')?.data).toBe(text)
+        expect(stream.sent.find((item) => item.name === 'harness.final')).toBeDefined()
+    })
+
+    it('storage failure never streams or returns an acknowledgment with empty attachments', async () => {
+        const stream = fakeStreamer()
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            events(opts)
+            return payload()
+        })
+        addSingleFileToStorage.mockRejectedValueOnce(new Error('synthetic storage failure'))
+        const quiet = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+            await expect(
+                new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Make the chart', {
+                    chatId: 'verified-chat',
+                    chatflowid: 'verified-flow',
+                    orgId: 'verified-org',
+                    sseStreamer: stream
+                })
+            ).rejects.toMatchObject({ code: 'trusted_output' })
+        } finally {
+            quiet.mockRestore()
+        }
+        expect(stream.sent).toEqual([])
+    })
+
+    it.each(['before storage', 'during storage'])('expired budget %s suppresses verified delivery', async (phase) => {
+        const stream = fakeStreamer()
+        let now = Date.now()
+        const deadline = now + 1000
+        const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            events(opts)
+            if (phase === 'before storage') now = deadline
+            return { ...payload(), trustedOutputDeadlineAt: deadline }
+        })
+        const before = addSingleFileToStorage.mock.calls.length
+        if (phase === 'during storage')
+            addSingleFileToStorage.mockImplementationOnce(async () => {
+                now = deadline
+                return { path: 'FILE-STORAGE::expired.png' }
+            })
+        try {
+            await expect(
+                new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Make the chart', {
+                    chatId: 'verified-chat',
+                    chatflowid: 'verified-flow',
+                    orgId: 'verified-org',
+                    sseStreamer: stream
+                })
+            ).rejects.toMatchObject({ code: 'over_budget' })
+            expect(stream.sent).toEqual([])
+            expect(addSingleFileToStorage.mock.calls.length - before).toBe(phase === 'before storage' ? 0 : 1)
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it('cancellation during persistence suppresses final and native delivery', async () => {
+        const stream = fakeStreamer(),
+            controller = new AbortController()
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            events(opts)
+            return payload()
+        })
+        addSingleFileToStorage.mockImplementationOnce(async () => {
+            controller.abort()
+            return { path: 'FILE-STORAGE::cancelled.png' }
+        })
+        await expect(
+            new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Make the chart', {
+                chatId: 'verified-chat',
+                chatflowid: 'verified-flow',
+                orgId: 'verified-org',
+                sseStreamer: stream,
+                signal: controller.signal
+            })
+        ).rejects.toMatchObject({ code: 'aborted' })
+        expect(stream.sent).toEqual([])
+    })
+})
+
+describe('verified CSV native delivery', () => {
+    let csv: { name: string; type: string; mime: string; base64: string; specialist: string }
+    let png: typeof csv
+    const options = { chatId: 'csv-chat', chatflowid: 'csv-flow', orgId: 'csv-org' }
+    beforeAll(() => {
+        const fixture = path.resolve(__dirname, '../../../../harness/test/trusted-output-fixture.mjs')
+        const readArtifact = (flag: string) =>
+            JSON.parse(
+                execFileSync(process.execPath, [fixture, flag], {
+                    encoding: 'utf8',
+                    timeout: 15000,
+                    maxBuffer: 5 * 1024 * 1024
+                })
+            )
+        csv = readArtifact('--csv-artifact')
+        png = readArtifact('--artifact')
+    }, 30000)
+    const sourcePayload = (artifacts: Array<typeof csv>) => ({
+        text: artifacts.map((artifact) => `Attached file: ${artifact.name}`).join('\n'),
+        trustedOutput: true,
+        artifacts,
+        trace: { handoff: { reason: 'trustedOutput' } }
+    })
+    const runPayload = (artifacts: Array<typeof csv>, deadline?: number) => {
+        const payload = { ...sourcePayload(artifacts), ...(deadline ? { trustedOutputDeadlineAt: deadline } : {}) }
+        queuedRun.mockImplementationOnce(async (opts: any) => {
+            opts.onEvent({ type: 'partial', phase: 'answer', text: payload.text, trustedOutput: true })
+            opts.onEvent({ type: 'final', text: payload.text, trustedOutput: true })
+            return payload
+        })
+        return payload
+    }
+    it.each([false, true])('persists exact CSV bytes before acknowledgment (mixed PNG %s)', async (mixed) => {
+        const artifacts = mixed ? [png, csv] : [csv]
+        const payload = runPayload(artifacts)
+        const stream = fakeStreamer()
+        const sse = { ...stream, streamArtifactsEvent: (_chat: string, data: unknown) => stream.sent.push({ kind: 'artifacts', data }) }
+        const callsBefore = addSingleFileToStorage.mock.calls.length
+        for (const artifact of artifacts)
+            addSingleFileToStorage.mockImplementationOnce(async (mime: string, bytes: Buffer, name: string) => {
+                expect(stream.sent).toEqual([])
+                expect(mime).toBe(artifact.mime)
+                expect(bytes).toEqual(Buffer.from(artifact.base64, 'base64'))
+                return { path: `FILE-STORAGE::${name}` }
+            })
+        const out = await new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Export the table', {
+            ...options,
+            sseStreamer: sse
+        })
+        expect(out.text).toBe(payload.text)
+        expect(out.artifacts.map((artifact: any) => artifact.type)).toEqual(artifacts.map((artifact) => artifact.type))
+        expect(out.artifacts.find((artifact: any) => artifact.type === 'csv').name).toBe(csv.name)
+        expect(addSingleFileToStorage.mock.calls.length - callsBefore).toBe(artifacts.length)
+        expect(stream.sent[0].kind).toBe('artifacts')
+        expect(stream.sent.find((item) => item.kind === 'token')?.data).toBe(payload.text)
+        expect(stream.sent.find((item) => item.name === 'harness.final')).toBeDefined()
+    })
+    it('CSV storage failure suppresses file acknowledgment', async () => {
+        runPayload([csv])
+        const stream = fakeStreamer()
+        addSingleFileToStorage.mockRejectedValueOnce(new Error('synthetic CSV storage failure'))
+        const quiet = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+            await expect(
+                new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Export the table', { ...options, sseStreamer: stream })
+            ).rejects.toMatchObject({ code: 'trusted_output' })
+        } finally {
+            quiet.mockRestore()
+        }
+        expect(stream.sent).toEqual([])
+    })
+    it('CSV deadline expiry during storage suppresses file acknowledgment', async () => {
+        let now = Date.now()
+        const deadline = now + 1000
+        const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+        runPayload([csv], deadline)
+        const stream = fakeStreamer()
+        addSingleFileToStorage.mockImplementationOnce(async () => {
+            now = deadline
+            return { path: 'FILE-STORAGE::expired.csv' }
+        })
+        try {
+            await expect(
+                new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Export the table', { ...options, sseStreamer: stream })
+            ).rejects.toMatchObject({ code: 'over_budget' })
+        } finally {
+            clock.mockRestore()
+        }
+        expect(stream.sent).toEqual([])
+    })
+})
 
 describe('Harness node team list', () => {
     it('lists only the active workspace', async () => {
@@ -1817,4 +2042,91 @@ describe('agentflow harness tool integration', () => {
         ])
         expect(message).toContain('TOOLS:harness')
     })
+})
+
+describe('verified replay previews', () => {
+    afterEach(() => {
+        mockHarnessRuns.current = null
+    })
+    it.each(['replay', 'cuttlelyReplay'])(
+        'returns real PNG and CSV bytes without storage or user download acknowledgment for %s',
+        async (flag) => {
+            const fixture = path.resolve(__dirname, '../../../../harness/test/trusted-output-fixture.mjs')
+            const artifacts = ['--artifact', '--csv-artifact'].map((mode) =>
+                JSON.parse(
+                    execFileSync(process.execPath, [fixture, mode], { encoding: 'utf8', timeout: 15000, maxBuffer: 5 * 1024 * 1024 })
+                )
+            )
+            const source =
+                'Scope: [2026-01-01, 2027-01-01) UTC.\r\nExact source note — Ω.\n\n[r]: https://example.org/record/1\n' +
+                `\nAttached file: ${artifacts[0].name}\n`
+            const text = artifacts.map((item) => `Preview file: ${item.name} (not saved to chat)`).join('\n') + '\n\n' + source
+            const stream = fakeStreamer()
+            queuedRun.mockImplementationOnce(async (opts: any) => {
+                expect(opts.trustedOutputPreview).toBe(true)
+                expect(opts).not.toHaveProperty('replay')
+                opts.onEvent({ type: 'partial', phase: 'answer', text, trustedOutput: true })
+                opts.onEvent({
+                    type: 'final',
+                    text,
+                    trustedOutput: true,
+                    artifacts: artifacts.map((item) => ({ name: item.name, type: item.type }))
+                })
+                return { text, trustedOutput: true, artifacts, trace: { handoff: { reason: 'trustedOutput' } } }
+            })
+            const before = addSingleFileToStorage.mock.calls.length
+            const out = await new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Preview the files', {
+                chatId: 'preview-chat',
+                chatflowid: 'preview-flow',
+                orgId: 'preview-org',
+                [flag]: true,
+                sseStreamer: stream
+            })
+            expect(addSingleFileToStorage.mock.calls.length).toBe(before)
+            expect(out.artifacts).toHaveLength(2)
+            for (const [index, item] of artifacts.entries()) {
+                expect(out.artifacts[index]).toEqual({ type: item.type, name: item.name, data: `data:${item.mime};base64,${item.base64}` })
+                expect(Buffer.from(out.artifacts[index].data.split(',')[1], 'base64')).toEqual(Buffer.from(item.base64, 'base64'))
+                expect(out.text).toContain(`Preview file: ${item.name} (not saved to chat)`)
+            }
+            expect(out.text.endsWith(source)).toBe(true)
+            expect(out.text).toContain(`Attached file: ${artifacts[0].name}`)
+            expect(stream.sent).toEqual([])
+        },
+        20000
+    )
+    it('still refuses cancelled or expired protected replay previews and empty native bytes', async () => {
+        const artifact = { type: 'csv', mime: 'text/csv', name: 'preview.csv', base64: Buffer.from('"a"\r\n').toString('base64') }
+        const before = addSingleFileToStorage.mock.calls.length
+        await expect(storeHarnessImages([artifact], { replay: true, signal: AbortSignal.abort() }, true)).rejects.toMatchObject({
+            code: 'aborted'
+        })
+        await expect(storeHarnessImages([artifact], { cuttlelyReplay: true }, true, Date.now() - 1)).rejects.toMatchObject({
+            code: 'over_budget'
+        })
+        await expect(storeHarnessImages([{ ...artifact, base64: '' }], { replay: true }, true)).rejects.toMatchObject({
+            code: 'trusted_output'
+        })
+        expect(addSingleFileToStorage.mock.calls.length).toBe(before)
+    })
+})
+
+it.each(['replay', 'cuttlelyReplay'])('keeps legacy unprotected %s text and storage behavior unchanged', async (flag) => {
+    const text = 'Legacy supplied plain text.'
+    const artifact = { type: 'csv', mime: 'text/csv', name: 'legacy.csv', base64: Buffer.from('"a"\r\n').toString('base64') }
+    queuedRun.mockImplementationOnce(async (opts: any) => {
+        expect(opts.trustedOutputPreview).toBe(true)
+        expect(opts).not.toHaveProperty('replay')
+        return { text, artifacts: [artifact] }
+    })
+    const before = addSingleFileToStorage.mock.calls.length
+    const out = await new HarnessNode().run({ inputs: { harnessName: 'fixture' } }, 'Preview legacy output', {
+        chatId: 'legacy-preview',
+        chatflowid: 'legacy-flow',
+        [flag]: true
+    })
+    expect(out.text).toBe(text)
+    expect(out.artifacts).toEqual([])
+    expect(addSingleFileToStorage.mock.calls.length).toBe(before)
+    mockHarnessRuns.current = null
 })

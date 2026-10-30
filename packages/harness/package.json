@@ -52,6 +52,8 @@
         "./worker.mjs": "./worker.mjs"
     },
     "dependencies": {
-        "@langchain/core": "1.1.20"
+        "@langchain/core": "1.1.20",
+        "@napi-rs/canvas": "0.1.73",
+        "mdast-util-from-markdown": "2.0.2"
     }
 }

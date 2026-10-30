@@ -5,6 +5,25 @@ import { HarnessFlowOptions, loadHarnessEngine } from '../engine'
 import { addSingleFileToStorage, getFileFromStorage } from '../../../src/storageUtils'
 import { ARTIFACTS_PREFIX } from '../../../src/agents'
 
+const trustedDelivery = new WeakMap<object, () => void>()
+const isTrustedOutput = (payload: any): boolean => payload?.trustedOutput === true || payload?.trace?.handoff?.reason === 'trustedOutput'
+const isHarnessReplay = (options: ICommonObject): boolean => Boolean(options?.replay || options?.cuttlelyReplay)
+function assertDeliveryActive(options: ICommonObject, deadlineAt?: number) {
+    if (abortSignalOf(options)?.aborted) throw harnessFailure('Run was cancelled.', 'aborted')
+    if (typeof deadlineAt === 'number' && Date.now() >= deadlineAt)
+        throw harnessFailure('The turn budget expired before verified output could be delivered.', 'over_budget')
+}
+function deliverTrustedOutput(payload: any, options: ICommonObject) {
+    if (!isTrustedOutput(payload)) return
+    assertDeliveryActive(options, payload.trustedOutputDeadlineAt)
+    if (isHarnessReplay(options)) {
+        trustedDelivery.delete(payload)
+        return
+    }
+    trustedDelivery.get(payload)?.()
+    trustedDelivery.delete(payload)
+}
+
 class Harness_Harness implements INode {
     label: string
     name: string
@@ -142,9 +161,11 @@ class Harness_Harness implements INode {
         const harnessName = selectedHarness(nodeData)
         const images = allowsImages(nodeData) ? await uploadedImages(options) : []
         const payload = await runNamedHarness(harnessName, input, options, !options.agentflowRuntime, undefined, undefined, images)
-        const stored = await storeHarnessImages(payload.artifacts, options)
+        const stored = await storeHarnessImages(payload.artifacts, options, isTrustedOutput(payload), payload.trustedOutputDeadlineAt)
         payload.artifacts = stored
-        if (!options.agentflowRuntime) streamStoredImages(options, stored)
+        if (isTrustedOutput(payload)) assertDeliveryActive(options, payload.trustedOutputDeadlineAt)
+        if (!options.agentflowRuntime && !(isTrustedOutput(payload) && isHarnessReplay(options))) streamStoredImages(options, stored)
+        deliverTrustedOutput(payload, options)
         if (options.agentflowRuntime) {
             return {
                 id: nodeData.id,
@@ -197,10 +218,17 @@ const HARNESS_FILE_TYPES = new Set(['pdf', 'docx', 'xlsx', 'pptx', 'csv'])
 
 // Images and files a specialist wrote this turn arrive as bytes. They are saved in the chat's file storage, and the
 // chat gets the usual artifacts: images show inline, files as downloads. A publish check replay stores nothing.
-async function storeHarnessImages(artifacts: unknown, options: ICommonObject): Promise<StoredArtifact[]> {
+async function storeHarnessImages(
+    artifacts: unknown,
+    options: ICommonObject,
+    requireAll = false,
+    deadlineAt?: number
+): Promise<StoredArtifact[]> {
     const list = Array.isArray(artifacts) ? (artifacts as HarnessImage[]) : []
     const stored: StoredArtifact[] = []
+    if (requireAll) assertDeliveryActive(options, deadlineAt)
     for (const [index, item] of list.entries()) {
+        if (requireAll) assertDeliveryActive(options, deadlineAt)
         if (!item || typeof item.base64 !== 'string') {
             if (item && typeof item.type === 'string' && typeof item.data === 'string') {
                 stored.push({ type: item.type, data: item.data, ...(typeof item.name === 'string' ? { name: item.name } : {}) })
@@ -208,7 +236,7 @@ async function storeHarnessImages(artifacts: unknown, options: ICommonObject): P
             continue
         }
         // buildChatflow marks a publish check with cuttlelyReplay; agentflow runs pass replay.
-        if (options?.replay || options?.cuttlelyReplay || !options?.chatflowid || !options?.chatId) continue
+        if ((!requireAll && isHarnessReplay(options)) || (!isHarnessReplay(options) && (!options?.chatflowid || !options?.chatId))) continue
         const mime = typeof item.type === 'string' ? HARNESS_ARTIFACT_MIMES[item.type] : undefined
         if (!mime || (item.mime && item.mime !== mime)) continue
         const isFile = HARNESS_FILE_TYPES.has(item.type as string)
@@ -217,6 +245,12 @@ async function storeHarnessImages(artifacts: unknown, options: ICommonObject): P
             .pop()
             ?.replace(/[^A-Za-z0-9._-]/g, '_')
         const fileName = `harness_${String(item.specialist || 'specialist').replace(/[^A-Za-z0-9_-]/g, '_')}_${Date.now()}_${index}_${base}`
+        if (requireAll && isHarnessReplay(options)) {
+            const bytes = Buffer.from(item.base64, 'base64')
+            if (!bytes.length) throw harnessFailure('Verified replay attachment has no bytes.', 'trusted_output')
+            stored.push({ type: item.type as string, data: `data:${mime};base64,${item.base64}`, ...(base ? { name: base } : {}) })
+            continue
+        }
         try {
             const result = await addSingleFileToStorage(
                 mime,
@@ -226,10 +260,20 @@ async function storeHarnessImages(artifacts: unknown, options: ICommonObject): P
                 options.chatflowid,
                 options.chatId
             )
+            if (requireAll) {
+                assertDeliveryActive(options, deadlineAt)
+                if (!result.path) throw harnessFailure('Verified attachment could not be stored.', 'trusted_output')
+            }
             stored.push({ type: item.type as string, data: result.path, ...(isFile ? { name: base } : {}) })
         } catch (error) {
+            if (requireAll && (abortSignalOf(options)?.aborted || (error as { code?: string }).code === 'over_budget')) throw error
             console.error('Harness could not store a specialist file:', error instanceof Error ? error.message : error)
         }
+    }
+    if (requireAll) {
+        assertDeliveryActive(options, deadlineAt)
+        if (stored.length !== list.length)
+            throw harnessFailure('Verified attachments could not be stored; no delivery was acknowledged.', 'trusted_output')
     }
     return stored
 }
@@ -292,9 +336,17 @@ function recordHarnessToolUsage(options: ICommonObject, payload: unknown) {
     })
 }
 
-async function harnessToolOutput(payload: { text?: string; artifacts?: unknown }, options: ICommonObject): Promise<string> {
+async function harnessToolOutput(
+    payload: { text?: string; artifacts?: unknown; trustedOutputDeadlineAt?: number },
+    options: ICommonObject
+): Promise<string> {
     const text = payloadText(payload)
-    const artifacts = await storeHarnessImages(payload?.artifacts, options)
+    const artifacts = await storeHarnessImages(payload?.artifacts, options, isTrustedOutput(payload), payload.trustedOutputDeadlineAt)
+    if (isTrustedOutput(payload)) {
+        assertDeliveryActive(options, payload.trustedOutputDeadlineAt)
+        if (!isHarnessReplay(options)) streamStoredImages(options, artifacts)
+        deliverTrustedOutput(payload, options)
+    }
     return artifacts.length ? text + ARTIFACTS_PREFIX + JSON.stringify(artifacts) : text
 }
 
@@ -905,6 +957,7 @@ async function runNamedHarness(
     }
     const harnessTrace = await openNodeHarnessTrace(harnessName, input, options)
     const forward = harnessOnEvent(options, streamAnswer, runManager, streamed)
+    const deferred: Array<{ type: string }> = []
     let runId: string | undefined
     try {
         // Copy the optional method first. A boolean from `typeof engine.runQueuedHarness` does not narrow it.
@@ -915,12 +968,16 @@ async function runNamedHarness(
             chatId,
             input,
             source: 'prediction',
+            ...(isHarnessReplay(options) ? { trustedOutputPreview: true } : {}),
             traceId: typeof options.executionId === 'string' ? options.executionId : undefined,
             componentNodes: options.componentNodes,
             flowOptions,
             onEvent: (event: { type: string }) => {
                 harnessTrace?.event(event as Record<string, unknown>)
-                forward?.(event)
+                const shaped = event as { type: string; phase?: string; trustedOutput?: boolean }
+                if (shaped.trustedOutput && (shaped.type === 'final' || (shaped.type === 'partial' && shaped.phase === 'answer')))
+                    deferred.push(event)
+                else forward?.(event)
             },
             signal: abortSignalOf(options),
             onRecorded: (row: unknown) => {
@@ -931,6 +988,8 @@ async function runNamedHarness(
             ...(metadata ? { metadata } : {}),
             ...(callbacks ? { callbacks } : {})
         })
+        if (isTrustedOutput(payload) && !isHarnessReplay(options) && deferred.length)
+            trustedDelivery.set(payload, () => deferred.forEach((event) => forward?.(event)))
         const jobRunId = takeJobRunId(payload)
         if (!runId && jobRunId) runId = jobRunId
         harnessTrace?.finish({ text: typeof payload?.text === 'string' ? payload.text : undefined, runId })

@@ -82,6 +82,16 @@ Adding pins does not turn off free SQL. The **query** tick is unchanged. With pi
 
 When a free `query` call runs on a node that is offering at least one valid pin, that trace step includes `freeSqlWithPin`, the tool names of those pins. The list is not a match between the SQL text and a pin. It only says the node had offered those pins.
 
+## Coordinate row limits and output
+
+A node row cap is one limit. A smaller literal SQL `LIMIT`, a pin's `rowCap`, or a parameter maximum can still stop a result earlier. For example, to support requests for up to 100 ranked rows, set the relevant node cap to at least 100, use the intended literal `LIMIT 100`, and give the ranking parameter a maximum of 100. Retest changed SQL or parameter specifications. Raising only the node cap does not change a saved `LIMIT 50` or a parameter capped at 50.
+
+Count the eligible population before applying a display limit when the answer needs both counts. Label a returned top-N ranking as top-N; it is not every eligible record. Test a request above an old limit and compare a smaller ranking before and after the change, including values and order.
+
+The node cap applies to physical SQL rows. A packed JSON result can contain many more records inside one row, so cap the array or export rows as well and report its exported count separately from the uncapped eligible count. Keep whole-cohort sums and counts before that limit. A partial export must state the exported and full totals; do not mark a capped payload complete. The 100-row example is a configuration choice, not a new global default.
+
+Pinned execution alone does not preserve the model's answer text or create a download. A specialist may still rewrite links or omit a file. To deliver selected source Markdown or a verified PNG/CSV directly, configure [Trusted outputs](../reference/trusted-outputs.md). [Tune and publish an agent team](./tune-agent-team.md) explains when to use it instead of Answer direct or Pin first. Each option is separate and off by default.
+
 ## What the trace stores
 
 Every analyst statement, free SQL and pinned, including a refused call, a failed call, and a later page, has `sqlHash` on the trace step.
