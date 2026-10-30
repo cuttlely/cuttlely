@@ -10,6 +10,8 @@ The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Acc
 
 The localhost switch for HTTP building blocks is `HTTP_ALLOW_LOCALHOST`. The default is `false`. Accepted values are exactly `true` and `false`. When it is `true`, any flow author can reach any service listening on the server’s own localhost (`127.0.0.0/8` and `::1`, and the names `localhost` and `ip6-localhost`) from HTTP building blocks. Nothing else is opened: `0.0.0.0`, `::`, link-local and cloud metadata addresses, private ranges, and every `HTTP_DENY_LIST` entry stay blocked. It applies on the next request, without a restart. When `HTTP_SECURITY_CHECK` is `false`, the built-in block list is off, so loopback is already reachable and this switch changes nothing; only `HTTP_DENY_LIST` entries are blocked.
 
+The agent runtime concurrency limit is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. The default is `10`. Accepted values are whole numbers from `0` to `100`; `0` means no limit. Higher values use more memory and CPU. It applies after a restart: the start script writes it to `gateway.api_server.max_concurrent_runs` in the agent runtime’s `config.yaml` and keeps the other keys there.
+
 Pinned queries are `CUTTLELY_PINNED_QUERIES`. They are on only when the value is exactly `1` or `true`. Any other value, including `false`, `yes`, `on`, `TRUE`, and an empty value, leaves them off. Off removes the pinned query tools at the next start.
 
 The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters each `content.input` and `content.output` span attribute keeps. The default is `4000`. Accepted values are a positive whole number, or `0` for no limit. No limit sends the full question and answer text to your OpenTelemetry collector, so use it only with a collector you trust. [Run traces](../how-to/observability.md#full-question-and-answer-text).
@@ -42,6 +44,7 @@ The trace content limit is `CUTTLELY_OTEL_TRACES_CONTENT_MAX`, the characters ea
 | `DATABASE_REJECT_UNAUTHORIZED`               | false                                       | —                 | —             | Host, then Server settings     | Yes     |
 | `DATABASE_SSL_KEY_BASE64`                    | not shown                                   | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`            | 240000                                      | 0 to 3600         | ms-as-seconds | Host, then Server settings     | Yes     |
+| `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`        | 10                                          | 0 to 100          | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_HARNESS_TURN_BUDGET_MS`            | 45000                                       | 0 to 3600         | ms-as-seconds | Host, then Server settings     | Yes     |
 | `CUTTLELY_HARNESS_MODEL_FALLBACK_MS`         | 8000                                        | 0 to 600          | ms-as-seconds | Host, then Server settings     | Yes     |
 | `CUTTLELY_HARNESS_SPECIALIST_CONTEXT_TOKENS` | 4000                                        | 0 to 1000000      | tokens        | Host, then Server settings     | Yes     |

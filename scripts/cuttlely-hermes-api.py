@@ -98,6 +98,108 @@ try:
 except Exception as error:  # noqa: BLE001
     sys.stderr.write(f"[Cuttlely] Could not apply the offline defaults to {config}: {error}\n")
 
+# Admin > Server settings > Agent runtime > Limits > Maximum concurrent agent runs. The agent runtime reads
+# gateway.api_server.max_concurrent_runs once when it starts, so the value is written here before it starts and
+# a change applies on the next restart. Only that one key is touched. A marker file remembers the value Cuttlely
+# wrote, so clearing the setting removes it again (back to the runtime default, 10) while a value an operator
+# typed into config.yaml by hand is left alone.
+MAX_CONCURRENT_RUNS_ENV = "CUTTLELY_HERMES_MAX_CONCURRENT_RUNS"
+MAX_CONCURRENT_RUNS_LIMIT = 100
+MAX_CONCURRENT_RUNS_MARKER = ".cuttlely-max-concurrent-runs"
+
+
+def parse_max_concurrent_runs(raw):
+    """A whole number from 0 to 100, or None (unset or unusable)."""
+    text = (raw or "").strip()
+    if not text.isdigit():
+        return None
+    value = int(text)
+    return value if value <= MAX_CONCURRENT_RUNS_LIMIT else None
+
+
+def write_text_atomic(path, text):
+    import tempfile
+
+    mode = None
+    try:
+        mode = path.stat().st_mode & 0o777
+    except FileNotFoundError:
+        pass
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def apply_max_concurrent_runs(path, raw, load, dump):
+    """Merge the saved limit into config.yaml. Returns the value in effect from Cuttlely, or None."""
+    marker = path.parent / MAX_CONCURRENT_RUNS_MARKER
+    wanted = parse_max_concurrent_runs(raw)
+    if (raw or "").strip() and wanted is None:
+        sys.stderr.write(f"[Cuttlely] {MAX_CONCURRENT_RUNS_ENV} must be a whole number from 0 to {MAX_CONCURRENT_RUNS_LIMIT}. Leaving config.yaml as it is.\n")
+        return None
+    data = load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        return None
+    try:
+        written = int(marker.read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
+        written = None
+    gateway = data.get("gateway")
+    api = gateway.get("api_server") if isinstance(gateway, dict) else None
+    current = api.get("max_concurrent_runs") if isinstance(api, dict) else None
+    if wanted is None:
+        if written is not None and isinstance(api, dict) and current == written:
+            del api["max_concurrent_runs"]
+            if not api:
+                del gateway["api_server"]
+            write_text_atomic(path, dump(data))
+        if written is not None:
+            marker.unlink(missing_ok=True)
+        return None
+    if gateway is None:
+        gateway = data["gateway"] = {}
+    if not isinstance(gateway, dict):
+        return None
+    if api is None:
+        api = gateway["api_server"] = {}
+    if not isinstance(api, dict):
+        return None
+    if current != wanted or type(current) is not int:
+        api["max_concurrent_runs"] = wanted
+        write_text_atomic(path, dump(data))
+    if written != wanted:
+        write_text_atomic(marker, f"{wanted}\n")
+    return wanted
+
+
+def apply_saved_max_concurrent_runs(path):
+    import hermes_yaml
+
+    apply_max_concurrent_runs(
+        path,
+        os.environ.get(MAX_CONCURRENT_RUNS_ENV),
+        hermes_yaml.safe_load,
+        lambda data: hermes_yaml.safe_dump(data, sort_keys=False),
+    )
+
+
+try:
+    apply_saved_max_concurrent_runs(config)
+except Exception as error:  # noqa: BLE001
+    sys.stderr.write(f"[Cuttlely] Could not apply {MAX_CONCURRENT_RUNS_ENV} to {config}: {error}\n")
+
 os.chdir(HERMES)
 sys.argv = ["hermes", "gateway"]
 

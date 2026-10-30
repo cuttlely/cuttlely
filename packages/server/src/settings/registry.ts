@@ -488,6 +488,20 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
+        key: 'CUTTLELY_HERMES_MAX_CONCURRENT_RUNS',
+        section: 'runtime',
+        group: 'Limits',
+        label: 'Maximum concurrent agent runs',
+        help: 'How many agent runs the agent runtime works on at the same time. A run over the limit is turned away as busy. 0 means no limit. Higher values use more memory and CPU, and more model requests at once. Restart to apply.',
+        type: 'number',
+        integer: true,
+        min: 0,
+        max: 100,
+        defaultLabel: '10',
+        defaultValue: '10',
+        risk: 'medium'
+    },
+    {
         key: 'CUTTLELY_HARNESS_TURN_BUDGET_MS',
         section: 'runtime',
         group: 'Limits',

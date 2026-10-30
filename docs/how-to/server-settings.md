@@ -83,6 +83,12 @@ The variable is `CUTTLELY_HARNESS_RUN_TIMEOUT_MS`. The API and host use millisec
 
 **Turn time limit** separately bounds the whole team turn and defaults to 45 seconds. A shorter turn limit still stops unfinished work, so raise it too when a turn needs longer, or set it to `0` to turn that limit off. Unlimited agent run time still permits cancellation and does not remove model, provider, other MCP tool, SQL query, or HTTP request limits. [How long a turn should take](./harnesses.md#how-long-a-turn-should-take) explains the whole-turn budget.
 
+## Maximum concurrent agent runs
+
+Under **Agent runtime** > **Limits**, **Maximum concurrent agent runs** caps how many agent runs the agent runtime works on at the same time, across every agent team. The default is **10**. The field accepts 0 to 100; **0** means no limit. A run over the limit is turned away as busy, and the agent team turn reports it unless the specialist's **Capacity wait** is on (see [Agent teams](./harnesses.md)). Higher values use more memory and CPU, and send more model requests at once. Review and save, then restart Cuttlely to apply it. A value set on the host locks the field.
+
+The variable is `CUTTLELY_HERMES_MAX_CONCURRENT_RUNS`. When the agent runtime starts, `scripts/cuttlely-hermes-api.py` writes it to `gateway.api_server.max_concurrent_runs` in the agent runtime's `config.yaml` (`$HERMES_HOME/config.yaml`). Only that key changes; the rest of the file is kept. A saved value replaces a value typed into that file by hand. Clearing the setting removes the value Cuttlely wrote, so the runtime default of 10 applies again, and leaves a value someone typed into the file afterwards alone.
+
 ## Analyst limits
 
 **Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host value above the maximum is treated as the maximum. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number counts as unset, so the default applies, and the server logs that once.

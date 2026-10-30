@@ -70,6 +70,25 @@ describe('checking values from the page', () => {
         for (const value of ['-1', '1.5', '3600001', 'Infinity', 'NaN', 'soon']) expect(checkValue(runTime, value).ok).toBe(false)
     })
 
+    it('bounds the agent runtime concurrency limit to whole runs from 0 to 100, restart to apply', () => {
+        const runs = def('CUTTLELY_HERMES_MAX_CONCURRENT_RUNS')
+        expect(runs).toMatchObject({
+            section: 'runtime',
+            group: 'Limits',
+            type: 'number',
+            integer: true,
+            min: 0,
+            max: 100,
+            defaultValue: '10'
+        })
+        expect(runs.runtime).toBeUndefined()
+        expect(runs.help).toMatch(/0 means no limit/)
+        expect(runs.help).toMatch(/more memory and CPU/)
+        expect(runs.help).toMatch(/Restart to apply/)
+        for (const value of ['0', '1', '10', '100']) expect(checkValue(runs, value)).toEqual({ ok: true, value })
+        for (const value of ['-1', '101', '2.5', 'Infinity', 'NaN', 'many']) expect(checkValue(runs, value).ok).toBe(false)
+    })
+
     it('tidies lists and refuses multi-line text', () => {
         expect(checkValue(def('CORS_ORIGINS'), 'https://a.example.com\n https://a.example.com, https://b.example.com')).toEqual({
             ok: true,
