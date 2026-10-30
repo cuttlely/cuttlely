@@ -1,6 +1,6 @@
 # Memory
 
-Tool-schema refresh needs both identities: a bridge's tool-binding content must change its persistent MCP schema fingerprint, and discovery must retire an old same-profile live/lazy registration before reusing its name. Updating profile files or only adding revision args is insufficient when a connected server remains in the registry. Keep the public tool namespace stable and preserve profile/credential scope isolation. Do not replay an accepted query to recover from a schema change.
+Tool-schema refresh needs both identities and the caller's readiness gate: a bridge's tool-binding content must change its persistent MCP schema fingerprint, discovery must retire an old same-profile live/lazy registration before reusing its name, and the already-started API discovery probe must report changed identities as pending. Testing registration directly misses a startup gate that skips connected names. Keep the public tool namespace stable, existing conversation snapshots byte-stable, and profile/credential scopes isolated. Do not replay an accepted query to recover from a schema change.
 
 Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a lesson only when one was actually learned.
 
