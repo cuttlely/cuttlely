@@ -78,6 +78,11 @@ function loginLimiter(): SqlLoginRateLimit {
     return limiter
 }
 
+/** Brings this process's view of the sign-in method up to date within the shared state cache window. */
+export async function refreshAuthenticationView(): Promise<void> {
+    await refreshAuthenticationState(getDataSource())
+}
+
 export async function buildAuthContext(req: Request): Promise<AuthContext> {
     await refreshAuthenticationState(getDataSource())
     const redirectUri = process.env.WORKOS_REDIRECT_URI

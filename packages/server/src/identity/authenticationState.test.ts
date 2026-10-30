@@ -198,6 +198,31 @@ describe('authentication provider foundation', () => {
         await db.destroy()
     })
 
+    it('adopts the row created by another process that started at the same time', async () => {
+        const db = await database()
+        const winner = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+        const createQueryRunner = db.createQueryRunner.bind(db)
+        let hidden = false
+        jest.spyOn(db, 'createQueryRunner').mockImplementation((...args) => {
+            const runner = createQueryRunner(...args)
+            const original = runner.query.bind(runner)
+            runner.query = (async (sql: string, parameters?: unknown[]) => {
+                if (!hidden && /^SELECT \* FROM "identity_authentication_state"/.test(sql)) {
+                    hidden = true
+                    return []
+                }
+                return original(sql, parameters)
+            }) as typeof runner.query
+            return runner
+        })
+        const loser = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })
+        expect(hidden).toBe(true)
+        expect(loser.installationId).toBe(winner.installationId)
+        expect(loser.version).toBe(winner.version)
+        jest.restoreAllMocks()
+        await db.destroy()
+    })
+
     it('refreshes a changed epoch from the shared database for another process view', async () => {
         const db = await database()
         const before = await initializeAuthenticationState(db, { CUTTLELY_LOCAL_USERS: 'true' })

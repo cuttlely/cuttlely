@@ -101,18 +101,32 @@ const localAuthRateLimit = rateLimit({
     message: { message: TOO_MANY }
 })
 
+/** Refreshes the process view of the sign-in method so a switch applied by another process is seen within the cache window. */
+export async function currentAuthenticationView(): Promise<void> {
+    try {
+        const { refreshAuthenticationView } = await import('./production')
+        await refreshAuthenticationView()
+    } catch (error: unknown) {
+        logger.error(`authentication state refresh failed: ${error instanceof Error ? error.name : 'error'}`)
+    }
+}
+
 function localAuthPreconditions(missingHeader: string) {
     return (req: Request, res: Response, next: NextFunction): void => {
-        if (!localUsersMode()) {
-            res.status(404).json({ message: 'Not Found' })
-            return
-        }
-        if (req.headers['x-request-from'] !== 'internal') {
-            res.status(401).json({ message: missingHeader })
-            return
-        }
-        next()
+        void currentAuthenticationView().then(() => checkLocalAuth(req, res, next, missingHeader))
     }
+}
+
+function checkLocalAuth(req: Request, res: Response, next: NextFunction, missingHeader: string): void {
+    if (!localUsersMode()) {
+        res.status(404).json({ message: 'Not Found' })
+        return
+    }
+    if (req.headers['x-request-from'] !== 'internal') {
+        res.status(401).json({ message: missingHeader })
+        return
+    }
+    next()
 }
 
 function ownerLoginPreconditions(req: Request, res: Response, next: NextFunction): void {
@@ -128,7 +142,9 @@ function ownerLoginPreconditions(req: Request, res: Response, next: NextFunction
 }
 
 identityAuthRouter.get('/signin-options', (_req, res) => {
-    res.json(signInOptionsBody())
+    void currentAuthenticationView().then(() => {
+        if (!res.headersSent) res.json(signInOptionsBody())
+    })
 })
 identityAuthRouter.get('/options', (req, res) => {
     void (async () => {

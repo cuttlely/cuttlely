@@ -217,6 +217,16 @@ export async function initializeAuthenticationState(
     dataSource: DataSource,
     env: NodeJS.ProcessEnv = process.env
 ): Promise<AuthenticationState> {
+    try {
+        return await initializeAuthenticationStateOnce(dataSource, env)
+    } catch (error) {
+        // Another process may have created the singleton row first. Read and adopt the winner's row.
+        if (!(await readAuthenticationState(dataSource))) throw error
+        return await initializeAuthenticationStateOnce(dataSource, env)
+    }
+}
+
+async function initializeAuthenticationStateOnce(dataSource: DataSource, env: NodeJS.ProcessEnv): Promise<AuthenticationState> {
     const runner = dataSource.createQueryRunner()
     await runner.connect()
     await runner.startTransaction()
