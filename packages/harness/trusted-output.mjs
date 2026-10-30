@@ -6,6 +6,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown'
 import { HarnessError } from './errors.mjs'
 import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-output.mjs'
 import { protectedInterpretationEvidence } from './protected-interpretation.mjs'
+import { normalizeReportingCurrencySymbol, reportingCurrencySymbol } from './reporting-currency.mjs'
 import { matchesTurnType, TURN_IMAGE_LIMITS, TURN_FILE_LIMITS } from './images.mjs'
 
 const own = (value, key) => value != null && Object.hasOwn(value, key)
@@ -40,6 +41,8 @@ export function trustedOutputContracts(value) {
             fail('A trusted output needs a unique pin, its tested hash and a supported mode.')
         pins.add(entry.pin)
         const contract = { pin: entry.pin, hash: entry.hash, mode: entry.mode }
+        const reportingSymbol = normalizeReportingCurrencySymbol(entry.reportingCurrencySymbol)
+        if (reportingSymbol) contract.reportingCurrencySymbol = reportingSymbol
         if (entry.mode === 'markdown') {
             if (
                 entry.emptyText != null &&
@@ -600,7 +603,14 @@ export function trustedOutputReceipt(specialist, pin, raw, callId) {
         callId,
         outputMode: contract.mode,
         ...(specialist.trustedInterpretation === true
-            ? { interpretationEvidence: protectedInterpretationEvidence(body, specialist.trustedInterpretationPaths) }
+            ? {
+                  interpretationEvidence: protectedInterpretationEvidence(
+                      body,
+                      specialist.trustedInterpretationPaths,
+                      {},
+                      contract.reportingCurrencySymbol || reportingCurrencySymbol(specialist.trustedOutputs)
+                  )
+              }
             : {}),
         message:
             specialist.trustedInterpretation === true

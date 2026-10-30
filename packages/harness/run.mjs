@@ -28,8 +28,10 @@ import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { matchPinFirst, renderPinResult, renderPinError } from './pin-first.mjs'
 import { renderTrustedOutputs, composeTrustedOutputs, verifiedUnmappedOutput } from './trusted-output.mjs'
-import { composeProtectedInterpretation, protectedLiteralIssues } from './protected-interpretation.mjs'
+import { composeProtectedInterpretation, protectedLiteralIssues, protectedReportingCaption } from './protected-interpretation.mjs'
 import { sourceAnswerFallback } from './source-answer-fallback.mjs'
+import { reportingCurrencySymbol } from './reporting-currency.mjs'
+import { VERIFIED_QUERY_POLICY, verifiedQueryCapture } from './verified-query-output.mjs'
 import { isPinnedToolName, pinnedOnlyTools, pinnedToolHint } from './pinned-names.mjs'
 import { assertHarnessCaller } from './caller.mjs'
 export { assertHarnessCaller } from './caller.mjs'
@@ -2112,7 +2114,24 @@ function replaceTrustedArtifacts(context, name, artifacts = []) {
     }
 }
 
-async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
+export function verifiedMonetaryQueryReadout(specialist, captured, text) {
+    const symbol = reportingCurrencySymbol(specialist.trustedOutputs)
+    return Boolean(
+        specialist.trustedInterpretation === true &&
+            specialist.trustedOutputPolicy === VERIFIED_QUERY_POLICY &&
+            symbol &&
+            captured.length &&
+            captured.every((item) => verifiedQueryCapture(item) && item.queryEvidence.rowCap <= 100 && item.result.rows.length <= 100) &&
+            protectedLiteralIssues(
+                text,
+                captured.map((item) => item.result),
+                [],
+                symbol
+            ).length === 0
+    )
+}
+
+async function protectStepOutput(context, specialist, { dataTask, text, factualText } = {}) {
     if (!specialist.trustedOutputs?.length) return null
     const captured = context.trustedCaptures?.get(specialist.name) || []
     const mapped = (name) => specialist.trustedOutputs.some((contract) => name === contract.pin || name?.endsWith(`__${contract.pin}`))
@@ -2133,14 +2152,28 @@ async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
             if (specialist.trustedInterpretation === true && captured.length) {
                 const issues = protectedLiteralIssues(
                     text,
-                    captured.map((item) => item.result)
+                    captured.map((item) => item.result),
+                    [],
+                    reportingCurrencySymbol(specialist.trustedOutputs)
                 )
                 if (issues.length) {
                     replaceTrustedArtifacts(context, specialist.name)
                     return {
-                        text: maskWorkspacePaths(sourceAnswerFallback(captured)),
+                        text: maskWorkspacePaths(sourceAnswerFallback(captured, reportingCurrencySymbol(specialist.trustedOutputs))),
                         artifacts: [],
                         interpretation: { included: false, reason: issues.join(',') }
+                    }
+                }
+                if (factualText) {
+                    const caption = protectedReportingCaption(
+                        captured.map((item) => item.result),
+                        [],
+                        reportingCurrencySymbol(specialist.trustedOutputs)
+                    )
+                    return {
+                        text: `${text}\n\n---\n\n${caption ? caption + '\n\n' : ''}${factualText}`,
+                        artifacts: [],
+                        interpretation: { included: true, reason: '' }
                     }
                 }
             }
@@ -2163,7 +2196,11 @@ async function protectStepOutput(context, specialist, { dataTask, text } = {}) {
             interpretation: maskWorkspacePaths(text),
             facts: rendered.text,
             sources: captured.map((item) => item.result),
-            paths: specialist.trustedInterpretationPaths
+            paths: specialist.trustedInterpretationPaths,
+            reportingCurrencySymbol:
+                reportingCurrencySymbol(
+                    specialist.trustedOutputs.filter((contract) => captured.some((item) => item.toolName === contract.pin))
+                ) || reportingCurrencySymbol(specialist.trustedOutputs)
         })
         if (Buffer.byteLength(composed.text) > 200000)
             throw new HarnessError('trusted_output', 'Interpreted output exceeds the composed output limit.')
@@ -2220,6 +2257,7 @@ async function runStep(context, step) {
                 : null
         let out = preRun
         let protectedOutput
+        let nativeQueryFacts
         if (!out) {
             try {
                 out = await runSpecialistOnce(context, specialist, task)
@@ -2265,22 +2303,27 @@ async function runStep(context, step) {
             })
             out = { text: detail, sources: [], ungrounded: true }
         } else if (dataTask) {
+            const captured = context.trustedCaptures?.get(specialist.name) || []
+            const preserveReadout = verifiedMonetaryQueryReadout(specialist, captured, out.text)
+            const groundedText = groundAnalystSpecialistText(out.text, context.toolLog, specialist.name)
+            if (preserveReadout && groundedText !== out.text) nativeQueryFacts = groundedText
             out = {
                 ...out,
                 // Pin-first text is the harness's own rendering of the logged result (escaped cells, author columns), so
                 // it is not rewritten from the raw payload; the payloads still ride along for the answer checks.
                 text:
                     preRun ||
+                    preserveReadout ||
                     (specialist.trustedInterpretation === true &&
                         (context.trustedCaptures?.get(specialist.name) || []).some((item) =>
                             specialist.trustedOutputs?.some((contract) => item.toolName === contract.pin)
                         ))
                         ? out.text
-                        : groundAnalystSpecialistText(out.text, context.toolLog, specialist.name),
+                        : groundedText,
                 analystPayloads: analystPayloadsFor(context.toolLog, specialist.name)
             }
         }
-        protectedOutput ||= await protectStepOutput(context, specialist, { dataTask, text: out.text })
+        protectedOutput ||= await protectStepOutput(context, specialist, { dataTask, text: out.text, factualText: nativeQueryFacts })
         if (protectedOutput?.passthrough) out = { ...out, trustedPassthrough: true }
         else if (protectedOutput)
             out = {

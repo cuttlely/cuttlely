@@ -70,6 +70,16 @@ If the interpretation is empty or cannot be verified, factual delivery continues
 
 Interpretation takes precedence over **Pin first**'s model-free shortcut. The specialist model runs the canonical source once and explains its returned evidence; no deterministic pre-run duplicates that query. With interpretation off, the shortcut and strict factual delivery are unchanged. The new policy and interpretation controls are saved-author settings and cannot be enabled through request overrides.
 
+## Monetary reporting convention
+
+When interpretation is enabled, an author can add `"reportingCurrencySymbol": "$"` to an existing trusted-output contract. This sets a business reporting display convention for monetary measures such as ACV, ARR, revenue and churn amounts when their source does not return a denomination. It does not change the query, infer an ISO currency code or perform an exchange-rate conversion. Explicit source denominations take precedence; a dollar convention cannot override a source amount recorded in euros. A nonempty unrecognized denomination or conflicting unbound source metadata also prevents an inferred default.
+
+The setting accepts one supported currency symbol, not a currency code or instruction text. For mapped evidence, the matching contracts establish the convention. An unmapped verified query can use the specialist's default only when its explicitly configured contract symbols agree; an omitted symbol makes no currency claim, and conflicting declarations supply no default. Without this optional setting, existing currency checks and other harnesses keep their behavior. Source notes, comments and model text cannot enable a convention.
+
+A monetary readout can use the exact comma-grouped amount or compact `K`, `M` and `B` notation. A compact value must match one actual typed monetary source value, rounded half away from zero to the displayed precision, with at most three fractional digits. For example, `1250000.00` ACV can be shown as `$1.25M`. A nonzero amount cannot be displayed as compact zero. Counts, percentages, scores and dates cannot supply monetary values, and summing unrelated rows does not authorize a new figure.
+
+The server adds a concise monetary reporting caption where appropriate while keeping the original factual text, table cells and raw numerical values unchanged. Conflicting source denominations retain their source presentation. If a generated answer fails the checks, the bounded source-field fallback uses the same convention and preserves the returned values.
+
 ## Source Markdown
 
 `markdown` selects strings at static configured paths, in configured order. A dot separates object keys and array indexes. `*` selects each member of an array in source order, for example `rows.*.section_markdown`. A JSON column returned as text is decoded as data while following its path. Paths cannot select prototype properties or execute expressions.
