@@ -4,21 +4,7 @@ import path from 'path'
 import { settingFor } from './registry'
 import { resetRuntimeLimitsForTests } from './runtime'
 import { writeSettingsFile } from './store'
-
-// The components package is replaced by the one call this module makes, so the test reads what HTTP building blocks would read.
-let installed: (() => boolean) | undefined
-jest.mock(
-    '@cuttlely/components',
-    () => ({
-        HTTP_ALLOW_LOCALHOST: 'HTTP_ALLOW_LOCALHOST',
-        setHttpAllowLocalhostReader: (reader: (() => boolean) | undefined) => {
-            installed = reader
-        }
-    }),
-    { virtual: true }
-)
-
-import { installHttpLocalhostReader } from './httpLocalhost'
+import { httpAllowLocalhostFromSettings } from './httpLocalhostFlag'
 
 const KEY = 'test-key-not-a-real-secret-0123456789abcdef'
 const ENV_KEYS = ['CUTTLELY_DATA_DIR', 'HTTP_ALLOW_LOCALHOST', 'CUTTLELY_SETTINGS_HOST_KEYS', 'CUTTLELY_IGNORE_ADMIN_SETTINGS'] as const
@@ -34,7 +20,6 @@ beforeEach(() => {
         delete process.env[key]
     }
     resetRuntimeLimitsForTests()
-    installed = undefined
     jest.spyOn(console, 'warn').mockImplementation(() => undefined)
 })
 
@@ -67,9 +52,7 @@ describe('HTTP_ALLOW_LOCALHOST setting', () => {
     it('gives HTTP building blocks the saved value on each request, without a restart', () => {
         const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-localhost-'))
         process.env.CUTTLELY_DATA_DIR = data
-        installHttpLocalhostReader()
-        expect(installed).toBeDefined()
-        const read = installed as () => boolean
+        const read = httpAllowLocalhostFromSettings
         expect(read()).toBe(false)
         save(data, { HTTP_ALLOW_LOCALHOST: 'true' })
         expect(read()).toBe(true)
@@ -80,8 +63,7 @@ describe('HTTP_ALLOW_LOCALHOST setting', () => {
     it('lets a host value of exactly true or false win over the saved value', () => {
         const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-localhost-'))
         process.env.CUTTLELY_DATA_DIR = data
-        installHttpLocalhostReader()
-        const read = installed as () => boolean
+        const read = httpAllowLocalhostFromSettings
         save(data, { HTTP_ALLOW_LOCALHOST: 'true' })
         process.env.HTTP_ALLOW_LOCALHOST = 'false'
         expect(read()).toBe(false)
