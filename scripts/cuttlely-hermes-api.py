@@ -109,11 +109,16 @@ MAX_CONCURRENT_RUNS_MARKER = ".cuttlely-max-concurrent-runs"
 
 
 def parse_max_concurrent_runs(raw):
-    """A whole number from 0 to 50, or None (unset or unusable)."""
-    text = (raw or "").strip()
-    if not text.isdigit():
+    """A whole number from 0 to 50, or None (unset or unusable). Reads every spelling Admin accepts when it
+    saves the setting, such as 5.0 or -0, so a saved value is never dropped here."""
+    import re
+
+    match = re.fullmatch(r"(-?)(\d+)(?:\.(\d+))?", (raw or "").strip())
+    if not match or (match.group(3) or "").strip("0"):
         return None
-    value = int(text)
+    value = int(match.group(2))
+    if match.group(1) and value != 0:
+        return None
     return value if value <= MAX_CONCURRENT_RUNS_LIMIT else None
 
 

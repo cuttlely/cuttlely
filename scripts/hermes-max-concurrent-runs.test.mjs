@@ -29,7 +29,7 @@ from pathlib import Path
 config = Path(sys.argv[2])
 raw = sys.argv[3] if len(sys.argv) > 3 else None
 result = scope["apply_max_concurrent_runs"](config, raw, json.loads, lambda data: json.dumps(data, indent=2))
-print(json.dumps({"result": result, "parse": [scope["parse_max_concurrent_runs"](v) for v in ["0", "10", "50", "51", "100", "-1", "1.5", " 7 ", "", None, "ten"]]}))
+print(json.dumps({"result": result, "parse": [scope["parse_max_concurrent_runs"](v) for v in ["0", "10", "50", "51", "100", "-1", "1.5", " 7 ", "", None, "ten", "5.0", "-0", "50.00", "51.0", "-1.0"]]}))
 `
 
 function python() {
@@ -54,10 +54,10 @@ function home(initial) {
 
 const BASE = { gateway: { multiplex_profiles: true }, agent: { disabled_toolsets: ['terminal'] } }
 
-test('the value accepted is a whole number from 0 to 50; 51 is refused', () => {
+test('the value accepted is a whole number from 0 to 50, in any spelling Admin saves; 51 is refused', () => {
     const h = home(BASE)
     try {
-        assert.deepEqual(run(h.config).parse, [0, 10, 50, null, null, null, null, 7, null, null, null])
+        assert.deepEqual(run(h.config).parse, [0, 10, 50, null, null, null, null, 7, null, null, null, 5, 0, 50, null, null])
     } finally {
         fs.rmSync(h.dir, { recursive: true, force: true })
     }
